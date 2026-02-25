@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Family Laundry</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
   <style>
     :root {
       --navy:     #0f2744;
@@ -643,7 +643,13 @@
 /* ── SUPABASE ── */
 const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
-const db = supabase.createClient(SUPA_URL, SUPA_KEY);
+let db;
+try {
+  db = supabase.createClient(SUPA_URL, SUPA_KEY);
+} catch (initErr) {
+  document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;color:#cc0000">App failed to start. Please reload the page.<br><small>' + initErr.message + '</small></div>';
+  throw initErr;
+}
 
 /* ── STATE ── */
 let currentUser     = null;
@@ -1282,6 +1288,27 @@ async function savePreferences() {
   currentCustomer.preferences = prefs;
   toast('Preferences saved ✓');
 }
+
+/* ── EXPOSE EVENT HANDLERS TO GLOBAL SCOPE ── */
+// Belt-and-suspenders: explicitly attach all functions called from HTML attributes
+window.switchTab         = switchTab;
+window.handleLogin       = handleLogin;
+window.handleSignup      = handleSignup;
+window.handleSignOut     = handleSignOut;
+window.goTo              = goTo;
+window.startNewOrder     = startNewOrder;
+window.selectService     = selectService;
+window.changeBags        = changeBags;
+window.selectRecur       = selectRecur;
+window.goOrderStep       = goOrderStep;
+window.handleOrderBack   = handleOrderBack;
+window.selectSlot        = selectSlot;
+window.placeOrder        = placeOrder;
+window.openDetail        = openDetail;
+window.startOrderPayment = startOrderPayment;
+window.startSubscription = startSubscription;
+window.selectPlan        = selectPlan;
+window.savePreferences   = savePreferences;
 </script>
 </body>
 </html>
