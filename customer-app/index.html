@@ -297,6 +297,12 @@
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     textarea.field-input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 14px; font-family: inherit; resize: none; outline: none; min-height: 72px; transition: border-color .2s; }
     textarea.field-input:focus { border-color: var(--navy); }
+    /* ── STRIPE PAYMENT ── */
+    .pay-now-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 16px; padding: 14px; background: var(--navy); color: white; border: none; border-radius: var(--radius); font-size: 15px; font-weight: 700; cursor: pointer; letter-spacing: -.01em; transition: background .15s; }
+    .pay-now-btn:hover { background: #1a3a7a; }
+    .pay-now-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .payment-paid { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 16px; padding: 12px; background: #d1fae5; border-radius: var(--radius); color: #065f46; font-size: 13.5px; font-weight: 600; }
+    .payment-success-banner { background: #d1fae5; border: 1.5px solid #6ee7b7; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: #065f46; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -470,7 +476,7 @@
     </div>
     <div class="detail-body main-content" style="padding-bottom:20px">
       <div class="d-section"><div class="d-section-title">Status</div><div id="d-badge"></div><div id="d-track" style="margin-top:14px"></div></div>
-      <div class="d-section"><div class="d-section-title">Order Details</div><div id="d-rows"></div></div>
+      <div class="d-section"><div class="d-section-title">Order Details</div><div id="d-rows"></div><div id="d-pay-section"></div></div>
     </div>
   </div>
 
@@ -644,6 +650,7 @@ let currentUser     = null;
 let currentProfile  = null;
 let currentCustomer = null;
 let allServices     = [];
+let dbPlans         = [];
 
 let draft = { serviceId: null, bags: 1, recurring: '', pickupSlot: null, deliverySlot: null, notes: '' };
 let orderStep = 0;
@@ -746,7 +753,31 @@ db.auth.onAuthStateChange(async (event, session) => {
     try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }
     appReady = true;
     document.getElementById('bottom-nav').style.display = 'flex';
-    goTo('home');
+
+    // Check if returning from Stripe payment
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('payment') === 'success') {
+      const returnedOrder = urlParams.get('order');
+      const returnedPlan  = urlParams.get('plan');
+      history.replaceState({}, '', window.location.pathname); // clean URL
+      if (returnedOrder) {
+        goTo('orders');
+        setTimeout(() => {
+          const banner = document.createElement('div');
+          banner.className = 'payment-success-banner';
+          banner.innerHTML = '✓ Payment received — your order is confirmed and being processed.';
+          document.getElementById('screen-orders')?.prepend(banner);
+        }, 300);
+      } else if (returnedPlan) {
+        goTo('account');
+        setTimeout(() => toast('Subscription activated! 🎉'), 400);
+      } else {
+        goTo('home');
+        setTimeout(() => toast('Payment successful! ✓'), 400);
+      }
+    } else {
+      goTo('home');
+    }
     loadServices();
   } else {
     appReady = false;
@@ -1059,6 +1090,73 @@ async function openDetail(orderId) {
     <div class="d-row"><span class="d-key">Delivery Date</span><span class="d-val">${fmtDate(o.delivery_date)}</span></div>
     ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${o.special_instructions}</span></div>` : ''}
     <div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${o.total_amount ? $m(o.total_amount) : 'Confirmed at pickup'}</span></div>`;
+
+  // Payment button / status
+  const payEl = document.getElementById('d-pay-section');
+  if (o.stripe_payment_intent_id) {
+    payEl.innerHTML = `<div class="payment-paid">✓ Payment received</div>`;
+  } else if (o.total_amount && !['cancelled','delivered'].includes(o.status)) {
+    payEl.innerHTML = `<button class="pay-now-btn" onclick="startOrderPayment('${o.id}')">💳 Pay Now — ${$m(o.total_amount)}</button>`;
+  } else {
+    payEl.innerHTML = '';
+  }
+}
+
+/* ── STRIPE PAYMENT ── */
+async function startOrderPayment(orderId) {
+  const btn = document.querySelector('.pay-now-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        type: 'order',
+        orderId,
+        userId: currentUser.id,
+        successUrl: window.location.origin + window.location.pathname,
+        cancelUrl:  window.location.origin + window.location.pathname,
+      }),
+    });
+    const { url, error } = await res.json();
+    if (error) throw new Error(error);
+    window.location.href = url;
+  } catch (e) {
+    toast('Payment error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '💳 Pay Now'; }
+  }
+}
+
+async function startSubscription(planId) {
+  const btn = document.querySelector(`[data-plan-id="${planId}"] .plan-select-btn`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        type: 'subscription',
+        planId,
+        userId: currentUser.id,
+        successUrl: window.location.origin + window.location.pathname,
+        cancelUrl:  window.location.origin + window.location.pathname,
+      }),
+    });
+    const { url, error } = await res.json();
+    if (error) throw new Error(error);
+    window.location.href = url;
+  } catch (e) {
+    toast('Subscription error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Choose Plan'; }
+  }
 }
 
 /* ── ACCOUNT ── */
@@ -1080,7 +1178,7 @@ const PLANS = [
   }
 ];
 
-function loadAccount() {
+async function loadAccount() {
   if (!currentProfile) return;
   const first = currentProfile.first_name || '';
   const last  = currentProfile.last_name  || '';
@@ -1088,13 +1186,19 @@ function loadAccount() {
   document.getElementById('acct-name').textContent   = `${first} ${last}`.trim() || 'You';
   document.getElementById('acct-email').textContent  = currentProfile.email || currentUser?.email || '';
 
-  // Plan badge in hero
-  const plan = currentCustomer?.subscription_plan || 'paygo';
-  const planInfo = PLANS.find(p => p.key === plan);
+  // Load plans from DB
+  const { data: plans } = await db.from('subscription_plans')
+    .select('*').eq('is_active', true).order('price_monthly');
+  if (plans?.length) dbPlans = plans;
+
+  // Active plan
+  const activePlanId = currentCustomer?.subscription_plan_id;
+  const activePlan = dbPlans.find(p => p.id === activePlanId);
+  const dotColor = activePlan?.price_monthly > 39 ? '#f59e0b' : activePlan?.price_monthly > 0 ? '#2a6fc9' : '#94a3b8';
   document.getElementById('acct-plan-badge').innerHTML = `
     <div class="plan-badge" style="margin-top:12px">
-      <div class="plan-dot" style="background:${planInfo?.dotColor || '#94a3b8'}"></div>
-      ${planInfo?.name || 'Pay As You Go'} Plan
+      <div class="plan-dot" style="background:${dotColor}"></div>
+      ${activePlan?.name || 'Pay As You Go'} Plan
     </div>`;
 
   // Preferences
@@ -1107,42 +1211,60 @@ function loadAccount() {
   document.getElementById('pref-no-bleach').checked = prefs.no_bleach === true;
 
   // Plan cards
-  renderPlanCards(plan);
+  renderPlanCards(activePlanId);
 }
 
-function renderPlanCards(currentPlan) {
-  document.getElementById('plan-cards').innerHTML = PLANS.map(p => `
-    <div class="plan-card ${p.key === currentPlan ? 'current' : ''} ${p.popular ? 'popular' : ''}">
-      ${p.popular ? '<div class="popular-tag">Most Popular</div>' : ''}
-      <div class="plan-name">${p.name}</div>
-      <div class="plan-price">${p.price}${p.period ? `<span>${p.period}</span>` : ''}</div>
-      <ul class="plan-perks">${p.perks.map(perk => `<li>${perk}</li>`).join('')}</ul>
-      <button class="plan-select-btn" onclick="selectPlan('${p.key}')">
-        ${p.key === currentPlan ? '✓ Current Plan' : 'Choose ' + p.name}
+function renderPlanCards(activePlanId) {
+  // Use DB plans if loaded, otherwise fall back to hardcoded
+  const source = dbPlans.length ? dbPlans : PLANS.map(p => ({
+    id: p.key, name: p.name,
+    price_monthly: p.key === 'paygo' ? 0 : p.key === 'standard' ? 39 : 69,
+    features: p.perks, description: ''
+  }));
+
+  document.getElementById('plan-cards').innerHTML = source.map(p => {
+    const isCurrent = p.id === activePlanId;
+    const isFree    = Number(p.price_monthly) === 0;
+    const isPopular = Number(p.price_monthly) === 39;
+    const dotColor  = Number(p.price_monthly) > 39 ? '#f59e0b' : Number(p.price_monthly) > 0 ? '#2a6fc9' : '#94a3b8';
+    const priceDisplay = isFree
+      ? '<div class="plan-price">Free<span> · pay per order</span></div>'
+      : `<div class="plan-price">$${Number(p.price_monthly).toFixed(0)}<span>/month</span></div>`;
+    const perks = Array.isArray(p.features)
+      ? p.features.map(f => `<li>${f}</li>`).join('')
+      : '';
+
+    return `
+    <div class="plan-card ${isCurrent ? 'current' : ''} ${isPopular ? 'popular' : ''}" data-plan-id="${p.id}">
+      ${isPopular ? '<div class="popular-tag">Most Popular</div>' : ''}
+      <div class="plan-name" style="color:${dotColor}">${p.name}</div>
+      ${priceDisplay}
+      <ul class="plan-perks">${perks}</ul>
+      <button class="plan-select-btn" onclick="selectPlan('${p.id}', ${isFree})" ${isCurrent ? 'disabled' : ''}>
+        ${isCurrent ? '✓ Current Plan' : isFree ? 'Switch to Pay As You Go' : 'Subscribe — $' + Number(p.price_monthly).toFixed(0) + '/mo'}
       </button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
-async function selectPlan(planKey) {
+async function selectPlan(planId, isFree) {
   if (!currentCustomer) return;
-  if (planKey === (currentCustomer.subscription_plan || 'paygo')) {
-    toast('You're already on this plan');
+  if (planId === currentCustomer.subscription_plan_id) {
+    toast('You\'re already on this plan'); return;
+  }
+  // Free / pay-as-you-go: just update the DB, no Stripe needed
+  if (isFree) {
+    const { error } = await db.from('customers')
+      .update({ subscription_plan_id: null, subscription_plan: 'paygo' })
+      .eq('id', currentCustomer.id);
+    if (error) { toast('Error updating plan'); return; }
+    currentCustomer.subscription_plan_id = null;
+    renderPlanCards(null);
+    toast('Switched to Pay As You Go');
     return;
   }
-  const plan = PLANS.find(p => p.key === planKey);
-  if (planKey !== 'paygo') {
-    toast(`${plan.name} selected — payment will be set up when billing is enabled`);
-  }
-  const { error } = await db.from('customers').update({ subscription_plan: planKey }).eq('id', currentCustomer.id);
-  if (error) { toast('Error updating plan'); return; }
-  currentCustomer.subscription_plan = planKey;
-  renderPlanCards(planKey);
-  document.getElementById('acct-plan-badge').innerHTML = `
-    <div class="plan-badge" style="margin-top:12px">
-      <div class="plan-dot" style="background:${plan.dotColor}"></div>
-      ${plan.name} Plan
-    </div>`;
-  toast('Plan updated!');
+  // Paid plan: redirect to Stripe Checkout
+  await startSubscription(planId);
 }
 
 async function savePreferences() {
