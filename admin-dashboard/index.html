@@ -555,6 +555,10 @@
                   <button class="filter-tab" onclick="filterOrders('ready_for_delivery',this)">Ready for Delivery</button>
                   <button class="filter-tab" onclick="filterOrders('out_for_delivery',this)">Out for Delivery</button>
                   <button class="filter-tab" onclick="filterOrders('delivered',this)">Delivered</button>
+                  <button class="filter-tab" onclick="filterOrders('pickup_missed',this)">Pickup Missed</button>
+                  <button class="filter-tab" onclick="filterOrders('delivery_missed',this)">Delivery Missed</button>
+                  <button class="filter-tab" onclick="filterOrders('on_hold',this)">On Hold</button>
+                  <button class="filter-tab" onclick="filterOrders('cancelled',this)">Cancelled</button>
                 </div>
                 <button class="btn btn-primary" style="padding:6px 12px" onclick="openModal('add-order')">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -1250,7 +1254,7 @@
 
   async function loadRecentOrders() {
     const { data } = await db.from('orders')
-      .select(`id, order_number, status, total_amount, created_at, customers(profiles(first_name, last_name))`)
+      .select(`id, order_number, status, total_amount, created_at, customers(first_name_cache, last_name_cache, profiles(first_name, last_name))`)
       .order('created_at', { ascending: false })
       .limit(8);
 
@@ -1260,12 +1264,17 @@
       return;
     }
     el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Total</th></tr></thead><tbody>
-      ${data.map(o=>`<tr>
-        <td class="td-mono">#${o.order_number}</td>
-        <td class="td-name">${o.customers?.profiles?.first_name||''} ${o.customers?.profiles?.last_name||''}</td>
-        <td>${statusBadge(o.status)}</td>
-        <td>${fmtMoney(o.total_amount)}</td>
-      </tr>`).join('')}
+      ${data.map(o=>{
+        const cust = o.customers;
+        const fn = cust?.profiles?.first_name || cust?.first_name_cache || '';
+        const ln = cust?.profiles?.last_name  || cust?.last_name_cache  || '';
+        return `<tr>
+          <td class="td-mono">#${o.order_number}</td>
+          <td class="td-name">${(fn+' '+ln).trim() || 'Unknown'}</td>
+          <td>${statusBadge(o.status)}</td>
+          <td>${fmtMoney(o.total_amount)}</td>
+        </tr>`;
+      }).join('')}
     </tbody></table>`;
   }
 
@@ -1527,7 +1536,11 @@
       if (error) throw new Error(error.message);
       showToast(`Order #${orderNum} → ${label}`);
       // Re-render after short delay so badge + button update cleanly
-      setTimeout(() => loadOrders(), 600);
+      setTimeout(() => {
+        loadOrders();
+        // If the customer panel is open, refresh its orders list too
+        if (panelCustomerId) loadPanelOrders(panelCustomerId);
+      }, 600);
     } catch (e) {
       btn.disabled = false;
       btn.textContent = origText;
