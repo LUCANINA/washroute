@@ -540,8 +540,12 @@
               <div style="display:flex;gap:8px;align-items:center;">
                 <div class="filter-tabs">
                   <button class="filter-tab active" onclick="filterOrders(null,this)">All</button>
-                  <button class="filter-tab" onclick="filterOrders('pending_pickup',this)">Pending Pickup</button>
+                  <button class="filter-tab" onclick="filterOrders('scheduled',this)">Scheduled</button>
+                  <button class="filter-tab" onclick="filterOrders('ready_for_pickup',this)">Ready for Pickup</button>
+                  <button class="filter-tab" onclick="filterOrders('picked_up',this)">Picked Up</button>
                   <button class="filter-tab" onclick="filterOrders('processing',this)">Processing</button>
+                  <button class="filter-tab" onclick="filterOrders('assembled',this)">Assembled</button>
+                  <button class="filter-tab" onclick="filterOrders('ready_for_delivery',this)">Ready for Delivery</button>
                   <button class="filter-tab" onclick="filterOrders('out_for_delivery',this)">Out for Delivery</button>
                   <button class="filter-tab" onclick="filterOrders('delivered',this)">Delivered</button>
                 </div>
@@ -1081,19 +1085,28 @@
 
   const statusBadge = (s) => {
     const map = {
-      pending_pickup:   ['badge-gray',   'Pending Pickup'],
-      picked_up:        ['badge-blue',   'Picked Up'],
-      processing:       ['badge-amber',  'Processing'],
-      ready:            ['badge-purple', 'Ready'],
-      out_for_delivery: ['badge-blue',   'Out for Delivery'],
-      delivered:        ['badge-green',  'Delivered'],
-      cancelled:        ['badge-red',    'Cancelled'],
-      active:           ['badge-green',  'Active'],
-      at_risk:          ['badge-amber',  'At Risk'],
-      churned:          ['badge-gray',   'Churned'],
-      scheduled:        ['badge-gray',   'Scheduled'],
-      in_progress:      ['badge-blue',   'In Progress'],
-      complete:         ['badge-green',  'Complete'],
+      // Order statuses
+      scheduled:          ['badge-gray',   'Scheduled'],
+      ready_for_pickup:   ['badge-amber',  'Ready for Pickup'],
+      picked_up:          ['badge-blue',   'Picked Up'],
+      processing:         ['badge-blue',   'Processing'],
+      assembled:          ['badge-purple', 'Assembled'],
+      ready_for_delivery: ['badge-green',  'Ready for Delivery'],
+      out_for_delivery:   ['badge-blue',   'Out for Delivery'],
+      delivered:          ['badge-green',  'Delivered'],
+      pickup_missed:      ['badge-red',    'Pickup Missed'],
+      delivery_missed:    ['badge-red',    'Delivery Missed'],
+      on_hold:            ['badge-amber',  'On Hold'],
+      cancelled:          ['badge-red',    'Cancelled'],
+      // Legacy (backward compat for old orders)
+      pending_pickup:     ['badge-amber',  'Pending Pickup'],
+      ready:              ['badge-green',  'Ready'],
+      // Customer/route statuses
+      active:             ['badge-green',  'Active'],
+      at_risk:            ['badge-amber',  'At Risk'],
+      churned:            ['badge-gray',   'Churned'],
+      in_progress:        ['badge-blue',   'In Progress'],
+      complete:           ['badge-green',  'Complete'],
     };
     const [cls, label] = map[s] || ['badge-gray', s];
     return `<span class="badge ${cls}">${label}</span>`;
@@ -1191,7 +1204,7 @@
     document.getElementById('stat-customers-sub').textContent = 'Total registered';
 
     document.getElementById('stat-orders').textContent = activeOrders?.length ?? 0;
-    document.getElementById('stat-orders-sub').textContent = `${(activeOrders||[]).filter(o=>o.status==='pending_pickup').length} pending pickup`;
+    document.getElementById('stat-orders-sub').textContent = `${(activeOrders||[]).filter(o=>o.status==='ready_for_pickup').length} ready for pickup`;
 
     document.getElementById('stat-routes').textContent = todayRoutes?.length ?? 0;
     const inProg = (todayRoutes||[]).filter(r=>r.status==='in_progress').length;
@@ -1380,7 +1393,7 @@
     // stats
     const todayStr = today();
     const active = allOrders.filter(o=>!['delivered','cancelled'].includes(o.status)).length;
-    const pending = allOrders.filter(o=>o.status==='pending_pickup').length;
+    const pending = allOrders.filter(o=>['scheduled','ready_for_pickup'].includes(o.status)).length;
     const outDel  = allOrders.filter(o=>o.status==='out_for_delivery').length;
     const doneTdy = allOrders.filter(o=>o.status==='delivered' && (o.created_at||'').startsWith(todayStr)).length;
     document.getElementById('ostat-active').textContent  = active;
@@ -1888,7 +1901,7 @@
     const { error } = await db.from('orders').insert({
       customer_id: customerId,
       service_id: serviceId,
-      status: 'pending_pickup',
+      status: 'scheduled',
       weight_lbs: weightRaw,
       pickup_window_start: pickupStart||null,
       pickup_window_end: pickupEnd||null,
@@ -2447,8 +2460,8 @@
   function renderStatusChart(orders) {
     const ctx = document.getElementById('rpt-chart-status').getContext('2d');
     if (rptStatusChart) { rptStatusChart.destroy(); rptStatusChart = null; }
-    const labels = { pending_pickup:'Pending Pickup', picked_up:'Picked Up', processing:'Processing', ready:'Ready', out_for_delivery:'Out for Delivery', delivered:'Delivered', cancelled:'Cancelled' };
-    const colors = { pending_pickup:'#9ca3af', picked_up:'#3b82f6', processing:'#f59e0b', ready:'#8b5cf6', out_for_delivery:'#2563eb', delivered:'#10b981', cancelled:'#ef4444' };
+    const labels = { scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up', processing:'Processing', assembled:'Assembled', ready_for_delivery:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', pickup_missed:'Pickup Missed', delivery_missed:'Delivery Missed', on_hold:'On Hold', cancelled:'Cancelled' };
+    const colors = { scheduled:'#94a3b8', ready_for_pickup:'#f59e0b', picked_up:'#3b82f6', processing:'#0ea5e9', assembled:'#a855f7', ready_for_delivery:'#10b981', out_for_delivery:'#7c3aed', delivered:'#22c55e', pickup_missed:'#ef4444', delivery_missed:'#ef4444', on_hold:'#f59e0b', cancelled:'#dc2626' };
     const counts = {};
     orders.forEach(o => { counts[o.status] = (counts[o.status]||0)+1; });
     const keys = Object.keys(counts).sort();

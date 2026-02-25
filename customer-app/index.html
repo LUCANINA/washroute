@@ -92,20 +92,30 @@
     /* Status badges */
     .status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
     .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-    .s-pending_pickup   { background: #fef3c7; color: #92400e; }
-    .s-pending_pickup .status-dot   { background: #f59e0b; }
-    .s-picked_up        { background: #dbeafe; color: #1e40af; }
-    .s-picked_up .status-dot        { background: #3b82f6; }
-    .s-processing       { background: #e0f2fe; color: #0369a1; }
-    .s-processing .status-dot       { background: #0ea5e9; }
-    .s-ready            { background: #d1fae5; color: #065f46; }
-    .s-ready .status-dot            { background: #10b981; }
-    .s-out_for_delivery { background: #ede9fe; color: #4c1d95; }
-    .s-out_for_delivery .status-dot { background: #7c3aed; }
-    .s-delivered        { background: #d1fae5; color: #065f46; }
-    .s-delivered .status-dot        { background: #22c55e; }
-    .s-cancelled        { background: #fee2e2; color: #7f1d1d; }
-    .s-cancelled .status-dot        { background: #ef4444; }
+    .s-scheduled            { background: #f1f5f9; color: #475569; }
+    .s-scheduled .status-dot            { background: #94a3b8; }
+    .s-ready_for_pickup     { background: #fef3c7; color: #92400e; }
+    .s-ready_for_pickup .status-dot     { background: #f59e0b; }
+    .s-picked_up            { background: #dbeafe; color: #1e40af; }
+    .s-picked_up .status-dot            { background: #3b82f6; }
+    .s-processing           { background: #e0f2fe; color: #0369a1; }
+    .s-processing .status-dot           { background: #0ea5e9; }
+    .s-assembled            { background: #fdf4ff; color: #6b21a8; }
+    .s-assembled .status-dot            { background: #a855f7; }
+    .s-ready_for_delivery   { background: #d1fae5; color: #065f46; }
+    .s-ready_for_delivery .status-dot   { background: #10b981; }
+    .s-out_for_delivery     { background: #ede9fe; color: #4c1d95; }
+    .s-out_for_delivery .status-dot     { background: #7c3aed; }
+    .s-delivered            { background: #d1fae5; color: #065f46; }
+    .s-delivered .status-dot            { background: #22c55e; }
+    .s-pickup_missed        { background: #fef2f2; color: #991b1b; }
+    .s-pickup_missed .status-dot        { background: #ef4444; }
+    .s-delivery_missed      { background: #fef2f2; color: #991b1b; }
+    .s-delivery_missed .status-dot      { background: #ef4444; }
+    .s-on_hold              { background: #fffbeb; color: #92400e; }
+    .s-on_hold .status-dot              { background: #f59e0b; }
+    .s-cancelled            { background: #fee2e2; color: #7f1d1d; }
+    .s-cancelled .status-dot            { background: #ef4444; }
 
     /* Progress track */
     .progress-wrap { display: flex; align-items: center; margin: 14px 0 8px; }
@@ -908,9 +918,22 @@ async function loadServices() {
 }
 
 /* ── HOME ── */
-const STATUS_STEPS  = ['pending_pickup','picked_up','processing','ready','out_for_delivery'];
-const STATUS_LABELS = { pending_pickup:'Awaiting Pickup', picked_up:'Picked Up', processing:'Being Cleaned', ready:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', cancelled:'Cancelled' };
-const STEP_LABELS   = ['Pickup','Picked Up','Cleaning','Ready','Delivery'];
+const STATUS_STEPS  = ['scheduled','ready_for_pickup','picked_up','processing','assembled','ready_for_delivery','out_for_delivery'];
+const STATUS_LABELS = {
+  scheduled:          'Scheduled',
+  ready_for_pickup:   'Ready for Pickup',
+  picked_up:          'Picked Up',
+  processing:         'Processing',
+  assembled:          'Assembled',
+  ready_for_delivery: 'Ready for Delivery',
+  out_for_delivery:   'Out for Delivery',
+  delivered:          'Delivered',
+  pickup_missed:      'Pickup Missed',
+  delivery_missed:    'Delivery Missed',
+  on_hold:            'On Hold',
+  cancelled:          'Cancelled',
+};
+const STEP_LABELS = ['Scheduled','Ready','Picked Up','Processing','Assembled','Ready','Delivery'];
 
 function buildStatusBadge(status) {
   return `<div class="status-badge s-${status}"><div class="status-dot"></div>${STATUS_LABELS[status] || status}</div>`;
@@ -1121,7 +1144,7 @@ async function placeOrder() {
   const { data, error } = await db.from('orders').insert({
     customer_id:        currentCustomer.id,
     service_id:         draft.serviceId,
-    status:             'pending_pickup',
+    status:             'scheduled',
     total_bags:         bags,
     total_amount:       total,
     pickup_date:        pickupDate,

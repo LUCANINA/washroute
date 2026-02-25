@@ -578,7 +578,7 @@ async function loadDriverData() {
         pickup_addr:addresses!orders_pickup_address_id_fkey(*),
         delivery_addr:addresses!orders_delivery_address_id_fkey(*)
       `)
-      .in('status', ['pending_pickup', 'out_for_delivery'])
+      .in('status', ['scheduled', 'ready_for_pickup', 'out_for_delivery'])
       .order('created_at', { ascending: true });
     pendingOrders = orders || [];
   }
@@ -917,12 +917,21 @@ async function completeStop(stopId, stopType) {
 }
 
 async function skipStop(stopId) {
-  const really = confirm('Skip this stop? It will be marked as skipped.');
+  const really = confirm('Skip this stop? It will be marked as missed.');
   if (!really) return;
   await db.from('route_stops').update({ status: 'skipped' }).eq('id', stopId);
+  // Update order status to reflect the missed stop
   const idx = allStops.findIndex(s => s.id === stopId);
-  if (idx >= 0) allStops[idx].status = 'skipped';
-  toast('Stop skipped');
+  if (idx >= 0) {
+    allStops[idx].status = 'skipped';
+    const stop = allStops[idx];
+    if (stop?.orders?.id) {
+      const missedStatus = stop.stop_type === 'pickup' ? 'pickup_missed' : 'delivery_missed';
+      await db.from('orders').update({ status: missedStatus }).eq('id', stop.orders.id);
+      stop.orders.status = missedStatus;
+    }
+  }
+  toast('Stop marked as missed');
   goTo('route');
 }
 
