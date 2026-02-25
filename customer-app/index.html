@@ -297,6 +297,20 @@
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     textarea.field-input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 14px; font-family: inherit; resize: none; outline: none; min-height: 72px; transition: border-color .2s; }
     textarea.field-input:focus { border-color: var(--navy); }
+    /* ── FREQUENCY DROPDOWN ── */
+    .freq-select { width: 100%; padding: 14px 16px; border: 2px solid var(--gray-200); border-radius: 10px; font-size: 15px; font-weight: 500; background: white; color: var(--text); outline: none; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%230f2744' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 16px center; margin-bottom: 20px; transition: border-color .15s; }
+    .freq-select:focus { border-color: var(--navy); }
+
+    /* ── ORDER HELP LINE ── */
+    .order-help { margin-top: 18px; text-align: center; font-size: 13.5px; color: var(--gray-400); }
+    .order-help a { color: var(--navy); font-weight: 600; text-decoration: none; }
+    .order-help a:hover { text-decoration: underline; }
+
+    /* ── ORDERS TABS ── */
+    .orders-tab-bar { display: flex; padding: 14px 18px 0; gap: 0; border-bottom: 1.5px solid var(--gray-200); }
+    .otab { flex: 1; padding: 10px; background: none; border: none; border-bottom: 2.5px solid transparent; margin-bottom: -1.5px; font-size: 14px; font-weight: 600; color: var(--gray-400); cursor: pointer; transition: all .15s; }
+    .otab.active { color: var(--navy); border-bottom-color: var(--navy); }
+
     /* ── CALENDAR ── */
     .cal-wrap { margin-bottom: 24px; }
     .cal-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 12px; }
@@ -441,6 +455,15 @@
           <div class="cal-selected-label" id="cal-selected-label"></div>
         </div>
 
+        <!-- Frequency -->
+        <div class="slot-label" style="margin-bottom:8px">How often?</div>
+        <select class="freq-select" id="order-freq" onchange="selectFreq(this.value)">
+          <option value="">One-time pickup</option>
+          <option value="weekly">Every week</option>
+          <option value="biweekly">Every 2 weeks</option>
+          <option value="monthly">Every month</option>
+        </select>
+
         <button class="btn-primary" onclick="goOrderStep(2)">Review Order →</button>
       </div>
 
@@ -451,6 +474,7 @@
         <button class="btn-primary" id="btn-place" onclick="placeOrder()">Place Order</button>
         <div style="height:12px"></div>
         <button class="btn-secondary" onclick="goOrderStep(1)">← Edit Details</button>
+        <div class="order-help">Need help? Call us: <a href="tel:5108423560">(510) 842-3560</a></div>
       </div>
 
     </div>
@@ -462,6 +486,10 @@
       <img class="topbar-logo" src="../assets/logo.png" alt="Family Laundry" onerror="this.style.display='none'">
       <span class="topbar-title">My Orders</span>
       <div style="width:28px"></div>
+    </div>
+    <div class="orders-tab-bar">
+      <button class="otab active" id="otab-current" onclick="switchOrderTab('current')">Current</button>
+      <button class="otab"        id="otab-past"    onclick="switchOrderTab('past')">Past</button>
     </div>
     <div class="main-content">
       <div class="orders-list" id="orders-list">
@@ -658,9 +686,10 @@ let currentCustomer = null;
 let allServices     = [];
 let dbPlans         = [];
 
-let draft = { serviceId: null, bags: 1, pickupDate: null };
+let draft = { serviceId: null, bags: 1, pickupDate: null, recurring: '' };
 let orderStep = 0;
 let calMonth = new Date();
+let ordersTab = 'current';
 
 /* ── ROUTING ── */
 function showScreen(id) {
@@ -909,7 +938,7 @@ function buildActiveCard(o) {
 const SVC_ICONS = { 'Wash & Fold':'👕','Shirt Service':'👔','Hang Dry':'🧺','Delicates':'👗','Bedding':'🛏️','default':'🧺' };
 
 function startNewOrder() {
-  draft = { serviceId: null, bags: 1, pickupDate: null };
+  draft = { serviceId: null, bags: 1, pickupDate: null, recurring: '' };
   orderStep = 0;
   calMonth = new Date();
   showScreen('new-order');
@@ -943,6 +972,8 @@ function changeBags(delta) {
   document.getElementById('bags-display').textContent = draft.bags;
 }
 
+function selectFreq(val) { draft.recurring = val; }
+
 function goOrderStep(step) {
   if (step === 1 && !draft.serviceId)  { toast('Please choose a service');   return; }
   if (step === 2 && !draft.pickupDate) { toast('Please choose a pickup day'); return; }
@@ -961,6 +992,7 @@ function renderStep(step) {
   document.getElementById('order-title').textContent = STEP_TITLES[step];
   if (step === 1) {
     document.getElementById('bags-display').textContent = draft.bags;
+    document.getElementById('order-freq').value = draft.recurring || '';
     buildCalendar();
   }
 }
@@ -1018,9 +1050,13 @@ function buildConfirmSummary() {
   const delivery = new Date(pickup); delivery.setDate(pickup.getDate() + 1);
   const fmt = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
 
+  const freqLabels = { weekly:'Every week', biweekly:'Every 2 weeks', monthly:'Every month' };
+  const freqLabel  = freqLabels[draft.recurring] || 'One-time pickup';
+
   document.getElementById('confirm-summary').innerHTML = `
     <div class="confirm-row"><span class="confirm-key">Service</span><span class="confirm-val">${svc?.name || '—'}</span></div>
     <div class="confirm-row"><span class="confirm-key">Bags</span><span class="confirm-val">${bags} bag${bags !== 1 ? 's' : ''}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Frequency</span><span class="confirm-val">${draft.recurring ? '🔁 ' : ''}${freqLabel}</span></div>
     <div class="confirm-row"><span class="confirm-key">Pickup</span><span class="confirm-val">${fmt(pickup)}</span></div>
     <div class="confirm-row"><span class="confirm-key">Delivery</span><span class="confirm-val">${fmt(delivery)}</span></div>
     <div class="confirm-row"><span class="confirm-key" style="font-weight:700">Total</span><span class="confirm-val confirm-total">${isPerLb ? 'Confirmed at pickup' : $m(total)}</span></div>`;
@@ -1045,14 +1081,15 @@ async function placeOrder() {
   const deliveryDate = (() => { const d = new Date(pickupDate + 'T12:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; })();
 
   const { data, error } = await db.from('orders').insert({
-    customer_id:  currentCustomer.id,
-    service_id:   draft.serviceId,
-    status:       'pending_pickup',
-    total_bags:   bags,
-    total_amount: total,
-    pickup_date:  pickupDate,
-    delivery_date: deliveryDate,
-    order_number: Math.floor(1000 + Math.random() * 9000)
+    customer_id:        currentCustomer.id,
+    service_id:         draft.serviceId,
+    status:             'pending_pickup',
+    total_bags:         bags,
+    total_amount:       total,
+    pickup_date:        pickupDate,
+    delivery_date:      deliveryDate,
+    recurring_interval: draft.recurring || null,
+    order_number:       Math.floor(1000 + Math.random() * 9000)
   }).select().single();
 
   btn.disabled = false; btn.textContent = 'Place Order';
@@ -1069,8 +1106,11 @@ async function placeOrder() {
 
   // Success screen
   const pickupFmt = new Date(pickupDate + 'T12:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
-  document.getElementById('success-info').textContent = `Pickup: ${pickupFmt}`;
-  document.getElementById('success-recur-wrap').innerHTML = '<div style="height:20px"></div>';
+  document.getElementById('success-info').textContent = `First pickup: ${pickupFmt}`;
+  const recurLabels = { weekly:'Every week', biweekly:'Every 2 weeks', monthly:'Every month' };
+  document.getElementById('success-recur-wrap').innerHTML = draft.recurring
+    ? `<div class="success-recur">🔁 ${recurLabels[draft.recurring]} · Auto-scheduled</div>`
+    : '<div style="height:20px"></div>';
   showScreen('success');
 }
 
@@ -1082,6 +1122,38 @@ function afterSuccess() {
 }
 
 /* ── ORDERS LIST ── */
+const PAST_STATUSES = ['delivered', 'cancelled'];
+
+function switchOrderTab(tab) {
+  ordersTab = tab;
+  document.getElementById('otab-current').classList.toggle('active', tab === 'current');
+  document.getElementById('otab-past').classList.toggle('active', tab === 'past');
+  renderOrdersList(window._cachedOrders || []);
+}
+
+function renderOrdersList(orders) {
+  const el = document.getElementById('orders-list');
+  const isPast  = ordersTab === 'past';
+  const filtered = orders.filter(o => isPast ? PAST_STATUSES.includes(o.status) : !PAST_STATUSES.includes(o.status));
+  const RLABELS  = { weekly:'🔁 Weekly', biweekly:'🔁 Every 2 weeks', monthly:'🔁 Monthly' };
+
+  if (!filtered.length) {
+    const msg = isPast
+      ? 'No completed orders yet.'
+      : 'No active orders right now.';
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🧺</div><div class="empty-title">${msg}</div>${!isPast ? `<div class="empty-sub">Ready for your first pickup?</div><button class="nudge-btn" onclick="goTo('new-order')">Schedule Pickup</button>` : ''}</div>`;
+    return;
+  }
+
+  el.innerHTML = filtered.map(o => `
+    <div class="order-item" onclick="openDetail('${o.id}')">
+      <div class="oi-top"><span class="oi-num">#${o.order_number || '—'}</span><span class="oi-date">${fmtDate(o.created_at)}</span></div>
+      <div class="oi-svc">${o.services?.name || '—'} · ${o.total_bags || 1} bag${(o.total_bags || 1) !== 1 ? 's' : ''}</div>
+      ${o.recurring_interval ? `<div class="oi-recur">${RLABELS[o.recurring_interval] || ''}</div>` : ''}
+      <div class="oi-bottom">${buildStatusBadge(o.status)}<div class="oi-total">${o.total_amount ? $m(o.total_amount) : 'TBD'}</div></div>
+    </div>`).join('');
+}
+
 async function loadOrders() {
   if (!currentCustomer) return;
   const el = document.getElementById('orders-list');
@@ -1092,20 +1164,12 @@ async function loadOrders() {
     .eq('customer_id', currentCustomer.id)
     .order('created_at', { ascending: false });
 
-  const orders = data || [];
-  if (!orders.length) {
-    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🧺</div><div class="empty-title">No orders yet</div><div class="empty-sub">Place your first pickup and we'll handle the rest.</div><button class="nudge-btn" onclick="goTo('new-order')">Schedule Pickup</button></div>`;
-    return;
-  }
-
-  const RLABELS = { weekly:'🔁 Weekly', biweekly:'🔁 Every 2 weeks', monthly:'🔁 Monthly' };
-  el.innerHTML = orders.map(o => `
-    <div class="order-item" onclick="openDetail('${o.id}')">
-      <div class="oi-top"><span class="oi-num">#${o.order_number || '—'}</span><span class="oi-date">${fmtDate(o.created_at)}</span></div>
-      <div class="oi-svc">${o.services?.name || '—'} · ${o.total_bags || 1} bag${(o.total_bags || 1) !== 1 ? 's' : ''}</div>
-      ${o.recurring_interval ? `<div class="oi-recur">${RLABELS[o.recurring_interval] || ''}</div>` : ''}
-      <div class="oi-bottom">${buildStatusBadge(o.status)}<div class="oi-total">${o.total_amount ? $m(o.total_amount) : 'TBD'}</div></div>
-    </div>`).join('');
+  window._cachedOrders = data || [];
+  // Reset to current tab when loading fresh
+  ordersTab = 'current';
+  document.getElementById('otab-current').classList.add('active');
+  document.getElementById('otab-past').classList.remove('active');
+  renderOrdersList(window._cachedOrders);
 }
 
 /* ── ORDER DETAIL ── */
@@ -1335,7 +1399,9 @@ window.goTo              = goTo;
 window.startNewOrder     = startNewOrder;
 window.selectService     = selectService;
 window.changeBags        = changeBags;
+window.selectFreq        = selectFreq;
 window.goOrderStep       = goOrderStep;
+window.switchOrderTab    = switchOrderTab;
 window.handleOrderBack   = handleOrderBack;
 window.shiftMonth        = shiftMonth;
 window.selectDay         = selectDay;
