@@ -129,6 +129,13 @@
     .badge-gray   { background: var(--gray-100);     color: var(--gray-600); }
     .badge-purple { background: var(--accent-light); color: var(--accent); }
 
+    /* ── ADVANCE BUTTON ── */
+    .btn-advance { background: none; border: 1px solid var(--gray-300); border-radius: 5px; padding: 2px 8px; font-size: 11px; font-weight: 600; cursor: pointer; color: var(--gray-600); transition: all .12s; white-space: nowrap; }
+    .btn-advance:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn-advance:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-advance.will-charge { border-color: #f59e0b; color: #92400e; }
+    .btn-advance.will-charge:hover { background: #f59e0b; border-color: #f59e0b; color: #fff; }
+
     /* ── FILTER TABS ── */
     .filter-tabs { display: flex; gap: 2px; background: var(--gray-100); border-radius: var(--radius); padding: 3px; }
     .filter-tab { padding: 5px 12px; border-radius: 6px; font-size: 12.5px; font-weight: 500; color: var(--gray-600); cursor: pointer; border: none; background: transparent; transition: all .12s; }
@@ -1112,6 +1119,26 @@
     return `<span class="badge ${cls}">${label}</span>`;
   };
 
+  // Next status in the main flow (used by advance button)
+  const STATUS_FLOW = {
+    scheduled:          'ready_for_pickup',
+    ready_for_pickup:   'picked_up',
+    picked_up:          'processing',
+    processing:         'assembled',
+    assembled:          'ready_for_delivery',
+    ready_for_delivery: 'out_for_delivery',
+    out_for_delivery:   'delivered',
+  };
+  const STATUS_NEXT_LABEL = {
+    ready_for_pickup:   'Ready for Pickup',
+    picked_up:          'Picked Up',
+    processing:         'Processing',
+    assembled:          'Assembled',
+    ready_for_delivery: 'Ready for Delivery',
+    out_for_delivery:   'Out for Delivery',
+    delivered:          'Delivered',
+  };
+
   // ── AUTH ──
   async function handleLogin() {
     const email = document.getElementById('login-email').value.trim();
@@ -1419,13 +1446,18 @@
           : chargeable
             ? `<button class="btn btn-primary" style="padding:4px 10px;font-size:12px" onclick="chargeOrder('${o.id}','${o.order_number}',this)">💳 Charge</button>`
             : '<span style="color:var(--gray-400);font-size:12px">—</span>';
+        const nextStatus = STATUS_FLOW[o.status];
+        const willCharge = nextStatus === 'ready_for_delivery';
+        const advBtn = nextStatus
+          ? `<button class="btn-advance${willCharge?' will-charge':''}" style="margin-left:6px" onclick="updateOrderStatus('${o.id}','${o.order_number}','${nextStatus}',this)" title="Advance to ${STATUS_NEXT_LABEL[nextStatus]}">→ ${STATUS_NEXT_LABEL[nextStatus]}</button>`
+          : '';
         return `<tr>
           <td class="td-mono">#${o.order_number}</td>
           <td class="td-name">${orderCustomerName(o)}</td>
           <td style="color:var(--gray-600);font-size:12.5px">${svcName}</td>
           <td style="color:var(--gray-500);font-size:12.5px">${fmtDate(o.pickup_window_start)}</td>
           <td style="font-weight:600">${fmtMoney(o.total_amount)}</td>
-          <td>${statusBadge(o.status)}</td>
+          <td style="white-space:nowrap">${statusBadge(o.status)}${advBtn}</td>
           <td>${payCell}</td>
         </tr>`;
       }).join('')}
@@ -1460,6 +1492,46 @@
     } catch (e) {
       btn.disabled = false; btn.textContent = '💳 Charge';
       showToast('Charge failed: ' + e.message, 'error');
+    }
+  }
+
+  async function updateOrderStatus(orderId, orderNum, newStatus, btn) {
+    const isChargeStep = newStatus === 'ready_for_delivery';
+    const label = STATUS_NEXT_LABEL[newStatus] || newStatus;
+    const msg = isChargeStep
+      ? `Advance order #${orderNum} to "${label}" and charge the customer's card on file?`
+      : `Advance order #${orderNum} to "${label}"?`;
+    if (!confirm(msg)) return;
+    btn.disabled = true;
+    const origText = btn.textContent;
+    btn.textContent = '…';
+    try {
+      // assembled → ready_for_delivery: charge first
+      if (isChargeStep) {
+        const { data: { session } } = await db.auth.getSession();
+        if (!session) throw new Error('Not authenticated');
+        const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ orderId }),
+        });
+        const result = await res.json();
+        if (result.error) throw new Error(result.error);
+        showToast(`✓ Order #${orderNum} charged — ${result.card || ''}`);
+      }
+      // Update the status in Supabase
+      const { error } = await db.from('orders').update({ status: newStatus }).eq('id', orderId);
+      if (error) throw new Error(error.message);
+      showToast(`Order #${orderNum} → ${label}`);
+      // Re-render after short delay so badge + button update cleanly
+      setTimeout(() => loadOrders(), 600);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = origText;
+      showToast('Error: ' + e.message, 'error');
     }
   }
 
@@ -2044,6 +2116,11 @@
         : chargeable
           ? `<button class="btn btn-primary" style="padding:3px 9px;font-size:11.5px;margin-left:4px" onclick="chargeOrder('${o.id}','${o.order_number}',this)">💳 Charge</button>`
           : '';
+      const nextStatus = STATUS_FLOW[o.status];
+      const willCharge = nextStatus === 'ready_for_delivery';
+      const advBtn = nextStatus
+        ? `<button class="btn-advance${willCharge?' will-charge':''}" onclick="updateOrderStatus('${o.id}','${o.order_number}','${nextStatus}',this)" title="Advance to ${STATUS_NEXT_LABEL[nextStatus]}">→ ${STATUS_NEXT_LABEL[nextStatus]}</button>`
+        : '';
       return `
       <div class="cp-order-row" style="flex-wrap:wrap;gap:6px">
         <span class="cp-order-num">#${o.order_number}</span>
@@ -2052,6 +2129,7 @@
           <div style="font-size:11.5px;color:var(--gray-400)">${fmtDate(o.pickup_window_start||o.created_at)}${o.weight_lbs?' · '+o.weight_lbs+' lbs':''}</div>
         </div>
         ${statusBadge(o.status)}
+        ${advBtn}
         <span class="cp-order-amt">${fmtMoney(o.total_amount)}</span>
         ${payBtn}
       </div>`;
