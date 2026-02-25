@@ -1,0 +1,2104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Family Laundry — Admin</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+  <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --sidebar-bg: #0f2744;
+      --sidebar-w: 220px;
+      --accent: #635bff;
+      --accent-light: #ede9fe;
+      --green: #0ba25a; --green-light: #d1fae5;
+      --amber: #d97706; --amber-light: #fef3c7;
+      --red: #dc2626;   --red-light: #fee2e2;
+      --blue: #2563eb;  --blue-light: #dbeafe;
+      --gray-50: #f9fafb; --gray-100: #f3f4f6; --gray-200: #e5e7eb;
+      --gray-300: #d1d5db; --gray-400: #9ca3af; --gray-500: #6b7280;
+      --gray-600: #4b5563; --gray-700: #374151; --gray-800: #1f2937;
+      --gray-900: #111827;
+      --radius: 8px;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.05);
+      --shadow: 0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06);
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--gray-50); color: var(--gray-800); font-size: 14px; line-height: 1.5; }
+
+    /* ── LOGIN ── */
+    #login-screen {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: var(--sidebar-bg);
+    }
+    .login-card {
+      background: white; border-radius: 12px; padding: 40px;
+      width: 360px; box-shadow: 0 20px 60px rgba(0,0,0,.3);
+    }
+    .login-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+    .login-logo-icon { width: 36px; height: 36px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+    .login-logo-icon svg { width: 18px; height: 18px; fill: white; }
+    .login-logo-name { font-size: 18px; font-weight: 700; color: var(--gray-900); letter-spacing: -.02em; }
+    .login-title { font-size: 20px; font-weight: 700; color: var(--gray-900); margin-bottom: 4px; }
+    .login-sub { font-size: 13px; color: var(--gray-500); margin-bottom: 24px; }
+    .form-group { margin-bottom: 16px; }
+    .form-label { display: block; font-size: 12.5px; font-weight: 600; color: var(--gray-700); margin-bottom: 6px; }
+    .form-input {
+      width: 100%; padding: 9px 12px; border: 1.5px solid var(--gray-200);
+      border-radius: var(--radius); font-size: 14px; color: var(--gray-900);
+      outline: none; transition: border-color .15s;
+    }
+    .form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.1); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 16px; border-radius: var(--radius); font-size: 13.5px; font-weight: 600; cursor: pointer; border: none; transition: all .12s; }
+    .btn-primary { background: var(--accent); color: white; box-shadow: 0 1px 3px rgba(99,91,255,.35); }
+    .btn-primary:hover { background: #5046e5; }
+    .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+    .btn-ghost { background: transparent; color: var(--gray-700); border: 1px solid var(--gray-200); }
+    .btn-ghost:hover { background: var(--gray-50); }
+    .btn-full { width: 100%; }
+    .login-error { background: var(--red-light); color: var(--red); padding: 10px 12px; border-radius: var(--radius); font-size: 13px; margin-bottom: 16px; display: none; }
+
+    /* ── APP SHELL ── */
+    #app { display: none; min-height: 100vh; }
+    .layout { display: flex; min-height: 100vh; }
+
+    /* ── SIDEBAR ── */
+    .sidebar { width: var(--sidebar-w); background: var(--sidebar-bg); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; }
+    .sidebar-logo { padding: 20px 20px 18px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,.06); }
+    .logo-icon { width: 30px; height: 30px; background: var(--accent); border-radius: 7px; display: flex; align-items: center; justify-content: center; }
+    .logo-icon svg { width: 16px; height: 16px; fill: white; }
+    .logo-name { font-size: 15px; font-weight: 600; color: white; letter-spacing: -.01em; }
+    .logo-name span { color: rgba(255,255,255,.4); font-weight: 400; }
+    .sidebar-section-label { padding: 18px 20px 6px; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,.3); }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 20px; color: rgba(255,255,255,.55); cursor: pointer; font-size: 13.5px; font-weight: 500; transition: background .12s, color .12s; position: relative; }
+    .nav-item:hover { background: rgba(255,255,255,.05); color: rgba(255,255,255,.9); }
+    .nav-item.active { color: white; background: rgba(99,91,255,.18); }
+    .nav-item.active::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); border-radius: 0 2px 2px 0; }
+    .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; opacity: .7; }
+    .nav-item.active svg { opacity: 1; }
+    .nav-badge { margin-left: auto; background: var(--accent); color: white; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px; min-width: 18px; text-align: center; }
+    .sidebar-footer { margin-top: auto; padding: 16px 20px; border-top: 1px solid rgba(255,255,255,.06); display: flex; align-items: center; gap: 10px; cursor: pointer; }
+    .avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg,#635bff,#a78bfa); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; flex-shrink: 0; }
+    .sidebar-user { flex: 1; min-width: 0; }
+    .sidebar-user-name { font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sidebar-user-role { font-size: 11px; color: rgba(255,255,255,.4); }
+
+    /* ── MAIN ── */
+    .main { margin-left: var(--sidebar-w); flex: 1; display: flex; flex-direction: column; }
+    .topbar { background: white; border-bottom: 1px solid var(--gray-200); padding: 0 28px; height: 56px; display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 50; }
+    .topbar-title { font-size: 15px; font-weight: 600; color: var(--gray-900); flex: 1; }
+    .content { padding: 28px; flex: 1; }
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── CARDS & STATS ── */
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+    .stat-card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-sm); }
+    .stat-label { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 8px; }
+    .stat-value { font-size: 26px; font-weight: 700; color: var(--gray-900); letter-spacing: -.03em; line-height: 1; margin-bottom: 8px; }
+    .stat-delta { font-size: 12px; font-weight: 500; color: var(--gray-500); }
+    .delta-up { color: var(--green); }
+    .card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 20px; }
+    .card-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--gray-100); }
+    .card-title { font-size: 13.5px; font-weight: 600; color: var(--gray-900); }
+    .card-sub { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+
+    /* ── TABLE ── */
+    table { width: 100%; border-collapse: collapse; }
+    thead th { padding: 10px 16px; text-align: left; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--gray-500); background: var(--gray-50); border-bottom: 1px solid var(--gray-200); white-space: nowrap; }
+    tbody tr { border-bottom: 1px solid var(--gray-100); transition: background .1s; cursor: pointer; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--gray-50); }
+    td { padding: 12px 16px; font-size: 13.5px; color: var(--gray-700); vertical-align: middle; }
+    .td-name { font-weight: 600; color: var(--gray-900); }
+    .td-mono { font-family: monospace; font-size: 12.5px; color: var(--gray-600); }
+
+    /* ── BADGES ── */
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 20px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+    .badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .badge-green  { background: var(--green-light);  color: var(--green); }
+    .badge-amber  { background: var(--amber-light);  color: var(--amber); }
+    .badge-red    { background: var(--red-light);    color: var(--red); }
+    .badge-blue   { background: var(--blue-light);   color: var(--blue); }
+    .badge-gray   { background: var(--gray-100);     color: var(--gray-600); }
+    .badge-purple { background: var(--accent-light); color: var(--accent); }
+
+    /* ── FILTER TABS ── */
+    .filter-tabs { display: flex; gap: 2px; background: var(--gray-100); border-radius: var(--radius); padding: 3px; }
+    .filter-tab { padding: 5px 12px; border-radius: 6px; font-size: 12.5px; font-weight: 500; color: var(--gray-600); cursor: pointer; border: none; background: transparent; transition: all .12s; }
+    .filter-tab.active { background: white; color: var(--gray-900); font-weight: 600; box-shadow: var(--shadow-sm); }
+
+    /* ── CUSTOMER CELL ── */
+    .customer-cell { display: flex; align-items: center; gap: 10px; }
+    .c-avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; flex-shrink: 0; }
+
+    /* ── LOADING ── */
+    .loading { display: flex; align-items: center; justify-content: center; padding: 48px; color: var(--gray-400); gap: 10px; }
+    .spinner { width: 18px; height: 18px; border: 2px solid var(--gray-200); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── EMPTY STATE ── */
+    .empty { text-align: center; padding: 56px 20px; color: var(--gray-400); }
+    .empty-icon { font-size: 32px; margin-bottom: 10px; }
+    .empty-title { font-size: 14px; font-weight: 600; color: var(--gray-600); margin-bottom: 4px; }
+    .empty-sub { font-size: 13px; color: var(--gray-400); }
+
+    /* ── MODAL ── */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200; display: none; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: white; border-radius: 12px; width: 480px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--gray-100); }
+    .modal-title { font-size: 15px; font-weight: 700; color: var(--gray-900); }
+    .modal-close { background: none; border: none; cursor: pointer; color: var(--gray-400); font-size: 20px; padding: 4px; border-radius: 4px; }
+    .modal-close:hover { color: var(--gray-700); background: var(--gray-100); }
+    .modal-body { padding: 24px; }
+    .modal-footer { padding: 16px 24px; border-top: 1px solid var(--gray-100); display: flex; gap: 10px; justify-content: flex-end; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-select { width: 100%; padding: 9px 12px; border: 1.5px solid var(--gray-200); border-radius: var(--radius); font-size: 14px; color: var(--gray-900); outline: none; background: white; }
+    .form-select:focus { border-color: var(--accent); }
+    .form-textarea { width: 100%; padding: 9px 12px; border: 1.5px solid var(--gray-200); border-radius: var(--radius); font-size: 14px; color: var(--gray-900); outline: none; resize: vertical; min-height: 80px; }
+    .form-textarea:focus { border-color: var(--accent); }
+
+    /* ── FORM SECTION HEADS ── */
+    .form-section-head { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--gray-400); padding-bottom:10px; border-bottom:1px solid var(--gray-100); margin-bottom:14px; }
+    .ctype-active { border-color:var(--accent) !important; background:var(--accent-light); color:var(--accent) !important; }
+
+    /* ── TOAST ── */
+    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--gray-900); color: white; padding: 12px 18px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; z-index: 999; box-shadow: var(--shadow); transform: translateY(80px); opacity: 0; transition: all .25s; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: var(--green); }
+    .toast.error { background: var(--red); }
+
+    /* ── SERVICES PAGE ── */
+    .svc-category-group { margin-bottom: 0; }
+    .svc-cat-header { padding: 12px 20px 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--gray-400); background: var(--gray-50); border-top: 1px solid var(--gray-100); border-bottom: 1px solid var(--gray-100); display: flex; align-items: center; gap: 8px; }
+    .svc-table-head { display: grid; grid-template-columns: 1fr 110px 130px 130px 64px 110px; gap: 10px; padding: 8px 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); border-bottom: 1px solid var(--gray-100); }
+    .svc-row { display: grid; grid-template-columns: 1fr 110px 130px 130px 64px 110px; gap: 10px; padding: 9px 20px; align-items: center; border-bottom: 1px solid var(--gray-100); transition: background .1s; }
+    .svc-row:hover { background: var(--gray-50); }
+    .svc-row:last-child { border-bottom: none; }
+    .svc-input { width: 100%; border: 1.5px solid transparent; border-radius: 6px; padding: 5px 8px; font-size: 13.5px; color: var(--gray-800); background: transparent; transition: all .12s; font-family: inherit; }
+    .svc-input:hover { border-color: var(--gray-200); background: white; }
+    .svc-input:focus { border-color: var(--accent); background: white; outline: none; box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
+    .svc-select { width: 100%; border: 1.5px solid transparent; border-radius: 6px; padding: 5px 8px; font-size: 13px; color: var(--gray-700); background: transparent; cursor: pointer; transition: all .12s; font-family: inherit; }
+    .svc-select:hover { border-color: var(--gray-200); background: white; }
+    .svc-select:focus { border-color: var(--accent); background: white; outline: none; }
+    .svc-price-wrap { display: flex; align-items: center; gap: 2px; }
+    .svc-price-prefix { color: var(--gray-400); font-size: 13px; }
+    .svc-save-btn { display: none; padding: 4px 10px; font-size: 12px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; transition: background .12s; }
+    .svc-save-btn:hover { background: #5046e5; }
+    .svc-del-btn { padding: 5px; background: none; border: none; cursor: pointer; color: var(--gray-300); border-radius: 5px; transition: all .12s; display: flex; align-items: center; }
+    .svc-del-btn:hover { color: var(--red); background: var(--red-light); }
+    .svc-actions-cell { display: flex; align-items: center; gap: 6px; }
+    .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; cursor: pointer; inset: 0; background: var(--gray-200); border-radius: 20px; transition: .2s; }
+    .toggle-slider::before { content:''; position: absolute; width: 14px; height: 14px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: .2s; }
+    .toggle-switch input:checked + .toggle-slider { background: var(--green); }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
+    .svc-add-row { display: grid; grid-template-columns: 1fr 110px 130px 130px 64px 110px; gap: 10px; padding: 12px 20px; align-items: center; border-top: 2px dashed var(--gray-200); background: var(--gray-50); border-radius: 0 0 var(--radius) var(--radius); }
+    .svc-add-input { width: 100%; border: 1.5px solid var(--gray-200); border-radius: 6px; padding: 6px 10px; font-size: 13px; color: var(--gray-800); background: white; font-family: inherit; }
+    .svc-add-input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
+    .svc-add-select { width: 100%; border: 1.5px solid var(--gray-200); border-radius: 6px; padding: 6px 10px; font-size: 13px; color: var(--gray-700); background: white; font-family: inherit; }
+    .svc-add-select:focus { border-color: var(--accent); outline: none; }
+
+    /* ── CUSTOMER SIDE PANEL ── */
+    .side-panel { position: fixed; top: 0; right: -540px; width: 520px; height: 100vh; background: white; box-shadow: -4px 0 40px rgba(0,0,0,.18); z-index: 300; display: flex; flex-direction: column; transition: right .3s cubic-bezier(.4,0,.2,1); overflow: hidden; }
+    .side-panel.open { right: 0; }
+    .panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 299; display: none; }
+    .panel-backdrop.open { display: block; }
+    .cp-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
+    .cp-name { font-size: 18px; font-weight: 700; color: var(--gray-900); letter-spacing: -.02em; margin-bottom: 4px; }
+    .cp-meta { font-size: 12px; color: var(--gray-400); }
+    .cp-stats-strip { display: grid; grid-template-columns: repeat(3,1fr); gap: 0; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; }
+    .cp-stat { padding: 14px 20px; text-align: center; }
+    .cp-stat + .cp-stat { border-left: 1px solid var(--gray-100); }
+    .cp-stat-label { font-size: 11px; color: var(--gray-400); font-weight: 500; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+    .cp-stat-value { font-size: 18px; font-weight: 700; color: var(--gray-900); }
+    .cp-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; padding: 0 20px; }
+    .cp-tab { padding: 12px 16px; font-size: 13px; font-weight: 500; color: var(--gray-500); cursor: pointer; border: none; background: transparent; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; }
+    .cp-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+    .cp-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+    .cp-field { margin-bottom: 18px; }
+    .cp-field-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); margin-bottom: 4px; }
+    .cp-field-value { font-size: 14px; color: var(--gray-800); }
+    .cp-field-value.empty { color: var(--gray-300); font-style: italic; }
+    .cp-section-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--gray-400); margin: 20px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--gray-100); }
+    .cp-section-head:first-child { margin-top: 0; }
+    .cp-order-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--gray-100); font-size: 13px; }
+    .cp-order-row:last-child { border-bottom: none; }
+    .cp-order-num { font-family: monospace; font-weight: 700; color: var(--accent); font-size: 12px; min-width: 48px; }
+    .cp-order-svc { flex: 1; color: var(--gray-700); }
+    .cp-order-amt { font-weight: 600; color: var(--gray-900); min-width: 56px; text-align: right; }
+    .cp-pref-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--gray-100); font-size: 13px; }
+    .cp-pref-row:last-child { border-bottom: none; }
+    .cp-pref-key { font-weight: 600; color: var(--gray-600); min-width: 140px; font-size: 12.5px; }
+    .cp-pref-val { color: var(--gray-800); }
+
+    /* ── PROGRESS BAR ── */
+    .progress-bar { height: 4px; background: var(--gray-200); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+    .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+
+    /* ── ROW ACTION ── */
+    .row-action { opacity: 0; transition: opacity .12s; color: var(--accent); font-weight: 600; font-size: 12.5px; }
+    tbody tr:hover .row-action { opacity: 1; }
+
+    /* ── INBOX ── */
+    .inbox-layout { display: grid; grid-template-columns: 300px 1fr; height: calc(100vh - 56px - 56px); border: 1px solid var(--gray-200); border-radius: var(--radius); background: white; overflow: hidden; }
+    .inbox-list { border-right: 1px solid var(--gray-200); overflow-y: auto; }
+    .inbox-item { padding: 14px 16px; border-bottom: 1px solid var(--gray-100); cursor: pointer; transition: background .1s; }
+    .inbox-item:hover, .inbox-item.active { background: var(--gray-50); }
+    .inbox-item-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }
+    .inbox-item-name { font-weight: 600; font-size: 13px; color: var(--gray-900); }
+    .inbox-item-time { font-size: 11px; color: var(--gray-400); }
+    .inbox-item-preview { font-size: 12.5px; color: var(--gray-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .inbox-thread { display: flex; flex-direction: column; }
+    .inbox-thread-header { padding: 16px 20px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: center; justify-content: space-between; }
+    .inbox-messages { flex: 1; padding: 16px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+    .message-bubble { max-width: 72%; padding: 10px 14px; border-radius: 12px; font-size: 13.5px; line-height: 1.5; }
+    .message-inbound { background: var(--gray-100); color: var(--gray-800); align-self: flex-start; border-bottom-left-radius: 3px; }
+    .message-outbound { background: var(--accent); color: white; align-self: flex-end; border-bottom-right-radius: 3px; }
+    .inbox-composer { padding: 14px 20px; border-top: 1px solid var(--gray-200); display: flex; gap: 10px; }
+    .inbox-composer input { flex: 1; padding: 9px 14px; border: 1.5px solid var(--gray-200); border-radius: 20px; font-size: 13.5px; outline: none; }
+    .inbox-composer input:focus { border-color: var(--accent); }
+    .inbox-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--gray-400); flex-direction: column; gap: 8px; }
+
+    /* ── MAP VIEWS ── */
+    .section-tabs { display: flex; border-bottom: 1px solid var(--gray-200); background: white; }
+    .section-tab { padding: 12px 20px; font-size: 13px; font-weight: 500; color: var(--gray-500); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; white-space: nowrap; border-top: none; border-left: none; border-right: none; background: none; }
+    .section-tab:hover { color: var(--gray-900); }
+    .section-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+    .live-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: var(--green); vertical-align: middle; margin-left: 5px; }
+    .live-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: blink 1.4s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .map-wrap { height: 500px; position: relative; }
+    .map-wrap > div:first-child { height: 100%; }
+    .map-legend-box { position: absolute; bottom: 16px; left: 16px; z-index: 500; background: white; border-radius: var(--radius); padding: 10px 14px; box-shadow: 0 2px 10px rgba(0,0,0,.1); border: 1px solid var(--gray-200); pointer-events: none; }
+    .map-legend-box .leg-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--gray-500); margin-bottom: 6px; }
+    .leg-row { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--gray-700); margin-bottom: 4px; }
+    .leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .map-info-card { position: absolute; top: 16px; left: 16px; z-index: 500; background: white; border-radius: var(--radius); padding: 12px 16px; box-shadow: 0 2px 12px rgba(0,0,0,.12); border: 1px solid var(--gray-200); min-width: 200px; display: none; }
+    .mic-name { font-weight: 700; font-size: 14px; color: var(--gray-900); margin-bottom: 2px; }
+    .mic-addr { font-size: 12.5px; color: var(--gray-500); margin-bottom: 8px; }
+    .route-map-layout { display: flex; height: 500px; }
+    .route-map-layout > .map-side { flex: 1; }
+    .route-stop-list { width: 260px; border-left: 1px solid var(--gray-200); overflow-y: auto; background: white; }
+    .rsl-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--gray-100); cursor: pointer; transition: background .1s; }
+    .rsl-item:hover { background: var(--gray-50); }
+    .rsl-pin { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 2px; color: white; }
+    .pin-done { background: var(--green); }
+    .pin-now  { background: var(--blue); animation: ppulse 1.4s infinite; }
+    .pin-next { background: var(--gray-400); }
+    @keyframes ppulse { 0%,100%{box-shadow:0 0 0 0 rgba(37,99,235,.4)} 50%{box-shadow:0 0 0 6px rgba(37,99,235,0)} }
+    .rsl-info { flex: 1; min-width: 0; }
+    .rsl-name { font-weight: 600; font-size: 12.5px; color: var(--gray-900); }
+    .rsl-addr { font-size: 11.5px; color: var(--gray-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rsl-tag  { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 8px; display: inline-block; margin-top: 3px; }
+    .tag-pickup   { background: var(--amber-light); color: var(--amber); }
+    .tag-delivery { background: var(--green-light);  color: var(--green); }
+    .zone-layout { display: flex; height: 500px; }
+    .zone-layout > .map-side { flex: 1; }
+    .zone-panel { width: 240px; border-left: 1px solid var(--gray-200); background: white; display: flex; flex-direction: column; }
+    .zone-panel-header { padding: 14px 16px; border-bottom: 1px solid var(--gray-100); }
+    .zone-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--gray-100); }
+    .zone-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+    .zone-row-name { flex: 1; font-size: 13px; font-weight: 600; color: var(--gray-900); }
+    .zone-row-count { font-size: 11.5px; color: var(--gray-400); margin-right: 4px; }
+    .zone-draw-hint { padding: 12px 16px; background: var(--accent-light); font-size: 12.5px; color: var(--accent); line-height: 1.5; border-bottom: 1px solid var(--gray-200); display: none; }
+  </style>
+</head>
+<body>
+
+<!-- ─── LOGIN SCREEN ─── -->
+<div id="login-screen">
+  <div class="login-card">
+    <div style="margin:-40px -40px 24px;border-radius:12px 12px 0 0;overflow:hidden;background:#0f2744;display:flex;align-items:center;justify-content:center;padding:16px 24px;">
+      <img src="../assets/logo.png" alt="Family Laundry" style="height:48px;object-fit:contain;" onerror="this.outerHTML='<div style=\'font-size:20px;font-weight:800;color:white;letter-spacing:-.02em;\'>Family Laundry</div>'" />
+    </div>
+    <div class="login-title">Sign in to your dashboard</div>
+    <div class="login-sub">Admin access only</div>
+    <div class="login-error" id="login-error"></div>
+    <div class="form-group">
+      <label class="form-label">Email</label>
+      <input class="form-input" type="email" id="login-email" placeholder="you@example.com" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input class="form-input" type="password" id="login-password" placeholder="••••••••" />
+    </div>
+    <button class="btn btn-primary btn-full" id="login-btn" onclick="handleLogin()">Sign in</button>
+  </div>
+</div>
+
+<!-- ─── APP ─── -->
+<div id="app">
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="sidebar-logo" style="padding:26px 20px 16px;justify-content:center;">
+        <img src="../assets/logo.png" alt="Family Laundry" style="width:100%;max-width:107px;height:auto;object-fit:contain;" onerror="this.outerHTML='<div style=\'font-size:15px;font-weight:800;color:white;letter-spacing:-.02em;\'>Family <span style=\'font-weight:400;opacity:.5\'>Laundry</span></div>'" />
+      </div>
+      <div class="sidebar-section-label">Main</div>
+      <div class="nav-item active" onclick="showPage('overview',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Overview
+      </div>
+      <div class="sidebar-section-label">Operations</div>
+      <div class="nav-item" onclick="showPage('customers',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+        Customers
+        <span class="nav-badge" id="badge-customers">0</span>
+      </div>
+      <div class="nav-item" onclick="showPage('orders',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
+        Orders
+        <span class="nav-badge" id="badge-orders">0</span>
+      </div>
+      <div class="nav-item" onclick="showPage('routes',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/></svg>
+        Routes
+      </div>
+      <div class="nav-item" onclick="showPage('maps',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+        Maps
+      </div>
+      <div class="nav-item" onclick="showPage('inbox',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        Inbox
+        <span class="nav-badge" id="badge-inbox" style="background:var(--red)">0</span>
+      </div>
+      <div class="sidebar-section-label">Settings</div>
+      <div class="nav-item" onclick="showPage('services',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        Services
+      </div>
+      <div class="sidebar-footer" onclick="handleSignOut()">
+        <div class="avatar" id="user-avatar">?</div>
+        <div class="sidebar-user">
+          <div class="sidebar-user-name" id="user-name">Loading…</div>
+          <div class="sidebar-user-role">Admin</div>
+        </div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="2" width="14" height="14"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+      </div>
+    </nav>
+
+    <div class="main">
+      <div class="topbar">
+        <div class="topbar-title" id="topbar-title">Overview</div>
+        <button class="btn btn-primary" id="topbar-cta" onclick="handleCTA()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span id="topbar-cta-label">New Order</span>
+        </button>
+      </div>
+
+      <div class="content">
+
+        <!-- ── OVERVIEW ── -->
+        <div class="page active" id="page-overview">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-label">Total Customers</div>
+              <div class="stat-value" id="stat-customers">—</div>
+              <div class="stat-delta" id="stat-customers-sub">Loading…</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Active Orders</div>
+              <div class="stat-value" id="stat-orders">—</div>
+              <div class="stat-delta" id="stat-orders-sub">Loading…</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Routes Today</div>
+              <div class="stat-value" id="stat-routes">—</div>
+              <div class="stat-delta" id="stat-routes-sub">Loading…</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Revenue (MTD)</div>
+              <div class="stat-value" id="stat-revenue">—</div>
+              <div class="stat-delta" id="stat-revenue-sub">Loading…</div>
+            </div>
+          </div>
+          <div class="two-col">
+            <div class="card">
+              <div class="card-header">
+                <div><div class="card-title">Recent Orders</div><div class="card-sub">Last 10</div></div>
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('orders',document.querySelectorAll('.nav-item')[2])">View all</button>
+              </div>
+              <div id="recent-orders-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <div><div class="card-title">Today's Routes</div><div class="card-sub" id="today-date"></div></div>
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('routes',document.querySelectorAll('.nav-item')[3])">View all</button>
+              </div>
+              <div id="today-routes-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── CUSTOMERS ── -->
+        <div class="page" id="page-customers">
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value" id="cstat-total">—</div></div>
+            <div class="stat-card"><div class="stat-label">Active (90 days)</div><div class="stat-value" id="cstat-active">—</div></div>
+            <div class="stat-card"><div class="stat-label">Avg. Order Value</div><div class="stat-value" id="cstat-aov">—</div></div>
+            <div class="stat-card"><div class="stat-label">At Risk</div><div class="stat-value" id="cstat-risk" style="color:var(--amber)">—</div></div>
+          </div>
+          <div class="card">
+            <!-- Header row -->
+            <div class="card-header">
+              <div><div class="card-title">All Customers</div><div class="card-sub" id="cust-count-label"></div></div>
+              <button class="btn btn-primary" style="padding:6px 12px" onclick="openModal('add-customer')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Customer
+              </button>
+            </div>
+            <!-- Search + view toggle row -->
+            <div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:center;">
+              <div style="flex:1;position:relative;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input id="cust-search" class="form-input" placeholder="Search name, email, phone…" style="padding-left:32px;height:34px;font-size:13px;" oninput="searchCustomers(this.value)" />
+              </div>
+              <div class="filter-tabs" id="cust-filter-tabs">
+                <button class="filter-tab active" onclick="filterCustomers('all',this)">All</button>
+                <button class="filter-tab" onclick="filterCustomers('active',this)">Active</button>
+                <button class="filter-tab" onclick="filterCustomers('at_risk',this)">At Risk</button>
+                <button class="filter-tab" onclick="filterCustomers('churned',this)">Churned</button>
+              </div>
+              <div class="filter-tabs">
+                <button class="filter-tab active" id="cust-view-list" onclick="setCustView('list')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:middle;margin-right:2px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/></svg>
+                  List
+                </button>
+                <button class="filter-tab" id="cust-view-map" onclick="setCustView('map')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:middle;margin-right:2px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                  Map
+                </button>
+              </div>
+            </div>
+            <!-- LIST VIEW -->
+            <div id="customers-table-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            <!-- MAP VIEW -->
+            <div id="customers-map-view" style="display:none;">
+              <div style="height:540px;position:relative;">
+                <div id="cust-map" style="height:100%;width:100%;"></div>
+                <div class="map-info-card" id="cust-info-card">
+                  <div class="mic-name" id="cim-name"></div>
+                  <div class="mic-addr" id="cim-addr"></div>
+                  <div id="cim-badge"></div>
+                </div>
+                <div class="map-legend-box">
+                  <div class="leg-title">Status</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Active</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#d97706"></div>At Risk</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>Inactive</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── ORDERS ── -->
+        <div class="page" id="page-orders">
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-label">Active Orders</div><div class="stat-value" id="ostat-active">—</div></div>
+            <div class="stat-card"><div class="stat-label">Pending Pickup</div><div class="stat-value" id="ostat-pending">—</div></div>
+            <div class="stat-card"><div class="stat-label">Out for Delivery</div><div class="stat-value" id="ostat-out">—</div></div>
+            <div class="stat-card"><div class="stat-label">Delivered Today</div><div class="stat-value" id="ostat-done">—</div></div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div><div class="card-title">All Orders</div><div class="card-sub" id="orders-count-label"></div></div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <div class="filter-tabs">
+                  <button class="filter-tab active" onclick="filterOrders(null,this)">All</button>
+                  <button class="filter-tab" onclick="filterOrders('pending_pickup',this)">Pending Pickup</button>
+                  <button class="filter-tab" onclick="filterOrders('processing',this)">Processing</button>
+                  <button class="filter-tab" onclick="filterOrders('out_for_delivery',this)">Out for Delivery</button>
+                  <button class="filter-tab" onclick="filterOrders('delivered',this)">Delivered</button>
+                </div>
+                <button class="btn btn-primary" style="padding:6px 12px" onclick="openModal('add-order')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  New Order
+                </button>
+              </div>
+            </div>
+            <div id="orders-table-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+          </div>
+        </div>
+
+        <!-- ── ROUTES ── -->
+        <div class="page" id="page-routes">
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-label">Routes Today</div><div class="stat-value" id="rstat-today">—</div></div>
+            <div class="stat-card"><div class="stat-label">Total Stops</div><div class="stat-value" id="rstat-stops">—</div></div>
+            <div class="stat-card"><div class="stat-label">Completed</div><div class="stat-value" id="rstat-done">—</div></div>
+            <div class="stat-card"><div class="stat-label">Active Drivers</div><div class="stat-value" id="rstat-drivers">—</div></div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <div><div class="card-title">All Routes</div><div class="card-sub" id="routes-date-label"></div></div>
+              <button class="btn btn-primary" style="padding:6px 12px" onclick="openModal('add-route')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Create Route
+              </button>
+            </div>
+            <div id="routes-table-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+          </div>
+        </div>
+
+        <!-- ── MAPS ── -->
+        <div class="page" id="page-maps">
+          <div class="card" style="overflow:visible;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid var(--gray-200);">
+              <div class="section-tabs" style="border-bottom:none;flex:1;">
+                <button class="section-tab active" id="maptab-live" onclick="setMapsTab('live',this)">
+                  Live Route <span class="live-pill">LIVE</span>
+                </button>
+                <button class="section-tab" id="maptab-zones" onclick="setMapsTab('zones',this)">Delivery Zones</button>
+              </div>
+            </div>
+            <!-- LIVE ROUTE -->
+            <div id="maps-tab-live">
+              <div class="route-map-layout" style="height:580px;">
+                <div class="map-side" id="live-route-map" style="height:100%;"></div>
+                <div class="route-stop-list" id="live-stop-list">
+                  <div style="padding:12px 14px;border-bottom:1px solid var(--gray-100);font-weight:600;font-size:13px;color:var(--gray-900);display:flex;justify-content:space-between;align-items:center;">
+                    Today's Active Route
+                    <span class="live-pill">LIVE</span>
+                  </div>
+                  <div class="loading"><div class="spinner"></div></div>
+                </div>
+              </div>
+              <div style="padding:12px 16px;border-top:1px solid var(--gray-100);">
+                <div class="map-legend-box" style="position:relative;bottom:auto;left:auto;display:inline-block;">
+                  <div class="leg-title">Stop Status</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Completed</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#2563eb"></div>En Route (now)</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>Upcoming</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#635bff"></div>Driver</div>
+                </div>
+              </div>
+            </div>
+            <!-- DELIVERY ZONES -->
+            <div id="maps-tab-zones" style="display:none;">
+              <div class="zone-draw-hint" id="zone-draw-hint">✏️ Click the polygon tool on the map to start drawing a zone. Click the first point again to close and save.</div>
+              <div class="zone-layout" style="height:580px;">
+                <div class="map-side" id="zones-map" style="height:100%;"></div>
+                <div class="zone-panel">
+                  <div class="zone-panel-header">
+                    <div style="font-weight:600;font-size:13px;color:var(--gray-900);margin-bottom:8px">Delivery Zones</div>
+                    <button class="btn btn-primary" style="width:100%;justify-content:center;font-size:12.5px;padding:7px" onclick="startZoneDraw()">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      Draw New Zone
+                    </button>
+                  </div>
+                  <div id="zones-list"><div class="loading"><div class="spinner"></div></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── INBOX ── -->
+        <div class="page" id="page-inbox">
+          <div class="inbox-layout card" style="margin:0">
+            <div class="inbox-list" id="inbox-list">
+              <div class="loading"><div class="spinner"></div></div>
+            </div>
+            <div class="inbox-thread" id="inbox-thread">
+              <div class="inbox-empty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                <div style="font-size:13px;color:var(--gray-500)">Select a conversation</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── SERVICES PAGE ── -->
+        <div class="page" id="page-services">
+          <div class="card" style="padding:0;overflow:hidden">
+            <div class="card-header" style="padding:18px 20px 14px">
+              <div>
+                <div class="card-title">Services &amp; Pricing</div>
+                <div class="card-sub" id="svc-count-label">Loading…</div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <select class="form-select" id="svc-cat-filter" onchange="filterServices()" style="font-size:13px;padding:6px 10px;width:160px">
+                  <option value="">All Categories</option>
+                  <option value="Delivery">Delivery</option>
+                  <option value="Commercial">Commercial</option>
+                  <option value="Add-ons">Add-ons</option>
+                </select>
+              </div>
+            </div>
+            <!-- Service rows injected here -->
+            <div id="services-table-body"></div>
+            <!-- Add new service row -->
+            <div class="svc-add-row">
+              <input class="svc-add-input" id="ns-name" placeholder="New service name…" onkeydown="if(event.key==='Enter')saveNewService()" />
+              <div class="svc-price-wrap">
+                <span class="svc-price-prefix">$</span>
+                <input class="svc-add-input" id="ns-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
+              </div>
+              <select class="svc-add-select" id="ns-type">
+                <option value="per_lb">Per lb</option>
+                <option value="per_item">Per item</option>
+                <option value="flat">Flat rate</option>
+              </select>
+              <select class="svc-add-select" id="ns-category">
+                <option value="Delivery">Delivery</option>
+                <option value="Commercial">Commercial</option>
+                <option value="Add-ons">Add-ons</option>
+              </select>
+              <div></div>
+              <button class="btn btn-primary" onclick="saveNewService()" style="font-size:12.5px;padding:6px 14px">+ Add Service</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── MODALS ─── -->
+<div class="modal-overlay" id="modal-add-customer">
+  <div class="modal" style="width:620px;max-width:96vw;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">New Customer</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-top:2px;">Fill in what you know — you can always update later</div>
+      </div>
+      <button class="modal-close" onclick="closeModal('add-customer')">×</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- ── Customer Type ── -->
+      <div style="display:flex;gap:20px;margin-bottom:20px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px;font-weight:500;color:var(--gray-700);padding:9px 16px;border:1.5px solid var(--gray-200);border-radius:var(--radius);flex:1;transition:all .12s;" id="ctype-individual-label">
+          <input type="radio" name="c-type" value="individual" id="c-type-individual" checked style="accent-color:var(--accent);" onchange="highlightCtype()" />
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Individual
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px;font-weight:500;color:var(--gray-700);padding:9px 16px;border:1.5px solid var(--gray-200);border-radius:var(--radius);flex:1;transition:all .12s;" id="ctype-business-label">
+          <input type="radio" name="c-type" value="business" id="c-type-business" style="accent-color:var(--accent);" onchange="highlightCtype()" />
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+          Business / Group
+        </label>
+      </div>
+
+      <!-- ── Contact Info ── -->
+      <div class="form-section-head">Contact Information</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">First Name <span style="color:var(--red)">*</span></label>
+          <input class="form-input" id="c-first" placeholder="Jane" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Last Name</label>
+          <input class="form-input" id="c-last" placeholder="Smith" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-input" id="c-email" type="email" placeholder="jane@example.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Phone</label>
+          <input class="form-input" id="c-phone" placeholder="(415) 555-0100" oninput="fmtPhone(this)" inputmode="tel" />
+        </div>
+      </div>
+
+      <!-- ── Service Address ── -->
+      <div class="form-section-head" style="margin-top:20px;">Service Address <span style="font-size:11px;font-weight:400;color:var(--gray-400);text-transform:none;letter-spacing:0;">(pickup &amp; delivery location)</span></div>
+      <div class="form-row" style="grid-template-columns:3fr 1fr;">
+        <div class="form-group">
+          <label class="form-label">Street Address</label>
+          <input class="form-input" id="c-addr" placeholder="4028 Telegraph Ave" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Unit / Apt</label>
+          <input class="form-input" id="c-unit" placeholder="Apt 2B" />
+        </div>
+      </div>
+      <div class="form-row" style="grid-template-columns:2fr 1fr 1fr;">
+        <div class="form-group">
+          <label class="form-label">City</label>
+          <input class="form-input" id="c-city" placeholder="Oakland" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">State</label>
+          <input class="form-input" id="c-state" placeholder="CA" maxlength="2" style="text-transform:uppercase;" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">ZIP</label>
+          <input class="form-input" id="c-zip" placeholder="94609" maxlength="10" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Access &amp; Delivery Instructions</label>
+        <textarea class="form-textarea" id="c-access" placeholder="Gate code #1234 · Leave at back door · Ring back doorbell · Dog in yard — leave bag on porch…" style="min-height:58px;"></textarea>
+      </div>
+
+      <!-- ── Plan & Referral ── -->
+      <div class="form-section-head" style="margin-top:20px;">Plan &amp; Referral Source</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Subscription Plan</label>
+          <select class="form-select" id="c-plan">
+            <option value="">— No plan (pay per order) —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">How Did They Find Us? <span style="color:var(--red)">*</span></label>
+          <select class="form-select" id="c-source" onchange="toggleAmbassador(this.value)">
+            <option value="">— Select one —</option>
+            <option value="word_of_mouth">Word of Mouth</option>
+            <option value="google">Google Search</option>
+            <option value="instagram">Instagram</option>
+            <option value="facebook">Facebook</option>
+            <option value="nextdoor">Nextdoor</option>
+            <option value="yelp">Yelp</option>
+            <option value="ambassador">Ambassador / Referral Code</option>
+            <option value="repeat">Returning Customer</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div id="c-ambassador-row" style="display:none;">
+        <div class="form-group">
+          <label class="form-label">Referral / Ambassador Code</label>
+          <input class="form-input" id="c-ambassador" placeholder="e.g. SARAH2025" style="text-transform:uppercase;letter-spacing:.05em;" />
+        </div>
+      </div>
+
+      <!-- ── Internal Notes ── -->
+      <div class="form-section-head" style="margin-top:20px;">Internal Notes <span style="font-size:11px;font-weight:400;color:var(--gray-400);text-transform:none;letter-spacing:0;">(staff only)</span></div>
+      <div class="form-group">
+        <textarea class="form-textarea" id="c-notes" placeholder="Prefers AM pickups · Allergic to lavender · Has a large dog · VIP — handle personally…"></textarea>
+      </div>
+
+      <!-- ── Stripe note ── -->
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:11px 14px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);margin-top:4px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" style="flex-shrink:0;margin-top:1px;color:var(--gray-400)"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        <div style="font-size:12px;color:var(--gray-500);line-height:1.5;"><strong style="color:var(--gray-700);">Payment via Stripe</strong> — no card data is stored here. After saving, send the customer a Stripe payment link to set up their billing.</div>
+      </div>
+
+      <div id="c-error" style="color:var(--red);font-size:13px;margin-top:12px;display:none;"></div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between;">
+      <button class="btn btn-ghost" onclick="closeModal('add-customer')">Cancel</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="saveCustomer(true)">
+          Save &amp; New Order
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
+        <button class="btn btn-primary" onclick="saveCustomer(false)">Save Customer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-add-order">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">New Order</div>
+      <button class="modal-close" onclick="closeModal('add-order')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Customer</label>
+        <select class="form-select" id="o-customer"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Service</label>
+        <select class="form-select" id="o-service"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Estimated Weight (lbs) <span style="color:var(--gray-400);font-weight:400">— for per-lb pricing</span></label>
+        <input class="form-input" id="o-weight" type="number" min="0" step="0.5" placeholder="e.g. 12" />
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Pickup Window Start</label><input class="form-input" id="o-pickup-start" type="datetime-local" /></div>
+        <div class="form-group"><label class="form-label">Pickup Window End</label><input class="form-input" id="o-pickup-end" type="datetime-local" /></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Delivery Window Start</label><input class="form-input" id="o-del-start" type="datetime-local" /></div>
+        <div class="form-group"><label class="form-label">Delivery Window End</label><input class="form-input" id="o-del-end" type="datetime-local" /></div>
+      </div>
+      <div class="form-group"><label class="form-label">Special Instructions</label><textarea class="form-textarea" id="o-notes" placeholder="Any pickup or delivery notes…"></textarea></div>
+      <div id="o-error" style="color:var(--red);font-size:13px;margin-top:8px;display:none;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('add-order')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveOrder()">Create Order</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-add-route">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Create Route</div>
+      <button class="modal-close" onclick="closeModal('add-route')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label class="form-label">Route Name</label><input class="form-input" id="r-name" placeholder="Route A — North Loop" /></div>
+      <div class="form-group">
+        <label class="form-label">Assign Driver</label>
+        <select class="form-select" id="r-driver"><option value="">Unassigned</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Date</label><input class="form-input" id="r-date" type="date" /></div>
+      <div id="r-error" style="color:var(--red);font-size:13px;margin-top:8px;display:none;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('add-route')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveRoute()">Create Route</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── TOAST ─── -->
+<div class="toast" id="toast"></div>
+
+<!-- ─── CUSTOMER SIDE PANEL ─── -->
+<div class="panel-backdrop" id="panel-backdrop" onclick="closeCustomerPanel()"></div>
+<div class="side-panel" id="customer-panel">
+  <div class="cp-header">
+    <div>
+      <div class="cp-name" id="cp-name">—</div>
+      <div class="cp-meta" id="cp-meta"></div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span id="cp-status-badge"></span>
+      <button class="modal-close" onclick="closeCustomerPanel()" style="margin-left:8px">×</button>
+    </div>
+  </div>
+  <div class="cp-stats-strip">
+    <div class="cp-stat"><div class="cp-stat-label">Lifetime Value</div><div class="cp-stat-value" id="cp-ltv">—</div></div>
+    <div class="cp-stat"><div class="cp-stat-label">Total Orders</div><div class="cp-stat-value" id="cp-total-orders">—</div></div>
+    <div class="cp-stat"><div class="cp-stat-label">Last Order</div><div class="cp-stat-value" id="cp-last-order" style="font-size:14px">—</div></div>
+  </div>
+  <div class="cp-tabs">
+    <button class="cp-tab active" onclick="cpTab('contact',this)">Contact</button>
+    <button class="cp-tab" onclick="cpTab('orders',this)">Orders</button>
+    <button class="cp-tab" onclick="cpTab('preferences',this)">Preferences</button>
+  </div>
+  <!-- Contact Tab -->
+  <div class="cp-body" id="cptab-contact">
+    <div class="cp-section-head">Contact Information</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px">
+      <div class="cp-field"><div class="cp-field-label">First Name</div><div class="cp-field-value" id="cpf-first">—</div></div>
+      <div class="cp-field"><div class="cp-field-label">Last Name</div><div class="cp-field-value" id="cpf-last">—</div></div>
+    </div>
+    <div class="cp-field"><div class="cp-field-label">Phone</div><div class="cp-field-value" id="cpf-phone">—</div></div>
+    <div class="cp-field"><div class="cp-field-label">Email</div><div class="cp-field-value" id="cpf-email">—</div></div>
+    <div class="cp-field"><div class="cp-field-label">Customer Type</div><div class="cp-field-value" id="cpf-type">—</div></div>
+    <div class="cp-field"><div class="cp-field-label">How They Found Us</div><div class="cp-field-value" id="cpf-source">—</div></div>
+    <div class="cp-field"><div class="cp-field-label">Ambassador Code</div><div class="cp-field-value" id="cpf-ambassador">—</div></div>
+    <div class="cp-section-head">Delivery Address</div>
+    <div id="cp-addresses"><div class="cp-field-value empty">No address on file</div></div>
+    <div class="cp-field" style="margin-top:14px"><div class="cp-field-label">Access Instructions</div><div class="cp-field-value" id="cpf-access">—</div></div>
+    <div class="cp-section-head">Internal Notes</div>
+    <div class="cp-field-value" id="cpf-notes" style="color:var(--gray-600);font-size:13.5px;line-height:1.6"></div>
+  </div>
+  <!-- Orders Tab -->
+  <div class="cp-body" id="cptab-orders" style="display:none">
+    <div id="cp-orders-list"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
+  </div>
+  <!-- Preferences Tab -->
+  <div class="cp-body" id="cptab-preferences" style="display:none">
+    <div class="cp-section-head">Service Preferences</div>
+    <div id="cp-prefs-list"></div>
+  </div>
+</div>
+
+<script>
+  // ── SUPABASE INIT ──
+  const { createClient } = supabase;
+  const db = createClient(
+    'https://umjpbuxrdydwejqtensq.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY'
+  );
+
+  // ── STATE ──
+  let currentPage = 'overview';
+  let allCustomers = [];
+  let allOrders = [];
+  let allRoutes = [];
+  let allServices = [];
+  let currentConversation = null;
+
+  const avatarColors = ['#635bff','#10b981','#f59e0b','#3b82f6','#ec4899','#ef4444','#6366f1','#8b5cf6'];
+  const initials = (f,l) => ((f||'?')[0]+(l||'')[0]).toUpperCase();
+  const colorFor = (id) => avatarColors[(id||'').charCodeAt(0)%avatarColors.length];
+  const fmtMoney = (n) => '$'+Number(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—';
+  const today = () => new Date().toISOString().split('T')[0];
+
+  const statusBadge = (s) => {
+    const map = {
+      pending_pickup:   ['badge-gray',   'Pending Pickup'],
+      picked_up:        ['badge-blue',   'Picked Up'],
+      processing:       ['badge-amber',  'Processing'],
+      ready:            ['badge-purple', 'Ready'],
+      out_for_delivery: ['badge-blue',   'Out for Delivery'],
+      delivered:        ['badge-green',  'Delivered'],
+      cancelled:        ['badge-red',    'Cancelled'],
+      active:           ['badge-green',  'Active'],
+      at_risk:          ['badge-amber',  'At Risk'],
+      churned:          ['badge-gray',   'Churned'],
+      scheduled:        ['badge-gray',   'Scheduled'],
+      in_progress:      ['badge-blue',   'In Progress'],
+      complete:         ['badge-green',  'Complete'],
+    };
+    const [cls, label] = map[s] || ['badge-gray', s];
+    return `<span class="badge ${cls}">${label}</span>`;
+  };
+
+  // ── AUTH ──
+  async function handleLogin() {
+    const email = document.getElementById('login-email').value.trim();
+    const pw    = document.getElementById('login-password').value;
+    const btn   = document.getElementById('login-btn');
+    const err   = document.getElementById('login-error');
+    err.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    const { error } = await db.auth.signInWithPassword({ email, password: pw });
+    if (error) {
+      err.textContent = error.message; err.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Sign in';
+    }
+  }
+
+  document.getElementById('login-password').addEventListener('keydown', e => {
+    if (e.key === 'Enter') handleLogin();
+  });
+
+  async function handleSignOut() {
+    await db.auth.signOut();
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('login-screen').style.display = 'flex';
+  }
+
+  db.auth.onAuthStateChange((event, session) => {
+    if (session) {
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      const email = session.user.email || '';
+      const parts = email.split('@')[0].split('.');
+      const name = parts.map(p=>p[0].toUpperCase()+p.slice(1)).join(' ');
+      document.getElementById('user-name').textContent = name;
+      document.getElementById('user-avatar').textContent = (parts[0]||'?')[0].toUpperCase() + (parts[1]||'?')[0].toUpperCase();
+      document.getElementById('today-date').textContent = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+      const rDateLabel = document.getElementById('routes-date-label');
+      if (rDateLabel) rDateLabel.textContent = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+      document.getElementById('r-date').value = today();
+      loadAll();
+    }
+  });
+
+  // ── NAVIGATION ──
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', routes:'Routes', maps:'Maps', inbox:'Inbox', services:'Services & Pricing' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', routes:'Create Route', maps:'New Route', inbox:'Compose', services:'' };
+
+  function showPage(id, navEl) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-'+id).classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    if (navEl) navEl.classList.add('active');
+    document.getElementById('topbar-title').textContent = pageTitles[id];
+    document.getElementById('topbar-cta-label').textContent = pageCTAs[id];
+    document.getElementById('topbar-cta').style.display = pageCTAs[id] ? '' : 'none';
+    currentPage = id;
+    if (id === 'inbox') loadInbox();
+    if (id === 'maps') setTimeout(()=>initLiveMap(), 80);
+    if (id === 'services') loadServices();
+  }
+
+  function handleCTA() {
+    const map = { overview:'add-order', customers:'add-customer', orders:'add-order', routes:'add-route', maps:'add-route', inbox:'compose' };
+    openModal(map[currentPage] || 'add-order');
+  }
+
+  // ── LOAD ALL DATA ──
+  async function loadAll() {
+    await Promise.all([loadOverview(), loadCustomers(), loadOrders(), loadRoutes()]);
+  }
+
+  // ── OVERVIEW ──
+  async function loadOverview() {
+    const todayStr = today();
+    const monthStart = todayStr.slice(0,7) + '-01';
+
+    const [
+      { count: custCount },
+      { data: activeOrders },
+      { data: todayRoutes },
+      { data: revenue }
+    ] = await Promise.all([
+      db.from('customers').select('*', { count: 'exact', head: true }),
+      db.from('orders').select('id,status').not('status','in','("delivered","cancelled")'),
+      db.from('routes').select('*').eq('date', todayStr),
+      db.from('orders').select('total_amount').eq('status','delivered').gte('created_at', monthStart)
+    ]);
+
+    document.getElementById('stat-customers').textContent = custCount ?? 0;
+    document.getElementById('stat-customers-sub').textContent = 'Total registered';
+
+    document.getElementById('stat-orders').textContent = activeOrders?.length ?? 0;
+    document.getElementById('stat-orders-sub').textContent = `${(activeOrders||[]).filter(o=>o.status==='pending_pickup').length} pending pickup`;
+
+    document.getElementById('stat-routes').textContent = todayRoutes?.length ?? 0;
+    const inProg = (todayRoutes||[]).filter(r=>r.status==='in_progress').length;
+    document.getElementById('stat-routes-sub').textContent = inProg ? `${inProg} in progress` : 'No active routes';
+
+    const mtd = (revenue||[]).reduce((s,o)=>s+parseFloat(o.total_amount||0),0);
+    document.getElementById('stat-revenue').textContent = fmtMoney(mtd);
+    document.getElementById('stat-revenue-sub').textContent = `${(revenue||[]).length} orders this month`;
+
+    document.getElementById('badge-customers').textContent = custCount ?? 0;
+    document.getElementById('badge-orders').textContent = activeOrders?.length ?? 0;
+
+    loadRecentOrders();
+    loadTodayRoutesWidget();
+  }
+
+  async function loadRecentOrders() {
+    const { data } = await db.from('orders')
+      .select(`id, order_number, status, total_amount, created_at, customers(profiles(first_name, last_name))`)
+      .order('created_at', { ascending: false })
+      .limit(8);
+
+    const el = document.getElementById('recent-orders-body');
+    if (!data || data.length === 0) {
+      el.innerHTML = `<div class="empty"><div class="empty-title">No orders yet</div><div class="empty-sub">Orders will appear here once created.</div></div>`;
+      return;
+    }
+    el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Total</th></tr></thead><tbody>
+      ${data.map(o=>`<tr>
+        <td class="td-mono">#${o.order_number}</td>
+        <td class="td-name">${o.customers?.profiles?.first_name||''} ${o.customers?.profiles?.last_name||''}</td>
+        <td>${statusBadge(o.status)}</td>
+        <td>${fmtMoney(o.total_amount)}</td>
+      </tr>`).join('')}
+    </tbody></table>`;
+  }
+
+  async function loadTodayRoutesWidget() {
+    const { data } = await db.from('routes').select('*').eq('date', today()).order('created_at');
+    const el = document.getElementById('today-routes-body');
+    if (!data || data.length === 0) {
+      el.innerHTML = `<div class="empty"><div class="empty-title">No routes today</div><div class="empty-sub">Create a route to get started.</div></div>`;
+      return;
+    }
+    el.innerHTML = `<div style="padding:12px 16px;display:flex;flex-direction:column;gap:12px;">
+      ${data.map((r,i)=>`
+        <div${i>0?' style="border-top:1px solid var(--gray-100);padding-top:12px"':''}>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="font-weight:600;font-size:13px;color:var(--gray-900)">${r.name}</span>
+            ${statusBadge(r.status)}
+          </div>
+          <div style="font-size:12px;color:var(--gray-500);margin-bottom:6px;">${r.total_stops||0} stops</div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${r.total_stops?Math.round((r.completed_stops/r.total_stops)*100):0}%"></div></div>
+        </div>`).join('')}
+    </div>`;
+  }
+
+  // ── CUSTOMERS ──
+  // Helper: normalise the profiles field — PostgREST sometimes returns an array
+  function custProfile(c) {
+    const p = c.profiles;
+    if (!p) return {};
+    if (Array.isArray(p)) return p[0] || {};
+    return p;
+  }
+
+  async function loadCustomers() {
+    const { data } = await db.from('customers')
+      .select('id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, profiles(first_name, last_name, email, phone)')
+      .order('created_at', { ascending: false });
+
+    allCustomers = data || [];
+    updateCustomerStats(allCustomers);
+    renderCustomers(allCustomers);
+  }
+
+  function updateCustomerStats(data) {
+    document.getElementById('cstat-total').textContent = data.length;
+    const active = data.filter(c=>c.risk_status==='active').length;
+    document.getElementById('cstat-active').textContent = active;
+    const totalRev = data.reduce((s,c)=>s+parseFloat(c.lifetime_value||0),0);
+    const totalOrd = data.reduce((s,c)=>s+parseInt(c.total_orders||0),0);
+    document.getElementById('cstat-aov').textContent = totalOrd ? fmtMoney(totalRev/totalOrd) : '$0.00';
+    document.getElementById('cstat-risk').textContent = data.filter(c=>c.risk_status==='at_risk').length;
+  }
+
+  function renderCustomers(data) {
+    const el = document.getElementById('customers-table-body');
+    document.getElementById('cust-count-label').textContent = `${data.length} customer${data.length!==1?'s':''}`;
+    if (!data.length) {
+      el.innerHTML = `<div class="empty"><div class="empty-icon">👥</div><div class="empty-title">No customers yet</div><div class="empty-sub">Add your first customer to get started.</div></div>`;
+      return;
+    }
+    el.innerHTML = `<table><thead><tr><th>Customer</th><th>Phone</th><th>Orders</th><th>Lifetime Value</th><th>Last Order</th><th>Status</th><th></th></tr></thead><tbody>
+      ${data.map(c=>{
+        const p = custProfile(c);
+        const firstName = p.first_name || c.first_name_cache || '';
+        const lastName  = p.last_name  || c.last_name_cache  || '';
+        const email     = p.email      || c.email_cache      || '';
+        const phone     = p.phone      || c.phone_cache      || '';
+        const name = `${firstName} ${lastName}`.trim() || 'Unknown';
+        const ini = initials(firstName, lastName);
+        const col = colorFor(c.id);
+        return `<tr>
+          <td><div class="customer-cell">
+            <div class="c-avatar" style="background:${col}">${ini}</div>
+            <div><div class="td-name">${name}</div><div style="font-size:11.5px;color:var(--gray-400)">${email}</div></div>
+          </div></td>
+          <td>${phone||'—'}</td>
+          <td>${c.total_orders||0}</td>
+          <td style="font-weight:600">${fmtMoney(c.lifetime_value)}</td>
+          <td style="color:var(--gray-500)">${fmtDate(c.last_order_at)}</td>
+          <td>${statusBadge(c.risk_status||'active')}</td>
+          <td class="row-action" onclick="openCustomerPanel('${c.id}')">View →</td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>`;
+  }
+
+  // active status filter (persists across search)
+  let custStatusFilter = 'all';
+
+  function filterCustomers(status, btn) {
+    custStatusFilter = status;
+    document.querySelectorAll('#cust-filter-tabs .filter-tab').forEach(t=>t.classList.remove('active'));
+    btn.classList.add('active');
+    // also respect any active search term
+    const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
+    applyCustomerFilters(q, status);
+  }
+
+  function searchCustomers(raw) {
+    const q = raw.trim().toLowerCase();
+    applyCustomerFilters(q, custStatusFilter);
+  }
+
+  function applyCustomerFilters(q, status) {
+    let data = allCustomers;
+    // status filter
+    if (status && status !== 'all') data = data.filter(c => c.risk_status === status);
+    // text search across name, email, phone
+    if (q) {
+      data = data.filter(c => {
+        const p = custProfile(c);
+        const name  = `${p.first_name||c.first_name_cache||''} ${p.last_name||c.last_name_cache||''}`.toLowerCase();
+        const email = (p.email || c.email_cache || '').toLowerCase();
+        const phone = (p.phone || c.phone_cache || '').replace(/\D/g,'');
+        const qDigits = q.replace(/\D/g,'');
+        return name.includes(q)
+          || email.includes(q)
+          || (qDigits && phone.includes(qDigits))
+          || phone.includes(q);
+      });
+    }
+    renderCustomers(data);
+    // if map is visible, refresh pins too
+    if (document.getElementById('customers-map-view')?.style.display !== 'none') {
+      refreshCustMapPins(data);
+    }
+  }
+
+  // ── ORDERS ──
+  // Helper: safely get profile from a nested order→customer→profile chain
+  function orderProfile(o) {
+    const cust = Array.isArray(o.customers) ? o.customers[0] : o.customers;
+    if (!cust) return {};
+    const p = cust.profiles;
+    if (!p) return { _name_cache: cust.first_name_cache, _lname_cache: cust.last_name_cache };
+    return Array.isArray(p) ? (p[0]||{}) : p;
+  }
+  function orderCustomerName(o) {
+    const p = orderProfile(o);
+    const fn = p.first_name || p._name_cache || '';
+    const ln = p.last_name  || p._lname_cache || '';
+    return `${fn} ${ln}`.trim() || 'Unknown';
+  }
+
+  async function loadOrders(statusFilter) {
+    let q = db.from('orders')
+      .select('id, order_number, status, total_amount, weight_lbs, service_id, pickup_window_start, delivery_window_start, created_at, services(name), customers(first_name_cache, last_name_cache, profiles(first_name, last_name))')
+      .order('created_at', { ascending: false });
+    if (statusFilter && statusFilter !== 'all') q = q.eq('status', statusFilter);
+    const { data } = await q;
+    allOrders = data || [];
+
+    // stats
+    const todayStr = today();
+    const active = allOrders.filter(o=>!['delivered','cancelled'].includes(o.status)).length;
+    const pending = allOrders.filter(o=>o.status==='pending_pickup').length;
+    const outDel  = allOrders.filter(o=>o.status==='out_for_delivery').length;
+    const doneTdy = allOrders.filter(o=>o.status==='delivered' && (o.created_at||'').startsWith(todayStr)).length;
+    document.getElementById('ostat-active').textContent  = active;
+    document.getElementById('ostat-pending').textContent = pending;
+    document.getElementById('ostat-out').textContent     = outDel;
+    document.getElementById('ostat-done').textContent    = doneTdy;
+    document.getElementById('orders-count-label').textContent = `${allOrders.length} order${allOrders.length!==1?'s':''}`;
+    renderOrders(allOrders);
+  }
+
+  function renderOrders(data) {
+    const el = document.getElementById('orders-table-body');
+    if (!data.length) {
+      el.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">No orders found</div><div class="empty-sub">Create your first order to get started.</div></div>`;
+      return;
+    }
+    el.innerHTML = `<table><thead><tr><th>Order #</th><th>Customer</th><th>Service</th><th>Pickup</th><th>Delivery</th><th>Total</th><th>Status</th><th></th></tr></thead><tbody>
+      ${data.map(o=>{
+        const svcName = o.services?.name || '—';
+        return `<tr>
+          <td class="td-mono">#${o.order_number}</td>
+          <td class="td-name">${orderCustomerName(o)}</td>
+          <td style="color:var(--gray-600);font-size:12.5px">${svcName}</td>
+          <td style="color:var(--gray-500);font-size:12.5px">${fmtDate(o.pickup_window_start)}</td>
+          <td style="color:var(--gray-500);font-size:12.5px">${fmtDate(o.delivery_window_start)}</td>
+          <td style="font-weight:600">${fmtMoney(o.total_amount)}</td>
+          <td>${statusBadge(o.status)}</td>
+          <td class="row-action">Open →</td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>`;
+  }
+
+  function filterOrders(status, btn) {
+    document.querySelectorAll('#page-orders .filter-tab').forEach(t=>t.classList.remove('active'));
+    btn.classList.add('active');
+    loadOrders(status);
+  }
+
+  // ── ROUTES ──
+  async function loadRoutes() {
+    const { data } = await db.from('routes').select('*').order('date', { ascending: false }).limit(30);
+    allRoutes = data || [];
+    const todayRoutes = allRoutes.filter(r=>r.date===today());
+    document.getElementById('rstat-today').textContent   = todayRoutes.length;
+    document.getElementById('rstat-stops').textContent   = todayRoutes.reduce((s,r)=>s+(r.total_stops||0),0);
+    document.getElementById('rstat-done').textContent    = todayRoutes.reduce((s,r)=>s+(r.completed_stops||0),0);
+    document.getElementById('rstat-drivers').textContent = todayRoutes.filter(r=>r.driver_id).length;
+    renderRoutes(allRoutes);
+  }
+
+  function renderRoutes(data) {
+    const el = document.getElementById('routes-table-body');
+    if (!data.length) {
+      el.innerHTML = `<div class="empty"><div class="empty-icon">🗺️</div><div class="empty-title">No routes yet</div><div class="empty-sub">Create your first route to assign stops and drivers.</div></div>`;
+      return;
+    }
+    el.innerHTML = `<table><thead><tr><th>Route</th><th>Date</th><th>Stops</th><th>Progress</th><th>Status</th><th></th></tr></thead><tbody>
+      ${data.map(r=>`<tr>
+        <td class="td-name">${r.name}</td>
+        <td style="color:var(--gray-500)">${fmtDate(r.date)}</td>
+        <td>${r.completed_stops||0} / ${r.total_stops||0}</td>
+        <td style="width:120px">
+          <div class="progress-bar" style="margin:0"><div class="progress-fill" style="width:${r.total_stops?Math.round((r.completed_stops/r.total_stops)*100):0}%"></div></div>
+        </td>
+        <td>${statusBadge(r.status)}</td>
+        <td class="row-action">Open →</td>
+      </tr>`).join('')}
+    </tbody></table>`;
+  }
+
+  // ── INBOX ──
+  async function loadInbox() {
+    const { data } = await db.from('conversations')
+      .select(`id, channel, status, subject, last_message_at, customers(profiles(first_name,last_name)), messages(body,direction,sent_at)`)
+      .order('last_message_at', { ascending: false });
+
+    const el = document.getElementById('inbox-list');
+    const openCount = (data||[]).filter(c=>c.status==='open').length;
+    document.getElementById('badge-inbox').textContent = openCount;
+
+    if (!data || data.length === 0) {
+      el.innerHTML = `<div class="empty"><div class="empty-title">Inbox empty</div><div class="empty-sub">Customer messages will appear here.</div></div>`;
+      return;
+    }
+
+    el.innerHTML = data.map(c=>{
+      const p = c.customers?.profiles||{};
+      const name = `${p.first_name||''} ${p.last_name||''}`.trim()||'Unknown';
+      const lastMsg = (c.messages||[]).slice(-1)[0];
+      return `<div class="inbox-item" onclick="openConversation('${c.id}', this)">
+        <div class="inbox-item-header">
+          <div class="inbox-item-name">${name} <span style="font-size:10px;padding:1px 5px;background:${c.channel==='sms'?'var(--green-light)':'var(--blue-light)'};color:${c.channel==='sms'?'var(--green)':'var(--blue)'};border-radius:4px;font-weight:600">${c.channel.toUpperCase()}</span></div>
+          <div class="inbox-item-time">${fmtDate(c.last_message_at)}</div>
+        </div>
+        <div class="inbox-item-preview">${lastMsg?.body||'No messages yet'}</div>
+      </div>`;
+    }).join('');
+  }
+
+  async function openConversation(id, el) {
+    document.querySelectorAll('.inbox-item').forEach(i=>i.classList.remove('active'));
+    el.classList.add('active');
+    currentConversation = id;
+
+    const { data: conv } = await db.from('conversations')
+      .select(`*, customers(profiles(first_name,last_name,phone,email))`)
+      .eq('id', id).single();
+
+    const { data: msgs } = await db.from('messages')
+      .select('*').eq('conversation_id', id).order('sent_at');
+
+    const p = conv?.customers?.profiles||{};
+    const name = `${p.first_name||''} ${p.last_name||''}`.trim();
+
+    document.getElementById('inbox-thread').innerHTML = `
+      <div class="inbox-thread-header">
+        <div>
+          <div style="font-weight:600;font-size:14px;color:var(--gray-900)">${name}</div>
+          <div style="font-size:12px;color:var(--gray-500)">${p.phone||p.email||''}</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost" style="padding:5px 10px;font-size:12px" onclick="resolveConv('${id}')">Mark Resolved</button>
+        </div>
+      </div>
+      <div class="inbox-messages" id="msg-thread">
+        ${(msgs||[]).map(m=>`
+          <div>
+            <div class="message-bubble message-${m.direction}">${m.body}</div>
+            <div style="font-size:11px;color:var(--gray-400);margin-top:3px;text-align:${m.direction==='outbound'?'right':'left'}">${fmtDate(m.sent_at)}</div>
+          </div>`).join('')}
+        ${(!msgs||msgs.length===0)?'<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:20px">No messages yet</div>':''}
+      </div>
+      <div class="inbox-composer">
+        <input type="text" id="compose-input" placeholder="Type a reply…" onkeydown="if(event.key==='Enter')sendReply('${id}')" />
+        <button class="btn btn-primary" onclick="sendReply('${id}')">Send</button>
+      </div>`;
+  }
+
+  async function sendReply(convId) {
+    const input = document.getElementById('compose-input');
+    const body = input.value.trim();
+    if (!body) return;
+    input.value = '';
+    const { data: { user } } = await db.auth.getUser();
+    await db.from('messages').insert({ conversation_id: convId, direction: 'outbound', body, sent_by: user.id });
+    await db.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', convId);
+    openConversation(convId, document.querySelector('.inbox-item.active'));
+    showToast('Reply sent', 'success');
+  }
+
+  async function resolveConv(id) {
+    await db.from('conversations').update({ status: 'resolved' }).eq('id', id);
+    loadInbox();
+    document.getElementById('inbox-thread').innerHTML = `<div class="inbox-empty"><div style="font-size:13px;color:var(--gray-500)">Conversation resolved</div></div>`;
+    showToast('Conversation resolved', 'success');
+  }
+
+  // ── MODALS ──
+  function openModal(name) {
+    if (name === 'add-customer') populateCustomerModal();
+    if (name === 'add-order')    populateOrderModal();
+    if (name === 'add-route')    populateRouteModal();
+    document.getElementById('modal-'+name).classList.add('open');
+  }
+
+  function closeModal(name) {
+    document.getElementById('modal-'+name).classList.remove('open');
+  }
+
+  async function populateCustomerModal() {
+    // Reset form
+    ['c-first','c-last','c-email','c-phone','c-addr','c-unit','c-city','c-state','c-zip','c-access','c-notes','c-ambassador'].forEach(id=>{
+      const el = document.getElementById(id); if(el) el.value='';
+    });
+    document.getElementById('c-source').value = '';
+    document.getElementById('c-ambassador-row').style.display = 'none';
+    document.getElementById('c-error').style.display = 'none';
+    document.getElementById('c-type-individual').checked = true;
+    highlightCtype();
+    // Load subscription plans
+    const { data: plans } = await db.from('subscription_plans').select('*').eq('is_active', true).order('price');
+    const sel = document.getElementById('c-plan');
+    sel.innerHTML = '<option value="">— No plan (pay per order) —</option>' +
+      (plans||[]).map(p=>`<option value="${p.id}">${p.name} — ${fmtMoney(p.price)}/${p.billing_interval}</option>`).join('');
+  }
+
+  // ── CUSTOMER FORM UX HELPERS ──
+  function highlightCtype() {
+    const isInd = document.getElementById('c-type-individual').checked;
+    [['ctype-individual-label', isInd], ['ctype-business-label', !isInd]].forEach(([id, active]) => {
+      const el = document.getElementById(id);
+      el.style.borderColor = active ? 'var(--accent)'       : 'var(--gray-200)';
+      el.style.background  = active ? 'var(--accent-light)' : 'white';
+      el.style.color       = active ? 'var(--accent)'       : 'var(--gray-700)';
+    });
+  }
+
+  function toggleAmbassador(val) {
+    document.getElementById('c-ambassador-row').style.display = val === 'ambassador' ? '' : 'none';
+  }
+
+  function fmtPhone(input) {
+    let v = input.value.replace(/\D/g,'').slice(0,10);
+    if (v.length >= 7)      input.value = `(${v.slice(0,3)}) ${v.slice(3,6)}-${v.slice(6)}`;
+    else if (v.length >= 4) input.value = `(${v.slice(0,3)}) ${v.slice(3)}`;
+    else if (v.length >= 1) input.value = `(${v}`;
+  }
+
+  // ── SERVICES CRUD ──
+  async function loadServices() {
+    const { data } = await db.from('services').select('*').order('category').order('sort_order').order('name');
+    allServices = data || [];
+    filterServices();
+  }
+
+  function filterServices() {
+    const cat = document.getElementById('svc-cat-filter')?.value || '';
+    const filtered = cat ? allServices.filter(s => (s.category||'') === cat) : allServices;
+    renderServices(filtered);
+  }
+
+  function renderServices(data) {
+    const el = document.getElementById('services-table-body');
+    const total = data.length;
+    document.getElementById('svc-count-label').textContent = `${total} service${total!==1?'s':''}`;
+    if (!total) {
+      el.innerHTML = `<div style="padding:40px;text-align:center;color:var(--gray-400);font-size:13.5px">No services found. Add one below.</div>`;
+      return;
+    }
+    const cats = [...new Set(data.map(s => s.category || 'Uncategorized'))].sort();
+    el.innerHTML = cats.map(cat => {
+      const rows = data.filter(s => (s.category||'Uncategorized') === cat);
+      return `<div class="svc-category-group">
+        <div class="svc-cat-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M4 6h16M4 12h16M4 18h7"/></svg>
+          ${cat} <span style="color:var(--gray-400);font-size:11px;font-weight:400">${rows.length} service${rows.length!==1?'s':''}</span>
+        </div>
+        <div class="svc-table-head">
+          <div>Service Name</div><div>Price</div><div>Pricing Type</div><div>Category</div><div>Active</div><div></div>
+        </div>
+        ${rows.map(s => svcRow(s)).join('')}
+      </div>`;
+    }).join('');
+  }
+
+  function svcRow(s) {
+    const esc = v => (v||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    return `<div class="svc-row" id="svc-row-${s.id}">
+      <div><input class="svc-input" id="svc-name-${s.id}" value="${esc(s.name)}" placeholder="Service name" oninput="markSvcDirty('${s.id}')" /></div>
+      <div class="svc-price-wrap">
+        <span class="svc-price-prefix">$</span>
+        <input class="svc-input" id="svc-price-${s.id}" type="number" step="0.01" min="0" value="${parseFloat(s.base_price||0).toFixed(2)}" style="width:72px;padding-left:4px" oninput="markSvcDirty('${s.id}')" />
+      </div>
+      <div>
+        <select class="svc-select" id="svc-type-${s.id}" onchange="markSvcDirty('${s.id}')">
+          <option value="per_lb" ${s.pricing_type==='per_lb'?'selected':''}>Per lb</option>
+          <option value="per_item" ${s.pricing_type==='per_item'?'selected':''}>Per item</option>
+          <option value="flat" ${s.pricing_type==='flat'?'selected':''}>Flat rate</option>
+        </select>
+      </div>
+      <div>
+        <select class="svc-select" id="svc-cat-${s.id}" onchange="markSvcDirty('${s.id}')">
+          <option value="Delivery" ${(s.category||'Delivery')==='Delivery'?'selected':''}>Delivery</option>
+          <option value="Commercial" ${s.category==='Commercial'?'selected':''}>Commercial</option>
+          <option value="Add-ons" ${s.category==='Add-ons'?'selected':''}>Add-ons</option>
+        </select>
+      </div>
+      <div>
+        <label class="toggle-switch">
+          <input type="checkbox" ${s.is_active?'checked':''} onchange="toggleServiceActive('${s.id}',this.checked)" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="svc-actions-cell">
+        <button class="svc-save-btn" id="svc-save-${s.id}" onclick="saveServiceEdit('${s.id}')">Save</button>
+        <button class="svc-del-btn" onclick="confirmDeleteService('${s.id}','${esc(s.name)}')" title="Delete">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+        </button>
+      </div>
+    </div>`;
+  }
+
+  function markSvcDirty(id) {
+    const btn = document.getElementById('svc-save-'+id);
+    if (btn) btn.style.display = 'inline-flex';
+  }
+
+  async function saveServiceEdit(id) {
+    const name  = document.getElementById('svc-name-'+id)?.value.trim();
+    const price = parseFloat(document.getElementById('svc-price-'+id)?.value) || 0;
+    const type  = document.getElementById('svc-type-'+id)?.value;
+    const cat   = document.getElementById('svc-cat-'+id)?.value;
+    if (!name) { showToast('Service name required','error'); return; }
+    const { error } = await db.from('services').update({ name, base_price: price, pricing_type: type, category: cat }).eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    const saveBtn = document.getElementById('svc-save-'+id);
+    if (saveBtn) saveBtn.style.display = 'none';
+    allServices = allServices.map(s => s.id===id ? {...s, name, base_price: price, pricing_type: type, category: cat} : s);
+    showToast('Saved!', 'success');
+    // Re-render if category changed (service may move to different group)
+    filterServices();
+  }
+
+  async function toggleServiceActive(id, isActive) {
+    const { error } = await db.from('services').update({ is_active: isActive }).eq('id', id);
+    if (error) { showToast(error.message,'error'); return; }
+    allServices = allServices.map(s => s.id===id ? {...s, is_active: isActive} : s);
+    showToast(isActive ? 'Service activated' : 'Service deactivated');
+  }
+
+  function confirmDeleteService(id, name) {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    deleteService(id);
+  }
+
+  async function deleteService(id) {
+    const { error } = await db.from('services').delete().eq('id', id);
+    if (error) { showToast(error.message,'error'); return; }
+    allServices = allServices.filter(s => s.id !== id);
+    showToast('Service deleted');
+    filterServices();
+  }
+
+  async function saveNewService() {
+    const name  = document.getElementById('ns-name').value.trim();
+    const price = parseFloat(document.getElementById('ns-price').value) || 0;
+    const type  = document.getElementById('ns-type').value;
+    const cat   = document.getElementById('ns-category').value;
+    if (!name) { document.getElementById('ns-name').focus(); document.getElementById('ns-name').style.borderColor='var(--red)'; setTimeout(()=>document.getElementById('ns-name').style.borderColor='',1500); return; }
+    const maxSort = Math.max(0, ...allServices.map(s => s.sort_order||0));
+    const { data, error } = await db.from('services').insert({
+      name, base_price: price, pricing_type: type, category: cat,
+      is_active: true, show_in_app: true, sort_order: maxSort + 1
+    }).select().single();
+    if (error) { showToast(error.message,'error'); return; }
+    allServices.push(data);
+    document.getElementById('ns-name').value = '';
+    document.getElementById('ns-price').value = '';
+    document.getElementById('ns-type').value = 'per_lb';
+    showToast(`"${name}" added!`, 'success');
+    filterServices();
+    document.getElementById('ns-name').focus();
+  }
+
+  async function populateOrderModal() {
+    const cSelect = document.getElementById('o-customer');
+    cSelect.innerHTML = allCustomers.length
+      ? allCustomers.map(c=>{
+          const p = custProfile(c);
+          const fn = p.first_name || c.first_name_cache || '';
+          const ln = p.last_name  || c.last_name_cache  || '';
+          return `<option value="${c.id}">${(fn+' '+ln).trim() || 'Unknown'}</option>`;
+        }).join('')
+      : '<option>No customers yet</option>';
+    const { data: services } = await db.from('services').select('id, name, base_price, pricing_type').eq('is_active', true).order('sort_order');
+    allServices = services || [];
+    const sSelect = document.getElementById('o-service');
+    sSelect.innerHTML = allServices.length
+      ? allServices.map(s=>`<option value="${s.id}" data-price="${s.base_price}" data-type="${s.pricing_type}">${s.name} — ${s.pricing_type==='per_lb'?fmtMoney(s.base_price)+'/lb':fmtMoney(s.base_price)}</option>`).join('')
+      : '<option value="">No active services</option>';
+  }
+
+  async function populateRouteModal() {
+    const { data: drivers } = await db.from('drivers').select(`id, profiles(first_name,last_name)`).eq('is_active', true);
+    const sel = document.getElementById('r-driver');
+    sel.innerHTML = '<option value="">Unassigned</option>' +
+      (drivers||[]).map(d=>`<option value="${d.id}">${d.profiles?.first_name||''} ${d.profiles?.last_name||''}</option>`).join('');
+  }
+
+  async function saveCustomer(andOrder = false) {
+    const err = document.getElementById('c-error');
+    err.style.display = 'none';
+
+    // Collect all fields
+    const customerType = document.querySelector('input[name="c-type"]:checked')?.value || 'individual';
+    const first  = document.getElementById('c-first').value.trim();
+    const last   = document.getElementById('c-last').value.trim();
+    const email  = document.getElementById('c-email').value.trim();
+    const phone  = document.getElementById('c-phone').value.trim();
+    const addr   = document.getElementById('c-addr').value.trim();
+    const unit   = document.getElementById('c-unit').value.trim();
+    const city   = document.getElementById('c-city').value.trim();
+    const state  = document.getElementById('c-state').value.trim().toUpperCase();
+    const zip    = document.getElementById('c-zip').value.trim();
+    const access = document.getElementById('c-access').value.trim();
+    const planId = document.getElementById('c-plan').value || null;
+    const source = document.getElementById('c-source').value;
+    const ambassador = document.getElementById('c-ambassador').value.trim().toUpperCase() || null;
+    const notes  = document.getElementById('c-notes').value.trim();
+
+    // Validate required fields
+    if (!first) { err.textContent = 'First name is required.'; err.style.display='block'; document.getElementById('c-first').focus(); return; }
+    if (!source) { err.textContent = 'Please select how they found you.'; err.style.display='block'; document.getElementById('c-source').focus(); return; }
+
+    // Save to Supabase — profile + customer + address
+    // Note: full auth-linked profile creation happens when customer registers
+    // via the customer app; this creates an admin-managed record.
+    const saveBtn = document.querySelector('#modal-add-customer .btn-primary');
+    if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent='Saving…'; }
+
+    try {
+      // Insert customer record (profile_id optional for admin-created records)
+      const { data: cust, error: custErr } = await db.from('customers').insert({
+        risk_status:          'active',
+        notes:                notes || null,
+        referral_source:      source || null,
+        ambassador_code:      ambassador,
+        subscription_plan_id: planId || null,
+        customer_type:        customerType,
+        first_name_cache:     first,
+        last_name_cache:      last || null,
+        email_cache:          email || null,
+        phone_cache:          phone || null,
+        address_cache:        addr ? `${addr}${unit?' Apt '+unit:''}, ${city}, ${state} ${zip}`.trim() : null,
+        access_instructions:  access || null,
+      }).select('id').single();
+
+      if (custErr) throw custErr;
+
+      // Insert service address if provided
+      if (addr && cust?.id) {
+        await db.from('addresses').insert({
+          customer_id:           cust.id,
+          label:                 'Home',
+          line1:                 addr,
+          line2:                 unit || null,
+          city:                  city || null,
+          state:                 state || null,
+          zip:                   zip  || null,
+          delivery_instructions: access || null,
+          is_default:            true,
+        });
+      }
+
+      showToast(`${first}${last?' '+last:''} added!`, 'success');
+      closeModal('add-customer');
+      loadCustomers();
+      if (andOrder) setTimeout(()=>openModal('add-order'), 400);
+
+    } catch(e) {
+      err.textContent = e?.message || 'Save failed — please try again.';
+      err.style.display = 'block';
+    } finally {
+      if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent='Save Customer'; }
+    }
+  }
+
+  async function saveOrder() {
+    const err = document.getElementById('o-error');
+    err.style.display = 'none';
+    const customerId  = document.getElementById('o-customer').value;
+    const serviceId   = document.getElementById('o-service').value || null;
+    const weightRaw   = parseFloat(document.getElementById('o-weight').value) || null;
+    const pickupStart = document.getElementById('o-pickup-start').value;
+    const pickupEnd   = document.getElementById('o-pickup-end').value;
+    const delStart    = document.getElementById('o-del-start').value;
+    const delEnd      = document.getElementById('o-del-end').value;
+    const notes       = document.getElementById('o-notes').value.trim();
+    if (!customerId) { err.textContent='Please select a customer.'; err.style.display='block'; return; }
+
+    // Compute total from selected service
+    let totalAmount = 0;
+    if (serviceId) {
+      const svc = allServices.find(s => s.id === serviceId);
+      if (svc) {
+        if (svc.pricing_type === 'per_lb' && weightRaw) {
+          totalAmount = Math.round(svc.base_price * weightRaw * 100) / 100;
+        } else {
+          totalAmount = svc.base_price || 0;
+        }
+      }
+    }
+
+    const { error } = await db.from('orders').insert({
+      customer_id: customerId,
+      service_id: serviceId,
+      status: 'pending_pickup',
+      weight_lbs: weightRaw,
+      pickup_window_start: pickupStart||null,
+      pickup_window_end: pickupEnd||null,
+      delivery_window_start: delStart||null,
+      delivery_window_end: delEnd||null,
+      special_instructions: notes||null,
+      total_amount: totalAmount
+    });
+
+    if (error) { err.textContent = error.message; err.style.display='block'; return; }
+    showToast('Order created!', 'success');
+    closeModal('add-order');
+    loadOrders();
+    loadOverview();
+  }
+
+  async function saveRoute() {
+    const err = document.getElementById('r-error');
+    err.style.display = 'none';
+    const name     = document.getElementById('r-name').value.trim();
+    const driverId = document.getElementById('r-driver').value||null;
+    const date     = document.getElementById('r-date').value;
+    if (!name || !date) { err.textContent='Route name and date are required.'; err.style.display='block'; return; }
+
+    const { error } = await db.from('routes').insert({ name, driver_id: driverId, date, status:'scheduled', total_stops:0, completed_stops:0 });
+    if (error) { err.textContent = error.message; err.style.display='block'; return; }
+    showToast('Route created!', 'success');
+    closeModal('add-route');
+    loadRoutes();
+    loadOverview();
+  }
+
+  // ── TOAST ──
+  function showToast(msg, type='') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = `toast ${type} show`;
+    setTimeout(()=>{ t.className='toast'; }, 3000);
+  }
+
+  // ── CLOSE MODALS ON OVERLAY CLICK ──
+  document.querySelectorAll('.modal-overlay').forEach(o=>{
+    o.addEventListener('click', e=>{ if(e.target===o) o.classList.remove('open'); });
+  });
+
+  // ── CUSTOMER SIDE PANEL ──
+  let panelCustomerId = null;
+
+  function cpTab(name, btn) {
+    document.querySelectorAll('.cp-tab').forEach(t=>t.classList.remove('active'));
+    btn.classList.add('active');
+    ['contact','orders','preferences'].forEach(n=>{
+      const el = document.getElementById('cptab-'+n);
+      if (el) el.style.display = (n===name) ? '' : 'none';
+    });
+    if (name==='orders' && panelCustomerId) loadPanelOrders(panelCustomerId);
+    if (name==='preferences' && panelCustomerId) loadPanelPreferences(panelCustomerId);
+  }
+
+  async function openCustomerPanel(customerId) {
+    panelCustomerId = customerId;
+    // Reset tabs to Contact
+    document.querySelectorAll('.cp-tab').forEach((t,i)=>{ t.classList.toggle('active', i===0); });
+    ['contact','orders','preferences'].forEach((n,i)=>{
+      const el = document.getElementById('cptab-'+n);
+      if (el) el.style.display = i===0 ? '' : 'none';
+    });
+    document.getElementById('customer-panel').classList.add('open');
+    document.getElementById('panel-backdrop').classList.add('open');
+
+    // Fetch full customer data with profile + addresses
+    const { data: c } = await db.from('customers')
+      .select('id, lifetime_value, total_orders, last_order_at, risk_status, created_at, customer_type, referral_source, ambassador_code, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, profiles(first_name, last_name, email, phone), addresses(id, label, line1, line2, city, state, zip, delivery_instructions, is_default)')
+      .eq('id', customerId)
+      .single();
+
+    if (!c) return;
+    const p = custProfile(c);
+    const fn = p.first_name || c.first_name_cache || '';
+    const ln = p.last_name  || c.last_name_cache  || '';
+    const email = p.email   || c.email_cache      || '';
+    const phone = p.phone   || c.phone_cache      || '';
+
+    // Header
+    document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
+    document.getElementById('cp-meta').textContent = email || '';
+    document.getElementById('cp-status-badge').innerHTML = statusBadge(c.risk_status||'active');
+
+    // Stats strip
+    document.getElementById('cp-ltv').textContent = fmtMoney(c.lifetime_value);
+    document.getElementById('cp-total-orders').textContent = c.total_orders || 0;
+    document.getElementById('cp-last-order').textContent = c.last_order_at ? fmtDate(c.last_order_at) : '—';
+
+    // Contact fields
+    document.getElementById('cpf-first').textContent = fn || '—';
+    document.getElementById('cpf-last').textContent  = ln || '—';
+    document.getElementById('cpf-phone').textContent = phone || '—';
+    document.getElementById('cpf-email').textContent = email || '—';
+
+    const typeLabel = {individual:'Individual',business:'Business',managed:'Managed'};
+    document.getElementById('cpf-type').textContent = typeLabel[c.customer_type] || c.customer_type || '—';
+
+    const sourceLabel = {google:'Google',instagram:'Instagram',nextdoor:'Nextdoor',facebook:'Facebook',word_of_mouth:'Word of Mouth',referral:'Referral',other:'Other'};
+    document.getElementById('cpf-source').textContent = sourceLabel[c.referral_source] || c.referral_source || '—';
+    document.getElementById('cpf-ambassador').textContent = c.ambassador_code || '—';
+    document.getElementById('cpf-access').textContent = c.access_instructions || '—';
+    document.getElementById('cpf-notes').textContent = c.notes || 'No notes.';
+
+    // Addresses
+    const addrs = Array.isArray(c.addresses) ? c.addresses : (c.addresses ? [c.addresses] : []);
+    const addrEl = document.getElementById('cp-addresses');
+    if (addrs.length) {
+      addrEl.innerHTML = addrs.map(a=>`
+        <div style="margin-bottom:10px;padding:12px;background:var(--gray-50);border-radius:8px;border:1px solid var(--gray-100)">
+          <div style="font-size:12px;font-weight:600;color:var(--gray-400);margin-bottom:4px">${a.label||'Address'}${a.is_default?' · <span style="color:var(--green)">Default</span>':''}</div>
+          <div style="font-size:13.5px;color:var(--gray-800)">${a.line1}${a.line2?', '+a.line2:''}</div>
+          <div style="font-size:13px;color:var(--gray-500)">${a.city||''}, ${a.state||''} ${a.zip||''}</div>
+          ${a.delivery_instructions?`<div style="font-size:12px;color:var(--gray-400);margin-top:4px">📝 ${a.delivery_instructions}</div>`:''}
+        </div>`).join('');
+    } else {
+      addrEl.innerHTML = '<div class="cp-field-value empty">No address on file</div>';
+    }
+  }
+
+  async function loadPanelOrders(customerId) {
+    const el = document.getElementById('cp-orders-list');
+    el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
+    const { data } = await db.from('orders')
+      .select('id, order_number, status, total_amount, weight_lbs, pickup_window_start, created_at, services(name)')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
+    if (!data || !data.length) {
+      el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>';
+      return;
+    }
+    el.innerHTML = data.map(o=>`
+      <div class="cp-order-row">
+        <span class="cp-order-num">#${o.order_number}</span>
+        <div class="cp-order-svc">
+          <div>${o.services?.name||'—'}</div>
+          <div style="font-size:11.5px;color:var(--gray-400)">${fmtDate(o.pickup_window_start||o.created_at)}${o.weight_lbs?' · '+o.weight_lbs+' lbs':''}</div>
+        </div>
+        ${statusBadge(o.status)}
+        <span class="cp-order-amt">${fmtMoney(o.total_amount)}</span>
+      </div>`).join('');
+  }
+
+  async function loadPanelPreferences(customerId) {
+    const el = document.getElementById('cp-prefs-list');
+    const { data: c } = await db.from('customers')
+      .select('preferences, notes, subscription_plan_id, subscription_plans(name, billing_cycle)')
+      .eq('id', customerId).single();
+    if (!c) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">No preferences set.</div>'; return; }
+
+    const prefs = c.preferences || {};
+    const plan = c.subscription_plans;
+
+    const rows = [
+      { key: 'Subscription Plan', val: plan ? `${plan.name} (${plan.billing_cycle})` : 'None' },
+      { key: 'Preferred Pickup Time', val: prefs.preferred_pickup || '—' },
+      { key: 'Preferred Delivery Time', val: prefs.preferred_delivery || '—' },
+      { key: 'Detergent Preference', val: prefs.detergent || '—' },
+      { key: 'Fabric Softener', val: prefs.fabric_softener || '—' },
+      { key: 'Separate Colors', val: prefs.separate_colors!=null ? (prefs.separate_colors?'Yes':'No') : '—' },
+      { key: 'Hang Dry Items', val: prefs.hang_dry || '—' },
+    ];
+
+    el.innerHTML = rows.map(r=>`
+      <div class="cp-pref-row">
+        <span class="cp-pref-key">${r.key}</span>
+        <span class="cp-pref-val">${r.val}</span>
+      </div>`).join('');
+  }
+
+  function closeCustomerPanel() {
+    document.getElementById('customer-panel').classList.remove('open');
+    document.getElementById('panel-backdrop').classList.remove('open');
+    panelCustomerId = null;
+  }
+
+  // ── MAP STATE ──
+  let custMap=null, liveMap=null, zonesMap=null;
+  let custMarkers=[], drawnZones=[], zoneDrawControl=null;
+  const statusColor={active:'#0ba25a',at_risk:'#d97706',churned:'#9ca3af'};
+
+  const sampleStops=[
+    {num:1,name:'Sarah Chen',addr:'4028 Telegraph Ave',type:'delivery',status:'complete',lat:37.8282,lng:-122.2602,time:'9:14 AM'},
+    {num:2,name:'Marcus T.',addr:'2847 College Ave',type:'pickup',status:'complete',lat:37.8575,lng:-122.2527,time:'9:47 AM'},
+    {num:3,name:'Priya S.',addr:'1501 Park Blvd',type:'delivery',status:'complete',lat:37.8093,lng:-122.2157,time:'10:12 AM'},
+    {num:4,name:'Anika P.',addr:'3100 Telegraph Ave',type:'pickup',status:'en-route',lat:37.8506,lng:-122.2638,time:'ETA 11:30'},
+    {num:5,name:'Linda M.',addr:'3850 International Blvd',type:'delivery',status:'pending',lat:37.7713,lng:-122.2184,time:'12:00 PM'},
+    {num:6,name:'James W.',addr:'5201 Broadway',type:'pickup',status:'pending',lat:37.8395,lng:-122.2631,time:'12:40 PM'},
+  ];
+  const sampleZones=[
+    {id:1,name:'North Oakland',color:'#635bff',coords:[[37.855,-122.285],[37.855,-122.235],[37.830,-122.235],[37.830,-122.285]],customers:18},
+    {id:2,name:'Berkeley',color:'#10b981',coords:[[37.895,-122.300],[37.895,-122.245],[37.860,-122.245],[37.860,-122.300]],customers:14},
+    {id:3,name:'East Oakland',color:'#f59e0b',coords:[[37.820,-122.230],[37.820,-122.180],[37.780,-122.180],[37.780,-122.230]],customers:11},
+  ];
+
+  function makePin(color,label,size=28){
+    return L.divIcon({className:'',iconSize:[size,size],iconAnchor:[size/2,size/2],
+      html:`<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid white;box-shadow:0 2px 8px rgba(0,0,0,.22);display:flex;align-items:center;justify-content:center;font-size:${size>26?11:9}px;font-weight:700;color:white">${label}</div>`});
+  }
+  function makeDriverPin(){
+    return L.divIcon({className:'',iconSize:[38,38],iconAnchor:[19,19],
+      html:`<div style="width:38px;height:38px;border-radius:50%;background:#635bff;border:3px solid white;box-shadow:0 2px 12px rgba(99,91,255,.5);display:flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99z"/></svg></div>`});
+  }
+  const cartoTiles=()=>L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © Carto',maxZoom:19});
+
+  // ── MAPS PAGE TABS ──
+  function setMapsTab(tab, btn){
+    ['live','zones'].forEach(t=>{
+      document.getElementById('maps-tab-'+t).style.display = t===tab ? '' : 'none';
+    });
+    document.querySelectorAll('#page-maps .section-tab').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    if(tab==='live')  setTimeout(()=>initLiveMap(),  50);
+    if(tab==='zones') setTimeout(()=>initZonesMap(), 50);
+  }
+
+  // ── ROUTE TABS (legacy — kept for compatibility) ──
+  function setRouteTab(tab,btn){}
+
+  // ── CUSTOMER LIST / MAP TOGGLE ──
+  function setCustView(view){
+    const tableEl = document.getElementById('customers-table-body');
+    const mapEl   = document.getElementById('customers-map-view');
+    const btnList = document.getElementById('cust-view-list');
+    const btnMap  = document.getElementById('cust-view-map');
+    if(view==='map'){
+      tableEl.style.display = 'none';
+      mapEl.style.display   = 'block';
+      btnList.classList.remove('active');
+      btnMap.classList.add('active');
+      setTimeout(()=>initCustMap(), 60);
+    } else {
+      tableEl.style.display = '';
+      mapEl.style.display   = 'none';
+      btnList.classList.add('active');
+      btnMap.classList.remove('active');
+    }
+  }
+
+  function initCustMap(){
+    if(custMap){ custMap.invalidateSize(); return; }
+    custMap=L.map('cust-map').setView([37.835,-122.255],12);
+    cartoTiles().addTo(custMap);
+    // get the currently filtered set (or all if no filter active)
+    const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
+    const data = q || custStatusFilter !== 'all'
+      ? allCustomers.filter(c=>{
+          const p=custProfile(c);
+          const name=`${p.first_name||c.first_name_cache||''} ${p.last_name||c.last_name_cache||''}`.toLowerCase();
+          const email=(p.email||c.email_cache||'').toLowerCase();
+          const phone=(p.phone||c.phone_cache||'').replace(/\D/g,'');
+          const qd=q.replace(/\D/g,'');
+          const matchSearch = !q || name.includes(q)||email.includes(q)||(qd&&phone.includes(qd));
+          const matchStatus = custStatusFilter==='all'||c.risk_status===custStatusFilter;
+          return matchSearch && matchStatus;
+        })
+      : allCustomers;
+    if(!data.length) showToast('No customers to display on map','');
+    addCustPins(data);
+  }
+
+  function refreshCustMapPins(data){
+    if(!custMap) return;
+    custMarkers.forEach(m=>custMap.removeLayer(m));
+    custMarkers=[];
+    addCustPins(data);
+  }
+
+  function addCustPins(data){
+    data.forEach(c=>{
+      if(!c.lat&&!c.lng) return;
+      const col=statusColor[c.risk_status||'active'];
+      const p=custProfile(c);
+      const fn = p.first_name || c.first_name_cache || '';
+      const ln = p.last_name  || c.last_name_cache  || '';
+      const name=`${fn} ${ln}`.trim();
+      const contact = p.email||c.email_cache||p.phone||c.phone_cache||c.address_cache||'';
+      const m=L.marker([c.lat,c.lng],{icon:makePin(col,'',24)}).addTo(custMap)
+        .on('click',()=>{
+          document.getElementById('cim-name').textContent=name;
+          document.getElementById('cim-addr').textContent=contact;
+          document.getElementById('cust-info-card').style.display='block';
+          custMap.flyTo([c.lat,c.lng],15,{duration:.8});
+        });
+      custMarkers.push(m);
+    });
+  }
+
+  function initLiveMap(){
+    if(liveMap){ liveMap.invalidateSize(); return; }
+    const el=document.getElementById('live-route-map');
+    el.style.height='500px';
+    liveMap=L.map('live-route-map').setView([37.820,-122.240],12);
+    cartoTiles().addTo(liveMap);
+    // Route line
+    const coords=sampleStops.map(s=>[s.lat,s.lng]);
+    L.polyline(coords,{color:'#635bff',weight:2.5,opacity:.4,dashArray:'6 4'}).addTo(liveMap);
+    const doneCoords=sampleStops.filter(s=>s.status!=='pending').map(s=>[s.lat,s.lng]);
+    L.polyline(doneCoords,{color:'#0ba25a',weight:3,opacity:.7}).addTo(liveMap);
+    // Stop markers
+    const stopColor={'complete':'#0ba25a','en-route':'#2563eb','pending':'#9ca3af'};
+    sampleStops.forEach(s=>{
+      const col=stopColor[s.status];
+      const sz=s.status==='en-route'?34:28;
+      L.marker([s.lat,s.lng],{icon:makePin(col,s.status==='complete'?'✓':s.num.toString(),sz)})
+        .addTo(liveMap)
+        .bindPopup(`<strong>#${s.num} ${s.name}</strong><br>${s.addr}<br><em>${s.type} · ${s.time}</em>`);
+    });
+    // Driver pin (between stops 3 and 4)
+    const driverPin=L.marker([37.832,-122.260],{icon:makeDriverPin(),zIndexOffset:1000}).addTo(liveMap).bindPopup('<strong>Driver — En Route</strong>');
+    // Animate driver toward stop 4
+    let step=0;
+    const target=sampleStops[3];
+    const start={lat:37.832,lng:-122.260};
+    const iv=setInterval(()=>{
+      step++; if(step>100){clearInterval(iv);return;}
+      driverPin.setLatLng([start.lat+(target.lat-start.lat)*(step/100),start.lng+(target.lng-start.lng)*(step/100)]);
+    },400);
+    // Stop list
+    const listEl=document.getElementById('live-stop-list');
+    listEl.innerHTML=sampleStops.map(s=>`
+      <div class="rsl-item" onclick="liveMap.flyTo([${s.lat},${s.lng}],16,{duration:.6})">
+        <div class="rsl-pin ${s.status==='complete'?'pin-done':s.status==='en-route'?'pin-now':'pin-next'}">${s.status==='complete'?'✓':s.num}</div>
+        <div class="rsl-info">
+          <div class="rsl-name">${s.name}</div>
+          <div class="rsl-addr">${s.addr}</div>
+          <span class="rsl-tag ${s.type==='pickup'?'tag-pickup':'tag-delivery'}">${s.type==='pickup'?'Pickup':'Delivery'}</span>
+        </div>
+      </div>`).join('');
+  }
+
+  function initZonesMap(){
+    if(zonesMap){ zonesMap.invalidateSize(); return; }
+    const el=document.getElementById('zones-map');
+    el.style.height='500px';
+    zonesMap=L.map('zones-map').setView([37.835,-122.265],12);
+    cartoTiles().addTo(zonesMap);
+    drawnZones=[...sampleZones];
+    const drawnItems=new L.FeatureGroup().addTo(zonesMap);
+    zoneDrawControl=new L.Control.Draw({
+      draw:{polygon:{shapeOptions:{color:'#635bff',fillColor:'#635bff',fillOpacity:.2,weight:2}},polyline:false,rectangle:false,circle:false,marker:false,circlemarker:false},
+      edit:{featureGroup:drawnItems}
+    });
+    zonesMap.addControl(zoneDrawControl);
+    zonesMap.on(L.Draw.Event.CREATED,function(e){
+      drawnItems.addLayer(e.layer);
+      const name=prompt('Name this zone (e.g. "South Berkeley"):');
+      if(!name) return;
+      const cols=['#635bff','#10b981','#f59e0b','#3b82f6','#ec4899'];
+      const color=cols[drawnZones.length%cols.length];
+      drawnZones.push({id:Date.now(),name,color,customers:0});
+      document.getElementById('zone-draw-hint').style.display='none';
+      renderZonesList();
+      showToast(`Zone "${name}" saved`,'success');
+    });
+    // Draw existing zones
+    sampleZones.forEach(z=>{
+      L.polygon(z.coords,{color:z.color,fillColor:z.color,fillOpacity:.18,weight:2})
+        .addTo(zonesMap).bindTooltip(`<strong>${z.name}</strong><br>${z.customers} customers`,{sticky:true});
+    });
+    renderZonesList();
+  }
+
+  function startZoneDraw(){
+    document.getElementById('zone-draw-hint').style.display='block';
+    if(zoneDrawControl) new L.Draw.Polygon(zonesMap,zoneDrawControl.options.draw.polygon).enable();
+  }
+
+  function renderZonesList(){
+    document.getElementById('zones-list').innerHTML=drawnZones.map(z=>`
+      <div class="zone-row">
+        <div class="zone-swatch" style="background:${z.color}"></div>
+        <div class="zone-row-name">${z.name}</div>
+        <div class="zone-row-count">${z.customers} customers</div>
+      </div>`).join('');
+  }
+</script>
+</body>
+</html>

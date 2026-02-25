@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    { "source": "/admin",  "destination": "/admin-dashboard/index.html" },
+    { "source": "/driver", "destination": "/driver-app/index.html" },
+    { "source": "/",       "destination": "/customer-app/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options",        "value": "SAMEORIGIN" }
+      ]
+    }
+  ]
+}

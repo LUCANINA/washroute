@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>WashRoute Driver</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --dark:    #111827;
+      --gray:    #374151;
+      --muted:   #6b7280;
+      --border:  #e5e7eb;
+      --bg:      #f3f4f6;
+      --white:   #ffffff;
+      --accent:  #f97316;
+      --pickup:  #3b82f6;
+      --deliver: #10b981;
+      --danger:  #ef4444;
+      --radius:  14px;
+      --nav-h:   62px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif; background: var(--bg); color: var(--dark); }
+
+    /* ── Loading ── */
+    #loading {
+      position: fixed; inset: 0; background: var(--dark);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 9999; opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    #loading.show { opacity: 1; pointer-events: all; }
+    .spinner {
+      width: 42px; height: 42px;
+      border: 3px solid rgba(255,255,255,0.15); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: calc(var(--nav-h) + 14px + env(safe-area-inset-bottom));
+      left: 50%; transform: translateX(-50%) translateY(16px);
+      background: var(--dark); color: var(--white);
+      padding: 10px 22px; border-radius: 24px;
+      font-size: 14px; font-weight: 600; white-space: nowrap;
+      z-index: 9998; opacity: 0; transition: all .28s; pointer-events: none;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Screens ── */
+    .screen { position: fixed; inset: 0; display: none; flex-direction: column; overflow: hidden; }
+    .screen.active { display: flex; }
+
+    /* ── Bottom Nav ── */
+    #bottom-nav {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: calc(var(--nav-h) + env(safe-area-inset-bottom));
+      background: var(--white); border-top: 1px solid var(--border);
+      display: none; z-index: 100; padding-bottom: env(safe-area-inset-bottom);
+    }
+    .nav-inner { height: var(--nav-h); display: flex; }
+    .nav-btn {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 3px; border: none; background: none;
+      cursor: pointer; color: var(--muted); font-size: 11px; font-weight: 600;
+      transition: color .15s;
+    }
+    .nav-btn.active { color: var(--accent); }
+    .nav-icon { font-size: 22px; line-height: 1; }
+
+    /* ── Scrollable body ── */
+    .scroll-body {
+      flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding-bottom: calc(var(--nav-h) + 20px + env(safe-area-inset-bottom));
+    }
+
+    /* ══════════════════════════════
+       AUTH SCREEN
+    ══════════════════════════════ */
+    #screen-auth {
+      background: var(--dark);
+      align-items: center; justify-content: center; padding: 40px 28px;
+      padding-top: max(40px, env(safe-area-inset-top));
+    }
+    .auth-top { text-align: center; margin-bottom: 40px; }
+    .auth-logo { font-size: 52px; display: block; margin-bottom: 10px; }
+    .auth-brand { font-size: 30px; font-weight: 800; color: var(--white); letter-spacing: -0.5px; }
+    .auth-sub { font-size: 14px; color: rgba(255,255,255,0.4); margin-top: 4px; font-weight: 500; }
+    .auth-card {
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px; padding: 28px 22px; width: 100%; max-width: 380px;
+    }
+    .auth-label { font-size: 13px; color: rgba(255,255,255,0.55); font-weight: 600; display: block; margin-bottom: 7px; }
+    .auth-input {
+      width: 100%; background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 11px;
+      color: var(--white); font-size: 16px; padding: 13px 14px;
+      outline: none; margin-bottom: 14px; font-family: inherit;
+    }
+    .auth-input::placeholder { color: rgba(255,255,255,0.25); }
+    .auth-input:focus { border-color: var(--accent); background: rgba(249,115,22,0.07); }
+    .auth-err { font-size: 13px; color: #f87171; margin-bottom: 12px; display: none; }
+    .auth-err.show { display: block; }
+    .btn-auth {
+      width: 100%; background: var(--accent); color: var(--white); border: none;
+      border-radius: 12px; font-size: 16px; font-weight: 700; padding: 15px;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-auth:hover { background: #ea6c0a; }
+    .btn-auth:active { transform: scale(0.98); }
+    .btn-auth:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+    /* ══════════════════════════════
+       HOME SCREEN
+    ══════════════════════════════ */
+    .home-hero {
+      background: var(--dark); color: var(--white);
+      padding: 22px 20px 28px; padding-top: calc(22px + env(safe-area-inset-top));
+    }
+    .hero-greeting { font-size: 22px; font-weight: 800; }
+    .hero-date { font-size: 13px; color: rgba(255,255,255,0.45); margin-top: 3px; }
+
+    .route-summary-card {
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.11);
+      border-radius: 18px; padding: 18px; margin-top: 18px;
+    }
+    .route-name { font-size: 16px; font-weight: 800; color: var(--white); margin-bottom: 14px; }
+    .route-stats { display: flex; gap: 0; margin-bottom: 14px; }
+    .rstat { flex: 1; text-align: center; }
+    .rstat-num { font-size: 30px; font-weight: 800; color: var(--white); line-height: 1; }
+    .rstat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: rgba(255,255,255,0.4); margin-top: 3px; }
+    .route-progress { background: rgba(255,255,255,0.14); border-radius: 4px; height: 5px; margin-bottom: 16px; }
+    .route-progress-fill { background: var(--accent); height: 100%; border-radius: 4px; transition: width .4s; }
+
+    .btn-big {
+      width: 100%; background: var(--accent); color: var(--white); border: none;
+      border-radius: 12px; font-size: 16px; font-weight: 700; padding: 14px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: background .15s;
+    }
+    .btn-big:active { transform: scale(0.98); }
+    .btn-big.green { background: var(--deliver); }
+
+    .home-section { padding: 18px 16px 4px; }
+    .section-label {
+      font-size: 12px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.6px; color: var(--muted); margin-bottom: 10px;
+    }
+
+    /* ══════════════════════════════
+       STOP CARDS (route list)
+    ══════════════════════════════ */
+    .stop-card {
+      background: var(--white); border-radius: var(--radius); padding: 14px 15px;
+      margin-bottom: 9px; display: flex; align-items: center; gap: 13px;
+      cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      transition: opacity .2s;
+    }
+    .stop-card.done { opacity: 0.55; }
+    .stop-num {
+      width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; font-weight: 800;
+    }
+    .sn-pickup   { background: #dbeafe; color: var(--pickup); }
+    .sn-delivery { background: #d1fae5; color: var(--deliver); }
+    .sn-done     { background: #f3f4f6; color: var(--muted); }
+    .sn-skip     { background: #fef3c7; color: #92400e; }
+
+    .stop-body { flex: 1; min-width: 0; }
+    .stop-badge {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 2px 8px; border-radius: 6px; margin-bottom: 4px;
+    }
+    .sb-pickup   { background: #dbeafe; color: var(--pickup); }
+    .sb-delivery { background: #d1fae5; color: var(--deliver); }
+    .sb-done     { background: #f3f4f6; color: var(--muted); }
+    .sb-skipped  { background: #fef3c7; color: #92400e; }
+    .stop-name { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .stop-addr { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+    .stop-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    .stop-chevron { color: #d1d5db; font-size: 20px; flex-shrink: 0; }
+
+    /* ══════════════════════════════
+       STOP DETAIL SCREEN
+    ══════════════════════════════ */
+    .detail-hdr {
+      background: var(--dark); color: var(--white);
+      padding: 14px 20px 20px; padding-top: calc(14px + env(safe-area-inset-top));
+    }
+    .back-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      color: rgba(255,255,255,0.55); font-size: 14px; font-weight: 600;
+      border: none; background: none; cursor: pointer; margin-bottom: 12px;
+      padding: 0;
+    }
+    .detail-eyebrow { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: rgba(255,255,255,0.45); margin-bottom: 4px; }
+    .detail-title { font-size: 22px; font-weight: 800; }
+
+    .dsection { padding: 14px 20px; border-bottom: 1px solid var(--border); }
+    .dsection-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 10px; }
+    .drow { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+    .drow:last-child { margin-bottom: 0; }
+    .dicon { font-size: 16px; margin-top: 1px; flex-shrink: 0; width: 22px; text-align: center; }
+    .dtext { font-size: 15px; font-weight: 500; flex: 1; }
+    .dtext a { color: var(--accent); text-decoration: none; }
+    .dsub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+    .pref-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .pref-tag { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 7px; background: #fef3c7; color: #92400e; }
+
+    .detail-actions { padding: 16px 20px 8px; }
+    .btn-maps {
+      width: 100%; background: #1a73e8; color: var(--white); border: none;
+      border-radius: 12px; font-size: 16px; font-weight: 700; padding: 14px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      gap: 8px; margin-bottom: 10px; text-decoration: none;
+    }
+    .btn-maps:active { opacity: 0.85; }
+    .btn-complete {
+      width: 100%; background: var(--accent); color: var(--white); border: none;
+      border-radius: 12px; font-size: 16px; font-weight: 700; padding: 15px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      gap: 8px;
+    }
+    .btn-complete.delivery { background: var(--deliver); }
+    .btn-complete:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-complete:active { transform: scale(0.98); }
+    .btn-skip-stop {
+      width: 100%; background: none; border: 1px solid var(--border);
+      color: var(--muted); border-radius: 12px; font-size: 14px; font-weight: 600;
+      padding: 12px; cursor: pointer; margin-top: 9px;
+    }
+
+    .notes-box {
+      width: 100%; border: 1px solid var(--border); border-radius: 11px;
+      font-size: 14px; padding: 12px 14px; font-family: inherit; color: var(--dark);
+      background: var(--bg); outline: none; resize: none; min-height: 76px;
+    }
+    .notes-box:focus { border-color: var(--accent); }
+
+    .completed-banner {
+      background: #d1fae5; color: #065f46; border-radius: 11px;
+      padding: 13px 16px; font-size: 15px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+
+    .next-stop-nudge {
+      background: #fff7ed; border: 1px solid #fed7aa; border-radius: 14px;
+      padding: 14px 16px; display: flex; align-items: center; gap: 12px;
+    }
+    .nsn-info { flex: 1; }
+    .nsn-label { font-size: 12px; font-weight: 700; color: #c2410c; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+    .nsn-title { font-size: 15px; font-weight: 700; color: var(--dark); }
+    .nsn-addr { font-size: 13px; color: var(--muted); }
+    .btn-nsn {
+      background: var(--accent); color: var(--white); border: none;
+      border-radius: 10px; font-size: 14px; font-weight: 700; padding: 10px 14px;
+      cursor: pointer; white-space: nowrap; flex-shrink: 0;
+    }
+
+    /* ══════════════════════════════
+       PROFILE SCREEN
+    ══════════════════════════════ */
+    .profile-hero {
+      background: var(--dark); color: var(--white);
+      padding: 28px 20px 32px; padding-top: calc(28px + env(safe-area-inset-top));
+      text-align: center;
+    }
+    .profile-avatar {
+      width: 76px; height: 76px; border-radius: 50%; background: var(--accent);
+      margin: 0 auto 14px; display: flex; align-items: center; justify-content: center;
+      font-size: 32px; font-weight: 800; color: var(--white);
+    }
+    .profile-name-big { font-size: 22px; font-weight: 800; }
+    .profile-role-tag { font-size: 13px; color: rgba(255,255,255,0.4); margin-top: 3px; }
+
+    .profile-section { padding: 20px 16px; }
+    .info-card { background: var(--white); border-radius: var(--radius); overflow: hidden; margin-bottom: 16px; }
+    .info-row { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .info-row:last-child { border-bottom: none; }
+    .info-icon { font-size: 18px; width: 26px; text-align: center; }
+    .info-lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+    .info-val { font-size: 15px; font-weight: 600; color: var(--dark); margin-top: 2px; }
+
+    .btn-signout {
+      width: 100%; background: none; border: 1px solid #fecaca; color: var(--danger);
+      border-radius: 12px; font-size: 15px; font-weight: 700; padding: 14px; cursor: pointer;
+    }
+
+    /* ══════════════════════════════
+       EMPTY STATE
+    ══════════════════════════════ */
+    .empty { text-align: center; padding: 56px 32px; }
+    .empty-icon { font-size: 56px; margin-bottom: 14px; }
+    .empty-title { font-size: 19px; font-weight: 800; margin-bottom: 7px; }
+    .empty-sub { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+    /* ══════════════════════════════
+       ROUTE HEADER
+    ══════════════════════════════ */
+    .route-hdr {
+      background: var(--dark); color: var(--white);
+      padding: 18px 20px 16px; padding-top: calc(18px + env(safe-area-inset-top));
+    }
+    .rh-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .rh-title { font-size: 19px; font-weight: 800; }
+    .rh-sub { font-size: 13px; color: rgba(255,255,255,0.45); }
+    .rh-refresh { font-size: 20px; cursor: pointer; background: none; border: none; color: rgba(255,255,255,0.55); }
+
+    /* Pending order cards */
+    .po-card { background: var(--white); border-radius: var(--radius); padding: 15px 16px; margin-bottom: 9px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+    .po-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .po-num { font-size: 13px; font-weight: 700; color: var(--accent); }
+    .po-date { font-size: 12px; color: var(--muted); }
+    .po-name { font-size: 16px; font-weight: 700; }
+    .po-addr { font-size: 13px; color: var(--muted); margin-top: 3px; }
+    .po-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .btn-nav-small {
+      display: block; margin-top: 11px; background: #1a73e8; color: var(--white);
+      text-align: center; padding: 11px; border-radius: 10px;
+      font-size: 14px; font-weight: 700; text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loading"><div class="spinner"></div></div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- ════════════════════════════
+     AUTH
+════════════════════════════ -->
+<div class="screen active" id="screen-auth">
+  <div class="auth-top">
+    <span class="auth-logo">🚐</span>
+    <div class="auth-brand">WashRoute</div>
+    <div class="auth-sub">Driver App</div>
+  </div>
+  <div class="auth-card">
+    <div style="font-size:18px;font-weight:800;color:var(--white);margin-bottom:20px">Sign In</div>
+    <label class="auth-label">Email</label>
+    <input class="auth-input" type="email" id="auth-email" placeholder="you@example.com" autocomplete="username">
+    <label class="auth-label">Password</label>
+    <input class="auth-input" type="password" id="auth-pass" placeholder="••••••••" autocomplete="current-password">
+    <div class="auth-err" id="auth-err"></div>
+    <button class="btn-auth" id="btn-login" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- ════════════════════════════
+     HOME
+════════════════════════════ -->
+<div class="screen" id="screen-home">
+  <div class="scroll-body" id="home-body">
+    <!-- rendered by JS -->
+  </div>
+</div>
+
+<!-- ════════════════════════════
+     ROUTE LIST
+════════════════════════════ -->
+<div class="screen" id="screen-route">
+  <div class="route-hdr" id="route-hdr">
+    <div class="rh-row">
+      <div>
+        <div class="rh-title" id="rh-title">Today's Route</div>
+        <div class="rh-sub" id="rh-sub">Loading…</div>
+      </div>
+      <button class="rh-refresh" onclick="refreshRoute()" title="Refresh">↻</button>
+    </div>
+    <div class="route-progress"><div class="route-progress-fill" id="rh-bar" style="width:0%"></div></div>
+  </div>
+  <div class="scroll-body" id="route-body">
+    <!-- stops rendered by JS -->
+  </div>
+</div>
+
+<!-- ════════════════════════════
+     STOP DETAIL
+════════════════════════════ -->
+<div class="screen" id="screen-stop">
+  <div class="detail-hdr" id="stop-hdr">
+    <button class="back-btn" onclick="goTo('route')">‹ Route</button>
+    <div class="detail-eyebrow" id="stop-eyebrow">PICKUP · STOP 1</div>
+    <div class="detail-title" id="stop-title">Customer Name</div>
+  </div>
+  <div class="scroll-body" id="stop-body">
+    <!-- rendered by JS -->
+  </div>
+</div>
+
+<!-- ════════════════════════════
+     PROFILE
+════════════════════════════ -->
+<div class="screen" id="screen-profile">
+  <div class="profile-hero">
+    <div class="profile-avatar" id="prof-avatar">?</div>
+    <div class="profile-name-big" id="prof-name">—</div>
+    <div class="profile-role-tag">Driver</div>
+  </div>
+  <div class="profile-section">
+    <div class="info-card" id="prof-info"></div>
+    <div style="height:16px"></div>
+    <button class="btn-signout" onclick="doSignOut()">Sign Out</button>
+  </div>
+</div>
+
+<!-- Bottom Nav -->
+<div id="bottom-nav">
+  <div class="nav-inner">
+    <button class="nav-btn active" id="nav-home" onclick="goTo('home')">
+      <span class="nav-icon">🏠</span>Home
+    </button>
+    <button class="nav-btn" id="nav-route" onclick="goTo('route')">
+      <span class="nav-icon">📍</span>Route
+    </button>
+    <button class="nav-btn" id="nav-profile" onclick="goTo('profile')">
+      <span class="nav-icon">👤</span>Profile
+    </button>
+  </div>
+</div>
+
+<script>
+/* ──────────────────────────────
+   INIT
+────────────────────────────── */
+const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
+const db = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+let currentUser = null, currentProfile = null, currentDriver = null;
+let todayRoutes = [], allStops = [], pendingOrders = [];
+let currentStopId = null;
+let appReady = false, loadingTimer = null;
+
+/* ──────────────────────────────
+   UTILS
+────────────────────────────── */
+function showLoading(on) {
+  document.getElementById('loading').classList.toggle('show', on);
+  clearTimeout(loadingTimer);
+  if (on) loadingTimer = setTimeout(() => showLoading(false), 9000);
+}
+
+function toast(msg, dur = 2600) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), dur);
+}
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id)?.classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const nb = document.getElementById('nav-' + id);
+  if (nb) nb.classList.add('active');
+}
+
+function goTo(id) {
+  showScreen(id);
+  if (id === 'home')    renderHome();
+  if (id === 'route')   renderRoute();
+  if (id === 'profile') renderProfile();
+}
+
+function today() { return new Date().toISOString().split('T')[0]; }
+
+function fmtAddr(a) {
+  if (!a) return 'No address on file';
+  return `${a.line1}${a.line2 ? ', ' + a.line2 : ''}, ${a.city}, ${a.state} ${a.zip}`;
+}
+
+function mapsLink(a) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(fmtAddr(a))}`;
+}
+
+function greet() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+}
+
+function fmtTime(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function fmtDate(ts) {
+  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/* ──────────────────────────────
+   AUTH
+────────────────────────────── */
+async function doLogin() {
+  const email = document.getElementById('auth-email').value.trim();
+  const pass  = document.getElementById('auth-pass').value;
+  const btn   = document.getElementById('btn-login');
+  const err   = document.getElementById('auth-err');
+  err.classList.remove('show');
+  if (!email || !pass) { err.textContent = 'Please enter email and password.'; err.classList.add('show'); return; }
+  btn.textContent = 'Signing in…'; btn.disabled = true;
+  const { error } = await db.auth.signInWithPassword({ email, password: pass });
+  if (error) {
+    err.textContent = error.message; err.classList.add('show');
+    btn.textContent = 'Sign In'; btn.disabled = false;
+  }
+}
+
+async function doSignOut() {
+  await db.auth.signOut();
+  appReady = false;
+  currentUser = currentProfile = currentDriver = null;
+  todayRoutes = []; allStops = []; pendingOrders = [];
+  document.getElementById('bottom-nav').style.display = 'none';
+  showScreen('auth');
+  document.getElementById('auth-email').value = '';
+  document.getElementById('auth-pass').value = '';
+  document.getElementById('btn-login').textContent = 'Sign In';
+  document.getElementById('btn-login').disabled = false;
+}
+
+/* ──────────────────────────────
+   DATA LOADING
+────────────────────────────── */
+async function loadDriverData() {
+  // Profile
+  const { data: prof } = await db.from('profiles').select('*').eq('id', currentUser.id).single();
+  currentProfile = prof;
+
+  // Driver record — auto-create if first login
+  let { data: drv } = await db.from('drivers').select('*').eq('profile_id', currentUser.id).single();
+  if (!drv) {
+    const { data: nd } = await db.from('drivers').insert({ profile_id: currentUser.id, is_active: true }).select().single();
+    drv = nd;
+  }
+  currentDriver = drv;
+  if (!currentDriver) return;
+
+  // Today's routes
+  const { data: routes } = await db.from('routes')
+    .select('*')
+    .eq('driver_id', currentDriver.id)
+    .eq('date', today())
+    .neq('status', 'cancelled');
+  todayRoutes = routes || [];
+
+  if (todayRoutes.length > 0) {
+    const routeIds = todayRoutes.map(r => r.id);
+    const { data: stops } = await db.from('route_stops')
+      .select(`
+        *,
+        addresses(*),
+        orders(
+          *,
+          customers(*),
+          services(*)
+        )
+      `)
+      .in('route_id', routeIds)
+      .order('stop_number', { ascending: true });
+    allStops = stops || [];
+  } else {
+    // No routes — show pending orders the driver can pick up
+    const { data: orders } = await db.from('orders')
+      .select(`
+        *,
+        customers(*),
+        services(*),
+        pickup_addr:addresses!orders_pickup_address_id_fkey(*),
+        delivery_addr:addresses!orders_delivery_address_id_fkey(*)
+      `)
+      .in('status', ['pending_pickup', 'out_for_delivery'])
+      .order('created_at', { ascending: true });
+    pendingOrders = orders || [];
+  }
+}
+
+async function refreshRoute() {
+  showLoading(true);
+  try { await loadDriverData(); } catch(e) { console.error(e); } finally { showLoading(false); }
+  renderRoute();
+  toast('Route refreshed');
+}
+
+/* ──────────────────────────────
+   HOME
+────────────────────────────── */
+function renderHome() {
+  const body = document.getElementById('home-body');
+  const name = currentProfile?.first_name || 'Driver';
+  const dateStr = new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+  const done  = allStops.filter(s => s.status === 'complete').length;
+  const total = allStops.length;
+  const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  let h = `<div class="home-hero">
+    <div class="hero-greeting">${greet()}, ${name}! 👋</div>
+    <div class="hero-date">${dateStr}</div>`;
+
+  if (todayRoutes.length > 0) {
+    const route = todayRoutes[0];
+    const statusLabel = route.status === 'in_progress' ? '🟢 In Progress'
+                      : route.status === 'complete'    ? '✅ Complete' : '⏳ Scheduled';
+    const btnLabel = route.status === 'complete' ? 'View Completed Route'
+                   : route.status === 'in_progress' ? '▶️ Continue Route' : '🚀 Start Route';
+    h += `<div class="route-summary-card">
+      <div class="route-name">📋 ${route.name || "Today's Route"} &nbsp;<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.45)">${statusLabel}</span></div>
+      <div class="route-stats">
+        <div class="rstat"><div class="rstat-num">${total}</div><div class="rstat-label">Stops</div></div>
+        <div class="rstat"><div class="rstat-num">${done}</div><div class="rstat-label">Done</div></div>
+        <div class="rstat"><div class="rstat-num">${total - done}</div><div class="rstat-label">Left</div></div>
+        <div class="rstat"><div class="rstat-num">${pct}%</div><div class="rstat-label">Progress</div></div>
+      </div>
+      <div class="route-progress"><div class="route-progress-fill" style="width:${pct}%"></div></div>
+      <button class="btn-big" onclick="goTo('route')">${btnLabel}</button>
+    </div>`;
+  } else if (pendingOrders.length > 0) {
+    h += `<div class="route-summary-card">
+      <div class="route-name">📦 ${pendingOrders.length} Pending Order${pendingOrders.length !== 1 ? 's' : ''}</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.45);margin-bottom:14px">No route assigned yet — showing all pending orders.</div>
+      <button class="btn-big" onclick="goTo('route')">📋 View Orders</button>
+    </div>`;
+  } else {
+    h += `<div class="route-summary-card">
+      <div class="route-name">No Orders Today</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.45)">No route or pending orders right now.</div>
+    </div>`;
+  }
+  h += '</div>'; // close home-hero
+
+  // Next stop section
+  if (todayRoutes.length > 0) {
+    const next = allStops.find(s => s.status === 'pending' || s.status === 'en_route');
+    if (next) {
+      const addr = next.addresses;
+      const cust = next.orders?.customers;
+      const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
+      h += `<div class="home-section">
+        <div class="section-label">Next Stop</div>
+        <div class="stop-card" onclick="openStop('${next.id}')">
+          <div class="stop-num sn-${next.stop_type}">${next.stop_number}</div>
+          <div class="stop-body">
+            <div><span class="stop-badge sb-${next.stop_type}">${next.stop_type.toUpperCase()}</span></div>
+            <div class="stop-name">${custName}</div>
+            <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
+            <div class="stop-meta">📦 ${next.orders?.total_bags||1} bag(s) · ${next.orders?.services?.name||'Service'}</div>
+          </div>
+          <span class="stop-chevron">›</span>
+        </div>
+      </div>`;
+    } else if (done === total && total > 0) {
+      h += `<div class="home-section"><div class="completed-banner">🎉 All stops done — great work today!</div></div>`;
+    }
+  }
+
+  body.innerHTML = h;
+}
+
+/* ──────────────────────────────
+   ROUTE LIST
+────────────────────────────── */
+function renderRoute() {
+  const body = document.getElementById('route-body');
+
+  // ── No route → show pending orders ──
+  if (todayRoutes.length === 0) {
+    document.getElementById('rh-title').textContent = 'Pending Orders';
+    const n = pendingOrders.length;
+    document.getElementById('rh-sub').textContent = `${n} order${n!==1?'s':''} awaiting pickup`;
+    document.getElementById('rh-bar').style.width = '0%';
+
+    if (n === 0) {
+      body.innerHTML = `<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">Nothing Pending</div><div class="empty-sub">All clear! No orders waiting right now.</div></div>`;
+      return;
+    }
+
+    let h = '<div style="padding:12px 14px">';
+    pendingOrders.forEach(o => {
+      const addr = o.pickup_addr;
+      const cust = o.customers;
+      const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
+      h += `<div class="po-card">
+        <div class="po-top"><div class="po-num">Order #${o.order_number}</div><div class="po-date">${fmtDate(o.created_at)}</div></div>
+        <div class="po-name">${custName}</div>
+        <div class="po-addr">📍 ${addr ? fmtAddr(addr) : 'No address on file'}</div>
+        <div class="po-meta">📦 ${o.total_bags||1} bag(s) · ${o.services?.name||'Service'} · <span style="color:var(--pickup)">Pickup</span></div>
+        ${cust?.phone_cache ? `<div class="po-meta">📞 <a href="tel:${cust.phone_cache}" style="color:var(--accent);font-weight:600">${cust.phone_cache}</a></div>` : ''}
+        ${addr ? `<a class="btn-nav-small" href="${mapsLink(addr)}" target="_blank">🗺️ Navigate with Google Maps</a>` : ''}
+      </div>`;
+    });
+    h += '</div>';
+    body.innerHTML = h;
+    return;
+  }
+
+  // ── Has routes → show stops ──
+  const done  = allStops.filter(s => s.status === 'complete').length;
+  const total = allStops.length;
+  const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
+  document.getElementById('rh-title').textContent = todayRoutes[0]?.name || "Today's Route";
+  document.getElementById('rh-sub').textContent   = `${done} of ${total} stops complete`;
+  document.getElementById('rh-bar').style.width   = pct + '%';
+
+  if (total === 0) {
+    body.innerHTML = `<div class="empty"><div class="empty-icon">🗺️</div><div class="empty-title">No Stops Yet</div><div class="empty-sub">Your route has been assigned but no stops have been added yet.</div></div>`;
+    return;
+  }
+
+  let h = '<div style="padding:12px 14px">';
+  allStops.forEach(stop => {
+    const addr = stop.addresses;
+    const cust = stop.orders?.customers;
+    const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
+    const isDone = stop.status === 'complete';
+    const isSkip = stop.status === 'skipped';
+    const numClass  = isDone ? 'sn-done' : isSkip ? 'sn-skip' : `sn-${stop.stop_type}`;
+    const badgeClass = isDone ? 'sb-done' : isSkip ? 'sb-skipped' : `sb-${stop.stop_type}`;
+    const badgeText  = isDone ? 'DONE' : isSkip ? 'SKIPPED' : stop.stop_type.toUpperCase();
+
+    h += `<div class="stop-card${isDone||isSkip ? ' done' : ''}" onclick="openStop('${stop.id}')">
+      <div class="stop-num ${numClass}">${isDone ? '✓' : isSkip ? '⤷' : stop.stop_number}</div>
+      <div class="stop-body">
+        <div><span class="stop-badge ${badgeClass}">${badgeText}</span></div>
+        <div class="stop-name">${custName}</div>
+        <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
+        <div class="stop-meta">📦 ${stop.orders?.total_bags||1} bag(s) · ${stop.orders?.services?.name||'Service'}${isDone && stop.completed_at ? ' · ' + fmtTime(stop.completed_at) : ''}</div>
+      </div>
+      <span class="stop-chevron">›</span>
+    </div>`;
+  });
+  h += '</div>';
+  body.innerHTML = h;
+}
+
+/* ──────────────────────────────
+   STOP DETAIL
+────────────────────────────── */
+function openStop(stopId) {
+  currentStopId = stopId;
+  const stop = allStops.find(s => s.id === stopId);
+  if (!stop) return;
+  renderStopDetail(stop);
+  showScreen('stop');
+  // Don't update nav highlight (stop isn't a nav tab)
+}
+
+function renderStopDetail(stop) {
+  const addr  = stop.addresses;
+  const order = stop.orders;
+  const cust  = order?.customers;
+  const svc   = order?.services;
+  const isDone = stop.status === 'complete';
+  const isPickup = stop.stop_type === 'pickup';
+  const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
+
+  // Header
+  document.getElementById('stop-eyebrow').textContent = `${stop.stop_type.toUpperCase()} · STOP ${stop.stop_number}`;
+  document.getElementById('stop-title').textContent   = custName || 'Customer';
+
+  const body = document.getElementById('stop-body');
+  let h = '';
+
+  // ── Completion banner ──
+  if (isDone) {
+    h += `<div style="padding:14px 20px 4px">
+      <div class="completed-banner">✅ ${isPickup ? 'Picked Up' : 'Delivered'}${stop.completed_at ? ' at ' + fmtTime(stop.completed_at) : ''}</div>
+    </div>`;
+  }
+
+  // ── Customer info ──
+  h += `<div class="dsection">
+    <div class="dsection-title">Customer</div>
+    <div class="drow"><span class="dicon">👤</span><div class="dtext">${custName || '—'}</div></div>
+    ${cust?.phone_cache ? `<div class="drow"><span class="dicon">📞</span><div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a></div></div>` : ''}
+    <div class="drow"><span class="dicon">📍</span><div class="dtext">${fmtAddr(addr)}</div></div>
+    ${addr?.delivery_instructions ? `<div class="drow"><span class="dicon">🔑</span><div><div class="dtext" style="font-size:13px;color:var(--muted)">${addr.delivery_instructions}</div></div></div>` : ''}
+  </div>`;
+
+  // ── Order info ──
+  h += `<div class="dsection">
+    <div class="dsection-title">Order Details</div>
+    <div class="drow"><span class="dicon">🧾</span><div class="dtext">Order #${order?.order_number || '—'}</div></div>
+    <div class="drow"><span class="dicon">📦</span><div class="dtext">${order?.total_bags||1} bag(s)</div></div>
+    <div class="drow"><span class="dicon">👕</span><div class="dtext">${svc?.name || 'Service'}</div></div>
+    ${order?.special_instructions ? `<div class="drow"><span class="dicon">📝</span><div><div class="dtext" style="font-size:13px;color:var(--muted)">${order.special_instructions}</div></div></div>` : ''}
+    ${renderPrefTags(cust?.preferences)}
+  </div>`;
+
+  // ── Actions ──
+  h += `<div class="detail-actions">`;
+
+  // Navigate button
+  if (addr) {
+    h += `<a class="btn-maps" href="${mapsLink(addr)}" target="_blank">🗺️ Navigate with Google Maps</a>`;
+  }
+
+  // Notes field
+  h += `<div style="margin-bottom:10px">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-bottom:6px">Driver Notes</div>
+    <textarea class="notes-box" id="stop-notes" placeholder="Add notes for this stop…">${stop.driver_notes || ''}</textarea>
+  </div>`;
+
+  if (!isDone && stop.status !== 'skipped') {
+    const cls   = isPickup ? '' : 'delivery';
+    const label = isPickup ? '📦 Mark Picked Up' : '✅ Mark Delivered';
+    h += `<button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')">${label}</button>
+          <button class="btn-skip-stop" onclick="skipStop('${stop.id}')">Skip This Stop</button>`;
+  }
+
+  h += `</div>`; // close detail-actions
+
+  // ── Next stop nudge ──
+  if (isDone) {
+    const next = allStops.find(s => s.id !== stop.id && (s.status === 'pending' || s.status === 'en_route'));
+    if (next) {
+      const na   = next.addresses;
+      const nc   = next.orders?.customers;
+      const nn   = nc ? `${nc.first_name_cache||''} ${nc.last_name_cache||''}`.trim() : 'Customer';
+      h += `<div style="padding:0 20px 16px">
+        <div class="next-stop-nudge">
+          <div class="nsn-info">
+            <div class="nsn-label">Next Stop · ${next.stop_type.toUpperCase()} ${next.stop_number}</div>
+            <div class="nsn-title">${nn}</div>
+            <div class="nsn-addr">${na ? `${na.line1}, ${na.city}` : 'No address'}</div>
+          </div>
+          <button class="btn-nsn" onclick="openStop('${next.id}')">Go →</button>
+        </div>
+      </div>`;
+    } else {
+      h += `<div style="padding:0 20px 16px"><div class="completed-banner">🎉 All stops complete!</div></div>`;
+    }
+  }
+
+  body.innerHTML = h;
+  body.scrollTop = 0;
+}
+
+function renderPrefTags(prefs) {
+  if (!prefs || !Object.keys(prefs).length) return '';
+  const tags = [];
+  if (prefs.no_bleach)        tags.push('🚫 No Bleach');
+  if (prefs.hang_dry)         tags.push('🪢 Hang Dry');
+  if (prefs.softener === false) tags.push('No Softener');
+  if (prefs.detergent)        tags.push(`🧴 ${prefs.detergent}`);
+  if (prefs.water_temp)       tags.push(`💧 ${prefs.water_temp}`);
+  if (!tags.length) return '';
+  return `<div class="drow"><span class="dicon">✨</span><div class="pref-tags">${tags.map(t=>`<span class="pref-tag">${t}</span>`).join('')}</div></div>`;
+}
+
+/* ──────────────────────────────
+   COMPLETE / SKIP STOP
+────────────────────────────── */
+async function completeStop(stopId, stopType) {
+  const btn = document.getElementById('btn-do-complete');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  const notes = document.getElementById('stop-notes')?.value?.trim() || null;
+  const now   = new Date().toISOString();
+
+  // Update stop
+  const { error: stopErr } = await db.from('route_stops').update({
+    status: 'complete', completed_at: now, actual_arrival: now, driver_notes: notes
+  }).eq('id', stopId);
+
+  if (stopErr) {
+    toast('Error: ' + stopErr.message);
+    if (btn) { btn.disabled = false; btn.textContent = stopType === 'pickup' ? '📦 Mark Picked Up' : '✅ Mark Delivered'; }
+    return;
+  }
+
+  // Update order status
+  const stop = allStops.find(s => s.id === stopId);
+  if (stop?.orders?.id) {
+    const newStatus   = stopType === 'pickup' ? 'picked_up' : 'delivered';
+    const timeField   = stopType === 'pickup' ? 'actual_pickup_at' : 'actual_delivery_at';
+    await db.from('orders').update({ status: newStatus, [timeField]: now }).eq('id', stop.orders.id);
+    // Reflect locally
+    stop.orders.status = newStatus;
+  }
+
+  // Local state
+  const idx = allStops.findIndex(s => s.id === stopId);
+  if (idx >= 0) allStops[idx] = { ...allStops[idx], status: 'complete', completed_at: now, driver_notes: notes };
+
+  // Update route progress
+  const routeId = allStops[idx]?.route_id;
+  const route   = todayRoutes.find(r => r.id === routeId);
+  if (route) {
+    const newDone  = allStops.filter(s => s.route_id === routeId && s.status === 'complete').length;
+    const routeTotal = allStops.filter(s => s.route_id === routeId).length;
+    const allDone  = newDone >= routeTotal;
+    await db.from('routes').update({
+      completed_stops: newDone,
+      status: allDone ? 'complete' : 'in_progress',
+      started_at:   route.started_at || now,
+      completed_at: allDone ? now : null
+    }).eq('id', routeId);
+    route.completed_stops = newDone;
+    route.status = allDone ? 'complete' : 'in_progress';
+    if (!route.started_at) route.started_at = now;
+  }
+
+  toast(stopType === 'pickup' ? '📦 Pickup confirmed!' : '✅ Delivery confirmed!');
+
+  // Re-render with updated state
+  const updated = allStops.find(s => s.id === stopId);
+  if (updated) renderStopDetail(updated);
+}
+
+async function skipStop(stopId) {
+  const really = confirm('Skip this stop? It will be marked as skipped.');
+  if (!really) return;
+  await db.from('route_stops').update({ status: 'skipped' }).eq('id', stopId);
+  const idx = allStops.findIndex(s => s.id === stopId);
+  if (idx >= 0) allStops[idx].status = 'skipped';
+  toast('Stop skipped');
+  goTo('route');
+}
+
+/* ──────────────────────────────
+   PROFILE
+────────────────────────────── */
+function renderProfile() {
+  if (!currentProfile) return;
+  const name = `${currentProfile.first_name||''} ${currentProfile.last_name||''}`.trim() || currentProfile.email;
+  const init = ((currentProfile.first_name?.[0]||'') + (currentProfile.last_name?.[0]||'')).toUpperCase() || '?';
+  document.getElementById('prof-avatar').textContent = init;
+  document.getElementById('prof-name').textContent   = name || '—';
+
+  const done  = allStops.filter(s => s.status === 'complete').length;
+  const total = allStops.length;
+
+  document.getElementById('prof-info').innerHTML = `
+    <div class="info-row"><span class="info-icon">📧</span><div><div class="info-lbl">Email</div><div class="info-val">${currentProfile.email||'—'}</div></div></div>
+    <div class="info-row"><span class="info-icon">📞</span><div><div class="info-lbl">Phone</div><div class="info-val">${currentProfile.phone||'—'}</div></div></div>
+    <div class="info-row"><span class="info-icon">🚐</span><div><div class="info-lbl">Vehicle</div><div class="info-val">${currentDriver?.vehicle_type||'—'} ${currentDriver?.vehicle_plate||''}</div></div></div>
+    <div class="info-row"><span class="info-icon">📊</span><div><div class="info-lbl">Today's Stops</div><div class="info-val">${done} of ${total} complete</div></div></div>
+  `;
+}
+
+/* ──────────────────────────────
+   AUTH STATE CHANGE
+────────────────────────────── */
+db.auth.onAuthStateChange(async (event, session) => {
+  if (session?.user) {
+    if (appReady && event === 'TOKEN_REFRESHED') return;
+    currentUser = session.user;
+    showLoading(true);
+    try { await loadDriverData(); } catch(e) { console.error('loadDriverData:', e); } finally { showLoading(false); }
+    appReady = true;
+    document.getElementById('bottom-nav').style.display = 'flex';
+    goTo('home');
+  } else {
+    appReady = false;
+    currentUser = currentProfile = currentDriver = null;
+    document.getElementById('bottom-nav').style.display = 'none';
+    showScreen('auth');
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Family Laundry</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    :root {
+      --navy:     #0f2744;
+      --navy-mid: #1a3a5c;
+      --accent:   #2a6fc9;
+      --text:     #1a1a2e;
+      --gray-50:  #f8f9fa;
+      --gray-100: #f0f2f5;
+      --gray-200: #e2e8f0;
+      --gray-300: #cbd5e1;
+      --gray-400: #94a3b8;
+      --gray-600: #64748b;
+      --success:  #22c55e;
+      --radius:   12px;
+      --shadow:   0 2px 16px rgba(0,0,0,.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #e8ecf0; color: var(--text);
+      min-height: 100vh; display: flex; justify-content: center;
+    }
+    #app {
+      width: 100%; max-width: 430px; background: white;
+      min-height: 100vh; position: relative; overflow-x: hidden;
+      box-shadow: 0 0 60px rgba(0,0,0,.15);
+    }
+    .screen { display: none; flex-direction: column; min-height: 100vh; }
+    .screen.active { display: flex; }
+    .main-content { flex: 1; overflow-y: auto; padding-bottom: 84px; -webkit-overflow-scrolling: touch; }
+
+    /* ── AUTH ── */
+    .auth-hero { background: var(--navy); padding: 52px 32px 44px; text-align: center; }
+    .auth-logo { height: 56px; object-fit: contain; }
+    .auth-tagline { color: rgba(255,255,255,.55); font-size: 14px; margin-top: 10px; }
+    .auth-body { padding: 28px 24px 24px; flex: 1; }
+    .auth-tabs { display: flex; background: var(--gray-100); border-radius: 10px; padding: 4px; margin-bottom: 26px; }
+    .auth-tab { flex: 1; padding: 9px; border: none; background: transparent; border-radius: 7px; font-size: 14px; font-weight: 500; cursor: pointer; color: var(--gray-600); transition: all .2s; }
+    .auth-tab.active { background: white; color: var(--navy); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+    .auth-form { display: none; flex-direction: column; gap: 14px; }
+    .auth-form.active { display: flex; }
+    .field label { display: block; font-size: 11.5px; font-weight: 700; color: var(--gray-600); margin-bottom: 5px; letter-spacing: .5px; text-transform: uppercase; }
+    .field input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 15px; outline: none; transition: border-color .2s; background: white; color: var(--text); }
+    .field input:focus { border-color: var(--navy); }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .auth-error { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 10px 14px; border-radius: 8px; font-size: 13.5px; display: none; }
+    .auth-error.show { display: block; }
+
+    /* ── BUTTONS ── */
+    .btn-primary { width: 100%; padding: 14px; background: var(--navy); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity .2s; }
+    .btn-primary:hover { opacity: .88; }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-secondary { width: 100%; padding: 13px; background: white; color: var(--navy); border: 2px solid var(--navy); border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all .2s; }
+    .btn-secondary:hover { background: var(--gray-50); }
+    .btn-sm { padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; }
+
+    /* ── TOPBAR ── */
+    .topbar { background: var(--navy); padding: 14px 20px 12px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+    .topbar-logo { height: 28px; object-fit: contain; }
+    .topbar-title { color: white; font-size: 15px; font-weight: 600; }
+
+    /* ── BOTTOM NAV ── */
+    .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 430px; background: white; border-top: 1px solid var(--gray-200); display: flex; z-index: 100; padding-bottom: env(safe-area-inset-bottom, 0px); }
+    .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 10px 0 8px; border: none; background: transparent; cursor: pointer; gap: 3px; color: var(--gray-400); transition: color .15s; font-size: 10.5px; font-weight: 500; }
+    .nav-btn svg { width: 22px; height: 22px; stroke-width: 1.8; fill: none; stroke: currentColor; }
+    .nav-btn.active { color: var(--navy); }
+    .nav-btn.active svg { stroke-width: 2.3; }
+
+    /* ── HOME ── */
+    .home-hero { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); padding: 22px 20px 28px; color: white; flex-shrink: 0; }
+    .home-greeting { font-size: 22px; font-weight: 800; }
+    .home-sub { font-size: 13.5px; color: rgba(255,255,255,.6); margin-top: 3px; }
+    .stats-row { display: flex; gap: 10px; margin-top: 18px; }
+    .stat-chip { flex: 1; background: rgba(255,255,255,.12); border-radius: 10px; padding: 12px 8px; text-align: center; }
+    .stat-num { font-size: 20px; font-weight: 800; color: white; }
+    .stat-label { font-size: 10.5px; color: rgba(255,255,255,.55); margin-top: 2px; }
+    .section { padding: 18px 18px 0; }
+    .section-title { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--gray-400); margin-bottom: 12px; }
+    .active-order-card { background: white; border-radius: var(--radius); border: 1.5px solid var(--gray-200); padding: 16px; box-shadow: var(--shadow); cursor: pointer; transition: box-shadow .15s; }
+    .active-order-card:hover { box-shadow: 0 4px 24px rgba(0,0,0,.12); }
+    .aoc-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+    .aoc-num { font-size: 11px; font-family: monospace; color: var(--gray-400); margin-bottom: 2px; }
+    .aoc-svc { font-size: 15px; font-weight: 700; }
+
+    /* Status badges */
+    .status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .s-pending_pickup   { background: #fef3c7; color: #92400e; }
+    .s-pending_pickup .status-dot   { background: #f59e0b; }
+    .s-picked_up        { background: #dbeafe; color: #1e40af; }
+    .s-picked_up .status-dot        { background: #3b82f6; }
+    .s-processing       { background: #e0f2fe; color: #0369a1; }
+    .s-processing .status-dot       { background: #0ea5e9; }
+    .s-ready            { background: #d1fae5; color: #065f46; }
+    .s-ready .status-dot            { background: #10b981; }
+    .s-out_for_delivery { background: #ede9fe; color: #4c1d95; }
+    .s-out_for_delivery .status-dot { background: #7c3aed; }
+    .s-delivered        { background: #d1fae5; color: #065f46; }
+    .s-delivered .status-dot        { background: #22c55e; }
+    .s-cancelled        { background: #fee2e2; color: #7f1d1d; }
+    .s-cancelled .status-dot        { background: #ef4444; }
+
+    /* Progress track */
+    .progress-wrap { display: flex; align-items: center; margin: 14px 0 8px; }
+    .p-step { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+    .p-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gray-200); position: relative; z-index: 1; flex-shrink: 0; }
+    .p-step.done .p-dot    { background: var(--navy); }
+    .p-step.current .p-dot { background: var(--navy); box-shadow: 0 0 0 3px rgba(15,39,68,.18); }
+    .p-line { flex: 1; height: 2px; background: var(--gray-200); }
+    .p-line.done { background: var(--navy); }
+    .p-label { font-size: 9px; color: var(--gray-400); white-space: nowrap; }
+    .p-step.done .p-label, .p-step.current .p-label { color: var(--navy); font-weight: 700; }
+    .aoc-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+    .aoc-hint { font-size: 12px; color: var(--gray-400); }
+    .aoc-total { font-size: 15px; font-weight: 700; }
+
+    /* CTA card */
+    .cta-card { background: linear-gradient(135deg, var(--navy), var(--accent)); border-radius: var(--radius); padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; margin-top: 12px; transition: opacity .15s; }
+    .cta-card:hover { opacity: .92; }
+    .cta-card h3 { color: white; font-size: 15px; font-weight: 700; }
+    .cta-card p  { color: rgba(255,255,255,.65); font-size: 12.5px; margin-top: 2px; }
+    .cta-arrow { width: 36px; height: 36px; background: rgba(255,255,255,.18); border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .nudge-card { background: var(--gray-50); border: 1.5px dashed var(--gray-300); border-radius: var(--radius); padding: 24px; text-align: center; }
+    .nudge-card p { font-size: 14px; color: var(--gray-600); margin-bottom: 14px; }
+    .nudge-btn { display: inline-block; padding: 10px 24px; background: var(--navy); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+
+    /* ── NEW ORDER ── */
+    .order-topbar { background: var(--navy); padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+    .back-btn { background: rgba(255,255,255,.15); border: none; border-radius: 8px; padding: 7px 10px; cursor: pointer; display: flex; align-items: center; }
+    .back-btn svg { width: 18px; height: 18px; stroke: white; stroke-width: 2.2; fill: none; }
+    .order-step-title { color: white; font-size: 15px; font-weight: 700; flex: 1; }
+    .step-indicator { display: flex; gap: 6px; padding: 12px 18px 0; }
+    .sdot { flex: 1; height: 3px; border-radius: 2px; background: var(--gray-200); }
+    .sdot.active { background: var(--navy); }
+    .step-content { padding: 18px; }
+    .step-sub { font-size: 13.5px; color: var(--gray-600); margin-bottom: 18px; }
+
+    /* Service cards */
+    .service-grid { display: flex; flex-direction: column; gap: 10px; }
+    .service-card { border: 2px solid var(--gray-200); border-radius: var(--radius); padding: 14px 16px; cursor: pointer; display: flex; align-items: center; gap: 14px; transition: all .15s; }
+    .service-card:hover { border-color: var(--navy); background: #f8faff; }
+    .service-card.selected { border-color: var(--navy); background: #eef3ff; }
+    .svc-icon { width: 44px; height: 44px; border-radius: 10px; background: var(--gray-100); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+    .service-card.selected .svc-icon { background: var(--navy); }
+    .svc-name { font-size: 15px; font-weight: 600; }
+    .svc-desc { font-size: 12.5px; color: var(--gray-600); margin-top: 1px; }
+    .svc-price { margin-left: auto; font-size: 15px; font-weight: 700; color: var(--navy); flex-shrink: 0; text-align: right; }
+
+    /* Bags counter */
+    .bags-counter { display: flex; align-items: center; justify-content: center; gap: 24px; padding: 20px 0; }
+    .bags-btn { width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--navy); background: white; color: var(--navy); font-size: 22px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; line-height: 1; }
+    .bags-btn:hover { background: var(--navy); color: white; }
+    .bags-num { font-size: 48px; font-weight: 800; color: var(--navy); min-width: 64px; text-align: center; line-height: 1; }
+    .bags-label { font-size: 14px; color: var(--gray-600); text-align: center; margin-top: 4px; }
+
+    /* Recurring selector */
+    .recurring-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
+    .recur-btn { padding: 12px 8px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; text-align: center; font-size: 13px; font-weight: 500; transition: all .15s; }
+    .recur-btn:hover { border-color: var(--navy); }
+    .recur-btn.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
+    .recur-icon { font-size: 18px; margin-bottom: 4px; }
+
+    /* Time slots */
+    .slot-group { margin-bottom: 20px; }
+    .slot-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 10px; }
+    .slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .slot-btn { padding: 11px 8px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; text-align: center; font-size: 13px; font-weight: 500; transition: all .15s; line-height: 1.3; }
+    .slot-btn:hover { border-color: var(--navy); }
+    .slot-btn.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
+    .slot-date { font-size: 10px; opacity: .65; margin-top: 2px; }
+
+    /* Confirm summary */
+    .confirm-card { background: var(--gray-50); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+    .confirm-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--gray-200); }
+    .confirm-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .confirm-key { font-size: 13.5px; color: var(--gray-600); }
+    .confirm-val { font-size: 13.5px; font-weight: 600; text-align: right; max-width: 58%; }
+    .confirm-total { font-size: 16px !important; font-weight: 800 !important; color: var(--navy); }
+    .recurring-badge { display: inline-flex; align-items: center; gap: 5px; background: #eef3ff; color: var(--navy); padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+
+    /* ── ORDERS ── */
+    .orders-list { padding: 14px 18px; }
+    .order-item { border: 1.5px solid var(--gray-200); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; cursor: pointer; transition: box-shadow .15s; }
+    .order-item:hover { box-shadow: var(--shadow); }
+    .oi-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .oi-num { font-size: 12.5px; font-weight: 700; color: var(--navy); font-family: monospace; }
+    .oi-date { font-size: 12px; color: var(--gray-400); }
+    .oi-svc { font-size: 14px; color: var(--gray-600); margin-bottom: 10px; }
+    .oi-bottom { display: flex; justify-content: space-between; align-items: center; }
+    .oi-total { font-size: 15px; font-weight: 700; }
+    .oi-recur { font-size: 11px; color: var(--accent); font-weight: 600; margin-top: 4px; }
+
+    /* ── ORDER DETAIL ── */
+    .detail-hero { background: var(--navy); color: white; padding: 18px 20px 24px; flex-shrink: 0; }
+    .detail-back { background: rgba(255,255,255,.15); border: none; color: white; padding: 7px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; }
+    .detail-back svg { width: 14px; height: 14px; stroke: white; stroke-width: 2.2; fill: none; }
+    .d-num  { font-size: 12px; color: rgba(255,255,255,.55); font-family: monospace; margin-bottom: 4px; }
+    .d-svc  { font-size: 21px; font-weight: 800; }
+    .d-date { font-size: 13px; color: rgba(255,255,255,.55); margin-top: 4px; }
+    .detail-body { padding: 18px; }
+    .d-section { margin-bottom: 24px; }
+    .d-section-title { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 12px; }
+    .d-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--gray-100); }
+    .d-row:last-child { border-bottom: none; }
+    .d-key { font-size: 14px; color: var(--gray-600); }
+    .d-val { font-size: 14px; font-weight: 600; text-align: right; max-width: 58%; }
+
+    /* ── ACCOUNT ── */
+    .acct-hero { background: var(--navy); padding: 24px 20px 20px; color: white; flex-shrink: 0; }
+    .acct-top { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+    .acct-avatar { width: 56px; height: 56px; background: rgba(255,255,255,.15); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800; flex-shrink: 0; }
+    .acct-name  { font-size: 18px; font-weight: 800; }
+    .acct-email { font-size: 13px; color: rgba(255,255,255,.55); margin-top: 2px; }
+
+    /* Subscription plan badge in hero */
+    .plan-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.25); border-radius: 999px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; color: white; }
+    .plan-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+    /* Subscription plans */
+    .plan-cards { display: flex; flex-direction: column; gap: 10px; padding: 0 18px 18px; }
+    .plan-card { border: 2px solid var(--gray-200); border-radius: var(--radius); padding: 16px; position: relative; cursor: pointer; transition: all .15s; }
+    .plan-card:hover { border-color: var(--navy); }
+    .plan-card.current { border-color: var(--navy); background: #eef3ff; }
+    .plan-card.popular { border-color: var(--accent); }
+    .popular-tag { position: absolute; top: -10px; right: 16px; background: var(--accent); color: white; font-size: 10.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: .4px; }
+    .plan-name { font-size: 15px; font-weight: 800; margin-bottom: 4px; }
+    .plan-price { font-size: 22px; font-weight: 800; color: var(--navy); margin-bottom: 6px; }
+    .plan-price span { font-size: 13px; font-weight: 500; color: var(--gray-600); }
+    .plan-perks { font-size: 12.5px; color: var(--gray-600); line-height: 1.7; }
+    .plan-perks li { list-style: none; display: flex; align-items: center; gap: 6px; }
+    .plan-perks li::before { content: '✓'; color: var(--success); font-weight: 700; }
+    .plan-select-btn { margin-top: 12px; width: 100%; padding: 10px; border-radius: 8px; font-size: 13.5px; font-weight: 600; border: 2px solid var(--navy); background: white; color: var(--navy); cursor: pointer; transition: all .15s; }
+    .plan-select-btn:hover { background: var(--navy); color: white; }
+    .plan-card.current .plan-select-btn { background: var(--navy); color: white; }
+
+    /* Preferences */
+    .pref-section { padding: 0 18px 18px; }
+    .pref-title { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 14px; padding-top: 4px; }
+    .pref-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--gray-100); }
+    .pref-row:last-child { border-bottom: none; }
+    .pref-left { display: flex; align-items: center; gap: 10px; }
+    .pref-icon { font-size: 18px; width: 28px; text-align: center; flex-shrink: 0; }
+    .pref-name { font-size: 14px; font-weight: 500; }
+    .pref-sub { font-size: 12px; color: var(--gray-400); margin-top: 1px; }
+    .pref-select { padding: 6px 10px; border: 1.5px solid var(--gray-200); border-radius: 8px; font-size: 13px; background: white; color: var(--text); outline: none; cursor: pointer; appearance: none; -webkit-appearance: none; padding-right: 24px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
+    .pref-toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+    .pref-toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; inset: 0; background: var(--gray-200); border-radius: 12px; cursor: pointer; transition: background .2s; }
+    .toggle-slider::before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: transform .2s; }
+    .pref-toggle input:checked + .toggle-slider { background: var(--navy); }
+    .pref-toggle input:checked + .toggle-slider::before { transform: translateX(20px); }
+    .pref-save-btn { margin-top: 8px; width: 100%; padding: 12px; background: var(--navy); color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity .2s; }
+    .pref-save-btn:hover { opacity: .88; }
+
+    /* Account menu */
+    .acct-menu { padding: 10px 18px; }
+    .menu-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); padding: 14px 0 8px; }
+    .menu-item { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--gray-100); cursor: pointer; }
+    .menu-item:last-child { border-bottom: none; }
+    .mi-left { display: flex; align-items: center; gap: 12px; }
+    .mi-icon { width: 36px; height: 36px; border-radius: 9px; background: var(--gray-100); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .mi-icon svg { width: 18px; height: 18px; stroke: var(--navy); stroke-width: 1.8; fill: none; }
+    .mi-label { font-size: 15px; font-weight: 500; }
+    .mi-chev svg { width: 16px; height: 16px; stroke: var(--gray-300); stroke-width: 2; fill: none; }
+    .signout-btn { margin: 6px 18px 20px; width: calc(100% - 36px); padding: 13px; background: #fef2f2; color: #dc2626; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .signout-btn:hover { opacity: .8; }
+
+    /* Divider */
+    .section-divider { height: 8px; background: var(--gray-50); border-top: 1px solid var(--gray-100); border-bottom: 1px solid var(--gray-100); margin: 4px 0; }
+
+    /* ── SUCCESS ── */
+    .success-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 40px; text-align: center; }
+    .success-circle { width: 80px; height: 80px; background: #d1fae5; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+    .success-circle svg { width: 40px; height: 40px; stroke: #22c55e; stroke-width: 2.5; fill: none; }
+    .success-h { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+    .success-sub { font-size: 15px; color: var(--gray-600); margin-bottom: 6px; }
+    .success-detail { font-size: 13.5px; color: var(--gray-400); margin-bottom: 8px; }
+    .success-recur { display: inline-flex; align-items: center; gap: 6px; background: #eef3ff; color: var(--navy); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; margin-bottom: 28px; }
+
+    /* ── SHARED ── */
+    .empty-state { text-align: center; padding: 60px 20px; }
+    .empty-icon  { font-size: 48px; margin-bottom: 12px; }
+    .empty-title { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+    .empty-sub   { font-size: 14px; color: var(--gray-400); margin-bottom: 20px; }
+    .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,.85); display: none; align-items: center; justify-content: center; z-index: 200; }
+    .loading-overlay.show { display: flex; }
+    .spinner { width: 36px; height: 36px; border: 3px solid var(--gray-200); border-top-color: var(--navy); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(16px); background: #1a1a2e; color: white; padding: 11px 20px; border-radius: 999px; font-size: 14px; font-weight: 500; opacity: 0; transition: all .28s; z-index: 999; white-space: nowrap; max-width: 340px; text-align: center; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    textarea.field-input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 14px; font-family: inherit; resize: none; outline: none; min-height: 72px; transition: border-color .2s; }
+    textarea.field-input:focus { border-color: var(--navy); }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ═══ AUTH ═══ -->
+  <div class="screen active" id="screen-auth">
+    <div class="auth-hero">
+      <img class="auth-logo" src="../assets/logo.png" alt="Family Laundry"
+           onerror="this.outerHTML='<div style=\'color:white;font-size:22px;font-weight:800\'>Family Laundry</div>'">
+      <div class="auth-tagline">Pickup & delivery laundry service</div>
+    </div>
+    <div class="auth-body">
+      <div class="auth-tabs">
+        <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
+        <button class="auth-tab"        onclick="switchTab('signup')">Sign Up</button>
+      </div>
+      <form class="auth-form active" id="form-login" onsubmit="handleLogin(event)">
+        <div class="auth-error" id="login-err"></div>
+        <div class="field"><label>Email</label><input type="email" id="l-email" placeholder="you@email.com" autocomplete="email" required></div>
+        <div class="field"><label>Password</label><input type="password" id="l-pass" placeholder="••••••••" autocomplete="current-password" required></div>
+        <button class="btn-primary" type="submit" id="btn-login">Sign In</button>
+      </form>
+      <form class="auth-form" id="form-signup" onsubmit="handleSignup(event)">
+        <div class="auth-error" id="signup-err"></div>
+        <div class="field-row">
+          <div class="field"><label>First Name</label><input type="text" id="s-first" placeholder="Jane" required></div>
+          <div class="field"><label>Last Name</label><input type="text" id="s-last" placeholder="Doe" required></div>
+        </div>
+        <div class="field"><label>Email</label><input type="email" id="s-email" placeholder="you@email.com" autocomplete="email" required></div>
+        <div class="field"><label>Phone (optional)</label><input type="tel" id="s-phone" placeholder="(415) 555-0100"></div>
+        <div class="field"><label>Password</label><input type="password" id="s-pass" placeholder="Min. 8 characters" autocomplete="new-password" minlength="8" required></div>
+        <button class="btn-primary" type="submit" id="btn-signup">Create Account</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══ HOME ═══ -->
+  <div class="screen" id="screen-home">
+    <div class="home-hero">
+      <div class="home-greeting" id="home-greeting">Hello 👋</div>
+      <div class="home-sub">Here's your laundry at a glance</div>
+      <div class="stats-row">
+        <div class="stat-chip"><div class="stat-num" id="stat-total">—</div><div class="stat-label">Total Orders</div></div>
+        <div class="stat-chip"><div class="stat-num" id="stat-active">—</div><div class="stat-label">In Progress</div></div>
+        <div class="stat-chip"><div class="stat-num" id="stat-bags">—</div><div class="stat-label">Total Bags</div></div>
+      </div>
+    </div>
+    <div class="main-content">
+      <div class="section">
+        <div class="section-title">Active Order</div>
+        <div id="home-active"></div>
+      </div>
+      <div class="section" style="padding-top:14px;padding-bottom:20px">
+        <div class="cta-card" onclick="goTo('new-order')">
+          <div><h3>Schedule a Pickup</h3><p>We pick up, clean, and deliver</p></div>
+          <div class="cta-arrow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" width="18" height="18"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ NEW ORDER ═══ -->
+  <div class="screen" id="screen-new-order">
+    <div class="order-topbar">
+      <button class="back-btn" onclick="handleOrderBack()">
+        <svg viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      </button>
+      <span class="order-step-title" id="order-title">Choose Service</span>
+      <div style="width:44px"></div>
+    </div>
+    <div class="step-indicator">
+      <div class="sdot active" id="sd0"></div>
+      <div class="sdot"        id="sd1"></div>
+      <div class="sdot"        id="sd2"></div>
+    </div>
+    <div class="main-content">
+
+      <!-- Step 0 — Service -->
+      <div class="step-content" id="o-step-0">
+        <div class="step-sub">What can we take care of?</div>
+        <div class="service-grid" id="service-list"></div>
+      </div>
+
+      <!-- Step 1 — Bags + Schedule + Recurring -->
+      <div class="step-content" id="o-step-1" style="display:none">
+        <div class="step-sub">How many bags, and when?</div>
+
+        <!-- Bags counter -->
+        <div class="slot-label">Number of Bags</div>
+        <div class="bags-counter">
+          <button class="bags-btn" onclick="changeBags(-1)">−</button>
+          <div><div class="bags-num" id="bags-display">1</div><div class="bags-label">bag(s)</div></div>
+          <button class="bags-btn" onclick="changeBags(1)">+</button>
+        </div>
+
+        <!-- Recurring -->
+        <div class="slot-label" style="margin-bottom:10px">Repeat Order?</div>
+        <div class="recurring-grid" id="recurring-grid">
+          <button class="recur-btn selected" data-val="" onclick="selectRecur(this)">
+            <div class="recur-icon">1️⃣</div>One-time
+          </button>
+          <button class="recur-btn" data-val="weekly" onclick="selectRecur(this)">
+            <div class="recur-icon">📅</div>Every Week
+          </button>
+          <button class="recur-btn" data-val="biweekly" onclick="selectRecur(this)">
+            <div class="recur-icon">🗓️</div>Every 2 Weeks
+          </button>
+          <button class="recur-btn" data-val="monthly" onclick="selectRecur(this)">
+            <div class="recur-icon">📆</div>Every Month
+          </button>
+        </div>
+
+        <!-- Time windows -->
+        <div class="slot-group">
+          <div class="slot-label">Pickup Window</div>
+          <div class="slot-grid" id="pickup-slots"></div>
+        </div>
+        <div class="slot-group">
+          <div class="slot-label">Delivery Window (next day)</div>
+          <div class="slot-grid" id="delivery-slots"></div>
+        </div>
+
+        <!-- Notes -->
+        <div style="margin-bottom:18px">
+          <div class="slot-label" style="margin-bottom:8px">Special Instructions (optional)</div>
+          <textarea class="field-input" id="o-notes" placeholder="e.g. No fabric softener, hang dry delicates…"></textarea>
+        </div>
+
+        <button class="btn-primary" onclick="goOrderStep(2)">Review Order →</button>
+      </div>
+
+      <!-- Step 2 — Confirm -->
+      <div class="step-content" id="o-step-2" style="display:none">
+        <div class="step-sub">Looks good? Place your order below.</div>
+        <div class="confirm-card" id="confirm-summary"></div>
+        <button class="btn-primary" id="btn-place" onclick="placeOrder()">Place Order</button>
+        <div style="height:12px"></div>
+        <button class="btn-secondary" onclick="goOrderStep(1)">← Edit Details</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ ORDERS ═══ -->
+  <div class="screen" id="screen-orders">
+    <div class="topbar">
+      <img class="topbar-logo" src="../assets/logo.png" alt="Family Laundry" onerror="this.style.display='none'">
+      <span class="topbar-title">My Orders</span>
+      <div style="width:28px"></div>
+    </div>
+    <div class="main-content">
+      <div class="orders-list" id="orders-list">
+        <div class="empty-state"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ORDER DETAIL ═══ -->
+  <div class="screen" id="screen-detail">
+    <div class="detail-hero">
+      <button class="detail-back" onclick="showScreen('orders')">
+        <svg viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+        Orders
+      </button>
+      <div class="d-num"  id="d-num">—</div>
+      <div class="d-svc"  id="d-svc">—</div>
+      <div class="d-date" id="d-date">—</div>
+    </div>
+    <div class="detail-body main-content" style="padding-bottom:20px">
+      <div class="d-section"><div class="d-section-title">Status</div><div id="d-badge"></div><div id="d-track" style="margin-top:14px"></div></div>
+      <div class="d-section"><div class="d-section-title">Order Details</div><div id="d-rows"></div></div>
+    </div>
+  </div>
+
+  <!-- ═══ ACCOUNT ═══ -->
+  <div class="screen" id="screen-account">
+    <div class="acct-hero">
+      <div class="acct-top">
+        <div class="acct-avatar" id="acct-avatar">?</div>
+        <div>
+          <div class="acct-name"  id="acct-name">—</div>
+          <div class="acct-email" id="acct-email">—</div>
+        </div>
+      </div>
+      <div id="acct-plan-badge"></div>
+    </div>
+    <div class="main-content">
+
+      <!-- Quick links -->
+      <div class="acct-menu">
+        <div class="menu-section-title">Account</div>
+        <div class="menu-item" onclick="goTo('orders')">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><path d="M9 12h6M9 16h4"/></svg></div>
+            <span class="mi-label">Order History</span>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <div class="menu-item">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg></div>
+            <span class="mi-label">Saved Addresses</span>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+      </div>
+
+      <div class="section-divider"></div>
+
+      <!-- Laundry Preferences -->
+      <div class="pref-section">
+        <div class="pref-title">Laundry Preferences</div>
+        <div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-icon">🧴</div>
+            <div><div class="pref-name">Detergent</div><div class="pref-sub">Type of detergent</div></div>
+          </div>
+          <select class="pref-select" id="pref-detergent">
+            <option value="regular">Regular</option>
+            <option value="fragrance_free">Fragrance-free</option>
+            <option value="hypoallergenic">Hypoallergenic</option>
+            <option value="eco">Eco-friendly</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-icon">💧</div>
+            <div><div class="pref-name">Water Temperature</div><div class="pref-sub">For washing</div></div>
+          </div>
+          <select class="pref-select" id="pref-water-temp">
+            <option value="cold">Cold</option>
+            <option value="warm">Warm</option>
+            <option value="hot">Hot</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-icon">🌀</div>
+            <div><div class="pref-name">Dryer Heat</div><div class="pref-sub">For drying</div></div>
+          </div>
+          <select class="pref-select" id="pref-dryer-heat">
+            <option value="low">Low heat</option>
+            <option value="medium">Medium heat</option>
+            <option value="high">High heat</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-icon">🪝</div>
+            <div><div class="pref-name">Fabric Softener</div><div class="pref-sub">Add to wash</div></div>
+          </div>
+          <label class="pref-toggle">
+            <input type="checkbox" id="pref-softener" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-icon">👗</div>
+            <div><div class="pref-name">Hang Dry Delicates</div><div class="pref-sub">When possible</div></div>
+          </div>
+          <label class="pref-toggle">
+            <input type="checkbox" id="pref-hang-dry">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-icon">🚫</div>
+            <div><div class="pref-name">No Bleach</div><div class="pref-sub">Even on whites</div></div>
+          </div>
+          <label class="pref-toggle">
+            <input type="checkbox" id="pref-no-bleach">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <button class="pref-save-btn" onclick="savePreferences()">Save Preferences</button>
+      </div>
+
+      <div class="section-divider"></div>
+
+      <!-- Subscription Plans -->
+      <div style="padding: 18px 18px 8px;">
+        <div class="pref-title" style="margin-bottom:14px">My Plan</div>
+      </div>
+      <div class="plan-cards" id="plan-cards">
+        <!-- Rendered by JS -->
+      </div>
+
+      <div class="section-divider"></div>
+      <button class="signout-btn" onclick="handleSignOut()">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- ═══ SUCCESS ═══ -->
+  <div class="screen" id="screen-success">
+    <div class="success-wrap">
+      <div class="success-circle">
+        <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+      </div>
+      <div class="success-h">Order Placed! 🎉</div>
+      <div class="success-sub">We'll see you at pickup.</div>
+      <div class="success-detail" id="success-info"></div>
+      <div id="success-recur-wrap"></div>
+      <button class="btn-primary" style="max-width:280px" onclick="afterSuccess()">Back to Home</button>
+    </div>
+  </div>
+
+  <!-- ═══ BOTTOM NAV ═══ -->
+  <nav class="bottom-nav" id="bottom-nav" style="display:none">
+    <button class="nav-btn active" id="nav-home" onclick="goTo('home')">
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
+      Home
+    </button>
+    <button class="nav-btn" id="nav-new-order" onclick="goTo('new-order')">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
+      New Order
+    </button>
+    <button class="nav-btn" id="nav-orders" onclick="goTo('orders')">
+      <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><path d="M9 12h6M9 16h4"/></svg>
+      Orders
+    </button>
+    <button class="nav-btn" id="nav-account" onclick="goTo('account')">
+      <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Account
+    </button>
+  </nav>
+
+  <div class="loading-overlay" id="loading"><div class="spinner"></div></div>
+  <div class="toast" id="toast"></div>
+
+</div>
+
+<script>
+/* ── SUPABASE ── */
+const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
+const db = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+/* ── STATE ── */
+let currentUser     = null;
+let currentProfile  = null;
+let currentCustomer = null;
+let allServices     = [];
+
+let draft = { serviceId: null, bags: 1, recurring: '', pickupSlot: null, deliverySlot: null, notes: '' };
+let orderStep = 0;
+
+/* ── ROUTING ── */
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById('screen-' + id);
+  if (el) el.classList.add('active');
+  el?.querySelector('.main-content')?.scrollTo(0, 0);
+}
+
+function goTo(page) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const navId = { home: 'nav-home', 'new-order': 'nav-new-order', orders: 'nav-orders', account: 'nav-account' }[page];
+  if (navId) document.getElementById(navId)?.classList.add('active');
+  if      (page === 'home')      { showScreen('home');      loadHome(); }
+  else if (page === 'new-order') { startNewOrder(); }
+  else if (page === 'orders')    { showScreen('orders');    loadOrders(); }
+  else if (page === 'account')   { showScreen('account');   loadAccount(); }
+}
+
+/* ── UTILS ── */
+let loadingTimer;
+function showLoading(on) {
+  document.getElementById('loading').classList.toggle('show', on);
+  clearTimeout(loadingTimer);
+  if (on) loadingTimer = setTimeout(() => showLoading(false), 8000);
+}
+
+let toastTimer;
+function toast(msg, dur = 3200) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), dur);
+}
+
+function $m(n) { return '$' + (+(n || 0)).toFixed(2); }
+function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'; }
+function daysFromNow(n) { const d = new Date(); d.setDate(d.getDate() + n); return d; }
+function fmtDay(d) { return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
+
+/* ── AUTH ── */
+function switchTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach((t, i) =>
+    t.classList.toggle('active', (tab === 'login' && i === 0) || (tab === 'signup' && i === 1)));
+  document.querySelectorAll('.auth-form').forEach((f, i) =>
+    f.classList.toggle('active', (tab === 'login' && i === 0) || (tab === 'signup' && i === 1)));
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('btn-login');
+  const errEl = document.getElementById('login-err');
+  errEl.classList.remove('show');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  const { error } = await db.auth.signInWithPassword({
+    email: document.getElementById('l-email').value.trim(),
+    password: document.getElementById('l-pass').value
+  });
+  btn.disabled = false; btn.textContent = 'Sign In';
+  if (error) { errEl.textContent = error.message; errEl.classList.add('show'); }
+}
+
+async function handleSignup(e) {
+  e.preventDefault();
+  const first = document.getElementById('s-first').value.trim();
+  const last  = document.getElementById('s-last').value.trim();
+  const email = document.getElementById('s-email').value.trim();
+  const phone = document.getElementById('s-phone').value.trim();
+  const pass  = document.getElementById('s-pass').value;
+  const btn = document.getElementById('btn-signup');
+  const errEl = document.getElementById('signup-err');
+  errEl.classList.remove('show');
+  btn.disabled = true; btn.textContent = 'Creating account…';
+  const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone } } });
+  btn.disabled = false; btn.textContent = 'Create Account';
+  if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
+  if (data.user) await ensureProfile(data.user, first, last, email, phone);
+}
+
+async function ensureProfile(user, first, last, email, phone) {
+  await db.from('profiles').upsert({ id: user.id, first_name: first || user.user_metadata?.first_name || '', last_name: last || user.user_metadata?.last_name || '', email: email || user.email, phone: phone || user.user_metadata?.phone || '' }, { onConflict: 'id' });
+  const { data: ec } = await db.from('customers').select('id').eq('profile_id', user.id).maybeSingle();
+  if (!ec) await db.from('customers').insert({ profile_id: user.id, is_active: true });
+}
+
+async function handleSignOut() { await db.auth.signOut(); }
+
+/* ── AUTH STATE ── */
+let appReady = false;
+
+db.auth.onAuthStateChange(async (event, session) => {
+  if (session?.user) {
+    if (appReady && event === 'TOKEN_REFRESHED') return;
+    currentUser = session.user;
+    showLoading(true);
+    try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }
+    appReady = true;
+    document.getElementById('bottom-nav').style.display = 'flex';
+    goTo('home');
+    loadServices();
+  } else {
+    appReady = false;
+    currentUser = currentProfile = currentCustomer = null;
+    document.getElementById('bottom-nav').style.display = 'none';
+    showScreen('auth');
+  }
+});
+
+async function loadUserData() {
+  const [{ data: prof }, { data: cust }] = await Promise.all([
+    db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle(),
+    db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle()
+  ]);
+  currentProfile  = prof;
+  currentCustomer = cust;
+  if (!currentProfile) {
+    const m = currentUser.user_metadata || {};
+    const { error: pe } = await db.from('profiles').upsert({ id: currentUser.id, first_name: m.first_name || '', last_name: m.last_name || '', email: currentUser.email, phone: m.phone || '' }, { onConflict: 'id' });
+    if (pe) console.warn('Profile:', pe.message);
+    const { data } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
+    currentProfile = data;
+  }
+  if (!currentCustomer) {
+    await db.from('customers').insert({ profile_id: currentUser.id, is_active: true });
+    const { data } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
+    currentCustomer = data;
+  }
+}
+
+/* ── SERVICES ── */
+async function loadServices() {
+  const { data } = await db.from('services').select('*').eq('is_active', true).order('sort_order');
+  allServices = data || [];
+}
+
+/* ── HOME ── */
+const STATUS_STEPS  = ['pending_pickup','picked_up','processing','ready','out_for_delivery'];
+const STATUS_LABELS = { pending_pickup:'Awaiting Pickup', picked_up:'Picked Up', processing:'Being Cleaned', ready:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', cancelled:'Cancelled' };
+const STEP_LABELS   = ['Pickup','Picked Up','Cleaning','Ready','Delivery'];
+
+function buildStatusBadge(status) {
+  return `<div class="status-badge s-${status}"><div class="status-dot"></div>${STATUS_LABELS[status] || status}</div>`;
+}
+
+function buildProgressTrack(status) {
+  const idx = STATUS_STEPS.indexOf(status);
+  if (idx < 0) return '';
+  let html = '<div class="progress-wrap">';
+  STATUS_STEPS.forEach((s, i) => {
+    const done = i < idx, cur = i === idx;
+    if (i > 0) html += `<div class="p-line ${done || cur ? 'done' : ''}"></div>`;
+    html += `<div class="p-step ${done ? 'done' : cur ? 'current' : ''}"><div class="p-dot"></div><div class="p-label">${STEP_LABELS[i]}</div></div>`;
+  });
+  return html + '</div>';
+}
+
+async function loadHome() {
+  if (!currentProfile) return;
+  document.getElementById('home-greeting').textContent = `Hello, ${currentProfile.first_name || 'there'} 👋`;
+  document.getElementById('stat-total').textContent = currentCustomer?.total_orders || 0;
+  document.getElementById('stat-bags').textContent  = currentCustomer?.total_bags   || 0;
+
+  if (!currentCustomer) { renderNoActive(); return; }
+  const { data: orders } = await db.from('orders')
+    .select('*, services(name)')
+    .eq('customer_id', currentCustomer.id)
+    .not('status', 'in', '(delivered,cancelled)')
+    .order('created_at', { ascending: false })
+    .limit(3);
+
+  const active = orders || [];
+  document.getElementById('stat-active').textContent = active.length;
+  if (!active.length) { renderNoActive(); return; }
+  document.getElementById('home-active').innerHTML = buildActiveCard(active[0]);
+}
+
+function renderNoActive() {
+  document.getElementById('stat-active').textContent = '0';
+  document.getElementById('home-active').innerHTML = `<div class="nudge-card"><p>No active orders right now. Ready to drop a bag?</p><button class="nudge-btn" onclick="goTo('new-order')">Schedule Pickup</button></div>`;
+}
+
+function buildActiveCard(o) {
+  const svc = o.services?.name || '—';
+  const bags = o.total_bags || 1;
+  const recLabel = { weekly: '🔁 Weekly', biweekly: '🔁 Every 2 weeks', monthly: '🔁 Monthly' }[o.recurring_interval] || '';
+  return `<div class="active-order-card" onclick="openDetail('${o.id}')">
+    <div class="aoc-top">
+      <div><div class="aoc-num">#${o.order_number || '—'}</div><div class="aoc-svc">${svc}</div>
+      ${recLabel ? `<div style="font-size:11.5px;color:var(--accent);font-weight:600;margin-top:3px">${recLabel}</div>` : ''}
+      </div>
+      ${buildStatusBadge(o.status)}
+    </div>
+    ${buildProgressTrack(o.status)}
+    <div class="aoc-footer">
+      <div class="aoc-hint">${bags} bag${bags !== 1 ? 's' : ''} · Tap for details →</div>
+      <div class="aoc-total">${$m(o.total_amount)}</div>
+    </div>
+  </div>`;
+}
+
+/* ── NEW ORDER ── */
+const SLOTS = ['8 – 10 am','10 am – 12 pm','12 – 2 pm','2 – 4 pm','4 – 6 pm','6 – 8 pm'];
+const SVC_ICONS = { 'Wash & Fold':'👕','Shirt Service':'👔','Hang Dry':'🧺','Delicates':'👗','Bedding':'🛏️','default':'🧺' };
+const RECUR_LABELS = { '':'One-time', weekly:'Every Week', biweekly:'Every 2 Weeks', monthly:'Every Month' };
+
+function startNewOrder() {
+  draft = { serviceId: null, bags: 1, recurring: '', pickupSlot: null, deliverySlot: null, notes: '' };
+  orderStep = 0;
+  showScreen('new-order');
+  renderStep(0);
+  buildServiceList();
+}
+
+function buildServiceList() {
+  const el = document.getElementById('service-list');
+  if (!allServices.length) { el.innerHTML = '<p style="color:var(--gray-400);font-size:14px">Loading services…</p>'; return; }
+  el.innerHTML = allServices.map(s => {
+    const icon  = SVC_ICONS[s.name] || SVC_ICONS.default;
+    const price = s.pricing_type === 'per_lb' ? `From $${parseFloat(s.base_price).toFixed(2)}/lb` : $m(s.base_price);
+    return `<div class="service-card" id="sc-${s.id}" onclick="selectService('${s.id}')">
+      <div class="svc-icon">${icon}</div>
+      <div><div class="svc-name">${s.name}</div><div class="svc-desc">${s.pricing_type === 'per_lb' ? 'Priced by weight at pickup' : 'Flat rate per bag'}</div></div>
+      <div class="svc-price">${price}</div>
+    </div>`;
+  }).join('');
+}
+
+function selectService(id) {
+  draft.serviceId = id;
+  document.querySelectorAll('.service-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('sc-' + id)?.classList.add('selected');
+  setTimeout(() => goOrderStep(1), 200);
+}
+
+function changeBags(delta) {
+  draft.bags = Math.max(1, Math.min(20, (draft.bags || 1) + delta));
+  document.getElementById('bags-display').textContent = draft.bags;
+}
+
+function selectRecur(el) {
+  document.querySelectorAll('.recur-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  draft.recurring = el.dataset.val;
+}
+
+function goOrderStep(step) {
+  if (step === 1 && !draft.serviceId)    { toast('Please choose a service');        return; }
+  if (step === 2 && !draft.pickupSlot)   { toast('Please choose a pickup window');  return; }
+  if (step === 2 && !draft.deliverySlot) { toast('Please choose a delivery window');return; }
+  if (step === 2) buildConfirmSummary();
+  orderStep = step;
+  renderStep(step);
+}
+
+const STEP_TITLES = ['Choose Service','Bags & Schedule','Confirm Order'];
+
+function renderStep(step) {
+  [0,1,2].forEach(i => {
+    document.getElementById(`o-step-${i}`).style.display = i === step ? '' : 'none';
+    document.getElementById(`sd${i}`).classList.toggle('active', i <= step);
+  });
+  document.getElementById('order-title').textContent = STEP_TITLES[step];
+  if (step === 1) {
+    document.getElementById('bags-display').textContent = draft.bags;
+    buildSlotPickers();
+  }
+}
+
+function buildSlotPickers() {
+  const tStr = fmtDay(daysFromNow(1));
+  const dStr = fmtDay(daysFromNow(2));
+  ['pickup','delivery'].forEach(type => {
+    const day = type === 'pickup' ? tStr : dStr;
+    document.getElementById(type + '-slots').innerHTML = SLOTS.map(s =>
+      `<button class="slot-btn ${draft[type+'Slot']===s?'selected':''}" onclick="selectSlot('${type}','${s}',this)">
+        ${s}<div class="slot-date">${day}</div>
+      </button>`).join('');
+  });
+}
+
+function selectSlot(type, slot, el) {
+  document.getElementById(type + '-slots').querySelectorAll('.slot-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  draft[type + 'Slot'] = slot;
+}
+
+function buildConfirmSummary() {
+  draft.notes = document.getElementById('o-notes')?.value || '';
+  const svc   = allServices.find(s => s.id === draft.serviceId);
+  const bags  = draft.bags;
+  const isPerLb = svc?.pricing_type === 'per_lb';
+  const total   = isPerLb ? null : (svc?.base_price || 0) * bags;
+  const tom  = fmtDay(daysFromNow(1));
+  const day2 = fmtDay(daysFromNow(2));
+  const recLabel = RECUR_LABELS[draft.recurring] || 'One-time';
+
+  document.getElementById('confirm-summary').innerHTML = `
+    <div class="confirm-row"><span class="confirm-key">Service</span><span class="confirm-val">${svc?.name || '—'}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Bags</span><span class="confirm-val">${bags} bag${bags !== 1 ? 's' : ''}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Schedule</span><span class="confirm-val"><span class="recurring-badge">${draft.recurring ? '🔁 ' : ''}${recLabel}</span></span></div>
+    <div class="confirm-row"><span class="confirm-key">Pickup</span><span class="confirm-val">${tom}, ${draft.pickupSlot}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Delivery</span><span class="confirm-val">${day2}, ${draft.deliverySlot}</span></div>
+    ${draft.notes ? `<div class="confirm-row"><span class="confirm-key">Notes</span><span class="confirm-val" style="font-weight:400;color:var(--gray-600);font-size:12.5px">${draft.notes}</span></div>` : ''}
+    <div class="confirm-row"><span class="confirm-key" style="font-weight:700">Total</span><span class="confirm-val confirm-total">${isPerLb ? 'Confirmed at pickup' : $m(total)}</span></div>`;
+}
+
+function handleOrderBack() {
+  if (orderStep > 0) goOrderStep(orderStep - 1);
+  else goTo('home');
+}
+
+async function placeOrder() {
+  if (!currentCustomer) { toast('Account error — please sign out and back in'); return; }
+  const btn = document.getElementById('btn-place');
+  btn.disabled = true; btn.textContent = 'Placing order…';
+
+  const svc   = allServices.find(s => s.id === draft.serviceId);
+  const bags  = draft.bags;
+  const isPerLb = svc?.pricing_type === 'per_lb';
+  const total   = isPerLb ? 0 : Math.round((svc?.base_price || 0) * bags * 100) / 100;
+
+  const { data, error } = await db.from('orders').insert({
+    customer_id:          currentCustomer.id,
+    service_id:           draft.serviceId,
+    status:               'pending_pickup',
+    total_bags:           bags,
+    total_amount:         total,
+    pickup_date:          daysFromNow(1).toISOString().split('T')[0],
+    delivery_date:        daysFromNow(2).toISOString().split('T')[0],
+    recurring_interval:   draft.recurring || null,
+    special_instructions: draft.notes || null,
+    order_number:         Math.floor(1000 + Math.random() * 9000)
+  }).select().single();
+
+  btn.disabled = false; btn.textContent = 'Place Order';
+  if (error) { toast('Error: ' + error.message); return; }
+
+  // Update customer stats
+  await db.from('customers').update({
+    total_orders:  (currentCustomer.total_orders || 0) + 1,
+    total_bags:    (currentCustomer.total_bags   || 0) + bags,
+    last_order_at: new Date().toISOString()
+  }).eq('id', currentCustomer.id);
+  currentCustomer.total_orders = (currentCustomer.total_orders || 0) + 1;
+  currentCustomer.total_bags   = (currentCustomer.total_bags   || 0) + bags;
+
+  // Success screen
+  document.getElementById('success-info').textContent = `Pickup: ${fmtDay(daysFromNow(1))}, ${draft.pickupSlot}`;
+  const rw = document.getElementById('success-recur-wrap');
+  rw.innerHTML = draft.recurring
+    ? `<div class="success-recur">🔁 ${RECUR_LABELS[draft.recurring]} · Auto-scheduled</div>`
+    : '<div style="height:20px"></div>';
+  showScreen('success');
+}
+
+function afterSuccess() {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('nav-home').classList.add('active');
+  showScreen('home');
+  loadHome();
+}
+
+/* ── ORDERS LIST ── */
+async function loadOrders() {
+  if (!currentCustomer) return;
+  const el = document.getElementById('orders-list');
+  el.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+
+  const { data } = await db.from('orders')
+    .select('*, services(name)')
+    .eq('customer_id', currentCustomer.id)
+    .order('created_at', { ascending: false });
+
+  const orders = data || [];
+  if (!orders.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🧺</div><div class="empty-title">No orders yet</div><div class="empty-sub">Place your first pickup and we'll handle the rest.</div><button class="nudge-btn" onclick="goTo('new-order')">Schedule Pickup</button></div>`;
+    return;
+  }
+
+  const RLABELS = { weekly:'🔁 Weekly', biweekly:'🔁 Every 2 weeks', monthly:'🔁 Monthly' };
+  el.innerHTML = orders.map(o => `
+    <div class="order-item" onclick="openDetail('${o.id}')">
+      <div class="oi-top"><span class="oi-num">#${o.order_number || '—'}</span><span class="oi-date">${fmtDate(o.created_at)}</span></div>
+      <div class="oi-svc">${o.services?.name || '—'} · ${o.total_bags || 1} bag${(o.total_bags || 1) !== 1 ? 's' : ''}</div>
+      ${o.recurring_interval ? `<div class="oi-recur">${RLABELS[o.recurring_interval] || ''}</div>` : ''}
+      <div class="oi-bottom">${buildStatusBadge(o.status)}<div class="oi-total">${o.total_amount ? $m(o.total_amount) : 'TBD'}</div></div>
+    </div>`).join('');
+}
+
+/* ── ORDER DETAIL ── */
+async function openDetail(orderId) {
+  showScreen('detail');
+  const { data: o } = await db.from('orders').select('*, services(name)').eq('id', orderId).single();
+  if (!o) { toast('Order not found'); return; }
+
+  document.getElementById('d-num').textContent  = '#' + (o.order_number || '—');
+  document.getElementById('d-svc').textContent  = o.services?.name || '—';
+  document.getElementById('d-date').textContent = 'Placed ' + fmtDate(o.created_at);
+  document.getElementById('d-badge').innerHTML  = buildStatusBadge(o.status);
+  document.getElementById('d-track').innerHTML  = (o.status === 'delivered' || o.status === 'cancelled') ? '' : buildProgressTrack(o.status);
+
+  const bags = o.total_bags || 1;
+  const RLABELS = { weekly:'Every Week', biweekly:'Every 2 Weeks', monthly:'Every Month' };
+  document.getElementById('d-rows').innerHTML = `
+    <div class="d-row"><span class="d-key">Service</span><span class="d-val">${o.services?.name || '—'}</span></div>
+    <div class="d-row"><span class="d-key">Bags</span><span class="d-val">${bags} bag${bags !== 1 ? 's' : ''}</span></div>
+    <div class="d-row"><span class="d-key">Schedule</span><span class="d-val">${o.recurring_interval ? '🔁 ' + RLABELS[o.recurring_interval] : 'One-time'}</span></div>
+    <div class="d-row"><span class="d-key">Pickup Date</span><span class="d-val">${fmtDate(o.pickup_date)}</span></div>
+    <div class="d-row"><span class="d-key">Delivery Date</span><span class="d-val">${fmtDate(o.delivery_date)}</span></div>
+    ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${o.special_instructions}</span></div>` : ''}
+    <div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${o.total_amount ? $m(o.total_amount) : 'Confirmed at pickup'}</span></div>`;
+}
+
+/* ── ACCOUNT ── */
+const PLANS = [
+  {
+    key: 'paygo', name: 'Pay As You Go', price: 'No monthly fee',
+    perks: ['Standard per-order pricing', 'No commitment', 'Full service access'],
+    dotColor: '#94a3b8'
+  },
+  {
+    key: 'standard', name: 'Standard', price: '$39', period: '/month',
+    perks: ['Up to 6 bags/month included', '10% off additional bags', 'Priority scheduling'],
+    dotColor: '#2a6fc9', popular: true
+  },
+  {
+    key: 'premium', name: 'Premium', price: '$69', period: '/month',
+    perks: ['Up to 12 bags/month included', '15% off additional bags', 'Priority pickup & delivery', 'Free express turnaround'],
+    dotColor: '#f59e0b'
+  }
+];
+
+function loadAccount() {
+  if (!currentProfile) return;
+  const first = currentProfile.first_name || '';
+  const last  = currentProfile.last_name  || '';
+  document.getElementById('acct-avatar').textContent = (first[0] || '?').toUpperCase();
+  document.getElementById('acct-name').textContent   = `${first} ${last}`.trim() || 'You';
+  document.getElementById('acct-email').textContent  = currentProfile.email || currentUser?.email || '';
+
+  // Plan badge in hero
+  const plan = currentCustomer?.subscription_plan || 'paygo';
+  const planInfo = PLANS.find(p => p.key === plan);
+  document.getElementById('acct-plan-badge').innerHTML = `
+    <div class="plan-badge" style="margin-top:12px">
+      <div class="plan-dot" style="background:${planInfo?.dotColor || '#94a3b8'}"></div>
+      ${planInfo?.name || 'Pay As You Go'} Plan
+    </div>`;
+
+  // Preferences
+  const prefs = currentCustomer?.preferences || {};
+  document.getElementById('pref-detergent').value  = prefs.detergent  || 'regular';
+  document.getElementById('pref-water-temp').value = prefs.water_temp || 'cold';
+  document.getElementById('pref-dryer-heat').value = prefs.dryer_heat || 'medium';
+  document.getElementById('pref-softener').checked  = prefs.softener  !== false;
+  document.getElementById('pref-hang-dry').checked  = prefs.hang_dry  === true;
+  document.getElementById('pref-no-bleach').checked = prefs.no_bleach === true;
+
+  // Plan cards
+  renderPlanCards(plan);
+}
+
+function renderPlanCards(currentPlan) {
+  document.getElementById('plan-cards').innerHTML = PLANS.map(p => `
+    <div class="plan-card ${p.key === currentPlan ? 'current' : ''} ${p.popular ? 'popular' : ''}">
+      ${p.popular ? '<div class="popular-tag">Most Popular</div>' : ''}
+      <div class="plan-name">${p.name}</div>
+      <div class="plan-price">${p.price}${p.period ? `<span>${p.period}</span>` : ''}</div>
+      <ul class="plan-perks">${p.perks.map(perk => `<li>${perk}</li>`).join('')}</ul>
+      <button class="plan-select-btn" onclick="selectPlan('${p.key}')">
+        ${p.key === currentPlan ? '✓ Current Plan' : 'Choose ' + p.name}
+      </button>
+    </div>`).join('');
+}
+
+async function selectPlan(planKey) {
+  if (!currentCustomer) return;
+  if (planKey === (currentCustomer.subscription_plan || 'paygo')) {
+    toast('You're already on this plan');
+    return;
+  }
+  const plan = PLANS.find(p => p.key === planKey);
+  if (planKey !== 'paygo') {
+    toast(`${plan.name} selected — payment will be set up when billing is enabled`);
+  }
+  const { error } = await db.from('customers').update({ subscription_plan: planKey }).eq('id', currentCustomer.id);
+  if (error) { toast('Error updating plan'); return; }
+  currentCustomer.subscription_plan = planKey;
+  renderPlanCards(planKey);
+  document.getElementById('acct-plan-badge').innerHTML = `
+    <div class="plan-badge" style="margin-top:12px">
+      <div class="plan-dot" style="background:${plan.dotColor}"></div>
+      ${plan.name} Plan
+    </div>`;
+  toast('Plan updated!');
+}
+
+async function savePreferences() {
+  if (!currentCustomer) return;
+  const prefs = {
+    detergent:  document.getElementById('pref-detergent').value,
+    water_temp: document.getElementById('pref-water-temp').value,
+    dryer_heat: document.getElementById('pref-dryer-heat').value,
+    softener:   document.getElementById('pref-softener').checked,
+    hang_dry:   document.getElementById('pref-hang-dry').checked,
+    no_bleach:  document.getElementById('pref-no-bleach').checked
+  };
+  const { error } = await db.from('customers').update({ preferences: prefs }).eq('id', currentCustomer.id);
+  if (error) { toast('Error saving preferences'); return; }
+  currentCustomer.preferences = prefs;
+  toast('Preferences saved ✓');
+}
+</script>
+</body>
+</html>
