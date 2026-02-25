@@ -1211,7 +1211,12 @@
 
   // ── LOAD ALL DATA ──
   async function loadAll() {
-    await Promise.all([loadOverview(), loadCustomers(), loadOrders(), loadRoutes()]);
+    const results = await Promise.allSettled([loadOverview(), loadCustomers(), loadOrders(), loadRoutes()]);
+    const failed = results.filter(r => r.status === 'rejected');
+    if (failed.length) {
+      console.error('loadAll failures:', failed.map(r => r.reason));
+      showToast('Some data failed to load — check the browser console for details.', 'error');
+    }
   }
 
   // ── OVERVIEW ──
@@ -1308,10 +1313,16 @@
   }
 
   async function loadCustomers() {
-    const { data } = await db.from('customers')
+    const { data, error } = await db.from('customers')
       .select('id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, profiles(first_name, last_name, email, phone)')
       .order('created_at', { ascending: false });
 
+    if (error) {
+      console.error('loadCustomers error:', error);
+      const el = document.getElementById('customers-table-body');
+      if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load customers</div><div class="empty-sub">${error.message}</div></div>`;
+      return;
+    }
     allCustomers = data || [];
     updateCustomerStats(allCustomers);
     renderCustomers(allCustomers);
@@ -1423,7 +1434,13 @@
       .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, service_id, pickup_window_start, delivery_window_start, created_at, services(name), customers(id, first_name_cache, last_name_cache, profiles(first_name, last_name))')
       .order('created_at', { ascending: false });
     if (statusFilter && statusFilter !== 'all') q = q.eq('status', statusFilter);
-    const { data } = await q;
+    const { data, error } = await q;
+    if (error) {
+      console.error('loadOrders error:', error);
+      const el = document.getElementById('orders-table-body');
+      if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load orders</div><div class="empty-sub">${error.message}</div></div>`;
+      return;
+    }
     allOrders = data || [];
 
     // stats
