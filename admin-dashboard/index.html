@@ -976,9 +976,9 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
     Reassign Run
   </button>
-  <button class="batch-bar-btn" onclick="batchAdvanceStatus()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><polyline points="9 18 15 12 9 6"/></svg>
-    Advance Status
+  <button class="batch-bar-btn" onclick="openSetStatusModal()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
+    Set Status
   </button>
   <button class="batch-bar-btn" onclick="batchSendSMS()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
@@ -1010,6 +1010,20 @@
       <button class="btn btn-ghost" onclick="closeReassignModal()">Cancel</button>
       <button class="btn btn-primary" onclick="confirmReassignRun()">Reassign</button>
     </div>
+  </div>
+</div>
+
+<!-- Set Status modal -->
+<div id="set-status-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1001;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:340px;padding:0;overflow:hidden;">
+    <div class="modal-header" style="padding:16px 20px;">
+      <div>
+        <div class="modal-title">Set Order Status</div>
+        <div id="set-status-subtitle" style="font-size:12px;color:var(--gray-400);margin-top:2px;"></div>
+      </div>
+      <button class="modal-close" onclick="closeSetStatusModal()">×</button>
+    </div>
+    <div id="set-status-options" style="max-height:360px;overflow-y:auto;"></div>
   </div>
 </div>
 
@@ -1391,6 +1405,26 @@
   const colorFor = (id) => avatarColors[(id||'').charCodeAt(0)%avatarColors.length];
   const fmtMoney = (n) => '$'+Number(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—';
+  const fmtTime = (d) => {
+    if (!d) return '';
+    const dt = new Date(d);
+    return dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase();
+  };
+  // Show actual time if available (green ✓), else show scheduled window as "Feb 26 · 7–10am"
+  const pickupCell = (o) => {
+    if (o.actual_pickup_at)
+      return `<span style="color:var(--green);font-weight:600;white-space:nowrap">✓ ${fmtDate(o.actual_pickup_at)} · ${fmtTime(o.actual_pickup_at)}</span>`;
+    if (!o.pickup_window_start) return '—';
+    const end = o.pickup_window_end ? ` – ${fmtTime(o.pickup_window_end)}` : '';
+    return `<span style="white-space:nowrap">${fmtDate(o.pickup_window_start)} · ${fmtTime(o.pickup_window_start)}${end}</span>`;
+  };
+  const deliveryCell = (o) => {
+    if (o.actual_delivery_at)
+      return `<span style="color:var(--green);font-weight:600;white-space:nowrap">✓ ${fmtDate(o.actual_delivery_at)} · ${fmtTime(o.actual_delivery_at)}</span>`;
+    if (!o.delivery_window_start) return '—';
+    const end = o.delivery_window_end ? ` – ${fmtTime(o.delivery_window_end)}` : '';
+    return `<span style="white-space:nowrap">${fmtDate(o.delivery_window_start)} · ${fmtTime(o.delivery_window_start)}${end}</span>`;
+  };
   const today = () => new Date().toISOString().split('T')[0];
 
   const statusBadge = (s) => {
@@ -1753,7 +1787,9 @@
     let q = db.from('orders')
       .select(`id, order_number, status, total_amount, stripe_payment_intent_id,
                weight_lbs, service_id,
-               pickup_window_start, delivery_window_start,
+               pickup_window_start, pickup_window_end,
+               delivery_window_start, delivery_window_end,
+               actual_pickup_at, actual_delivery_at,
                pickup_run_id, delivery_run_id,
                created_at,
                services(name),
@@ -1892,9 +1928,9 @@
         return `<tr>
           <td style="width:36px"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" onchange="updateOrderBatchBar()"></td>
           <td class="td-name">${orderCustomerName(o)}</td>
-          <td style="color:var(--gray-600);font-size:12.5px;white-space:nowrap">${fmtDate(o.pickup_window_start)}</td>
+          <td style="font-size:12.5px">${pickupCell(o)}</td>
           <td style="color:var(--gray-600);font-size:12.5px">${pickupRoute}</td>
-          <td style="color:var(--gray-600);font-size:12.5px;white-space:nowrap">${fmtDate(o.delivery_window_start)}</td>
+          <td style="font-size:12.5px">${deliveryCell(o)}</td>
           <td style="color:var(--gray-600);font-size:12.5px">${deliveryRoute}</td>
           <td style="white-space:nowrap">${statusBadge(o.status)}${advBtn}</td>
           <td style="text-align:center;color:var(--gray-500);font-size:12.5px">${stopNum}</td>
@@ -2002,21 +2038,93 @@
   }
 
   // ── BATCH ACTION: ADVANCE STATUS ──
+  // ── BATCH ACTION: SET STATUS (any direction) ──
+  const ALL_STATUSES = [
+    { value: 'scheduled',          label: 'Scheduled',            icon: '📅' },
+    { value: 'ready_for_pickup',   label: 'Ready for Pickup',     icon: '📦' },
+    { value: 'picked_up',          label: 'Picked Up',            icon: '🚐' },
+    { value: 'processing',         label: 'Processing',           icon: '🧺' },
+    { value: 'assembled',          label: 'Assembled',            icon: '✅' },
+    { value: 'ready_for_delivery', label: 'Ready for Delivery',   icon: '🏁' },
+    { value: 'out_for_delivery',   label: 'Out for Delivery',     icon: '🚗' },
+    { value: 'delivered',          label: 'Delivered',            icon: '🎉' },
+  ];
+
+  function openSetStatusModal() {
+    const sel = getSelectedOrderData();
+    if (!sel.length) return;
+    document.getElementById('set-status-subtitle').textContent =
+      `Apply to ${sel.length} selected order${sel.length > 1 ? 's' : ''}`;
+    // Most common current status among selection (for visual hint)
+    const counts = {}; sel.forEach(s => counts[s.status] = (counts[s.status]||0)+1);
+    const dominant = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0]?.[0];
+    document.getElementById('set-status-options').innerHTML = ALL_STATUSES.map(s => {
+      const isCurrent = s.value === dominant;
+      return `<button onclick="batchSetStatus('${s.value}')"
+        style="width:100%;text-align:left;padding:11px 20px;border:none;border-bottom:1px solid var(--gray-100);
+               background:${isCurrent?'var(--gray-50)':'white'};cursor:pointer;font-size:13.5px;
+               display:flex;align-items:center;gap:10px;transition:background .1s;"
+        onmouseover="this.style.background='var(--accent-light)'"
+        onmouseout="this.style.background='${isCurrent?'var(--gray-50)':'white'}'">
+        <span style="font-size:15px;flex-shrink:0">${s.icon}</span>
+        <span style="font-weight:${isCurrent?'700':'500'};color:${isCurrent?'var(--accent)':'var(--gray-800)'};">${s.label}</span>
+        ${isCurrent ? '<span style="margin-left:auto;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400)">current</span>' : ''}
+      </button>`;
+    }).join('');
+    document.getElementById('set-status-modal').style.display = 'flex';
+  }
+
+  function closeSetStatusModal() {
+    document.getElementById('set-status-modal').style.display = 'none';
+  }
+
+  async function batchSetStatus(newStatus) {
+    const sel = getSelectedOrderData();
+    closeSetStatusModal();
+    if (!sel.length) return;
+    const label = ALL_STATUSES.find(s => s.value === newStatus)?.label || newStatus;
+    if (!confirm(`Set ${sel.length} order${sel.length>1?'s':''} to "${label}"?`)) return;
+
+    const now = new Date().toISOString();
+    let succeeded = 0, chargeCount = 0;
+    for (const s of sel) {
+      // Charge step when moving to ready_for_delivery
+      if (newStatus === 'ready_for_delivery' && s.status === 'assembled') {
+        try {
+          const { data: { session } } = await db.auth.getSession();
+          const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+            body: JSON.stringify({ orderId: s.id }),
+          });
+          const r = await res.json();
+          if (!r.error) chargeCount++;
+        } catch(e) { console.warn('Charge failed for', s.num, e); }
+      }
+      const payload = { status: newStatus };
+      if (newStatus === 'picked_up')   payload.actual_pickup_at   = now;
+      if (newStatus === 'delivered')   payload.actual_delivery_at = now;
+      const { error } = await db.from('orders').update(payload).eq('id', s.id);
+      if (!error) succeeded++;
+    }
+    const extra = chargeCount > 0 ? ` · ${chargeCount} charged` : '';
+    showToast(`✓ ${succeeded} order${succeeded>1?'s':''} → ${label}${extra}`);
+    clearOrderSelection();
+    setTimeout(() => loadOrders(currentOrderFilter), 400);
+  }
+
+  // Keep batchAdvanceStatus as a quick-advance shortcut used inline
   async function batchAdvanceStatus() {
     const sel = getSelectedOrderData();
     if (!sel.length) return;
     const advanceable = sel.filter(s => STATUS_FLOW[s.status]);
-    if (!advanceable.length) {
-      showToast('None of the selected orders can be advanced further.', '');
-      return;
-    }
+    if (!advanceable.length) { showToast('No selected orders can be advanced further.', ''); return; }
     if (!confirm(`Advance ${advanceable.length} order${advanceable.length>1?'s':''} to their next status?`)) return;
-
+    const now = new Date().toISOString();
     let succeeded = 0, chargeNeeded = 0;
     for (const s of advanceable) {
       const nextStatus = STATUS_FLOW[s.status];
       if (nextStatus === 'ready_for_delivery') {
-        // Charge step — do it individually to not block others
         try {
           const { data: { session } } = await db.auth.getSession();
           const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
@@ -2025,16 +2133,16 @@
             body: JSON.stringify({ orderId: s.id }),
           });
           const result = await res.json();
-          if (result.error) throw new Error(result.error);
-          chargeNeeded++;
+          if (!result.error) chargeNeeded++;
         } catch(e) { console.warn('Charge failed for', s.num, e); }
       }
-      const { error } = await db.from('orders').update({ status: nextStatus }).eq('id', s.id);
+      const payload = { status: nextStatus };
+      if (nextStatus === 'picked_up') payload.actual_pickup_at = now;
+      if (nextStatus === 'delivered') payload.actual_delivery_at = now;
+      const { error } = await db.from('orders').update(payload).eq('id', s.id);
       if (!error) succeeded++;
     }
-    const msg = chargeNeeded > 0
-      ? `✓ ${succeeded} advanced (${chargeNeeded} charged)`
-      : `✓ ${succeeded} order${succeeded>1?'s':''} advanced`;
+    const msg = chargeNeeded > 0 ? `✓ ${succeeded} advanced (${chargeNeeded} charged)` : `✓ ${succeeded} order${succeeded>1?'s':''} advanced`;
     showToast(msg);
     clearOrderSelection();
     setTimeout(() => loadOrders(currentOrderFilter), 400);
@@ -2112,8 +2220,11 @@
         if (result.error) throw new Error(result.error);
         showToast(`✓ Order #${orderNum} charged — ${result.card || ''}`);
       }
-      // Update the status in Supabase
-      const { error } = await db.from('orders').update({ status: newStatus }).eq('id', orderId);
+      // Update the status in Supabase (auto-stamp actual times)
+      const statusPayload = { status: newStatus };
+      if (newStatus === 'picked_up')   statusPayload.actual_pickup_at   = new Date().toISOString();
+      if (newStatus === 'delivered')   statusPayload.actual_delivery_at = new Date().toISOString();
+      const { error } = await db.from('orders').update(statusPayload).eq('id', orderId);
       if (error) throw new Error(error.message);
       showToast(`Order #${orderNum} → ${label}`);
       // Re-render after short delay so badge + button update cleanly
