@@ -372,6 +372,24 @@
     .so-section { }
     .so-label { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px; }
     .so-row { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
+    /* Color swatches */
+    .color-swatches { display:flex;gap:8px;flex-wrap:wrap;padding:4px 0; }
+    .color-swatch { width:26px;height:26px;border-radius:50%;cursor:pointer;border:3px solid transparent;transition:all .12s;flex-shrink:0; }
+    .color-swatch:hover { transform:scale(1.15); }
+    .color-swatch.selected { border-color:white;box-shadow:0 0 0 2.5px var(--gray-700); }
+    /* Upcoming runs preview */
+    .preview-banner { background:var(--accent-light);border:1px solid rgba(99,91,255,.2);border-radius:8px;padding:12px 14px; }
+    .preview-banner-title { font-size:10px;font-weight:700;color:var(--accent);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em; }
+    .preview-runs { display:flex;gap:6px;flex-wrap:wrap; }
+    .preview-run { background:white;border:1px solid rgba(99,91,255,.25);border-radius:6px;padding:4px 10px;font-size:11.5px;font-weight:600;color:var(--gray-700); }
+    .preview-run .run-date { color:var(--gray-400);font-weight:400;font-size:10px;display:block; }
+    /* Weekly schedule week nav */
+    .sched-week-nav { display:flex;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap; }
+    .sched-week-label { font-size:13px;font-weight:600;color:var(--gray-700);min-width:170px;text-align:center; }
+    /* Driver workload cards */
+    .workload-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;padding:20px; }
+    .workload-card { background:var(--gray-50);border:1px solid var(--gray-200);border-radius:10px;padding:14px; }
+    .workload-avatar { width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:white;flex-shrink:0; }
     .slide-backdrop { display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:899; }
 
     /* ── REPORTS PAGE ── */
@@ -654,11 +672,21 @@
 
             <!-- WEEKLY SCHEDULE TAB -->
             <div id="rtab-schedule" class="rtab-panel" style="display:none">
-              <div style="padding:16px 20px;">
-                <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">Click any cell to reassign a driver for that specific day. A — means the route doesn't run that day.</div>
-                <div id="weekly-schedule-grid" style="overflow-x:auto;">
-                  <div class="loading"><div class="spinner"></div> Loading…</div>
-                </div>
+              <!-- Week navigation -->
+              <div class="sched-week-nav">
+                <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(-1)">← Prev Week</button>
+                <span class="sched-week-label" id="sched-week-label">—</span>
+                <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(1)">Next Week →</button>
+                <span style="font-size:12px;color:var(--gray-400);margin-left:8px;">Click any cell to reassign a driver for that day. — means the route doesn't run.</span>
+              </div>
+              <!-- Schedule grid -->
+              <div id="weekly-schedule-grid" style="overflow-x:auto;padding:4px 0;">
+                <div class="loading"><div class="spinner"></div> Loading…</div>
+              </div>
+              <!-- Driver workload -->
+              <div style="border-top:1px solid var(--gray-100);">
+                <div style="padding:14px 20px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);">This Week's Workload</div>
+                <div class="workload-grid" id="sched-workload-grid"></div>
               </div>
             </div>
 
@@ -1179,11 +1207,20 @@
       <div class="so-row">
         <div>
           <div class="so-label">Route Name</div>
-          <input class="form-input" id="so-name" placeholder="Oakland AM" style="width:100%">
+          <input class="form-input" id="so-name" placeholder="Oakland AM" style="width:100%" oninput="updateUpcomingPreview()">
         </div>
         <div>
           <div class="so-label">Color</div>
-          <input type="color" id="so-color" value="#635bff" style="width:100%;height:38px;border:1.5px solid var(--gray-200);border-radius:var(--radius);cursor:pointer;padding:2px;">
+          <div class="color-swatches" id="color-swatches">
+            <div class="color-swatch selected" style="background:#635bff" data-color="#635bff" onclick="selectTemplateSwatch(this)"></div>
+            <div class="color-swatch" style="background:#7c3aed" data-color="#7c3aed" onclick="selectTemplateSwatch(this)"></div>
+            <div class="color-swatch" style="background:#0ba25a" data-color="#0ba25a" onclick="selectTemplateSwatch(this)"></div>
+            <div class="color-swatch" style="background:#f59e0b" data-color="#f59e0b" onclick="selectTemplateSwatch(this)"></div>
+            <div class="color-swatch" style="background:#2563eb" data-color="#2563eb" onclick="selectTemplateSwatch(this)"></div>
+            <div class="color-swatch" style="background:#ec4899" data-color="#ec4899" onclick="selectTemplateSwatch(this)"></div>
+            <div class="color-swatch" style="background:#0891b2" data-color="#0891b2" onclick="selectTemplateSwatch(this)"></div>
+            <div class="color-swatch" style="background:#dc2626" data-color="#dc2626" onclick="selectTemplateSwatch(this)"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1236,19 +1273,11 @@
         <input type="number" class="form-input" id="so-turnaround-days" value="1" min="0" max="14">
       </div>
     </div>
-    <!-- Drivers -->
+    <!-- Driver -->
     <div class="so-section">
-      <div class="so-label">Default Drivers</div>
-      <div class="so-row">
-        <div>
-          <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px;">Pickup</div>
-          <select class="form-input" id="so-pickup-driver"><option value="">Unassigned</option></select>
-        </div>
-        <div>
-          <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px;">Delivery</div>
-          <select class="form-input" id="so-delivery-driver"><option value="">Same as pickup</option></select>
-        </div>
-      </div>
+      <div class="so-label">Default Driver</div>
+      <select class="form-input" id="so-pickup-driver"><option value="">Unassigned</option></select>
+      <div style="font-size:11.5px;color:var(--gray-500);margin-top:6px;">Fallback for any day not manually overridden in the Weekly Schedule tab.</div>
     </div>
     <!-- Stop Limit + Active -->
     <div class="so-row">
@@ -1261,6 +1290,14 @@
           <input type="checkbox" id="so-active" checked style="width:16px;height:16px;accent-color:var(--accent);">
           Active template
         </label>
+      </div>
+    </div>
+    <!-- Upcoming Runs Preview -->
+    <div class="so-section">
+      <div class="so-label">Upcoming Runs Preview</div>
+      <div class="preview-banner">
+        <div class="preview-banner-title">Next 14 days</div>
+        <div class="preview-runs" id="so-upcoming-runs"><span style="color:var(--gray-400);font-size:12px;">Select days above to preview.</span></div>
       </div>
     </div>
     <div id="so-error" style="color:var(--red);font-size:13px;display:none;"></div>
@@ -1345,6 +1382,8 @@
   let currentConversation = null;
   let currentOrderFilter = null; // null = all
   let orderSortCol = 'pickup_window_start'; // default sort
+  let schedWeekOffset = 0; // 0 = current week, -1 = last week, +1 = next week
+  let schedWeekDates = []; // filled by renderWeeklySchedule()
   let orderSortDir = 'asc';
 
   const avatarColors = ['#635bff','#10b981','#f59e0b','#3b82f6','#ec4899','#ef4444','#6366f1','#8b5cf6'];
@@ -2814,7 +2853,15 @@
     document.getElementById('so-title').textContent = tmpl ? 'Edit Template' : 'New Template';
     document.getElementById('so-delete-btn').style.display = tmpl ? '' : 'none';
     document.getElementById('so-name').value = tmpl?.name || '';
-    document.getElementById('so-color').value = tmpl?.color || '#635bff';
+
+    // Color swatches — pick closest or default to first
+    const targetColor = (tmpl?.color || '#635bff').toLowerCase();
+    document.querySelectorAll('.color-swatch').forEach(sw => {
+      sw.classList.toggle('selected', sw.dataset.color === targetColor);
+    });
+    // If no match, select first swatch
+    if (!document.querySelector('.color-swatch.selected'))
+      document.querySelector('.color-swatch').classList.add('selected');
 
     // Day chips
     const activeDays = tmpl?.schedule_days || [0,1,2,3,4];
@@ -2829,19 +2876,17 @@
     document.getElementById('so-service-type').value = tmpl?.service_type || 'pickup_delivery';
     document.getElementById('so-active').checked = tmpl ? tmpl.is_active : true;
 
-    // Driver dropdowns
+    // Driver dropdown (single)
     const driverOptions = `<option value="">Unassigned</option>` +
       allDriversCache.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
     document.getElementById('so-pickup-driver').innerHTML = driverOptions;
-    document.getElementById('so-delivery-driver').innerHTML = `<option value="">Same as pickup</option>` +
-      allDriversCache.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
     if (tmpl?.default_pickup_driver_id) document.getElementById('so-pickup-driver').value = tmpl.default_pickup_driver_id;
-    if (tmpl?.default_delivery_driver_id) document.getElementById('so-delivery-driver').value = tmpl.default_delivery_driver_id;
 
     // Zone dropdown
     await loadZonesIntoSelect(tmpl?.zone_id);
 
     document.getElementById('so-error').style.display = 'none';
+    updateUpcomingPreview();
     document.getElementById('slideover-template').classList.add('open');
     document.getElementById('slideover-backdrop').style.display = 'block';
   }
@@ -2853,7 +2898,40 @@
       (data||[]).map(z => `<option value="${z.id}"${z.id===selectedId?' selected':''}>${z.name}</option>`).join('');
   }
 
-  function toggleDayChip(chip) { chip.classList.toggle('active'); }
+  function toggleDayChip(chip) {
+    chip.classList.toggle('active');
+    updateUpcomingPreview();
+  }
+
+  function selectTemplateSwatch(el) {
+    document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+    el.classList.add('selected');
+  }
+
+  function updateUpcomingPreview() {
+    const el = document.getElementById('so-upcoming-runs');
+    if (!el) return;
+    const activeDays = [...document.querySelectorAll('.day-chip.active')].map(c => parseInt(c.dataset.day));
+    const routeName = document.getElementById('so-name').value.trim() || 'This Route';
+    if (!activeDays.length) {
+      el.innerHTML = '<span style="color:var(--gray-400);font-size:12px;">Select at least one day to preview.</span>';
+      return;
+    }
+    const chips = [];
+    const DAY_ABBR = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const now = new Date();
+    // Start from tomorrow
+    const start = new Date(now); start.setDate(start.getDate() + 1); start.setHours(0,0,0,0);
+    for (let i = 0; chips.length < 10 && i < 30; i++) {
+      const d = new Date(start); d.setDate(start.getDate() + i);
+      const dow = (d.getDay() + 6) % 7; // 0=Mon…6=Sun
+      if (activeDays.includes(dow)) {
+        chips.push(`<div class="preview-run">${routeName}<span class="run-date">${DAY_ABBR[dow]} ${MON_ABBR[d.getMonth()]} ${d.getDate()}</span></div>`);
+      }
+    }
+    el.innerHTML = chips.join('');
+  }
 
   function closeTemplateEditor() {
     document.getElementById('slideover-template').classList.remove('open');
@@ -2868,9 +2946,10 @@
     const activeDays = [...document.querySelectorAll('.day-chip.active')].map(c => parseInt(c.dataset.day));
     if (!activeDays.length) { err.textContent = 'Select at least one day.'; err.style.display = 'block'; return; }
 
+    const selectedSwatch = document.querySelector('.color-swatch.selected');
     const payload = {
       name,
-      color: document.getElementById('so-color').value,
+      color: selectedSwatch ? selectedSwatch.dataset.color : '#635bff',
       zone_id: document.getElementById('so-zone').value || null,
       schedule_days: activeDays,
       window_start: document.getElementById('so-window-start').value + ':00',
@@ -2878,8 +2957,7 @@
       turnaround_days: parseInt(document.getElementById('so-turnaround-days').value) || 1,
       stop_limit: document.getElementById('so-stop-limit').value ? parseInt(document.getElementById('so-stop-limit').value) : null,
       service_type: document.getElementById('so-service-type').value,
-      default_pickup_driver_id:   document.getElementById('so-pickup-driver').value   || null,
-      default_delivery_driver_id: document.getElementById('so-delivery-driver').value || null,
+      default_pickup_driver_id: document.getElementById('so-pickup-driver').value || null,
       is_active: document.getElementById('so-active').checked,
     };
 
@@ -2906,6 +2984,23 @@
   }
 
   // ── WEEKLY SCHEDULE ──
+  function shiftWeek(delta) {
+    schedWeekOffset += delta;
+    renderWeeklySchedule();
+  }
+
+  function getWeekDates(offset) {
+    // Returns [Mon, Tue, Wed, Thu, Fri, Sat, Sun] as Date objects
+    const now = new Date();
+    const dow = now.getDay(); // 0=Sun
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - ((dow + 6) % 7) + offset * 7);
+    monday.setHours(0, 0, 0, 0);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday); d.setDate(monday.getDate() + i); return d;
+    });
+  }
+
   async function renderWeeklySchedule() {
     const el = document.getElementById('weekly-schedule-grid');
     if (!allTemplates.length) {
@@ -2943,10 +3038,23 @@
       </div></td>`;
     };
 
+    // Compute week dates and update label
+    const weekDates = getWeekDates(schedWeekOffset);
+    schedWeekDates = weekDates;
+    const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
+    const todayStr = todayMidnight.toDateString();
+    const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const fmtWeekDate = d => `${MON_ABBR[d.getMonth()]} ${d.getDate()}`;
+    const weekLabel = document.getElementById('sched-week-label');
+    if (weekLabel) weekLabel.textContent = `${fmtWeekDate(weekDates[0])} – ${fmtWeekDate(weekDates[6])}, ${weekDates[0].getFullYear()}`;
+
     el.innerHTML = `<table class="sched-grid">
       <thead><tr>
         <th>Route</th>
-        ${DAY_LABELS.map(d=>`<th>${d}</th>`).join('')}
+        ${weekDates.map((d, i) => {
+          const isToday = d.toDateString() === todayStr;
+          return `<th style="${isToday?'background:var(--accent-light);color:var(--accent);':''}">${DAY_LABELS[i]}<br><span style="font-weight:400;font-size:10px;${isToday?'color:var(--accent);':''}">${fmtWeekDate(d)}${isToday?' ★':''}</span></th>`;
+        }).join('')}
       </tr></thead>
       <tbody>
       ${allTemplates.map(t => `
@@ -2961,6 +3069,55 @@
         </tr>`).join('')}
       </tbody>
     </table>`;
+
+    renderWorkloadSummary(overMap, driverMap);
+  }
+
+  function renderWorkloadSummary(overMap, driverMap) {
+    const el = document.getElementById('sched-workload-grid');
+    if (!el) return;
+    if (!allDriversCache.length) { el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--gray-400);">No drivers found.</div>'; return; }
+
+    // Count runs per driver across all templates x days
+    const runCount = {}; // driverId → count
+    const runDetails = {}; // driverId → [{templateName, days[]}]
+    allDriversCache.forEach(d => { runCount[d.id] = 0; runDetails[d.id] = {}; });
+
+    allTemplates.forEach(t => {
+      (t.schedule_days||[]).forEach(day => {
+        const ovDrvId = overMap[`${t.id}-${day}-pickup`];
+        const drvId = ovDrvId || t.default_pickup_driver_id;
+        if (!drvId) return;
+        runCount[drvId] = (runCount[drvId] || 0) + 1;
+        if (!runDetails[drvId]) runDetails[drvId] = {};
+        if (!runDetails[drvId][t.name]) runDetails[drvId][t.name] = [];
+        runDetails[drvId][t.name].push(day);
+      });
+    });
+
+    const DRIVER_COLORS = ['#635bff','#0ba25a','#f59e0b','#2563eb','#ec4899','#0891b2','#dc2626','#7c3aed'];
+    const DAY_ABBR_SHORT = ['M','T','W','Th','F','Sa','Su'];
+    el.innerHTML = allDriversCache.map((d, idx) => {
+      const count = runCount[d.id] || 0;
+      const initials = d.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+      const avatarColor = DRIVER_COLORS[idx % DRIVER_COLORS.length];
+      const details = Object.entries(runDetails[d.id]||{}).map(([tname, days]) =>
+        `<div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;padding:2px 0">
+          <span style="font-weight:600;color:var(--gray-700)">${tname}</span>
+          <span style="color:var(--gray-400)">${days.map(dy=>DAY_ABBR_SHORT[dy]).join(', ')} (${days.length})</span>
+        </div>`
+      ).join('');
+      return `<div class="workload-card">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <div class="workload-avatar" style="background:${avatarColor}">${initials}</div>
+          <div>
+            <div style="font-weight:700;font-size:13px">${d.name}</div>
+            <div style="font-size:11px;color:var(--gray-400)">${count} run${count!==1?'s':''} this week</div>
+          </div>
+        </div>
+        ${details || '<div style="font-size:11.5px;color:var(--gray-400)">No runs assigned</div>'}
+      </div>`;
+    }).join('');
   }
 
   // ── DRIVER POPOVER ──
@@ -2970,7 +3127,10 @@
     event.stopPropagation();
     popoverCtx = { templateId, day, driverType, currentDriverId };
     const tmpl = allTemplates.find(t => t.id === templateId);
-    document.getElementById('driver-popover-title').textContent = `${DAY_LABELS[day]} · ${tmpl?.name || ''}`;
+    const dayDate = schedWeekDates[day];
+    const MON_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dateStr = dayDate ? ` ${MON_SHORT[dayDate.getMonth()]} ${dayDate.getDate()}` : '';
+    document.getElementById('driver-popover-title').textContent = `${DAY_LABELS[day]}${dateStr} · ${tmpl?.name || ''}`;
 
     const opts = document.getElementById('driver-popover-options');
     opts.innerHTML = [{ id: '', name: 'Unassigned' }, ...allDriversCache].map(d => {
