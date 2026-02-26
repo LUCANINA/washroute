@@ -2283,7 +2283,7 @@
       const zone = t.service_zones?.name || 'No zone';
       const drv = t.pickup_driver?.profiles;
       const driverName = drv ? `${drv.first_name||''} ${drv.last_name||''}`.trim() : 'Unassigned';
-      const time = `${fmtTime(t.window_start)} – ${fmtTime(t.window_end)}`;
+      const time = `${fmtTimeStr(t.window_start)} – ${fmtTimeStr(t.window_end)}`;
       return `<div class="tpl-card" onclick="openTemplateEditor('${t.id}')">
         <div style="width:12px;height:12px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;"></div>
         <div style="flex:1;min-width:0;">
@@ -2299,7 +2299,7 @@
     }).join('');
   }
 
-  function fmtTime(t) {
+  function fmtTimeStr(t) {
     if (!t) return '';
     const [h,m] = t.split(':').map(Number);
     const ampm = h < 12 ? 'AM' : 'PM';
