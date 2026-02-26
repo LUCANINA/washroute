@@ -1516,7 +1516,7 @@
     el.innerHTML = `<table><thead><tr>${cbHeader}<th>Order #</th><th>Customer</th><th>Service</th><th>Pickup</th><th>Total</th><th>Status</th><th>Payment</th></tr></thead><tbody>
       ${data.map(o=>{
         const svcName = o.services?.name || '—';
-        const chargeable = Number(o.total_amount) > 0 && !o.stripe_payment_intent_id && o.status !== 'cancelled';
+        const chargeable = Number(o.total_amount) > 0 && !o.stripe_payment_intent_id && o.status === 'assembled';
         const payCell = o.stripe_payment_intent_id
           ? '<span style="color:#059669;font-size:12px;font-weight:600">✓ Charged</span>'
           : chargeable
@@ -2246,7 +2246,7 @@
       return;
     }
     el.innerHTML = data.map(o=>{
-      const chargeable = Number(o.total_amount) > 0 && !o.stripe_payment_intent_id && o.status !== 'cancelled';
+      const chargeable = Number(o.total_amount) > 0 && !o.stripe_payment_intent_id && o.status === 'assembled';
       const payBtn = o.stripe_payment_intent_id
         ? '<span style="color:#059669;font-size:11px;font-weight:600;margin-left:4px">✓ Paid</span>'
         : chargeable
