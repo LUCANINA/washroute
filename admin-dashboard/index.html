@@ -1604,7 +1604,13 @@
   const initials = (f,l) => ((f||'?')[0]+(l||'')[0]).toUpperCase();
   const colorFor = (id) => avatarColors[(id||'').charCodeAt(0)%avatarColors.length];
   const fmtMoney = (n) => '$'+Number(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—';
+  // Date-only strings ('2026-02-26') are UTC midnight by default, which shows as the previous
+  // day in Pacific time. Appending T00:00:00 forces local-midnight parsing instead.
+  const fmtDate = (d) => {
+    if (!d) return '—';
+    const date = typeof d === 'string' && d.length === 10 ? new Date(d + 'T00:00:00') : new Date(d);
+    return date.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+  };
   const fmtTime = (d) => {
     if (!d) return '';
     const dt = new Date(d);
@@ -1823,8 +1829,9 @@
 
   async function loadTodayRoutesWidget() {
     const { data } = await db.from('routes')
-      .select('id, name, status, total_stops, color')
+      .select('id, name, status, total_stops, color, started_at')
       .eq('run_date', today())
+      .order('started_at', { ascending: true, nullsFirst: false })
       .order('name');
     const el = document.getElementById('today-routes-body');
     if (!data || data.length === 0) {
@@ -3038,6 +3045,19 @@
       el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>';
       return;
     }
+    // Compute last_order_at from actual orders and update panel display + DB if stale
+    const latestOrderDate = data.reduce((best, o) => {
+      const d = o.created_at;
+      return d && (!best || d > best) ? d : best;
+    }, null);
+    if (latestOrderDate) {
+      const cpLastOrder = document.getElementById('cp-last-order');
+      if (cpLastOrder && (cpLastOrder.textContent === '—' || !cpLastOrder.textContent.trim())) {
+        cpLastOrder.textContent = fmtDate(latestOrderDate);
+        // Persist it back to DB so the customers list stays accurate
+        db.from('customers').update({ last_order_at: latestOrderDate }).eq('id', customerId).then(() => {});
+      }
+    }
     el.innerHTML = data.map(o=>{
       const chargeable = Number(o.total_amount) > 0 && !o.stripe_payment_intent_id && o.status === 'assembled';
       const payBtn = o.stripe_payment_intent_id
@@ -3820,8 +3840,8 @@
       const cust = s.orders?.customers || {};
       const name = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
       const addr = s.addresses ? `${s.addresses.line1||''}, ${s.addresses.city||''}`.replace(/^,\s*|,\s*$/g,'') : '—';
-      const dot = s.status === 'completed' ? '#0ba25a' : s.status === 'active' ? '#2563eb' : '#9ca3af';
-      const label = s.status === 'completed' ? '✓' : s.stop_number.toString();
+      const dot = s.status === 'complete' ? '#0ba25a' : s.status === 'active' ? '#2563eb' : '#9ca3af';
+      const label = s.status === 'complete' ? '✓' : s.stop_number.toString();
       const eta = s.estimated_arrival ? fmtDate(s.estimated_arrival) : '';
       const lat = s.addresses?.lat || 0, lng = s.addresses?.lng || 0;
       return `<div class="rsl-item" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}">
@@ -3846,13 +3866,13 @@
     toRemove.forEach(l => routeLiveMap.removeLayer(l));
     const valid = stops.filter(s => s.addresses?.lat && s.addresses?.lng);
     if (!valid.length) return;
-    const stopColor = { completed:'#0ba25a', active:'#2563eb', pending:'#9ca3af' };
+    const stopColor = { complete:'#0ba25a', en_route:'#2563eb', pending:'#9ca3af' };
     const coords = valid.map(s => [s.addresses.lat, s.addresses.lng]);
     const line = L.polyline(coords, {color:'#635bff', weight:2.5, opacity:.4, dashArray:'6 4'});
     line._isStopLayer = true; line.addTo(routeLiveMap);
     valid.forEach(s => {
       const col = stopColor[s.status] || '#9ca3af';
-      const label = s.status === 'completed' ? '✓' : s.stop_number.toString();
+      const label = s.status === 'complete' ? '✓' : s.stop_number.toString();
       const cust = s.orders?.customers || {};
       const custName = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
       const m = L.marker([s.addresses.lat, s.addresses.lng], {icon: makePin(col, label)})
@@ -4439,8 +4459,8 @@
   function renderStatusChart(orders) {
     const ctx = document.getElementById('rpt-chart-status').getContext('2d');
     if (rptStatusChart) { rptStatusChart.destroy(); rptStatusChart = null; }
-    const labels = { scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up', processing:'Processing', assembled:'Assembled', ready_for_delivery:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', pickup_missed:'Pickup Missed', delivery_missed:'Delivery Missed', on_hold:'On Hold', cancelled:'Cancelled' };
-    const colors = { scheduled:'#94a3b8', ready_for_pickup:'#f59e0b', picked_up:'#3b82f6', processing:'#0ea5e9', assembled:'#a855f7', ready_for_delivery:'#10b981', out_for_delivery:'#7c3aed', delivered:'#22c55e', pickup_missed:'#ef4444', delivery_missed:'#ef4444', on_hold:'#f59e0b', cancelled:'#dc2626' };
+    const labels = { scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up', processing:'Processing', assembled:'Assembled', ready_for_delivery:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', pickup_missed:'Pickup Missed', delivery_missed:'Delivery Missed', on_hold:'On Hold', cancelled:'Cancelled', pending_pickup:'Pending Pickup', ready:'Ready' };
+    const colors = { scheduled:'#94a3b8', ready_for_pickup:'#f59e0b', picked_up:'#3b82f6', processing:'#0ea5e9', assembled:'#a855f7', ready_for_delivery:'#10b981', out_for_delivery:'#7c3aed', delivered:'#22c55e', pickup_missed:'#ef4444', delivery_missed:'#ef4444', on_hold:'#f59e0b', cancelled:'#dc2626', pending_pickup:'#f59e0b', ready:'#10b981' };
     const counts = {};
     orders.forEach(o => { counts[o.status] = (counts[o.status]||0)+1; });
     const keys = Object.keys(counts).sort();
@@ -4588,18 +4608,32 @@
     const drvMap = {}; // driverId → stats
     const driverName = id => allDriversCache.find(d => d.id === id)?.name || 'Unknown';
 
-    // Build a routeId → pickup_driver_id lookup
+    // Build a routeId → driver lookup (pickup first, fall back to delivery)
     const routeDriver = {};
-    routes.forEach(r => { if (r.pickup_driver_id) routeDriver[r.id] = r.pickup_driver_id; });
+    routes.forEach(r => {
+      if (r.pickup_driver_id) routeDriver[r.id] = r.pickup_driver_id;
+      else if (r.delivery_driver_id) routeDriver[r.id] = r.delivery_driver_id;
+    });
 
     routes.forEach(r => {
-      const did = r.pickup_driver_id;
-      if (!did) return;
-      if (!drvMap[did]) drvMap[did] = { routes:0, stops:0, hours:0, lbs:0, ratingSum:0, ratingCount:0 };
-      drvMap[did].routes++;
-      drvMap[did].stops += r.completed_stops || 0;
-      if (r.started_at && r.completed_at)
-        drvMap[did].hours += (new Date(r.completed_at) - new Date(r.started_at)) / 3600000;
+      const pickupDid = r.pickup_driver_id;
+      const delivDid  = r.delivery_driver_id;
+      // Credit pickup driver
+      if (pickupDid) {
+        if (!drvMap[pickupDid]) drvMap[pickupDid] = { routes:0, stops:0, hours:0, lbs:0, ratingSum:0, ratingCount:0 };
+        drvMap[pickupDid].routes++;
+        drvMap[pickupDid].stops += r.completed_stops || 0;
+        if (r.started_at && r.completed_at)
+          drvMap[pickupDid].hours += (new Date(r.completed_at) - new Date(r.started_at)) / 3600000;
+      }
+      // Credit delivery driver (only if different from pickup driver)
+      if (delivDid && delivDid !== pickupDid) {
+        if (!drvMap[delivDid]) drvMap[delivDid] = { routes:0, stops:0, hours:0, lbs:0, ratingSum:0, ratingCount:0 };
+        drvMap[delivDid].routes++;
+        drvMap[delivDid].stops += r.completed_stops || 0;
+        if (r.started_at && r.completed_at)
+          drvMap[delivDid].hours += (new Date(r.completed_at) - new Date(r.started_at)) / 3600000;
+      }
     });
 
     // Assign order weight + ratings to driver via pickup_run_id
