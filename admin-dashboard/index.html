@@ -318,6 +318,37 @@
     .zone-row-count { font-size: 11.5px; color: var(--gray-400); margin-right: 4px; }
     .zone-draw-hint { padding: 12px 16px; background: var(--accent-light); font-size: 12.5px; color: var(--accent); line-height: 1.5; border-bottom: 1px solid var(--gray-200); display: none; }
 
+    /* ── ROUTES PAGE ── */
+    .rtab-panel { }
+    .tpl-card { display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--gray-100);cursor:pointer;transition:background .1s; }
+    .tpl-card:hover { background:var(--gray-50); }
+    .tpl-card:last-child { border-bottom:none; }
+    .tpl-name { font-weight:600;font-size:13.5px;color:var(--gray-900); }
+    .tpl-meta { font-size:12px;color:var(--gray-500);margin-top:1px; }
+    .tpl-badge { font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:6px;flex-shrink:0; }
+    /* Weekly schedule grid */
+    .sched-grid { border-collapse:collapse;width:100%;min-width:600px; }
+    .sched-grid th { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);padding:8px 10px;text-align:center;border-bottom:2px solid var(--gray-200); }
+    .sched-grid th:first-child { text-align:left;min-width:170px; }
+    .sched-grid td { padding:6px 8px;border-bottom:1px solid var(--gray-100);text-align:center;vertical-align:middle; }
+    .sched-grid td:first-child { text-align:left; }
+    .sched-cell { display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:5px 10px;border-radius:20px;font-size:11.5px;font-weight:600;cursor:pointer;transition:all .12s;border:1.5px solid transparent;white-space:nowrap; }
+    .sched-cell:hover { opacity:.8;border-color:rgba(0,0,0,.15); }
+    .sched-override { box-shadow:inset 0 0 0 2px rgba(255,255,255,.55); }
+    /* Template slide-over */
+    .slide-over { position:fixed;top:0;right:0;bottom:0;width:430px;background:white;box-shadow:-8px 0 40px rgba(0,0,0,.15);z-index:900;transform:translateX(100%);transition:transform .22s ease;display:flex;flex-direction:column;overflow:hidden; }
+    .slide-over.open { transform:translateX(0); }
+    .slide-over-header { padding:18px 24px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:12px;flex-shrink:0; }
+    .slide-over-body { flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px; }
+    .slide-over-footer { padding:14px 24px;border-top:1px solid var(--gray-200);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0; }
+    .day-chips { display:flex;gap:6px; }
+    .day-chip { width:36px;height:36px;border-radius:50%;border:2px solid var(--gray-200);background:white;font-size:11px;font-weight:700;color:var(--gray-500);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s; }
+    .day-chip.active { border-color:var(--accent);background:var(--accent);color:white; }
+    .so-section { }
+    .so-label { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px; }
+    .so-row { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
+    .slide-backdrop { display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:899; }
+
     /* ── REPORTS PAGE ── */
     .rpt-period-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
     .rpt-period-bar .filter-tabs { background: var(--gray-100); }
@@ -574,57 +605,83 @@
         <!-- ── ROUTES ── -->
         <div class="page" id="page-routes">
           <div class="stats-grid">
-            <div class="stat-card"><div class="stat-label">Routes Today</div><div class="stat-value" id="rstat-today">—</div></div>
+            <div class="stat-card"><div class="stat-label">Active Templates</div><div class="stat-value" id="rstat-templates">—</div></div>
+            <div class="stat-card"><div class="stat-label">Runs Today</div><div class="stat-value" id="rstat-today">—</div></div>
             <div class="stat-card"><div class="stat-label">Total Stops</div><div class="stat-value" id="rstat-stops">—</div></div>
-            <div class="stat-card"><div class="stat-label">Completed</div><div class="stat-value" id="rstat-done">—</div></div>
             <div class="stat-card"><div class="stat-label">Active Drivers</div><div class="stat-value" id="rstat-drivers">—</div></div>
           </div>
 
-          <!-- ── LIVE ROUTE VIEW ── -->
-          <div class="card" style="margin-bottom:20px;overflow:visible;">
-            <div class="card-header" style="gap:12px;flex-wrap:wrap;">
-              <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
-                <div class="card-title">Live View</div>
-                <span class="live-pill">LIVE</span>
-                <div id="route-toggle-btns" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
-              </div>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <button class="btn btn-ghost" id="btn-optimize" style="font-size:12px;padding:5px 12px;display:none" onclick="optimizeRoute()">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="margin-right:4px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-                  Optimize Route
-                </button>
-                <button class="btn btn-primary" style="padding:6px 12px;font-size:12px" onclick="openModal('add-route')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  Create Route
-                </button>
+          <!-- ── TAB CARD ── -->
+          <div class="card" style="padding:0;overflow:visible;">
+            <!-- Tab bar -->
+            <div class="section-tabs" style="padding:0 8px;align-items:center;">
+              <button class="section-tab active" id="rtab-btn-templates" onclick="setRoutesTab('templates',this)">Route Templates</button>
+              <button class="section-tab" id="rtab-btn-schedule" onclick="setRoutesTab('schedule',this)">Weekly Schedule</button>
+              <button class="section-tab" id="rtab-btn-runs" onclick="setRoutesTab('runs',this)">Daily Runs</button>
+              <div style="flex:1"></div>
+              <button class="btn btn-primary" id="rtab-add-btn" style="padding:6px 14px;font-size:12px;margin:6px 8px 6px 0;" onclick="openTemplateEditor(null)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12" style="margin-right:4px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New Template
+              </button>
+            </div>
+
+            <!-- TEMPLATES TAB -->
+            <div id="rtab-templates" class="rtab-panel">
+              <div id="templates-list-body" style="padding:16px;">
+                <div class="loading"><div class="spinner"></div> Loading…</div>
               </div>
             </div>
-            <div class="route-map-layout" style="height:520px;">
-              <div class="route-stop-list" id="route-stop-list" style="min-width:260px;max-width:280px;overflow-y:auto;border-right:1px solid var(--gray-200);display:flex;flex-direction:column;">
-                <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:13px;padding:20px;text-align:center;">
-                  Select a route to view stops
+
+            <!-- WEEKLY SCHEDULE TAB -->
+            <div id="rtab-schedule" class="rtab-panel" style="display:none">
+              <div style="padding:16px 20px;">
+                <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">Click any cell to reassign a driver for that specific day. A — means the route doesn't run that day.</div>
+                <div id="weekly-schedule-grid" style="overflow-x:auto;">
+                  <div class="loading"><div class="spinner"></div> Loading…</div>
                 </div>
               </div>
-              <div style="flex:1;position:relative;">
-                <div id="route-live-map" style="height:100%;width:100%;"></div>
-                <div class="map-legend-box" style="bottom:12px;left:12px;">
-                  <div class="leg-title">Stop Status</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Completed</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#2563eb"></div>Active</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>Upcoming</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#635bff"></div>Driver</div>
+            </div>
+
+            <!-- DAILY RUNS TAB -->
+            <div id="rtab-runs" class="rtab-panel" style="display:none">
+              <!-- Date picker bar -->
+              <div style="padding:12px 20px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div style="font-size:13px;font-weight:600;color:var(--gray-700);">Date:</div>
+                <input type="date" id="runs-date-picker" class="form-input" style="width:160px;padding:5px 10px;font-size:13px;" onchange="loadDailyRuns()">
+                <div id="runs-toggle-btns" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"></div>
+                <button class="btn btn-ghost" id="btn-optimize" style="font-size:12px;padding:5px 12px;display:none;margin-left:auto;" onclick="optimizeRoute()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="margin-right:4px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                  Optimize
+                </button>
+              </div>
+              <!-- Map + stop list -->
+              <div class="route-map-layout" style="height:520px;">
+                <div class="route-stop-list" id="route-stop-list" style="min-width:260px;max-width:280px;overflow-y:auto;border-right:1px solid var(--gray-200);display:flex;flex-direction:column;">
+                  <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:13px;padding:20px;text-align:center;">
+                    Select a run to view stops
+                  </div>
+                </div>
+                <div style="flex:1;position:relative;">
+                  <div id="route-live-map" style="height:100%;width:100%;"></div>
+                  <div class="map-legend-box" style="bottom:12px;left:12px;">
+                    <div class="leg-title">Stop Status</div>
+                    <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Completed</div>
+                    <div class="leg-row"><div class="leg-dot" style="background:#2563eb"></div>Active</div>
+                    <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>Upcoming</div>
+                    <div class="leg-row"><div class="leg-dot" style="background:#635bff"></div>Driver</div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Move Stop modal (inline) -->
+          <!-- Move Stop modal -->
           <div id="move-stop-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
             <div style="background:white;border-radius:10px;padding:24px;width:340px;box-shadow:0 20px 60px rgba(0,0,0,.2);">
               <div style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:4px">Move Stop</div>
-              <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px" id="move-stop-desc">Move stop to another route</div>
+              <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px" id="move-stop-desc">Move stop to another run</div>
               <div class="form-group">
-                <label class="form-label">Move to Route</label>
+                <label class="form-label">Move to Run</label>
                 <select class="form-input" id="move-stop-target-route"></select>
               </div>
               <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
@@ -634,37 +691,55 @@
             </div>
           </div>
 
-          <!-- ── ALL ROUTES TABLE ── -->
-          <div class="card">
-            <div class="card-header">
-              <div><div class="card-title">All Routes</div><div class="card-sub" id="routes-date-label"></div></div>
-            </div>
-            <div id="routes-table-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+          <!-- Driver assignment popover (weekly schedule) -->
+          <div id="driver-popover" style="display:none;position:fixed;z-index:2000;background:white;border-radius:12px;padding:16px;width:230px;box-shadow:0 8px 32px rgba(0,0,0,.18);border:1px solid var(--gray-200);">
+            <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;" id="driver-popover-title">Assign Driver</div>
+            <div id="driver-popover-options" style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;"></div>
+            <button class="btn btn-ghost" style="width:100%;margin-top:10px;font-size:12px;" onclick="closeDriverPopover()">Cancel</button>
           </div>
         </div>
 
         <!-- ── MAPS (Delivery Zones) ── -->
         <div class="page" id="page-maps">
-          <div class="card" style="overflow:visible;">
-            <div class="card-header">
+          <div class="card" style="padding:0;overflow:visible;">
+            <div class="card-header" style="padding:16px 20px;">
               <div>
                 <div class="card-title">Delivery Zones</div>
-                <div class="card-sub">Draw and manage your delivery service areas</div>
+                <div class="card-sub" id="zones-count-sub">Draw and manage your service areas</div>
               </div>
+              <button class="btn btn-primary" style="padding:6px 14px;font-size:12px;" onclick="startZoneDraw()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12" style="margin-right:4px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Draw New Zone
+              </button>
             </div>
-            <div id="maps-tab-zones">
-              <div class="zone-draw-hint" id="zone-draw-hint">✏️ Click the polygon tool on the map to start drawing a zone. Click the first point again to close and save.</div>
-              <div class="zone-layout" style="height:580px;">
-                <div class="map-side" id="zones-map" style="height:100%;"></div>
-                <div class="zone-panel">
-                  <div class="zone-panel-header">
-                    <div style="font-weight:600;font-size:13px;color:var(--gray-900);margin-bottom:8px">Delivery Zones</div>
-                    <button class="btn btn-primary" style="width:100%;justify-content:center;font-size:12.5px;padding:7px" onclick="startZoneDraw()">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                      Draw New Zone
-                    </button>
+            <!-- Save bar: appears after polygon is drawn -->
+            <div id="zone-save-bar" style="display:none;padding:12px 20px;background:var(--accent-light);border-top:1px solid rgba(99,91,255,.2);border-bottom:1px solid rgba(99,91,255,.2);flex-wrap:wrap;align-items:center;gap:10px;">
+              <div style="font-size:13px;font-weight:600;color:var(--accent);white-space:nowrap;">Zone drawn — give it a name:</div>
+              <input class="form-input" id="new-zone-name" placeholder="e.g. Oakland North" style="width:200px;padding:6px 10px;">
+              <input type="color" id="new-zone-color" value="#635bff" style="width:38px;height:34px;border:1.5px solid rgba(99,91,255,.3);border-radius:6px;cursor:pointer;padding:2px;background:white;">
+              <button class="btn btn-primary" onclick="saveNewZone()" style="padding:6px 14px;font-size:12.5px;">Save Zone</button>
+              <button class="btn btn-ghost" onclick="cancelZoneDraw()" style="padding:6px 12px;font-size:12.5px;">Cancel</button>
+            </div>
+            <!-- Map + zone list -->
+            <div class="zone-layout" style="height:560px;">
+              <div class="map-side" id="zones-map" style="height:100%;flex:1;"></div>
+              <div class="zone-panel" style="width:270px;flex-shrink:0;">
+                <div class="zone-panel-header">
+                  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);">Zones</div>
+                </div>
+                <div id="zones-list"><div class="loading"><div class="spinner"></div></div></div>
+                <!-- Edit zone name/color in-panel -->
+                <div id="zone-edit-form" style="display:none;padding:12px 16px;border-top:1px solid var(--gray-200);background:var(--gray-50);">
+                  <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--gray-500);margin-bottom:8px;">Edit Zone</div>
+                  <input class="form-input" id="edit-zone-name" placeholder="Zone name" style="margin-bottom:8px;">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                    <label style="font-size:12px;color:var(--gray-600);">Color:</label>
+                    <input type="color" id="edit-zone-color" style="width:38px;height:30px;border:1.5px solid var(--gray-200);border-radius:6px;cursor:pointer;padding:1px;">
                   </div>
-                  <div id="zones-list"><div class="loading"><div class="spinner"></div></div></div>
+                  <div style="display:flex;gap:6px;">
+                    <button class="btn btn-primary" onclick="saveZoneEdit()" style="flex:1;font-size:12px;padding:5px;">Save</button>
+                    <button class="btn btn-ghost" onclick="cancelZoneEdit()" style="font-size:12px;padding:5px;">Cancel</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1021,25 +1096,113 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="modal-add-route">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">Create Route</div>
-      <button class="modal-close" onclick="closeModal('add-route')">×</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-group"><label class="form-label">Route Name</label><input class="form-input" id="r-name" placeholder="Route A — North Loop" /></div>
-      <div class="form-group">
-        <label class="form-label">Assign Driver</label>
-        <select class="form-select" id="r-driver"><option value="">Unassigned</option></select>
+<!-- ── TEMPLATE EDITOR SLIDE-OVER ── -->
+<div class="slide-backdrop" id="slideover-backdrop" onclick="closeTemplateEditor()"></div>
+<div class="slide-over" id="slideover-template">
+  <div class="slide-over-header">
+    <button onclick="closeTemplateEditor()" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--gray-400);display:flex;align-items:center;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
+    </button>
+    <div style="font-size:16px;font-weight:700;color:var(--gray-900);flex:1;" id="so-title">New Template</div>
+    <button id="so-delete-btn" onclick="deleteTemplate()" style="display:none;background:none;border:none;cursor:pointer;padding:4px;color:var(--gray-400);" title="Delete template">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6m4-6v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+    </button>
+  </div>
+  <div class="slide-over-body">
+    <!-- Name + Color -->
+    <div class="so-section">
+      <div class="so-row">
+        <div>
+          <div class="so-label">Route Name</div>
+          <input class="form-input" id="so-name" placeholder="Oakland AM" style="width:100%">
+        </div>
+        <div>
+          <div class="so-label">Color</div>
+          <input type="color" id="so-color" value="#635bff" style="width:100%;height:38px;border:1.5px solid var(--gray-200);border-radius:var(--radius);cursor:pointer;padding:2px;">
+        </div>
       </div>
-      <div class="form-group"><label class="form-label">Date</label><input class="form-input" id="r-date" type="date" /></div>
-      <div id="r-error" style="color:var(--red);font-size:13px;margin-top:8px;display:none;"></div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('add-route')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveRoute()">Create Route</button>
+    <!-- Days of Week -->
+    <div class="so-section">
+      <div class="so-label">Runs on</div>
+      <div class="day-chips">
+        <button class="day-chip" data-day="0" onclick="toggleDayChip(this)">M</button>
+        <button class="day-chip" data-day="1" onclick="toggleDayChip(this)">T</button>
+        <button class="day-chip" data-day="2" onclick="toggleDayChip(this)">W</button>
+        <button class="day-chip" data-day="3" onclick="toggleDayChip(this)">T</button>
+        <button class="day-chip" data-day="4" onclick="toggleDayChip(this)">F</button>
+        <button class="day-chip" data-day="5" onclick="toggleDayChip(this)">S</button>
+        <button class="day-chip" data-day="6" onclick="toggleDayChip(this)">S</button>
+      </div>
     </div>
+    <!-- Time Window -->
+    <div class="so-section">
+      <div class="so-label">Pickup Window</div>
+      <div class="so-row">
+        <div>
+          <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px;">Start</div>
+          <input type="time" class="form-input" id="so-window-start" value="07:00">
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px;">End</div>
+          <input type="time" class="form-input" id="so-window-end" value="10:00">
+        </div>
+      </div>
+    </div>
+    <!-- Service Zone -->
+    <div class="so-section">
+      <div class="so-label">Service Zone</div>
+      <select class="form-input" id="so-zone">
+        <option value="">Loading zones…</option>
+      </select>
+    </div>
+    <!-- Service Type + Turnaround -->
+    <div class="so-row">
+      <div class="so-section">
+        <div class="so-label">Service Type</div>
+        <select class="form-input" id="so-service-type">
+          <option value="pickup_delivery">Pickup + Delivery</option>
+          <option value="pickup_only">Pickup Only</option>
+          <option value="delivery_only">Delivery Only</option>
+        </select>
+      </div>
+      <div class="so-section">
+        <div class="so-label">Turnaround (days)</div>
+        <input type="number" class="form-input" id="so-turnaround-days" value="1" min="0" max="14">
+      </div>
+    </div>
+    <!-- Drivers -->
+    <div class="so-section">
+      <div class="so-label">Default Drivers</div>
+      <div class="so-row">
+        <div>
+          <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px;">Pickup</div>
+          <select class="form-input" id="so-pickup-driver"><option value="">Unassigned</option></select>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px;">Delivery</div>
+          <select class="form-input" id="so-delivery-driver"><option value="">Same as pickup</option></select>
+        </div>
+      </div>
+    </div>
+    <!-- Stop Limit + Active -->
+    <div class="so-row">
+      <div class="so-section">
+        <div class="so-label">Stop Limit <span style="font-weight:400;text-transform:none;">(optional)</span></div>
+        <input type="number" class="form-input" id="so-stop-limit" placeholder="No limit" min="1">
+      </div>
+      <div class="so-section" style="display:flex;flex-direction:column;justify-content:flex-end;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:500;color:var(--gray-800);margin-bottom:6px;">
+          <input type="checkbox" id="so-active" checked style="width:16px;height:16px;accent-color:var(--accent);">
+          Active template
+        </label>
+      </div>
+    </div>
+    <div id="so-error" style="color:var(--red);font-size:13px;display:none;"></div>
+  </div>
+  <div class="slide-over-footer">
+    <button class="btn btn-ghost" onclick="closeTemplateEditor()">Cancel</button>
+    <button class="btn btn-primary" onclick="saveTemplate()">Save Template</button>
   </div>
 </div>
 
@@ -1112,6 +1275,7 @@
   let allCustomers = [];
   let allOrders = [];
   let allRoutes = [];
+  let allTemplates = [], allDriversCache = [];
   let allServices = [];
   let currentConversation = null;
 
@@ -1206,16 +1370,14 @@
       document.getElementById('user-name').textContent = name;
       document.getElementById('user-avatar').textContent = (parts[0]||'?')[0].toUpperCase() + (parts[1]||'?')[0].toUpperCase();
       document.getElementById('today-date').textContent = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
-      const rDateLabel = document.getElementById('routes-date-label');
-      if (rDateLabel) rDateLabel.textContent = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
-      document.getElementById('r-date').value = today();
+      // routes-date-label and r-date removed — routes page uses run_date now
       loadAll();
     }
   });
 
   // ── NAVIGATION ──
   const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', routes:'Routes', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', reports:'Reports' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', routes:'Create Route', maps:'', inbox:'Compose', services:'', reports:'' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', routes:'New Template', maps:'', inbox:'Compose', services:'', reports:'' };
 
   function showPage(id, navEl) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -1228,14 +1390,15 @@
     currentPage = id;
     if (id === 'inbox')   loadInbox();
     if (id === 'maps')    setTimeout(()=>initZonesMap(), 80);
-    if (id === 'routes')  setTimeout(()=>initRouteMap(), 80);
+    if (id === 'routes')  setTimeout(()=>initRoutesPage(), 80);
     if (id === 'services') loadServices();
     if (id === 'reports') loadReports();
   }
 
   function handleCTA() {
-    const map = { overview:'add-order', customers:'add-customer', orders:'add-order', routes:'add-route', inbox:'compose' };
-    openModal(map[currentPage] || 'add-order');
+    if (currentPage === 'routes') { openTemplateEditor(null); return; }
+    const map = { overview:'add-order', customers:'add-customer', orders:'add-order', inbox:'compose' };
+    if (map[currentPage]) openModal(map[currentPage]);
   }
 
   // ── LOAD ALL DATA ──
@@ -1261,7 +1424,7 @@
     ] = await Promise.all([
       db.from('customers').select('*', { count: 'exact', head: true }),
       db.from('orders').select('id,status').not('status','in','("delivered","cancelled")'),
-      db.from('routes').select('*').eq('date', todayStr),
+      db.from('routes').select('id, name, status, total_stops, color').eq('run_date', todayStr),
       db.from('orders').select('total_amount').eq('status','delivered').gte('created_at', monthStart)
     ]);
 
@@ -1313,21 +1476,24 @@
   }
 
   async function loadTodayRoutesWidget() {
-    const { data } = await db.from('routes').select('*').eq('date', today()).order('created_at');
+    const { data } = await db.from('routes')
+      .select('id, name, status, total_stops, color')
+      .eq('run_date', today())
+      .order('name');
     const el = document.getElementById('today-routes-body');
     if (!data || data.length === 0) {
-      el.innerHTML = `<div class="empty"><div class="empty-title">No routes today</div><div class="empty-sub">Create a route to get started.</div></div>`;
+      el.innerHTML = `<div class="empty"><div class="empty-title">No runs today</div><div class="empty-sub">Route runs are generated automatically at midnight.</div></div>`;
       return;
     }
-    el.innerHTML = `<div style="padding:12px 16px;display:flex;flex-direction:column;gap:12px;">
+    el.innerHTML = `<div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
       ${data.map((r,i)=>`
-        <div${i>0?' style="border-top:1px solid var(--gray-100);padding-top:12px"':''}>
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-            <span style="font-weight:600;font-size:13px;color:var(--gray-900)">${r.name}</span>
-            ${statusBadge(r.status)}
+        <div style="${i>0?'border-top:1px solid var(--gray-100);padding-top:10px':''}display:flex;align-items:center;gap:10px;">
+          <div style="width:10px;height:10px;border-radius:50%;background:${r.color||'#635bff'};flex-shrink:0;"></div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;font-size:13px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.name}</div>
+            <div style="font-size:12px;color:var(--gray-500);">${r.total_stops||0} stops</div>
           </div>
-          <div style="font-size:12px;color:var(--gray-500);margin-bottom:6px;">${r.total_stops||0} stops</div>
-          <div class="progress-bar"><div class="progress-fill" style="width:${r.total_stops?Math.round((r.completed_stops/r.total_stops)*100):0}%"></div></div>
+          ${statusBadge(r.status)}
         </div>`).join('')}
     </div>`;
   }
@@ -1671,36 +1837,71 @@
     }
   }
 
-  // ── ROUTES ──
+  // ── ROUTES / TEMPLATES ──
   async function loadRoutes() {
-    const { data } = await db.from('routes').select('*').order('date', { ascending: false }).limit(30);
-    allRoutes = data || [];
-    const todayRoutes = allRoutes.filter(r=>r.date===today());
-    document.getElementById('rstat-today').textContent   = todayRoutes.length;
-    document.getElementById('rstat-stops').textContent   = todayRoutes.reduce((s,r)=>s+(r.total_stops||0),0);
-    document.getElementById('rstat-done').textContent    = todayRoutes.reduce((s,r)=>s+(r.completed_stops||0),0);
-    document.getElementById('rstat-drivers').textContent = todayRoutes.filter(r=>r.driver_id).length;
-    renderRoutes(allRoutes);
+    // Called by loadAll on startup — loads templates and stats
+    await loadTemplates();
   }
 
-  function renderRoutes(data) {
-    const el = document.getElementById('routes-table-body');
-    if (!data.length) {
-      el.innerHTML = `<div class="empty"><div class="empty-icon">🗺️</div><div class="empty-title">No routes yet</div><div class="empty-sub">Create your first route to assign stops and drivers.</div></div>`;
+  async function loadTemplates() {
+    const { data: templates } = await db.from('route_templates')
+      .select('*, service_zones(name, color), pickup_driver:default_pickup_driver_id(id, profiles(first_name, last_name))')
+      .order('name');
+    allTemplates = templates || [];
+
+    // Today's run stats
+    const { data: todayRuns } = await db.from('routes')
+      .select('id, total_stops, pickup_driver_id, delivery_driver_id')
+      .eq('run_date', today());
+    const runs = todayRuns || [];
+
+    document.getElementById('rstat-templates').textContent = allTemplates.filter(t=>t.is_active).length;
+    document.getElementById('rstat-today').textContent = runs.length;
+    document.getElementById('rstat-stops').textContent = runs.reduce((s,r)=>s+(r.total_stops||0),0);
+    const driverIds = new Set([...runs.map(r=>r.pickup_driver_id),...runs.map(r=>r.delivery_driver_id)].filter(Boolean));
+    document.getElementById('rstat-drivers').textContent = driverIds.size;
+
+    renderTemplates();
+  }
+
+  const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+  function renderTemplates() {
+    const el = document.getElementById('templates-list-body');
+    if (!el) return;
+    if (!allTemplates.length) {
+      el.style.padding = '16px';
+      el.innerHTML = `<div class="empty"><div class="empty-icon">🗺️</div><div class="empty-title">No route templates yet</div><div class="empty-sub">Create your first template to define recurring routes.</div></div>`;
       return;
     }
-    el.innerHTML = `<table><thead><tr><th>Route</th><th>Date</th><th>Stops</th><th>Progress</th><th>Status</th><th></th></tr></thead><tbody>
-      ${data.map(r=>`<tr>
-        <td class="td-name">${r.name}</td>
-        <td style="color:var(--gray-500)">${fmtDate(r.date)}</td>
-        <td>${r.completed_stops||0} / ${r.total_stops||0}</td>
-        <td style="width:120px">
-          <div class="progress-bar" style="margin:0"><div class="progress-fill" style="width:${r.total_stops?Math.round((r.completed_stops/r.total_stops)*100):0}%"></div></div>
-        </td>
-        <td>${statusBadge(r.status)}</td>
-        <td class="row-action">Open →</td>
-      </tr>`).join('')}
-    </tbody></table>`;
+    el.style.padding = '0';
+    el.innerHTML = allTemplates.map(t => {
+      const days = (t.schedule_days||[]).slice().sort().map(d=>DAY_LABELS[d]).join(', ');
+      const zone = t.service_zones?.name || 'No zone';
+      const drv = t.pickup_driver?.profiles;
+      const driverName = drv ? `${drv.first_name||''} ${drv.last_name||''}`.trim() : 'Unassigned';
+      const time = `${fmtTime(t.window_start)} – ${fmtTime(t.window_end)}`;
+      return `<div class="tpl-card" onclick="openTemplateEditor('${t.id}')">
+        <div style="width:12px;height:12px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div class="tpl-name">${t.name}</div>
+          <div class="tpl-meta">${zone} · ${days} · ${time}</div>
+        </div>
+        <div style="font-size:12px;color:var(--gray-400);margin-right:6px;">${driverName}</div>
+        <span class="tpl-badge" style="background:${t.is_active?'var(--green-light)':'var(--gray-100)'};color:${t.is_active?'var(--green)':'var(--gray-400)'}">
+          ${t.is_active?'Active':'Paused'}
+        </span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="color:var(--gray-300);flex-shrink:0;"><path d="M9 18l6-6-6-6"/></svg>
+      </div>`;
+    }).join('');
+  }
+
+  function fmtTime(t) {
+    if (!t) return '';
+    const [h,m] = t.split(':').map(Number);
+    const ampm = h < 12 ? 'AM' : 'PM';
+    const h12 = h % 12 || 12;
+    return m ? `${h12}:${String(m).padStart(2,'0')} ${ampm}` : `${h12} ${ampm}`;
   }
 
   // ── INBOX ──
@@ -1794,7 +1995,7 @@
   function openModal(name) {
     if (name === 'add-customer') populateCustomerModal();
     if (name === 'add-order')    populateOrderModal();
-    if (name === 'add-route')    populateRouteModal();
+    // add-route handled by openTemplateEditor slide-over
     document.getElementById('modal-'+name).classList.add('open');
   }
 
@@ -1996,10 +2197,8 @@
   }
 
   async function populateRouteModal() {
-    const { data: drivers } = await db.from('drivers').select(`id, profiles(first_name,last_name)`).eq('is_active', true);
-    const sel = document.getElementById('r-driver');
-    sel.innerHTML = '<option value="">Unassigned</option>' +
-      (drivers||[]).map(d=>`<option value="${d.id}">${d.profiles?.first_name||''} ${d.profiles?.last_name||''}</option>`).join('');
+    // Legacy stub — route creation now uses slide-over template editor
+    openTemplateEditor(null);
   }
 
   async function saveCustomer(andOrder = false) {
@@ -2127,19 +2326,8 @@
   }
 
   async function saveRoute() {
-    const err = document.getElementById('r-error');
-    err.style.display = 'none';
-    const name     = document.getElementById('r-name').value.trim();
-    const driverId = document.getElementById('r-driver').value||null;
-    const date     = document.getElementById('r-date').value;
-    if (!name || !date) { err.textContent='Route name and date are required.'; err.style.display='block'; return; }
-
-    const { error } = await db.from('routes').insert({ name, driver_id: driverId, date, status:'scheduled', total_stops:0, completed_stops:0 });
-    if (error) { err.textContent = error.message; err.style.display='block'; return; }
-    showToast('Route created!', 'success');
-    closeModal('add-route');
-    loadRoutes();
-    loadOverview();
+    // Legacy stub — now handled by saveTemplate() in the slide-over
+    saveTemplate();
   }
 
   // ── TOAST ──
@@ -2310,12 +2498,6 @@
   let custMarkers=[], drawnZones=[], zoneDrawControl=null;
   const statusColor={active:'#0ba25a',at_risk:'#d97706',churned:'#9ca3af'};
 
-  const sampleZones=[
-    {id:1,name:'North Oakland',color:'#635bff',coords:[[37.855,-122.285],[37.855,-122.235],[37.830,-122.235],[37.830,-122.285]],customers:18},
-    {id:2,name:'Berkeley',color:'#10b981',coords:[[37.895,-122.300],[37.895,-122.245],[37.860,-122.245],[37.860,-122.300]],customers:14},
-    {id:3,name:'East Oakland',color:'#f59e0b',coords:[[37.820,-122.230],[37.820,-122.180],[37.780,-122.180],[37.780,-122.230]],customers:11},
-  ];
-
   function makePin(color,label,size=28){
     return L.divIcon({className:'',iconSize:[size,size],iconAnchor:[size/2,size/2],
       html:`<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid white;box-shadow:0 2px 8px rgba(0,0,0,.22);display:flex;align-items:center;justify-content:center;font-size:${size>26?11:9}px;font-weight:700;color:white">${label}</div>`});
@@ -2332,94 +2514,358 @@
     setTimeout(()=>initZonesMap(), 50);
   }
 
-  // ── ROUTE LIVE MAP ──
-  let routeLiveMap = null, routeLiveRouteId = null;
-  let routeStopMoving = null; // {stopId, stopDesc} for move-stop modal
+  // ── ROUTES PAGE ──
+  let routeLiveMap = null, routeLiveRouteId = null, routeStopMoving = null;
 
-  async function initRouteMap() {
-    // Init Leaflet map if not yet done
-    if (!routeLiveMap) {
-      routeLiveMap = L.map('route-live-map').setView([37.820,-122.240], 12);
-      cartoTiles().addTo(routeLiveMap);
+  async function initRoutesPage() {
+    await loadAllDriversCache();
+    await loadTemplates();
+    // Pre-set date picker for Daily Runs tab
+    const dp = document.getElementById('runs-date-picker');
+    if (dp && !dp.value) dp.value = today();
+  }
+
+  async function loadAllDriversCache() {
+    const { data } = await db.from('drivers')
+      .select('id, profiles(first_name, last_name)')
+      .eq('is_active', true);
+    allDriversCache = (data||[]).map(d => ({
+      id: d.id,
+      name: `${d.profiles?.first_name||''} ${d.profiles?.last_name||''}`.trim() || 'Driver'
+    }));
+  }
+
+  // ── TAB SWITCHING ──
+  function setRoutesTab(tab, btn) {
+    document.querySelectorAll('.rtab-panel').forEach(p => p.style.display = 'none');
+    document.querySelectorAll('[id^="rtab-btn-"]').forEach(b => b.classList.remove('active'));
+    document.getElementById('rtab-' + tab).style.display = '';
+    btn.classList.add('active');
+    const addBtn = document.getElementById('rtab-add-btn');
+    if (addBtn) addBtn.style.display = tab === 'templates' ? '' : 'none';
+    if (tab === 'schedule') renderWeeklySchedule();
+    if (tab === 'runs') { initRunsMap(); loadDailyRuns(); }
+  }
+
+  // ── TEMPLATE EDITOR SLIDE-OVER ──
+  let editingTemplateId = null;
+
+  async function openTemplateEditor(templateId) {
+    editingTemplateId = templateId;
+    const tmpl = allTemplates.find(t => t.id === templateId);
+    document.getElementById('so-title').textContent = tmpl ? 'Edit Template' : 'New Template';
+    document.getElementById('so-delete-btn').style.display = tmpl ? '' : 'none';
+    document.getElementById('so-name').value = tmpl?.name || '';
+    document.getElementById('so-color').value = tmpl?.color || '#635bff';
+
+    // Day chips
+    const activeDays = tmpl?.schedule_days || [0,1,2,3,4];
+    document.querySelectorAll('.day-chip').forEach(chip => {
+      chip.classList.toggle('active', activeDays.includes(parseInt(chip.dataset.day)));
+    });
+
+    document.getElementById('so-window-start').value = tmpl?.window_start?.slice(0,5) || '07:00';
+    document.getElementById('so-window-end').value   = tmpl?.window_end?.slice(0,5)   || '10:00';
+    document.getElementById('so-turnaround-days').value = tmpl?.turnaround_days ?? 1;
+    document.getElementById('so-stop-limit').value = tmpl?.stop_limit || '';
+    document.getElementById('so-service-type').value = tmpl?.service_type || 'pickup_delivery';
+    document.getElementById('so-active').checked = tmpl ? tmpl.is_active : true;
+
+    // Driver dropdowns
+    const driverOptions = `<option value="">Unassigned</option>` +
+      allDriversCache.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+    document.getElementById('so-pickup-driver').innerHTML = driverOptions;
+    document.getElementById('so-delivery-driver').innerHTML = `<option value="">Same as pickup</option>` +
+      allDriversCache.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+    if (tmpl?.default_pickup_driver_id) document.getElementById('so-pickup-driver').value = tmpl.default_pickup_driver_id;
+    if (tmpl?.default_delivery_driver_id) document.getElementById('so-delivery-driver').value = tmpl.default_delivery_driver_id;
+
+    // Zone dropdown
+    await loadZonesIntoSelect(tmpl?.zone_id);
+
+    document.getElementById('so-error').style.display = 'none';
+    document.getElementById('slideover-template').classList.add('open');
+    document.getElementById('slideover-backdrop').style.display = 'block';
+  }
+
+  async function loadZonesIntoSelect(selectedId) {
+    const { data } = await db.from('service_zones').select('id, name').order('name');
+    const sel = document.getElementById('so-zone');
+    sel.innerHTML = `<option value="">No zone assigned</option>` +
+      (data||[]).map(z => `<option value="${z.id}"${z.id===selectedId?' selected':''}>${z.name}</option>`).join('');
+  }
+
+  function toggleDayChip(chip) { chip.classList.toggle('active'); }
+
+  function closeTemplateEditor() {
+    document.getElementById('slideover-template').classList.remove('open');
+    document.getElementById('slideover-backdrop').style.display = 'none';
+  }
+
+  async function saveTemplate() {
+    const err = document.getElementById('so-error');
+    err.style.display = 'none';
+    const name = document.getElementById('so-name').value.trim();
+    if (!name) { err.textContent = 'Route name is required.'; err.style.display = 'block'; return; }
+    const activeDays = [...document.querySelectorAll('.day-chip.active')].map(c => parseInt(c.dataset.day));
+    if (!activeDays.length) { err.textContent = 'Select at least one day.'; err.style.display = 'block'; return; }
+
+    const payload = {
+      name,
+      color: document.getElementById('so-color').value,
+      zone_id: document.getElementById('so-zone').value || null,
+      schedule_days: activeDays,
+      window_start: document.getElementById('so-window-start').value + ':00',
+      window_end:   document.getElementById('so-window-end').value   + ':00',
+      turnaround_days: parseInt(document.getElementById('so-turnaround-days').value) || 1,
+      stop_limit: document.getElementById('so-stop-limit').value ? parseInt(document.getElementById('so-stop-limit').value) : null,
+      service_type: document.getElementById('so-service-type').value,
+      default_pickup_driver_id:   document.getElementById('so-pickup-driver').value   || null,
+      default_delivery_driver_id: document.getElementById('so-delivery-driver').value || null,
+      is_active: document.getElementById('so-active').checked,
+    };
+
+    let error;
+    if (editingTemplateId) {
+      ({ error } = await db.from('route_templates').update(payload).eq('id', editingTemplateId));
     } else {
-      routeLiveMap.invalidateSize();
+      ({ error } = await db.from('route_templates').insert(payload));
     }
-    // Load today's routes and render toggle buttons
-    const todayStr = today();
-    const { data: todayRoutes } = await db.from('routes')
-      .select('id, name, status, total_stops, completed_stops')
-      .eq('date', todayStr).order('name');
+    if (error) { err.textContent = error.message; err.style.display = 'block'; return; }
+    showToast(editingTemplateId ? 'Template updated!' : 'Template created!', 'success');
+    closeTemplateEditor();
+    loadTemplates();
+  }
 
-    const toggleEl = document.getElementById('route-toggle-btns');
-    if (!todayRoutes || !todayRoutes.length) {
-      toggleEl.innerHTML = '<span style="color:var(--gray-400);font-size:12.5px">No routes today</span>';
-      document.getElementById('btn-optimize').style.display = 'none';
+  async function deleteTemplate() {
+    if (!editingTemplateId) return;
+    if (!confirm('Delete this route template? This cannot be undone.')) return;
+    const { error } = await db.from('route_templates').delete().eq('id', editingTemplateId);
+    if (error) { showToast('Delete failed: ' + error.message, 'error'); return; }
+    showToast('Template deleted.');
+    closeTemplateEditor();
+    loadTemplates();
+  }
+
+  // ── WEEKLY SCHEDULE ──
+  async function renderWeeklySchedule() {
+    const el = document.getElementById('weekly-schedule-grid');
+    if (!allTemplates.length) {
+      el.innerHTML = '<div style="padding:20px;color:var(--gray-400);font-size:13px;">No templates yet. Create templates first.</div>';
+      return;
+    }
+    el.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+
+    const { data: overrides } = await db.from('route_driver_schedule')
+      .select('template_id, day_of_week, driver_type, driver_id')
+      .in('template_id', allTemplates.map(t => t.id));
+
+    const overMap = {};
+    (overrides||[]).forEach(o => { overMap[`${o.template_id}-${o.day_of_week}-${o.driver_type}`] = o.driver_id; });
+    const driverMap = Object.fromEntries(allDriversCache.map(d => [d.id, d.name]));
+
+    el.innerHTML = `<table class="sched-grid">
+      <thead><tr>
+        <th>Route</th>
+        ${DAY_LABELS.map(d=>`<th>${d}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+      ${allTemplates.map(t => `<tr>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:10px;height:10px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;"></div>
+            <div>
+              <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);">${t.name}</div>
+              <div style="font-size:11px;color:var(--gray-400);">pickup driver</div>
+            </div>
+          </div>
+        </td>
+        ${[0,1,2,3,4,5,6].map(day => {
+          const runs = (t.schedule_days||[]).includes(day);
+          if (!runs) return `<td><span style="color:var(--gray-200);font-size:13px;">—</span></td>`;
+          const ovDrvId = overMap[`${t.id}-${day}-pickup`];
+          const drvId = ovDrvId || t.default_pickup_driver_id;
+          const drvName = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
+          const short = drvName.split(' ')[0];
+          const isOv = !!ovDrvId;
+          const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
+          const fg = drvId ? 'white' : '#9ca3af';
+          return `<td><div class="sched-cell${isOv?' sched-override':''}" style="background:${bg};color:${fg};"
+            onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
+            title="${drvName}${isOv?' (day override)':''}">
+            ${short}
+            ${isOv ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="9" height="9" style="flex-shrink:0"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' : ''}
+          </div></td>`;
+        }).join('')}
+      </tr>`).join('')}
+      </tbody>
+    </table>`;
+  }
+
+  // ── DRIVER POPOVER ──
+  let popoverCtx = {};
+
+  function openDriverPopover(templateId, day, driverType, currentDriverId, event) {
+    event.stopPropagation();
+    popoverCtx = { templateId, day, driverType, currentDriverId };
+    const tmpl = allTemplates.find(t => t.id === templateId);
+    document.getElementById('driver-popover-title').textContent = `${DAY_LABELS[day]} · ${tmpl?.name || ''}`;
+
+    const opts = document.getElementById('driver-popover-options');
+    opts.innerHTML = [{ id: '', name: 'Unassigned' }, ...allDriversCache].map(d => {
+      const selected = d.id === currentDriverId || (!d.id && !currentDriverId);
+      return `<div onclick="assignDriverOverride('${d.id}')"
+        style="padding:8px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:${selected?'700':'500'};
+          color:${selected?'var(--accent)':'var(--gray-900)'};background:${selected?'var(--accent-light)':'white'};
+          display:flex;align-items:center;gap:8px;transition:background .1s;"
+        onmouseover="this.style.background='${selected?'var(--accent-light)':'var(--gray-50)'}'"
+        onmouseout="this.style.background='${selected?'var(--accent-light)':'white'}'">
+        <div style="width:26px;height:26px;border-radius:50%;background:${d.id?'var(--accent)':'var(--gray-200)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white;flex-shrink:0;">${d.name.charAt(0).toUpperCase()}</div>
+        <span style="flex:1">${d.name}</span>
+        ${selected ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+      </div>`;
+    }).join('');
+
+    const pop = document.getElementById('driver-popover');
+    pop.style.display = 'block';
+    const cell = event.target.closest('.sched-cell');
+    const rect = cell ? cell.getBoundingClientRect() : { bottom: event.clientY, left: event.clientX };
+    let top = rect.bottom + window.scrollY + 4;
+    let left = rect.left + window.scrollX;
+    if (left + 240 > window.innerWidth) left = window.innerWidth - 245;
+    pop.style.top = top + 'px';
+    pop.style.left = left + 'px';
+  }
+
+  async function assignDriverOverride(newDriverId) {
+    const { templateId, day, driverType } = popoverCtx;
+    const tmpl = allTemplates.find(t => t.id === templateId);
+    const defaultDrvId = driverType === 'pickup' ? tmpl?.default_pickup_driver_id : tmpl?.default_delivery_driver_id;
+    closeDriverPopover();
+
+    if (!newDriverId || newDriverId === defaultDrvId) {
+      // Remove override — falls back to template default
+      await db.from('route_driver_schedule').delete()
+        .eq('template_id', templateId).eq('day_of_week', day).eq('driver_type', driverType);
+    } else {
+      await db.from('route_driver_schedule').upsert({
+        template_id: templateId, day_of_week: day, driver_type: driverType, driver_id: newDriverId
+      }, { onConflict: 'template_id,day_of_week,driver_type' });
+    }
+    showToast('Driver updated!', 'success');
+    renderWeeklySchedule();
+  }
+
+  function closeDriverPopover() {
+    document.getElementById('driver-popover').style.display = 'none';
+  }
+
+  document.addEventListener('click', function(e) {
+    const pop = document.getElementById('driver-popover');
+    if (pop && pop.style.display !== 'none' && !pop.contains(e.target) && !e.target.closest('.sched-cell')) {
+      closeDriverPopover();
+    }
+  });
+
+  // ── DAILY RUNS ──
+  function initRunsMap() {
+    if (!routeLiveMap) {
+      setTimeout(() => {
+        const mapEl = document.getElementById('route-live-map');
+        if (mapEl) {
+          routeLiveMap = L.map('route-live-map').setView([37.820, -122.240], 12);
+          cartoTiles().addTo(routeLiveMap);
+        }
+      }, 120);
+    } else {
+      setTimeout(() => routeLiveMap.invalidateSize(), 120);
+    }
+  }
+
+  async function loadDailyRuns() {
+    const dp = document.getElementById('runs-date-picker');
+    const dateStr = (dp && dp.value) ? dp.value : today();
+    if (dp && !dp.value) dp.value = dateStr;
+
+    const { data: runs } = await db.from('routes')
+      .select('id, name, status, total_stops, color, template_id, route_templates(window_start, window_end)')
+      .eq('run_date', dateStr)
+      .order('name');
+
+    const toggleEl = document.getElementById('runs-toggle-btns');
+    if (!toggleEl) return;
+
+    if (!runs || !runs.length) {
+      toggleEl.innerHTML = '<span style="color:var(--gray-400);font-size:12.5px">No runs on this date</span>';
+      const optBtn = document.getElementById('btn-optimize');
+      if (optBtn) optBtn.style.display = 'none';
+      const stopList = document.getElementById('route-stop-list');
+      if (stopList) stopList.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:13px;padding:20px;text-align:center;">No runs for this date</div>';
       return;
     }
 
-    toggleEl.innerHTML = todayRoutes.map(r => `
-      <button class="btn btn-ghost route-toggle-btn" data-rid="${r.id}"
-        style="font-size:12px;padding:4px 12px;border-radius:20px"
-        onclick="selectRouteOnMap('${r.id}', this)">
+    toggleEl.innerHTML = runs.map(r => {
+      const color = r.color || '#635bff';
+      return `<button class="btn btn-ghost run-toggle-btn" data-rid="${r.id}" data-color="${color}"
+        style="font-size:12px;padding:4px 12px;border-radius:20px;display:flex;align-items:center;gap:6px;"
+        onclick="selectRunOnMap('${r.id}', this)">
+        <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></div>
         ${r.name}
-        <span style="font-size:10px;color:var(--gray-400);margin-left:4px">${r.completed_stops||0}/${r.total_stops||0}</span>
-      </button>`).join('');
+        <span style="font-size:10px;color:var(--gray-400)">${r.total_stops||0} stops</span>
+      </button>`;
+    }).join('');
 
-    // Auto-select first route
-    const firstBtn = toggleEl.querySelector('.route-toggle-btn');
+    const firstBtn = toggleEl.querySelector('.run-toggle-btn');
     if (firstBtn) firstBtn.click();
   }
 
-  async function selectRouteOnMap(routeId, btn) {
-    document.querySelectorAll('.route-toggle-btn').forEach(b => {
-      b.style.background = '';
-      b.style.color = '';
-      b.style.borderColor = '';
+  async function selectRunOnMap(runId, btn) {
+    document.querySelectorAll('.run-toggle-btn').forEach(b => {
+      b.style.background = ''; b.style.color = ''; b.style.borderColor = '';
     });
     btn.style.background = 'var(--accent)';
     btn.style.color = 'white';
     btn.style.borderColor = 'var(--accent)';
-    routeLiveRouteId = routeId;
-    document.getElementById('btn-optimize').style.display = '';
+    routeLiveRouteId = runId;
+    const optBtn = document.getElementById('btn-optimize');
+    if (optBtn) optBtn.style.display = '';
 
-    // Load stops for this route
     const { data: stops } = await db.from('route_stops')
       .select(`id, stop_number, stop_type, status, estimated_arrival,
                orders(order_number, customers(first_name_cache, last_name_cache)),
                addresses(line1, city, lat, lng)`)
-      .eq('route_id', routeId)
+      .eq('route_id', runId)
       .order('stop_number');
 
-    renderRouteStops(stops || [], routeId);
+    renderRouteStops(stops || [], runId);
     renderRouteMapPins(stops || []);
   }
 
   function renderRouteStops(stops, routeId) {
     const el = document.getElementById('route-stop-list');
     if (!stops.length) {
-      el.innerHTML = '<div style="padding:20px;color:var(--gray-400);font-size:13px;text-align:center">No stops on this route yet</div>';
+      el.innerHTML = '<div style="padding:20px;color:var(--gray-400);font-size:13px;text-align:center">No stops on this run yet</div>';
       return;
     }
-    // Populate move-stop dropdown for all other today's routes
-    const allBtns = document.querySelectorAll('.route-toggle-btn');
-    const otherRoutes = [...allBtns].filter(b => b.dataset.rid !== routeId);
-
+    const allBtns = document.querySelectorAll('.run-toggle-btn');
+    const otherRuns = [...allBtns].filter(b => b.dataset.rid !== routeId);
     el.innerHTML = stops.map(s => {
       const cust = s.orders?.customers || {};
       const name = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
-      const addr = s.addresses ? `${s.addresses.line1||''}, ${s.addresses.city||''}`.trim().replace(/^,|,$/g,'') : '—';
-      const statusDot = s.status === 'completed' ? '#0ba25a' : s.status === 'active' ? '#2563eb' : '#9ca3af';
+      const addr = s.addresses ? `${s.addresses.line1||''}, ${s.addresses.city||''}`.replace(/^,\s*|,\s*$/g,'') : '—';
+      const dot = s.status === 'completed' ? '#0ba25a' : s.status === 'active' ? '#2563eb' : '#9ca3af';
       const label = s.status === 'completed' ? '✓' : s.stop_number.toString();
       const eta = s.estimated_arrival ? fmtDate(s.estimated_arrival) : '';
-      return `<div class="rsl-item" onclick="routeLiveMap&&s.addresses?.lat&&routeLiveMap.flyTo([${s.addresses?.lat||0},${s.addresses?.lng||0}],16,{duration:.6})">
-        <div class="rsl-pin" style="background:${statusDot};border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:white;flex-shrink:0">${label}</div>
-        <div class="rsl-info" style="flex:1;min-width:0;">
-          <div class="rsl-name" style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
-          <div class="rsl-addr" style="font-size:11px;color:var(--gray-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${addr}</div>
+      const lat = s.addresses?.lat || 0, lng = s.addresses?.lng || 0;
+      return `<div class="rsl-item" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}">
+        <div class="rsl-pin" style="background:${dot}">${label}</div>
+        <div class="rsl-info">
+          <div class="rsl-name">${name}</div>
+          <div class="rsl-addr">${addr}</div>
           <div style="display:flex;gap:6px;align-items:center;margin-top:3px;">
-            <span class="rsl-tag ${s.stop_type==='pickup'?'tag-pickup':'tag-delivery'}" style="font-size:10px;padding:1px 6px;border-radius:4px">${s.stop_type==='pickup'?'Pickup':'Delivery'}</span>
+            <span class="rsl-tag ${s.stop_type==='pickup'?'tag-pickup':'tag-delivery'}">${s.stop_type==='pickup'?'Pickup':'Delivery'}</span>
             ${eta ? `<span style="font-size:10px;color:var(--gray-400)">${eta}</span>` : ''}
-            ${otherRoutes.length ? `<button class="btn btn-ghost" style="padding:1px 7px;font-size:10px;margin-left:auto" onclick="event.stopPropagation();openMoveStop('${s.id}','#${s.stop_number} ${name}')">Move →</button>` : ''}
+            ${otherRuns.length ? `<button class="btn btn-ghost" style="padding:1px 7px;font-size:10px;margin-left:auto" onclick="event.stopPropagation();openMoveStop('${s.id}','#${s.stop_number} ${name}')">Move →</button>` : ''}
           </div>
         </div>
       </div>`;
@@ -2428,72 +2874,49 @@
 
   function renderRouteMapPins(stops) {
     if (!routeLiveMap) return;
-    // Clear existing stop layers (collect first to avoid mutating while iterating)
     const toRemove = [];
     routeLiveMap.eachLayer(l => { if (l._isStopLayer) toRemove.push(l); });
     toRemove.forEach(l => routeLiveMap.removeLayer(l));
-    const validStops = stops.filter(s => s.addresses?.lat && s.addresses?.lng);
-    if (!validStops.length) return;
-
+    const valid = stops.filter(s => s.addresses?.lat && s.addresses?.lng);
+    if (!valid.length) return;
     const stopColor = { completed:'#0ba25a', active:'#2563eb', pending:'#9ca3af' };
-    const coords = validStops.map(s => [s.addresses.lat, s.addresses.lng]);
-
-    // Route line
+    const coords = valid.map(s => [s.addresses.lat, s.addresses.lng]);
     const line = L.polyline(coords, {color:'#635bff', weight:2.5, opacity:.4, dashArray:'6 4'});
-    line._isStopLayer = true;
-    line.addTo(routeLiveMap);
-
-    validStops.forEach(s => {
+    line._isStopLayer = true; line.addTo(routeLiveMap);
+    valid.forEach(s => {
       const col = stopColor[s.status] || '#9ca3af';
       const label = s.status === 'completed' ? '✓' : s.stop_number.toString();
       const cust = s.orders?.customers || {};
-      const name = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
+      const custName = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
       const m = L.marker([s.addresses.lat, s.addresses.lng], {icon: makePin(col, label)})
-        .bindPopup(`<strong>#${s.stop_number} ${name}</strong><br>${s.addresses.line1||''}<br><em>${s.stop_type} · ${s.status}</em>`);
-      m._isStopLayer = true;
-      m.addTo(routeLiveMap);
+        .bindPopup(`<strong>#${s.stop_number} ${custName}</strong><br>${s.addresses.line1||''}<br><em>${s.stop_type} · ${s.status}</em>`);
+      m._isStopLayer = true; m.addTo(routeLiveMap);
     });
-
     routeLiveMap.fitBounds(L.latLngBounds(coords), {padding:[30,30]});
   }
 
   // ── OPTIMIZE ROUTE ──
-  // Uses nearest-neighbor heuristic (no external API key needed).
-  // If GOOGLE_MAPS_KEY is set in config, can be upgraded to use Distance Matrix API.
-  const GOOGLE_MAPS_KEY = ''; // Add your Google Maps API key here to enable advanced optimization
-
   async function optimizeRoute() {
     if (!routeLiveRouteId) return;
     const btn = document.getElementById('btn-optimize');
     btn.disabled = true; btn.textContent = 'Optimizing…';
-
     try {
       const { data: stops } = await db.from('route_stops')
         .select('id, stop_number, addresses(lat, lng)')
-        .eq('route_id', routeLiveRouteId)
-        .order('stop_number');
-
+        .eq('route_id', routeLiveRouteId).order('stop_number');
       const valid = (stops||[]).filter(s => s.addresses?.lat && s.addresses?.lng);
-      if (valid.length < 2) { showToast('Need at least 2 stops with addresses to optimize.',''); return; }
-
-      // Nearest-neighbor TSP heuristic starting from first stop
+      if (valid.length < 2) { showToast('Need at least 2 stops with addresses to optimize.'); return; }
       const optimized = nearestNeighborTSP(valid);
-      const newOrder = optimized.map((s,i) => ({ id: s.id, stop_number: i+1 }));
-
-      // Batch update stop numbers
-      for (const upd of newOrder) {
-        await db.from('route_stops').update({ stop_number: upd.stop_number }).eq('id', upd.id);
+      for (const [i, s] of optimized.entries()) {
+        await db.from('route_stops').update({ stop_number: i+1 }).eq('id', s.id);
       }
-      // Save optimized order to route
-      await db.from('routes').update({ optimized_stop_order: newOrder.map(s=>s.id) }).eq('id', routeLiveRouteId);
       showToast('✓ Route optimized — stops reordered by distance');
-      // Reload
-      const activeBtn = document.querySelector('.route-toggle-btn[data-rid="'+routeLiveRouteId+'"]');
-      if (activeBtn) selectRouteOnMap(routeLiveRouteId, activeBtn);
+      const activeBtn = document.querySelector('.run-toggle-btn[data-rid="'+routeLiveRouteId+'"]');
+      if (activeBtn) selectRunOnMap(routeLiveRouteId, activeBtn);
     } catch(e) {
       showToast('Optimization failed: ' + e.message, 'error');
     } finally {
-      btn.disabled = false; btn.textContent = 'Optimize Route';
+      btn.disabled = false; btn.textContent = 'Optimize';
     }
   }
 
@@ -2512,18 +2935,17 @@
     return result;
   }
 
-  // ── MOVE STOP BETWEEN ROUTES ──
+  // ── MOVE STOP BETWEEN RUNS ──
   function openMoveStop(stopId, stopDesc) {
     routeStopMoving = { stopId, stopDesc };
     document.getElementById('move-stop-desc').textContent = `Moving: ${stopDesc}`;
-    // Populate target route dropdown (all today's routes except current)
-    const allBtns = [...document.querySelectorAll('.route-toggle-btn')];
+    const allBtns = [...document.querySelectorAll('.run-toggle-btn')];
     const sel = document.getElementById('move-stop-target-route');
     sel.innerHTML = allBtns
       .filter(b => b.dataset.rid !== routeLiveRouteId)
       .map(b => `<option value="${b.dataset.rid}">${b.textContent.trim()}</option>`)
       .join('');
-    if (!sel.options.length) { showToast('No other routes to move this stop to.',''); return; }
+    if (!sel.options.length) { showToast('No other runs to move this stop to.'); return; }
     document.getElementById('move-stop-modal').style.display = 'flex';
   }
 
@@ -2532,23 +2954,21 @@
     const targetRouteId = document.getElementById('move-stop-target-route').value;
     document.getElementById('move-stop-modal').style.display = 'none';
     try {
-      // Get current max stop_number on target route
-      const { data: targetStops } = await db.from('route_stops')
+      const { data: tgt } = await db.from('route_stops')
         .select('stop_number').eq('route_id', targetRouteId).order('stop_number', {ascending:false}).limit(1);
-      const nextNum = (targetStops?.[0]?.stop_number || 0) + 1;
+      const nextNum = (tgt?.[0]?.stop_number || 0) + 1;
       await db.from('route_stops').update({ route_id: targetRouteId, stop_number: nextNum }).eq('id', routeStopMoving.stopId);
-      // Update totals on both routes
-      const [{ count: srcCount }, { count: dstCount }] = await Promise.all([
+      const [{ count: srcCnt }, { count: dstCnt }] = await Promise.all([
         db.from('route_stops').select('*', {count:'exact',head:true}).eq('route_id', routeLiveRouteId),
         db.from('route_stops').select('*', {count:'exact',head:true}).eq('route_id', targetRouteId),
       ]);
       await Promise.all([
-        db.from('routes').update({ total_stops: srcCount||0 }).eq('id', routeLiveRouteId),
-        db.from('routes').update({ total_stops: dstCount||0 }).eq('id', targetRouteId),
+        db.from('routes').update({ total_stops: srcCnt||0 }).eq('id', routeLiveRouteId),
+        db.from('routes').update({ total_stops: dstCnt||0 }).eq('id', targetRouteId),
       ]);
-      showToast(`Stop moved successfully`);
-      const activeBtn = document.querySelector('.route-toggle-btn[data-rid="'+routeLiveRouteId+'"]');
-      if (activeBtn) selectRouteOnMap(routeLiveRouteId, activeBtn);
+      showToast('Stop moved successfully');
+      const activeBtn = document.querySelector('.run-toggle-btn[data-rid="'+routeLiveRouteId+'"]');
+      if (activeBtn) selectRunOnMap(routeLiveRouteId, activeBtn);
     } catch(e) {
       showToast('Move failed: ' + e.message, 'error');
     }
@@ -2624,50 +3044,223 @@
     });
   }
 
-  function initZonesMap(){
-    if(zonesMap){ zonesMap.invalidateSize(); return; }
-    const el=document.getElementById('zones-map');
-    el.style.height='500px';
-    zonesMap=L.map('zones-map').setView([37.835,-122.265],12);
+  // ── DELIVERY ZONES MAP ──
+  let newZoneLayer = null;         // currently drawn but not-yet-saved polygon layer
+  let zonePolygonLayers = {};      // { zoneId: leafletLayer } for existing zones
+  let editingZoneId = null;        // zone being renamed/recolored
+  let zonesDrawnItems = null;      // L.FeatureGroup for draw control
+
+  async function initZonesMap() {
+    if (zonesMap) {
+      zonesMap.invalidateSize();
+      await loadAndRenderZones();
+      return;
+    }
+    zonesMap = L.map('zones-map').setView([37.835, -122.265], 12);
     cartoTiles().addTo(zonesMap);
-    drawnZones=[...sampleZones];
-    const drawnItems=new L.FeatureGroup().addTo(zonesMap);
-    zoneDrawControl=new L.Control.Draw({
-      draw:{polygon:{shapeOptions:{color:'#635bff',fillColor:'#635bff',fillOpacity:.2,weight:2}},polyline:false,rectangle:false,circle:false,marker:false,circlemarker:false},
-      edit:{featureGroup:drawnItems}
+
+    zonesDrawnItems = new L.FeatureGroup().addTo(zonesMap);
+    zoneDrawControl = new L.Control.Draw({
+      draw: {
+        polygon: { shapeOptions: { color: '#635bff', fillColor: '#635bff', fillOpacity: 0.2, weight: 2.5 } },
+        polyline: false, rectangle: false, circle: false, marker: false, circlemarker: false
+      },
+      edit: { featureGroup: zonesDrawnItems }
     });
     zonesMap.addControl(zoneDrawControl);
-    zonesMap.on(L.Draw.Event.CREATED,function(e){
-      drawnItems.addLayer(e.layer);
-      const name=prompt('Name this zone (e.g. "South Berkeley"):');
-      if(!name) return;
-      const cols=['#635bff','#10b981','#f59e0b','#3b82f6','#ec4899'];
-      const color=cols[drawnZones.length%cols.length];
-      drawnZones.push({id:Date.now(),name,color,customers:0});
-      document.getElementById('zone-draw-hint').style.display='none';
-      renderZonesList();
-      showToast(`Zone "${name}" saved`,'success');
+
+    // When user finishes drawing a polygon
+    zonesMap.on(L.Draw.Event.CREATED, function(e) {
+      if (newZoneLayer) zonesDrawnItems.removeLayer(newZoneLayer);
+      newZoneLayer = e.layer;
+      zonesDrawnItems.addLayer(newZoneLayer);
+      // Show save bar
+      const bar = document.getElementById('zone-save-bar');
+      bar.style.display = 'flex';
+      document.getElementById('new-zone-name').value = '';
+      document.getElementById('new-zone-name').focus();
     });
-    // Draw existing zones
-    sampleZones.forEach(z=>{
-      L.polygon(z.coords,{color:z.color,fillColor:z.color,fillOpacity:.18,weight:2})
-        .addTo(zonesMap).bindTooltip(`<strong>${z.name}</strong><br>${z.customers} customers`,{sticky:true});
-    });
-    renderZonesList();
+
+    await loadAndRenderZones();
   }
 
-  function startZoneDraw(){
-    document.getElementById('zone-draw-hint').style.display='block';
-    if(zoneDrawControl) new L.Draw.Polygon(zonesMap,zoneDrawControl.options.draw.polygon).enable();
+  async function loadAndRenderZones() {
+    // Load zones with their polygon as GeoJSON
+    const { data, error } = await db.rpc('get_service_zones_geojson');
+    drawnZones = data || [];
+
+    // Load route template counts per zone
+    const { data: templates } = await db.from('route_templates').select('zone_id').eq('is_active', true);
+    const zoneCounts = {};
+    (templates||[]).forEach(t => { if (t.zone_id) zoneCounts[t.zone_id] = (zoneCounts[t.zone_id]||0)+1; });
+
+    renderZonesList(zoneCounts);
+    renderZonePolygons();
+
+    const n = drawnZones.length;
+    document.getElementById('zones-count-sub').textContent = n
+      ? `${n} zone${n!==1?'s':''} — click a zone on the map or in the list to edit`
+      : 'Draw zones on the map to define your service areas';
   }
 
-  function renderZonesList(){
-    document.getElementById('zones-list').innerHTML=drawnZones.map(z=>`
-      <div class="zone-row">
-        <div class="zone-swatch" style="background:${z.color}"></div>
+  function renderZonesList(zoneCounts) {
+    const el = document.getElementById('zones-list');
+    if (!drawnZones.length) {
+      el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px;text-align:center;">No zones yet.<br>Use the button above to draw one.</div>';
+      return;
+    }
+    el.innerHTML = drawnZones.map(z => {
+      const count = zoneCounts ? (zoneCounts[z.id] || 0) : 0;
+      return `<div class="zone-row" onclick="selectZoneInList('${z.id}')" id="zone-list-row-${z.id}" style="cursor:pointer;transition:background .1s;">
+        <div class="zone-swatch" style="background:${z.color};border-radius:50%;width:12px;height:12px;flex-shrink:0;"></div>
         <div class="zone-row-name">${z.name}</div>
-        <div class="zone-row-count">${z.customers} customers</div>
-      </div>`).join('');
+        <div class="zone-row-count">${count} route${count!==1?'s':''}</div>
+        <button onclick="event.stopPropagation();openZoneEdit('${z.id}')"
+          style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--gray-300);line-height:1;" title="Edit name/color">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button onclick="event.stopPropagation();deleteZone('${z.id}','${z.name.replace(/'/g,"\\'")}')"
+          style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--gray-300);line-height:1;" title="Delete zone">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6m4-6v6"/></svg>
+        </button>
+      </div>`;
+    }).join('');
+  }
+
+  function renderZonePolygons() {
+    // Remove old zone layers
+    Object.values(zonePolygonLayers).forEach(l => {
+      try { zonesMap.removeLayer(l); } catch(e) {}
+    });
+    zonePolygonLayers = {};
+
+    const bounds = [];
+    drawnZones.forEach(z => {
+      if (!z.geojson) return;
+      try {
+        const geojson = typeof z.geojson === 'string' ? JSON.parse(z.geojson) : z.geojson;
+        const layer = L.geoJSON(geojson, {
+          style: { color: z.color, fillColor: z.color, fillOpacity: 0.18, weight: 2.5 }
+        }).addTo(zonesMap);
+        layer.bindTooltip(`<strong>${z.name}</strong>`, { sticky: true });
+        layer.on('click', () => selectZoneInList(z.id));
+        zonePolygonLayers[z.id] = layer;
+        try { bounds.push(...layer.getBounds().toBBoxString().split(',').map(Number)); } catch(e){}
+      } catch(e) { console.warn('Zone GeoJSON parse error:', z.id, e); }
+    });
+
+    if (Object.keys(zonePolygonLayers).length && zonesMap) {
+      try {
+        const allBounds = Object.values(zonePolygonLayers).map(l => l.getBounds()).filter(b => b.isValid());
+        if (allBounds.length) {
+          let combined = allBounds[0];
+          allBounds.slice(1).forEach(b => combined = combined.extend(b));
+          zonesMap.fitBounds(combined, { padding: [30, 30] });
+        }
+      } catch(e) {}
+    }
+  }
+
+  function selectZoneInList(zoneId) {
+    // Highlight in list
+    document.querySelectorAll('.zone-row').forEach(r => r.style.background = '');
+    const row = document.getElementById('zone-list-row-' + zoneId);
+    if (row) row.style.background = 'var(--gray-50)';
+    // Fly to zone on map
+    const layer = zonePolygonLayers[zoneId];
+    if (layer && zonesMap) {
+      try { zonesMap.fitBounds(layer.getBounds(), { padding: [40, 40] }); } catch(e) {}
+    }
+  }
+
+  // ── DRAW NEW ZONE ──
+  function startZoneDraw() {
+    cancelZoneEdit();
+    if (zonesMap && zoneDrawControl) {
+      new L.Draw.Polygon(zonesMap, zoneDrawControl.options.draw.polygon).enable();
+    }
+    showToast('Click on the map to place polygon vertices. Double-click to finish.');
+  }
+
+  async function saveNewZone() {
+    const name = document.getElementById('new-zone-name').value.trim();
+    if (!name) { showToast('Please enter a zone name.', 'error'); return; }
+    if (!newZoneLayer) { showToast('Please draw a polygon first.', 'error'); return; }
+
+    const color = document.getElementById('new-zone-color').value;
+    const geojson = JSON.stringify(newZoneLayer.toGeoJSON().geometry);
+
+    const { data: zoneId, error } = await db.rpc('upsert_service_zone', {
+      p_name: name,
+      p_color: color,
+      p_geojson: geojson
+    });
+
+    if (error) { showToast('Save failed: ' + error.message, 'error'); return; }
+
+    // Clean up
+    if (newZoneLayer) {
+      zonesDrawnItems.removeLayer(newZoneLayer);
+      newZoneLayer = null;
+    }
+    document.getElementById('zone-save-bar').style.display = 'none';
+    showToast(`Zone "${name}" saved!`, 'success');
+    await loadAndRenderZones();
+    // Refresh zone dropdown in template editor if open
+    if (document.getElementById('slideover-template').classList.contains('open')) {
+      loadZonesIntoSelect(document.getElementById('so-zone').value);
+    }
+  }
+
+  function cancelZoneDraw() {
+    if (newZoneLayer) {
+      zonesDrawnItems.removeLayer(newZoneLayer);
+      newZoneLayer = null;
+    }
+    document.getElementById('zone-save-bar').style.display = 'none';
+  }
+
+  // ── EDIT ZONE NAME/COLOR ──
+  function openZoneEdit(zoneId) {
+    editingZoneId = zoneId;
+    const z = drawnZones.find(z => z.id === zoneId);
+    if (!z) return;
+    document.getElementById('edit-zone-name').value = z.name;
+    document.getElementById('edit-zone-color').value = z.color;
+    document.getElementById('zone-edit-form').style.display = 'block';
+    selectZoneInList(zoneId);
+  }
+
+  async function saveZoneEdit() {
+    const name = document.getElementById('edit-zone-name').value.trim();
+    if (!name) { showToast('Zone name is required.', 'error'); return; }
+    const color = document.getElementById('edit-zone-color').value;
+
+    const { error } = await db.rpc('upsert_service_zone', {
+      p_id: editingZoneId,
+      p_name: name,
+      p_color: color,
+      p_geojson: null   // don't change geometry
+    });
+
+    if (error) { showToast('Update failed: ' + error.message, 'error'); return; }
+    cancelZoneEdit();
+    showToast('Zone updated!', 'success');
+    await loadAndRenderZones();
+  }
+
+  function cancelZoneEdit() {
+    editingZoneId = null;
+    document.getElementById('zone-edit-form').style.display = 'none';
+  }
+
+  // ── DELETE ZONE ──
+  async function deleteZone(zoneId, zoneName) {
+    if (!confirm(`Delete zone "${zoneName}"? Any route templates using this zone will be unlinked.`)) return;
+    const { error } = await db.rpc('delete_service_zone', { p_id: zoneId });
+    if (error) { showToast('Delete failed: ' + error.message, 'error'); return; }
+    showToast(`Zone "${zoneName}" deleted.`);
+    await loadAndRenderZones();
   }
 
   // ── REPORTS ──
@@ -2746,8 +3339,8 @@
     }
 
     // Routes
-    let rQ = db.from('routes').select('id, date, status, completed_stops, total_stops');
-    if (rptPeriod !== 'all') rQ = rQ.gte('date', start.toISOString().split('T')[0]).lte('date', end.toISOString().split('T')[0]);
+    let rQ = db.from('routes').select('id, run_date, status, total_stops');
+    if (rptPeriod !== 'all') rQ = rQ.gte('run_date', start.toISOString().split('T')[0]).lte('run_date', end.toISOString().split('T')[0]);
     const { data: routes } = await rQ;
 
     // KPI calculations
