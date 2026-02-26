@@ -463,6 +463,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/></svg>
         Routes
       </div>
+      <div class="nav-item" onclick="showPage('drivers',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M17 11l1.5 1.5L21 10"/></svg>
+        Drivers
+      </div>
       <div class="nav-item" onclick="showPage('inbox',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         Inbox
@@ -968,6 +972,33 @@
 
         </div><!-- /page-reports -->
 
+        <!-- ── DRIVERS ── -->
+        <div class="page" id="page-drivers">
+          <div class="page-header" style="margin-bottom:20px">
+            <div>
+              <div class="page-title">Drivers</div>
+              <div class="page-sub" id="drivers-subtitle">Loading…</div>
+            </div>
+            <button class="btn btn-primary" onclick="openDriverEditor(null)">+ New Driver</button>
+          </div>
+
+          <!-- Filter + Search bar -->
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap">
+            <div class="filter-tabs" style="display:flex;gap:4px">
+              <button class="filter-tab active" id="drvf-all"      onclick="filterDrivers('all',this)">All</button>
+              <button class="filter-tab"        id="drvf-active"   onclick="filterDrivers('active',this)">Active</button>
+              <button class="filter-tab"        id="drvf-inactive" onclick="filterDrivers('inactive',this)">Inactive</button>
+            </div>
+            <div style="flex:1"></div>
+            <input type="search" class="form-input" id="driver-search" placeholder="Search drivers…" oninput="renderDrivers()" style="width:220px;padding:7px 12px;font-size:13px">
+          </div>
+
+          <!-- Driver cards grid -->
+          <div id="drivers-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px">
+            <div class="loading"><div class="spinner"></div> Loading…</div>
+          </div>
+        </div><!-- /page-drivers -->
+
 <!-- ── FLOATING BATCH BAR (global — not inside any page div) ── -->
 <div class="batch-bar" id="orders-batch-bar">
   <span class="batch-bar-count" id="batch-bar-count">0 selected</span>
@@ -1377,6 +1408,75 @@
   </div>
 </div>
 
+<!-- ── DRIVER EDITOR SLIDE-OVER ── -->
+<div class="slide-backdrop" id="driver-slideover-backdrop" onclick="closeDriverEditor()"></div>
+<div class="slide-over" id="slideover-driver">
+  <div class="slide-over-header">
+    <button onclick="closeDriverEditor()" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--gray-400);display:flex;align-items:center;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
+    </button>
+    <div style="flex:1">
+      <div style="font-size:16px;font-weight:700;color:var(--gray-900)" id="drv-so-title">New Driver</div>
+      <div style="font-size:12px;color:var(--gray-400);margin-top:2px" id="drv-so-sub">Create a driver account</div>
+    </div>
+    <button id="drv-delete-btn" onclick="deleteDriver()" style="display:none;background:none;border:none;cursor:pointer;padding:4px;color:var(--gray-400);" title="Delete driver">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6m4-6v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+    </button>
+  </div>
+
+  <div class="slide-over-body">
+    <!-- Name -->
+    <div class="so-section">
+      <div class="so-label">Name</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <input class="form-input" id="drv-first" placeholder="First name">
+        <input class="form-input" id="drv-last"  placeholder="Last name">
+      </div>
+    </div>
+
+    <!-- Contact -->
+    <div class="so-section">
+      <div class="so-label">Contact</div>
+      <input class="form-input" id="drv-email" type="email" placeholder="Email address (used to log in)" style="margin-bottom:8px">
+      <input class="form-input" id="drv-phone" type="tel"   placeholder="Phone number">
+    </div>
+
+    <!-- Driver's License -->
+    <div class="so-section">
+      <div class="so-label">Driver's License</div>
+      <input class="form-input" id="drv-license-num" placeholder="License number" style="margin-bottom:8px">
+      <div style="font-size:11.5px;color:var(--gray-500);margin-bottom:4px">Expiry date</div>
+      <input class="form-input" id="drv-license-exp" type="date">
+    </div>
+
+    <!-- Password (new drivers only) -->
+    <div class="so-section" id="drv-password-section">
+      <div class="so-label">Initial Password</div>
+      <input class="form-input" id="drv-password" type="password" placeholder="Minimum 8 characters">
+      <div style="font-size:11.5px;color:var(--gray-500);margin-top:6px">Driver uses this to log into the driver app. You can share it with them directly.</div>
+    </div>
+
+    <!-- Active toggle -->
+    <div class="so-section">
+      <div class="so-label">Status</div>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <div style="position:relative;width:36px;height:20px;flex-shrink:0">
+          <input type="checkbox" id="drv-active" checked style="opacity:0;position:absolute;width:100%;height:100%;cursor:pointer;margin:0;z-index:1">
+          <div id="drv-active-track" style="position:absolute;inset:0;background:var(--gray-300);border-radius:10px;transition:background .15s"></div>
+          <div id="drv-active-thumb" style="position:absolute;top:2px;left:2px;width:16px;height:16px;background:white;border-radius:50%;transition:transform .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)"></div>
+        </div>
+        <span style="font-size:13.5px;font-weight:500;color:var(--gray-800)">Active</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="slide-over-footer">
+    <div id="drv-error" style="display:none;color:var(--red);font-size:12.5px;flex:1;line-height:1.4"></div>
+    <button class="btn btn-ghost" onclick="closeDriverEditor()">Cancel</button>
+    <button class="btn btn-primary" id="drv-save-btn" onclick="saveDriver()">Create Driver</button>
+  </div>
+</div>
+
 <script>
   // ── SUPABASE INIT ──
   const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
@@ -1392,6 +1492,9 @@
   let allOrders = [];
   let allRoutes = [];
   let allTemplates = [], allDriversCache = [];
+  let allDriversList = [];
+  let currentDriverId = null;
+  let driverFilter = 'all';
   let allServices = [];
   let currentConversation = null;
   let currentOrderFilter = null; // null = all
@@ -1517,8 +1620,8 @@
   });
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', routes:'Routes', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', reports:'Reports' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', routes:'New Template', maps:'', inbox:'Compose', services:'', reports:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', routes:'Routes', drivers:'Drivers', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', reports:'Reports' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', routes:'New Template', drivers:'New Driver', maps:'', inbox:'Compose', services:'', reports:'' };
 
   function showPage(id, navEl) {
     // If leaving orders page, clear any active batch selection
@@ -1535,12 +1638,14 @@
     if (id === 'inbox')   loadInbox();
     if (id === 'maps')    setTimeout(()=>initZonesMap(), 80);
     if (id === 'routes')  setTimeout(()=>initRoutesPage(), 80);
+    if (id === 'drivers') loadDrivers();
     if (id === 'services') loadServices();
     if (id === 'reports') loadReports();
   }
 
   function handleCTA() {
-    if (currentPage === 'routes') { openTemplateEditor(null); return; }
+    if (currentPage === 'routes')  { openTemplateEditor(null); return; }
+    if (currentPage === 'drivers') { openDriverEditor(null);   return; }
     const map = { overview:'add-order', customers:'add-customer', orders:'add-order', inbox:'compose' };
     if (map[currentPage]) openModal(map[currentPage]);
   }
@@ -2941,6 +3046,239 @@
       id: d.id,
       name: `${d.profiles?.first_name||''} ${d.profiles?.last_name||''}`.trim() || 'Driver'
     }));
+  }
+
+  // ── DRIVERS PAGE ──
+  const DRV_COLORS = ['#635bff','#0ba25a','#f59e0b','#2563eb','#ec4899','#0891b2','#dc2626','#7c3aed'];
+
+  async function loadDrivers() {
+    const el = document.getElementById('drivers-grid');
+    if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+
+    const { data, error } = await db.from('drivers')
+      .select('id, is_active, license_number, license_expiry, created_at, profiles(id, first_name, last_name, email, phone)')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('loadDrivers:', error);
+      if (el) el.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${error.message}</div>`;
+      return;
+    }
+
+    allDriversList = (data||[]).map(d => ({
+      id:         d.id,
+      profileId:  d.profiles?.id,
+      firstName:  d.profiles?.first_name || '',
+      lastName:   d.profiles?.last_name  || '',
+      email:      d.profiles?.email      || '',
+      phone:      d.profiles?.phone      || '',
+      licenseNum: d.license_number || '',
+      licenseExp: d.license_expiry || null,
+      isActive:   d.is_active,
+      createdAt:  d.created_at
+    }));
+
+    // Keep allDriversCache in sync (used by Routes page)
+    allDriversCache = allDriversList
+      .filter(d => d.isActive)
+      .map(d => ({ id: d.id, name: `${d.firstName} ${d.lastName}`.trim() || 'Driver' }));
+
+    const activeCount = allDriversList.filter(d => d.isActive).length;
+    const sub = document.getElementById('drivers-subtitle');
+    if (sub) sub.textContent = `${activeCount} active · ${allDriversList.length} total`;
+
+    renderDrivers();
+  }
+
+  function filterDrivers(f, btn) {
+    driverFilter = f;
+    document.querySelectorAll('#page-drivers .filter-tab').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderDrivers();
+  }
+
+  function renderDrivers() {
+    const el = document.getElementById('drivers-grid');
+    if (!el) return;
+    const q = (document.getElementById('driver-search')?.value || '').toLowerCase();
+
+    let list = allDriversList;
+    if (driverFilter === 'active')   list = list.filter(d => d.isActive);
+    if (driverFilter === 'inactive') list = list.filter(d => !d.isActive);
+    if (q) list = list.filter(d =>
+      `${d.firstName} ${d.lastName} ${d.email} ${d.phone} ${d.licenseNum}`.toLowerCase().includes(q)
+    );
+
+    if (!list.length) {
+      el.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--gray-400);font-size:14px">No drivers found.</div>';
+      return;
+    }
+
+    const now = new Date();
+    el.innerHTML = list.map(d => {
+      const name     = `${d.firstName} ${d.lastName}`.trim() || 'Unknown';
+      const initials = [d.firstName, d.lastName].filter(Boolean).map(s => s[0]).join('').toUpperCase() || '?';
+      const colorIdx = allDriversList.indexOf(d) % DRV_COLORS.length;
+      const color    = DRV_COLORS[colorIdx];
+
+      // License expiry badge
+      let licHtml = '';
+      if (d.licenseNum) {
+        let expBadge = '';
+        if (d.licenseExp) {
+          const exp = new Date(d.licenseExp + 'T00:00:00');
+          const daysLeft = Math.ceil((exp - now) / 86400000);
+          const expStr = exp.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+          if      (daysLeft < 0)   expBadge = `<span style="color:var(--red);font-weight:600;font-size:11px">⚠ Expired ${expStr}</span>`;
+          else if (daysLeft <= 30) expBadge = `<span style="color:#f59e0b;font-weight:600;font-size:11px">⚠ Expires ${expStr}</span>`;
+          else                     expBadge = `<span style="color:var(--gray-400);font-size:11px">Exp ${expStr}</span>`;
+        }
+        licHtml = `<div style="display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--gray-600)">🪪 ${d.licenseNum}</span>
+          ${expBadge}
+        </div>`;
+      }
+
+      const badge = d.isActive
+        ? `<span style="font-size:10.5px;font-weight:700;background:var(--green-light);color:var(--green);padding:2px 8px;border-radius:10px">Active</span>`
+        : `<span style="font-size:10.5px;font-weight:700;background:var(--gray-100);color:var(--gray-400);padding:2px 8px;border-radius:10px">Inactive</span>`;
+
+      return `<div class="card" style="padding:16px 18px;display:flex;gap:14px;align-items:flex-start;cursor:default">
+        <div style="width:42px;height:42px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:white;flex-shrink:0">${initials}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+            <span style="font-size:14px;font-weight:700;color:var(--gray-900)">${name}</span>
+            ${badge}
+          </div>
+          ${d.email ? `<div style="font-size:12.5px;color:var(--gray-500);margin-top:1px">${d.email}</div>` : ''}
+          ${d.phone ? `<div style="font-size:12.5px;color:var(--gray-500)">${d.phone}</div>` : ''}
+          ${licHtml}
+        </div>
+        <button class="btn btn-ghost" style="padding:5px 11px;font-size:12px;flex-shrink:0" onclick="openDriverEditor('${d.id}')">Edit</button>
+      </div>`;
+    }).join('');
+  }
+
+  function openDriverEditor(driverId) {
+    currentDriverId = driverId;
+    const d = driverId ? allDriversList.find(x => x.id === driverId) : null;
+
+    document.getElementById('drv-so-title').textContent = d ? 'Edit Driver' : 'New Driver';
+    document.getElementById('drv-so-sub').textContent   = d
+      ? (`${d.firstName} ${d.lastName}`.trim() || d.email || 'Edit profile')
+      : 'Create a driver account';
+
+    document.getElementById('drv-first').value       = d?.firstName   || '';
+    document.getElementById('drv-last').value        = d?.lastName    || '';
+    document.getElementById('drv-email').value       = d?.email       || '';
+    document.getElementById('drv-phone').value       = d?.phone       || '';
+    document.getElementById('drv-license-num').value = d?.licenseNum  || '';
+    document.getElementById('drv-license-exp').value = d?.licenseExp  || '';
+    document.getElementById('drv-active').checked    = d ? d.isActive : true;
+    document.getElementById('drv-password').value    = '';
+    document.getElementById('drv-error').style.display = 'none';
+
+    // Password section only for new drivers; email locked once account exists
+    document.getElementById('drv-password-section').style.display = d ? 'none' : 'block';
+    const emailEl = document.getElementById('drv-email');
+    emailEl.readOnly = !!d;
+    emailEl.style.background = d ? 'var(--gray-50)' : '';
+    emailEl.style.color      = d ? 'var(--gray-500)' : '';
+
+    document.getElementById('drv-save-btn').textContent = d ? 'Save Changes' : 'Create Driver';
+    document.getElementById('drv-delete-btn').style.display = d ? '' : 'none';
+
+    // Sync active toggle visuals
+    syncDriverToggle();
+    document.getElementById('drv-active').onchange = syncDriverToggle;
+
+    document.getElementById('slideover-driver').classList.add('open');
+    document.getElementById('driver-slideover-backdrop').style.display = 'block';
+  }
+
+  function syncDriverToggle() {
+    const on = document.getElementById('drv-active').checked;
+    document.getElementById('drv-active-track').style.background = on ? 'var(--accent)' : 'var(--gray-300)';
+    document.getElementById('drv-active-thumb').style.transform  = on ? 'translateX(16px)' : 'translateX(0)';
+  }
+
+  function closeDriverEditor() {
+    document.getElementById('slideover-driver').classList.remove('open');
+    document.getElementById('driver-slideover-backdrop').style.display = 'none';
+  }
+
+  async function saveDriver() {
+    const btn    = document.getElementById('drv-save-btn');
+    const errEl  = document.getElementById('drv-error');
+    const first  = document.getElementById('drv-first').value.trim();
+    const last   = document.getElementById('drv-last').value.trim();
+    const email  = document.getElementById('drv-email').value.trim();
+    const phone  = document.getElementById('drv-phone').value.trim();
+    const licNum = document.getElementById('drv-license-num').value.trim();
+    const licExp = document.getElementById('drv-license-exp').value || null;
+    const active = document.getElementById('drv-active').checked;
+    const pw     = document.getElementById('drv-password').value;
+
+    if (!first || !last)      { showDriverError('First and last name are required.'); return; }
+    if (!email)               { showDriverError('Email address is required.'); return; }
+    if (!currentDriverId && pw.length < 8) { showDriverError('Password must be at least 8 characters.'); return; }
+
+    btn.disabled = true;
+    btn.textContent = currentDriverId ? 'Saving…' : 'Creating…';
+    errEl.style.display = 'none';
+
+    try {
+      if (currentDriverId) {
+        // ── EDIT existing driver ──
+        const d = allDriversList.find(x => x.id === currentDriverId);
+        const { error: pErr } = await db.from('profiles').update({
+          first_name: first, last_name: last, phone: phone || null
+        }).eq('id', d.profileId);
+        if (pErr) throw pErr;
+
+        const { error: dErr } = await db.from('drivers').update({
+          license_number: licNum || null,
+          license_expiry: licExp,
+          is_active:      active
+        }).eq('id', currentDriverId);
+        if (dErr) throw dErr;
+
+      } else {
+        // ── CREATE new driver via Edge Function ──
+        const { data: fnData, error: fnErr } = await db.functions.invoke('create-driver', {
+          body: { email, password: pw, first_name: first, last_name: last, phone: phone || null, license_number: licNum || null, license_expiry: licExp }
+        });
+        if (fnErr) throw new Error(fnErr.message || 'Edge function error');
+        if (fnData?.error) throw new Error(fnData.error);
+      }
+
+      closeDriverEditor();
+      showToast(currentDriverId ? 'Driver updated.' : 'Driver account created!', 'success');
+      await loadDrivers();
+
+    } catch (e) {
+      showDriverError(e.message || 'Something went wrong. Please try again.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = currentDriverId ? 'Save Changes' : 'Create Driver';
+    }
+  }
+
+  function showDriverError(msg) {
+    const el = document.getElementById('drv-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  async function deleteDriver() {
+    if (!currentDriverId) return;
+    const d = allDriversList.find(x => x.id === currentDriverId);
+    const name = `${d?.firstName} ${d?.lastName}`.trim() || 'this driver';
+    if (!confirm(`Deactivate ${name}? They will no longer be able to log into the driver app.`)) return;
+    await db.from('drivers').update({ is_active: false }).eq('id', currentDriverId);
+    closeDriverEditor();
+    showToast('Driver deactivated.', 'success');
+    await loadDrivers();
   }
 
   // ── TAB SWITCHING ──
