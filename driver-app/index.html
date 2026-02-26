@@ -17,6 +17,7 @@
       --pickup:  #3b82f6;
       --deliver: #10b981;
       --danger:  #ef4444;
+      --info:    #1d4ed8;
       --radius:  14px;
       --nav-h:   62px;
     }
@@ -45,9 +46,28 @@
       background: var(--dark); color: var(--white);
       padding: 10px 22px; border-radius: 24px;
       font-size: 14px; font-weight: 600; white-space: nowrap;
-      z-index: 9998; opacity: 0; transition: all .28s; pointer-events: none;
+      z-index: 9997; opacity: 0; transition: all .28s; pointer-events: none;
     }
     #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Undo bar ── */
+    #undo-bar {
+      position: fixed; bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom));
+      left: 14px; right: 14px;
+      background: #1f2937; color: var(--white);
+      border-radius: 14px; padding: 13px 16px;
+      display: flex; align-items: center; justify-content: space-between;
+      z-index: 9998; opacity: 0; transform: translateY(20px);
+      transition: all .3s; pointer-events: none;
+    }
+    #undo-bar.show { opacity: 1; transform: translateY(0); pointer-events: all; }
+    .undo-msg { font-size: 14px; font-weight: 600; }
+    .undo-countdown { font-size: 12px; color: rgba(255,255,255,0.45); margin-top: 2px; }
+    .btn-undo {
+      background: var(--accent); color: var(--white); border: none;
+      border-radius: 10px; font-size: 13px; font-weight: 700;
+      padding: 8px 16px; cursor: pointer; flex-shrink: 0;
+    }
 
     /* ── Screens ── */
     .screen { position: fixed; inset: 0; display: none; flex-direction: column; overflow: hidden; }
@@ -92,6 +112,20 @@
       background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
       border-radius: 20px; padding: 28px 22px; width: 100%; max-width: 380px;
     }
+    .auth-card-title { font-size: 18px; font-weight: 800; color: var(--white); margin-bottom: 6px; }
+
+    /* Auth tabs */
+    .auth-tabs {
+      display: flex; gap: 6px; background: rgba(255,255,255,0.08);
+      border-radius: 10px; padding: 4px; margin-bottom: 20px;
+    }
+    .auth-tab {
+      flex: 1; background: none; border: none; color: rgba(255,255,255,0.5);
+      font-size: 13px; font-weight: 700; padding: 8px; border-radius: 7px;
+      cursor: pointer; transition: all .18s;
+    }
+    .auth-tab.active { background: rgba(255,255,255,0.12); color: var(--white); }
+
     .auth-label { font-size: 13px; color: rgba(255,255,255,0.55); font-weight: 600; display: block; margin-bottom: 7px; }
     .auth-input {
       width: 100%; background: rgba(255,255,255,0.07);
@@ -111,6 +145,23 @@
     .btn-auth:hover { background: #ea6c0a; }
     .btn-auth:active { transform: scale(0.98); }
     .btn-auth:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+    .btn-auth.info { background: var(--info); }
+    .btn-auth.info:hover { background: #1e40af; }
+
+    /* Magic link sent state */
+    .magic-sent {
+      text-align: center; padding: 10px 0;
+      display: none;
+    }
+    .magic-sent.show { display: block; }
+    .magic-sent-icon { font-size: 44px; margin-bottom: 12px; }
+    .magic-sent-title { font-size: 18px; font-weight: 800; color: var(--white); margin-bottom: 6px; }
+    .magic-sent-sub { font-size: 13px; color: rgba(255,255,255,0.45); line-height: 1.6; margin-bottom: 18px; }
+    .btn-auth-ghost {
+      width: 100%; background: none; border: 1px solid rgba(255,255,255,0.15);
+      color: rgba(255,255,255,0.6); border-radius: 12px; font-size: 14px;
+      font-weight: 600; padding: 12px; cursor: pointer;
+    }
 
     /* ══════════════════════════════
        HOME SCREEN
@@ -158,7 +209,8 @@
       cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
       transition: opacity .2s;
     }
-    .stop-card.done { opacity: 0.55; }
+    .stop-card.done    { opacity: 0.55; }
+    .stop-card.en-route { border-left: 3px solid var(--info); }
     .stop-num {
       width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
@@ -168,6 +220,7 @@
     .sn-delivery { background: #d1fae5; color: var(--deliver); }
     .sn-done     { background: #f3f4f6; color: var(--muted); }
     .sn-skip     { background: #fef3c7; color: #92400e; }
+    .sn-enroute  { background: #dbeafe; color: var(--info); }
 
     .stop-body { flex: 1; min-width: 0; }
     .stop-badge {
@@ -179,6 +232,7 @@
     .sb-delivery { background: #d1fae5; color: var(--deliver); }
     .sb-done     { background: #f3f4f6; color: var(--muted); }
     .sb-skipped  { background: #fef3c7; color: #92400e; }
+    .sb-enroute  { background: #eff6ff; color: var(--info); }
     .stop-name { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .stop-addr { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
     .stop-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
@@ -213,6 +267,8 @@
     .pref-tag { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 7px; background: #fef3c7; color: #92400e; }
 
     .detail-actions { padding: 16px 20px 8px; }
+
+    /* Directions button */
     .btn-maps {
       width: 100%; background: #1a73e8; color: var(--white); border: none;
       border-radius: 12px; font-size: 16px; font-weight: 700; padding: 14px;
@@ -220,6 +276,40 @@
       gap: 8px; margin-bottom: 10px; text-decoration: none;
     }
     .btn-maps:active { opacity: 0.85; }
+
+    /* On My Way button */
+    .btn-on-way {
+      width: 100%; background: var(--info); color: var(--white); border: none;
+      border-radius: 12px; font-size: 15px; font-weight: 700; padding: 13px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      gap: 8px; margin-bottom: 10px; transition: all .2s;
+    }
+    .btn-on-way.sent { background: var(--deliver); cursor: default; }
+    .btn-on-way:disabled { opacity: 0.7; cursor: not-allowed; }
+
+    /* Photo capture section */
+    .photo-section { margin-bottom: 12px; }
+    .photo-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 7px; }
+    .photo-row { display: flex; gap: 10px; align-items: center; }
+    .photo-thumb {
+      width: 72px; height: 72px; border-radius: 10px; object-fit: cover;
+      border: 2px solid var(--deliver); display: none;
+    }
+    .photo-thumb.show { display: block; }
+    .btn-camera {
+      flex: 1; background: var(--bg); border: 2px dashed var(--border);
+      border-radius: 12px; padding: 14px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      font-size: 14px; font-weight: 700; color: var(--muted);
+      transition: all .2s;
+    }
+    .btn-camera:active { border-color: var(--accent); color: var(--accent); }
+    .btn-camera.has-photo { border-style: solid; border-color: var(--deliver); color: var(--deliver); background: #f0fdf4; }
+    .photo-input { display: none; }
+    .photo-uploading { font-size: 12px; color: var(--muted); margin-top: 6px; display: none; }
+    .photo-uploading.show { display: block; }
+
+    /* Complete / Skip buttons */
     .btn-complete {
       width: 100%; background: var(--accent); color: var(--white); border: none;
       border-radius: 12px; font-size: 16px; font-weight: 700; padding: 15px;
@@ -246,6 +336,9 @@
       background: #d1fae5; color: #065f46; border-radius: 11px;
       padding: 13px 16px; font-size: 15px; font-weight: 700;
       display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .completed-banner.photo-row-banner {
+      justify-content: space-between; flex-direction: column; align-items: flex-start; gap: 10px;
     }
 
     .next-stop-nudge {
@@ -334,6 +427,15 @@
 <!-- Toast -->
 <div id="toast"></div>
 
+<!-- Undo bar -->
+<div id="undo-bar">
+  <div>
+    <div class="undo-msg" id="undo-msg">Stop completed</div>
+    <div class="undo-countdown" id="undo-countdown">Undo in 12s</div>
+  </div>
+  <button class="btn-undo" onclick="triggerUndo()">Undo</button>
+</div>
+
 <!-- ════════════════════════════
      AUTH
 ════════════════════════════ -->
@@ -343,14 +445,45 @@
     <div class="auth-brand">WashRoute</div>
     <div class="auth-sub">Driver App</div>
   </div>
+
   <div class="auth-card">
-    <div style="font-size:18px;font-weight:800;color:var(--white);margin-bottom:20px">Sign In</div>
-    <label class="auth-label">Email</label>
-    <input class="auth-input" type="email" id="auth-email" placeholder="you@example.com" autocomplete="username">
-    <label class="auth-label">Password</label>
-    <input class="auth-input" type="password" id="auth-pass" placeholder="••••••••" autocomplete="current-password">
-    <div class="auth-err" id="auth-err"></div>
-    <button class="btn-auth" id="btn-login" onclick="doLogin()">Sign In</button>
+    <div class="auth-card-title">Sign In</div>
+
+    <!-- Tabs -->
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tab-password" onclick="switchAuthTab('password')">Password</button>
+      <button class="auth-tab" id="tab-magic" onclick="switchAuthTab('magic')">Magic Link</button>
+    </div>
+
+    <!-- Password panel -->
+    <div id="panel-password">
+      <label class="auth-label">Email</label>
+      <input class="auth-input" type="email" id="auth-email" placeholder="you@example.com" autocomplete="username">
+      <label class="auth-label">Password</label>
+      <input class="auth-input" type="password" id="auth-pass" placeholder="••••••••" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter') doLogin()">
+      <div class="auth-err" id="auth-err"></div>
+      <button class="btn-auth" id="btn-login" onclick="doLogin()">Sign In →</button>
+    </div>
+
+    <!-- Magic link panel -->
+    <div id="panel-magic" style="display:none">
+      <!-- Input form -->
+      <div id="magic-form">
+        <label class="auth-label">Email</label>
+        <input class="auth-input" type="email" id="magic-email" placeholder="you@example.com"
+          onkeydown="if(event.key==='Enter') doMagicLink()">
+        <div class="auth-err" id="magic-err"></div>
+        <button class="btn-auth info" id="btn-magic" onclick="doMagicLink()">✉️ Send Sign-In Link</button>
+      </div>
+      <!-- Sent state -->
+      <div class="magic-sent" id="magic-sent">
+        <div class="magic-sent-icon">✉️</div>
+        <div class="magic-sent-title">Check your email</div>
+        <div class="magic-sent-sub">We sent a sign-in link to <strong id="magic-sent-email" style="color:var(--white)"></strong>.<br>Tap the link in the email to sign in.</div>
+        <button class="btn-auth-ghost" onclick="resetMagicLink()">Use a different email</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -358,9 +491,7 @@
      HOME
 ════════════════════════════ -->
 <div class="screen" id="screen-home">
-  <div class="scroll-body" id="home-body">
-    <!-- rendered by JS -->
-  </div>
+  <div class="scroll-body" id="home-body"></div>
 </div>
 
 <!-- ════════════════════════════
@@ -377,9 +508,7 @@
     </div>
     <div class="route-progress"><div class="route-progress-fill" id="rh-bar" style="width:0%"></div></div>
   </div>
-  <div class="scroll-body" id="route-body">
-    <!-- stops rendered by JS -->
-  </div>
+  <div class="scroll-body" id="route-body"></div>
 </div>
 
 <!-- ════════════════════════════
@@ -391,9 +520,7 @@
     <div class="detail-eyebrow" id="stop-eyebrow">PICKUP · STOP 1</div>
     <div class="detail-title" id="stop-title">Customer Name</div>
   </div>
-  <div class="scroll-body" id="stop-body">
-    <!-- rendered by JS -->
-  </div>
+  <div class="scroll-body" id="stop-body"></div>
 </div>
 
 <!-- ════════════════════════════
@@ -440,6 +567,9 @@ let todayRoutes = [], allStops = [], pendingOrders = [];
 let currentStopId = null;
 let appReady = false, loadingTimer = null;
 
+// Undo state
+let undoTimer = null, undoCountTimer = null, pendingUndo = null;
+
 /* ──────────────────────────────
    UTILS
 ────────────────────────────── */
@@ -479,8 +609,12 @@ function fmtAddr(a) {
   return `${a.line1}${a.line2 ? ', ' + a.line2 : ''}, ${a.city}, ${a.state} ${a.zip}`;
 }
 
+// Smart maps link — Apple Maps on iOS, Google Maps everywhere else
 function mapsLink(a) {
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(fmtAddr(a))}`;
+  const dest = encodeURIComponent(fmtAddr(a));
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  if (isIOS) return `maps://maps.apple.com/?daddr=${dest}`;
+  return `https://www.google.com/maps/dir/?api=1&destination=${dest}`;
 }
 
 function greet() {
@@ -494,11 +628,23 @@ function fmtTime(ts) {
 }
 
 function fmtDate(ts) {
-  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (!ts) return '';
+  const d = typeof ts === 'string' && ts.length === 10 ? new Date(ts + 'T00:00:00') : new Date(ts);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 /* ──────────────────────────────
-   AUTH
+   AUTH — TABS
+────────────────────────────── */
+function switchAuthTab(tab) {
+  document.getElementById('tab-password').classList.toggle('active', tab === 'password');
+  document.getElementById('tab-magic').classList.toggle('active', tab === 'magic');
+  document.getElementById('panel-password').style.display = tab === 'password' ? 'block' : 'none';
+  document.getElementById('panel-magic').style.display   = tab === 'magic'    ? 'block' : 'none';
+}
+
+/* ──────────────────────────────
+   AUTH — PASSWORD LOGIN
 ────────────────────────────── */
 async function doLogin() {
   const email = document.getElementById('auth-email').value.trim();
@@ -511,21 +657,61 @@ async function doLogin() {
   const { error } = await db.auth.signInWithPassword({ email, password: pass });
   if (error) {
     err.textContent = error.message; err.classList.add('show');
-    btn.textContent = 'Sign In'; btn.disabled = false;
+    btn.textContent = 'Sign In →'; btn.disabled = false;
   }
 }
 
+/* ──────────────────────────────
+   AUTH — MAGIC LINK
+────────────────────────────── */
+async function doMagicLink() {
+  const email = document.getElementById('magic-email').value.trim();
+  const btn   = document.getElementById('btn-magic');
+  const err   = document.getElementById('magic-err');
+  err.classList.remove('show');
+  if (!email) { err.textContent = 'Please enter your email address.'; err.classList.add('show'); return; }
+  btn.textContent = 'Sending…'; btn.disabled = true;
+
+  const { error } = await db.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: false }  // drivers must already exist
+  });
+
+  if (error) {
+    err.textContent = error.message; err.classList.add('show');
+    btn.textContent = '✉️ Send Sign-In Link'; btn.disabled = false;
+    return;
+  }
+
+  // Show "sent" state
+  document.getElementById('magic-form').style.display = 'none';
+  document.getElementById('magic-sent-email').textContent = email;
+  document.getElementById('magic-sent').classList.add('show');
+}
+
+function resetMagicLink() {
+  document.getElementById('magic-sent').classList.remove('show');
+  document.getElementById('magic-form').style.display = 'block';
+  document.getElementById('btn-magic').textContent = '✉️ Send Sign-In Link';
+  document.getElementById('btn-magic').disabled = false;
+  document.getElementById('magic-email').value = '';
+}
+
 async function doSignOut() {
+  clearUndo();
   await db.auth.signOut();
   appReady = false;
   currentUser = currentProfile = currentDriver = null;
   todayRoutes = []; allStops = []; pendingOrders = [];
   document.getElementById('bottom-nav').style.display = 'none';
   showScreen('auth');
+  // Reset auth form
   document.getElementById('auth-email').value = '';
   document.getElementById('auth-pass').value = '';
-  document.getElementById('btn-login').textContent = 'Sign In';
+  document.getElementById('btn-login').textContent = 'Sign In →';
   document.getElementById('btn-login').disabled = false;
+  resetMagicLink();
+  switchAuthTab('password');
 }
 
 /* ──────────────────────────────
@@ -545,11 +731,11 @@ async function loadDriverData() {
   currentDriver = drv;
   if (!currentDriver) return;
 
-  // Today's routes
+  // Today's routes — check BOTH pickup_driver_id and delivery_driver_id
   const { data: routes } = await db.from('routes')
     .select('*')
-    .eq('driver_id', currentDriver.id)
-    .eq('date', today())
+    .or(`pickup_driver_id.eq.${currentDriver.id},delivery_driver_id.eq.${currentDriver.id}`)
+    .eq('run_date', today())
     .neq('status', 'cancelled');
   todayRoutes = routes || [];
 
@@ -569,7 +755,7 @@ async function loadDriverData() {
       .order('stop_number', { ascending: true });
     allStops = stops || [];
   } else {
-    // No routes — show pending orders the driver can pick up
+    // No assigned route — show pending orders driver can pick up
     const { data: orders } = await db.from('orders')
       .select(`
         *,
@@ -588,7 +774,7 @@ async function refreshRoute() {
   showLoading(true);
   try { await loadDriverData(); } catch(e) { console.error(e); } finally { showLoading(false); }
   renderRoute();
-  toast('Route refreshed');
+  toast('Route refreshed ↻');
 }
 
 /* ──────────────────────────────
@@ -626,7 +812,7 @@ function renderHome() {
   } else if (pendingOrders.length > 0) {
     h += `<div class="route-summary-card">
       <div class="route-name">📦 ${pendingOrders.length} Pending Order${pendingOrders.length !== 1 ? 's' : ''}</div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.45);margin-bottom:14px">No route assigned yet — showing all pending orders.</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.45);margin-bottom:14px">No route assigned — showing all pending orders.</div>
       <button class="btn-big" onclick="goTo('route')">📋 View Orders</button>
     </div>`;
   } else {
@@ -635,7 +821,7 @@ function renderHome() {
       <div style="font-size:13px;color:rgba(255,255,255,0.45)">No route or pending orders right now.</div>
     </div>`;
   }
-  h += '</div>'; // close home-hero
+  h += '</div>';
 
   // Next stop section
   if (todayRoutes.length > 0) {
@@ -644,12 +830,13 @@ function renderHome() {
       const addr = next.addresses;
       const cust = next.orders?.customers;
       const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
+      const isEnRoute = next.status === 'en_route';
       h += `<div class="home-section">
-        <div class="section-label">Next Stop</div>
-        <div class="stop-card" onclick="openStop('${next.id}')">
-          <div class="stop-num sn-${next.stop_type}">${next.stop_number}</div>
+        <div class="section-label">${isEnRoute ? '🔵 En Route To' : 'Next Stop'}</div>
+        <div class="stop-card${isEnRoute ? ' en-route' : ''}" onclick="openStop('${next.id}')">
+          <div class="stop-num ${isEnRoute ? 'sn-enroute' : 'sn-' + next.stop_type}">${isEnRoute ? '↑' : next.stop_number}</div>
           <div class="stop-body">
-            <div><span class="stop-badge sb-${next.stop_type}">${next.stop_type.toUpperCase()}</span></div>
+            <div><span class="stop-badge ${isEnRoute ? 'sb-enroute' : 'sb-' + next.stop_type}">${isEnRoute ? 'EN ROUTE' : next.stop_type.toUpperCase()}</span></div>
             <div class="stop-name">${custName}</div>
             <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
             <div class="stop-meta">📦 ${next.orders?.total_bags||1} bag(s) · ${next.orders?.services?.name||'Service'}</div>
@@ -671,7 +858,6 @@ function renderHome() {
 function renderRoute() {
   const body = document.getElementById('route-body');
 
-  // ── No route → show pending orders ──
   if (todayRoutes.length === 0) {
     document.getElementById('rh-title').textContent = 'Pending Orders';
     const n = pendingOrders.length;
@@ -694,7 +880,7 @@ function renderRoute() {
         <div class="po-addr">📍 ${addr ? fmtAddr(addr) : 'No address on file'}</div>
         <div class="po-meta">📦 ${o.total_bags||1} bag(s) · ${o.services?.name||'Service'} · <span style="color:var(--pickup)">Pickup</span></div>
         ${cust?.phone_cache ? `<div class="po-meta">📞 <a href="tel:${cust.phone_cache}" style="color:var(--accent);font-weight:600">${cust.phone_cache}</a></div>` : ''}
-        ${addr ? `<a class="btn-nav-small" href="${mapsLink(addr)}" target="_blank">🗺️ Navigate with Google Maps</a>` : ''}
+        ${addr ? `<a class="btn-nav-small" href="${mapsLink(addr)}" target="_blank">🗺️ Get Directions</a>` : ''}
       </div>`;
     });
     h += '</div>';
@@ -702,7 +888,6 @@ function renderRoute() {
     return;
   }
 
-  // ── Has routes → show stops ──
   const done  = allStops.filter(s => s.status === 'complete').length;
   const total = allStops.length;
   const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -720,14 +905,16 @@ function renderRoute() {
     const addr = stop.addresses;
     const cust = stop.orders?.customers;
     const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
-    const isDone = stop.status === 'complete';
-    const isSkip = stop.status === 'skipped';
-    const numClass  = isDone ? 'sn-done' : isSkip ? 'sn-skip' : `sn-${stop.stop_type}`;
-    const badgeClass = isDone ? 'sb-done' : isSkip ? 'sb-skipped' : `sb-${stop.stop_type}`;
-    const badgeText  = isDone ? 'DONE' : isSkip ? 'SKIPPED' : stop.stop_type.toUpperCase();
+    const isDone    = stop.status === 'complete';
+    const isSkip    = stop.status === 'skipped';
+    const isEnRoute = stop.status === 'en_route';
+    const numClass   = isDone ? 'sn-done' : isSkip ? 'sn-skip' : isEnRoute ? 'sn-enroute' : `sn-${stop.stop_type}`;
+    const badgeClass = isDone ? 'sb-done' : isSkip ? 'sb-skipped' : isEnRoute ? 'sb-enroute' : `sb-${stop.stop_type}`;
+    const badgeText  = isDone ? 'DONE' : isSkip ? 'SKIPPED' : isEnRoute ? 'EN ROUTE' : stop.stop_type.toUpperCase();
+    const cardClass  = isDone || isSkip ? ' done' : isEnRoute ? ' en-route' : '';
 
-    h += `<div class="stop-card${isDone||isSkip ? ' done' : ''}" onclick="openStop('${stop.id}')">
-      <div class="stop-num ${numClass}">${isDone ? '✓' : isSkip ? '⤷' : stop.stop_number}</div>
+    h += `<div class="stop-card${cardClass}" onclick="openStop('${stop.id}')">
+      <div class="stop-num ${numClass}">${isDone ? '✓' : isSkip ? '⤷' : isEnRoute ? '↑' : stop.stop_number}</div>
       <div class="stop-body">
         <div><span class="stop-badge ${badgeClass}">${badgeText}</span></div>
         <div class="stop-name">${custName}</div>
@@ -750,7 +937,6 @@ function openStop(stopId) {
   if (!stop) return;
   renderStopDetail(stop);
   showScreen('stop');
-  // Don't update nav highlight (stop isn't a nav tab)
 }
 
 function renderStopDetail(stop) {
@@ -758,11 +944,13 @@ function renderStopDetail(stop) {
   const order = stop.orders;
   const cust  = order?.customers;
   const svc   = order?.services;
-  const isDone = stop.status === 'complete';
-  const isPickup = stop.stop_type === 'pickup';
-  const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
+  const isDone    = stop.status === 'complete';
+  const isSkip    = stop.status === 'skipped';
+  const isEnRoute = stop.status === 'en_route';
+  const isPickup  = stop.stop_type === 'pickup';
+  const custName  = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
+  const hasPhone  = !!cust?.phone_cache;
 
-  // Header
   document.getElementById('stop-eyebrow').textContent = `${stop.stop_type.toUpperCase()} · STOP ${stop.stop_number}`;
   document.getElementById('stop-title').textContent   = custName || 'Customer';
 
@@ -771,8 +959,19 @@ function renderStopDetail(stop) {
 
   // ── Completion banner ──
   if (isDone) {
+    const photoHtml = stop.proof_photo_url
+      ? `<img src="${stop.proof_photo_url}" style="width:80px;height:80px;border-radius:8px;object-fit:cover;border:2px solid #6ee7b7" alt="Proof photo">`
+      : '';
     h += `<div style="padding:14px 20px 4px">
-      <div class="completed-banner">✅ ${isPickup ? 'Picked Up' : 'Delivered'}${stop.completed_at ? ' at ' + fmtTime(stop.completed_at) : ''}</div>
+      <div class="completed-banner">
+        <div>✅ ${isPickup ? 'Picked Up' : 'Delivered'}${stop.completed_at ? ' at ' + fmtTime(stop.completed_at) : ''}</div>
+        ${photoHtml}
+      </div>
+    </div>`;
+  }
+  if (isSkip) {
+    h += `<div style="padding:14px 20px 4px">
+      <div class="completed-banner" style="background:#fef3c7;color:#92400e">⤷ Skipped</div>
     </div>`;
   }
 
@@ -780,7 +979,7 @@ function renderStopDetail(stop) {
   h += `<div class="dsection">
     <div class="dsection-title">Customer</div>
     <div class="drow"><span class="dicon">👤</span><div class="dtext">${custName || '—'}</div></div>
-    ${cust?.phone_cache ? `<div class="drow"><span class="dicon">📞</span><div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a></div></div>` : ''}
+    ${hasPhone ? `<div class="drow"><span class="dicon">📞</span><div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a></div></div>` : ''}
     <div class="drow"><span class="dicon">📍</span><div class="dtext">${fmtAddr(addr)}</div></div>
     ${addr?.delivery_instructions ? `<div class="drow"><span class="dicon">🔑</span><div><div class="dtext" style="font-size:13px;color:var(--muted)">${addr.delivery_instructions}</div></div></div>` : ''}
   </div>`;
@@ -798,33 +997,69 @@ function renderStopDetail(stop) {
   // ── Actions ──
   h += `<div class="detail-actions">`;
 
-  // Navigate button
+  // Directions button (smart — detects iOS vs Android)
   if (addr) {
-    h += `<a class="btn-maps" href="${mapsLink(addr)}" target="_blank">🗺️ Navigate with Google Maps</a>`;
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const mapsUrl = mapsLink(addr);
+    const mapsLabel = isIOS ? '🗺️ Open in Apple Maps' : '🗺️ Open in Google Maps';
+    h += `<a class="btn-maps" href="${mapsUrl}" target="_blank">${mapsLabel}</a>`;
   }
 
-  // Notes field
-  h += `<div style="margin-bottom:10px">
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-bottom:6px">Driver Notes</div>
-    <textarea class="notes-box" id="stop-notes" placeholder="Add notes for this stop…">${stop.driver_notes || ''}</textarea>
-  </div>`;
+  if (!isDone && !isSkip) {
+    // "On My Way" button — sends SMS to customer
+    const alreadySent = !!stop.on_my_way_sent_at;
+    const onWayClass  = alreadySent || isEnRoute ? 'sent' : '';
+    const onWayLabel  = alreadySent || isEnRoute ? '✓ Customer Notified' : '📲 On My Way';
+    const onWayDisabled = alreadySent || isEnRoute ? 'disabled' : '';
+    if (hasPhone || true) { // always show, works even without phone (marks en_route)
+      h += `<button class="btn-on-way ${onWayClass}" id="btn-on-way" onclick="sendOnMyWay('${stop.id}')" ${onWayDisabled}>${onWayLabel}</button>`;
+    }
 
-  if (!isDone && stop.status !== 'skipped') {
+    // Photo capture
+    const hasPhoto = !!stop.proof_photo_url;
+    const photoLabel = isPickup ? 'Pickup Photo' : 'Delivery Photo';
+    h += `<div class="photo-section">
+      <div class="photo-label">${photoLabel} <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:10px">(optional)</span></div>
+      <div class="photo-row">
+        ${hasPhoto ? `<img class="photo-thumb show" id="photo-thumb" src="${stop.proof_photo_url}" alt="Proof photo">` : `<img class="photo-thumb" id="photo-thumb" src="" alt="Proof photo">`}
+        <button class="btn-camera ${hasPhoto ? 'has-photo' : ''}" id="btn-camera" onclick="document.getElementById('photo-input').click()">
+          ${hasPhoto ? '✓ Photo Taken' : '📷 Take Photo'}
+        </button>
+      </div>
+      <div class="photo-uploading" id="photo-uploading">⏳ Uploading photo…</div>
+      <input class="photo-input" type="file" accept="image/*" capture="environment" id="photo-input" onchange="handlePhoto(this, '${stop.id}')">
+    </div>`;
+
+    // Driver notes
+    h += `<div style="margin-bottom:10px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-bottom:6px">Driver Notes</div>
+      <textarea class="notes-box" id="stop-notes" placeholder="Add notes for this stop…">${stop.driver_notes || ''}</textarea>
+    </div>`;
+
+    // Complete + Skip
     const cls   = isPickup ? '' : 'delivery';
     const label = isPickup ? '📦 Mark Picked Up' : '✅ Mark Delivered';
     h += `<button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')">${label}</button>
           <button class="btn-skip-stop" onclick="skipStop('${stop.id}')">Skip This Stop</button>`;
+  } else if (isDone || isSkip) {
+    // Show notes read-only if there are any
+    if (stop.driver_notes) {
+      h += `<div style="margin-bottom:10px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-bottom:6px">Driver Notes</div>
+        <div style="font-size:14px;color:var(--gray);padding:10px 14px;background:var(--bg);border-radius:10px">${stop.driver_notes}</div>
+      </div>`;
+    }
   }
 
-  h += `</div>`; // close detail-actions
+  h += `</div>`;
 
   // ── Next stop nudge ──
   if (isDone) {
     const next = allStops.find(s => s.id !== stop.id && (s.status === 'pending' || s.status === 'en_route'));
     if (next) {
-      const na   = next.addresses;
-      const nc   = next.orders?.customers;
-      const nn   = nc ? `${nc.first_name_cache||''} ${nc.last_name_cache||''}`.trim() : 'Customer';
+      const na = next.addresses;
+      const nc = next.orders?.customers;
+      const nn = nc ? `${nc.first_name_cache||''} ${nc.last_name_cache||''}`.trim() : 'Customer';
       h += `<div style="padding:0 20px 16px">
         <div class="next-stop-nudge">
           <div class="nsn-info">
@@ -836,7 +1071,7 @@ function renderStopDetail(stop) {
         </div>
       </div>`;
     } else {
-      h += `<div style="padding:0 20px 16px"><div class="completed-banner">🎉 All stops complete!</div></div>`;
+      h += `<div style="padding:0 20px 16px"><div class="completed-banner">🎉 All stops complete — great work!</div></div>`;
     }
   }
 
@@ -847,17 +1082,212 @@ function renderStopDetail(stop) {
 function renderPrefTags(prefs) {
   if (!prefs || !Object.keys(prefs).length) return '';
   const tags = [];
-  if (prefs.no_bleach)        tags.push('🚫 No Bleach');
-  if (prefs.hang_dry)         tags.push('🪢 Hang Dry');
+  if (prefs.no_bleach)          tags.push('🚫 No Bleach');
+  if (prefs.hang_dry)           tags.push('🪢 Hang Dry');
   if (prefs.softener === false) tags.push('No Softener');
-  if (prefs.detergent)        tags.push(`🧴 ${prefs.detergent}`);
-  if (prefs.water_temp)       tags.push(`💧 ${prefs.water_temp}`);
+  if (prefs.detergent)          tags.push(`🧴 ${prefs.detergent}`);
+  if (prefs.water_temp)         tags.push(`💧 ${prefs.water_temp}`);
   if (!tags.length) return '';
   return `<div class="drow"><span class="dicon">✨</span><div class="pref-tags">${tags.map(t=>`<span class="pref-tag">${t}</span>`).join('')}</div></div>`;
 }
 
 /* ──────────────────────────────
-   COMPLETE / SKIP STOP
+   ON MY WAY
+────────────────────────────── */
+async function sendOnMyWay(stopId) {
+  const btn = document.getElementById('btn-on-way');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+  const driverName = currentProfile
+    ? `${currentProfile.first_name || ''} ${currentProfile.last_name || ''}`.trim()
+    : 'Your WashRoute driver';
+
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    const res = await fetch(`${SUPA_URL}/functions/v1/notify-on-my-way`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': session ? `Bearer ${session.access_token}` : `Bearer ${SUPA_KEY}`,
+      },
+      body: JSON.stringify({ stopId, driverName }),
+    });
+    const result = await res.json();
+
+    if (btn) {
+      btn.textContent = '✓ Customer Notified';
+      btn.classList.add('sent');
+    }
+
+    // Update local stop state
+    const idx = allStops.findIndex(s => s.id === stopId);
+    if (idx >= 0) {
+      allStops[idx].on_my_way_sent_at = new Date().toISOString();
+      allStops[idx].status = 'en_route';
+    }
+
+    const smsOk = result.sms?.ok;
+    if (smsOk) {
+      toast('📲 Text sent to customer!');
+    } else if (result.sms?.reason === 'twilio_not_configured') {
+      toast('📍 Status updated · SMS not configured yet');
+    } else if (result.sms?.reason === 'no_phone') {
+      toast('📍 Status updated · No phone on file');
+    } else {
+      toast('📍 En route status updated');
+    }
+
+    renderRoute(); // refresh list to show en_route indicator
+  } catch (e) {
+    console.error('sendOnMyWay error:', e);
+    toast('Could not update status — check connection');
+    if (btn) { btn.disabled = false; btn.textContent = '📲 On My Way'; }
+  }
+}
+
+/* ──────────────────────────────
+   PHOTO CAPTURE
+────────────────────────────── */
+async function handlePhoto(input, stopId) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const uploading = document.getElementById('photo-uploading');
+  const thumb     = document.getElementById('photo-thumb');
+  const camBtn    = document.getElementById('btn-camera');
+  if (uploading) uploading.classList.add('show');
+  if (camBtn)    camBtn.textContent = '⏳ Uploading…';
+
+  // Show local preview immediately
+  const reader = new FileReader();
+  reader.onload = e => {
+    if (thumb) { thumb.src = e.target.result; thumb.classList.add('show'); }
+  };
+  reader.readAsDataURL(file);
+
+  try {
+    // Upload to Supabase Storage
+    const ext  = file.name.split('.').pop() || 'jpg';
+    const path = `stops/${stopId}/${Date.now()}.${ext}`;
+
+    const { data, error } = await db.storage
+      .from('stop-photos')
+      .upload(path, file, { contentType: file.type, upsert: false });
+
+    if (error) throw error;
+
+    // Get public URL
+    const { data: urlData } = db.storage.from('stop-photos').getPublicUrl(path);
+    const photoUrl = urlData.publicUrl;
+
+    // Save URL to route_stops
+    await db.from('route_stops').update({ proof_photo_url: photoUrl }).eq('id', stopId);
+
+    // Update local state
+    const idx = allStops.findIndex(s => s.id === stopId);
+    if (idx >= 0) allStops[idx].proof_photo_url = photoUrl;
+
+    if (uploading) uploading.classList.remove('show');
+    if (camBtn) { camBtn.textContent = '✓ Photo Saved'; camBtn.classList.add('has-photo'); }
+    toast('📷 Photo saved!');
+  } catch (e) {
+    console.error('Photo upload error:', e);
+    if (uploading) uploading.classList.remove('show');
+    if (camBtn) { camBtn.textContent = '📷 Retry Photo'; }
+    toast('Photo upload failed — tap to retry');
+  }
+}
+
+/* ──────────────────────────────
+   UNDO SYSTEM
+────────────────────────────── */
+function showUndoBar(message, undoData) {
+  clearUndo();
+  pendingUndo = undoData;
+
+  const bar  = document.getElementById('undo-bar');
+  const msg  = document.getElementById('undo-msg');
+  const cntd = document.getElementById('undo-countdown');
+  msg.textContent = message;
+  bar.classList.add('show');
+
+  let secs = 12;
+  cntd.textContent = `Undo in ${secs}s`;
+  undoCountTimer = setInterval(() => {
+    secs--;
+    cntd.textContent = secs > 0 ? `Undo in ${secs}s` : '';
+    if (secs <= 0) clearUndo();
+  }, 1000);
+
+  undoTimer = setTimeout(() => {
+    clearUndo();
+    pendingUndo = null;
+  }, 12000);
+}
+
+function clearUndo() {
+  clearTimeout(undoTimer);
+  clearInterval(undoCountTimer);
+  document.getElementById('undo-bar').classList.remove('show');
+}
+
+async function triggerUndo() {
+  if (!pendingUndo) return;
+  clearUndo();
+  const { type, stopId, prevStopStatus, prevOrderStatus } = pendingUndo;
+  pendingUndo = null;
+
+  showLoading(true);
+  try {
+    // Reverse the stop status
+    await db.from('route_stops').update({
+      status: prevStopStatus,
+      completed_at: null,
+      actual_arrival: null,
+      on_my_way_sent_at: null,
+    }).eq('id', stopId);
+
+    // Reverse the order status
+    const stop = allStops.find(s => s.id === stopId);
+    if (stop?.orders?.id && prevOrderStatus) {
+      const clearField = type === 'complete'
+        ? (stop.stop_type === 'pickup' ? { actual_pickup_at: null } : { actual_delivery_at: null })
+        : {};
+      await db.from('orders').update({ status: prevOrderStatus, ...clearField }).eq('id', stop.orders.id);
+      stop.orders.status = prevOrderStatus;
+    }
+
+    // Update route progress
+    const idx = allStops.findIndex(s => s.id === stopId);
+    if (idx >= 0) allStops[idx] = { ...allStops[idx], status: prevStopStatus, completed_at: null };
+
+    const routeId = stop?.route_id;
+    const route   = todayRoutes.find(r => r.id === routeId);
+    if (route) {
+      const newDone = allStops.filter(s => s.route_id === routeId && s.status === 'complete').length;
+      await db.from('routes').update({
+        completed_stops: newDone,
+        status: 'in_progress',
+        completed_at: null,
+      }).eq('id', routeId);
+      route.completed_stops = newDone;
+      route.status = 'in_progress';
+    }
+
+    toast('↩️ Action undone');
+    const updated = allStops.find(s => s.id === stopId);
+    if (updated) renderStopDetail(updated);
+    renderHome();
+  } catch (e) {
+    console.error('Undo error:', e);
+    toast('Could not undo — refresh and try again');
+  } finally {
+    showLoading(false);
+  }
+}
+
+/* ──────────────────────────────
+   COMPLETE STOP
 ────────────────────────────── */
 async function completeStop(stopId, stopType) {
   const btn = document.getElementById('btn-do-complete');
@@ -865,8 +1295,9 @@ async function completeStop(stopId, stopType) {
 
   const notes = document.getElementById('stop-notes')?.value?.trim() || null;
   const now   = new Date().toISOString();
+  const stop  = allStops.find(s => s.id === stopId);
+  const prevOrderStatus = stop?.orders?.status || null;
 
-  // Update stop
   const { error: stopErr } = await db.from('route_stops').update({
     status: 'complete', completed_at: now, actual_arrival: now, driver_notes: notes
   }).eq('id', stopId);
@@ -878,61 +1309,80 @@ async function completeStop(stopId, stopType) {
   }
 
   // Update order status
-  const stop = allStops.find(s => s.id === stopId);
   if (stop?.orders?.id) {
-    const newStatus   = stopType === 'pickup' ? 'picked_up' : 'delivered';
-    const timeField   = stopType === 'pickup' ? 'actual_pickup_at' : 'actual_delivery_at';
+    const newStatus = stopType === 'pickup' ? 'picked_up' : 'delivered';
+    const timeField = stopType === 'pickup' ? 'actual_pickup_at' : 'actual_delivery_at';
     await db.from('orders').update({ status: newStatus, [timeField]: now }).eq('id', stop.orders.id);
-    // Reflect locally
     stop.orders.status = newStatus;
   }
 
-  // Local state
+  // Update local state
   const idx = allStops.findIndex(s => s.id === stopId);
   if (idx >= 0) allStops[idx] = { ...allStops[idx], status: 'complete', completed_at: now, driver_notes: notes };
 
   // Update route progress
-  const routeId = allStops[idx]?.route_id;
+  const routeId = stop?.route_id;
   const route   = todayRoutes.find(r => r.id === routeId);
   if (route) {
-    const newDone  = allStops.filter(s => s.route_id === routeId && s.status === 'complete').length;
+    const newDone    = allStops.filter(s => s.route_id === routeId && s.status === 'complete').length;
     const routeTotal = allStops.filter(s => s.route_id === routeId).length;
-    const allDone  = newDone >= routeTotal;
+    const allDone    = newDone >= routeTotal;
     await db.from('routes').update({
       completed_stops: newDone,
       status: allDone ? 'complete' : 'in_progress',
       started_at:   route.started_at || now,
-      completed_at: allDone ? now : null
+      completed_at: allDone ? now : null,
     }).eq('id', routeId);
     route.completed_stops = newDone;
     route.status = allDone ? 'complete' : 'in_progress';
     if (!route.started_at) route.started_at = now;
   }
 
-  toast(stopType === 'pickup' ? '📦 Pickup confirmed!' : '✅ Delivery confirmed!');
-
   // Re-render with updated state
   const updated = allStops.find(s => s.id === stopId);
   if (updated) renderStopDetail(updated);
+  renderHome();
+
+  // Show undo bar
+  const undoMsg = stopType === 'pickup' ? '📦 Pickup confirmed' : '✅ Delivery confirmed';
+  showUndoBar(undoMsg, {
+    type: 'complete',
+    stopId,
+    prevStopStatus: 'pending',
+    prevOrderStatus,
+  });
 }
 
+/* ──────────────────────────────
+   SKIP STOP
+────────────────────────────── */
 async function skipStop(stopId) {
-  const really = confirm('Skip this stop? It will be marked as missed.');
+  const really = confirm('Skip this stop? You can undo this within 12 seconds.');
   if (!really) return;
+
+  const stop = allStops.find(s => s.id === stopId);
+  const prevOrderStatus = stop?.orders?.status || null;
+
   await db.from('route_stops').update({ status: 'skipped' }).eq('id', stopId);
-  // Update order status to reflect the missed stop
+
   const idx = allStops.findIndex(s => s.id === stopId);
   if (idx >= 0) {
     allStops[idx].status = 'skipped';
-    const stop = allStops[idx];
     if (stop?.orders?.id) {
       const missedStatus = stop.stop_type === 'pickup' ? 'pickup_missed' : 'delivery_missed';
       await db.from('orders').update({ status: missedStatus }).eq('id', stop.orders.id);
-      stop.orders.status = missedStatus;
+      allStops[idx].orders.status = missedStatus;
     }
   }
-  toast('Stop marked as missed');
+
   goTo('route');
+
+  showUndoBar('⤷ Stop skipped', {
+    type: 'skip',
+    stopId,
+    prevStopStatus: 'pending',
+    prevOrderStatus,
+  });
 }
 
 /* ──────────────────────────────
@@ -947,12 +1397,14 @@ function renderProfile() {
 
   const done  = allStops.filter(s => s.status === 'complete').length;
   const total = allStops.length;
+  const skipped = allStops.filter(s => s.status === 'skipped').length;
 
   document.getElementById('prof-info').innerHTML = `
-    <div class="info-row"><span class="info-icon">📧</span><div><div class="info-lbl">Email</div><div class="info-val">${currentProfile.email||'—'}</div></div></div>
+    <div class="info-row"><span class="info-icon">📧</span><div><div class="info-lbl">Email</div><div class="info-val">${currentProfile.email||currentUser?.email||'—'}</div></div></div>
     <div class="info-row"><span class="info-icon">📞</span><div><div class="info-lbl">Phone</div><div class="info-val">${currentProfile.phone||'—'}</div></div></div>
     <div class="info-row"><span class="info-icon">🚐</span><div><div class="info-lbl">Vehicle</div><div class="info-val">${currentDriver?.vehicle_type||'—'} ${currentDriver?.vehicle_plate||''}</div></div></div>
-    <div class="info-row"><span class="info-icon">📊</span><div><div class="info-lbl">Today's Stops</div><div class="info-val">${done} of ${total} complete</div></div></div>
+    <div class="info-row"><span class="info-icon">📊</span><div><div class="info-lbl">Today's Progress</div><div class="info-val">${done} of ${total} complete${skipped ? ` · ${skipped} skipped` : ''}</div></div></div>
+    <div class="info-row"><span class="info-icon">🪪</span><div><div class="info-lbl">License</div><div class="info-val">${currentDriver?.license_number||'—'}</div></div></div>
   `;
 }
 
