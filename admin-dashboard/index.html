@@ -1713,10 +1713,9 @@
 
     let q = db.from('orders')
       .select(`id, order_number, status, total_amount, stripe_payment_intent_id,
-               weight_lbs, bag_count, service_id,
+               weight_lbs, service_id,
                pickup_window_start, delivery_window_start,
                pickup_run_id, delivery_run_id,
-               pickup_stop_number, delivery_stop_number,
                created_at,
                services(name),
                customers(id, first_name_cache, last_name_cache),
@@ -1783,16 +1782,15 @@
           bv = b.status || '';
           break;
         case 'stop':
-          av = Number(a.pickup_stop_number ?? a.delivery_stop_number ?? 9999);
-          bv = Number(b.pickup_stop_number ?? b.delivery_stop_number ?? 9999);
+          av = 0; bv = 0; // stop numbers not stored on orders
           break;
         case 'order_number':
           av = Number(a.order_number || 0);
           bv = Number(b.order_number || 0);
           break;
         case 'weight_lbs':
-          av = Number(a.bag_count ?? a.weight_lbs ?? 0);
-          bv = Number(b.bag_count ?? b.weight_lbs ?? 0);
+          av = Number(a.weight_lbs ?? 0);
+          bv = Number(b.weight_lbs ?? 0);
           break;
         case 'total_amount':
           av = Number(a.total_amount || 0);
@@ -1850,11 +1848,8 @@
           : '';
         const pickupRoute  = o.pickup_run?.name  || '—';
         const deliveryRoute = o.delivery_run?.name || '—';
-        const stopNum = o.pickup_stop_number != null ? o.pickup_stop_number
-                      : o.delivery_stop_number != null ? o.delivery_stop_number : '—';
-        const bags = o.bag_count != null   ? o.bag_count
-                   : o.weight_lbs != null  ? Number(o.weight_lbs).toFixed(1)+' lb'
-                   : '—';
+        const stopNum = '—';
+        const bags = o.weight_lbs != null ? Number(o.weight_lbs).toFixed(1)+' lb' : '—';
         return `<tr>
           <td style="width:36px"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" onchange="updateOrderBatchBar()"></td>
           <td class="td-name">${orderCustomerName(o)}</td>
@@ -2929,22 +2924,20 @@
 
     const editSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="9" height="9" style="flex-shrink:0"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
 
-    const makeSchedCell = (t, day, type) => {
+    const makeSchedCell = (t, day) => {
       const runs = (t.schedule_days||[]).includes(day);
       if (!runs) return `<td style="text-align:center"><span style="color:var(--gray-200);font-size:13px;">—</span></td>`;
-      const ovDrvId = overMap[`${t.id}-${day}-${type}`];
-      const defaultId = type === 'pickup' ? t.default_pickup_driver_id : (t.default_delivery_driver_id || t.default_pickup_driver_id);
+      const ovDrvId = overMap[`${t.id}-${day}-pickup`];
+      const defaultId = t.default_pickup_driver_id;
       const drvId = ovDrvId || defaultId;
       const drvName = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const short = drvName.split(' ')[0];
       const isOv = !!ovDrvId;
-      const baseColor = t.color || '#635bff';
-      // delivery row is slightly transparent
-      const bg = drvId ? (type === 'delivery' ? baseColor + 'cc' : baseColor) : '#e5e7eb';
+      const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
       const fg = drvId ? 'white' : '#9ca3af';
       return `<td><div class="sched-cell${isOv?' sched-override':''}" style="background:${bg};color:${fg};"
-        onclick="openDriverPopover('${t.id}',${day},'${type}','${drvId||''}',event)"
-        title="${type==='pickup'?'Pickup':'Delivery'}: ${drvName}${isOv?' (day override)':''}">
+        onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
+        title="${drvName}${isOv?' (day override)':''}">
         ${short}
         ${isOv ? editSvg : ''}
       </div></td>`;
@@ -2956,31 +2949,16 @@
         ${DAY_LABELS.map(d=>`<th>${d}</th>`).join('')}
       </tr></thead>
       <tbody>
-      ${allTemplates.map(t => {
-        const showDelivery = t.service_type !== 'pickup_only';
-        return `
-        <tr style="border-bottom:0">
-          <td style="padding-bottom:2px;">
+      ${allTemplates.map(t => `
+        <tr>
+          <td>
             <div style="display:flex;align-items:center;gap:8px;">
               <div style="width:10px;height:10px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;"></div>
-              <div>
-                <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);">${t.name}</div>
-                <div style="font-size:11px;color:var(--gray-400);">pickup</div>
-              </div>
+              <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);">${t.name}</div>
             </div>
           </td>
-          ${[0,1,2,3,4,5,6].map(day => makeSchedCell(t, day, 'pickup')).join('')}
-        </tr>
-        ${showDelivery ? `<tr style="border-bottom:1px solid var(--gray-100)">
-          <td style="padding-top:2px;padding-bottom:10px;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <div style="width:10px;height:10px;border-radius:50%;background:${t.color||'#635bff'};opacity:.4;flex-shrink:0;"></div>
-              <div style="font-size:11px;color:var(--gray-400);margin-left:18px;">delivery</div>
-            </div>
-          </td>
-          ${[0,1,2,3,4,5,6].map(day => makeSchedCell(t, day, 'delivery')).join('')}
-        </tr>` : `<tr style="border-bottom:1px solid var(--gray-100)"><td colspan="8"></td></tr>`}`;
-      }).join('')}
+          ${[0,1,2,3,4,5,6].map(day => makeSchedCell(t, day)).join('')}
+        </tr>`).join('')}
       </tbody>
     </table>`;
   }
