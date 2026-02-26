@@ -389,10 +389,6 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/></svg>
         Routes
       </div>
-      <div class="nav-item" onclick="showPage('maps',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
-        Maps
-      </div>
       <div class="nav-item" onclick="showPage('inbox',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         Inbox
@@ -407,6 +403,10 @@
       <div class="nav-item" onclick="showPage('services',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
         Services
+      </div>
+      <div class="nav-item" onclick="showPage('maps',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+        Delivery Zones
       </div>
       <div class="sidebar-footer" onclick="handleSignOut()">
         <div class="avatar" id="user-avatar">?</div>
@@ -542,24 +542,24 @@
             <div class="stat-card"><div class="stat-label">Delivered Today</div><div class="stat-value" id="ostat-done">—</div></div>
           </div>
           <div class="card">
-            <div class="card-header">
+            <div class="card-header" style="flex-wrap:wrap;gap:10px;">
               <div><div class="card-title">All Orders</div><div class="card-sub" id="orders-count-label"></div></div>
-              <div style="display:flex;gap:8px;align-items:center;">
-                <div class="filter-tabs">
-                  <button class="filter-tab active" onclick="filterOrders(null,this)">All</button>
-                  <button class="filter-tab" onclick="filterOrders('scheduled',this)">Scheduled</button>
-                  <button class="filter-tab" onclick="filterOrders('ready_for_pickup',this)">Ready for Pickup</button>
-                  <button class="filter-tab" onclick="filterOrders('picked_up',this)">Picked Up</button>
-                  <button class="filter-tab" onclick="filterOrders('processing',this)">Processing</button>
-                  <button class="filter-tab" onclick="filterOrders('assembled',this)">Assembled</button>
-                  <button class="filter-tab" onclick="filterOrders('ready_for_delivery',this)">Ready for Delivery</button>
-                  <button class="filter-tab" onclick="filterOrders('out_for_delivery',this)">Out for Delivery</button>
-                  <button class="filter-tab" onclick="filterOrders('delivered',this)">Delivered</button>
-                  <button class="filter-tab" onclick="filterOrders('pickup_missed',this)">Pickup Missed</button>
-                  <button class="filter-tab" onclick="filterOrders('delivery_missed',this)">Delivery Missed</button>
-                  <button class="filter-tab" onclick="filterOrders('on_hold',this)">On Hold</button>
-                  <button class="filter-tab" onclick="filterOrders('cancelled',this)">Cancelled</button>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <!-- Simplified 6-tab filter -->
+                <div class="filter-tabs" id="order-filter-tabs">
+                  <button class="filter-tab active" data-filter="all" onclick="filterOrders(null,this)">All</button>
+                  <button class="filter-tab" data-filter="upcoming" onclick="filterOrders('upcoming',this)">Upcoming</button>
+                  <button class="filter-tab" data-filter="inshop" onclick="filterOrders('inshop',this)">In Shop</button>
+                  <button class="filter-tab" data-filter="out_for_delivery" onclick="filterOrders('out_for_delivery',this)">Out for Delivery</button>
+                  <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Done</button>
+                  <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
                 </div>
+                <!-- Batch charge (visible only when In Shop tab active) -->
+                <button class="btn" id="btn-batch-charge" onclick="batchCharge()"
+                  style="display:none;background:#f59e0b;color:white;padding:6px 12px;font-size:12.5px;box-shadow:none;border:none">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                  Charge Selected
+                </button>
                 <button class="btn btn-primary" style="padding:6px 12px" onclick="openModal('add-order')">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   New Order
@@ -578,53 +578,80 @@
             <div class="stat-card"><div class="stat-label">Completed</div><div class="stat-value" id="rstat-done">—</div></div>
             <div class="stat-card"><div class="stat-label">Active Drivers</div><div class="stat-value" id="rstat-drivers">—</div></div>
           </div>
-          <div class="card">
-            <div class="card-header">
-              <div><div class="card-title">All Routes</div><div class="card-sub" id="routes-date-label"></div></div>
-              <button class="btn btn-primary" style="padding:6px 12px" onclick="openModal('add-route')">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Create Route
-              </button>
-            </div>
-            <div id="routes-table-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
-          </div>
-        </div>
 
-        <!-- ── MAPS ── -->
-        <div class="page" id="page-maps">
-          <div class="card" style="overflow:visible;">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid var(--gray-200);">
-              <div class="section-tabs" style="border-bottom:none;flex:1;">
-                <button class="section-tab active" id="maptab-live" onclick="setMapsTab('live',this)">
-                  Live Route <span class="live-pill">LIVE</span>
+          <!-- ── LIVE ROUTE VIEW ── -->
+          <div class="card" style="margin-bottom:20px;overflow:visible;">
+            <div class="card-header" style="gap:12px;flex-wrap:wrap;">
+              <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
+                <div class="card-title">Live View</div>
+                <span class="live-pill">LIVE</span>
+                <div id="route-toggle-btns" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <button class="btn btn-ghost" id="btn-optimize" style="font-size:12px;padding:5px 12px;display:none" onclick="optimizeRoute()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="margin-right:4px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                  Optimize Route
                 </button>
-                <button class="section-tab" id="maptab-zones" onclick="setMapsTab('zones',this)">Delivery Zones</button>
+                <button class="btn btn-primary" style="padding:6px 12px;font-size:12px" onclick="openModal('add-route')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Create Route
+                </button>
               </div>
             </div>
-            <!-- LIVE ROUTE -->
-            <div id="maps-tab-live">
-              <div class="route-map-layout" style="height:580px;">
-                <div class="map-side" id="live-route-map" style="height:100%;"></div>
-                <div class="route-stop-list" id="live-stop-list">
-                  <div style="padding:12px 14px;border-bottom:1px solid var(--gray-100);font-weight:600;font-size:13px;color:var(--gray-900);display:flex;justify-content:space-between;align-items:center;">
-                    Today's Active Route
-                    <span class="live-pill">LIVE</span>
-                  </div>
-                  <div class="loading"><div class="spinner"></div></div>
+            <div class="route-map-layout" style="height:520px;">
+              <div class="route-stop-list" id="route-stop-list" style="min-width:260px;max-width:280px;overflow-y:auto;border-right:1px solid var(--gray-200);display:flex;flex-direction:column;">
+                <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:13px;padding:20px;text-align:center;">
+                  Select a route to view stops
                 </div>
               </div>
-              <div style="padding:12px 16px;border-top:1px solid var(--gray-100);">
-                <div class="map-legend-box" style="position:relative;bottom:auto;left:auto;display:inline-block;">
+              <div style="flex:1;position:relative;">
+                <div id="route-live-map" style="height:100%;width:100%;"></div>
+                <div class="map-legend-box" style="bottom:12px;left:12px;">
                   <div class="leg-title">Stop Status</div>
                   <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Completed</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#2563eb"></div>En Route (now)</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#2563eb"></div>Active</div>
                   <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>Upcoming</div>
                   <div class="leg-row"><div class="leg-dot" style="background:#635bff"></div>Driver</div>
                 </div>
               </div>
             </div>
-            <!-- DELIVERY ZONES -->
-            <div id="maps-tab-zones" style="display:none;">
+          </div>
+
+          <!-- Move Stop modal (inline) -->
+          <div id="move-stop-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
+            <div style="background:white;border-radius:10px;padding:24px;width:340px;box-shadow:0 20px 60px rgba(0,0,0,.2);">
+              <div style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:4px">Move Stop</div>
+              <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px" id="move-stop-desc">Move stop to another route</div>
+              <div class="form-group">
+                <label class="form-label">Move to Route</label>
+                <select class="form-input" id="move-stop-target-route"></select>
+              </div>
+              <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
+                <button class="btn btn-ghost" onclick="document.getElementById('move-stop-modal').style.display='none'">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmMoveStop()">Move Stop</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── ALL ROUTES TABLE ── -->
+          <div class="card">
+            <div class="card-header">
+              <div><div class="card-title">All Routes</div><div class="card-sub" id="routes-date-label"></div></div>
+            </div>
+            <div id="routes-table-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+          </div>
+        </div>
+
+        <!-- ── MAPS (Delivery Zones) ── -->
+        <div class="page" id="page-maps">
+          <div class="card" style="overflow:visible;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Delivery Zones</div>
+                <div class="card-sub">Draw and manage your delivery service areas</div>
+              </div>
+            </div>
+            <div id="maps-tab-zones">
               <div class="zone-draw-hint" id="zone-draw-hint">✏️ Click the polygon tool on the map to start drawing a zone. Click the first point again to close and save.</div>
               <div class="zone-layout" style="height:580px;">
                 <div class="map-side" id="zones-map" style="height:100%;"></div>
@@ -1186,8 +1213,8 @@
   });
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', routes:'Routes', maps:'Maps', inbox:'Inbox', services:'Services & Pricing', reports:'Reports' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', routes:'Create Route', maps:'New Route', inbox:'Compose', services:'', reports:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', routes:'Routes', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', reports:'Reports' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', routes:'Create Route', maps:'', inbox:'Compose', services:'', reports:'' };
 
   function showPage(id, navEl) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -1198,14 +1225,15 @@
     document.getElementById('topbar-cta-label').textContent = pageCTAs[id];
     document.getElementById('topbar-cta').style.display = pageCTAs[id] ? '' : 'none';
     currentPage = id;
-    if (id === 'inbox') loadInbox();
-    if (id === 'maps') setTimeout(()=>initLiveMap(), 80);
+    if (id === 'inbox')   loadInbox();
+    if (id === 'maps')    setTimeout(()=>initZonesMap(), 80);
+    if (id === 'routes')  setTimeout(()=>initRouteMap(), 80);
     if (id === 'services') loadServices();
     if (id === 'reports') loadReports();
   }
 
   function handleCTA() {
-    const map = { overview:'add-order', customers:'add-customer', orders:'add-order', routes:'add-route', maps:'add-route', inbox:'compose' };
+    const map = { overview:'add-order', customers:'add-customer', orders:'add-order', routes:'add-route', inbox:'compose' };
     openModal(map[currentPage] || 'add-order');
   }
 
@@ -1429,11 +1457,25 @@
     return `${fn} ${ln}`.trim() || 'Unknown';
   }
 
+  // Group filter → actual statuses mapping
+  const ORDER_FILTER_GROUPS = {
+    upcoming:  ['scheduled','ready_for_pickup'],
+    inshop:    ['picked_up','processing','assembled','ready_for_delivery'],
+    issues:    ['pickup_missed','delivery_missed','on_hold','cancelled'],
+  };
+  let currentOrderFilter = null; // null = all
+
   async function loadOrders(statusFilter) {
+    currentOrderFilter = statusFilter || null;
     let q = db.from('orders')
       .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, service_id, pickup_window_start, delivery_window_start, created_at, services(name), customers(id, first_name_cache, last_name_cache)')
       .order('created_at', { ascending: false });
-    if (statusFilter && statusFilter !== 'all') q = q.eq('status', statusFilter);
+    // Group filters: translate to .in() query
+    if (statusFilter && ORDER_FILTER_GROUPS[statusFilter]) {
+      q = q.in('status', ORDER_FILTER_GROUPS[statusFilter]);
+    } else if (statusFilter && statusFilter !== 'all') {
+      q = q.eq('status', statusFilter);
+    }
     const { data, error } = await q;
     if (error) {
       console.error('loadOrders error:', error);
@@ -1454,16 +1496,24 @@
     document.getElementById('ostat-out').textContent     = outDel;
     document.getElementById('ostat-done').textContent    = doneTdy;
     document.getElementById('orders-count-label').textContent = `${allOrders.length} order${allOrders.length!==1?'s':''}`;
-    renderOrders(allOrders);
+
+    // Show/hide batch charge button (only for inshop view)
+    const batchBtn = document.getElementById('btn-batch-charge');
+    if (batchBtn) batchBtn.style.display = (statusFilter === 'inshop') ? '' : 'none';
+
+    renderOrders(allOrders, statusFilter === 'inshop');
   }
 
-  function renderOrders(data) {
+  function renderOrders(data, showCheckboxes) {
     const el = document.getElementById('orders-table-body');
     if (!data.length) {
       el.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">No orders found</div><div class="empty-sub">Create your first order to get started.</div></div>`;
       return;
     }
-    el.innerHTML = `<table><thead><tr><th>Order #</th><th>Customer</th><th>Service</th><th>Pickup</th><th>Total</th><th>Status</th><th>Payment</th></tr></thead><tbody>
+    const cbHeader = showCheckboxes
+      ? `<th style="width:36px"><input type="checkbox" id="select-all-orders" onchange="toggleSelectAllOrders(this)" title="Select all assembled"></th>`
+      : '';
+    el.innerHTML = `<table><thead><tr>${cbHeader}<th>Order #</th><th>Customer</th><th>Service</th><th>Pickup</th><th>Total</th><th>Status</th><th>Payment</th></tr></thead><tbody>
       ${data.map(o=>{
         const svcName = o.services?.name || '—';
         const chargeable = Number(o.total_amount) > 0 && !o.stripe_payment_intent_id && o.status !== 'cancelled';
@@ -1477,7 +1527,13 @@
         const advBtn = nextStatus
           ? `<button class="btn-advance${willCharge?' will-charge':''}" style="margin-left:6px" onclick="updateOrderStatus('${o.id}','${o.order_number}','${nextStatus}',this)" title="Advance to ${STATUS_NEXT_LABEL[nextStatus]}">→ ${STATUS_NEXT_LABEL[nextStatus]}</button>`
           : '';
+        // Only show checkbox for assembled orders (the charge step)
+        const isAssembled = o.status === 'assembled';
+        const cbCell = showCheckboxes
+          ? `<td style="width:36px">${isAssembled && chargeable ? `<input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" onchange="updateBatchCount()">` : ''}</td>`
+          : '';
         return `<tr>
+          ${cbCell}
           <td class="td-mono">#${o.order_number}</td>
           <td class="td-name">${orderCustomerName(o)}</td>
           <td style="color:var(--gray-600);font-size:12.5px">${svcName}</td>
@@ -1488,6 +1544,56 @@
         </tr>`;
       }).join('')}
     </tbody></table>`;
+  }
+
+  function toggleSelectAllOrders(cb) {
+    document.querySelectorAll('.order-select-cb').forEach(c => c.checked = cb.checked);
+    updateBatchCount();
+  }
+
+  function updateBatchCount() {
+    const selected = document.querySelectorAll('.order-select-cb:checked').length;
+    const btn = document.getElementById('btn-batch-charge');
+    if (btn) btn.textContent = selected > 0 ? `Charge ${selected} Order${selected>1?'s':''}` : 'Charge Selected';
+  }
+
+  async function batchCharge() {
+    const checked = [...document.querySelectorAll('.order-select-cb:checked')];
+    if (!checked.length) { showToast('Select at least one assembled order to charge.',''); return; }
+    const count = checked.length;
+    if (!confirm(`Charge and advance ${count} order${count>1?'s':''} from Assembled → Ready for Delivery?`)) return;
+
+    const btn = document.getElementById('btn-batch-charge');
+    btn.disabled = true;
+    btn.textContent = 'Charging…';
+
+    const { data: { session } } = await db.auth.getSession();
+    let succeeded = 0, failed = 0;
+    for (const cb of checked) {
+      const orderId  = cb.dataset.id;
+      const orderNum = cb.dataset.num;
+      try {
+        const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${session.access_token}` },
+          body: JSON.stringify({ orderId }),
+        });
+        const result = await res.json();
+        if (result.error) throw new Error(result.error);
+        await db.from('orders').update({ status: 'ready_for_delivery' }).eq('id', orderId);
+        succeeded++;
+      } catch(e) {
+        console.error(`Batch charge failed for order ${orderNum}:`, e);
+        failed++;
+      }
+    }
+    btn.disabled = false;
+    if (failed === 0) {
+      showToast(`✓ ${succeeded} order${succeeded>1?'s':''} charged & advanced to Ready for Delivery`);
+    } else {
+      showToast(`${succeeded} charged, ${failed} failed — check console`, 'error');
+    }
+    setTimeout(() => loadOrders('inshop'), 400);
   }
 
   function filterOrders(status, btn) {
@@ -2200,18 +2306,10 @@
   }
 
   // ── MAP STATE ──
-  let custMap=null, liveMap=null, zonesMap=null;
+  let custMap=null, zonesMap=null;
   let custMarkers=[], drawnZones=[], zoneDrawControl=null;
   const statusColor={active:'#0ba25a',at_risk:'#d97706',churned:'#9ca3af'};
 
-  const sampleStops=[
-    {num:1,name:'Sarah Chen',addr:'4028 Telegraph Ave',type:'delivery',status:'complete',lat:37.8282,lng:-122.2602,time:'9:14 AM'},
-    {num:2,name:'Marcus T.',addr:'2847 College Ave',type:'pickup',status:'complete',lat:37.8575,lng:-122.2527,time:'9:47 AM'},
-    {num:3,name:'Priya S.',addr:'1501 Park Blvd',type:'delivery',status:'complete',lat:37.8093,lng:-122.2157,time:'10:12 AM'},
-    {num:4,name:'Anika P.',addr:'3100 Telegraph Ave',type:'pickup',status:'en-route',lat:37.8506,lng:-122.2638,time:'ETA 11:30'},
-    {num:5,name:'Linda M.',addr:'3850 International Blvd',type:'delivery',status:'pending',lat:37.7713,lng:-122.2184,time:'12:00 PM'},
-    {num:6,name:'James W.',addr:'5201 Broadway',type:'pickup',status:'pending',lat:37.8395,lng:-122.2631,time:'12:40 PM'},
-  ];
   const sampleZones=[
     {id:1,name:'North Oakland',color:'#635bff',coords:[[37.855,-122.285],[37.855,-122.235],[37.830,-122.235],[37.830,-122.285]],customers:18},
     {id:2,name:'Berkeley',color:'#10b981',coords:[[37.895,-122.300],[37.895,-122.245],[37.860,-122.245],[37.860,-122.300]],customers:14},
@@ -2228,19 +2326,234 @@
   }
   const cartoTiles=()=>L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © Carto',maxZoom:19});
 
-  // ── MAPS PAGE TABS ──
+  // ── MAPS PAGE TABS (zones only now) ──
   function setMapsTab(tab, btn){
-    ['live','zones'].forEach(t=>{
-      document.getElementById('maps-tab-'+t).style.display = t===tab ? '' : 'none';
-    });
-    document.querySelectorAll('#page-maps .section-tab').forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active');
-    if(tab==='live')  setTimeout(()=>initLiveMap(),  50);
-    if(tab==='zones') setTimeout(()=>initZonesMap(), 50);
+    // Legacy compat — only zones tab remains
+    setTimeout(()=>initZonesMap(), 50);
   }
 
-  // ── ROUTE TABS (legacy — kept for compatibility) ──
-  function setRouteTab(tab,btn){}
+  // ── ROUTE LIVE MAP ──
+  let routeLiveMap = null, routeLiveRouteId = null;
+  let routeStopMoving = null; // {stopId, stopDesc} for move-stop modal
+
+  async function initRouteMap() {
+    // Init Leaflet map if not yet done
+    if (!routeLiveMap) {
+      routeLiveMap = L.map('route-live-map').setView([37.820,-122.240], 12);
+      cartoTiles().addTo(routeLiveMap);
+    } else {
+      routeLiveMap.invalidateSize();
+    }
+    // Load today's routes and render toggle buttons
+    const todayStr = today();
+    const { data: todayRoutes } = await db.from('routes')
+      .select('id, name, status, total_stops, completed_stops')
+      .eq('date', todayStr).order('name');
+
+    const toggleEl = document.getElementById('route-toggle-btns');
+    if (!todayRoutes || !todayRoutes.length) {
+      toggleEl.innerHTML = '<span style="color:var(--gray-400);font-size:12.5px">No routes today</span>';
+      document.getElementById('btn-optimize').style.display = 'none';
+      return;
+    }
+
+    toggleEl.innerHTML = todayRoutes.map(r => `
+      <button class="btn btn-ghost route-toggle-btn" data-rid="${r.id}"
+        style="font-size:12px;padding:4px 12px;border-radius:20px"
+        onclick="selectRouteOnMap('${r.id}', this)">
+        ${r.name}
+        <span style="font-size:10px;color:var(--gray-400);margin-left:4px">${r.completed_stops||0}/${r.total_stops||0}</span>
+      </button>`).join('');
+
+    // Auto-select first route
+    const firstBtn = toggleEl.querySelector('.route-toggle-btn');
+    if (firstBtn) firstBtn.click();
+  }
+
+  async function selectRouteOnMap(routeId, btn) {
+    document.querySelectorAll('.route-toggle-btn').forEach(b => {
+      b.style.background = '';
+      b.style.color = '';
+      b.style.borderColor = '';
+    });
+    btn.style.background = 'var(--accent)';
+    btn.style.color = 'white';
+    btn.style.borderColor = 'var(--accent)';
+    routeLiveRouteId = routeId;
+    document.getElementById('btn-optimize').style.display = '';
+
+    // Load stops for this route
+    const { data: stops } = await db.from('route_stops')
+      .select(`id, stop_number, stop_type, status, estimated_arrival,
+               orders(order_number, customers(first_name_cache, last_name_cache)),
+               addresses(line1, city, lat, lng)`)
+      .eq('route_id', routeId)
+      .order('stop_number');
+
+    renderRouteStops(stops || [], routeId);
+    renderRouteMapPins(stops || []);
+  }
+
+  function renderRouteStops(stops, routeId) {
+    const el = document.getElementById('route-stop-list');
+    if (!stops.length) {
+      el.innerHTML = '<div style="padding:20px;color:var(--gray-400);font-size:13px;text-align:center">No stops on this route yet</div>';
+      return;
+    }
+    // Populate move-stop dropdown for all other today's routes
+    const allBtns = document.querySelectorAll('.route-toggle-btn');
+    const otherRoutes = [...allBtns].filter(b => b.dataset.rid !== routeId);
+
+    el.innerHTML = stops.map(s => {
+      const cust = s.orders?.customers || {};
+      const name = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
+      const addr = s.addresses ? `${s.addresses.line1||''}, ${s.addresses.city||''}`.trim().replace(/^,|,$/g,'') : '—';
+      const statusDot = s.status === 'completed' ? '#0ba25a' : s.status === 'active' ? '#2563eb' : '#9ca3af';
+      const label = s.status === 'completed' ? '✓' : s.stop_number.toString();
+      const eta = s.estimated_arrival ? fmtDate(s.estimated_arrival) : '';
+      return `<div class="rsl-item" onclick="routeLiveMap&&s.addresses?.lat&&routeLiveMap.flyTo([${s.addresses?.lat||0},${s.addresses?.lng||0}],16,{duration:.6})">
+        <div class="rsl-pin" style="background:${statusDot};border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:white;flex-shrink:0">${label}</div>
+        <div class="rsl-info" style="flex:1;min-width:0;">
+          <div class="rsl-name" style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
+          <div class="rsl-addr" style="font-size:11px;color:var(--gray-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${addr}</div>
+          <div style="display:flex;gap:6px;align-items:center;margin-top:3px;">
+            <span class="rsl-tag ${s.stop_type==='pickup'?'tag-pickup':'tag-delivery'}" style="font-size:10px;padding:1px 6px;border-radius:4px">${s.stop_type==='pickup'?'Pickup':'Delivery'}</span>
+            ${eta ? `<span style="font-size:10px;color:var(--gray-400)">${eta}</span>` : ''}
+            ${otherRoutes.length ? `<button class="btn btn-ghost" style="padding:1px 7px;font-size:10px;margin-left:auto" onclick="event.stopPropagation();openMoveStop('${s.id}','#${s.stop_number} ${name}')">Move →</button>` : ''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderRouteMapPins(stops) {
+    if (!routeLiveMap) return;
+    // Clear existing stop layers (collect first to avoid mutating while iterating)
+    const toRemove = [];
+    routeLiveMap.eachLayer(l => { if (l._isStopLayer) toRemove.push(l); });
+    toRemove.forEach(l => routeLiveMap.removeLayer(l));
+    const validStops = stops.filter(s => s.addresses?.lat && s.addresses?.lng);
+    if (!validStops.length) return;
+
+    const stopColor = { completed:'#0ba25a', active:'#2563eb', pending:'#9ca3af' };
+    const coords = validStops.map(s => [s.addresses.lat, s.addresses.lng]);
+
+    // Route line
+    const line = L.polyline(coords, {color:'#635bff', weight:2.5, opacity:.4, dashArray:'6 4'});
+    line._isStopLayer = true;
+    line.addTo(routeLiveMap);
+
+    validStops.forEach(s => {
+      const col = stopColor[s.status] || '#9ca3af';
+      const label = s.status === 'completed' ? '✓' : s.stop_number.toString();
+      const cust = s.orders?.customers || {};
+      const name = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
+      const m = L.marker([s.addresses.lat, s.addresses.lng], {icon: makePin(col, label)})
+        .bindPopup(`<strong>#${s.stop_number} ${name}</strong><br>${s.addresses.line1||''}<br><em>${s.stop_type} · ${s.status}</em>`);
+      m._isStopLayer = true;
+      m.addTo(routeLiveMap);
+    });
+
+    routeLiveMap.fitBounds(L.latLngBounds(coords), {padding:[30,30]});
+  }
+
+  // ── OPTIMIZE ROUTE ──
+  // Uses nearest-neighbor heuristic (no external API key needed).
+  // If GOOGLE_MAPS_KEY is set in config, can be upgraded to use Distance Matrix API.
+  const GOOGLE_MAPS_KEY = ''; // Add your Google Maps API key here to enable advanced optimization
+
+  async function optimizeRoute() {
+    if (!routeLiveRouteId) return;
+    const btn = document.getElementById('btn-optimize');
+    btn.disabled = true; btn.textContent = 'Optimizing…';
+
+    try {
+      const { data: stops } = await db.from('route_stops')
+        .select('id, stop_number, addresses(lat, lng)')
+        .eq('route_id', routeLiveRouteId)
+        .order('stop_number');
+
+      const valid = (stops||[]).filter(s => s.addresses?.lat && s.addresses?.lng);
+      if (valid.length < 2) { showToast('Need at least 2 stops with addresses to optimize.',''); return; }
+
+      // Nearest-neighbor TSP heuristic starting from first stop
+      const optimized = nearestNeighborTSP(valid);
+      const newOrder = optimized.map((s,i) => ({ id: s.id, stop_number: i+1 }));
+
+      // Batch update stop numbers
+      for (const upd of newOrder) {
+        await db.from('route_stops').update({ stop_number: upd.stop_number }).eq('id', upd.id);
+      }
+      // Save optimized order to route
+      await db.from('routes').update({ optimized_stop_order: newOrder.map(s=>s.id) }).eq('id', routeLiveRouteId);
+      showToast('✓ Route optimized — stops reordered by distance');
+      // Reload
+      const activeBtn = document.querySelector('.route-toggle-btn[data-rid="'+routeLiveRouteId+'"]');
+      if (activeBtn) selectRouteOnMap(routeLiveRouteId, activeBtn);
+    } catch(e) {
+      showToast('Optimization failed: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Optimize Route';
+    }
+  }
+
+  function nearestNeighborTSP(stops) {
+    const remaining = [...stops];
+    const result = [remaining.splice(0, 1)[0]];
+    while (remaining.length) {
+      const last = result[result.length - 1];
+      let nearestIdx = 0, nearestDist = Infinity;
+      remaining.forEach((s, i) => {
+        const d = Math.hypot(s.addresses.lat - last.addresses.lat, s.addresses.lng - last.addresses.lng);
+        if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
+      });
+      result.push(remaining.splice(nearestIdx, 1)[0]);
+    }
+    return result;
+  }
+
+  // ── MOVE STOP BETWEEN ROUTES ──
+  function openMoveStop(stopId, stopDesc) {
+    routeStopMoving = { stopId, stopDesc };
+    document.getElementById('move-stop-desc').textContent = `Moving: ${stopDesc}`;
+    // Populate target route dropdown (all today's routes except current)
+    const allBtns = [...document.querySelectorAll('.route-toggle-btn')];
+    const sel = document.getElementById('move-stop-target-route');
+    sel.innerHTML = allBtns
+      .filter(b => b.dataset.rid !== routeLiveRouteId)
+      .map(b => `<option value="${b.dataset.rid}">${b.textContent.trim()}</option>`)
+      .join('');
+    if (!sel.options.length) { showToast('No other routes to move this stop to.',''); return; }
+    document.getElementById('move-stop-modal').style.display = 'flex';
+  }
+
+  async function confirmMoveStop() {
+    if (!routeStopMoving) return;
+    const targetRouteId = document.getElementById('move-stop-target-route').value;
+    document.getElementById('move-stop-modal').style.display = 'none';
+    try {
+      // Get current max stop_number on target route
+      const { data: targetStops } = await db.from('route_stops')
+        .select('stop_number').eq('route_id', targetRouteId).order('stop_number', {ascending:false}).limit(1);
+      const nextNum = (targetStops?.[0]?.stop_number || 0) + 1;
+      await db.from('route_stops').update({ route_id: targetRouteId, stop_number: nextNum }).eq('id', routeStopMoving.stopId);
+      // Update totals on both routes
+      const [{ count: srcCount }, { count: dstCount }] = await Promise.all([
+        db.from('route_stops').select('*', {count:'exact',head:true}).eq('route_id', routeLiveRouteId),
+        db.from('route_stops').select('*', {count:'exact',head:true}).eq('route_id', targetRouteId),
+      ]);
+      await Promise.all([
+        db.from('routes').update({ total_stops: srcCount||0 }).eq('id', routeLiveRouteId),
+        db.from('routes').update({ total_stops: dstCount||0 }).eq('id', targetRouteId),
+      ]);
+      showToast(`Stop moved successfully`);
+      const activeBtn = document.querySelector('.route-toggle-btn[data-rid="'+routeLiveRouteId+'"]');
+      if (activeBtn) selectRouteOnMap(routeLiveRouteId, activeBtn);
+    } catch(e) {
+      showToast('Move failed: ' + e.message, 'error');
+    }
+    routeStopMoving = null;
+  }
 
   // ── CUSTOMER LIST / MAP TOGGLE ──
   function setCustView(view){
@@ -2309,49 +2622,6 @@
         });
       custMarkers.push(m);
     });
-  }
-
-  function initLiveMap(){
-    if(liveMap){ liveMap.invalidateSize(); return; }
-    const el=document.getElementById('live-route-map');
-    el.style.height='500px';
-    liveMap=L.map('live-route-map').setView([37.820,-122.240],12);
-    cartoTiles().addTo(liveMap);
-    // Route line
-    const coords=sampleStops.map(s=>[s.lat,s.lng]);
-    L.polyline(coords,{color:'#635bff',weight:2.5,opacity:.4,dashArray:'6 4'}).addTo(liveMap);
-    const doneCoords=sampleStops.filter(s=>s.status!=='pending').map(s=>[s.lat,s.lng]);
-    L.polyline(doneCoords,{color:'#0ba25a',weight:3,opacity:.7}).addTo(liveMap);
-    // Stop markers
-    const stopColor={'complete':'#0ba25a','en-route':'#2563eb','pending':'#9ca3af'};
-    sampleStops.forEach(s=>{
-      const col=stopColor[s.status];
-      const sz=s.status==='en-route'?34:28;
-      L.marker([s.lat,s.lng],{icon:makePin(col,s.status==='complete'?'✓':s.num.toString(),sz)})
-        .addTo(liveMap)
-        .bindPopup(`<strong>#${s.num} ${s.name}</strong><br>${s.addr}<br><em>${s.type} · ${s.time}</em>`);
-    });
-    // Driver pin (between stops 3 and 4)
-    const driverPin=L.marker([37.832,-122.260],{icon:makeDriverPin(),zIndexOffset:1000}).addTo(liveMap).bindPopup('<strong>Driver — En Route</strong>');
-    // Animate driver toward stop 4
-    let step=0;
-    const target=sampleStops[3];
-    const start={lat:37.832,lng:-122.260};
-    const iv=setInterval(()=>{
-      step++; if(step>100){clearInterval(iv);return;}
-      driverPin.setLatLng([start.lat+(target.lat-start.lat)*(step/100),start.lng+(target.lng-start.lng)*(step/100)]);
-    },400);
-    // Stop list
-    const listEl=document.getElementById('live-stop-list');
-    listEl.innerHTML=sampleStops.map(s=>`
-      <div class="rsl-item" onclick="liveMap.flyTo([${s.lat},${s.lng}],16,{duration:.6})">
-        <div class="rsl-pin ${s.status==='complete'?'pin-done':s.status==='en-route'?'pin-now':'pin-next'}">${s.status==='complete'?'✓':s.num}</div>
-        <div class="rsl-info">
-          <div class="rsl-name">${s.name}</div>
-          <div class="rsl-addr">${s.addr}</div>
-          <span class="rsl-tag ${s.type==='pickup'?'tag-pickup':'tag-delivery'}">${s.type==='pickup'?'Pickup':'Delivery'}</span>
-        </div>
-      </div>`).join('');
   }
 
   function initZonesMap(){
