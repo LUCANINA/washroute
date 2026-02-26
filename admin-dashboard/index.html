@@ -545,16 +545,17 @@
             <div class="card-header" style="flex-wrap:wrap;gap:10px;">
               <div><div class="card-title">All Orders</div><div class="card-sub" id="orders-count-label"></div></div>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <!-- Simplified 6-tab filter -->
                 <div class="filter-tabs" id="order-filter-tabs">
                   <button class="filter-tab active" data-filter="all" onclick="filterOrders(null,this)">All</button>
                   <button class="filter-tab" data-filter="upcoming" onclick="filterOrders('upcoming',this)">Upcoming</button>
-                  <button class="filter-tab" data-filter="inshop" onclick="filterOrders('inshop',this)">In Shop</button>
-                  <button class="filter-tab" data-filter="out_for_delivery" onclick="filterOrders('out_for_delivery',this)">Out for Delivery</button>
-                  <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Done</button>
+                  <button class="filter-tab" data-filter="picked_up" onclick="filterOrders('picked_up',this)">Picked Up</button>
+                  <button class="filter-tab" data-filter="processing" onclick="filterOrders('processing',this)">Processing</button>
+                  <button class="filter-tab" data-filter="assembled" onclick="filterOrders('assembled',this)">Assembled</button>
+                  <button class="filter-tab" data-filter="ready_for_delivery" onclick="filterOrders('ready_for_delivery',this)">Ready for Delivery</button>
+                  <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
                   <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
                 </div>
-                <!-- Batch charge (visible only when In Shop tab active) -->
+                <!-- Batch charge (visible only on Assembled tab) -->
                 <button class="btn" id="btn-batch-charge" onclick="batchCharge()"
                   style="display:none;background:#f59e0b;color:white;padding:6px 12px;font-size:12.5px;box-shadow:none;border:none">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
@@ -1460,7 +1461,6 @@
   // Group filter → actual statuses mapping
   const ORDER_FILTER_GROUPS = {
     upcoming:  ['scheduled','ready_for_pickup'],
-    inshop:    ['picked_up','processing','assembled','ready_for_delivery'],
     issues:    ['pickup_missed','delivery_missed','on_hold','cancelled'],
   };
   let currentOrderFilter = null; // null = all
@@ -1497,11 +1497,11 @@
     document.getElementById('ostat-done').textContent    = doneTdy;
     document.getElementById('orders-count-label').textContent = `${allOrders.length} order${allOrders.length!==1?'s':''}`;
 
-    // Show/hide batch charge button (only for inshop view)
+    // Show/hide batch charge button (only on Assembled tab)
     const batchBtn = document.getElementById('btn-batch-charge');
-    if (batchBtn) batchBtn.style.display = (statusFilter === 'inshop') ? '' : 'none';
+    if (batchBtn) batchBtn.style.display = (statusFilter === 'assembled') ? '' : 'none';
 
-    renderOrders(allOrders, statusFilter === 'inshop');
+    renderOrders(allOrders, statusFilter === 'assembled');
   }
 
   function renderOrders(data, showCheckboxes) {
@@ -1593,7 +1593,7 @@
     } else {
       showToast(`${succeeded} charged, ${failed} failed — check console`, 'error');
     }
-    setTimeout(() => loadOrders('inshop'), 400);
+    setTimeout(() => loadOrders('assembled'), 400);
   }
 
   function filterOrders(status, btn) {
