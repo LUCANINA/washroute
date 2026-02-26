@@ -141,6 +141,31 @@
     .filter-tab { padding: 5px 12px; border-radius: 6px; font-size: 12.5px; font-weight: 500; color: var(--gray-600); cursor: pointer; border: none; background: transparent; transition: all .12s; }
     .filter-tab.active { background: white; color: var(--gray-900); font-weight: 600; box-shadow: var(--shadow-sm); }
 
+    /* ── SORTABLE TABLE HEADERS ── */
+    .th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+    .th-sort:hover { color: var(--accent); }
+    .th-sort::after { content: '⇅'; display: inline-block; margin-left: 4px; opacity: .3; font-size: 10px; }
+    .th-sort.sort-asc::after  { content: '↑'; opacity: 1; color: var(--accent); }
+    .th-sort.sort-desc::after { content: '↓'; opacity: 1; color: var(--accent); }
+
+    /* ── SELECTED ORDER ROWS ── */
+    tr:has(.order-select-cb:checked) { background: rgba(99,91,255,.055) !important; }
+    tr:has(.order-select-cb:checked):hover { background: rgba(99,91,255,.09) !important; }
+    tr:has(.order-select-cb:checked) td:first-child { border-left: 3px solid var(--accent); padding-left: 13px; }
+
+    /* ── BATCH ACTION BAR ── */
+    /* offset by half the sidebar width so the bar is centered over the main content area */
+    .batch-bar { position: fixed; bottom: 28px; left: calc(50% + var(--sidebar-w) / 2); transform: translateX(-50%) translateY(100px); background: var(--gray-900); color: white; border-radius: 16px; padding: 10px 14px; display: flex; align-items: center; gap: 8px; box-shadow: 0 12px 40px rgba(0,0,0,.4); z-index: 850; transition: transform .25s cubic-bezier(.34,1.56,.64,1), opacity .2s; pointer-events: none; opacity: 0; }
+    .batch-bar.visible { transform: translateX(-50%) translateY(0); pointer-events: all; opacity: 1; }
+    .batch-bar-count { font-size: 12px; font-weight: 700; background: var(--accent); color: white; padding: 3px 10px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
+    .batch-bar-btn { background: rgba(255,255,255,.12); border: none; border-radius: 8px; color: white; font-size: 12px; font-weight: 600; padding: 6px 12px; cursor: pointer; white-space: nowrap; transition: background .1s; display: inline-flex; align-items: center; gap: 5px; }
+    .batch-bar-btn:hover { background: rgba(255,255,255,.22); }
+    .batch-bar-btn.danger { background: rgba(220,38,38,.25); }
+    .batch-bar-btn.danger:hover { background: rgba(220,38,38,.5); }
+    .batch-bar-sep { width: 1px; height: 22px; background: rgba(255,255,255,.15); flex-shrink: 0; }
+    .batch-bar-dismiss { background: none; border: none; color: rgba(255,255,255,.45); cursor: pointer; font-size: 18px; padding: 0 2px; line-height: 1; margin-left: 4px; }
+    .batch-bar-dismiss:hover { color: white; }
+
     /* ── CUSTOMER CELL ── */
     .customer-cell { display: flex; align-items: center; gap: 10px; }
     .c-avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; flex-shrink: 0; }
@@ -586,20 +611,15 @@
                   <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
                   <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
                 </div>
-                <!-- Batch charge (visible only on Assembled tab) -->
-                <button class="btn" id="btn-batch-charge" onclick="batchCharge()"
-                  style="display:none;background:#f59e0b;color:white;padding:6px 12px;font-size:12.5px;box-shadow:none;border:none">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-                  Charge Selected
-                </button>
                 <button class="btn btn-primary" style="padding:6px 12px" onclick="openModal('add-order')">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   New Order
                 </button>
               </div>
             </div>
-            <div id="orders-table-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            <div id="orders-table-body" style="overflow-x:auto;"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
+
         </div>
 
         <!-- ── ROUTES ── -->
@@ -919,6 +939,51 @@
           </div>
 
         </div><!-- /page-reports -->
+
+<!-- ── FLOATING BATCH BAR (global — not inside any page div) ── -->
+<div class="batch-bar" id="orders-batch-bar">
+  <span class="batch-bar-count" id="batch-bar-count">0 selected</span>
+  <div class="batch-bar-sep"></div>
+  <button class="batch-bar-btn" onclick="batchReassignRun()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+    Reassign Run
+  </button>
+  <button class="batch-bar-btn" onclick="batchAdvanceStatus()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><polyline points="9 18 15 12 9 6"/></svg>
+    Advance Status
+  </button>
+  <button class="batch-bar-btn" onclick="batchSendSMS()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+    Send SMS
+  </button>
+  <div class="batch-bar-sep"></div>
+  <button class="batch-bar-btn danger" onclick="batchCancelOrders()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+    Cancel
+  </button>
+  <button class="batch-bar-dismiss" onclick="clearOrderSelection()" title="Dismiss">×</button>
+</div>
+
+<!-- Reassign Run modal -->
+<div id="reassign-run-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">Reassign Route Run</div></div>
+    <div class="modal-body">
+      <div style="margin-bottom:12px;font-size:13px;color:var(--gray-600);">Which leg would you like to reassign?</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button class="filter-tab active" id="reassign-leg-pickup" onclick="setReassignLeg('pickup',this)">Pickup Run</button>
+        <button class="filter-tab" id="reassign-leg-delivery" onclick="setReassignLeg('delivery',this)">Delivery Run</button>
+      </div>
+      <label class="form-label">Select Route Run</label>
+      <select class="form-input" id="reassign-run-select"><option value="">Loading runs…</option></select>
+      <div id="reassign-error" style="color:var(--red);font-size:12px;margin-top:8px;display:none;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeReassignModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmReassignRun()">Reassign</button>
+    </div>
+  </div>
+</div>
 
 <!-- ─── MODALS ─── -->
 <div class="modal-overlay" id="modal-add-customer">
@@ -1278,6 +1343,9 @@
   let allTemplates = [], allDriversCache = [];
   let allServices = [];
   let currentConversation = null;
+  let currentOrderFilter = null; // null = all
+  let orderSortCol = 'pickup_window_start'; // default sort
+  let orderSortDir = 'asc';
 
   const avatarColors = ['#635bff','#10b981','#f59e0b','#3b82f6','#ec4899','#ef4444','#6366f1','#8b5cf6'];
   const initials = (f,l) => ((f||'?')[0]+(l||'')[0]).toUpperCase();
@@ -1380,6 +1448,9 @@
   const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', routes:'New Template', maps:'', inbox:'Compose', services:'', reports:'' };
 
   function showPage(id, navEl) {
+    // If leaving orders page, clear any active batch selection
+    if (currentPage === 'orders' && id !== 'orders') clearOrderSelection();
+
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById('page-'+id).classList.add('active');
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -1629,13 +1700,28 @@
     upcoming:  ['scheduled','ready_for_pickup'],
     issues:    ['pickup_missed','delivery_missed','on_hold','cancelled'],
   };
-  let currentOrderFilter = null; // null = all
 
   async function loadOrders(statusFilter) {
     currentOrderFilter = statusFilter || null;
+    // Default sort when changing tabs: upcoming by pickup ASC, delivered by pickup DESC, else pickup ASC
+    if (statusFilter !== undefined) {
+      orderSortCol = 'pickup_window_start';
+      orderSortDir = statusFilter === 'delivered' ? 'desc' : 'asc';
+    }
+    const el = document.getElementById('orders-table-body');
+    if (el) el.innerHTML = `<div class="loading"><div class="spinner"></div> Loading…</div>`;
+
     let q = db.from('orders')
-      .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, service_id, pickup_window_start, delivery_window_start, created_at, services(name), customers(id, first_name_cache, last_name_cache)')
-      .order('created_at', { ascending: false });
+      .select(`id, order_number, status, total_amount, stripe_payment_intent_id,
+               weight_lbs, bag_count, service_id,
+               pickup_window_start, delivery_window_start,
+               pickup_run_id, delivery_run_id,
+               pickup_stop_number, delivery_stop_number,
+               created_at,
+               services(name),
+               customers(id, first_name_cache, last_name_cache),
+               pickup_run:pickup_run_id(id, name),
+               delivery_run:delivery_run_id(id, name)`);
     // Group filters: translate to .in() query
     if (statusFilter && ORDER_FILTER_GROUPS[statusFilter]) {
       q = q.in('status', ORDER_FILTER_GROUPS[statusFilter]);
@@ -1645,7 +1731,6 @@
     const { data, error } = await q;
     if (error) {
       console.error('loadOrders error:', error);
-      const el = document.getElementById('orders-table-body');
       if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load orders</div><div class="empty-sub">${error.message}</div></div>`;
       return;
     }
@@ -1663,109 +1748,282 @@
     document.getElementById('ostat-done').textContent    = doneTdy;
     document.getElementById('orders-count-label').textContent = `${allOrders.length} order${allOrders.length!==1?'s':''}`;
 
-    // Show/hide batch charge button (only on Assembled tab)
-    const batchBtn = document.getElementById('btn-batch-charge');
-    if (batchBtn) batchBtn.style.display = (statusFilter === 'assembled') ? '' : 'none';
-
-    renderOrders(allOrders, statusFilter === 'assembled');
+    renderOrders(allOrders);
   }
 
-  function renderOrders(data, showCheckboxes) {
+  // ── ORDER SORT ──
+  function sortOrders(data) {
+    const col = orderSortCol;
+    const dir = orderSortDir === 'asc' ? 1 : -1;
+    return [...data].sort((a, b) => {
+      let av, bv;
+      switch (col) {
+        case 'customer':
+          av = orderCustomerName(a).toLowerCase();
+          bv = orderCustomerName(b).toLowerCase();
+          break;
+        case 'pickup_window_start':
+          av = a.pickup_window_start || '';
+          bv = b.pickup_window_start || '';
+          break;
+        case 'pickup_route':
+          av = (a.pickup_run?.name || '').toLowerCase();
+          bv = (b.pickup_run?.name || '').toLowerCase();
+          break;
+        case 'delivery_window_start':
+          av = a.delivery_window_start || '';
+          bv = b.delivery_window_start || '';
+          break;
+        case 'delivery_route':
+          av = (a.delivery_run?.name || '').toLowerCase();
+          bv = (b.delivery_run?.name || '').toLowerCase();
+          break;
+        case 'status':
+          av = a.status || '';
+          bv = b.status || '';
+          break;
+        case 'stop':
+          av = Number(a.pickup_stop_number ?? a.delivery_stop_number ?? 9999);
+          bv = Number(b.pickup_stop_number ?? b.delivery_stop_number ?? 9999);
+          break;
+        case 'order_number':
+          av = Number(a.order_number || 0);
+          bv = Number(b.order_number || 0);
+          break;
+        case 'weight_lbs':
+          av = Number(a.bag_count ?? a.weight_lbs ?? 0);
+          bv = Number(b.bag_count ?? b.weight_lbs ?? 0);
+          break;
+        case 'total_amount':
+          av = Number(a.total_amount || 0);
+          bv = Number(b.total_amount || 0);
+          break;
+        default: av = ''; bv = '';
+      }
+      if (av < bv) return -dir;
+      if (av > bv) return dir;
+      return 0;
+    });
+  }
+
+  function setOrderSort(col) {
+    if (orderSortCol === col) {
+      orderSortDir = orderSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      orderSortCol = col;
+      orderSortDir = 'asc';
+    }
+    renderOrders(allOrders);
+  }
+
+  function renderOrders(data) {
     const el = document.getElementById('orders-table-body');
     if (!data.length) {
       el.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">No orders found</div><div class="empty-sub">Create your first order to get started.</div></div>`;
       return;
     }
-    const cbHeader = showCheckboxes
-      ? `<th style="width:36px"><input type="checkbox" id="select-all-orders" onchange="toggleSelectAllOrders(this)" title="Select all assembled"></th>`
-      : '';
-    el.innerHTML = `<table><thead><tr>${cbHeader}<th>Order #</th><th>Customer</th><th>Service</th><th>Pickup</th><th>Total</th><th>Status</th><th>Payment</th></tr></thead><tbody>
-      ${data.map(o=>{
-        const svcName = o.services?.name || '—';
-        const chargeable = Number(o.total_amount) > 0 && !o.stripe_payment_intent_id && o.status === 'assembled';
-        const payCell = o.stripe_payment_intent_id
-          ? '<span style="color:#059669;font-size:12px;font-weight:600">✓ Charged</span>'
-          : chargeable
-            ? `<button class="btn btn-primary" style="padding:4px 10px;font-size:12px" onclick="chargeOrder('${o.id}','${o.order_number}',this)">💳 Charge</button>`
-            : '<span style="color:var(--gray-400);font-size:12px">—</span>';
+    const sorted = sortOrders(data);
+    const thSort = (col, label) => {
+      const cls = orderSortCol === col
+        ? `th-sort ${orderSortDir === 'asc' ? 'sort-asc' : 'sort-desc'}`
+        : 'th-sort';
+      return `<th class="${cls}" onclick="setOrderSort('${col}')">${label}</th>`;
+    };
+    el.innerHTML = `<table style="min-width:1000px"><thead><tr>
+        <th style="width:36px"><input type="checkbox" id="select-all-orders" onchange="toggleSelectAllOrders(this)" title="Select all"></th>
+        ${thSort('customer','Customer')}
+        ${thSort('pickup_window_start','Pickup')}
+        ${thSort('pickup_route','Pickup Route')}
+        ${thSort('delivery_window_start','Delivery')}
+        ${thSort('delivery_route','Delivery Route')}
+        ${thSort('status','Status')}
+        ${thSort('stop','Stop #')}
+        ${thSort('order_number','Code')}
+        ${thSort('weight_lbs','Bags')}
+        ${thSort('total_amount','Total')}
+      </tr></thead><tbody>
+      ${sorted.map(o => {
         const nextStatus = STATUS_FLOW[o.status];
         const willCharge = nextStatus === 'ready_for_delivery';
         const advBtn = nextStatus
           ? `<button class="btn-advance${willCharge?' will-charge':''}" style="margin-left:6px" onclick="updateOrderStatus('${o.id}','${o.order_number}','${nextStatus}',this)" title="Advance to ${STATUS_NEXT_LABEL[nextStatus]}">→ ${STATUS_NEXT_LABEL[nextStatus]}</button>`
           : '';
-        // Only show checkbox for assembled orders (the charge step)
-        const isAssembled = o.status === 'assembled';
-        const cbCell = showCheckboxes
-          ? `<td style="width:36px">${isAssembled && chargeable ? `<input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" onchange="updateBatchCount()">` : ''}</td>`
-          : '';
+        const pickupRoute  = o.pickup_run?.name  || '—';
+        const deliveryRoute = o.delivery_run?.name || '—';
+        const stopNum = o.pickup_stop_number != null ? o.pickup_stop_number
+                      : o.delivery_stop_number != null ? o.delivery_stop_number : '—';
+        const bags = o.bag_count != null   ? o.bag_count
+                   : o.weight_lbs != null  ? Number(o.weight_lbs).toFixed(1)+' lb'
+                   : '—';
         return `<tr>
-          ${cbCell}
-          <td class="td-mono">#${o.order_number}</td>
+          <td style="width:36px"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" onchange="updateOrderBatchBar()"></td>
           <td class="td-name">${orderCustomerName(o)}</td>
-          <td style="color:var(--gray-600);font-size:12.5px">${svcName}</td>
-          <td style="color:var(--gray-500);font-size:12.5px">${fmtDate(o.pickup_window_start)}</td>
-          <td style="font-weight:600">${fmtMoney(o.total_amount)}</td>
+          <td style="color:var(--gray-600);font-size:12.5px;white-space:nowrap">${fmtDate(o.pickup_window_start)}</td>
+          <td style="color:var(--gray-600);font-size:12.5px">${pickupRoute}</td>
+          <td style="color:var(--gray-600);font-size:12.5px;white-space:nowrap">${fmtDate(o.delivery_window_start)}</td>
+          <td style="color:var(--gray-600);font-size:12.5px">${deliveryRoute}</td>
           <td style="white-space:nowrap">${statusBadge(o.status)}${advBtn}</td>
-          <td>${payCell}</td>
+          <td style="text-align:center;color:var(--gray-500);font-size:12.5px">${stopNum}</td>
+          <td class="td-mono">#${o.order_number}</td>
+          <td style="color:var(--gray-600);font-size:12.5px;text-align:right;padding-right:20px">${bags}</td>
+          <td style="font-weight:600;text-align:right;padding-right:20px">${fmtMoney(o.total_amount)}</td>
         </tr>`;
       }).join('')}
     </tbody></table>`;
   }
 
+  // ── BATCH BAR HELPERS ──
   function toggleSelectAllOrders(cb) {
     document.querySelectorAll('.order-select-cb').forEach(c => c.checked = cb.checked);
-    updateBatchCount();
+    updateOrderBatchBar();
   }
 
-  function updateBatchCount() {
-    const selected = document.querySelectorAll('.order-select-cb:checked').length;
-    const btn = document.getElementById('btn-batch-charge');
-    if (btn) btn.textContent = selected > 0 ? `Charge ${selected} Order${selected>1?'s':''}` : 'Charge Selected';
-  }
-
-  async function batchCharge() {
-    const checked = [...document.querySelectorAll('.order-select-cb:checked')];
-    if (!checked.length) { showToast('Select at least one assembled order to charge.',''); return; }
+  function updateOrderBatchBar() {
+    const checked = document.querySelectorAll('.order-select-cb:checked');
     const count = checked.length;
-    if (!confirm(`Charge and advance ${count} order${count>1?'s':''} from Assembled → Ready for Delivery?`)) return;
-
-    const btn = document.getElementById('btn-batch-charge');
-    btn.disabled = true;
-    btn.textContent = 'Charging…';
-
-    const { data: { session } } = await db.auth.getSession();
-    let succeeded = 0, failed = 0;
-    for (const cb of checked) {
-      const orderId  = cb.dataset.id;
-      const orderNum = cb.dataset.num;
-      try {
-        const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-          method: 'POST',
-          headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${session.access_token}` },
-          body: JSON.stringify({ orderId }),
-        });
-        const result = await res.json();
-        if (result.error) throw new Error(result.error);
-        await db.from('orders').update({ status: 'ready_for_delivery' }).eq('id', orderId);
-        succeeded++;
-      } catch(e) {
-        console.error(`Batch charge failed for order ${orderNum}:`, e);
-        failed++;
-      }
+    const bar = document.getElementById('orders-batch-bar');
+    const countEl = document.getElementById('batch-bar-count');
+    if (bar) bar.classList.toggle('visible', count > 0);
+    if (countEl) countEl.textContent = `${count} selected`;
+    // sync select-all checkbox state
+    const all = document.querySelectorAll('.order-select-cb');
+    const selAll = document.getElementById('select-all-orders');
+    if (selAll) {
+      selAll.indeterminate = count > 0 && count < all.length;
+      selAll.checked = count > 0 && count === all.length;
     }
-    btn.disabled = false;
-    if (failed === 0) {
-      showToast(`✓ ${succeeded} order${succeeded>1?'s':''} charged & advanced to Ready for Delivery`);
-    } else {
-      showToast(`${succeeded} charged, ${failed} failed — check console`, 'error');
-    }
-    setTimeout(() => loadOrders('assembled'), 400);
+  }
+
+  function clearOrderSelection() {
+    document.querySelectorAll('.order-select-cb').forEach(c => c.checked = false);
+    const selAll = document.getElementById('select-all-orders');
+    if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+    updateOrderBatchBar();
+  }
+
+  function getSelectedOrderData() {
+    return [...document.querySelectorAll('.order-select-cb:checked')].map(cb => ({
+      id: cb.dataset.id,
+      num: cb.dataset.num,
+      status: cb.dataset.status,
+    }));
   }
 
   function filterOrders(status, btn) {
     document.querySelectorAll('#page-orders .filter-tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
+    clearOrderSelection();
     loadOrders(status);
+  }
+
+  // ── BATCH ACTION: REASSIGN RUN ──
+  let reassignLeg = 'pickup'; // 'pickup' | 'delivery'
+  async function batchReassignRun() {
+    const sel = getSelectedOrderData();
+    if (!sel.length) return;
+    reassignLeg = 'pickup';
+    document.getElementById('reassign-leg-pickup').classList.add('active');
+    document.getElementById('reassign-leg-delivery').classList.remove('active');
+    document.getElementById('reassign-error').style.display = 'none';
+    // Load available runs
+    await loadReassignRuns();
+    document.getElementById('reassign-run-modal').style.display = 'flex';
+  }
+
+  function setReassignLeg(leg, btn) {
+    reassignLeg = leg;
+    document.querySelectorAll('#reassign-run-modal .filter-tab').forEach(t=>t.classList.remove('active'));
+    btn.classList.add('active');
+    loadReassignRuns();
+  }
+
+  async function loadReassignRuns() {
+    const sel = document.getElementById('reassign-run-select');
+    sel.innerHTML = '<option value="">Loading…</option>';
+    const { data, error } = await db.from('routes')
+      .select('id, name, run_date, total_stops')
+      .order('run_date', { ascending: false }).limit(60);
+    if (error || !data) { sel.innerHTML = '<option value="">Failed to load runs</option>'; return; }
+    sel.innerHTML = `<option value="">— Select a run —</option>` +
+      data.map(r => `<option value="${r.id}">${r.name} (${fmtDate(r.run_date)}, ${r.total_stops||0} stops)</option>`).join('');
+  }
+
+  function closeReassignModal() {
+    document.getElementById('reassign-run-modal').style.display = 'none';
+  }
+
+  async function confirmReassignRun() {
+    const runId = document.getElementById('reassign-run-select').value;
+    const errEl = document.getElementById('reassign-error');
+    if (!runId) { errEl.textContent = 'Please select a run.'; errEl.style.display=''; return; }
+    const sel = getSelectedOrderData();
+    const col = reassignLeg === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
+    const ids = sel.map(s => s.id);
+    const { error } = await db.from('orders').update({ [col]: runId }).in('id', ids);
+    if (error) { errEl.textContent = error.message; errEl.style.display=''; return; }
+    closeReassignModal();
+    showToast(`✓ ${ids.length} order${ids.length>1?'s':''} reassigned`);
+    clearOrderSelection();
+    loadOrders(currentOrderFilter);
+  }
+
+  // ── BATCH ACTION: ADVANCE STATUS ──
+  async function batchAdvanceStatus() {
+    const sel = getSelectedOrderData();
+    if (!sel.length) return;
+    const advanceable = sel.filter(s => STATUS_FLOW[s.status]);
+    if (!advanceable.length) {
+      showToast('None of the selected orders can be advanced further.', '');
+      return;
+    }
+    if (!confirm(`Advance ${advanceable.length} order${advanceable.length>1?'s':''} to their next status?`)) return;
+
+    let succeeded = 0, chargeNeeded = 0;
+    for (const s of advanceable) {
+      const nextStatus = STATUS_FLOW[s.status];
+      if (nextStatus === 'ready_for_delivery') {
+        // Charge step — do it individually to not block others
+        try {
+          const { data: { session } } = await db.auth.getSession();
+          const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+            method:'POST',
+            headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},
+            body: JSON.stringify({ orderId: s.id }),
+          });
+          const result = await res.json();
+          if (result.error) throw new Error(result.error);
+          chargeNeeded++;
+        } catch(e) { console.warn('Charge failed for', s.num, e); }
+      }
+      const { error } = await db.from('orders').update({ status: nextStatus }).eq('id', s.id);
+      if (!error) succeeded++;
+    }
+    const msg = chargeNeeded > 0
+      ? `✓ ${succeeded} advanced (${chargeNeeded} charged)`
+      : `✓ ${succeeded} order${succeeded>1?'s':''} advanced`;
+    showToast(msg);
+    clearOrderSelection();
+    setTimeout(() => loadOrders(currentOrderFilter), 400);
+  }
+
+  // ── BATCH ACTION: SEND SMS ──
+  function batchSendSMS() {
+    const sel = getSelectedOrderData();
+    if (!sel.length) return;
+    showToast(`SMS feature coming soon — would message ${sel.length} customer${sel.length>1?'s':''}`, '');
+  }
+
+  // ── BATCH ACTION: CANCEL ORDERS ──
+  async function batchCancelOrders() {
+    const sel = getSelectedOrderData();
+    if (!sel.length) return;
+    if (!confirm(`Cancel ${sel.length} order${sel.length>1?'s':''}? This will mark them as cancelled.`)) return;
+    const ids = sel.map(s => s.id);
+    const { error } = await db.from('orders').update({ status: 'cancelled' }).in('id', ids);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    showToast(`✓ ${ids.length} order${ids.length>1?'s':''} cancelled`);
+    clearOrderSelection();
+    setTimeout(() => loadOrders(currentOrderFilter), 400);
   }
 
   async function chargeOrder(orderId, orderNum, btn) {
@@ -2526,9 +2784,14 @@
   }
 
   async function loadAllDriversCache() {
-    const { data } = await db.from('drivers')
+    const { data, error } = await db.from('drivers')
       .select('id, profiles(first_name, last_name)')
       .eq('is_active', true);
+    if (error) {
+      console.warn('drivers table unavailable:', error.message);
+      allDriversCache = [];
+      return;
+    }
     allDriversCache = (data||[]).map(d => ({
       id: d.id,
       name: `${d.profiles?.first_name||''} ${d.profiles?.last_name||''}`.trim() || 'Driver'
@@ -2664,40 +2927,60 @@
     (overrides||[]).forEach(o => { overMap[`${o.template_id}-${o.day_of_week}-${o.driver_type}`] = o.driver_id; });
     const driverMap = Object.fromEntries(allDriversCache.map(d => [d.id, d.name]));
 
+    const editSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="9" height="9" style="flex-shrink:0"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+
+    const makeSchedCell = (t, day, type) => {
+      const runs = (t.schedule_days||[]).includes(day);
+      if (!runs) return `<td style="text-align:center"><span style="color:var(--gray-200);font-size:13px;">—</span></td>`;
+      const ovDrvId = overMap[`${t.id}-${day}-${type}`];
+      const defaultId = type === 'pickup' ? t.default_pickup_driver_id : (t.default_delivery_driver_id || t.default_pickup_driver_id);
+      const drvId = ovDrvId || defaultId;
+      const drvName = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
+      const short = drvName.split(' ')[0];
+      const isOv = !!ovDrvId;
+      const baseColor = t.color || '#635bff';
+      // delivery row is slightly transparent
+      const bg = drvId ? (type === 'delivery' ? baseColor + 'cc' : baseColor) : '#e5e7eb';
+      const fg = drvId ? 'white' : '#9ca3af';
+      return `<td><div class="sched-cell${isOv?' sched-override':''}" style="background:${bg};color:${fg};"
+        onclick="openDriverPopover('${t.id}',${day},'${type}','${drvId||''}',event)"
+        title="${type==='pickup'?'Pickup':'Delivery'}: ${drvName}${isOv?' (day override)':''}">
+        ${short}
+        ${isOv ? editSvg : ''}
+      </div></td>`;
+    };
+
     el.innerHTML = `<table class="sched-grid">
       <thead><tr>
         <th>Route</th>
         ${DAY_LABELS.map(d=>`<th>${d}</th>`).join('')}
       </tr></thead>
       <tbody>
-      ${allTemplates.map(t => `<tr>
-        <td>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <div style="width:10px;height:10px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;"></div>
-            <div>
-              <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);">${t.name}</div>
-              <div style="font-size:11px;color:var(--gray-400);">pickup driver</div>
+      ${allTemplates.map(t => {
+        const showDelivery = t.service_type !== 'pickup_only';
+        return `
+        <tr style="border-bottom:0">
+          <td style="padding-bottom:2px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="width:10px;height:10px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;"></div>
+              <div>
+                <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);">${t.name}</div>
+                <div style="font-size:11px;color:var(--gray-400);">pickup</div>
+              </div>
             </div>
-          </div>
-        </td>
-        ${[0,1,2,3,4,5,6].map(day => {
-          const runs = (t.schedule_days||[]).includes(day);
-          if (!runs) return `<td><span style="color:var(--gray-200);font-size:13px;">—</span></td>`;
-          const ovDrvId = overMap[`${t.id}-${day}-pickup`];
-          const drvId = ovDrvId || t.default_pickup_driver_id;
-          const drvName = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
-          const short = drvName.split(' ')[0];
-          const isOv = !!ovDrvId;
-          const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
-          const fg = drvId ? 'white' : '#9ca3af';
-          return `<td><div class="sched-cell${isOv?' sched-override':''}" style="background:${bg};color:${fg};"
-            onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
-            title="${drvName}${isOv?' (day override)':''}">
-            ${short}
-            ${isOv ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="9" height="9" style="flex-shrink:0"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' : ''}
-          </div></td>`;
-        }).join('')}
-      </tr>`).join('')}
+          </td>
+          ${[0,1,2,3,4,5,6].map(day => makeSchedCell(t, day, 'pickup')).join('')}
+        </tr>
+        ${showDelivery ? `<tr style="border-bottom:1px solid var(--gray-100)">
+          <td style="padding-top:2px;padding-bottom:10px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="width:10px;height:10px;border-radius:50%;background:${t.color||'#635bff'};opacity:.4;flex-shrink:0;"></div>
+              <div style="font-size:11px;color:var(--gray-400);margin-left:18px;">delivery</div>
+            </div>
+          </td>
+          ${[0,1,2,3,4,5,6].map(day => makeSchedCell(t, day, 'delivery')).join('')}
+        </tr>` : `<tr style="border-bottom:1px solid var(--gray-100)"><td colspan="8"></td></tr>`}`;
+      }).join('')}
       </tbody>
     </table>`;
   }
