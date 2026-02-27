@@ -390,6 +390,36 @@
     .addr-sug-main { font-weight: 500; color: var(--text); }
     .addr-sug-sub { font-size: 12px; color: var(--gray-600); margin-top: 2px; }
 
+    /* ── SCHEDULE STEP (senior-friendly day + window pickers) ── */
+    .sched-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--gray-600); margin: 0 0 10px; }
+    .day-btn-list, .window-btn-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 28px; }
+    .day-btn, .window-btn {
+      width: 100%; padding: 17px 20px;
+      border: 2.5px solid var(--gray-200); border-radius: 14px;
+      background: white; cursor: pointer; font-family: inherit;
+      color: var(--text); text-align: left;
+      display: flex; align-items: center; justify-content: space-between;
+      transition: border-color .15s, background .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .day-btn:active, .window-btn:active { background: var(--gray-50); }
+    .day-btn.selected, .window-btn.selected { border-color: var(--navy); background: #eef3ff; }
+    .day-btn-left { display: flex; flex-direction: column; gap: 3px; }
+    .day-btn-name { font-size: 18px; font-weight: 700; line-height: 1.2; }
+    .day-btn.selected .day-btn-name { color: var(--navy); }
+    .day-btn-date { font-size: 14px; color: var(--gray-600); font-weight: 400; }
+    .day-btn.selected .day-btn-date { color: var(--accent); }
+    .day-btn-check { font-size: 20px; opacity: 0; }
+    .day-btn.selected .day-btn-check { opacity: 1; }
+    .window-btn-icon { font-size: 26px; margin-right: 14px; flex-shrink: 0; }
+    .window-btn-middle { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .window-btn-label { font-size: 18px; font-weight: 700; line-height: 1.2; }
+    .window-btn.selected .window-btn-label { color: var(--navy); }
+    .window-btn-time { font-size: 14px; color: var(--gray-600); font-weight: 400; }
+    .window-btn.selected .window-btn-time { color: var(--accent); }
+    .window-btn-check { font-size: 20px; opacity: 0; flex-shrink: 0; }
+    .window-btn.selected .window-btn-check { opacity: 1; }
+
     /* ── FREQUENCY PILLS ── */
     .freq-pills { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
     .freq-pill { width: 100%; padding: 15px 18px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; font-family: inherit; font-size: 15px; font-weight: 500; color: var(--text); text-align: left; display: flex; align-items: center; gap: 10px; transition: all .15s; }
@@ -529,24 +559,24 @@
         <button class="btn-primary" id="btn-addr-next" style="display:none" onclick="goOrderStep(1)">Continue →</button>
       </div>
 
-      <!-- Step 1 — Schedule -->
+      <!-- Step 1 — Schedule (day + time window + frequency) -->
       <div class="step-content" id="o-step-1" style="display:none">
-        <div class="step-sub">Pick a day. We'll set up the rest.</div>
+        <div class="step-sub">When should we come by?</div>
 
-        <!-- Pickup day calendar -->
-        <div class="cal-wrap">
-          <div class="cal-label">First Pickup Day</div>
-          <div class="cal-header">
-            <button class="cal-nav" type="button" onclick="shiftMonth(-1)">‹</button>
-            <span class="cal-title" id="cal-month-title"></span>
-            <button class="cal-nav" type="button" onclick="shiftMonth(1)">›</button>
-          </div>
-          <div class="cal-grid" id="cal-grid"></div>
-          <div class="cal-selected-label" id="cal-selected-label"></div>
+        <!-- Pickup Day (quick buttons — no calendar needed) -->
+        <div class="sched-label">📅 Pickup Day</div>
+        <div class="day-btn-list" id="day-btn-list">
+          <!-- Rendered by renderDayButtons() -->
         </div>
 
-        <!-- Frequency pills (recurring = default) -->
-        <div class="slot-label" style="margin-bottom:10px">How often?</div>
+        <!-- Time Window -->
+        <div class="sched-label">🕐 What time works best?</div>
+        <div class="window-btn-list" id="window-btn-list">
+          <!-- Rendered by renderWindowButtons() -->
+        </div>
+
+        <!-- Frequency -->
+        <div class="sched-label">🔁 How often?</div>
         <div class="freq-pills" id="freq-pills">
           <button class="freq-pill selected" data-val="weekly" onclick="selectFreq('weekly',this)">
             🔁 Every week <span class="freq-pill-rec">Most popular</span>
@@ -837,7 +867,7 @@ let defaultService  = null; // the single W&F service
 
 let draft = {
   address: '', lat: null, lng: null, zoneId: null,
-  bags: 1, pickupDate: null, recurring: 'weekly',
+  bags: 1, pickupDate: null, pickupWindow: null, recurring: 'weekly',
   prefs: {} // { groupId: { optId, label, priceMod } }
 };
 let orderStep = 0;
@@ -1116,10 +1146,10 @@ function buildActiveCard(o) {
 }
 
 /* ── NEW ORDER ── */
-const STEP_TITLES = ['Your Address','Pick a Day','Preferences','Bag Count','Confirm Order'];
+const STEP_TITLES = ['Your Address','Pickup Day & Time','Preferences','Bag Count','Confirm Order'];
 
 function startNewOrder() {
-  draft = { address: '', lat: null, lng: null, zoneId: null, bags: 1, pickupDate: null, recurring: 'weekly', prefs: {} };
+  draft = { address: '', lat: null, lng: null, zoneId: null, bags: 1, pickupDate: null, pickupWindow: null, recurring: 'weekly', prefs: {} };
   orderStep = 0;
   calMonth  = new Date();
   // Reset address UI
@@ -1325,8 +1355,9 @@ function updateEstimate() {
 
 /* ── STEP NAVIGATION ── */
 function goOrderStep(step) {
-  if (step === 1 && !draft.zoneId)    { toast('Please check your address first'); return; }
-  if (step === 2 && !draft.pickupDate){ toast('Please choose a pickup day');      return; }
+  if (step === 1 && !draft.zoneId)         { toast('Please check your address first');  return; }
+  if (step === 2 && !draft.pickupDate)     { toast('Please choose a pickup day');       return; }
+  if (step === 2 && !draft.pickupWindow)   { toast('Please choose a pickup time');      return; }
   if (step === 3) renderOrderPrefs();
   if (step === 4) { buildConfirmSummary(); renderConfirmAuth(); }
   orderStep = step;
@@ -1341,10 +1372,7 @@ function renderStep(step) {
     if (dot) dot.classList.toggle('active', i <= step);
   });
   document.getElementById('order-title').textContent = STEP_TITLES[step];
-  if (step === 1) {
-    document.getElementById('bags-display').textContent = draft.bags;
-    buildCalendar();
-  }
+  if (step === 1) { renderDayButtons(); renderWindowButtons(); }
   if (step === 3) {
     document.getElementById('bags-display').textContent = draft.bags;
     updateEstimate();
@@ -1393,6 +1421,71 @@ function selectDay(iso) {
   buildCalendar();
 }
 
+/* ── SCHEDULE STEP: DAY + WINDOW BUTTONS ── */
+const TIME_WINDOWS = [
+  { id: 'morning',   icon: '☀️',  label: 'Morning',   time: '8am – 10am'  },
+  { id: 'midday',    icon: '🌤',  label: 'Midday',    time: '10am – 12pm' },
+  { id: 'afternoon', icon: '🌇',  label: 'Afternoon', time: '12pm – 2pm'  },
+  { id: 'evening',   icon: '🌙',  label: 'Evening',   time: '4pm – 6pm'   },
+];
+
+function renderDayButtons() {
+  const container = document.getElementById('day-btn-list');
+  if (!container) return;
+  const now    = new Date();
+  const cutoff = 14; // show "Today" only before 2pm
+  const days   = [];
+  if (now.getHours() < cutoff) {
+    days.push({ label: 'Today', date: new Date(now) });
+  }
+  for (let i = 1; i <= 5; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + i);
+    days.push({ label: i === 1 ? 'Tomorrow' : null, date: d });
+  }
+  container.innerHTML = days.map(({ label, date }) => {
+    const iso     = date.toISOString().split('T')[0];
+    const dayName = label || date.toLocaleDateString('en-US', { weekday: 'long' });
+    const dateFmt = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const sel     = draft.pickupDate === iso;
+    return `<button class="day-btn${sel ? ' selected' : ''}" onclick="selectPickupDay('${iso}',this)">
+      <div class="day-btn-left">
+        <span class="day-btn-name">${dayName}</span>
+        <span class="day-btn-date">${dateFmt}</span>
+      </div>
+      <span class="day-btn-check">✓</span>
+    </button>`;
+  }).join('');
+}
+
+function selectPickupDay(iso, btn) {
+  draft.pickupDate = iso;
+  document.querySelectorAll('.day-btn').forEach(b => b.classList.remove('selected'));
+  btn?.classList.add('selected');
+}
+
+function renderWindowButtons() {
+  const container = document.getElementById('window-btn-list');
+  if (!container) return;
+  container.innerHTML = TIME_WINDOWS.map(w => {
+    const sel = draft.pickupWindow === w.id;
+    return `<button class="window-btn${sel ? ' selected' : ''}" onclick="selectPickupWindow('${w.id}',this)">
+      <span class="window-btn-icon">${w.icon}</span>
+      <div class="window-btn-middle">
+        <span class="window-btn-label">${w.label}</span>
+        <span class="window-btn-time">${w.time}</span>
+      </div>
+      <span class="window-btn-check">✓</span>
+    </button>`;
+  }).join('');
+}
+
+function selectPickupWindow(windowId, btn) {
+  draft.pickupWindow = windowId;
+  document.querySelectorAll('.window-btn').forEach(b => b.classList.remove('selected'));
+  btn?.classList.add('selected');
+}
+
 function buildConfirmSummary() {
   const svc     = defaultService;
   const bags    = draft.bags;
@@ -1404,6 +1497,8 @@ function buildConfirmSummary() {
   const fmt = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
   const freqLabels = { weekly:'Every week 🔁', biweekly:'Every 2 weeks 🔁', monthly:'Every month 🔁' };
   const freqLabel  = freqLabels[draft.recurring] || 'One-time pickup';
+  const winMeta    = TIME_WINDOWS.find(w => w.id === draft.pickupWindow);
+  const winLabel   = winMeta ? `${winMeta.icon} ${winMeta.label} (${winMeta.time})` : '—';
 
   const addonRows = Object.values(draft.prefs).map(p =>
     `<div class="confirm-row"><span class="confirm-key">${p.label}</span><span class="confirm-val">+${$m(p.priceMod)}</span></div>`
@@ -1411,8 +1506,9 @@ function buildConfirmSummary() {
 
   document.getElementById('confirm-summary').innerHTML = `
     <div class="confirm-row"><span class="confirm-key">Address</span><span class="confirm-val" style="font-size:12px">${draft.address||'—'}</span></div>
-    <div class="confirm-row"><span class="confirm-key">Pickup</span><span class="confirm-val">${fmt(pickup)}</span></div>
-    <div class="confirm-row"><span class="confirm-key">Delivery</span><span class="confirm-val">${fmt(delivery)}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Pickup Day</span><span class="confirm-val">${fmt(pickup)}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Pickup Time</span><span class="confirm-val">${winLabel}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Est. Delivery</span><span class="confirm-val">${fmt(delivery)}</span></div>
     <div class="confirm-row"><span class="confirm-key">Frequency</span><span class="confirm-val">${freqLabel}</span></div>
     <div class="confirm-row"><span class="confirm-key">Bags</span><span class="confirm-val">${bags} bag${bags!==1?'s':''}</span></div>
     ${addonRows}
@@ -1486,6 +1582,7 @@ async function placeOrder() {
     total_bags:         bags,
     total_amount:       total,
     pickup_date:        pickupDate,
+    pickup_window:      draft.pickupWindow || null,
     delivery_date:      deliveryDate,
     recurring_interval: draft.recurring || null,
     line_items:         lineItems,
@@ -1901,8 +1998,10 @@ window.selectFreq        = selectFreq;
 window.goOrderStep       = goOrderStep;
 window.switchOrderTab    = switchOrderTab;
 window.handleOrderBack   = handleOrderBack;
-window.shiftMonth        = shiftMonth;
-window.selectDay         = selectDay;
+window.shiftMonth             = shiftMonth;
+window.selectDay              = selectDay;
+window.selectPickupDay        = selectPickupDay;
+window.selectPickupWindow     = selectPickupWindow;
 window.placeOrder        = placeOrder;
 window.afterSuccess      = afterSuccess;
 window.openDetail        = openDetail;
