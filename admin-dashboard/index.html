@@ -1920,14 +1920,6 @@
         </label>
       </div>
     </div>
-    <!-- Upcoming Routes Preview -->
-    <div class="so-section">
-      <div class="so-label">Upcoming Routes Preview</div>
-      <div class="preview-banner">
-        <div class="preview-banner-title">Next 14 days</div>
-        <div class="preview-runs" id="so-upcoming-runs"><span style="color:var(--gray-400);font-size:12px;">Select days above to preview.</span></div>
-      </div>
-    </div>
     <div id="so-error" style="color:var(--red);font-size:13px;display:none;"></div>
   </div>
   <div class="slide-over-footer">
@@ -4792,7 +4784,7 @@
   }
 
   // ── ROUTES PAGE ──
-  let routeLiveMap = null, routeLiveRouteId = null, routeStopMoving = null;
+  let routeLiveMap = null, routeLiveRouteId = null, routeStopMoving = null, routeLiveDefaultDriverId = null;
 
   async function initRoutesPage() {
     await loadAllDriversCache();
@@ -5469,12 +5461,17 @@
     const optBtn = document.getElementById('btn-optimize');
     if (optBtn) optBtn.style.display = '';
 
-    const { data: stops } = await db.from('route_stops')
-      .select(`id, stop_number, stop_type, status, estimated_arrival, driver_id,
-               orders(order_number, customers(first_name_cache, last_name_cache)),
-               addresses(line1, city, lat, lng)`)
-      .eq('route_id', runId)
-      .order('stop_number');
+    // Fetch route's default driver alongside stops
+    const [{ data: route }, { data: stops }] = await Promise.all([
+      db.from('routes').select('driver_id').eq('id', runId).single(),
+      db.from('route_stops')
+        .select(`id, stop_number, stop_type, status, estimated_arrival, driver_id,
+                 orders(order_number, customers(first_name_cache, last_name_cache)),
+                 addresses(line1, city, lat, lng)`)
+        .eq('route_id', runId)
+        .order('stop_number')
+    ]);
+    routeLiveDefaultDriverId = route?.driver_id || null;
 
     renderRouteStops(stops || [], runId);
     renderRouteMapPins(stops || []);
@@ -5629,15 +5626,20 @@
     document.getElementById('reassign-stop-desc').textContent = stopDesc;
     const sel = document.getElementById('reassign-driver-select');
     sel.innerHTML = `<option value="">— Route's default driver —</option>` +
-      allDriversCache.map(d =>
-        `<option value="${d.id}" ${d.id === currentDriverId ? 'selected' : ''}>${d.name}</option>`
-      ).join('');
+      allDriversCache.map(d => {
+        const isDefault = d.id === routeLiveDefaultDriverId;
+        const label = isDefault ? `${d.name} (route default)` : d.name;
+        const selected = d.id === currentDriverId ? 'selected' : '';
+        return `<option value="${d.id}" ${selected}>${label}</option>`;
+      }).join('');
     document.getElementById('reassign-driver-modal').style.display = 'flex';
   }
 
   async function confirmReassignDriver() {
     if (!reassignStopId) return;
-    const driverId = document.getElementById('reassign-driver-select').value || null;
+    const selectedVal = document.getElementById('reassign-driver-select').value;
+    // If admin picks the route's default driver, clear the override (set NULL) so stop reverts to normal
+    const driverId = (!selectedVal || selectedVal === routeLiveDefaultDriverId) ? null : selectedVal;
     document.getElementById('reassign-driver-modal').style.display = 'none';
     try {
       await db.from('route_stops').update({ driver_id: driverId }).eq('id', reassignStopId);
