@@ -1055,11 +1055,6 @@
               <div id="weekly-schedule-grid" style="overflow-x:auto;padding:4px 0;">
                 <div class="loading"><div class="spinner"></div> Loading…</div>
               </div>
-              <!-- Driver workload -->
-              <div style="border-top:1px solid var(--gray-100);">
-                <div style="padding:14px 20px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);">This Week's Workload</div>
-                <div class="workload-grid" id="sched-workload-grid"></div>
-              </div>
             </div>
 
             <!-- DAILY RUNS TAB -->
@@ -5325,54 +5320,6 @@
       </tbody>
     </table>`;
 
-    renderWorkloadSummary(overMap, driverMap);
-  }
-
-  function renderWorkloadSummary(overMap, driverMap) {
-    const el = document.getElementById('sched-workload-grid');
-    if (!el) return;
-    if (!allDriversCache.length) { el.innerHTML = '<div style="padding:8px;font-size:12px;color:var(--gray-400);">No drivers found.</div>'; return; }
-
-    // Count runs per driver across all templates x days
-    const runCount = {}; // driverId → count
-    const runDetails = {}; // driverId → [{templateName, days[]}]
-    allDriversCache.forEach(d => { runCount[d.id] = 0; runDetails[d.id] = {}; });
-
-    allTemplates.forEach(t => {
-      (t.schedule_days||[]).forEach(day => {
-        const ovDrvId = overMap[`${t.id}-${day}-pickup`];
-        const drvId = ovDrvId || t.default_pickup_driver_id;
-        if (!drvId) return;
-        runCount[drvId] = (runCount[drvId] || 0) + 1;
-        if (!runDetails[drvId]) runDetails[drvId] = {};
-        if (!runDetails[drvId][t.name]) runDetails[drvId][t.name] = [];
-        runDetails[drvId][t.name].push(day);
-      });
-    });
-
-    const DRIVER_COLORS = ['#635bff','#0ba25a','#f59e0b','#2563eb','#ec4899','#0891b2','#dc2626','#7c3aed'];
-    const DAY_ABBR_SHORT = ['M','T','W','Th','F','Sa','Su'];
-    el.innerHTML = allDriversCache.map((d, idx) => {
-      const count = runCount[d.id] || 0;
-      const initials = d.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-      const avatarColor = DRIVER_COLORS[idx % DRIVER_COLORS.length];
-      const details = Object.entries(runDetails[d.id]||{}).map(([tname, days]) =>
-        `<div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;padding:2px 0">
-          <span style="font-weight:600;color:var(--gray-700)">${tname}</span>
-          <span style="color:var(--gray-400)">${days.map(dy=>DAY_ABBR_SHORT[dy]).join(', ')} (${days.length})</span>
-        </div>`
-      ).join('');
-      return `<div class="workload-card">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <div class="workload-avatar" style="background:${avatarColor}">${initials}</div>
-          <div>
-            <div style="font-weight:700;font-size:13px">${d.name}</div>
-            <div style="font-size:11px;color:var(--gray-400)">${count} run${count!==1?'s':''} this week</div>
-          </div>
-        </div>
-        ${details || '<div style="font-size:11.5px;color:var(--gray-400)">No routes assigned</div>'}
-      </div>`;
-    }).join('');
   }
 
   // ── DRIVER POPOVER ──
