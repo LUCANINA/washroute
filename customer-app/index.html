@@ -371,6 +371,46 @@
     .card-prompt-banner { margin: 14px 18px 4px; background: #fffbeb; border: 1.5px solid #fde68a; border-radius: var(--radius); padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .card-prompt-banner p { font-size: 13px; color: #92400e; line-height: 1.45; flex: 1; }
     .card-prompt-banner .cpb-add { padding: 9px 14px; background: var(--navy); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+
+    /* ── ADDRESS CHECK ── */
+    .addr-wrap { display: flex; gap: 10px; margin-bottom: 14px; }
+    .addr-input { flex: 1; padding: 14px 16px; border: 2px solid var(--gray-200); border-radius: 10px; font-size: 15px; font-family: inherit; outline: none; transition: border-color .15s; color: var(--text); }
+    .addr-input:focus { border-color: var(--navy); }
+    .addr-btn { padding: 14px 20px; background: var(--navy); color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: opacity .15s; }
+    .addr-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .zone-result { padding: 14px 16px; border-radius: 10px; font-size: 14px; font-weight: 500; line-height: 1.5; }
+    .zone-ok  { background: #d1fae5; color: #065f46; border: 1.5px solid #6ee7b7; }
+    .zone-err { background: #fef2f2; color: #991b1b; border: 1.5px solid #fecaca; }
+
+    /* ── FREQUENCY PILLS ── */
+    .freq-pills { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+    .freq-pill { width: 100%; padding: 15px 18px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; font-family: inherit; font-size: 15px; font-weight: 500; color: var(--text); text-align: left; display: flex; align-items: center; gap: 10px; transition: all .15s; }
+    .freq-pill:hover { border-color: var(--navy); }
+    .freq-pill.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
+    .freq-pill-rec { margin-left: auto; font-size: 11px; font-weight: 700; background: var(--navy); color: white; padding: 2px 9px; border-radius: 999px; }
+
+    /* ── ORDER PREFERENCES ── */
+    .order-pref-group { margin-bottom: 22px; }
+    .order-pref-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 10px; }
+    .order-pref-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .order-pref-btn { padding: 12px 14px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; font-family: inherit; font-size: 13.5px; font-weight: 500; color: var(--text); text-align: center; transition: all .15s; line-height: 1.3; }
+    .order-pref-btn:hover { border-color: var(--navy); }
+    .order-pref-btn.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
+
+    /* ── ESTIMATE CARD ── */
+    .estimate-card { background: linear-gradient(135deg, var(--navy) 0%, var(--accent) 100%); border-radius: var(--radius); padding: 22px 24px; text-align: center; margin: 16px 0 20px; }
+    .estimate-amount { font-size: 48px; font-weight: 800; color: white; line-height: 1; }
+    .estimate-label  { font-size: 14px; color: rgba(255,255,255,.65); margin-top: 4px; }
+    .estimate-note   { font-size: 12px; color: rgba(255,255,255,.5); margin-top: 8px; line-height: 1.5; }
+
+    /* ── CONFIRM AUTH INLINE ── */
+    .confirm-auth-section { background: var(--gray-50); border-radius: var(--radius); padding: 18px 16px; margin-bottom: 16px; }
+    .confirm-auth-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .confirm-auth-sub { font-size: 13px; color: var(--gray-600); margin-bottom: 16px; }
+    .confirm-auth-fields { display: flex; flex-direction: column; gap: 12px; }
+    .confirm-or { text-align: center; font-size: 12.5px; color: var(--gray-400); margin: 14px 0 10px; }
+    .confirm-signin-link { width: 100%; padding: 12px; background: white; border: 1.5px solid var(--gray-300); border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--navy); cursor: pointer; transition: border-color .15s; font-family: inherit; }
+    .confirm-signin-link:hover { border-color: var(--navy); }
   </style>
 </head>
 <body>
@@ -413,7 +453,7 @@
           <div class="field"><label>Last Name</label><input type="text" id="s-last" placeholder="Doe" required></div>
         </div>
         <div class="field"><label>Email</label><input type="email" id="s-email" placeholder="you@email.com" autocomplete="email" required></div>
-        <div class="field"><label>Phone (optional)</label><input type="tel" id="s-phone" placeholder="(415) 555-0100"></div>
+        <div class="field"><label>Phone</label><input type="tel" id="s-phone" placeholder="(415) 555-0100" required></div>
         <div class="field"><label>Password</label><input type="password" id="s-pass" placeholder="Min. 8 characters" autocomplete="new-password" minlength="8" required></div>
         <button class="btn-primary" type="submit" id="btn-signup">Create Account</button>
       </form>
@@ -450,37 +490,39 @@
       <button class="back-btn" onclick="handleOrderBack()">
         <svg viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
       </button>
-      <span class="order-step-title" id="order-title">Choose Service</span>
+      <span class="order-step-title" id="order-title">Your Address</span>
       <div style="width:44px"></div>
     </div>
     <div class="step-indicator">
       <div class="sdot active" id="sd0"></div>
-      <div class="sdot"        id="sd1"></div>
-      <div class="sdot"        id="sd2"></div>
+      <div class="sdot" id="sd1"></div>
+      <div class="sdot" id="sd2"></div>
+      <div class="sdot" id="sd3"></div>
+      <div class="sdot" id="sd4"></div>
     </div>
     <div class="main-content">
 
-      <!-- Step 0 — Service -->
+      <!-- Step 0 — Address + Zone Check -->
       <div class="step-content" id="o-step-0">
-        <div class="step-sub">What can we take care of?</div>
-        <div class="service-grid" id="service-list"></div>
+        <div class="step-sub">Enter your pickup address to confirm we serve your area.</div>
+        <div class="addr-wrap">
+          <input type="text" class="addr-input" id="addr-input"
+                 placeholder="123 Main St, Oakland, CA"
+                 onkeydown="if(event.key==='Enter')checkAddress()" />
+          <button class="addr-btn" id="addr-btn" onclick="checkAddress()">Check →</button>
+        </div>
+        <div id="zone-result" class="zone-result" style="display:none"></div>
+        <div style="height:16px"></div>
+        <button class="btn-primary" id="btn-addr-next" style="display:none" onclick="goOrderStep(1)">Continue →</button>
       </div>
 
-      <!-- Step 1 — Bags + Pickup Day -->
+      <!-- Step 1 — Schedule -->
       <div class="step-content" id="o-step-1" style="display:none">
-        <div class="step-sub">How many bags, and which day works for pickup?</div>
-
-        <!-- Bags counter -->
-        <div class="slot-label">Number of Bags</div>
-        <div class="bags-counter">
-          <button class="bags-btn" onclick="changeBags(-1)">−</button>
-          <div><div class="bags-num" id="bags-display">1</div><div class="bags-label">bag(s)</div></div>
-          <button class="bags-btn" onclick="changeBags(1)">+</button>
-        </div>
+        <div class="step-sub">Pick a day. We'll set up the rest.</div>
 
         <!-- Pickup day calendar -->
         <div class="cal-wrap">
-          <div class="cal-label">Choose Pickup Day</div>
+          <div class="cal-label">First Pickup Day</div>
           <div class="cal-header">
             <button class="cal-nav" type="button" onclick="shiftMonth(-1)">‹</button>
             <span class="cal-title" id="cal-month-title"></span>
@@ -490,25 +532,80 @@
           <div class="cal-selected-label" id="cal-selected-label"></div>
         </div>
 
-        <!-- Frequency -->
-        <div class="slot-label" style="margin-bottom:8px">How often?</div>
-        <select class="freq-select" id="order-freq" onchange="selectFreq(this.value)">
-          <option value="">One-time pickup</option>
-          <option value="weekly">Every week</option>
-          <option value="biweekly">Every 2 weeks</option>
-          <option value="monthly">Every month</option>
-        </select>
+        <!-- Frequency pills (recurring = default) -->
+        <div class="slot-label" style="margin-bottom:10px">How often?</div>
+        <div class="freq-pills" id="freq-pills">
+          <button class="freq-pill selected" data-val="weekly" onclick="selectFreq('weekly',this)">
+            🔁 Every week <span class="freq-pill-rec">Most popular</span>
+          </button>
+          <button class="freq-pill" data-val="biweekly" onclick="selectFreq('biweekly',this)">
+            📅 Every 2 weeks
+          </button>
+          <button class="freq-pill" data-val="" onclick="selectFreq('',this)">
+            ☝️ Just this one time
+          </button>
+        </div>
 
-        <button class="btn-primary" onclick="goOrderStep(2)">Review Order →</button>
+        <button class="btn-primary" onclick="goOrderStep(2)">Next →</button>
       </div>
 
-      <!-- Step 2 — Confirm -->
+      <!-- Step 2 — Preferences -->
       <div class="step-content" id="o-step-2" style="display:none">
-        <div class="step-sub">Looks good? Place your order below.</div>
+        <div class="step-sub">Any care instructions? We'll apply these to every order.</div>
+        <div id="order-pref-groups"></div>
+        <button class="btn-primary" onclick="goOrderStep(3)">Looks good →</button>
+      </div>
+
+      <!-- Step 3 — Bags + Estimate -->
+      <div class="step-content" id="o-step-3" style="display:none">
+        <div class="step-sub">How many bags are you sending in?</div>
+
+        <div class="bags-counter">
+          <button class="bags-btn" onclick="changeBags(-1)">−</button>
+          <div>
+            <div class="bags-num" id="bags-display">1</div>
+            <div class="bags-label">bag(s)</div>
+          </div>
+          <button class="bags-btn" onclick="changeBags(1)">+</button>
+        </div>
+
+        <div class="estimate-card" id="estimate-card">
+          <div class="estimate-amount" id="estimate-amount">$0</div>
+          <div class="estimate-label">estimated total</div>
+          <div class="estimate-note" id="estimate-note">Weight overages billed at pickup if bags exceed 25 lbs each</div>
+        </div>
+
+        <button class="btn-primary" onclick="goOrderStep(4)">Continue →</button>
+      </div>
+
+      <!-- Step 4 — Confirm + Account -->
+      <div class="step-content" id="o-step-4" style="display:none">
+        <div class="step-sub">Review your order and confirm.</div>
         <div class="confirm-card" id="confirm-summary"></div>
+
+        <!-- Shown only when not logged in -->
+        <div id="confirm-auth-section" style="display:none">
+          <div class="confirm-auth-section">
+            <div class="confirm-auth-title">Create your account</div>
+            <div class="confirm-auth-sub">We'll send SMS updates about your order.</div>
+            <div class="confirm-auth-fields">
+              <div class="auth-error" id="confirm-err"></div>
+              <div class="field-row">
+                <div class="field"><label>First Name</label><input type="text" id="c-first" placeholder="Jane"></div>
+                <div class="field"><label>Last Name</label><input type="text" id="c-last" placeholder="Doe"></div>
+              </div>
+              <div class="field"><label>Phone</label><input type="tel" id="c-phone" placeholder="(415) 555-0100"></div>
+              <div class="field"><label>Email</label><input type="email" id="c-email" placeholder="you@email.com"></div>
+              <div class="field"><label>Password</label><input type="password" id="c-pass" placeholder="Min. 8 characters" minlength="8"></div>
+            </div>
+            <div class="confirm-or">or</div>
+            <button class="confirm-signin-link" onclick="showScreen('auth');switchTab('login')">Sign in to an existing account</button>
+          </div>
+        </div>
+
         <button class="btn-primary" id="btn-place" onclick="placeOrder()">Place Order</button>
         <div style="height:12px"></div>
-        <button class="btn-secondary" onclick="goOrderStep(1)">← Edit Details</button>
+        <button class="btn-secondary" onclick="goOrderStep(3)">← Edit</button>
         <div class="order-help">Need help? Call us: <a href="tel:5108423560">(510) 842-3560</a></div>
       </div>
 
@@ -723,10 +820,15 @@ let currentProfile  = null;
 let currentCustomer = null;
 let allServices     = [];
 let dbPlans         = [];
+let defaultService  = null; // the single W&F service
 
-let draft = { serviceId: null, bags: 1, pickupDate: null, recurring: '' };
+let draft = {
+  address: '', lat: null, lng: null, zoneId: null,
+  bags: 1, pickupDate: null, recurring: 'weekly',
+  prefs: {} // { groupId: { optId, label, priceMod } }
+};
 let orderStep = 0;
-let calMonth = new Date();
+let calMonth  = new Date();
 let ordersTab = 'current';
 
 /* ── ROUTING ── */
@@ -915,6 +1017,8 @@ async function loadUserData() {
 async function loadServices() {
   const { data } = await db.from('services').select('*').eq('is_active', true).order('sort_order');
   allServices = data || [];
+  // Default service = first active service (Wash & Fold)
+  defaultService = allServices[0] || null;
 }
 
 /* ── HOME ── */
@@ -996,65 +1100,172 @@ function buildActiveCard(o) {
 }
 
 /* ── NEW ORDER ── */
-const SVC_ICONS = { 'Wash & Fold':'👕','Shirt Service':'👔','Hang Dry':'🧺','Delicates':'👗','Bedding':'🛏️','default':'🧺' };
+const STEP_TITLES = ['Your Address','Pick a Day','Preferences','Bag Count','Confirm Order'];
 
 function startNewOrder() {
-  draft = { serviceId: null, bags: 1, pickupDate: null, recurring: '' };
+  draft = { address: '', lat: null, lng: null, zoneId: null, bags: 1, pickupDate: null, recurring: 'weekly', prefs: {} };
   orderStep = 0;
-  calMonth = new Date();
+  calMonth  = new Date();
+  // Reset address UI
+  const inp = document.getElementById('addr-input');
+  if (inp) inp.value = '';
+  const zr = document.getElementById('zone-result');
+  if (zr) { zr.style.display = 'none'; zr.className = 'zone-result'; zr.textContent = ''; }
+  const nextBtn = document.getElementById('btn-addr-next');
+  if (nextBtn) nextBtn.style.display = 'none';
+  // Reset freq pills
+  document.querySelectorAll('.freq-pill').forEach(p => {
+    p.classList.toggle('selected', p.dataset.val === 'weekly');
+  });
   showScreen('new-order');
   renderStep(0);
-  buildServiceList();
 }
 
-function buildServiceList() {
-  const el = document.getElementById('service-list');
-  if (!allServices.length) { el.innerHTML = '<p style="color:var(--gray-400);font-size:14px">Loading services…</p>'; return; }
-  el.innerHTML = allServices.map(s => {
-    const icon  = SVC_ICONS[s.name] || SVC_ICONS.default;
-    const price = s.pricing_type === 'per_lb' ? `From $${parseFloat(s.base_price).toFixed(2)}/lb` : $m(s.base_price);
-    return `<div class="service-card" id="sc-${s.id}" onclick="selectService('${s.id}')">
-      <div class="svc-icon">${icon}</div>
-      <div><div class="svc-name">${s.name}</div><div class="svc-desc">${s.pricing_type === 'per_lb' ? 'Priced by weight at pickup' : 'Flat rate per bag'}</div></div>
-      <div class="svc-price">${price}</div>
+/* ── ADDRESS CHECK ── */
+async function checkAddress() {
+  const inp = document.getElementById('addr-input');
+  const btn = document.getElementById('addr-btn');
+  const zr  = document.getElementById('zone-result');
+  const addr = inp?.value.trim();
+  if (!addr) { toast('Enter your address first'); return; }
+
+  btn.disabled = true; btn.textContent = 'Checking…';
+  zr.style.display = 'none';
+
+  try {
+    // Geocode via Nominatim (free, no key needed)
+    const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1&countrycodes=us`;
+    const geoRes  = await fetch(geoUrl, { headers: { 'Accept-Language': 'en' } });
+    const geoData = await geoRes.json();
+
+    if (!geoData.length) {
+      zr.className  = 'zone-result zone-err';
+      zr.textContent = "We couldn't find that address. Try adding your city or zip code.";
+      zr.style.display = '';
+      document.getElementById('btn-addr-next').style.display = 'none';
+      return;
+    }
+
+    const lat = parseFloat(geoData[0].lat);
+    const lng = parseFloat(geoData[0].lon);
+
+    // Check zone via PostGIS RPC
+    const { data: zones } = await db.rpc('check_point_in_zone', { lat, lng });
+    const zone = zones?.[0];
+
+    if (!zone) {
+      zr.className  = 'zone-result zone-err';
+      zr.innerHTML  = "Sorry, we don't serve that area yet. <br><span style='font-size:13px;font-weight:400'>We're expanding — check back soon or call (510) 842-3560.</span>";
+      zr.style.display = '';
+      document.getElementById('btn-addr-next').style.display = 'none';
+    } else {
+      draft.address = geoData[0].display_name.split(',').slice(0,3).join(',');
+      draft.lat     = lat;
+      draft.lng     = lng;
+      draft.zoneId  = zone.zone_id;
+      zr.className  = 'zone-result zone-ok';
+      zr.innerHTML  = `✅ <strong>Great news — we serve your area!</strong><br><span style="font-size:13px;font-weight:400">${draft.address}</span>`;
+      zr.style.display = '';
+      document.getElementById('btn-addr-next').style.display = '';
+    }
+  } catch (err) {
+    zr.className  = 'zone-result zone-err';
+    zr.textContent = 'Address lookup failed. Please try again.';
+    zr.style.display = '';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Check →';
+  }
+}
+
+/* ── FREQUENCY ── */
+function selectFreq(val, btn) {
+  draft.recurring = val;
+  document.querySelectorAll('.freq-pill').forEach(p => p.classList.remove('selected'));
+  btn?.classList.add('selected');
+}
+
+/* ── PREFERENCES (order flow) ── */
+function renderOrderPrefs() {
+  const el = document.getElementById('order-pref-groups');
+  if (!el) return;
+  const prefs = defaultService?.preferences;
+  if (!prefs?.length) {
+    el.innerHTML = '<p style="color:var(--gray-400);font-size:14px;text-align:center;padding:20px 0">No preference options configured yet.</p>';
+    return;
+  }
+  el.innerHTML = prefs.map(group => {
+    return `<div class="order-pref-group">
+      <div class="order-pref-label">${group.name}</div>
+      <div class="order-pref-grid">
+        ${group.options.map(opt => {
+          const sel = draft.prefs[group.id]?.optId === opt.id;
+          return `<button class="order-pref-btn${sel?' selected':''}"
+            onclick="selectOrderPref('${group.id}','${opt.id}','${opt.label.replace(/'/g,"\\'")}',${opt.price_mod||0},this)">
+            ${opt.label}${opt.price_mod ? `<div style="font-size:11px;margin-top:2px;opacity:.7">${opt.price_mod>0?'+':''}\$${Math.abs(opt.price_mod).toFixed(2)}</div>` : ''}
+          </button>`;
+        }).join('')}
+      </div>
     </div>`;
   }).join('');
 }
 
-function selectService(id) {
-  draft.serviceId = id;
-  document.querySelectorAll('.service-card').forEach(c => c.classList.remove('selected'));
-  document.getElementById('sc-' + id)?.classList.add('selected');
-  setTimeout(() => goOrderStep(1), 200);
+function selectOrderPref(groupId, optId, label, priceMod, btn) {
+  // Toggle — clicking same option deselects it
+  if (draft.prefs[groupId]?.optId === optId) {
+    delete draft.prefs[groupId];
+  } else {
+    draft.prefs[groupId] = { optId, label, priceMod };
+  }
+  renderOrderPrefs();
 }
 
+/* ── BAGS + ESTIMATE ── */
 function changeBags(delta) {
   draft.bags = Math.max(1, Math.min(20, (draft.bags || 1) + delta));
   document.getElementById('bags-display').textContent = draft.bags;
+  updateEstimate();
 }
 
-function selectFreq(val) { draft.recurring = val; }
+function updateEstimate() {
+  const svc        = defaultService;
+  const pricePerBag = parseFloat(svc?.base_price || 0);
+  const bags        = draft.bags;
+  const addonsTotal = Object.values(draft.prefs).reduce((s, p) => s + (p.priceMod || 0), 0);
+  const base        = pricePerBag * bags;
+  const total       = base + addonsTotal;
 
+  const amtEl  = document.getElementById('estimate-amount');
+  const noteEl = document.getElementById('estimate-note');
+  if (amtEl)  amtEl.textContent  = $m(total);
+  if (noteEl) noteEl.textContent =
+    `${bags} bag${bags!==1?'s':''} × ${$m(pricePerBag)}/bag${addonsTotal ? ' + add-ons' : ''} · Overages billed at pickup`;
+}
+
+/* ── STEP NAVIGATION ── */
 function goOrderStep(step) {
-  if (step === 1 && !draft.serviceId)  { toast('Please choose a service');   return; }
-  if (step === 2 && !draft.pickupDate) { toast('Please choose a pickup day'); return; }
-  if (step === 2) buildConfirmSummary();
+  if (step === 1 && !draft.zoneId)    { toast('Please check your address first'); return; }
+  if (step === 2 && !draft.pickupDate){ toast('Please choose a pickup day');      return; }
+  if (step === 3) renderOrderPrefs();
+  if (step === 4) { buildConfirmSummary(); renderConfirmAuth(); }
   orderStep = step;
   renderStep(step);
 }
 
-const STEP_TITLES = ['Choose Service','Bags & Pickup Day','Confirm Order'];
-
 function renderStep(step) {
-  [0,1,2].forEach(i => {
-    document.getElementById(`o-step-${i}`).style.display = i === step ? '' : 'none';
-    document.getElementById(`sd${i}`).classList.toggle('active', i <= step);
+  [0,1,2,3,4].forEach(i => {
+    const el = document.getElementById(`o-step-${i}`);
+    if (el) el.style.display = i === step ? '' : 'none';
+    const dot = document.getElementById(`sd${i}`);
+    if (dot) dot.classList.toggle('active', i <= step);
   });
   document.getElementById('order-title').textContent = STEP_TITLES[step];
   if (step === 1) {
     document.getElementById('bags-display').textContent = draft.bags;
-    document.getElementById('order-freq').value = draft.recurring || '';
     buildCalendar();
+  }
+  if (step === 3) {
+    document.getElementById('bags-display').textContent = draft.bags;
+    updateEstimate();
   }
 }
 
@@ -1101,26 +1312,37 @@ function selectDay(iso) {
 }
 
 function buildConfirmSummary() {
-  const svc     = allServices.find(s => s.id === draft.serviceId);
+  const svc     = defaultService;
   const bags    = draft.bags;
-  const isPerLb = svc?.pricing_type === 'per_lb';
-  const total   = isPerLb ? null : (svc?.base_price || 0) * bags;
+  const addonsTotal = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
+  const total   = Math.round(((svc?.base_price||0)*bags + addonsTotal)*100)/100;
 
-  // Format pickup date and auto-set delivery to next day
   const pickup   = new Date(draft.pickupDate + 'T12:00:00');
   const delivery = new Date(pickup); delivery.setDate(pickup.getDate() + 1);
   const fmt = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
-
-  const freqLabels = { weekly:'Every week', biweekly:'Every 2 weeks', monthly:'Every month' };
+  const freqLabels = { weekly:'Every week 🔁', biweekly:'Every 2 weeks 🔁', monthly:'Every month 🔁' };
   const freqLabel  = freqLabels[draft.recurring] || 'One-time pickup';
 
+  const addonRows = Object.values(draft.prefs).map(p =>
+    `<div class="confirm-row"><span class="confirm-key">${p.label}</span><span class="confirm-val">+${$m(p.priceMod)}</span></div>`
+  ).join('');
+
   document.getElementById('confirm-summary').innerHTML = `
-    <div class="confirm-row"><span class="confirm-key">Service</span><span class="confirm-val">${svc?.name || '—'}</span></div>
-    <div class="confirm-row"><span class="confirm-key">Bags</span><span class="confirm-val">${bags} bag${bags !== 1 ? 's' : ''}</span></div>
-    <div class="confirm-row"><span class="confirm-key">Frequency</span><span class="confirm-val">${draft.recurring ? '🔁 ' : ''}${freqLabel}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Address</span><span class="confirm-val" style="font-size:12px">${draft.address||'—'}</span></div>
     <div class="confirm-row"><span class="confirm-key">Pickup</span><span class="confirm-val">${fmt(pickup)}</span></div>
     <div class="confirm-row"><span class="confirm-key">Delivery</span><span class="confirm-val">${fmt(delivery)}</span></div>
-    <div class="confirm-row"><span class="confirm-key" style="font-weight:700">Total</span><span class="confirm-val confirm-total">${isPerLb ? 'Confirmed at pickup' : $m(total)}</span></div>`;
+    <div class="confirm-row"><span class="confirm-key">Frequency</span><span class="confirm-val">${freqLabel}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Bags</span><span class="confirm-val">${bags} bag${bags!==1?'s':''}</span></div>
+    ${addonRows}
+    <div class="confirm-row"><span class="confirm-key" style="font-weight:700">Estimated Total</span><span class="confirm-val confirm-total">${$m(total)}</span></div>`;
+}
+
+function renderConfirmAuth() {
+  const authSection = document.getElementById('confirm-auth-section');
+  if (!authSection) return;
+  authSection.style.display = currentCustomer ? 'none' : '';
+  const btn = document.getElementById('btn-place');
+  if (btn) btn.textContent = currentCustomer ? 'Place Order' : 'Create Account & Place Order';
 }
 
 function handleOrderBack() {
@@ -1129,44 +1351,86 @@ function handleOrderBack() {
 }
 
 async function placeOrder() {
-  if (!currentCustomer) { toast('Account error — please sign out and back in'); return; }
-  const btn = document.getElementById('btn-place');
+  const btn    = document.getElementById('btn-place');
+  const errEl  = document.getElementById('confirm-err');
+  if (errEl) errEl.classList.remove('show');
+
+  // If not logged in, create account first
+  if (!currentCustomer) {
+    const first = document.getElementById('c-first')?.value.trim();
+    const last  = document.getElementById('c-last')?.value.trim();
+    const phone = document.getElementById('c-phone')?.value.trim();
+    const email = document.getElementById('c-email')?.value.trim();
+    const pass  = document.getElementById('c-pass')?.value;
+    if (!first || !email || !pass || !phone) {
+      if (errEl) { errEl.textContent = 'Please fill in all fields.'; errEl.classList.add('show'); }
+      return;
+    }
+    btn.disabled = true; btn.textContent = 'Creating account…';
+    const { data: authData, error: authErr } = await db.auth.signUp({
+      email, password: pass, options: { data: { first_name: first, last_name: last, phone } }
+    });
+    if (authErr) {
+      btn.disabled = false; btn.textContent = 'Create Account & Place Order';
+      if (errEl) { errEl.textContent = authErr.message; errEl.classList.add('show'); }
+      return;
+    }
+    if (authData.user) await ensureProfile(authData.user, first, last, email, phone);
+  }
+
+  if (!currentCustomer) { toast('Account error — please try again'); btn.disabled = false; return; }
+
   btn.disabled = true; btn.textContent = 'Placing order…';
 
-  const svc   = allServices.find(s => s.id === draft.serviceId);
+  const svc   = defaultService;
   const bags  = draft.bags;
-  const isPerLb = svc?.pricing_type === 'per_lb';
-  const total   = isPerLb ? 0 : Math.round((svc?.base_price || 0) * bags * 100) / 100;
+  const addonsTotal = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
+  const total = Math.round(((svc?.base_price||0)*bags + addonsTotal)*100)/100;
 
   const pickupDate   = draft.pickupDate;
-  const deliveryDate = (() => { const d = new Date(pickupDate + 'T12:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; })();
+  const deliveryDate = (() => { const d = new Date(pickupDate+'T12:00:00'); d.setDate(d.getDate()+1); return d.toISOString().split('T')[0]; })();
 
-  const { data, error } = await db.from('orders').insert({
+  // Build line_items from prefs
+  const lineItems = [
+    { type:'base', label:`${bags} bag${bags!==1?'s':''} × ${$m(svc?.base_price||0)}`, amount:(svc?.base_price||0)*bags },
+    ...Object.values(draft.prefs).filter(p=>p.priceMod).map(p=>({ type:'addon', label:p.label, amount:p.priceMod }))
+  ];
+
+  const { data: order, error } = await db.from('orders').insert({
     customer_id:        currentCustomer.id,
-    service_id:         draft.serviceId,
+    service_id:         svc?.id || null,
     status:             'scheduled',
     total_bags:         bags,
     total_amount:       total,
     pickup_date:        pickupDate,
     delivery_date:      deliveryDate,
     recurring_interval: draft.recurring || null,
+    line_items:         lineItems,
+    special_instructions: draft.address || null,
     order_number:       Math.floor(1000 + Math.random() * 9000)
   }).select().single();
 
-  btn.disabled = false; btn.textContent = 'Place Order';
+  btn.disabled = false; btn.textContent = currentCustomer ? 'Place Order' : 'Create Account & Place Order';
   if (error) { toast('Error: ' + error.message); return; }
 
   // Update customer stats
   await db.from('customers').update({
-    total_orders:  (currentCustomer.total_orders || 0) + 1,
-    total_bags:    (currentCustomer.total_bags   || 0) + bags,
+    total_orders:  (currentCustomer.total_orders||0)+1,
+    total_bags:    (currentCustomer.total_bags||0)+bags,
     last_order_at: new Date().toISOString()
   }).eq('id', currentCustomer.id);
-  currentCustomer.total_orders = (currentCustomer.total_orders || 0) + 1;
-  currentCustomer.total_bags   = (currentCustomer.total_bags   || 0) + bags;
+  currentCustomer.total_orders = (currentCustomer.total_orders||0)+1;
+  currentCustomer.total_bags   = (currentCustomer.total_bags||0)+bags;
+
+  // Fire order confirmed SMS (best-effort, don't block)
+  fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
+    body: JSON.stringify({ orderId: order.id, event: 'confirmed' })
+  }).catch(() => {});
 
   // Success screen
-  const pickupFmt = new Date(pickupDate + 'T12:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+  const pickupFmt = new Date(pickupDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
   document.getElementById('success-info').textContent = `First pickup: ${pickupFmt}`;
   const recurLabels = { weekly:'Every week', biweekly:'Every 2 weeks', monthly:'Every month' };
   document.getElementById('success-recur-wrap').innerHTML = draft.recurring

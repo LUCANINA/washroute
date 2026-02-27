@@ -1314,6 +1314,14 @@ async function completeStop(stopId, stopType) {
     const timeField = stopType === 'pickup' ? 'actual_pickup_at' : 'actual_delivery_at';
     await db.from('orders').update({ status: newStatus, [timeField]: now }).eq('id', stop.orders.id);
     stop.orders.status = newStatus;
+
+    // Fire SMS notification (best-effort, non-blocking)
+    const smsEvent = stopType === 'pickup' ? 'picked_up' : 'delivered';
+    fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
+      body: JSON.stringify({ orderId: stop.orders.id, event: smsEvent })
+    }).catch(() => {});
   }
 
   // Update local state

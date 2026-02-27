@@ -1980,12 +1980,10 @@
 
 <script>
   // ── SUPABASE INIT ──
-  const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
+  const SUPA_URL      = 'https://umjpbuxrdydwejqtensq.supabase.co';
+  const SUPA_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
   const { createClient } = supabase;
-  const db = createClient(
-    SUPA_URL,
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY'
-  );
+  const db = createClient(SUPA_URL, SUPA_ANON_KEY);
 
   // ── STATE ──
   let currentPage = 'overview';
@@ -2843,6 +2841,14 @@
       const { error } = await db.from('orders').update(statusPayload).eq('id', orderId);
       if (error) throw new Error(error.message);
       showToast(`Order #${orderNum} → ${label}`);
+      // Fire SMS for customer-facing status milestones (best-effort)
+      if (['picked_up','out_for_delivery','delivered'].includes(newStatus)) {
+        fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+          body: JSON.stringify({ orderId, event: newStatus })
+        }).catch(() => {});
+      }
       // Re-render after short delay so badge + button update cleanly
       setTimeout(() => {
         loadOrders();
