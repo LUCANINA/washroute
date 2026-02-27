@@ -626,19 +626,37 @@
     .proc-card-pref-chip { font-size:11px;padding:2px 8px;border-radius:12px;background:#ede9ff;color:var(--accent);font-weight:600; }
     .proc-card-btn { width:100%;padding:11px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px;transition:background .12s; }
     .proc-card-btn:hover { background:#5049e8; }
-    /* Kanban board */
-    .kanban-board { display:grid;grid-template-columns:1fr 1fr;height:calc(100vh - 215px);min-height:450px; }
-    .kanban-col { display:flex;flex-direction:column;border-right:1px solid var(--gray-100);overflow:hidden; }
+    /* Kanban board — 4 columns */
+    .kanban-board { display:grid;grid-template-columns:repeat(4,1fr);height:calc(100vh - 215px);min-height:450px;overflow-x:auto; }
+    .kanban-col { display:flex;flex-direction:column;border-right:1px solid var(--gray-200);overflow:hidden;min-width:210px; }
     .kanban-col:last-child { border-right:none; }
-    .kanban-col-header { display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--gray-50);border-bottom:2px solid var(--gray-100);flex-shrink:0;font-weight:700;font-size:13px; }
-    .kanban-col-header.folding-col-header { background:#f0fdf4;border-bottom-color:#86efac; }
-    .kanban-col-body { flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px; }
-    .kanban-col-fold { transition:background .15s,outline .1s; }
-    .kanban-col-fold.drag-over { background:rgba(16,185,129,.06) !important;outline:3px dashed #10b981;outline-offset:-4px; }
-    .kanban-col-hint { font-size:10.5px;color:var(--gray-400);margin-left:auto;font-weight:400; }
-    .kanban-fold-badge { background:#d1fae5 !important;color:#065f46 !important; }
-    .kanban-drop-label { font-size:10.5px;color:#10b981;font-weight:600;margin-left:auto;opacity:0;transition:opacity .15s; }
-    .kanban-col-fold.drag-over .kanban-drop-label { opacity:1; }
+    .kanban-col-header { display:flex;align-items:center;gap:7px;padding:10px 14px;border-bottom:3px solid transparent;flex-shrink:0;font-weight:700;font-size:12.5px; }
+    .kanban-col-body { flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px; }
+    .kcol-intake  { background:#eff6ff;border-bottom-color:#93c5fd; }
+    .kcol-clean   { background:#fefce8;border-bottom-color:#fde047; }
+    .kcol-folding { background:#f0fdf4;border-bottom-color:#86efac; }
+    .kcol-rack    { background:#faf5ff;border-bottom-color:#c4b5fd; }
+    .kbadge-intake  { background:#dbeafe;color:#1e40af; }
+    .kbadge-clean   { background:#fef9c3;color:#854d0e; }
+    .kbadge-folding { background:#d1fae5;color:#065f46; }
+    .kbadge-rack    { background:#ede9fe;color:#5b21b6; }
+    .proc-tab-badge { font-size:11px;font-weight:700;border-radius:20px;padding:2px 7px; }
+    .kanban-drop-zone { transition:background .15s,outline .1s; }
+    .kcol-folding.drag-over { background:rgba(16,185,129,.07) !important;outline:3px dashed #10b981;outline-offset:-4px; }
+    .kcol-rack.drag-over    { background:rgba(139,92,246,.07) !important;outline:3px dashed #8b5cf6;outline-offset:-4px; }
+    .kanban-col-hint { font-size:10px;color:var(--gray-400);margin-left:auto;font-weight:400; }
+    .kanban-drop-label { font-size:10px;font-weight:700;margin-left:auto;opacity:0;transition:opacity .15s; }
+    .kcol-folding .kanban-drop-label { color:#10b981; }
+    .kcol-rack    .kanban-drop-label { color:#8b5cf6; }
+    .kcol-folding.drag-over .kanban-drop-label,
+    .kcol-rack.drag-over .kanban-drop-label { opacity:1; }
+    /* Rack picker */
+    .rack-grid { display:flex;flex-direction:column;gap:8px; }
+    .rack-btn { padding:11px 16px;border-radius:10px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600; }
+    .rack-btn:hover { border-color:var(--accent);background:#f5f3ff; }
+    .rack-btn.selected { border-color:var(--accent);background:#ede9ff;color:var(--accent); }
+    .rack-route-label { font-size:11px;color:var(--gray-400);font-weight:400; }
+    .rack-btn.selected .rack-route-label { color:var(--accent);opacity:.75; }
     /* Intake panel */
     .intake-over { position:fixed;top:0;right:0;bottom:0;width:560px;background:white;box-shadow:-8px 0 40px rgba(0,0,0,.18);z-index:900;transform:translateX(100%);transition:transform .22s ease;display:flex;flex-direction:column;overflow:hidden; }
     .intake-over.open { transform:translateX(0); }
@@ -762,6 +780,10 @@
       <div class="nav-item" onclick="showPage('launderers',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><path d="M16 3.13a4 4 0 010 7.75"/><path d="M21 21v-2a4 4 0 00-3-3.87"/></svg>
         Launderers
+      </div>
+      <div class="nav-item" onclick="showPage('racks',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><rect x="2" y="10" width="20" height="5" rx="1"/><rect x="2" y="17" width="20" height="5" rx="1"/></svg>
+        Racks
       </div>
       <div class="sidebar-footer" onclick="handleSignOut()">
         <div class="avatar" id="user-avatar">?</div>
@@ -931,28 +953,53 @@
               </div>
             </div>
             <div class="kanban-board">
-              <!-- INTAKE column -->
+              <!-- 1. INTAKE -->
               <div class="kanban-col">
-                <div class="kanban-col-header">
+                <div class="kanban-col-header kcol-intake">
                   ⚖️ Intake
-                  <span class="proc-tab-badge" id="ptab-badge-intake">0</span>
-                  <span class="kanban-col-hint">drag → to assign folder</span>
+                  <span class="proc-tab-badge kbadge-intake" id="ptab-badge-intake">0</span>
+                  <span class="kanban-col-hint">click to process</span>
                 </div>
                 <div class="kanban-col-body" id="proc-queue-wrap">
                   <div class="loading"><div class="spinner"></div> Loading…</div>
                 </div>
               </div>
-              <!-- FOLDING drop-zone column -->
-              <div class="kanban-col kanban-col-fold" id="kanban-fold-col"
+              <!-- 2. CLEANING (passive — auto-populated after intake) -->
+              <div class="kanban-col">
+                <div class="kanban-col-header kcol-clean">
+                  🫧 Cleaning
+                  <span class="proc-tab-badge kbadge-clean" id="ptab-badge-clean">0</span>
+                  <span class="kanban-col-hint">drag → to fold</span>
+                </div>
+                <div class="kanban-col-body" id="clean-queue-wrap">
+                  <div class="loading"><div class="spinner"></div> Loading…</div>
+                </div>
+              </div>
+              <!-- 3. FOLDING drop zone -->
+              <div class="kanban-col kanban-drop-zone kcol-folding" id="kanban-fold-col"
                 ondragover="event.preventDefault();this.classList.add('drag-over')"
-                ondragleave="onFoldColLeave(event)"
-                ondrop="dropOrderToFolding(event)">
-                <div class="kanban-col-header folding-col-header">
+                ondragleave="onKanbanColLeave(event,'kanban-fold-col')"
+                ondrop="dropToFolding(event)">
+                <div class="kanban-col-header kcol-folding">
                   👕 Folding
-                  <span class="proc-tab-badge kanban-fold-badge" id="ptab-badge-folding">0</span>
+                  <span class="proc-tab-badge kbadge-folding" id="ptab-badge-folding">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
                 <div class="kanban-col-body" id="fold-queue-wrap">
+                  <div class="loading"><div class="spinner"></div> Loading…</div>
+                </div>
+              </div>
+              <!-- 4. RACK drop zone -->
+              <div class="kanban-col kanban-drop-zone kcol-rack" id="kanban-rack-col"
+                ondragover="event.preventDefault();this.classList.add('drag-over')"
+                ondragleave="onKanbanColLeave(event,'kanban-rack-col')"
+                ondrop="dropToRack(event)">
+                <div class="kanban-col-header kcol-rack">
+                  🗂️ Rack
+                  <span class="proc-tab-badge kbadge-rack" id="ptab-badge-rack">0</span>
+                  <span class="kanban-drop-label">← drop here</span>
+                </div>
+                <div class="kanban-col-body" id="rack-queue-wrap">
                   <div class="loading"><div class="spinner"></div> Loading…</div>
                 </div>
               </div>
@@ -1447,6 +1494,28 @@
             </div>
           </div>
         </div><!-- /page-launderers -->
+
+        <!-- ── RACKS ── -->
+        <div class="page" id="page-racks">
+          <div class="card" style="max-width:600px;padding:0">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Racks</div>
+                <div class="card-sub">Named racks tied to delivery routes — used on the Processing board</div>
+              </div>
+            </div>
+            <div class="laun-list" id="rack-list">
+              <div style="padding:32px;text-align:center"><div class="spinner"></div></div>
+            </div>
+            <div class="laun-add-row" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center">
+              <input class="svc-input" id="rack-new-name" placeholder="Rack name (e.g. Rack A)…"
+                     onkeydown="if(event.key==='Enter')addRack()" />
+              <input class="svc-input" id="rack-new-route" placeholder="Route label (e.g. Monday North)…"
+                     onkeydown="if(event.key==='Enter')addRack()" />
+              <button class="btn btn-primary" onclick="addRack()" style="font-size:12.5px;padding:7px 14px">+ Add</button>
+            </div>
+          </div>
+        </div><!-- /page-racks -->
 
       </div><!-- /content -->
     </div><!-- /main -->
@@ -2066,7 +2135,27 @@
   </div>
   <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
     <div id="fold-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
-    <button class="proc-save-btn" id="fold-save-btn" onclick="saveFolding()" disabled>✅ Mark as Packed</button>
+    <button class="proc-save-btn" id="fold-save-btn" onclick="saveFolding()" disabled>👕 Send to Folding</button>
+  </div>
+</div>
+
+<!-- ── RACK PANEL ── -->
+<div class="intake-over" id="rack-panel">
+  <div class="slide-over-header">
+    <button class="btn btn-ghost" style="padding:6px 10px;margin-right:4px" onclick="closeRackPanel()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div>
+      <div style="font-weight:700;font-size:15px" id="rack-title">Assign to Rack</div>
+      <div style="font-size:12px;color:var(--gray-400)" id="rack-subtitle"></div>
+    </div>
+  </div>
+  <div class="slide-over-body" id="rack-body">
+    <div class="loading"><div class="spinner"></div> Loading…</div>
+  </div>
+  <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
+    <div id="rack-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
+    <button class="proc-save-btn" id="rack-save-btn" onclick="saveRacking()" disabled style="background:#7c3aed">🗂️ Rack &amp; Mark Assembled</button>
   </div>
 </div>
 
@@ -2173,7 +2262,8 @@
       scheduled:          ['badge-gray',   'Scheduled'],
       ready_for_pickup:   ['badge-amber',  'Ready for Pickup'],
       picked_up:          ['badge-blue',   'Picked Up'],
-      processing:         ['badge-blue',   'Processing'],
+      processing:         ['badge-amber',  'Cleaning'],
+      folding:            ['badge-green',  'Folding'],
       assembled:          ['badge-purple', 'Assembled'],
       ready_for_delivery: ['badge-green',  'Ready for Delivery'],
       out_for_delivery:   ['badge-blue',   'Out for Delivery'],
@@ -2257,7 +2347,7 @@
   });
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports' };
   const pageCTAs   = { overview:'New Order', customers:'', orders:'', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'' };
 
   function showPage(id, navEl) {
@@ -2281,6 +2371,7 @@
     if (id === 'reports') loadReports();
     if (id === 'processing') loadProcessing();
     if (id === 'launderers') loadLaunderers();
+    if (id === 'racks') loadRackManagement();
   }
 
   function handleCTA() {
@@ -5812,6 +5903,69 @@
     showToast('Removed', 'success');
   }
 
+  // ── RACKS MANAGEMENT PAGE ──
+  async function loadRackManagement() {
+    allRacksCache = []; // force refresh
+    const { data } = await db.from('racks').select('*').order('sort_order').order('created_at');
+    allRacksCache = data || [];
+    renderRackList();
+  }
+
+  function renderRackList() {
+    const el = document.getElementById('rack-list');
+    if (!el) return;
+    if (!allRacksCache.length) {
+      el.innerHTML = `<div style="padding:32px;text-align:center;color:var(--gray-400);font-size:13.5px">
+        No racks yet. Add one below to get started.</div>`;
+      return;
+    }
+    el.innerHTML = allRacksCache.map(r => `
+      <div class="laun-row" style="display:grid;grid-template-columns:1fr 1fr auto auto;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
+        <input class="svc-input" value="${(r.name||'').replace(/"/g,'&quot;')}" placeholder="Rack name"
+          onchange="updateRack('${r.id}','name',this.value)" style="font-weight:600" />
+        <input class="svc-input" value="${(r.route_label||'').replace(/"/g,'&quot;')}" placeholder="Route label…"
+          onchange="updateRack('${r.id}','route_label',this.value)" />
+        <label class="toggle-switch" title="${r.is_active?'Active':'Inactive'}">
+          <input type="checkbox" ${r.is_active?'checked':''} onchange="updateRack('${r.id}','is_active',this.checked)" />
+          <span class="toggle-slider"></span>
+        </label>
+        <button onclick="deleteRack('${r.id}','${(r.name||'').replace(/'/g,"\\'")}','${r.is_active}')"
+          class="svc-del-btn" title="Delete rack">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+        </button>
+      </div>`).join('');
+  }
+
+  async function updateRack(id, field, value) {
+    await db.from('racks').update({ [field]: value, updated_at: new Date().toISOString() }).eq('id', id);
+    allRacksCache = allRacksCache.map(r => r.id === id ? { ...r, [field]: value } : r);
+  }
+
+  async function addRack() {
+    const name  = document.getElementById('rack-new-name')?.value.trim();
+    const route = document.getElementById('rack-new-route')?.value.trim();
+    if (!name) { showToast('Enter a rack name first', 'error'); return; }
+    const { data, error } = await db.from('racks').insert({
+      name, route_label: route || null,
+      sort_order: allRacksCache.length
+    }).select().single();
+    if (error) { showToast(error.message, 'error'); return; }
+    allRacksCache.push(data);
+    document.getElementById('rack-new-name').value  = '';
+    document.getElementById('rack-new-route').value = '';
+    renderRackList();
+    showToast(`Rack "${name}" added`, 'success');
+  }
+
+  async function deleteRack(id, name) {
+    if (!confirm(`Delete "${name}"? Orders on this rack will lose the rack assignment.`)) return;
+    const { error } = await db.from('racks').delete().eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    allRacksCache = allRacksCache.filter(r => r.id !== id);
+    renderRackList();
+    showToast(`Rack "${name}" deleted`);
+  }
+
   // ── LAUNDERER HISTORY ──
   let launHistLaunId = null, launHistLaunName = '';
 
@@ -5919,42 +6073,65 @@
   // ── PROC TABS ──
   let procTabActive = 'intake';
 
-  function setProcTab(tab, btn) { /* kept for compatibility — kanban replaced tabs */ }
+  function setProcTab(tab, btn) { /* replaced by 4-column kanban */ }
 
-  // ── KANBAN DRAG (desktop) ──
+  // ── KANBAN DRAG — desktop ──
   function dragStartOrder(event, id) {
     event.dataTransfer.setData('text/plain', id);
     event.dataTransfer.effectAllowed = 'move';
-    setTimeout(() => document.getElementById('proc-card-'+id)?.classList.add('dragging'), 0);
+    setTimeout(() => {
+      document.getElementById('proc-card-'+id)?.classList.add('dragging');
+      document.getElementById('clean-card-'+id)?.classList.add('dragging');
+      document.getElementById('fold-card-'+id)?.classList.add('dragging');
+    }, 0);
   }
 
   function dragEndOrder(id) {
-    document.getElementById('proc-card-'+id)?.classList.remove('dragging');
-    document.getElementById('kanban-fold-col')?.classList.remove('drag-over');
+    ['proc-card-','clean-card-','fold-card-'].forEach(pfx => {
+      document.getElementById(pfx+id)?.classList.remove('dragging');
+    });
+    ['kanban-fold-col','kanban-rack-col'].forEach(cid =>
+      document.getElementById(cid)?.classList.remove('drag-over')
+    );
   }
 
-  function onFoldColLeave(event) {
-    const col = document.getElementById('kanban-fold-col');
+  function onKanbanColLeave(event, colId) {
+    const col = document.getElementById(colId);
     if (col && !col.contains(event.relatedTarget)) col.classList.remove('drag-over');
   }
 
-  function dropOrderToFolding(event) {
+  function dropToFolding(event) {
     event.preventDefault();
     document.getElementById('kanban-fold-col')?.classList.remove('drag-over');
     const id = event.dataTransfer.getData('text/plain');
-    if (!id) return;
-    // If already in folding queue, ignore
-    if (allFoldOrders.some(o => o.id === id)) return;
+    if (!id || allFoldOrders.some(o => o.id === id)) return;
     openFoldPanel(id);
   }
 
-  // ── KANBAN TOUCH DRAG (tablet / iOS) ──
-  let _tdId = null, _tdClone = null, _tdOff = {x:0,y:0};
+  function dropToRack(event) {
+    event.preventDefault();
+    document.getElementById('kanban-rack-col')?.classList.remove('drag-over');
+    const id = event.dataTransfer.getData('text/plain');
+    if (!id || allRackOrders.some(o => o.id === id)) return;
+    openRackPanel(id);
+  }
+
+  // ── KANBAN DRAG — touch (tablet / iOS) ──
+  let _tdId = null, _tdClone = null, _tdOff = {x:0,y:0}, _tdDropZones = [];
+
+  function _buildDropZones() {
+    _tdDropZones = ['kanban-fold-col','kanban-rack-col']
+      .map(id => ({ id, el: document.getElementById(id) }))
+      .filter(z => z.el);
+  }
 
   function touchStartOrder(event, id) {
     _tdId = id;
-    const card = document.getElementById('proc-card-'+id);
+    const card = document.getElementById('proc-card-'+id)
+              || document.getElementById('clean-card-'+id)
+              || document.getElementById('fold-card-'+id);
     if (!card) return;
+    _buildDropZones();
     const touch = event.touches[0];
     const rect  = card.getBoundingClientRect();
     _tdOff = { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
@@ -5979,13 +6156,12 @@
     const touch = event.touches[0];
     _tdClone.style.left = (touch.clientX - _tdOff.x)+'px';
     _tdClone.style.top  = (touch.clientY - _tdOff.y)+'px';
-    const foldCol = document.getElementById('kanban-fold-col');
-    if (foldCol) {
-      const r = foldCol.getBoundingClientRect();
-      const over = touch.clientX >= r.left && touch.clientX <= r.right
-                && touch.clientY >= r.top  && touch.clientY <= r.bottom;
-      foldCol.classList.toggle('drag-over', over);
-    }
+    _tdDropZones.forEach(z => {
+      const r = z.el.getBoundingClientRect();
+      z.el.classList.toggle('drag-over',
+        touch.clientX >= r.left && touch.clientX <= r.right &&
+        touch.clientY >= r.top  && touch.clientY <= r.bottom);
+    });
   }
 
   function touchEndOrder(event) {
@@ -5993,17 +6169,22 @@
     const touch = event.changedTouches[0];
     document.body.removeChild(_tdClone);
     _tdClone = null;
-    const orig = document.getElementById('proc-card-'+_tdId);
-    if (orig) orig.style.opacity = '';
-    const foldCol = document.getElementById('kanban-fold-col');
-    if (foldCol) {
-      foldCol.classList.remove('drag-over');
-      const r = foldCol.getBoundingClientRect();
-      if (touch.clientX >= r.left && touch.clientX <= r.right
-       && touch.clientY >= r.top  && touch.clientY <= r.bottom) {
-        openFoldPanel(_tdId);
+    ['proc-card-','clean-card-','fold-card-'].forEach(pfx => {
+      const el = document.getElementById(pfx+_tdId);
+      if (el) el.style.opacity = '';
+    });
+    let handled = false;
+    _tdDropZones.forEach(z => {
+      z.el.classList.remove('drag-over');
+      if (handled) return;
+      const r = z.el.getBoundingClientRect();
+      if (touch.clientX >= r.left && touch.clientX <= r.right &&
+          touch.clientY >= r.top  && touch.clientY <= r.bottom) {
+        handled = true;
+        if (z.id === 'kanban-fold-col') openFoldPanel(_tdId);
+        if (z.id === 'kanban-rack-col') openRackPanel(_tdId);
       }
-    }
+    });
     _tdId = null;
   }
 
@@ -6021,7 +6202,7 @@
     const { data: orders } = await db.from('orders')
       .select(`id, order_number, total_bags, weight_lbs, total_amount, special_instructions,
                customers(first_name_cache, last_name_cache), services(name)`)
-      .eq('status', 'processing')
+      .eq('status', 'folding')
       .order('updated_at', { ascending: true });
     allFoldOrders = orders || [];
     const fb = document.getElementById('ptab-badge-folding');
@@ -6046,7 +6227,13 @@
       const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
       const bags = o.total_bags || 1;
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
-      return `<div class="proc-card" id="fold-card-${o.id}">
+      return `<div class="proc-card" id="fold-card-${o.id}"
+        draggable="true"
+        ondragstart="dragStartOrder(event,'${o.id}')"
+        ondragend="dragEndOrder('${o.id}')"
+        ontouchstart="touchStartOrder(event,'${o.id}')"
+        ontouchmove="touchMoveOrder(event)"
+        ontouchend="touchEndOrder(event)">
         <div>
           <div class="proc-card-order">#${o.order_number||'—'}</div>
           <div class="proc-card-name">${name}</div>
@@ -6057,15 +6244,15 @@
           <span>${o.services?.name||'—'}</span>
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
-        <button class="proc-card-btn" style="background:#059669;cursor:pointer" onclick="openFoldPanel('${o.id}')">👕 Assign Folder</button>
+        <button class="proc-card-btn" style="background:#059669;cursor:pointer" onclick="openRackPanel('${o.id}')">🗂️ Assign Rack</button>
       </div>`;
     }).join('');
   }
 
   function openFoldPanel(orderId) {
-    // Order may come from the folding queue (processing status)
-    // OR be dragged directly from intake (picked_up status)
+    // Order may come from cleaning (processing), intake (picked_up), or folding queue
     const order = allFoldOrders.find(o => o.id === orderId)
+               || allCleanOrders.find(o => o.id === orderId)
                || allProcOrders.find(o => o.id === orderId);
     if (!order) return;
     foldActiveOrder    = order;
@@ -6127,19 +6314,152 @@
     const btn = document.getElementById('fold-save-btn');
     btn.disabled = true; btn.textContent = 'Saving…';
     const { error } = await db.from('orders').update({
-      status: 'assembled', folded_by_id: foldSelectedLaunId,
+      status: 'folding', folded_by_id: foldSelectedLaunId,
       folded_at: new Date().toISOString(), updated_at: new Date().toISOString()
     }).eq('id', foldActiveOrder.id);
     if (error) {
       const errEl = document.getElementById('fold-error');
       errEl.textContent = error.message; errEl.style.display = '';
-      btn.disabled = false; btn.textContent = '✅ Mark as Packed';
+      btn.disabled = false; btn.textContent = '👕 Send to Folding';
       return;
     }
     const launName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
     closeFoldPanel();
-    showToast(`Order #${foldActiveOrder.order_number} packed by ${launName}!`, 'success');
-    loadProcessing(); // reloads intake + triggers loadFolding for both kanban columns
+    showToast(`Order #${foldActiveOrder.order_number} assigned to ${launName} for folding`, 'success');
+    loadProcessing();
+  }
+
+  // ── RACK QUEUE (status: assembled — recently racked, awaiting driver) ──
+  let allRackOrders = [], allRacksCache = [];
+  let rackActiveOrder = null, selectedRackId = null;
+
+  async function loadRacking() {
+    const wrap = document.getElementById('rack-queue-wrap');
+    if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+    // Warm rack cache
+    if (!allRacksCache.length) {
+      const { data } = await db.from('racks').select('*').eq('is_active', true).order('sort_order');
+      allRacksCache = data || [];
+    }
+    const { data } = await db.from('orders')
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, rack_id,
+               customers(first_name_cache, last_name_cache), services(name)`)
+      .eq('status', 'assembled')
+      .order('racked_at', { ascending: false })
+      .limit(20); // only show recently racked
+    allRackOrders = data || [];
+    document.getElementById('ptab-badge-rack')?.textContent !== undefined &&
+      (document.getElementById('ptab-badge-rack').textContent = allRackOrders.length);
+    renderRackQueue();
+  }
+
+  function renderRackQueue() {
+    const wrap = document.getElementById('rack-queue-wrap');
+    if (!wrap) return;
+    if (!allRackOrders.length) {
+      wrap.innerHTML = `<div class="empty" style="padding:32px 0">
+        <div class="empty-icon">🗂️</div>
+        <div class="empty-title">Racks are empty</div>
+        <div class="empty-sub">Drag folded orders here to rack them.</div>
+      </div>`;
+      return;
+    }
+    wrap.innerHTML = allRackOrders.map(o => {
+      const name = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.trim() || '—';
+      const rack = allRacksCache.find(r => r.id === o.rack_id);
+      const rackLabel = rack ? `🗂️ ${rack.name}` : '—';
+      return `<div class="proc-card" id="racked-card-${o.id}" style="cursor:default;opacity:.8">
+        <div>
+          <div class="proc-card-order">#${o.order_number||'—'}</div>
+          <div class="proc-card-name">${name}</div>
+        </div>
+        <div class="proc-card-meta">
+          <span>📦 ${o.total_bags||1} bag${(o.total_bags||1)!==1?'s':''}</span>
+          <span>${rackLabel}</span>
+        </div>
+        <div style="font-size:11px;color:#7c3aed;font-weight:600;text-align:center;margin-top:4px">✅ Ready for delivery</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Rack panel
+  function openRackPanel(orderId) {
+    const order = allFoldOrders.find(o => o.id === orderId)
+               || allCleanOrders.find(o => o.id === orderId)
+               || allProcOrders.find(o => o.id === orderId);
+    if (!order) return;
+    rackActiveOrder = order;
+    selectedRackId  = null;
+    const fn = order.customers?.first_name_cache || '';
+    const ln = order.customers?.last_name_cache  || '';
+    document.getElementById('rack-title').textContent    = `${`${fn} ${ln}`.trim()||'Order'} — Assign Rack`;
+    document.getElementById('rack-subtitle').textContent = `Order #${order.order_number||'—'} · ${order.services?.name||''}`;
+    document.getElementById('rack-save-btn').disabled    = true;
+    document.getElementById('rack-error').style.display  = 'none';
+    renderRackPanel();
+    document.getElementById('rack-panel').classList.add('open');
+  }
+
+  function renderRackPanel() {
+    const o    = rackActiveOrder;
+    const bags = o.total_bags || 1;
+    const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
+    const fn   = o.customers?.first_name_cache || '';
+    const ln   = o.customers?.last_name_cache  || '';
+    const activeRacks = allRacksCache.filter(r => r.is_active);
+    const racksHTML = activeRacks.length
+      ? `<div class="rack-grid">${activeRacks.map(r =>
+          `<button class="rack-btn${selectedRackId===r.id?' selected':''}" onclick="selectRack('${r.id}')">
+            <span>${r.name}</span>
+            ${r.route_label ? `<span class="rack-route-label">${r.route_label}</span>` : ''}
+          </button>`).join('')}</div>`
+      : `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No racks set up yet — add them in Settings → Racks.</div>`;
+    document.getElementById('rack-body').innerHTML = `
+      <div class="intake-section">
+        <div class="intake-section-label">Order Summary</div>
+        <div class="fold-order-summary">
+          <div class="fold-order-row"><span>Customer</span><strong>${`${fn} ${ln}`.trim()||'—'}</strong></div>
+          <div class="fold-order-row"><span>Order</span><strong>#${o.order_number||'—'}</strong></div>
+          <div class="fold-order-row"><span>Service</span><strong>${o.services?.name||'—'}</strong></div>
+          <div class="fold-order-row"><span>Bags</span><strong>${bags} bag${bags!==1?'s':''}</strong></div>
+          <div class="fold-order-row"><span>Weight</span><strong>${lbs}</strong></div>
+        </div>
+      </div>
+      <div class="intake-section">
+        <div class="intake-section-label">Which rack?</div>
+        ${racksHTML}
+      </div>`;
+  }
+
+  function selectRack(rackId) {
+    selectedRackId = rackId;
+    renderRackPanel();
+    document.getElementById('rack-save-btn').disabled = false;
+  }
+
+  function closeRackPanel() {
+    document.getElementById('rack-panel').classList.remove('open');
+    rackActiveOrder = null; selectedRackId = null;
+  }
+
+  async function saveRacking() {
+    if (!rackActiveOrder || !selectedRackId) return;
+    const btn = document.getElementById('rack-save-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    const { error } = await db.from('orders').update({
+      status: 'assembled', rack_id: selectedRackId,
+      racked_at: new Date().toISOString(), updated_at: new Date().toISOString()
+    }).eq('id', rackActiveOrder.id);
+    if (error) {
+      document.getElementById('rack-error').textContent = error.message;
+      document.getElementById('rack-error').style.display = '';
+      btn.disabled = false; btn.textContent = '🗂️ Rack & Mark Assembled';
+      return;
+    }
+    const rackName = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
+    closeRackPanel();
+    showToast(`Order #${rackActiveOrder.order_number} racked on ${rackName}! Ready for delivery.`, 'success');
+    loadProcessing();
   }
 
   // ── PROCESSING ──
@@ -6148,33 +6468,84 @@
   let procBags = 1, procWeight = '', procAddons = {}, procNotes = '';
 
   async function loadProcessing() {
-    const wrap = document.getElementById('proc-queue-wrap');
-    if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
-
-    const [{ data: pickedUp }, { count: foldingCount }] = await Promise.all([
+    // Kick off all 4 columns in parallel
+    const [{ data: pickedUp }] = await Promise.all([
       db.from('orders')
         .select(`id, order_number, status, total_bags, special_instructions, service_id,
                  customers(id, first_name_cache, last_name_cache),
                  services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences)`)
         .eq('status', 'picked_up')
         .order('actual_pickup_at', { ascending: true }),
-      db.from('orders').select('id', { count: 'exact', head: true }).eq('status', 'processing')
     ]);
-
     allProcOrders = pickedUp || [];
-    const intakeCount = allProcOrders.length;
-    const foldCount   = foldingCount || 0;
-
-    const badge = document.getElementById('badge-processing');
-    if (badge) badge.textContent = (intakeCount + foldCount) || '0';
-
-    const intakeBadge = document.getElementById('ptab-badge-intake');
-    if (intakeBadge) intakeBadge.textContent = intakeCount;
-    const foldBadge = document.getElementById('ptab-badge-folding');
-    if (foldBadge) foldBadge.textContent = foldCount;
-
+    document.getElementById('ptab-badge-intake')?.textContent !== undefined &&
+      (document.getElementById('ptab-badge-intake').textContent = allProcOrders.length);
     renderProcQueue();
-    loadFolding(); // populate both kanban columns at once
+    // Load remaining 3 columns in parallel
+    await Promise.all([loadCleaning(), loadFolding(), loadRacking()]);
+    // Update nav badge = total active orders
+    const total = allProcOrders.length
+                + (allCleanOrders?.length||0)
+                + (allFoldOrders?.length||0)
+                + (allRackOrders?.length||0);
+    const badge = document.getElementById('badge-processing');
+    if (badge) badge.textContent = total || '0';
+  }
+
+  // ── CLEANING QUEUE (status: processing) ──
+  let allCleanOrders = [];
+
+  async function loadCleaning() {
+    const wrap = document.getElementById('clean-queue-wrap');
+    if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+    const { data } = await db.from('orders')
+      .select(`id, order_number, total_bags, weight_lbs, special_instructions,
+               customers(first_name_cache, last_name_cache), services(name)`)
+      .eq('status', 'processing')
+      .order('updated_at', { ascending: true });
+    allCleanOrders = data || [];
+    document.getElementById('ptab-badge-clean')?.textContent !== undefined &&
+      (document.getElementById('ptab-badge-clean').textContent = allCleanOrders.length);
+    renderCleanQueue();
+  }
+
+  function renderCleanQueue() {
+    const wrap = document.getElementById('clean-queue-wrap');
+    if (!wrap) return;
+    if (!allCleanOrders.length) {
+      wrap.innerHTML = `<div class="empty" style="padding:48px 0">
+        <div class="empty-icon">🫧</div>
+        <div class="empty-title">Machines are empty</div>
+        <div class="empty-sub">Orders appear here after intake is saved.</div>
+      </div>`;
+      return;
+    }
+    wrap.innerHTML = allCleanOrders.map(o => {
+      const fn   = o.customers?.first_name_cache || '';
+      const ln   = o.customers?.last_name_cache  || '';
+      const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
+      const bags = o.total_bags || 1;
+      const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
+      return `<div class="proc-card" id="clean-card-${o.id}"
+        draggable="true"
+        ondragstart="dragStartOrder(event,'${o.id}')"
+        ondragend="dragEndOrder('${o.id}')"
+        ontouchstart="touchStartOrder(event,'${o.id}')"
+        ontouchmove="touchMoveOrder(event)"
+        ontouchend="touchEndOrder(event)">
+        <div>
+          <div class="proc-card-order">#${o.order_number||'—'}</div>
+          <div class="proc-card-name">${name}</div>
+        </div>
+        <div class="proc-card-meta">
+          <span>📦 ${bags} bag${bags!==1?'s':''}</span>
+          <span>⚖️ ${lbs}</span>
+          <span>${o.services?.name||'—'}</span>
+        </div>
+        ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
+        <div style="font-size:11px;color:var(--gray-400);text-align:center;margin-top:4px">Drag → to assign folder</div>
+      </div>`;
+    }).join('');
   }
 
   function renderProcQueue() {
@@ -6603,8 +6974,8 @@
   }
 
   function renderOrderStatusBreakdown(orders) {
-    const STATUS_LABELS = { scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up', processing:'Processing', assembled:'Assembled', ready_for_delivery:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', pickup_missed:'Pickup Missed', delivery_missed:'Delivery Missed', on_hold:'On Hold', cancelled:'Cancelled', pending_pickup:'Pending Pickup', ready:'Ready' };
-    const STATUS_COLORS = { delivered:'#dcfce7', picked_up:'#dbeafe', out_for_delivery:'#ede9fe', processing:'#e0f2fe', assembled:'#f3e8ff', ready_for_delivery:'#d1fae5', pickup_missed:'#fee2e2', delivery_missed:'#fee2e2', cancelled:'#fee2e2', on_hold:'#fef3c7', scheduled:'#f1f5f9', ready_for_pickup:'#fef3c7', pending_pickup:'#fef3c7', ready:'#d1fae5' };
+    const STATUS_LABELS = { scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up', processing:'Cleaning', folding:'Folding', assembled:'Assembled', ready_for_delivery:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', pickup_missed:'Pickup Missed', delivery_missed:'Delivery Missed', on_hold:'On Hold', cancelled:'Cancelled', pending_pickup:'Pending Pickup', ready:'Ready' };
+    const STATUS_COLORS = { delivered:'#dcfce7', picked_up:'#dbeafe', out_for_delivery:'#ede9fe', processing:'#fef9c3', folding:'#d1fae5', assembled:'#f3e8ff', ready_for_delivery:'#d1fae5', pickup_missed:'#fee2e2', delivery_missed:'#fee2e2', cancelled:'#fee2e2', on_hold:'#fef3c7', scheduled:'#f1f5f9', ready_for_pickup:'#fef3c7', pending_pickup:'#fef3c7', ready:'#d1fae5' };
     const el = document.getElementById('rpt-status-breakdown');
     if (!el) return;
     const counts = {};
