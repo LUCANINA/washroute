@@ -463,6 +463,12 @@
     .rpt-drv-tbl tbody tr:hover td { background:var(--gray-50); }
     .rpt-stars { color:#f59e0b;letter-spacing:1px;font-size:12px; }
     .rpt-no-data { text-align:center;padding:40px 20px;color:var(--gray-400);font-size:13px; }
+    .rpt-page-tabs { display:flex;gap:0;border-bottom:1px solid var(--gray-100);padding:0 16px;background:white;border-radius:0 0 var(--radius) var(--radius); }
+    .rpt-page-tab { padding:10px 18px;font-size:13.5px;font-weight:500;color:var(--gray-500);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s;font-family:inherit; }
+    .rpt-page-tab.active { color:var(--accent);border-bottom-color:var(--accent);font-weight:600; }
+    .rpt-status-pills { display:flex;flex-wrap:wrap;gap:8px; }
+    .rpt-status-pill { display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:20px;font-size:13px;font-weight:500;border:1px solid rgba(0,0,0,.06); }
+    .rpt-status-pill-count { font-size:16px;font-weight:700;color:var(--gray-800); }
 
     /* ── NOTIFICATIONS PAGE ── */
     .notif-layout { display:grid;grid-template-columns:268px 1fr;gap:20px;height:calc(100vh - 56px - 56px - 48px);min-height:520px; }
@@ -989,103 +995,54 @@
         <!-- ── REPORTS ── -->
         <div class="page" id="page-reports">
 
-          <!-- Period Selector -->
-          <div class="rpt-period-bar">
-            <div style="font-size:13px;color:var(--gray-500);">Figures shown for selected period vs. the period before.</div>
-            <div class="filter-tabs" id="rpt-period-tabs">
-              <button class="filter-tab active" onclick="setRptPeriod('week',this)">This Week</button>
-              <button class="filter-tab" onclick="setRptPeriod('month',this)">This Month</button>
-              <button class="filter-tab" onclick="setRptPeriod('quarter',this)">Last 3 Months</button>
-              <button class="filter-tab" onclick="setRptPeriod('all',this)">All Time</button>
+          <!-- Period selector + tab bar combined card -->
+          <div class="card" style="padding:0;margin-bottom:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap;gap:10px">
+              <div style="font-size:12.5px;color:var(--gray-500)">Figures shown vs. the prior period.</div>
+              <div class="filter-tabs" id="rpt-period-tabs">
+                <button class="filter-tab active" onclick="setRptPeriod('week',this)">This Week</button>
+                <button class="filter-tab" onclick="setRptPeriod('month',this)">This Month</button>
+                <button class="filter-tab" onclick="setRptPeriod('quarter',this)">Last 3 Months</button>
+                <button class="filter-tab" onclick="setRptPeriod('all',this)">All Time</button>
+              </div>
+            </div>
+            <div class="rpt-page-tabs">
+              <button class="rpt-page-tab active" onclick="setRptTab('snapshot',this)">📊 Snapshot</button>
+              <button class="rpt-page-tab" onclick="setRptTab('operations',this)">📦 Operations</button>
+              <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">🚐 Drivers</button>
             </div>
           </div>
 
-          <!-- ── SECTION: ORDERS & REVENUE ── -->
-          <div class="rpt-section-head">📦 Orders &amp; Revenue</div>
-
-          <!-- KPI Strip — Orders -->
-          <div class="rpt-kpi-grid">
-            <div class="stat-card">
-              <div class="stat-label">Revenue</div>
-              <div class="stat-value" id="rpt-revenue">—</div>
-              <div class="stat-card-trend" id="rpt-revenue-trend"></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Orders</div>
-              <div class="stat-value" id="rpt-orders">—</div>
-              <div class="stat-card-trend" id="rpt-orders-trend"></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Lbs Processed</div>
-              <div class="stat-value" id="rpt-lbs">—</div>
-              <div class="stat-card-trend" id="rpt-lbs-trend"></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Bags Processed</div>
-              <div class="stat-value" id="rpt-bags">—</div>
-              <div class="stat-card-trend" id="rpt-bags-trend"></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Avg Order Value</div>
-              <div class="stat-value" id="rpt-aov">—</div>
-              <div class="stat-card-trend" id="rpt-aov-trend"></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Revenue / lb</div>
-              <div class="stat-value" id="rpt-rev-per-lb">—</div>
-              <div class="stat-card-trend" id="rpt-rev-per-lb-trend"></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">On-time Delivery</div>
-              <div class="stat-value" id="rpt-ontime">—</div>
-              <div class="stat-card-trend" id="rpt-ontime-trend"></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Repeat Customers</div>
-              <div class="stat-value" id="rpt-repeat">—</div>
-              <div class="stat-card-trend" style="font-size:11px;color:var(--gray-400)" id="rpt-repeat-sub"></div>
-            </div>
-          </div>
-
-          <!-- Charts Row 1 -->
-          <div class="rpt-chart-grid">
-            <div class="card">
-              <div class="card-header">
-                <div>
-                  <div class="card-title">Revenue Over Time</div>
-                  <div class="card-sub" id="rpt-rev-chart-sub">Weekly totals</div>
-                </div>
+          <!-- ── TAB: SNAPSHOT ── -->
+          <div id="rpttab-snapshot">
+            <div class="rpt-kpi-grid">
+              <div class="stat-card">
+                <div class="stat-label">Revenue</div>
+                <div class="stat-value" id="rpt-revenue">—</div>
+                <div class="stat-card-trend" id="rpt-revenue-trend"></div>
               </div>
-              <div class="chart-canvas-wrap" style="height:220px;">
-                <canvas id="rpt-chart-revenue"></canvas>
+              <div class="stat-card">
+                <div class="stat-label">Orders</div>
+                <div class="stat-value" id="rpt-orders">—</div>
+                <div class="stat-card-trend" id="rpt-orders-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Avg Order Value</div>
+                <div class="stat-value" id="rpt-aov">—</div>
+                <div class="stat-card-trend" id="rpt-aov-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">On-time Delivery</div>
+                <div class="stat-value" id="rpt-ontime">—</div>
+                <div class="stat-card-trend" id="rpt-ontime-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Repeat Customers</div>
+                <div class="stat-value" id="rpt-repeat">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-repeat-sub"></div>
               </div>
             </div>
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title">Orders by Status</div>
-              </div>
-              <div class="chart-canvas-wrap" style="height:220px;display:flex;align-items:center;justify-content:center;">
-                <canvas id="rpt-chart-status" style="max-width:200px;max-height:200px;"></canvas>
-              </div>
-            </div>
-          </div>
-
-          <!-- Orders by Day of Week — full width -->
-          <div class="card rpt-chart-full">
-            <div class="card-header">
-              <div>
-                <div class="card-title">Orders by Day of Week</div>
-                <div class="card-sub">Which days are busiest — useful for scheduling routes</div>
-              </div>
-            </div>
-            <div class="chart-canvas-wrap" style="height:200px;">
-              <canvas id="rpt-chart-dow"></canvas>
-            </div>
-          </div>
-
-          <!-- Charts Row 2 -->
-          <div class="rpt-chart-grid">
-            <div class="card">
+            <div class="card" style="margin-bottom:0">
               <div class="card-header">
                 <div class="card-title">Revenue by Service</div>
               </div>
@@ -1093,93 +1050,100 @@
                 <div class="loading"><div class="spinner"></div> Loading…</div>
               </div>
             </div>
+          </div>
+
+          <!-- ── TAB: OPERATIONS ── -->
+          <div id="rpttab-operations" style="display:none">
+            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+              <div class="stat-card">
+                <div class="stat-label">Bags Processed</div>
+                <div class="stat-value" id="rpt-bags">—</div>
+                <div class="stat-card-trend" id="rpt-bags-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Lbs Processed</div>
+                <div class="stat-value" id="rpt-lbs">—</div>
+                <div class="stat-card-trend" id="rpt-lbs-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Revenue / lb</div>
+                <div class="stat-value" id="rpt-rev-per-lb">—</div>
+                <div class="stat-card-trend" id="rpt-rev-per-lb-trend"></div>
+              </div>
+            </div>
             <div class="card">
               <div class="card-header">
-                <div class="card-title">Route Performance</div>
+                <div class="card-title">Order Status Breakdown</div>
+                <div class="card-sub">Count of orders per status in this period</div>
               </div>
-              <div class="chart-canvas-wrap" style="height:220px;">
-                <canvas id="rpt-chart-routes"></canvas>
+              <div style="padding:16px 20px 20px;" id="rpt-status-breakdown">
+                <div class="loading"><div class="spinner"></div> Loading…</div>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:0">
+              <div class="card-header">
+                <div class="card-title">Orders in Period</div>
+                <div class="stat-delta" id="rpt-orders-count-label"></div>
+              </div>
+              <div class="rpt-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Order #</th>
+                      <th>Customer</th>
+                      <th>Service</th>
+                      <th>Date</th>
+                      <th>Bags</th>
+                      <th>Status</th>
+                      <th style="text-align:right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody id="rpt-orders-tbody">
+                    <tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
 
-          <!-- Orders Table -->
-          <div class="card" style="margin-bottom:0">
-            <div class="card-header">
-              <div class="card-title">Orders in Period</div>
-              <div class="stat-delta" id="rpt-orders-count-label"></div>
+          <!-- ── TAB: DRIVERS ── -->
+          <div id="rpttab-drivers" style="display:none">
+            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+              <div class="stat-card">
+                <div class="stat-label">Routes Completed</div>
+                <div class="stat-value" id="rpt-drv-routes">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Stops Completed</div>
+                <div class="stat-value" id="rpt-drv-stops">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Avg Driver Rating</div>
+                <div class="stat-value" id="rpt-drv-rating">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-drv-rating-sub"></div>
+              </div>
             </div>
-            <div class="rpt-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Order #</th>
-                    <th>Customer</th>
-                    <th>Service</th>
-                    <th>Date</th>
-                    <th>Lbs</th>
-                    <th>Status</th>
-                    <th style="text-align:right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody id="rpt-orders-tbody">
-                  <tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- ── SECTION: DRIVER PERFORMANCE ── -->
-          <div class="rpt-section-head" style="margin-top:12px">🚐 Driver Performance</div>
-
-          <!-- Fleet KPIs -->
-          <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
-            <div class="stat-card">
-              <div class="stat-label">Routes Completed</div>
-              <div class="stat-value" id="rpt-drv-routes">—</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Stops Completed</div>
-              <div class="stat-value" id="rpt-drv-stops">—</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Hours Worked</div>
-              <div class="stat-value" id="rpt-drv-hours">—</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Avg Stops / hr</div>
-              <div class="stat-value" id="rpt-drv-sph">—</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Avg Driver Rating</div>
-              <div class="stat-value" id="rpt-drv-rating">—</div>
-              <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-drv-rating-sub"></div>
-            </div>
-          </div>
-
-          <!-- Driver Breakdown Table -->
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title">By Driver</div>
-              <div class="card-sub" id="rpt-drv-period-label"></div>
-            </div>
-            <div class="rpt-table-wrap">
-              <table class="rpt-drv-tbl">
-                <thead>
-                  <tr>
-                    <th>Driver</th>
-                    <th>Routes</th>
-                    <th>Stops</th>
-                    <th>Hours</th>
-                    <th>Stops / hr</th>
-                    <th>Avg Rating</th>
-                    <th>Lbs Hauled</th>
-                  </tr>
-                </thead>
-                <tbody id="rpt-drv-tbody">
-                  <tr><td colspan="7" class="rpt-no-data">Loading…</td></tr>
-                </tbody>
-              </table>
+            <div class="card" style="margin-bottom:0">
+              <div class="card-header">
+                <div class="card-title">By Driver</div>
+                <div class="card-sub" id="rpt-drv-period-label"></div>
+              </div>
+              <div class="rpt-table-wrap">
+                <table class="rpt-drv-tbl">
+                  <thead>
+                    <tr>
+                      <th>Driver</th>
+                      <th>Routes</th>
+                      <th>Stops</th>
+                      <th>Avg Rating</th>
+                      <th>Bags Hauled</th>
+                    </tr>
+                  </thead>
+                  <tbody id="rpt-drv-tbody">
+                    <tr><td colspan="5" class="rpt-no-data">Loading…</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
 
@@ -4986,13 +4950,23 @@
 
   // ── REPORTS ──
   let rptPeriod = 'week';
-  let rptRevenueChart = null, rptStatusChart = null, rptRoutesChart = null, rptDowChart = null;
+  let rptTab = 'snapshot';
 
   function setRptPeriod(period, btn) {
     rptPeriod = period;
     document.querySelectorAll('#rpt-period-tabs .filter-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     loadReports();
+  }
+
+  function setRptTab(tab, btn) {
+    rptTab = tab;
+    document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['snapshot','operations','drivers'].forEach(t => {
+      const el = document.getElementById('rpttab-'+t);
+      if (el) el.style.display = t === tab ? '' : 'none';
+    });
   }
 
   function rptDateRange(period) {
@@ -5030,7 +5004,7 @@
   async function loadReports() {
     const { start, end, prevStart, prevEnd } = rptDateRange(rptPeriod);
     ['rpt-revenue','rpt-orders','rpt-lbs','rpt-bags','rpt-aov','rpt-rev-per-lb','rpt-ontime','rpt-repeat',
-     'rpt-drv-routes','rpt-drv-stops','rpt-drv-hours','rpt-drv-sph','rpt-drv-rating']
+     'rpt-drv-routes','rpt-drv-stops','rpt-drv-rating']
       .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '…'; });
 
     // ── Fetch current period orders (expanded fields) ──
@@ -5117,96 +5091,13 @@
       ? `${repeatOrders} of ${orderCount} orders from returning customers`
       : (prevOrders.length ? '' : 'Compare to prev period');
 
-    // ── Render order charts ──
-    renderRevenueChart(orders, start, rptPeriod);
-    renderStatusChart(orders);
-    renderDowChart(orders);
+    // ── Render data ──
     renderServicesList(orders);
-    renderRoutesChart(routeList);
+    renderOrderStatusBreakdown(orders);
     renderOrdersTable(orders);
 
     // ── Driver Performance ──
     renderDriverStats(routeList, orders);
-  }
-
-  function renderRevenueChart(orders, start, period) {
-    const ctx = document.getElementById('rpt-chart-revenue').getContext('2d');
-    if (rptRevenueChart) { rptRevenueChart.destroy(); rptRevenueChart = null; }
-    let labels=[], data=[];
-
-    if (period === 'week') {
-      const dayLabels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-      const grouped = {};
-      orders.forEach(o => {
-        const diff = Math.floor((new Date(o.created_at) - start) / 86400000);
-        grouped[diff] = (grouped[diff]||0) + Number(o.total_amount||0);
-      });
-      labels = dayLabels; data = [0,1,2,3,4,5,6].map(i => grouped[i]||0);
-      document.getElementById('rpt-rev-chart-sub').textContent = 'Daily totals this week';
-    } else if (period === 'month') {
-      const grouped = {};
-      orders.forEach(o => {
-        const diff = Math.floor((new Date(o.created_at) - start) / 86400000);
-        const wk = Math.floor(diff/7);
-        grouped[wk] = (grouped[wk]||0) + Number(o.total_amount||0);
-      });
-      const maxWk = Math.max(3, ...Object.keys(grouped).map(Number));
-      for (let w=0; w<=maxWk; w++) {
-        const d = new Date(start); d.setDate(d.getDate()+w*7);
-        labels.push('Wk '+(w+1));
-        data.push(grouped[w]||0);
-      }
-      document.getElementById('rpt-rev-chart-sub').textContent = 'Weekly totals this month';
-    } else if (period === 'quarter') {
-      for (let m=0; m<3; m++) {
-        const mS = new Date(start); mS.setMonth(mS.getMonth()+m);
-        const mE = new Date(mS.getFullYear(), mS.getMonth()+1, 1);
-        const rev = orders.filter(o => { const d=new Date(o.created_at); return d>=mS&&d<mE; })
-          .reduce((s,o) => s+Number(o.total_amount||0), 0);
-        labels.push(mS.toLocaleDateString('en-US',{month:'short',year:'numeric'}));
-        data.push(rev);
-      }
-      document.getElementById('rpt-rev-chart-sub').textContent = 'Monthly totals';
-    } else {
-      const mm = {};
-      orders.forEach(o => {
-        const d = new Date(o.created_at);
-        const k = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
-        mm[k] = (mm[k]||0)+Number(o.total_amount||0);
-      });
-      const sorted = Object.keys(mm).sort();
-      labels = sorted.map(k => { const [y,m]=k.split('-'); return new Date(y,m-1,1).toLocaleDateString('en-US',{month:'short',year:'2-digit'}); });
-      data = sorted.map(k => mm[k]);
-      document.getElementById('rpt-rev-chart-sub').textContent = 'All-time monthly totals';
-    }
-
-    rptRevenueChart = new Chart(ctx, {
-      type: 'bar',
-      data: { labels, datasets: [{ label:'Revenue', data, backgroundColor:'rgba(99,91,255,.15)', borderColor:'rgba(99,91,255,.8)', borderWidth:1.5, borderRadius:4 }] },
-      options: { responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{display:false} },
-        scales:{ y:{beginAtZero:true, ticks:{callback:v=>'$'+v.toFixed(0), font:{size:11}}, grid:{color:'rgba(0,0,0,.05)'}}, x:{ticks:{font:{size:11}}, grid:{display:false}} }
-      }
-    });
-  }
-
-  function renderStatusChart(orders) {
-    const ctx = document.getElementById('rpt-chart-status').getContext('2d');
-    if (rptStatusChart) { rptStatusChart.destroy(); rptStatusChart = null; }
-    const labels = { scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up', processing:'Processing', assembled:'Assembled', ready_for_delivery:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', pickup_missed:'Pickup Missed', delivery_missed:'Delivery Missed', on_hold:'On Hold', cancelled:'Cancelled', pending_pickup:'Pending Pickup', ready:'Ready' };
-    const colors = { scheduled:'#94a3b8', ready_for_pickup:'#f59e0b', picked_up:'#3b82f6', processing:'#0ea5e9', assembled:'#a855f7', ready_for_delivery:'#10b981', out_for_delivery:'#7c3aed', delivered:'#22c55e', pickup_missed:'#ef4444', delivery_missed:'#ef4444', on_hold:'#f59e0b', cancelled:'#dc2626', pending_pickup:'#f59e0b', ready:'#10b981' };
-    const counts = {};
-    orders.forEach(o => { counts[o.status] = (counts[o.status]||0)+1; });
-    const keys = Object.keys(counts).sort();
-    if (!keys.length) {
-      rptStatusChart = new Chart(ctx, { type:'doughnut', data:{ labels:['No orders'], datasets:[{data:[1], backgroundColor:['#e5e7eb']}] }, options:{ plugins:{legend:{display:false}} } });
-      return;
-    }
-    rptStatusChart = new Chart(ctx, {
-      type: 'doughnut',
-      data: { labels: keys.map(k=>labels[k]||k), datasets: [{ data: keys.map(k=>counts[k]), backgroundColor: keys.map(k=>colors[k]||'#9ca3af'), borderWidth:2, borderColor:'white' }] },
-      options: { responsive:true, maintainAspectRatio:false, cutout:'65%', plugins:{ legend:{position:'right', labels:{font:{size:11}, padding:10, boxWidth:12}} } }
-    });
   }
 
   function renderServicesList(orders) {
@@ -5230,25 +5121,20 @@
       </div>`).join('');
   }
 
-  function renderRoutesChart(routes) {
-    const ctx = document.getElementById('rpt-chart-routes').getContext('2d');
-    if (rptRoutesChart) { rptRoutesChart.destroy(); rptRoutesChart = null; }
-    const completed = routes.filter(r=>r.status==='complete').length;
-    const inProgress = routes.filter(r=>r.status==='in_progress').length;
-    const planned = routes.filter(r=>r.status==='planned').length;
-    const cancelled = routes.filter(r=>r.status==='cancelled').length;
-    rptRoutesChart = new Chart(ctx, {
-      type: 'bar',
-      data: { labels:['Completed','In Progress','Planned','Cancelled'], datasets:[{
-        data:[completed,inProgress,planned,cancelled],
-        backgroundColor:['rgba(11,162,90,.2)','rgba(37,99,235,.2)','rgba(99,91,255,.2)','rgba(239,68,68,.2)'],
-        borderColor:['#0ba25a','#2563eb','#635bff','#ef4444'], borderWidth:1.5, borderRadius:4
-      }] },
-      options: { responsive:true, maintainAspectRatio:false, indexAxis:'y',
-        plugins:{legend:{display:false}},
-        scales:{ x:{beginAtZero:true, ticks:{stepSize:1, font:{size:11}}, grid:{color:'rgba(0,0,0,.05)'}}, y:{ticks:{font:{size:11}}, grid:{display:false}} }
-      }
-    });
+  function renderOrderStatusBreakdown(orders) {
+    const STATUS_LABELS = { scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up', processing:'Processing', assembled:'Assembled', ready_for_delivery:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', pickup_missed:'Pickup Missed', delivery_missed:'Delivery Missed', on_hold:'On Hold', cancelled:'Cancelled', pending_pickup:'Pending Pickup', ready:'Ready' };
+    const STATUS_COLORS = { delivered:'#dcfce7', picked_up:'#dbeafe', out_for_delivery:'#ede9fe', processing:'#e0f2fe', assembled:'#f3e8ff', ready_for_delivery:'#d1fae5', pickup_missed:'#fee2e2', delivery_missed:'#fee2e2', cancelled:'#fee2e2', on_hold:'#fef3c7', scheduled:'#f1f5f9', ready_for_pickup:'#fef3c7', pending_pickup:'#fef3c7', ready:'#d1fae5' };
+    const el = document.getElementById('rpt-status-breakdown');
+    if (!el) return;
+    const counts = {};
+    orders.forEach(o => { counts[o.status] = (counts[o.status]||0)+1; });
+    const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+    if (!sorted.length) { el.innerHTML='<div style="color:var(--gray-400);font-size:13px">No orders in this period.</div>'; return; }
+    el.innerHTML = '<div class="rpt-status-pills">' + sorted.map(([status, count]) =>
+      `<div class="rpt-status-pill" style="background:${STATUS_COLORS[status]||'#f1f5f9'}">
+        <span class="rpt-status-pill-count">${count}</span>
+        <span>${STATUS_LABELS[status]||status}</span>
+      </div>`).join('') + '</div>';
   }
 
   function renderOrdersTable(orders) {
@@ -5261,56 +5147,17 @@
     tbody.innerHTML = orders.slice(0,50).map(o => {
       const fn=o.customers?.first_name_cache||'', ln=o.customers?.last_name_cache||'';
       const cname=`${fn} ${ln}`.trim()||'—';
-      const lbs = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) : '—';
+      const bags = o.total_bags || '—';
       return `<tr>
         <td class="td-mono">#${o.order_number||'—'}</td>
         <td class="td-name">${cname}</td>
         <td>${o.services?.name||'—'}</td>
         <td>${fmtDate(o.created_at)}</td>
-        <td style="color:var(--gray-600)">${lbs}</td>
+        <td style="color:var(--gray-600)">${bags}</td>
         <td>${statusBadge(o.status)}</td>
         <td style="text-align:right;font-weight:600">${fmtMoney(o.total_amount)}</td>
       </tr>`;
     }).join('');
-  }
-
-  // ── Day-of-week demand chart ──
-  function renderDowChart(orders) {
-    const ctx = document.getElementById('rpt-chart-dow')?.getContext('2d');
-    if (!ctx) return;
-    if (rptDowChart) { rptDowChart.destroy(); rptDowChart = null; }
-
-    const DAY = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    const counts = [0,0,0,0,0,0,0];
-    const revenue = [0,0,0,0,0,0,0];
-    orders.forEach(o => {
-      const d = new Date(o.created_at).getDay(); // 0=Sun
-      counts[d]++;
-      revenue[d] += Number(o.total_amount||0);
-    });
-    // Reorder Mon–Sun
-    const labels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    const cData  = [counts[1],counts[2],counts[3],counts[4],counts[5],counts[6],counts[0]];
-    const rData  = [revenue[1],revenue[2],revenue[3],revenue[4],revenue[5],revenue[6],revenue[0]];
-
-    rptDowChart = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [
-          { label:'Orders', data:cData, backgroundColor:'rgba(99,91,255,.18)', borderColor:'rgba(99,91,255,.7)', borderWidth:1.5, borderRadius:4, yAxisID:'y' },
-          { label:'Revenue', data:rData, type:'line', borderColor:'rgba(11,162,90,.8)', backgroundColor:'transparent', borderWidth:2, pointRadius:3, pointBackgroundColor:'rgba(11,162,90,.8)', tension:.3, yAxisID:'y2' }
-        ]
-      },
-      options: {
-        responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{ position:'top', labels:{ font:{size:11}, boxWidth:12 } } },
-        scales:{
-          y:  { position:'left',  beginAtZero:true, ticks:{font:{size:11},stepSize:1}, grid:{color:'rgba(0,0,0,.04)'} },
-          y2: { position:'right', beginAtZero:true, ticks:{ font:{size:11}, callback: v => '$'+v }, grid:{display:false} }
-        }
-      }
-    });
   }
 
   // ── Driver stats section ──
@@ -5319,11 +5166,6 @@
     const completedRoutes = routes.filter(r => r.completed_stops > 0);
     const fleetRoutes = completedRoutes.length;
     const fleetStops  = routes.reduce((s,r) => s + (r.completed_stops||0), 0);
-    const fleetHours  = routes.reduce((s,r) => {
-      if (r.started_at && r.completed_at) return s + (new Date(r.completed_at) - new Date(r.started_at)) / 3600000;
-      return s;
-    }, 0);
-    const fleetSph    = fleetHours > 0 ? (fleetStops / fleetHours).toFixed(1) : '—';
 
     const ratedOrders = orders.filter(o => o.driver_rating != null);
     const avgRating   = ratedOrders.length
@@ -5333,8 +5175,6 @@
 
     document.getElementById('rpt-drv-routes').textContent = fleetRoutes || '—';
     document.getElementById('rpt-drv-stops').textContent  = fleetStops  || '—';
-    document.getElementById('rpt-drv-hours').textContent  = fleetHours  ? fleetHours.toFixed(1) + 'h' : '—';
-    document.getElementById('rpt-drv-sph').textContent    = fleetSph;
     document.getElementById('rpt-drv-rating').textContent = avgRating ? avgRating + ' / 5' : '—';
     document.getElementById('rpt-drv-rating-sub').textContent = ratedOrders.length ? `${ratedOrders.length} ratings` : 'No ratings yet';
 
@@ -5354,27 +5194,23 @@
       const delivDid  = r.delivery_driver_id;
       // Credit pickup driver
       if (pickupDid) {
-        if (!drvMap[pickupDid]) drvMap[pickupDid] = { routes:0, stops:0, hours:0, lbs:0, ratingSum:0, ratingCount:0 };
+        if (!drvMap[pickupDid]) drvMap[pickupDid] = { routes:0, stops:0, bags:0, ratingSum:0, ratingCount:0 };
         drvMap[pickupDid].routes++;
         drvMap[pickupDid].stops += r.completed_stops || 0;
-        if (r.started_at && r.completed_at)
-          drvMap[pickupDid].hours += (new Date(r.completed_at) - new Date(r.started_at)) / 3600000;
       }
       // Credit delivery driver (only if different from pickup driver)
       if (delivDid && delivDid !== pickupDid) {
-        if (!drvMap[delivDid]) drvMap[delivDid] = { routes:0, stops:0, hours:0, lbs:0, ratingSum:0, ratingCount:0 };
+        if (!drvMap[delivDid]) drvMap[delivDid] = { routes:0, stops:0, bags:0, ratingSum:0, ratingCount:0 };
         drvMap[delivDid].routes++;
         drvMap[delivDid].stops += r.completed_stops || 0;
-        if (r.started_at && r.completed_at)
-          drvMap[delivDid].hours += (new Date(r.completed_at) - new Date(r.started_at)) / 3600000;
       }
     });
 
-    // Assign order weight + ratings to driver via pickup_run_id
+    // Assign bags + ratings to driver via pickup_run_id
     orders.forEach(o => {
       const did = o.pickup_run_id ? routeDriver[o.pickup_run_id] : null;
       if (!did || !drvMap[did]) return;
-      drvMap[did].lbs += Number(o.weight_lbs||0);
+      drvMap[did].bags += Number(o.total_bags||0);
       if (o.driver_rating != null) {
         drvMap[did].ratingSum += o.driver_rating;
         drvMap[did].ratingCount++;
@@ -5385,15 +5221,13 @@
     const rows = Object.entries(drvMap).sort((a,b) => b[1].stops - a[1].stops);
 
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="rpt-no-data">No route data for this period.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="rpt-no-data">No route data for this period.</td></tr>';
       return;
     }
 
     tbody.innerHTML = rows.map(([did, s]) => {
       const name   = driverName(did);
-      const sph    = s.hours > 0 ? (s.stops / s.hours).toFixed(1) : '—';
-      const hrs    = s.hours ? s.hours.toFixed(1) + 'h' : '—';
-      const lbs    = s.lbs  ? s.lbs.toFixed(1) + ' lb' : '—';
+      const bags   = s.bags || '—';
       const rating = s.ratingCount
         ? `<span class="rpt-stars">${stars(s.ratingSum/s.ratingCount)}</span> <span style="font-size:12px;color:var(--gray-500)">${(s.ratingSum/s.ratingCount).toFixed(1)}</span>`
         : '<span style="color:var(--gray-300)">— no ratings</span>';
@@ -5401,10 +5235,8 @@
         <td style="font-weight:600">${name}</td>
         <td>${s.routes}</td>
         <td>${s.stops}</td>
-        <td>${hrs}</td>
-        <td style="font-weight:600;color:var(--accent)">${sph}</td>
         <td>${rating}</td>
-        <td style="color:var(--gray-600)">${lbs}</td>
+        <td style="color:var(--gray-600)">${bags}</td>
       </tr>`;
     }).join('');
   }
