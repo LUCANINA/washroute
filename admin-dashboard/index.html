@@ -509,6 +509,53 @@
     .notif-tag:hover { background:var(--accent-light);border-color:var(--accent);color:var(--accent); }
     .notif-footer { padding:14px 24px;border-top:1px solid var(--gray-100);display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-shrink:0; }
     .notif-save-msg { font-size:12px;color:#059669; }
+
+    /* ── PROCESSING QUEUE ── */
+    .proc-queue-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px; }
+    .proc-card { background:white;border:1px solid var(--gray-200);border-radius:var(--radius);padding:18px 20px;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s,border-color .15s; }
+    .proc-card:hover { box-shadow:0 4px 18px rgba(0,0,0,.1);border-color:var(--accent); }
+    .proc-card-order { font-size:11.5px;color:var(--gray-400);font-family:monospace;letter-spacing:.03em; }
+    .proc-card-name { font-size:16px;font-weight:700;color:var(--gray-900);line-height:1.2; }
+    .proc-card-meta { font-size:13px;color:var(--gray-500);display:flex;align-items:center;gap:12px;flex-wrap:wrap; }
+    .proc-card-pref-chip { font-size:11px;padding:2px 8px;border-radius:12px;background:#ede9ff;color:var(--accent);font-weight:600; }
+    .proc-card-btn { width:100%;padding:11px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px;transition:background .12s; }
+    .proc-card-btn:hover { background:#5049e8; }
+    /* Intake panel */
+    .intake-over { position:fixed;top:0;right:0;bottom:0;width:560px;background:white;box-shadow:-8px 0 40px rgba(0,0,0,.18);z-index:900;transform:translateX(100%);transition:transform .22s ease;display:flex;flex-direction:column;overflow:hidden; }
+    .intake-over.open { transform:translateX(0); }
+    .intake-section { margin-bottom:20px; }
+    .intake-section-label { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--gray-400);margin-bottom:10px; }
+    /* Bag stepper */
+    .proc-stepper { display:inline-flex;align-items:center;border:2px solid var(--gray-200);border-radius:12px;overflow:hidden; }
+    .proc-stepper-btn { width:54px;height:54px;border:none;background:var(--gray-50);font-size:24px;font-weight:300;cursor:pointer;color:var(--gray-600);display:flex;align-items:center;justify-content:center;transition:background .1s;flex-shrink:0; }
+    .proc-stepper-btn:hover { background:var(--gray-100); }
+    .proc-stepper-val { width:64px;text-align:center;font-size:24px;font-weight:700;color:var(--gray-900);font-variant-numeric:tabular-nums; }
+    /* Weight input */
+    .proc-weight-input { font-size:28px;font-weight:700;color:var(--gray-900);border:2px solid var(--gray-200);border-radius:12px;padding:10px 16px;width:140px;text-align:center;font-family:inherit;outline:none; }
+    .proc-weight-input:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light); }
+    .proc-weight-unit { font-size:20px;color:var(--gray-400);font-weight:500; }
+    /* Overage */
+    .proc-overage { padding:10px 14px;border-radius:8px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;margin-top:10px; }
+    /* Add-on buttons */
+    .proc-addon-group { margin-bottom:14px; }
+    .proc-addon-group-label { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px; }
+    .proc-addon-options { display:flex;flex-wrap:wrap;gap:8px; }
+    .proc-addon-btn { padding:10px 16px;border-radius:10px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;flex-direction:column;gap:2px; }
+    .proc-addon-btn.selected { border-color:var(--accent);background:#ede9ff; }
+    .proc-addon-btn-name { font-size:13.5px;font-weight:600;color:var(--gray-800); }
+    .proc-addon-btn.selected .proc-addon-btn-name { color:var(--accent); }
+    .proc-addon-btn-price { font-size:12px;color:var(--gray-400); }
+    .proc-addon-btn.selected .proc-addon-btn-price { color:var(--accent); }
+    /* Breakdown */
+    .proc-breakdown { background:var(--gray-50);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:7px; }
+    .proc-breakdown-row { display:flex;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--gray-700); }
+    .proc-breakdown-row.overage-row { color:#9a3412; }
+    .proc-breakdown-row.total-row { font-size:16px;font-weight:700;color:var(--gray-900);border-top:1px solid var(--gray-200);padding-top:10px;margin-top:4px; }
+    .proc-breakdown-row .amount { font-weight:600;font-variant-numeric:tabular-nums; }
+    /* Save */
+    .proc-save-btn { width:100%;padding:16px;font-size:15px;font-weight:700;background:var(--accent);color:white;border:none;border-radius:10px;cursor:pointer;font-family:inherit;transition:background .12s; }
+    .proc-save-btn:hover:not(:disabled) { background:#5049e8; }
+    .proc-save-btn:disabled { background:var(--gray-300);cursor:not-allowed; }
   </style>
 </head>
 <body>
@@ -556,6 +603,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
         Orders
         <span class="nav-badge" id="badge-orders">0</span>
+      </div>
+      <div class="nav-item" onclick="showPage('processing',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6l9-4 9 4v12l-9 4-9-4V6z"/><polyline points="3 6 12 10 21 6"/><line x1="12" y1="10" x2="12" y2="22"/></svg>
+        Processing
+        <span class="nav-badge" id="badge-processing">0</span>
       </div>
       <div class="nav-item" onclick="showPage('routes',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/></svg>
@@ -744,6 +796,21 @@
             <div id="orders-table-body" style="overflow-x:auto;"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
 
+        </div>
+
+        <!-- ── PROCESSING ── -->
+        <div class="page" id="page-processing">
+          <div class="card" style="margin-bottom:0">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Processing Queue</div>
+                <div class="card-sub" id="proc-subtitle">Orders ready to be weighed and itemized</div>
+              </div>
+            </div>
+            <div style="padding:20px 20px 24px;" id="proc-queue-wrap">
+              <div class="loading"><div class="spinner"></div> Loading…</div>
+            </div>
+          </div>
         </div>
 
         <!-- ── ROUTES ── -->
@@ -1758,6 +1825,26 @@
   </div>
 </div>
 
+<!-- ── INTAKE PANEL ── -->
+<div class="intake-over" id="intake-panel">
+  <div class="slide-over-header">
+    <button class="btn btn-ghost" style="padding:6px 10px;margin-right:4px" onclick="closeIntakePanel()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div>
+      <div style="font-weight:700;font-size:15px" id="intake-title">Process Order</div>
+      <div style="font-size:12px;color:var(--gray-400)" id="intake-subtitle"></div>
+    </div>
+  </div>
+  <div class="slide-over-body" id="intake-body">
+    <div class="loading"><div class="spinner"></div> Loading…</div>
+  </div>
+  <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
+    <div id="intake-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
+    <button class="proc-save-btn" id="intake-save-btn" onclick="saveIntake()" disabled>Save &amp; Start Processing</button>
+  </div>
+</div>
+
 <script>
   // ── SUPABASE INIT ──
   const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
@@ -1907,8 +1994,8 @@
   });
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', routes:'Routes', drivers:'Drivers', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports' };
-  const pageCTAs   = { overview:'New Order', customers:'', orders:'', routes:'', drivers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports' };
+  const pageCTAs   = { overview:'New Order', customers:'', orders:'', processing:'', routes:'', drivers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'' };
 
   function showPage(id, navEl) {
     // If leaving orders page, clear any active batch selection
@@ -1929,6 +2016,7 @@
     if (id === 'services') loadServices();
     if (id === 'notifications') loadNotifications();
     if (id === 'reports') loadReports();
+    if (id === 'processing') loadProcessing();
   }
 
   function handleCTA() {
@@ -2905,6 +2993,7 @@
           <option value="per_lb" ${s.pricing_type==='per_lb'?'selected':''}>Per lb</option>
           <option value="per_item" ${s.pricing_type==='per_item'?'selected':''}>Per item</option>
           <option value="flat" ${s.pricing_type==='flat'?'selected':''}>Flat rate</option>
+          <option value="per_bag" ${s.pricing_type==='per_bag'?'selected':''}>Per bag</option>
         </select>
       </div>
       <div>
@@ -2926,6 +3015,18 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
         </button>
       </div>
+      <div style="grid-column:1/-1;display:flex;align-items:center;gap:20px;padding:6px 0 4px;border-top:1px dashed var(--gray-100);margin-top:2px">
+        <span style="font-size:11.5px;color:var(--gray-400);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Processing:</span>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--gray-600)">
+          Lbs/bag
+          <input class="svc-input" id="svc-lbs-${s.id}" type="number" step="0.5" min="1" value="${parseFloat(s.lbs_per_bag||25)}" style="width:56px" oninput="markSvcDirty('${s.id}')" />
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--gray-600)">
+          Overage $/lb
+          <div class="svc-price-wrap" style="width:auto"><span class="svc-price-prefix">$</span>
+          <input class="svc-input" id="svc-ovg-${s.id}" type="number" step="0.25" min="0" value="${parseFloat(s.overage_rate_per_lb||3).toFixed(2)}" style="width:56px;padding-left:4px" oninput="markSvcDirty('${s.id}')" /></div>
+        </label>
+      </div>
     </div>`;
   }
 
@@ -2935,18 +3036,22 @@
   }
 
   async function saveServiceEdit(id) {
-    const name  = document.getElementById('svc-name-'+id)?.value.trim();
-    const price = parseFloat(document.getElementById('svc-price-'+id)?.value) || 0;
-    const type  = document.getElementById('svc-type-'+id)?.value;
-    const cat   = document.getElementById('svc-cat-'+id)?.value;
+    const name    = document.getElementById('svc-name-'+id)?.value.trim();
+    const price   = parseFloat(document.getElementById('svc-price-'+id)?.value) || 0;
+    const type    = document.getElementById('svc-type-'+id)?.value;
+    const cat     = document.getElementById('svc-cat-'+id)?.value;
+    const lbsBag  = parseFloat(document.getElementById('svc-lbs-'+id)?.value) || 25;
+    const ovgRate = parseFloat(document.getElementById('svc-ovg-'+id)?.value) || 3;
     if (!name) { showToast('Service name required','error'); return; }
-    const { error } = await db.from('services').update({ name, base_price: price, pricing_type: type, category: cat }).eq('id', id);
+    const { error } = await db.from('services').update({
+      name, base_price: price, pricing_type: type, category: cat,
+      lbs_per_bag: lbsBag, overage_rate_per_lb: ovgRate
+    }).eq('id', id);
     if (error) { showToast(error.message, 'error'); return; }
     const saveBtn = document.getElementById('svc-save-'+id);
     if (saveBtn) saveBtn.style.display = 'none';
-    allServices = allServices.map(s => s.id===id ? {...s, name, base_price: price, pricing_type: type, category: cat} : s);
+    allServices = allServices.map(s => s.id===id ? {...s, name, base_price: price, pricing_type: type, category: cat, lbs_per_bag: lbsBag, overage_rate_per_lb: ovgRate} : s);
     showToast('Saved!', 'success');
-    // Re-render if category changed (service may move to different group)
     filterServices();
   }
 
@@ -4946,6 +5051,274 @@
     if (error) { showToast('Delete failed: ' + error.message, 'error'); return; }
     showToast(`Zone "${zoneName}" deleted.`);
     await loadAndRenderZones();
+  }
+
+  // ── PROCESSING ──
+  let allProcOrders = [];
+  let procActiveOrder = null, procSvc = null;
+  let procBags = 1, procWeight = '', procAddons = {}, procNotes = '';
+
+  async function loadProcessing() {
+    const wrap = document.getElementById('proc-queue-wrap');
+    if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+
+    const { data: orders } = await db.from('orders')
+      .select(`id, order_number, status, total_bags, special_instructions, service_id,
+               customers(id, first_name_cache, last_name_cache),
+               services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences)`)
+      .eq('status', 'picked_up')
+      .order('actual_pickup_at', { ascending: true });
+
+    allProcOrders = orders || [];
+    const badge = document.getElementById('badge-processing');
+    if (badge) badge.textContent = allProcOrders.length || '0';
+    renderProcQueue();
+  }
+
+  function renderProcQueue() {
+    const wrap = document.getElementById('proc-queue-wrap');
+    const sub  = document.getElementById('proc-subtitle');
+    if (!wrap) return;
+
+    if (!allProcOrders.length) {
+      wrap.innerHTML = `<div class="empty" style="padding:48px 0">
+        <div class="empty-icon">📭</div>
+        <div class="empty-title">No orders to process</div>
+        <div class="empty-sub">Orders will appear here once drivers complete their pickups.</div>
+      </div>`;
+      if (sub) sub.textContent = 'No orders waiting';
+      return;
+    }
+
+    if (sub) sub.textContent = `${allProcOrders.length} order${allProcOrders.length!==1?'s':''} waiting`;
+
+    wrap.innerHTML = '<div class="proc-queue-grid">' + allProcOrders.map(o => {
+      const fn   = o.customers?.first_name_cache || '';
+      const ln   = o.customers?.last_name_cache  || '';
+      const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
+      const bags = o.total_bags || 1;
+      const svcName = o.services?.name || '—';
+      const prefs   = o.services?.preferences || [];
+      // Show chips for pref options that have a price mod (non-standard selections)
+      const premiumOpts = [];
+      prefs.forEach(g => { const d = (g.options||[]).find(opt=>opt.is_default); if(d&&d.price_mod>0) premiumOpts.push(d.label); });
+      return `<div class="proc-card">
+        <div>
+          <div class="proc-card-order">#${o.order_number||'—'}</div>
+          <div class="proc-card-name">${name}</div>
+        </div>
+        <div class="proc-card-meta">
+          <span>📦 ${bags} bag${bags!==1?'s':''}</span>
+          <span>${svcName}</span>
+        </div>
+        ${premiumOpts.length ? `<div class="proc-card-prefs">${premiumOpts.map(l=>`<span class="proc-card-pref-chip">${l}</span>`).join('')}</div>` : ''}
+        ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
+        <button class="proc-card-btn" onclick="openIntakePanel('${o.id}')">⚖️ Process Order</button>
+      </div>`;
+    }).join('') + '</div>';
+  }
+
+  async function openIntakePanel(orderId) {
+    const order = allProcOrders.find(o => o.id === orderId);
+    if (!order) return;
+    procActiveOrder = order;
+    procSvc         = order.services;
+    procBags        = order.total_bags || 1;
+    procWeight      = '';
+    procNotes       = order.special_instructions || '';
+    // Pre-select default option for each preference group
+    procAddons = {};
+    (procSvc?.preferences || []).forEach(g => {
+      const def = (g.options||[]).find(opt => opt.is_default);
+      if (def) procAddons[g.id] = { id: def.id, label: def.label, price_mod: parseFloat(def.price_mod)||0 };
+    });
+    const fn = order.customers?.first_name_cache || '';
+    const ln = order.customers?.last_name_cache  || '';
+    document.getElementById('intake-title').textContent    = `${fn} ${ln}`.trim() || 'Process Order';
+    document.getElementById('intake-subtitle').textContent = `Order #${order.order_number||'—'} · ${procSvc?.name||''}`;
+    document.getElementById('intake-save-btn').disabled    = true;
+    document.getElementById('intake-error').style.display  = 'none';
+    renderIntakePanel();
+    document.getElementById('intake-panel').classList.add('open');
+    setTimeout(() => document.getElementById('proc-weight-inp')?.focus(), 280);
+  }
+
+  function renderIntakePanel() {
+    const svc = procSvc || {};
+    const pricePerBag = parseFloat(svc.base_price || 0);
+    const lbsPerBag   = parseFloat(svc.lbs_per_bag || 25);
+    const ovgRate     = parseFloat(svc.overage_rate_per_lb || 3);
+    const prefs       = svc.preferences || [];
+    const bd          = calcProcTotal();
+
+    let prefsHTML = '';
+    if (prefs.length) {
+      prefsHTML = `<div class="intake-section">
+        <div class="intake-section-label">Add-ons &amp; Preferences</div>
+        ${prefs.filter(g=>(g.options||[]).length).map(g => `<div class="proc-addon-group">
+          <div class="proc-addon-group-label">${g.name}</div>
+          <div class="proc-addon-options">
+            ${(g.options||[]).map(opt => {
+              const sel = procAddons[g.id]?.id === opt.id;
+              const priceLabel = opt.price_mod > 0 ? `+${fmtMoney(opt.price_mod)}` : 'Included';
+              return `<button class="proc-addon-btn${sel?' selected':''}"
+                onclick="selectProcAddon('${g.id}','${opt.id}','${(opt.label||'').replace(/'/g,"\\'")}',${opt.price_mod||0})">
+                <span class="proc-addon-btn-name">${opt.label}</span>
+                <span class="proc-addon-btn-price">${priceLabel}</span>
+              </button>`;
+            }).join('')}
+          </div>
+        </div>`).join('')}
+      </div>`;
+    }
+
+    document.getElementById('intake-body').innerHTML = `
+      <div class="intake-section">
+        <div class="intake-section-label">Number of Bags</div>
+        <div class="proc-stepper">
+          <button class="proc-stepper-btn" onclick="setProcBags(-1)">−</button>
+          <div class="proc-stepper-val" id="proc-bags-val">${procBags}</div>
+          <button class="proc-stepper-btn" onclick="setProcBags(1)">+</button>
+        </div>
+        <div style="font-size:12px;color:var(--gray-400);margin-top:8px">Up to ${lbsPerBag} lbs/bag — overage billed at ${fmtMoney(ovgRate)}/lb</div>
+      </div>
+      <div class="intake-section">
+        <div class="intake-section-label">Total Weight</div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <input class="proc-weight-input" id="proc-weight-inp" type="number" step="0.1" min="0"
+                 inputmode="decimal" value="${procWeight}" placeholder="0.0"
+                 oninput="updateProcWeight(this.value)" onchange="updateProcWeight(this.value)" />
+          <span class="proc-weight-unit">lbs</span>
+        </div>
+        <div id="proc-overage-wrap" style="display:${bd.overage_lbs>0?'':'none'}">
+          <div class="proc-overage">⚠️ <span id="proc-overage-text">${bd.overage_lbs.toFixed(1)} lbs over limit · +${fmtMoney(bd.overage_charge)}</span></div>
+        </div>
+      </div>
+      ${prefsHTML}
+      <div class="intake-section">
+        <div class="intake-section-label">Notes <span style="font-weight:400;color:var(--gray-300)">(optional)</span></div>
+        <textarea class="notif-textarea" rows="2" placeholder="Anything unusual about this order…"
+                  oninput="procNotes=this.value">${procNotes}</textarea>
+      </div>
+      <div class="intake-section" style="margin-bottom:0">
+        <div class="intake-section-label">Price Breakdown</div>
+        <div class="proc-breakdown" id="proc-breakdown">${renderBreakdownRows(bd, pricePerBag)}</div>
+      </div>`;
+  }
+
+  function renderBreakdownRows(bd, pricePerBag) {
+    const ovgRate = parseFloat(procSvc?.overage_rate_per_lb || 3);
+    let rows = [];
+    rows.push(`<div class="proc-breakdown-row"><span>${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}</span><span class="amount">${fmtMoney(bd.base)}</span></div>`);
+    if (bd.overage_charge > 0)
+      rows.push(`<div class="proc-breakdown-row overage-row"><span>⚠️ ${bd.overage_lbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}</span><span class="amount">+${fmtMoney(bd.overage_charge)}</span></div>`);
+    Object.values(procAddons).forEach(a => {
+      if (a.price_mod > 0) rows.push(`<div class="proc-breakdown-row"><span>${a.label}</span><span class="amount">+${fmtMoney(a.price_mod)}</span></div>`);
+    });
+    const totalLabel = bd.weight > 0 ? 'Total' : 'Total (pending weight)';
+    rows.push(`<div class="proc-breakdown-row total-row"><span>${totalLabel}</span><span class="amount">${fmtMoney(bd.total)}</span></div>`);
+    return rows.join('');
+  }
+
+  function calcProcTotal() {
+    const svc         = procSvc || {};
+    const pricePerBag = parseFloat(svc.base_price || 0);
+    const lbsPerBag   = parseFloat(svc.lbs_per_bag || 25);
+    const ovgRate     = parseFloat(svc.overage_rate_per_lb || 3);
+    const bags        = procBags;
+    const weight      = parseFloat(procWeight) || 0;
+    const base        = bags * pricePerBag;
+    const overage_lbs    = Math.max(0, weight - bags * lbsPerBag);
+    const overage_charge = overage_lbs * ovgRate;
+    const addons_total   = Object.values(procAddons).reduce((s,a) => s + (a.price_mod||0), 0);
+    return { bags, weight, base, overage_lbs, overage_charge, addons_total, total: base + overage_charge + addons_total };
+  }
+
+  function setProcBags(delta) {
+    procBags = Math.max(1, procBags + delta);
+    const el = document.getElementById('proc-bags-val');
+    if (el) el.textContent = procBags;
+    refreshProcCalc();
+  }
+
+  function updateProcWeight(val) {
+    procWeight = val;
+    refreshProcCalc();
+    updateIntakeSaveBtn();
+  }
+
+  function selectProcAddon(groupId, optId, label, priceMod) {
+    if (procAddons[groupId]?.id === optId) {
+      delete procAddons[groupId];
+    } else {
+      procAddons[groupId] = { id: optId, label, price_mod: parseFloat(priceMod)||0 };
+    }
+    // Re-render full panel to update button states + breakdown
+    const savedWeight = document.getElementById('proc-weight-inp')?.value || procWeight;
+    procWeight = savedWeight;
+    renderIntakePanel();
+  }
+
+  function refreshProcCalc() {
+    const svc = procSvc || {};
+    const bd  = calcProcTotal();
+    const ovgWrap = document.getElementById('proc-overage-wrap');
+    if (ovgWrap) {
+      ovgWrap.style.display = bd.overage_lbs > 0 ? '' : 'none';
+      const span = document.getElementById('proc-overage-text');
+      if (span) span.textContent = `${bd.overage_lbs.toFixed(1)} lbs over limit · +${fmtMoney(bd.overage_charge)}`;
+    }
+    const bdEl = document.getElementById('proc-breakdown');
+    if (bdEl) bdEl.innerHTML = renderBreakdownRows(bd, parseFloat(svc.base_price||0));
+  }
+
+  function updateIntakeSaveBtn() {
+    const btn = document.getElementById('intake-save-btn');
+    if (btn) btn.disabled = !procWeight || parseFloat(procWeight) <= 0;
+  }
+
+  function closeIntakePanel() {
+    document.getElementById('intake-panel').classList.remove('open');
+    procActiveOrder = null; procSvc = null;
+  }
+
+  async function saveIntake() {
+    if (!procActiveOrder) return;
+    const weight = parseFloat(procWeight);
+    if (!weight || weight <= 0) { showToast('Please enter the order weight.', 'error'); return; }
+    const btn = document.getElementById('intake-save-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+
+    const svc = procSvc || {};
+    const bd  = calcProcTotal();
+    const pricePerBag = parseFloat(svc.base_price || 0);
+    const ovgRate     = parseFloat(svc.overage_rate_per_lb || 3);
+
+    const lineItems = [
+      { type:'base', label:`${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}`, amount: bd.base }
+    ];
+    if (bd.overage_charge > 0)
+      lineItems.push({ type:'overage', label:`${bd.overage_lbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb`, amount: bd.overage_charge });
+    Object.values(procAddons).forEach(a =>
+      lineItems.push({ type:'addon', label: a.label, amount: a.price_mod||0 })
+    );
+
+    const { error } = await db.from('orders').update({
+      status: 'processing', weight_lbs: weight, total_bags: bd.bags,
+      total_amount: bd.total, line_items: lineItems,
+      special_instructions: procNotes || null,
+      updated_at: new Date().toISOString()
+    }).eq('id', procActiveOrder.id);
+
+    if (error) {
+      const errEl = document.getElementById('intake-error');
+      errEl.textContent = error.message; errEl.style.display = '';
+      btn.disabled = false; btn.textContent = 'Save & Start Processing';
+      return;
+    }
+    closeIntakePanel();
+    showToast(`Order #${procActiveOrder.order_number} → Processing!`, 'success');
+    loadProcessing();
   }
 
   // ── REPORTS ──
