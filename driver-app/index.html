@@ -1675,26 +1675,26 @@ async function sendDriverReply() {
 
 function subscribeToDriverMessages() {
   if (!currentDriver || msgSubscription) return;
-  msgSubscription = db.channel('driver-msgs-' + currentDriver.id)
+  // No server-side filter — filter client-side for reliability with UUIDs
+  msgSubscription = db.channel('driver-msgs-all')
     .on('postgres_changes', {
-      event: 'INSERT', schema: 'public', table: 'driver_messages',
-      filter: `driver_id=eq.${currentDriver.id}`
+      event: 'INSERT', schema: 'public', table: 'driver_messages'
     }, payload => {
+      // Only care about messages for this driver
+      if (payload.new.driver_id !== currentDriver.id) return;
       if (allMessages.find(m => m.id === payload.new.id)) return;
       allMessages.push(payload.new);
-      // If on messages screen, re-render + mark read immediately
       if (document.getElementById('screen-messages')?.classList.contains('active')) {
         renderMessages();
         markMessagesRead();
-      } else {
-        // Show toast + update badge for admin messages
-        if (payload.new.sender_type === 'admin') {
-          updateMsgBadge();
-          toast('💬 New message from the team', 3500);
-        }
+      } else if (payload.new.sender_type === 'admin') {
+        updateMsgBadge();
+        toast('💬 New message from the team', 3500);
       }
     })
-    .subscribe();
+    .subscribe(status => {
+      console.log('Driver messages channel:', status);
+    });
 }
 
 /* ──────────────────────────────
