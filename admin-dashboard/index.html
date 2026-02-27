@@ -658,7 +658,7 @@
         <div class="page" id="page-routes">
           <div class="stats-grid">
             <div class="stat-card"><div class="stat-label">Active Templates</div><div class="stat-value" id="rstat-templates">—</div></div>
-            <div class="stat-card"><div class="stat-label">Runs Today</div><div class="stat-value" id="rstat-today">—</div></div>
+            <div class="stat-card"><div class="stat-label">Routes Today</div><div class="stat-value" id="rstat-today">—</div></div>
             <div class="stat-card"><div class="stat-label">Total Stops</div><div class="stat-value" id="rstat-stops">—</div></div>
             <div class="stat-card"><div class="stat-label">Active Drivers</div><div class="stat-value" id="rstat-drivers">—</div></div>
           </div>
@@ -669,7 +669,7 @@
             <div class="section-tabs" style="padding:0 8px;align-items:center;">
               <button class="section-tab active" id="rtab-btn-templates" onclick="setRoutesTab('templates',this)">Route Templates</button>
               <button class="section-tab" id="rtab-btn-schedule" onclick="setRoutesTab('schedule',this)">Weekly Schedule</button>
-              <button class="section-tab" id="rtab-btn-runs" onclick="setRoutesTab('runs',this)">Daily Runs</button>
+              <button class="section-tab" id="rtab-btn-runs" onclick="setRoutesTab('runs',this)">Daily Routes</button>
               <div style="flex:1"></div>
               <button class="btn btn-primary" id="rtab-add-btn" style="padding:6px 14px;font-size:12px;margin:6px 8px 6px 0;" onclick="openTemplateEditor(null)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12" style="margin-right:4px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -741,9 +741,9 @@
           <div id="move-stop-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
             <div style="background:white;border-radius:10px;padding:24px;width:340px;box-shadow:0 20px 60px rgba(0,0,0,.2);">
               <div style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:4px">Move Stop</div>
-              <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px" id="move-stop-desc">Move stop to another run</div>
+              <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px" id="move-stop-desc">Move stop to another route</div>
               <div class="form-group">
-                <label class="form-label">Move to Run</label>
+                <label class="form-label">Move to Route</label>
                 <select class="form-input" id="move-stop-target-route"></select>
               </div>
               <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
@@ -1102,7 +1102,7 @@
   <div class="batch-bar-sep"></div>
   <button class="batch-bar-btn" onclick="batchReassignRun()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
-    Reassign Run
+    Reassign Route
   </button>
   <button class="batch-bar-btn" onclick="openSetStatusModal()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
@@ -1120,18 +1120,18 @@
   <button class="batch-bar-dismiss" onclick="clearOrderSelection()" title="Dismiss">×</button>
 </div>
 
-<!-- Reassign Run modal -->
+<!-- Reassign Route modal -->
 <div id="reassign-run-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
   <div class="modal" style="max-width:420px;">
-    <div class="modal-header"><div class="modal-title">Reassign Route Run</div></div>
+    <div class="modal-header"><div class="modal-title">Reassign Route</div></div>
     <div class="modal-body">
       <div style="margin-bottom:12px;font-size:13px;color:var(--gray-600);">Which leg would you like to reassign?</div>
       <div style="display:flex;gap:8px;margin-bottom:16px;">
-        <button class="filter-tab active" id="reassign-leg-pickup" onclick="setReassignLeg('pickup',this)">Pickup Run</button>
-        <button class="filter-tab" id="reassign-leg-delivery" onclick="setReassignLeg('delivery',this)">Delivery Run</button>
+        <button class="filter-tab active" id="reassign-leg-pickup" onclick="setReassignLeg('pickup',this)">Pickup Route</button>
+        <button class="filter-tab" id="reassign-leg-delivery" onclick="setReassignLeg('delivery',this)">Delivery Route</button>
       </div>
-      <label class="form-label">Select Route Run</label>
-      <select class="form-input" id="reassign-run-select"><option value="">Loading runs…</option></select>
+      <label class="form-label">Select Route</label>
+      <select class="form-input" id="reassign-run-select"><option value="">Loading routes…</option></select>
       <div id="reassign-error" style="color:var(--red);font-size:12px;margin-top:8px;display:none;"></div>
     </div>
     <div class="modal-footer">
@@ -1434,9 +1434,9 @@
         </label>
       </div>
     </div>
-    <!-- Upcoming Runs Preview -->
+    <!-- Upcoming Routes Preview -->
     <div class="so-section">
-      <div class="so-label">Upcoming Runs Preview</div>
+      <div class="so-label">Upcoming Routes Preview</div>
       <div class="preview-banner">
         <div class="preview-banner-title">Next 14 days</div>
         <div class="preview-runs" id="so-upcoming-runs"><span style="color:var(--gray-400);font-size:12px;">Select days above to preview.</span></div>
@@ -1835,7 +1835,7 @@
       .order('name');
     const el = document.getElementById('today-routes-body');
     if (!data || data.length === 0) {
-      el.innerHTML = `<div class="empty"><div class="empty-title">No runs today</div><div class="empty-sub">Route runs are generated automatically at midnight.</div></div>`;
+      el.innerHTML = `<div class="empty"><div class="empty-title">No routes today</div><div class="empty-sub">Routes are generated automatically at midnight.</div></div>`;
       return;
     }
     el.innerHTML = `<div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
@@ -3681,7 +3681,7 @@
             <div style="font-size:11px;color:var(--gray-400)">${count} run${count!==1?'s':''} this week</div>
           </div>
         </div>
-        ${details || '<div style="font-size:11.5px;color:var(--gray-400)">No runs assigned</div>'}
+        ${details || '<div style="font-size:11.5px;color:var(--gray-400)">No routes assigned</div>'}
       </div>`;
     }).join('');
   }
@@ -3783,11 +3783,11 @@
     if (!toggleEl) return;
 
     if (!runs || !runs.length) {
-      toggleEl.innerHTML = '<span style="color:var(--gray-400);font-size:12.5px">No runs on this date</span>';
+      toggleEl.innerHTML = '<span style="color:var(--gray-400);font-size:12.5px">No routes on this date</span>';
       const optBtn = document.getElementById('btn-optimize');
       if (optBtn) optBtn.style.display = 'none';
       const stopList = document.getElementById('route-stop-list');
-      if (stopList) stopList.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:13px;padding:20px;text-align:center;">No runs for this date</div>';
+      if (stopList) stopList.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:13px;padding:20px;text-align:center;">No routes for this date</div>';
       return;
     }
 
