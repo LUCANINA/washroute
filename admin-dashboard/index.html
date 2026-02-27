@@ -510,6 +510,28 @@
     .notif-footer { padding:14px 24px;border-top:1px solid var(--gray-100);display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-shrink:0; }
     .notif-save-msg { font-size:12px;color:#059669; }
 
+    /* ── PROC TABS ── */
+    .proc-tab-bar { display:flex;gap:0;border-bottom:1px solid var(--gray-100);padding:0 20px;background:white; }
+    .proc-tab { padding:10px 18px;font-size:13.5px;font-weight:500;color:var(--gray-500);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s;font-family:inherit;display:flex;align-items:center;gap:7px; }
+    .proc-tab.active { color:var(--accent);border-bottom-color:var(--accent);font-weight:600; }
+    .proc-tab-badge { min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--gray-100);color:var(--gray-500);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center; }
+    .proc-tab.active .proc-tab-badge { background:var(--accent-light);color:var(--accent); }
+    /* ── LAUNDERERS PAGE ── */
+    .laun-list { display:flex;flex-direction:column; }
+    .laun-row { display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--gray-100);transition:background .1s; }
+    .laun-row:hover { background:var(--gray-50); }
+    .laun-row:last-child { border-bottom:none; }
+    .laun-name { flex:1;font-size:14px;font-weight:500;color:var(--gray-800); }
+    .laun-add-row { display:flex;align-items:center;gap:10px;padding:14px 20px;border-top:1px solid var(--gray-100);background:var(--gray-50);border-radius:0 0 var(--radius) var(--radius); }
+    /* ── FOLD PANEL ── */
+    .fold-laun-grid { display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px; }
+    .fold-laun-btn { padding:14px 16px;border-radius:10px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;color:var(--gray-700);transition:all .12s;text-align:left; }
+    .fold-laun-btn.selected { border-color:var(--accent);background:#ede9ff;color:var(--accent); }
+    .fold-laun-btn:hover:not(.selected) { border-color:var(--gray-300);background:var(--gray-50); }
+    .fold-order-summary { background:var(--gray-50);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px; }
+    .fold-order-row { display:flex;justify-content:space-between;font-size:13px;color:var(--gray-600); }
+    .fold-order-row strong { color:var(--gray-900); }
+
     /* ── PROCESSING QUEUE ── */
     .proc-queue-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px; }
     .proc-card { background:white;border:1px solid var(--gray-200);border-radius:var(--radius);padding:18px 20px;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s,border-color .15s; }
@@ -639,6 +661,10 @@
       <div class="nav-item" onclick="showPage('drivers',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M17 11l1.5 1.5L21 10"/></svg>
         Drivers
+      </div>
+      <div class="nav-item" onclick="showPage('launderers',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><path d="M16 3.13a4 4 0 010 7.75"/><path d="M21 21v-2a4 4 0 00-3-3.87"/></svg>
+        Launderers
       </div>
       <div class="sidebar-footer" onclick="handleSignOut()">
         <div class="avatar" id="user-avatar">?</div>
@@ -800,15 +826,28 @@
 
         <!-- ── PROCESSING ── -->
         <div class="page" id="page-processing">
-          <div class="card" style="margin-bottom:0">
-            <div class="card-header">
+          <div class="card" style="margin-bottom:0;padding:0">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap;gap:8px">
               <div>
                 <div class="card-title">Processing Queue</div>
-                <div class="card-sub" id="proc-subtitle">Orders ready to be weighed and itemized</div>
+                <div class="card-sub" id="proc-subtitle">Orders in progress</div>
               </div>
             </div>
-            <div style="padding:20px 20px 24px;" id="proc-queue-wrap">
-              <div class="loading"><div class="spinner"></div> Loading…</div>
+            <div class="proc-tab-bar">
+              <button class="proc-tab active" id="proctab-btn-intake" onclick="setProcTab('intake',this)">
+                ⚖️ Intake
+                <span class="proc-tab-badge" id="ptab-badge-intake">0</span>
+              </button>
+              <button class="proc-tab" id="proctab-btn-folding" onclick="setProcTab('folding',this)">
+                👕 Folding
+                <span class="proc-tab-badge" id="ptab-badge-folding">0</span>
+              </button>
+            </div>
+            <div id="proctab-intake" style="padding:20px 20px 24px;">
+              <div id="proc-queue-wrap"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            </div>
+            <div id="proctab-folding" style="display:none;padding:20px 20px 24px;">
+              <div id="fold-queue-wrap"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
           </div>
         </div>
@@ -1242,6 +1281,26 @@
             <div class="loading"><div class="spinner"></div> Loading…</div>
           </div>
         </div><!-- /page-drivers -->
+
+        <!-- ── LAUNDERERS ── -->
+        <div class="page" id="page-launderers">
+          <div class="card" style="max-width:600px;padding:0">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Launderers</div>
+                <div class="card-sub" id="laun-subtitle">Staff who fold and pack orders</div>
+              </div>
+            </div>
+            <div class="laun-list" id="laun-list">
+              <div style="padding:32px;text-align:center"><div class="spinner"></div></div>
+            </div>
+            <div class="laun-add-row">
+              <input class="svc-input" id="laun-new-name" placeholder="Launderer name…" style="flex:1"
+                     onkeydown="if(event.key==='Enter')addLaunderer()" />
+              <button class="btn btn-primary" onclick="addLaunderer()" style="font-size:12.5px;padding:7px 14px">+ Add</button>
+            </div>
+          </div>
+        </div><!-- /page-launderers -->
 
       </div><!-- /content -->
     </div><!-- /main -->
@@ -1845,6 +1904,26 @@
   </div>
 </div>
 
+<!-- ── FOLD PANEL ── -->
+<div class="intake-over" id="fold-panel">
+  <div class="slide-over-header">
+    <button class="btn btn-ghost" style="padding:6px 10px;margin-right:4px" onclick="closeFoldPanel()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div>
+      <div style="font-weight:700;font-size:15px" id="fold-title">Fold &amp; Pack</div>
+      <div style="font-size:12px;color:var(--gray-400)" id="fold-subtitle"></div>
+    </div>
+  </div>
+  <div class="slide-over-body" id="fold-body">
+    <div class="loading"><div class="spinner"></div> Loading…</div>
+  </div>
+  <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
+    <div id="fold-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
+    <button class="proc-save-btn" id="fold-save-btn" onclick="saveFolding()" disabled>✅ Mark as Packed</button>
+  </div>
+</div>
+
 <script>
   // ── SUPABASE INIT ──
   const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
@@ -1994,8 +2073,8 @@
   });
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports' };
-  const pageCTAs   = { overview:'New Order', customers:'', orders:'', processing:'', routes:'', drivers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports' };
+  const pageCTAs   = { overview:'New Order', customers:'', orders:'', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'' };
 
   function showPage(id, navEl) {
     // If leaving orders page, clear any active batch selection
@@ -2017,6 +2096,7 @@
     if (id === 'notifications') loadNotifications();
     if (id === 'reports') loadReports();
     if (id === 'processing') loadProcessing();
+    if (id === 'launderers') loadLaunderers();
   }
 
   function handleCTA() {
@@ -5053,6 +5133,213 @@
     await loadAndRenderZones();
   }
 
+  // ── LAUNDERERS ──
+  let allLaunCache = [];
+
+  async function loadLaunderers() {
+    const list = document.getElementById('laun-list');
+    if (list) list.innerHTML = '<div style="padding:32px;text-align:center"><div class="spinner"></div></div>';
+    const { data } = await db.from('launderers').select('*').order('name');
+    allLaunCache = data || [];
+    const sub = document.getElementById('laun-subtitle');
+    if (sub) sub.textContent = `${allLaunCache.length} staff member${allLaunCache.length!==1?'s':''}`;
+    renderLaunList();
+  }
+
+  function renderLaunList() {
+    const list = document.getElementById('laun-list');
+    if (!list) return;
+    if (!allLaunCache.length) {
+      list.innerHTML = '<div style="padding:32px;text-align:center;color:var(--gray-400);font-size:13px">No launderers yet — add your first one below.</div>';
+      return;
+    }
+    list.innerHTML = allLaunCache.map(l => `<div class="laun-row" id="laun-row-${l.id}">
+      <div class="laun-name">${l.name}</div>
+      <label class="toggle-switch" style="flex-shrink:0" title="${l.is_active?'Active':'Inactive'}">
+        <input type="checkbox" ${l.is_active?'checked':''} onchange="toggleLaunActive('${l.id}',this.checked)" />
+        <span class="toggle-slider"></span>
+      </label>
+      <button class="svc-del-btn" onclick="deleteLaunderer('${l.id}','${l.name.replace(/'/g,"\\'")}')" title="Remove">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+      </button>
+    </div>`).join('');
+  }
+
+  async function addLaunderer() {
+    const inp = document.getElementById('laun-new-name');
+    const name = inp?.value.trim();
+    if (!name) { showToast('Enter a name first', 'error'); return; }
+    const { data, error } = await db.from('launderers').insert({ name }).select().single();
+    if (error) { showToast(error.message, 'error'); return; }
+    allLaunCache.push(data);
+    allLaunCache.sort((a,b) => a.name.localeCompare(b.name));
+    inp.value = '';
+    renderLaunList();
+    showToast(`${name} added!`, 'success');
+  }
+
+  async function toggleLaunActive(id, val) {
+    const { error } = await db.from('launderers').update({ is_active: val }).eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    allLaunCache = allLaunCache.map(l => l.id===id ? {...l, is_active: val} : l);
+    showToast(val ? 'Marked active' : 'Marked inactive', 'success');
+  }
+
+  async function deleteLaunderer(id, name) {
+    if (!confirm(`Remove ${name} from the launderers list?`)) return;
+    const { error } = await db.from('launderers').delete().eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    allLaunCache = allLaunCache.filter(l => l.id !== id);
+    renderLaunList();
+    showToast('Removed', 'success');
+  }
+
+  // ── PROC TABS ──
+  let procTabActive = 'intake';
+
+  function setProcTab(tab, btn) {
+    procTabActive = tab;
+    document.querySelectorAll('.proc-tab').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    ['intake','folding'].forEach(t => {
+      const el = document.getElementById('proctab-'+t);
+      if (el) el.style.display = t === tab ? '' : 'none';
+    });
+    if (tab === 'folding') loadFolding();
+  }
+
+  // ── FOLDING QUEUE ──
+  let allFoldOrders = [], foldActiveOrder = null, foldSelectedLaunId = null;
+
+  async function loadFolding() {
+    const wrap = document.getElementById('fold-queue-wrap');
+    if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+    // Ensure launderer cache is warm
+    if (!allLaunCache.length) {
+      const { data } = await db.from('launderers').select('*').order('name');
+      allLaunCache = data || [];
+    }
+    const { data: orders } = await db.from('orders')
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, special_instructions,
+               customers(first_name_cache, last_name_cache), services(name)`)
+      .eq('status', 'processing')
+      .order('updated_at', { ascending: true });
+    allFoldOrders = orders || [];
+    const fb = document.getElementById('ptab-badge-folding');
+    if (fb) fb.textContent = allFoldOrders.length;
+    renderFoldQueue();
+  }
+
+  function renderFoldQueue() {
+    const wrap = document.getElementById('fold-queue-wrap');
+    if (!wrap) return;
+    if (!allFoldOrders.length) {
+      wrap.innerHTML = `<div class="empty" style="padding:48px 0">
+        <div class="empty-icon">👕</div>
+        <div class="empty-title">Nothing to fold yet</div>
+        <div class="empty-sub">Orders appear here once they've been weighed and loaded into the machines.</div>
+      </div>`;
+      return;
+    }
+    wrap.innerHTML = '<div class="proc-queue-grid">' + allFoldOrders.map(o => {
+      const fn   = o.customers?.first_name_cache || '';
+      const ln   = o.customers?.last_name_cache  || '';
+      const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
+      const bags = o.total_bags || 1;
+      const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
+      return `<div class="proc-card">
+        <div>
+          <div class="proc-card-order">#${o.order_number||'—'}</div>
+          <div class="proc-card-name">${name}</div>
+        </div>
+        <div class="proc-card-meta">
+          <span>📦 ${bags} bag${bags!==1?'s':''}</span>
+          <span>⚖️ ${lbs}</span>
+          <span>${o.services?.name||'—'}</span>
+        </div>
+        ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
+        <button class="proc-card-btn" style="background:#059669" onclick="openFoldPanel('${o.id}')">👕 Fold &amp; Pack</button>
+      </div>`;
+    }).join('') + '</div>';
+  }
+
+  function openFoldPanel(orderId) {
+    const order = allFoldOrders.find(o => o.id === orderId);
+    if (!order) return;
+    foldActiveOrder    = order;
+    foldSelectedLaunId = null;
+    const fn = order.customers?.first_name_cache || '';
+    const ln = order.customers?.last_name_cache  || '';
+    document.getElementById('fold-title').textContent    = `${`${fn} ${ln}`.trim()||'Order'} — Fold & Pack`;
+    document.getElementById('fold-subtitle').textContent = `Order #${order.order_number||'—'} · ${order.services?.name||''}`;
+    document.getElementById('fold-save-btn').disabled    = true;
+    document.getElementById('fold-error').style.display  = 'none';
+    renderFoldPanel();
+    document.getElementById('fold-panel').classList.add('open');
+  }
+
+  function renderFoldPanel() {
+    const o    = foldActiveOrder;
+    const bags = o.total_bags || 1;
+    const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
+    const fn   = o.customers?.first_name_cache || '';
+    const ln   = o.customers?.last_name_cache  || '';
+    const activeLaun = allLaunCache.filter(l => l.is_active);
+    const launHTML = activeLaun.length
+      ? `<div class="fold-laun-grid">${activeLaun.map(l =>
+          `<button class="fold-laun-btn${foldSelectedLaunId===l.id?' selected':''}" onclick="selectFoldLaun('${l.id}')">
+            👤 ${l.name}
+          </button>`).join('')}</div>`
+      : `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No active launderers — add some in Settings → Launderers.</div>`;
+    document.getElementById('fold-body').innerHTML = `
+      <div class="intake-section">
+        <div class="intake-section-label">Order Summary</div>
+        <div class="fold-order-summary">
+          <div class="fold-order-row"><span>Customer</span><strong>${`${fn} ${ln}`.trim()||'—'}</strong></div>
+          <div class="fold-order-row"><span>Order</span><strong>#${o.order_number||'—'}</strong></div>
+          <div class="fold-order-row"><span>Service</span><strong>${o.services?.name||'—'}</strong></div>
+          <div class="fold-order-row"><span>Bags</span><strong>${bags} bag${bags!==1?'s':''}</strong></div>
+          <div class="fold-order-row"><span>Weight</span><strong>${lbs}</strong></div>
+          <div class="fold-order-row"><span>Total</span><strong style="color:var(--accent)">${fmtMoney(o.total_amount||0)}</strong></div>
+        </div>
+      </div>
+      <div class="intake-section">
+        <div class="intake-section-label">Who is folding this order?</div>
+        ${launHTML}
+      </div>`;
+  }
+
+  function selectFoldLaun(launId) {
+    foldSelectedLaunId = launId;
+    renderFoldPanel();
+    document.getElementById('fold-save-btn').disabled = false;
+  }
+
+  function closeFoldPanel() {
+    document.getElementById('fold-panel').classList.remove('open');
+    foldActiveOrder = null; foldSelectedLaunId = null;
+  }
+
+  async function saveFolding() {
+    if (!foldActiveOrder || !foldSelectedLaunId) return;
+    const btn = document.getElementById('fold-save-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    const { error } = await db.from('orders').update({
+      status: 'assembled', folded_by_id: foldSelectedLaunId,
+      folded_at: new Date().toISOString(), updated_at: new Date().toISOString()
+    }).eq('id', foldActiveOrder.id);
+    if (error) {
+      const errEl = document.getElementById('fold-error');
+      errEl.textContent = error.message; errEl.style.display = '';
+      btn.disabled = false; btn.textContent = '✅ Mark as Packed';
+      return;
+    }
+    const launName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
+    closeFoldPanel();
+    showToast(`Order #${foldActiveOrder.order_number} packed by ${launName}!`, 'success');
+    loadFolding();
+  }
+
   // ── PROCESSING ──
   let allProcOrders = [];
   let procActiveOrder = null, procSvc = null;
@@ -5062,16 +5349,28 @@
     const wrap = document.getElementById('proc-queue-wrap');
     if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
 
-    const { data: orders } = await db.from('orders')
-      .select(`id, order_number, status, total_bags, special_instructions, service_id,
-               customers(id, first_name_cache, last_name_cache),
-               services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences)`)
-      .eq('status', 'picked_up')
-      .order('actual_pickup_at', { ascending: true });
+    const [{ data: pickedUp }, { count: foldingCount }] = await Promise.all([
+      db.from('orders')
+        .select(`id, order_number, status, total_bags, special_instructions, service_id,
+                 customers(id, first_name_cache, last_name_cache),
+                 services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences)`)
+        .eq('status', 'picked_up')
+        .order('actual_pickup_at', { ascending: true }),
+      db.from('orders').select('id', { count: 'exact', head: true }).eq('status', 'processing')
+    ]);
 
-    allProcOrders = orders || [];
+    allProcOrders = pickedUp || [];
+    const intakeCount = allProcOrders.length;
+    const foldCount   = foldingCount || 0;
+
     const badge = document.getElementById('badge-processing');
-    if (badge) badge.textContent = allProcOrders.length || '0';
+    if (badge) badge.textContent = (intakeCount + foldCount) || '0';
+
+    const intakeBadge = document.getElementById('ptab-badge-intake');
+    if (intakeBadge) intakeBadge.textContent = intakeCount;
+    const foldBadge = document.getElementById('ptab-badge-folding');
+    if (foldBadge) foldBadge.textContent = foldCount;
+
     renderProcQueue();
   }
 
