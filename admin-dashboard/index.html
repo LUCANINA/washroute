@@ -210,10 +210,15 @@
     /* ── SERVICES PAGE ── */
     .svc-category-group { margin-bottom: 0; }
     .svc-cat-header { padding: 12px 20px 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--gray-400); background: var(--gray-50); border-top: 1px solid var(--gray-100); border-bottom: 1px solid var(--gray-100); display: flex; align-items: center; gap: 8px; }
-    .svc-table-head { display: grid; grid-template-columns: 1fr 110px 130px 130px 64px 110px; gap: 10px; padding: 8px 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); border-bottom: 1px solid var(--gray-100); }
-    .svc-row { display: grid; grid-template-columns: 1fr 110px 130px 130px 64px 110px; gap: 10px; padding: 9px 20px; align-items: center; border-bottom: 1px solid var(--gray-100); transition: background .1s; }
+    .svc-table-head { display: grid; grid-template-columns: 22px 1fr 110px 130px 130px 64px 110px; gap: 10px; padding: 8px 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); border-bottom: 1px solid var(--gray-100); }
+    .svc-row { display: grid; grid-template-columns: 22px 1fr 110px 130px 130px 64px 110px; gap: 10px; padding: 9px 20px; align-items: center; border-bottom: 1px solid var(--gray-100); transition: background .1s; cursor: default; }
     .svc-row:hover { background: var(--gray-50); }
     .svc-row:last-child { border-bottom: none; }
+    .svc-row.dragging { opacity: .35; }
+    .svc-drag-handle { color: var(--gray-300); cursor: grab; font-size: 15px; line-height: 1; user-select: none; display: flex; align-items: center; justify-content: center; }
+    .svc-drag-handle:hover { color: var(--gray-500); }
+    .svc-drop-zone { transition: background .15s; }
+    .svc-drop-zone.drag-over { background: rgba(99,91,255,.05); outline: 2px dashed var(--accent); outline-offset: -3px; }
     .svc-input { width: 100%; border: 1.5px solid transparent; border-radius: 6px; padding: 5px 8px; font-size: 13.5px; color: var(--gray-800); background: transparent; transition: all .12s; font-family: inherit; }
     .svc-input:hover { border-color: var(--gray-200); background: white; }
     .svc-input:focus { border-color: var(--accent); background: white; outline: none; box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
@@ -3242,7 +3247,7 @@
             ${cat} <span style="color:var(--gray-400);font-size:11px;font-weight:400">${rows.length} service${rows.length!==1?'s':''}</span>
           </div>
           <div class="svc-table-head">
-            <div>Service Name</div><div>Price</div><div>Pricing Type</div><div>Category</div><div>Active</div><div></div>
+            <div></div><div>Service Name</div><div>Price</div><div>Pricing Type</div><div>Category</div><div>Active</div><div></div>
           </div>
           ${rows.map(s => svcRow(s)).join('')}
         </div>`;
@@ -3251,21 +3256,33 @@
     const main   = data.filter(s => !s.is_addon);
     const addons = data.filter(s =>  s.is_addon);
     el.innerHTML =
-      `<div class="svc-section-divider">
-        <span class="svc-section-title">🧺 Main Services</span>
-        <span class="svc-section-pill svc-section-pill-main">${main.length}</span>
+      `<div class="svc-drop-zone" id="drop-main"
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="event.target===this&&this.classList.remove('drag-over')"
+        ondrop="dropToSection(event,false)">
+        <div class="svc-section-divider">
+          <span class="svc-section-title">🧺 Main Services</span>
+          <span class="svc-section-pill svc-section-pill-main">${main.length}</span>
+          <span style="font-size:11px;color:var(--gray-400);margin-left:6px">Drag rows between sections to reorganize</span>
+        </div>
+        ${main.length ? renderCategoryGroups(main) : `<div style="padding:12px 20px 28px;font-size:13px;color:var(--gray-400)">No main services yet. Drag an add-on here to promote it.</div>`}
       </div>` +
-      (main.length ? renderCategoryGroups(main) : `<div style="padding:12px 20px 16px;font-size:13px;color:var(--gray-400)">No main services yet.</div>`) +
-      `<div class="svc-section-divider">
-        <span class="svc-section-title">➕ Add-ons</span>
-        <span class="svc-section-pill svc-section-pill-addon">${addons.length}</span>
-      </div>` +
-      (addons.length ? renderCategoryGroups(addons) : `<div style="padding:12px 20px 16px;font-size:13px;color:var(--gray-400)">No add-ons yet.</div>`);
+      `<div class="svc-drop-zone" id="drop-addon"
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="event.target===this&&this.classList.remove('drag-over')"
+        ondrop="dropToSection(event,true)">
+        <div class="svc-section-divider">
+          <span class="svc-section-title">➕ Add-ons</span>
+          <span class="svc-section-pill svc-section-pill-addon">${addons.length}</span>
+        </div>
+        ${addons.length ? renderCategoryGroups(addons) : `<div style="padding:12px 20px 28px;font-size:13px;color:var(--gray-400)">No add-ons yet. Drag a service here to make it an add-on.</div>`}
+      </div>`;
   }
 
   function svcRow(s) {
     const esc = v => (v||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-    return `<div class="svc-row" id="svc-row-${s.id}">
+    return `<div class="svc-row" id="svc-row-${s.id}" draggable="true" ondragstart="dragStartService(event,'${s.id}')" ondragend="document.getElementById('svc-row-${s.id}')?.classList.remove('dragging')">
+      <div class="svc-drag-handle" title="Drag to move between sections">⠿</div>
       <div><input class="svc-input" id="svc-name-${s.id}" value="${esc(s.name)}" placeholder="Service name" oninput="markSvcDirty('${s.id}')" /></div>
       <div class="svc-price-wrap">
         <span class="svc-price-prefix">$</span>
@@ -3297,10 +3314,6 @@
         </button>
       </div>
       <div id="svc-overage-row-${s.id}" style="grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:4px 0 3px;border-top:1px dashed var(--gray-100);margin-top:2px;min-height:28px">
-        <button class="svc-addon-toggle ${s.is_addon?'svc-addon-toggle-addon':'svc-addon-toggle-main'}"
-          onclick="toggleIsAddon('${s.id}',${!s.is_addon})" title="${s.is_addon?'Move to Main Services':'Move to Add-ons'}">
-          ${s.is_addon ? '➕ Add-on' : '🧺 Main'}
-        </button>
         ${s.has_weight_overage ? `
           <span style="font-size:11px;color:var(--gray-400);font-weight:600;text-transform:uppercase;letter-spacing:.05em;flex-shrink:0">⚖ Overage</span>
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--gray-600)">
@@ -3547,6 +3560,25 @@
     allServices = allServices.map(s => s.id===id ? {...s, is_addon: isAddon} : s);
     filterServices(); // re-renders, moves row to correct section
     showToast(isAddon ? 'Moved to Add-ons' : 'Moved to Main Services');
+  }
+
+  function dragStartService(event, id) {
+    event.dataTransfer.setData('text/plain', id);
+    event.dataTransfer.effectAllowed = 'move';
+    // Small delay so the drag image renders before we fade the row
+    setTimeout(() => document.getElementById('svc-row-'+id)?.classList.add('dragging'), 0);
+  }
+
+  async function dropToSection(event, isAddon) {
+    event.preventDefault();
+    // Remove drag-over highlight from both zones
+    document.getElementById('drop-main')?.classList.remove('drag-over');
+    document.getElementById('drop-addon')?.classList.remove('drag-over');
+    const id  = event.dataTransfer.getData('text/plain');
+    const svc = allServices.find(s => s.id === id);
+    if (!svc) return;
+    if (svc.is_addon === isAddon) return; // already in this section — no-op
+    await toggleIsAddon(id, isAddon);
   }
 
   // ── PRICES TAB ──
