@@ -240,37 +240,40 @@
     .svc-add-select:focus { border-color: var(--accent); outline: none; }
 
     /* ── CUSTOMER SIDE PANEL ── */
-    .side-panel { position: fixed; top: 0; right: -540px; width: 520px; height: 100vh; background: white; box-shadow: -4px 0 40px rgba(0,0,0,.18); z-index: 300; display: flex; flex-direction: column; transition: right .3s cubic-bezier(.4,0,.2,1); overflow: hidden; }
+    .side-panel { position: fixed; top: 0; right: -620px; width: 600px; height: 100vh; background: white; box-shadow: -4px 0 40px rgba(0,0,0,.18); z-index: 300; display: flex; flex-direction: column; transition: right .3s cubic-bezier(.4,0,.2,1); overflow: hidden; }
     .side-panel.open { right: 0; }
     .panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.25); z-index: 299; display: none; }
     .panel-backdrop.open { display: block; }
-    .cp-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
-    .cp-name { font-size: 18px; font-weight: 700; color: var(--gray-900); letter-spacing: -.02em; margin-bottom: 4px; }
-    .cp-meta { font-size: 12px; color: var(--gray-400); }
-    .cp-stats-strip { display: grid; grid-template-columns: repeat(3,1fr); gap: 0; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; }
-    .cp-stat { padding: 14px 20px; text-align: center; }
+    .cp-header { padding: 18px 24px 14px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
+    .cp-name { font-size: 19px; font-weight: 700; color: var(--gray-900); letter-spacing: -.02em; margin-bottom: 5px; }
+    .cp-meta { font-size: 12.5px; color: var(--gray-500); display: flex; gap: 14px; flex-wrap: wrap; }
+    .cp-meta a { color: var(--accent); text-decoration: none; }
+    .cp-stats-strip { display: grid; grid-template-columns: repeat(4,1fr); gap: 0; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; }
+    .cp-stat { padding: 12px 10px; text-align: center; }
     .cp-stat + .cp-stat { border-left: 1px solid var(--gray-100); }
-    .cp-stat-label { font-size: 11px; color: var(--gray-400); font-weight: 500; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
-    .cp-stat-value { font-size: 18px; font-weight: 700; color: var(--gray-900); }
-    .cp-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; padding: 0 20px; }
-    .cp-tab { padding: 12px 16px; font-size: 13px; font-weight: 500; color: var(--gray-500); cursor: pointer; border: none; background: transparent; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; }
+    .cp-stat-label { font-size: 10px; color: var(--gray-400); font-weight: 500; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; }
+    .cp-stat-value { font-size: 16px; font-weight: 700; color: var(--gray-900); }
+    .cp-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; padding: 0 20px; overflow-x: auto; }
+    .cp-tab { padding: 11px 14px; font-size: 13px; font-weight: 500; color: var(--gray-500); cursor: pointer; border: none; background: transparent; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; white-space: nowrap; }
     .cp-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
-    .cp-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
-    .cp-field { margin-bottom: 18px; }
+    .cp-body { flex: 1; overflow-y: auto; padding: 20px 24px 32px; }
+    .cp-field { margin-bottom: 14px; }
     .cp-field-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); margin-bottom: 4px; }
     .cp-field-value { font-size: 14px; color: var(--gray-800); }
     .cp-field-value.empty { color: var(--gray-300); font-style: italic; }
-    .cp-section-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--gray-400); margin: 20px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--gray-100); }
+    .cp-section-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--gray-400); margin: 22px 0 12px; padding-bottom: 7px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: center; justify-content: space-between; }
     .cp-section-head:first-child { margin-top: 0; }
-    .cp-order-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--gray-100); font-size: 13px; }
+    .cp-input { display: block; width: 100%; padding: 8px 10px; font-size: 13.5px; border: 1px solid var(--gray-200); border-radius: 7px; background: white; color: var(--gray-900); outline: none; box-sizing: border-box; font-family: inherit; transition: border-color .12s; }
+    .cp-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
+    .cp-input::placeholder { color: var(--gray-300); }
+    textarea.cp-input { resize: vertical; line-height: 1.55; }
+    .cp-save-btn { width: 100%; padding: 10px; font-size: 14px; font-weight: 600; border-radius: 8px; margin-top: 4px; }
+    .cp-save-msg { text-align: center; font-size: 12px; margin-top: 6px; color: #059669; display: none; }
+    .cp-order-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--gray-100); font-size: 13px; flex-wrap: wrap; }
     .cp-order-row:last-child { border-bottom: none; }
-    .cp-order-num { font-family: monospace; font-weight: 700; color: var(--accent); font-size: 12px; min-width: 48px; }
-    .cp-order-svc { flex: 1; color: var(--gray-700); }
-    .cp-order-amt { font-weight: 600; color: var(--gray-900); min-width: 56px; text-align: right; }
-    .cp-pref-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--gray-100); font-size: 13px; }
-    .cp-pref-row:last-child { border-bottom: none; }
-    .cp-pref-key { font-weight: 600; color: var(--gray-600); min-width: 140px; font-size: 12.5px; }
-    .cp-pref-val { color: var(--gray-800); }
+    .cp-order-num { font-family: monospace; font-weight: 700; color: var(--accent); font-size: 12px; min-width: 46px; }
+    .cp-order-svc { flex: 1; color: var(--gray-700); min-width: 100px; }
+    .cp-order-amt { font-weight: 600; color: var(--gray-900); min-width: 52px; text-align: right; }
 
     /* ── PROGRESS BAR ── */
     .progress-bar { height: 4px; background: var(--gray-200); border-radius: 2px; overflow: hidden; margin-top: 8px; }
@@ -1457,51 +1460,150 @@
 <div class="panel-backdrop" id="panel-backdrop" onclick="closeCustomerPanel()"></div>
 <div class="side-panel" id="customer-panel">
   <div class="cp-header">
-    <div>
+    <div style="flex:1;min-width:0">
       <div class="cp-name" id="cp-name">—</div>
       <div class="cp-meta" id="cp-meta"></div>
     </div>
-    <div style="display:flex;gap:8px;align-items:center">
+    <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;margin-left:12px">
       <span id="cp-status-badge"></span>
-      <button class="modal-close" onclick="closeCustomerPanel()" style="margin-left:8px">×</button>
+      <button class="modal-close" onclick="closeCustomerPanel()" style="margin-left:4px">×</button>
     </div>
   </div>
   <div class="cp-stats-strip">
-    <div class="cp-stat"><div class="cp-stat-label">Lifetime Value</div><div class="cp-stat-value" id="cp-ltv">—</div></div>
-    <div class="cp-stat"><div class="cp-stat-label">Total Orders</div><div class="cp-stat-value" id="cp-total-orders">—</div></div>
-    <div class="cp-stat"><div class="cp-stat-label">Last Order</div><div class="cp-stat-value" id="cp-last-order" style="font-size:14px">—</div></div>
+    <div class="cp-stat"><div class="cp-stat-label">Lifetime</div><div class="cp-stat-value" id="cp-ltv">—</div></div>
+    <div class="cp-stat"><div class="cp-stat-label">Orders</div><div class="cp-stat-value" id="cp-total-orders">—</div></div>
+    <div class="cp-stat"><div class="cp-stat-label">Avg Order</div><div class="cp-stat-value" id="cp-avg-order">—</div></div>
+    <div class="cp-stat"><div class="cp-stat-label">Last Order</div><div class="cp-stat-value" id="cp-last-order" style="font-size:13px">—</div></div>
   </div>
   <div class="cp-tabs">
     <button class="cp-tab active" onclick="cpTab('contact',this)">Contact</button>
     <button class="cp-tab" onclick="cpTab('orders',this)">Orders</button>
     <button class="cp-tab" onclick="cpTab('preferences',this)">Preferences</button>
+    <button class="cp-tab" onclick="cpTab('notes',this)">Notes</button>
   </div>
-  <!-- Contact Tab -->
+
+  <!-- ── CONTACT TAB ── -->
   <div class="cp-body" id="cptab-contact">
-    <div class="cp-section-head">Contact Information</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px">
-      <div class="cp-field"><div class="cp-field-label">First Name</div><div class="cp-field-value" id="cpf-first">—</div></div>
-      <div class="cp-field"><div class="cp-field-label">Last Name</div><div class="cp-field-value" id="cpf-last">—</div></div>
+    <div class="cp-section-head"><span>Name &amp; Contact</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+      <div class="cp-field"><div class="cp-field-label">First Name</div><input class="cp-input" id="cpe-first" type="text" placeholder="First name"></div>
+      <div class="cp-field"><div class="cp-field-label">Last Name</div><input class="cp-input" id="cpe-last" type="text" placeholder="Last name"></div>
     </div>
-    <div class="cp-field"><div class="cp-field-label">Phone</div><div class="cp-field-value" id="cpf-phone">—</div></div>
-    <div class="cp-field"><div class="cp-field-label">Email</div><div class="cp-field-value" id="cpf-email">—</div></div>
-    <div class="cp-field"><div class="cp-field-label">Customer Type</div><div class="cp-field-value" id="cpf-type">—</div></div>
-    <div class="cp-field"><div class="cp-field-label">How They Found Us</div><div class="cp-field-value" id="cpf-source">—</div></div>
-    <div class="cp-field"><div class="cp-field-label">Ambassador Code</div><div class="cp-field-value" id="cpf-ambassador">—</div></div>
-    <div class="cp-section-head">Delivery Address</div>
-    <div id="cp-addresses"><div class="cp-field-value empty">No address on file</div></div>
-    <div class="cp-field" style="margin-top:14px"><div class="cp-field-label">Access Instructions</div><div class="cp-field-value" id="cpf-access">—</div></div>
-    <div class="cp-section-head">Internal Notes</div>
-    <div class="cp-field-value" id="cpf-notes" style="color:var(--gray-600);font-size:13.5px;line-height:1.6"></div>
+    <div class="cp-field"><div class="cp-field-label">Phone</div><input class="cp-input" id="cpe-phone" type="tel" placeholder="Phone number"></div>
+    <div class="cp-field"><div class="cp-field-label">Email</div><input class="cp-input" id="cpe-email" type="email" placeholder="Email address"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+      <div class="cp-field">
+        <div class="cp-field-label">Customer Type</div>
+        <select class="cp-input" id="cpe-type">
+          <option value="">— Select —</option>
+          <option value="individual">Individual</option>
+          <option value="business">Business</option>
+          <option value="managed">Managed</option>
+        </select>
+      </div>
+      <div class="cp-field">
+        <div class="cp-field-label">How They Found Us</div>
+        <select class="cp-input" id="cpe-source">
+          <option value="">— Select —</option>
+          <option value="google">Google</option>
+          <option value="instagram">Instagram</option>
+          <option value="nextdoor">Nextdoor</option>
+          <option value="facebook">Facebook</option>
+          <option value="word_of_mouth">Word of Mouth</option>
+          <option value="referral">Referral</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="cp-section-head"><span>Payment on File</span></div>
+    <div id="cp-payment-info" style="font-size:13.5px;color:var(--gray-600);margin-bottom:4px">—</div>
+
+    <div class="cp-section-head">
+      <span>Addresses</span>
+      <button class="btn btn-ghost" style="padding:2px 9px;font-size:11.5px;font-weight:600;text-transform:none;letter-spacing:0" onclick="toggleAddAddrForm()">+ Add</button>
+    </div>
+    <div id="cp-addresses"></div>
+    <!-- Inline add-address form -->
+    <div id="cp-add-addr-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">New Address</div>
+      <div class="cp-field"><input class="cp-input" id="cpna-label" placeholder="Label (e.g. Home, Work)"></div>
+      <div class="cp-field"><input class="cp-input" id="cpna-line1" placeholder="Street address"></div>
+      <div class="cp-field"><input class="cp-input" id="cpna-line2" placeholder="Apt / Unit (optional)"></div>
+      <div style="display:grid;grid-template-columns:1fr 70px 80px;gap:8px" class="cp-field">
+        <input class="cp-input" id="cpna-city" placeholder="City">
+        <input class="cp-input" id="cpna-state" placeholder="State" maxlength="2">
+        <input class="cp-input" id="cpna-zip" placeholder="ZIP">
+      </div>
+      <div class="cp-field"><textarea class="cp-input" id="cpna-instructions" placeholder="Access/delivery instructions (optional)" rows="2"></textarea></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" style="padding:6px 14px;font-size:12.5px" onclick="saveNewAddress()">Save Address</button>
+        <button class="btn btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="toggleAddAddrForm()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="cp-section-head"><span>Today's Routes</span></div>
+    <div id="cp-route-assignments" style="font-size:13px;color:var(--gray-400);font-style:italic">Loading…</div>
+
+    <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--gray-100)">
+      <button class="btn btn-primary cp-save-btn" onclick="saveCustomerContact()">Save Contact Info</button>
+      <div class="cp-save-msg" id="cp-contact-msg">✓ Saved</div>
+    </div>
   </div>
-  <!-- Orders Tab -->
+
+  <!-- ── ORDERS TAB ── -->
   <div class="cp-body" id="cptab-orders" style="display:none">
+    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+      <button class="filter-tab active" id="cpof-all" onclick="filterCpOrders('all',this)">All</button>
+      <button class="filter-tab" id="cpof-active" onclick="filterCpOrders('active',this)">Active</button>
+      <button class="filter-tab" id="cpof-done" onclick="filterCpOrders('done',this)">Completed</button>
+    </div>
     <div id="cp-orders-list"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
   </div>
-  <!-- Preferences Tab -->
+
+  <!-- ── PREFERENCES TAB ── -->
   <div class="cp-body" id="cptab-preferences" style="display:none">
-    <div class="cp-section-head">Service Preferences</div>
-    <div id="cp-prefs-list"></div>
+    <div class="cp-section-head"><span>Service Preferences</span></div>
+    <div class="cp-field"><div class="cp-field-label">Detergent</div><input class="cp-input" id="cpref-detergent" placeholder="e.g. Tide, Free &amp; Clear, Hypoallergenic"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+      <div class="cp-field">
+        <div class="cp-field-label">Fabric Softener</div>
+        <select class="cp-input" id="cpref-fabric-softener">
+          <option value="">— Not set —</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+      <div class="cp-field">
+        <div class="cp-field-label">Separate Colors</div>
+        <select class="cp-input" id="cpref-separate-colors">
+          <option value="">— Not set —</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+    </div>
+    <div class="cp-field"><div class="cp-field-label">Hang Dry Items</div><input class="cp-input" id="cpref-hang-dry" placeholder="e.g. Delicates, wool sweaters"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+      <div class="cp-field"><div class="cp-field-label">Preferred Pickup Time</div><input class="cp-input" id="cpref-pickup" placeholder="e.g. Morning"></div>
+      <div class="cp-field"><div class="cp-field-label">Preferred Delivery Time</div><input class="cp-input" id="cpref-delivery" placeholder="e.g. Afternoon"></div>
+    </div>
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--gray-100)">
+      <button class="btn btn-primary cp-save-btn" onclick="savePanelPreferences()">Save Preferences</button>
+      <div class="cp-save-msg" id="cp-pref-msg">✓ Saved</div>
+    </div>
+  </div>
+
+  <!-- ── NOTES TAB ── -->
+  <div class="cp-body" id="cptab-notes" style="display:none">
+    <div class="cp-section-head"><span>Internal Notes</span></div>
+    <textarea class="cp-input" id="cpnote-text" rows="5" placeholder="Staff notes, special instructions, anything the team should know about this customer…"></textarea>
+    <div class="cp-section-head" style="margin-top:20px"><span>Access Instructions</span></div>
+    <textarea class="cp-input" id="cpnote-access" rows="3" placeholder="Gate codes, entry notes, preferred drop-off spot, building access…"></textarea>
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--gray-100)">
+      <button class="btn btn-primary cp-save-btn" onclick="savePanelNotes()">Save Notes</button>
+      <div class="cp-save-msg" id="cp-notes-msg">✓ Saved</div>
+    </div>
   </div>
 </div>
 
@@ -2957,11 +3059,12 @@
 
   // ── CUSTOMER SIDE PANEL ──
   let panelCustomerId = null;
+  let cpAllOrders = [];
 
   function cpTab(name, btn) {
     document.querySelectorAll('.cp-tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
-    ['contact','orders','preferences'].forEach(n=>{
+    ['contact','orders','preferences','notes'].forEach(n=>{
       const el = document.getElementById('cptab-'+n);
       if (el) el.style.display = (n===name) ? '' : 'none';
     });
@@ -2971,67 +3074,179 @@
 
   async function openCustomerPanel(customerId) {
     panelCustomerId = customerId;
-    // Reset tabs to Contact
+    cpAllOrders = [];
+    // Reset to Contact tab
     document.querySelectorAll('.cp-tab').forEach((t,i)=>{ t.classList.toggle('active', i===0); });
-    ['contact','orders','preferences'].forEach((n,i)=>{
+    ['contact','orders','preferences','notes'].forEach((n,i)=>{
       const el = document.getElementById('cptab-'+n);
       if (el) el.style.display = i===0 ? '' : 'none';
     });
     document.getElementById('customer-panel').classList.add('open');
     document.getElementById('panel-backdrop').classList.add('open');
+    // Hide any stale save messages
+    ['cp-contact-msg','cp-pref-msg','cp-notes-msg'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; });
+    document.getElementById('cp-add-addr-form').style.display = 'none';
 
-    // Fetch full customer data with profile + addresses
     const { data: c } = await db.from('customers')
-      .select('id, lifetime_value, total_orders, last_order_at, risk_status, created_at, customer_type, referral_source, ambassador_code, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, addresses(id, label, line1, line2, city, state, zip, delivery_instructions, is_default)')
-      .eq('id', customerId)
-      .single();
-
+      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, addresses(id, label, line1, line2, city, state, zip, delivery_instructions, is_default)')
+      .eq('id', customerId).single();
     if (!c) return;
-    const p = custProfile(c);
-    const fn = p.first_name || c.first_name_cache || '';
-    const ln = p.last_name  || c.last_name_cache  || '';
-    const email = p.email   || c.email_cache      || '';
-    const phone = p.phone   || c.phone_cache      || '';
+
+    const fn = c.first_name_cache || '';
+    const ln = c.last_name_cache  || '';
+    const email = c.email_cache   || '';
+    const phone = c.phone_cache   || '';
 
     // Header
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
-    document.getElementById('cp-meta').textContent = email || '';
+    document.getElementById('cp-meta').innerHTML =
+      `${phone ? `<a href="tel:${phone}">${phone}</a>` : ''}${phone&&email?' · ':''}${email ? `<a href="mailto:${email}">${email}</a>` : ''}` || '<span style="color:var(--gray-300)">No contact info</span>';
     document.getElementById('cp-status-badge').innerHTML = statusBadge(c.risk_status||'active');
 
-    // Stats strip
-    document.getElementById('cp-ltv').textContent = fmtMoney(c.lifetime_value);
-    document.getElementById('cp-total-orders').textContent = c.total_orders || 0;
+    // Stats
+    const ltv = Number(c.lifetime_value || 0);
+    const tot = c.total_orders || 0;
+    const avg = tot > 0 ? ltv / tot : 0;
+    document.getElementById('cp-ltv').textContent = fmtMoney(ltv);
+    document.getElementById('cp-total-orders').textContent = tot;
+    document.getElementById('cp-avg-order').textContent = fmtMoney(avg);
     document.getElementById('cp-last-order').textContent = c.last_order_at ? fmtDate(c.last_order_at) : '—';
 
-    // Contact fields
-    document.getElementById('cpf-first').textContent = fn || '—';
-    document.getElementById('cpf-last').textContent  = ln || '—';
-    document.getElementById('cpf-phone').textContent = phone || '—';
-    document.getElementById('cpf-email').textContent = email || '—';
+    // Contact inputs
+    document.getElementById('cpe-first').value  = fn;
+    document.getElementById('cpe-last').value   = ln;
+    document.getElementById('cpe-phone').value  = phone;
+    document.getElementById('cpe-email').value  = email;
+    document.getElementById('cpe-type').value   = c.customer_type || '';
+    document.getElementById('cpe-source').value = c.referral_source || '';
 
-    const typeLabel = {individual:'Individual',business:'Business',managed:'Managed'};
-    document.getElementById('cpf-type').textContent = typeLabel[c.customer_type] || c.customer_type || '—';
-
-    const sourceLabel = {google:'Google',instagram:'Instagram',nextdoor:'Nextdoor',facebook:'Facebook',word_of_mouth:'Word of Mouth',referral:'Referral',other:'Other'};
-    document.getElementById('cpf-source').textContent = sourceLabel[c.referral_source] || c.referral_source || '—';
-    document.getElementById('cpf-ambassador').textContent = c.ambassador_code || '—';
-    document.getElementById('cpf-access').textContent = c.access_instructions || '—';
-    document.getElementById('cpf-notes').textContent = c.notes || 'No notes.';
+    // Payment on file
+    const payEl = document.getElementById('cp-payment-info');
+    if (c.card_last4) {
+      const brand = (c.card_brand||'Card').charAt(0).toUpperCase()+(c.card_brand||'').slice(1);
+      const exp = (c.card_exp_month && c.card_exp_year) ? ` · exp ${c.card_exp_month}/${String(c.card_exp_year).slice(-2)}` : '';
+      const now = new Date(); const expYr = c.card_exp_year; const expMo = c.card_exp_month;
+      const expired = expYr && expMo && (expYr < now.getFullYear() || (expYr===now.getFullYear() && expMo < now.getMonth()+1));
+      payEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:7px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:7px;padding:7px 12px;font-size:13px">💳 <span>${brand} ···· ${c.card_last4}${exp}</span>${expired?'<span style="color:var(--red);font-size:11px;font-weight:600">EXPIRED</span>':''}</span>`;
+    } else {
+      payEl.innerHTML = '<span style="color:var(--gray-300);font-style:italic;font-size:13px">No card on file</span>';
+    }
 
     // Addresses
     const addrs = Array.isArray(c.addresses) ? c.addresses : (c.addresses ? [c.addresses] : []);
-    const addrEl = document.getElementById('cp-addresses');
-    if (addrs.length) {
-      addrEl.innerHTML = addrs.map(a=>`
-        <div style="margin-bottom:10px;padding:12px;background:var(--gray-50);border-radius:8px;border:1px solid var(--gray-100)">
-          <div style="font-size:12px;font-weight:600;color:var(--gray-400);margin-bottom:4px">${a.label||'Address'}${a.is_default?' · <span style="color:var(--green)">Default</span>':''}</div>
-          <div style="font-size:13.5px;color:var(--gray-800)">${a.line1}${a.line2?', '+a.line2:''}</div>
-          <div style="font-size:13px;color:var(--gray-500)">${a.city||''}, ${a.state||''} ${a.zip||''}</div>
-          ${a.delivery_instructions?`<div style="font-size:12px;color:var(--gray-400);margin-top:4px">📝 ${a.delivery_instructions}</div>`:''}
-        </div>`).join('');
-    } else {
-      addrEl.innerHTML = '<div class="cp-field-value empty">No address on file</div>';
+    renderPanelAddresses(addrs);
+
+    // Route assignments (today)
+    loadRouteAssignments(customerId);
+
+    // Pre-fill notes tab
+    document.getElementById('cpnote-text').value   = c.notes || '';
+    document.getElementById('cpnote-access').value = c.access_instructions || '';
+  }
+
+  function renderPanelAddresses(addrs) {
+    const el = document.getElementById('cp-addresses');
+    if (!addrs || !addrs.length) {
+      el.innerHTML = '<div style="color:var(--gray-300);font-style:italic;font-size:13px;margin-bottom:8px">No addresses on file</div>';
+      return;
     }
+    el.innerHTML = addrs.map(a=>`
+      <div style="margin-bottom:8px;padding:10px 12px;background:var(--gray-50);border-radius:8px;border:1px solid var(--gray-200)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
+          <span style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em">${a.label||'Address'}${a.is_default?' · <span style="color:var(--green);text-transform:none;font-weight:500">Default</span>':''}</span>
+          <button onclick="deleteAddress('${a.id}')" style="background:none;border:none;cursor:pointer;color:var(--gray-300);font-size:15px;padding:0;line-height:1;transition:color .1s" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--gray-300)'" title="Remove">✕</button>
+        </div>
+        <div style="font-size:13.5px;color:var(--gray-800);font-weight:500">${a.line1}${a.line2?', '+a.line2:''}</div>
+        <div style="font-size:12.5px;color:var(--gray-500)">${a.city||''}, ${a.state||''} ${a.zip||''}</div>
+        ${a.delivery_instructions?`<div style="font-size:12px;color:var(--gray-400);margin-top:4px;display:flex;gap:4px;align-items:flex-start"><span>📝</span><span>${a.delivery_instructions}</span></div>`:''}
+      </div>`).join('');
+  }
+
+  async function loadRouteAssignments(customerId) {
+    const el = document.getElementById('cp-route-assignments');
+    el.innerHTML = '<span style="color:var(--gray-400)">Loading…</span>';
+    const today = new Date().toISOString().slice(0,10);
+    // Get customer's active orders
+    const { data: orders } = await db.from('orders').select('id').eq('customer_id', customerId)
+      .not('status', 'in', '(cancelled,delivered)');
+    if (!orders || !orders.length) {
+      el.innerHTML = '<span style="color:var(--gray-300);font-style:italic">No active route assignments</span>';
+      return;
+    }
+    const { data: stops } = await db.from('route_stops')
+      .select('stop_type, status, routes(id, name, run_date, status)')
+      .in('order_id', orders.map(o=>o.id));
+    const upcoming = (stops||[]).filter(s=>s.routes&&s.routes.run_date>=today);
+    if (!upcoming.length) {
+      el.innerHTML = '<span style="color:var(--gray-300);font-style:italic">No upcoming route assignments</span>';
+      return;
+    }
+    const byRoute = upcoming.reduce((acc, s)=>{
+      const r = s.routes;
+      if (!acc[r.id]) acc[r.id] = { name: r.name, date: r.run_date, status: r.status, types:[] };
+      if (!acc[r.id].types.includes(s.stop_type)) acc[r.id].types.push(s.stop_type);
+      return acc;
+    }, {});
+    el.innerHTML = Object.values(byRoute).sort((a,b)=>a.date.localeCompare(b.date)).map(r=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--gray-50);border:1px solid var(--gray-100);border-radius:7px;margin-bottom:6px;font-size:13px">
+        <span style="font-weight:600;color:var(--gray-800)">${r.name}</span>
+        <span style="color:var(--gray-400);font-size:12px">${r.types.map(t=>t==='pickup'?'Pickup':'Delivery').join(' + ')}</span>
+        <span style="color:var(--gray-400);font-size:11.5px">${r.date===today?'Today':r.date}</span>
+        <span style="margin-left:auto">${statusBadge(r.status)}</span>
+      </div>`).join('');
+  }
+
+  function toggleAddAddrForm() {
+    const form = document.getElementById('cp-add-addr-form');
+    const showing = form.style.display !== 'none';
+    form.style.display = showing ? 'none' : 'block';
+    if (!showing) ['cpna-label','cpna-line1','cpna-line2','cpna-city','cpna-state','cpna-zip','cpna-instructions'].forEach(id=>{ document.getElementById(id).value=''; });
+  }
+
+  async function saveNewAddress() {
+    const line1 = document.getElementById('cpna-line1').value.trim();
+    if (!line1) { alert('Street address is required.'); return; }
+    await db.from('addresses').insert({
+      customer_id: panelCustomerId,
+      label:  document.getElementById('cpna-label').value.trim() || 'Home',
+      line1,
+      line2:  document.getElementById('cpna-line2').value.trim() || null,
+      city:   document.getElementById('cpna-city').value.trim(),
+      state:  document.getElementById('cpna-state').value.trim(),
+      zip:    document.getElementById('cpna-zip').value.trim(),
+      delivery_instructions: document.getElementById('cpna-instructions').value.trim() || null,
+      is_default: false
+    });
+    toggleAddAddrForm();
+    const { data: updated } = await db.from('customers').select('addresses(id,label,line1,line2,city,state,zip,delivery_instructions,is_default)').eq('id',panelCustomerId).single();
+    renderPanelAddresses(updated?.addresses||[]);
+  }
+
+  async function deleteAddress(addrId) {
+    if (!confirm('Remove this address?')) return;
+    await db.from('addresses').delete().eq('id', addrId);
+    const { data: updated } = await db.from('customers').select('addresses(id,label,line1,line2,city,state,zip,delivery_instructions,is_default)').eq('id',panelCustomerId).single();
+    renderPanelAddresses(updated?.addresses||[]);
+  }
+
+  async function saveCustomerContact() {
+    if (!panelCustomerId) return;
+    const btn = document.querySelector('#cptab-contact .btn-primary');
+    const origText = btn.textContent; btn.disabled=true; btn.textContent='Saving…';
+    const fn    = document.getElementById('cpe-first').value.trim();
+    const ln    = document.getElementById('cpe-last').value.trim();
+    const phone = document.getElementById('cpe-phone').value.trim();
+    const email = document.getElementById('cpe-email').value.trim();
+    const type  = document.getElementById('cpe-type').value;
+    const src   = document.getElementById('cpe-source').value;
+    const { data: c } = await db.from('customers').select('profile_id').eq('id',panelCustomerId).single();
+    if (c?.profile_id) await db.from('profiles').update({ first_name:fn, last_name:ln, phone, email }).eq('id', c.profile_id);
+    await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, customer_type:type||null, referral_source:src||null }).eq('id', panelCustomerId);
+    document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
+    document.getElementById('cp-meta').innerHTML = `${phone?`<a href="tel:${phone}">${phone}</a>`:''}${phone&&email?' · ':''}${email?`<a href="mailto:${email}">${email}</a>`:''}`;
+    loadCustomers();
+    btn.disabled=false; btn.textContent=origText;
+    const msg=document.getElementById('cp-contact-msg'); msg.style.display='block'; setTimeout(()=>msg.style.display='none',2500);
   }
 
   async function loadPanelOrders(customerId) {
@@ -3039,46 +3254,44 @@
     el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
     const { data } = await db.from('orders')
       .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, pickup_window_start, created_at, services(name)')
-      .eq('customer_id', customerId)
-      .order('created_at', { ascending: false });
-    if (!data || !data.length) {
-      el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>';
-      return;
-    }
-    // Compute last_order_at from actual orders and update panel display + DB if stale
-    const latestOrderDate = data.reduce((best, o) => {
-      const d = o.created_at;
-      return d && (!best || d > best) ? d : best;
-    }, null);
-    if (latestOrderDate) {
-      const cpLastOrder = document.getElementById('cp-last-order');
-      if (cpLastOrder && (cpLastOrder.textContent === '—' || !cpLastOrder.textContent.trim())) {
-        cpLastOrder.textContent = fmtDate(latestOrderDate);
-        // Persist it back to DB so the customers list stays accurate
-        db.from('customers').update({ last_order_at: latestOrderDate }).eq('id', customerId).then(() => {});
-      }
-    }
-    el.innerHTML = data.map(o=>{
-      const chargeable = Number(o.total_amount) > 0 && !o.stripe_payment_intent_id && o.status === 'assembled';
+      .eq('customer_id', customerId).order('created_at', { ascending: false });
+    cpAllOrders = data || [];
+    if (!cpAllOrders.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>'; return; }
+    // Sync last_order date if stale
+    const latest = cpAllOrders.reduce((best,o)=>o.created_at&&(!best||o.created_at>best)?o.created_at:best, null);
+    if (latest) { const el2=document.getElementById('cp-last-order'); if(el2&&el2.textContent==='—') { el2.textContent=fmtDate(latest); db.from('customers').update({last_order_at:latest}).eq('id',customerId).then(()=>{}); } }
+    renderCpOrders(cpAllOrders, 'all');
+  }
+
+  function filterCpOrders(filter, btn) {
+    document.querySelectorAll('#cptab-orders .filter-tab').forEach(t=>t.classList.remove('active'));
+    btn.classList.add('active');
+    renderCpOrders(cpAllOrders, filter);
+  }
+
+  function renderCpOrders(data, filter) {
+    const activeStatuses = ['pending_pickup','picked_up','in_transit','washing','drying','folding','assembled','ready_for_delivery'];
+    const doneStatuses   = ['delivered','cancelled'];
+    let filtered = data;
+    if (filter==='active') filtered = data.filter(o=>activeStatuses.includes(o.status));
+    if (filter==='done')   filtered = data.filter(o=>doneStatuses.includes(o.status));
+    const el = document.getElementById('cp-orders-list');
+    if (!filtered.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:16px 0">No orders in this filter.</div>'; return; }
+    el.innerHTML = filtered.map(o=>{
+      const chargeable = Number(o.total_amount)>0 && !o.stripe_payment_intent_id && o.status==='assembled';
       const payBtn = o.stripe_payment_intent_id
-        ? '<span style="color:#059669;font-size:11px;font-weight:600;margin-left:4px">✓ Paid</span>'
-        : chargeable
-          ? `<button class="btn btn-primary" style="padding:3px 9px;font-size:11.5px;margin-left:4px" onclick="chargeOrder('${o.id}','${o.order_number}',this)">💳 Charge</button>`
-          : '';
+        ? '<span style="color:#059669;font-size:11px;font-weight:600">✓ Paid</span>'
+        : chargeable ? `<button class="btn btn-primary" style="padding:3px 8px;font-size:11.5px" onclick="chargeOrder('${o.id}','${o.order_number}',this)">💳 Charge</button>` : '';
       const nextStatus = STATUS_FLOW[o.status];
-      const willCharge = nextStatus === 'ready_for_delivery';
-      const advBtn = nextStatus
-        ? `<button class="btn-advance${willCharge?' will-charge':''}" onclick="updateOrderStatus('${o.id}','${o.order_number}','${nextStatus}',this)" title="Advance to ${STATUS_NEXT_LABEL[nextStatus]}">→ ${STATUS_NEXT_LABEL[nextStatus]}</button>`
-        : '';
-      return `
-      <div class="cp-order-row" style="flex-wrap:wrap;gap:6px">
+      const willCharge = nextStatus==='ready_for_delivery';
+      const advBtn = nextStatus ? `<button class="btn-advance${willCharge?' will-charge':''}" onclick="updateOrderStatus('${o.id}','${o.order_number}','${nextStatus}',this)" title="→ ${STATUS_NEXT_LABEL[nextStatus]}">→ ${STATUS_NEXT_LABEL[nextStatus]}</button>` : '';
+      return `<div class="cp-order-row">
         <span class="cp-order-num">#${o.order_number}</span>
         <div class="cp-order-svc">
-          <div>${o.services?.name||'—'}</div>
+          <div style="font-weight:500">${o.services?.name||'—'}</div>
           <div style="font-size:11.5px;color:var(--gray-400)">${fmtDate(o.pickup_window_start||o.created_at)}${o.weight_lbs?' · '+o.weight_lbs+' lbs':''}</div>
         </div>
-        ${statusBadge(o.status)}
-        ${advBtn}
+        ${statusBadge(o.status)} ${advBtn}
         <span class="cp-order-amt">${fmtMoney(o.total_amount)}</span>
         ${payBtn}
       </div>`;
@@ -3086,36 +3299,52 @@
   }
 
   async function loadPanelPreferences(customerId) {
-    const el = document.getElementById('cp-prefs-list');
-    const { data: c } = await db.from('customers')
-      .select('preferences, notes, subscription_plan_id, subscription_plans(name, billing_cycle)')
-      .eq('id', customerId).single();
-    if (!c) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">No preferences set.</div>'; return; }
-
+    const { data: c } = await db.from('customers').select('preferences').eq('id', customerId).single();
+    if (!c) return;
     const prefs = c.preferences || {};
-    const plan = c.subscription_plans;
+    document.getElementById('cpref-detergent').value       = prefs.detergent || '';
+    document.getElementById('cpref-fabric-softener').value = prefs.fabric_softener || '';
+    document.getElementById('cpref-separate-colors').value = prefs.separate_colors===true ? 'yes' : prefs.separate_colors===false ? 'no' : '';
+    document.getElementById('cpref-hang-dry').value        = prefs.hang_dry || '';
+    document.getElementById('cpref-pickup').value          = prefs.preferred_pickup || '';
+    document.getElementById('cpref-delivery').value        = prefs.preferred_delivery || '';
+  }
 
-    const rows = [
-      { key: 'Subscription Plan', val: plan ? `${plan.name} (${plan.billing_cycle})` : 'None' },
-      { key: 'Preferred Pickup Time', val: prefs.preferred_pickup || '—' },
-      { key: 'Preferred Delivery Time', val: prefs.preferred_delivery || '—' },
-      { key: 'Detergent Preference', val: prefs.detergent || '—' },
-      { key: 'Fabric Softener', val: prefs.fabric_softener || '—' },
-      { key: 'Separate Colors', val: prefs.separate_colors!=null ? (prefs.separate_colors?'Yes':'No') : '—' },
-      { key: 'Hang Dry Items', val: prefs.hang_dry || '—' },
-    ];
+  async function savePanelPreferences() {
+    if (!panelCustomerId) return;
+    const btn = document.querySelector('#cptab-preferences .btn-primary');
+    const origText = btn.textContent; btn.disabled=true; btn.textContent='Saving…';
+    const sepVal = document.getElementById('cpref-separate-colors').value;
+    const prefs = {
+      detergent:         document.getElementById('cpref-detergent').value.trim() || null,
+      fabric_softener:   document.getElementById('cpref-fabric-softener').value || null,
+      separate_colors:   sepVal==='yes' ? true : sepVal==='no' ? false : null,
+      hang_dry:          document.getElementById('cpref-hang-dry').value.trim() || null,
+      preferred_pickup:  document.getElementById('cpref-pickup').value.trim() || null,
+      preferred_delivery:document.getElementById('cpref-delivery').value.trim() || null,
+    };
+    await db.from('customers').update({ preferences: prefs }).eq('id', panelCustomerId);
+    btn.disabled=false; btn.textContent=origText;
+    const msg=document.getElementById('cp-pref-msg'); msg.style.display='block'; setTimeout(()=>msg.style.display='none',2500);
+  }
 
-    el.innerHTML = rows.map(r=>`
-      <div class="cp-pref-row">
-        <span class="cp-pref-key">${r.key}</span>
-        <span class="cp-pref-val">${r.val}</span>
-      </div>`).join('');
+  async function savePanelNotes() {
+    if (!panelCustomerId) return;
+    const btn = document.querySelector('#cptab-notes .btn-primary');
+    const origText = btn.textContent; btn.disabled=true; btn.textContent='Saving…';
+    await db.from('customers').update({
+      notes: document.getElementById('cpnote-text').value.trim() || null,
+      access_instructions: document.getElementById('cpnote-access').value.trim() || null
+    }).eq('id', panelCustomerId);
+    btn.disabled=false; btn.textContent=origText;
+    const msg=document.getElementById('cp-notes-msg'); msg.style.display='block'; setTimeout(()=>msg.style.display='none',2500);
   }
 
   function closeCustomerPanel() {
     document.getElementById('customer-panel').classList.remove('open');
     document.getElementById('panel-backdrop').classList.remove('open');
     panelCustomerId = null;
+    cpAllOrders = [];
   }
 
   // ── MAP STATE ──
