@@ -2013,8 +2013,9 @@
   let allDriversList = [];
   let currentDriverId = null;
   let driverFilter = 'all';
-  let allServices    = [];
-  let allCategories  = []; // { id, name, sort_order }
+  let allServices        = [];
+  let allCategories      = []; // { id, name, sort_order }
+  let svcAutoSaveTimers  = {}; // debounced auto-save per service id
   let currentConversation = null;
   let currentOrderFilter = null; // null = all
   let orderSortCol = 'pickup_window_start'; // default sort
@@ -3215,10 +3216,43 @@
 
   function markSvcDirty(id) {
     const btn = document.getElementById('svc-save-'+id);
-    if (btn) btn.style.display = 'inline-flex';
+    if (btn) { btn.style.display = 'inline-flex'; btn.textContent = 'Save'; btn.style.background = ''; }
+    // Auto-save 1.8 s after the last keystroke so navigating away never loses work
+    clearTimeout(svcAutoSaveTimers[id]);
+    svcAutoSaveTimers[id] = setTimeout(() => autoSaveService(id), 1800);
+  }
+
+  async function autoSaveService(id) {
+    const btn = document.getElementById('svc-save-'+id);
+    if (btn) { btn.textContent = 'Saving…'; btn.style.background = 'var(--gray-400)'; }
+    const name    = document.getElementById('svc-name-'+id)?.value.trim();
+    const price   = parseFloat(document.getElementById('svc-price-'+id)?.value) || 0;
+    const type    = document.getElementById('svc-type-'+id)?.value;
+    const cat     = document.getElementById('svc-cat-'+id)?.value;
+    const lbsBag  = parseFloat(document.getElementById('svc-lbs-'+id)?.value) || 25;
+    const ovgRate = parseFloat(document.getElementById('svc-ovg-'+id)?.value) || 3;
+    if (!name) { if (btn) { btn.textContent = 'Save'; btn.style.background = ''; } return; }
+    const { error } = await db.from('services').update({
+      name, base_price: price, pricing_type: type, category: cat,
+      lbs_per_bag: lbsBag, overage_rate_per_lb: ovgRate
+    }).eq('id', id);
+    if (error) {
+      if (btn) { btn.textContent = 'Save'; btn.style.background = ''; }
+      showToast(error.message, 'error'); return;
+    }
+    allServices = allServices.map(s => s.id===id
+      ? {...s, name, base_price: price, pricing_type: type, category: cat, lbs_per_bag: lbsBag, overage_rate_per_lb: ovgRate}
+      : s);
+    if (btn) {
+      btn.textContent = 'Saved ✓'; btn.style.background = '#22c55e';
+      setTimeout(() => { btn.style.display = 'none'; btn.textContent = 'Save'; btn.style.background = ''; }, 1400);
+    }
   }
 
   async function saveServiceEdit(id) {
+    // Cancel any pending auto-save — this click is the explicit save
+    clearTimeout(svcAutoSaveTimers[id]);
+    delete svcAutoSaveTimers[id];
     const name    = document.getElementById('svc-name-'+id)?.value.trim();
     const price   = parseFloat(document.getElementById('svc-price-'+id)?.value) || 0;
     const type    = document.getElementById('svc-type-'+id)?.value;
@@ -3252,7 +3286,13 @@
 
   async function deleteService(id) {
     const { error } = await db.from('services').delete().eq('id', id);
-    if (error) { showToast(error.message,'error'); return; }
+    if (error) {
+      const msg = error.message && error.message.toLowerCase().includes('foreign key')
+        ? 'This service has existing orders and can\'t be deleted. Try deactivating it instead (toggle the Active switch off).'
+        : error.message;
+      showToast(msg, 'error');
+      return;
+    }
     allServices = allServices.filter(s => s.id !== id);
     showToast('Service deleted');
     filterServices();
