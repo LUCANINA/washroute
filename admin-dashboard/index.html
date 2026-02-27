@@ -243,6 +243,20 @@
     .svc-page-tab { padding: 10px 16px; font-size: 13.5px; font-weight: 500; color: var(--gray-500); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; font-family: inherit; }
     .svc-page-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
     .svc-page-tab:hover:not(.active) { color: var(--gray-700); background: var(--gray-50); }
+    /* Category manager */
+    .cat-row { display: flex; align-items: center; gap: 10px; padding: 11px 20px; border-bottom: 1px solid var(--gray-100); transition: background .1s; }
+    .cat-row:hover { background: var(--gray-50); }
+    .cat-row:last-child { border-bottom: none; }
+    .cat-drag-handle { color: var(--gray-300); cursor: grab; font-size: 16px; flex-shrink: 0; }
+    .cat-name-display { flex: 1; font-size: 14px; font-weight: 500; color: var(--gray-800); }
+    .cat-svc-count { font-size: 12px; color: var(--gray-400); margin-right: 6px; white-space: nowrap; }
+    .cat-name-input { flex: 1; border: 1.5px solid var(--accent); border-radius: 6px; padding: 5px 10px; font-size: 14px; font-weight: 500; color: var(--gray-800); font-family: inherit; outline: none; box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
+    .cat-rename-btn { padding: 4px 10px; font-size: 12px; font-weight: 600; background: white; color: var(--accent); border: 1.5px solid var(--accent); border-radius: 6px; cursor: pointer; transition: all .12s; white-space: nowrap; }
+    .cat-rename-btn:hover { background: var(--accent); color: white; }
+    .cat-save-btn { padding: 4px 12px; font-size: 12px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; }
+    .cat-del-btn { padding: 5px; background: none; border: none; cursor: pointer; color: var(--gray-300); border-radius: 5px; transition: all .12s; display: flex; align-items: center; flex-shrink: 0; }
+    .cat-del-btn:hover { color: var(--red); background: var(--red-light); }
+    .cat-empty { padding: 40px; text-align: center; color: var(--gray-400); font-size: 13.5px; }
     /* Preferences builder */
     .pref-empty { padding: 40px; text-align: center; color: var(--gray-400); font-size: 13.5px; }
     .pref-svc-card { border-bottom: 1px solid var(--gray-100); }
@@ -1048,47 +1062,52 @@
                 <div class="card-sub" id="svc-count-label">Loading…</div>
               </div>
               <div style="display:flex;gap:8px;align-items:center" id="svc-header-controls">
-                <select class="form-select" id="svc-cat-filter" onchange="filterServices()" style="font-size:13px;padding:6px 10px;width:160px">
+                <!-- Populated dynamically by rebuildCategoryDropdowns() -->
+                <select class="form-select" id="svc-cat-filter" onchange="filterServices()" style="font-size:13px;padding:6px 10px;width:190px">
                   <option value="">All Categories</option>
-                  <option value="Delivery">Delivery</option>
-                  <option value="Commercial">Commercial</option>
-                  <option value="Add-ons">Add-ons</option>
                 </select>
               </div>
             </div>
             <!-- Tab bar -->
             <div class="svc-page-tabs">
-              <button class="svc-page-tab active" id="svctab-btn-services" onclick="svcPageTab('services',this)">Services</button>
-              <button class="svc-page-tab" id="svctab-btn-preferences" onclick="svcPageTab('preferences',this)">Preferences</button>
+              <button class="svc-page-tab active" id="svctab-btn-services"     onclick="svcPageTab('services',this)">Services</button>
+              <button class="svc-page-tab"        id="svctab-btn-preferences"  onclick="svcPageTab('preferences',this)">Preferences</button>
+              <button class="svc-page-tab"        id="svctab-btn-categories"   onclick="svcPageTab('categories',this)">Categories</button>
             </div>
             <!-- Services tab -->
             <div id="svctab-services">
-              <!-- Service rows injected here -->
               <div id="services-table-body"></div>
               <!-- Add new service row -->
               <div class="svc-add-row">
-                <input class="svc-add-input" id="ns-name" placeholder="New service name…" onkeydown="if(event.key==='Enter')saveNewService()" />
+                <input class="svc-add-input" id="ns-name" placeholder="New service or product name…" onkeydown="if(event.key==='Enter')saveNewService()" />
                 <div class="svc-price-wrap">
                   <span class="svc-price-prefix">$</span>
                   <input class="svc-add-input" id="ns-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
                 </div>
                 <select class="svc-add-select" id="ns-type">
+                  <option value="per_bag">Per bag</option>
                   <option value="per_lb">Per lb</option>
                   <option value="per_item">Per item</option>
                   <option value="flat">Flat rate</option>
                 </select>
-                <select class="svc-add-select" id="ns-category">
-                  <option value="Delivery">Delivery</option>
-                  <option value="Commercial">Commercial</option>
-                  <option value="Add-ons">Add-ons</option>
-                </select>
+                <!-- Populated dynamically by rebuildCategoryDropdowns() -->
+                <select class="svc-add-select" id="ns-category"></select>
                 <div></div>
-                <button class="btn btn-primary" onclick="saveNewService()" style="font-size:12.5px;padding:6px 14px">+ Add Service</button>
+                <button class="btn btn-primary" onclick="saveNewService()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
               </div>
             </div>
             <!-- Preferences tab -->
             <div id="svctab-preferences" style="display:none">
               <div id="pref-builder-body"></div>
+            </div>
+            <!-- Categories tab -->
+            <div id="svctab-categories" style="display:none">
+              <div id="cat-manager-body"></div>
+              <!-- Add new category -->
+              <div class="svc-add-row" style="grid-template-columns:1fr auto;gap:10px">
+                <input class="svc-add-input" id="nc-name" placeholder="New category name…  (e.g. Hotel Pricing)" onkeydown="if(event.key==='Enter')addCategory()" />
+                <button class="btn btn-primary" onclick="addCategory()" style="font-size:12.5px;padding:6px 14px">+ Add Category</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1994,7 +2013,8 @@
   let allDriversList = [];
   let currentDriverId = null;
   let driverFilter = 'all';
-  let allServices = [];
+  let allServices    = [];
+  let allCategories  = []; // { id, name, sort_order }
   let currentConversation = null;
   let currentOrderFilter = null; // null = all
   let orderSortCol = 'pickup_window_start'; // default sort
@@ -3069,17 +3089,41 @@
 
   // ── SERVICES CRUD ──
   async function loadServices() {
+    // Load categories first so dropdowns are ready before services render
+    await loadCategories();
     const { data } = await db.from('services').select('*').order('category').order('sort_order').order('name');
     allServices = data || [];
-    // Seed in-memory pref state from DB
     allServices.forEach(s => {
       svcPrefsState[s.id] = JSON.parse(JSON.stringify(s.preferences || []));
     });
     filterServices();
   }
 
+  async function loadCategories() {
+    const { data } = await db.from('service_categories').select('*').order('sort_order').order('name');
+    allCategories = data || [];
+    rebuildCategoryDropdowns();
+  }
+
+  function rebuildCategoryDropdowns() {
+    const opts = allCategories.map(c => `<option value="${svcEsc(c.name)}">${svcEsc(c.name)}</option>`).join('');
+    // Filter header dropdown
+    const filter = document.getElementById('svc-cat-filter');
+    if (filter) filter.innerHTML = `<option value="">All Categories</option>` + opts;
+    // Add-new-service category dropdown
+    const nscat = document.getElementById('ns-category');
+    if (nscat) nscat.innerHTML = opts || '<option value="">— add a category first —</option>';
+  }
+
+  // Build <option> elements for a service row, pre-selecting the service's current category
+  function svcCatOptions(selected) {
+    return allCategories.map(c =>
+      `<option value="${svcEsc(c.name)}"${c.name === selected ? ' selected' : ''}>${svcEsc(c.name)}</option>`
+    ).join('') || `<option value="${svcEsc(selected)}">${svcEsc(selected)}</option>`;
+  }
+
   function svcPageTab(name, btn) {
-    ['services','preferences'].forEach(n => {
+    ['services','preferences','categories'].forEach(n => {
       const el = document.getElementById('svctab-'+n);
       if (el) el.style.display = n===name ? '' : 'none';
       const b = document.getElementById('svctab-btn-'+n);
@@ -3088,6 +3132,7 @@
     const controls = document.getElementById('svc-header-controls');
     if (controls) controls.style.display = name==='services' ? '' : 'none';
     if (name==='preferences') renderSvcPrefs();
+    if (name==='categories')  renderCategoryManager();
   }
 
   function filterServices() {
@@ -3138,9 +3183,7 @@
       </div>
       <div>
         <select class="svc-select" id="svc-cat-${s.id}" onchange="markSvcDirty('${s.id}')">
-          <option value="Delivery" ${(s.category||'Delivery')==='Delivery'?'selected':''}>Delivery</option>
-          <option value="Commercial" ${s.category==='Commercial'?'selected':''}>Commercial</option>
-          <option value="Add-ons" ${s.category==='Add-ons'?'selected':''}>Add-ons</option>
+          ${svcCatOptions(s.category)}
         </select>
       </div>
       <div>
@@ -3230,10 +3273,105 @@
     allServices.push(data);
     document.getElementById('ns-name').value = '';
     document.getElementById('ns-price').value = '';
-    document.getElementById('ns-type').value = 'per_lb';
+    document.getElementById('ns-type').value = 'per_bag';
     showToast(`"${name}" added!`, 'success');
     filterServices();
     document.getElementById('ns-name').focus();
+  }
+
+  // ── CATEGORY MANAGER ──
+
+  function renderCategoryManager() {
+    const body = document.getElementById('cat-manager-body');
+    if (!body) return;
+    if (!allCategories.length) {
+      body.innerHTML = '<div class="cat-empty" style="padding:24px 20px;color:var(--gray-400);font-size:14px;text-align:center;">No categories yet. Add one below.</div>';
+      return;
+    }
+    body.innerHTML = allCategories.map(c => {
+      const inUse = allServices.filter(s => s.category === c.name).length;
+      return `
+        <div class="cat-row" id="cat-row-${c.id}">
+          <span class="cat-name-display" id="cat-display-${c.id}">${svcEsc(c.name)}</span>
+          <input class="cat-name-input" id="cat-input-${c.id}" value="${svcEsc(c.name)}" style="display:none"
+                 onkeydown="if(event.key==='Enter')saveRenameCategory('${c.id}');if(event.key==='Escape')cancelRenameCategory('${c.id}')" />
+          <span class="cat-svc-count">${inUse} service${inUse !== 1 ? 's' : ''}</span>
+          <button class="cat-rename-btn" id="cat-rename-btn-${c.id}" onclick="startRenameCategory('${c.id}')">Rename</button>
+          <button class="cat-save-btn"   id="cat-save-btn-${c.id}"   onclick="saveRenameCategory('${c.id}')" style="display:none;padding:4px 10px;font-size:12px;font-weight:600;background:var(--accent);color:white;border:none;border-radius:6px;cursor:pointer;">Save</button>
+          <button class="cat-del-btn" onclick="deleteCategory('${c.id}','${svcEsc(c.name)}',${inUse})" title="Delete category">🗑</button>
+        </div>`;
+    }).join('');
+  }
+
+  function startRenameCategory(id) {
+    document.getElementById('cat-display-' + id).style.display = 'none';
+    document.getElementById('cat-rename-btn-' + id).style.display = 'none';
+    const inp = document.getElementById('cat-input-' + id);
+    inp.style.display = '';
+    document.getElementById('cat-save-btn-' + id).style.display = '';
+    inp.focus();
+    inp.select();
+  }
+
+  function cancelRenameCategory(id) {
+    const cat = allCategories.find(c => c.id === id);
+    if (cat) document.getElementById('cat-input-' + id).value = cat.name;
+    document.getElementById('cat-display-' + id).style.display = '';
+    document.getElementById('cat-rename-btn-' + id).style.display = '';
+    document.getElementById('cat-input-' + id).style.display = 'none';
+    document.getElementById('cat-save-btn-' + id).style.display = 'none';
+  }
+
+  async function saveRenameCategory(id) {
+    const inp = document.getElementById('cat-input-' + id);
+    const newName = inp ? inp.value.trim() : '';
+    if (!newName) { showToast('Category name cannot be empty.', 'error'); return; }
+    const cat = allCategories.find(c => c.id === id);
+    if (!cat) return;
+    if (newName === cat.name) { cancelRenameCategory(id); return; }
+    const { error } = await db.from('service_categories').update({ name: newName }).eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    // Also update any services that used the old category name
+    if (allServices.some(s => s.category === cat.name)) {
+      await db.from('services').update({ category: newName }).eq('category', cat.name);
+    }
+    showToast(`Renamed to "${newName}"`, 'success');
+    await loadCategories();
+    // Reload services so the category column reflects the new name
+    const { data } = await db.from('services').select('*').order('category').order('sort_order').order('name');
+    allServices = data || [];
+    filterServices();
+    renderCategoryManager();
+  }
+
+  async function addCategory() {
+    const inp = document.getElementById('nc-name');
+    const name = inp ? inp.value.trim() : '';
+    if (!name) { showToast('Please enter a category name.', 'error'); inp && inp.focus(); return; }
+    if (allCategories.some(c => c.name.toLowerCase() === name.toLowerCase())) {
+      showToast('That category already exists.', 'error'); return;
+    }
+    const maxSort = allCategories.reduce((m, c) => Math.max(m, c.sort_order || 0), 0);
+    const { error } = await db.from('service_categories').insert({ name, sort_order: maxSort + 1 });
+    if (error) { showToast(error.message, 'error'); return; }
+    if (inp) inp.value = '';
+    showToast(`Category "${name}" added!`, 'success');
+    await loadCategories();
+    renderCategoryManager();
+    inp && inp.focus();
+  }
+
+  async function deleteCategory(id, name, inUse) {
+    if (inUse > 0) {
+      showToast(`Cannot delete — ${inUse} service${inUse !== 1 ? 's' : ''} still use "${name}". Move them first.`, 'error');
+      return;
+    }
+    if (!confirm(`Delete the "${name}" category? This cannot be undone.`)) return;
+    const { error } = await db.from('service_categories').delete().eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    showToast(`"${name}" deleted.`, 'success');
+    await loadCategories();
+    renderCategoryManager();
   }
 
   // ── SERVICE PREFERENCES BUILDER ──
