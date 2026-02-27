@@ -699,7 +699,7 @@
         <!-- ── ROUTES ── -->
         <div class="page" id="page-routes">
           <div class="stats-grid">
-            <div class="stat-card"><div class="stat-label">Active Templates</div><div class="stat-value" id="rstat-templates">—</div></div>
+            <div class="stat-card"><div class="stat-label">Active Routes</div><div class="stat-value" id="rstat-templates">—</div></div>
             <div class="stat-card"><div class="stat-label">Routes Today</div><div class="stat-value" id="rstat-today">—</div></div>
             <div class="stat-card"><div class="stat-label">Total Stops</div><div class="stat-value" id="rstat-stops">—</div></div>
             <div class="stat-card"><div class="stat-label">Active Drivers</div><div class="stat-value" id="rstat-drivers">—</div></div>
@@ -709,13 +709,13 @@
           <div class="card" style="padding:0;overflow:visible;">
             <!-- Tab bar -->
             <div class="section-tabs" style="padding:0 8px;align-items:center;">
-              <button class="section-tab active" id="rtab-btn-templates" onclick="setRoutesTab('templates',this)">Route Templates</button>
+              <button class="section-tab active" id="rtab-btn-templates" onclick="setRoutesTab('templates',this)">Routes</button>
               <button class="section-tab" id="rtab-btn-schedule" onclick="setRoutesTab('schedule',this)">Weekly Schedule</button>
               <button class="section-tab" id="rtab-btn-runs" onclick="setRoutesTab('runs',this)">Daily Routes</button>
               <div style="flex:1"></div>
               <button class="btn btn-primary" id="rtab-add-btn" style="padding:6px 14px;font-size:12px;margin:6px 8px 6px 0;" onclick="openTemplateEditor(null)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12" style="margin-right:4px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                New Template
+                New Route
               </button>
             </div>
 
@@ -1392,8 +1392,8 @@
     <button onclick="closeTemplateEditor()" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--gray-400);display:flex;align-items:center;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
     </button>
-    <div style="font-size:16px;font-weight:700;color:var(--gray-900);flex:1;" id="so-title">New Template</div>
-    <button id="so-delete-btn" onclick="deleteTemplate()" style="display:none;background:none;border:none;cursor:pointer;padding:4px;color:var(--gray-400);" title="Delete template">
+    <div style="font-size:16px;font-weight:700;color:var(--gray-900);flex:1;" id="so-title">New Route</div>
+    <button id="so-delete-btn" onclick="deleteTemplate()" style="display:none;background:none;border:none;cursor:pointer;padding:4px;color:var(--gray-400);" title="Delete route">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6m4-6v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
     </button>
   </div>
@@ -1484,7 +1484,7 @@
       <div class="so-section" style="display:flex;flex-direction:column;justify-content:flex-end;">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:500;color:var(--gray-800);margin-bottom:6px;">
           <input type="checkbox" id="so-active" checked style="width:16px;height:16px;accent-color:var(--accent);">
-          Active template
+          Active route
         </label>
       </div>
     </div>
@@ -1500,7 +1500,7 @@
   </div>
   <div class="slide-over-footer">
     <button class="btn btn-ghost" onclick="closeTemplateEditor()">Cancel</button>
-    <button class="btn btn-primary" onclick="saveTemplate()">Save Template</button>
+    <button class="btn btn-primary" onclick="saveTemplate()">Save Route</button>
   </div>
 </div>
 
@@ -1877,7 +1877,7 @@
 
   // ── NAVIGATION ──
   const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', routes:'Routes', drivers:'Drivers', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', reports:'Reports' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', routes:'New Template', drivers:'New Driver', maps:'', inbox:'Compose', services:'', reports:'' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', routes:'New Route', drivers:'New Driver', maps:'', inbox:'Compose', services:'', reports:'' };
 
   function showPage(id, navEl) {
     // If leaving orders page, clear any active batch selection
@@ -2636,7 +2636,7 @@
     if (!el) return;
     if (!allTemplates.length) {
       el.style.padding = '16px';
-      el.innerHTML = `<div class="empty"><div class="empty-icon">🗺️</div><div class="empty-title">No route templates yet</div><div class="empty-sub">Create your first template to define recurring routes.</div></div>`;
+      el.innerHTML = `<div class="empty"><div class="empty-icon">🗺️</div><div class="empty-title">No routes yet</div><div class="empty-sub">Create your first route to get started.</div></div>`;
       return;
     }
     el.style.padding = '0';
@@ -3897,7 +3897,7 @@
   async function openTemplateEditor(templateId) {
     editingTemplateId = templateId;
     const tmpl = allTemplates.find(t => t.id === templateId);
-    document.getElementById('so-title').textContent = tmpl ? 'Edit Template' : 'New Template';
+    document.getElementById('so-title').textContent = tmpl ? 'Edit Route' : 'New Route';
     document.getElementById('so-delete-btn').style.display = tmpl ? '' : 'none';
     document.getElementById('so-name').value = tmpl?.name || '';
 
@@ -4015,17 +4015,17 @@
       ({ error } = await db.from('route_templates').insert(payload));
     }
     if (error) { err.textContent = error.message; err.style.display = 'block'; return; }
-    showToast(editingTemplateId ? 'Template updated!' : 'Template created!', 'success');
+    showToast(editingTemplateId ? 'Route saved!' : 'Route created!', 'success');
     closeTemplateEditor();
     loadTemplates();
   }
 
   async function deleteTemplate() {
     if (!editingTemplateId) return;
-    if (!confirm('Delete this route template? This cannot be undone.')) return;
+    if (!confirm('Delete this route? This cannot be undone.')) return;
     const { error } = await db.from('route_templates').delete().eq('id', editingTemplateId);
     if (error) { showToast('Delete failed: ' + error.message, 'error'); return; }
-    showToast('Template deleted.');
+    showToast('Route deleted.');
     closeTemplateEditor();
     loadTemplates();
   }
@@ -4051,7 +4051,7 @@
   async function renderWeeklySchedule() {
     const el = document.getElementById('weekly-schedule-grid');
     if (!allTemplates.length) {
-      el.innerHTML = '<div style="padding:20px;color:var(--gray-400);font-size:13px;">No templates yet. Create templates first.</div>';
+      el.innerHTML = '<div style="padding:20px;color:var(--gray-400);font-size:13px;">No routes yet. Create routes first.</div>';
       return;
     }
     el.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
@@ -4724,7 +4724,7 @@
 
   // ── DELETE ZONE ──
   async function deleteZone(zoneId, zoneName) {
-    if (!confirm(`Delete zone "${zoneName}"? Any route templates using this zone will be unlinked.`)) return;
+    if (!confirm(`Delete zone "${zoneName}"? Any routes using this zone will be unlinked.`)) return;
     const { error } = await db.rpc('delete_service_zone', { p_id: zoneId });
     if (error) { showToast('Delete failed: ' + error.message, 'error'); return; }
     showToast(`Zone "${zoneName}" deleted.`);
