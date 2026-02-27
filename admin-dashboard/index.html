@@ -5229,24 +5229,56 @@
 
     const editSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="9" height="9" style="flex-shrink:0"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
 
-    const makeSchedCell = (t, day) => {
+    // Format "07:00:00" → "7AM", "18:00:00" → "6PM"
+    function fmtT(t) {
+      if (!t) return '';
+      const [h, m] = t.split(':').map(Number);
+      const ap = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 || 12;
+      return m ? `${h12}:${String(m).padStart(2,'0')}${ap}` : `${h12}${ap}`;
+    }
+
+    // Build a route chip for a given template + day
+    const makeChip = (t, day) => {
       const runs = (t.schedule_days||[]).includes(day);
-      if (!runs) return `<td style="text-align:center"><span style="color:var(--gray-200);font-size:13px;">—</span></td>`;
+      if (!runs) return '';
       const ovDrvId = overMap[`${t.id}-${day}-pickup`];
       const defaultId = t.default_pickup_driver_id;
       const drvId = ovDrvId || defaultId;
       const drvName = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
-      const short = drvName.split(' ')[0];
+      const drvFirst = drvName.split(' ')[0];
       const isOv = !!ovDrvId;
       const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
       const fg = drvId ? 'white' : '#9ca3af';
-      return `<td><div class="sched-cell${isOv?' sched-override':''}" style="background:${bg};color:${fg};"
+      // Short route name: take first word (e.g. "Berkeley" from "Berkeley AM")
+      const routeShort = t.name.replace(/\s+(AM|PM|am|pm)$/i, '');
+      return `<div class="sched-cell${isOv?' sched-override':''}"
+        style="background:${bg};color:${fg};flex-direction:column;align-items:flex-start;gap:0;padding:5px 9px;margin:3px 0;min-width:90px;cursor:pointer"
         onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
-        title="${drvName}${isOv?' (day override)':''}">
-        ${short}
-        ${isOv ? editSvg : ''}
-      </div></td>`;
+        title="${t.name} · ${drvName}${isOv?' (override)':''}">
+        <span style="font-size:10px;font-weight:700;opacity:.9;line-height:1.3">${routeShort}</span>
+        <span style="font-size:10.5px;opacity:.85;line-height:1.3;display:flex;align-items:center;gap:3px">
+          ${drvFirst}${isOv ? editSvg : ''}
+        </span>
+      </div>`;
     };
+
+    // Sort templates by window_start (morning → evening), ungrouped last
+    const sorted = [...allTemplates].sort((a, b) =>
+      (a.window_start || '99:99').localeCompare(b.window_start || '99:99')
+    );
+
+    // Group into time bands by unique window_start+window_end
+    const bands = [];
+    sorted.forEach(t => {
+      const key = `${t.window_start||''}|${t.window_end||''}`;
+      let band = bands.find(b => b.key === key);
+      if (!band) {
+        band = { key, ws: t.window_start, we: t.window_end, routes: [] };
+        bands.push(band);
+      }
+      band.routes.push(t);
+    });
 
     // Compute week dates and update label
     const weekDates = getWeekDates(schedWeekOffset);
@@ -5260,23 +5292,32 @@
 
     el.innerHTML = `<table class="sched-grid">
       <thead><tr>
-        <th>Route</th>
+        <th style="min-width:110px">Time Slot</th>
         ${weekDates.map((d, i) => {
           const isToday = d.toDateString() === todayStr;
           return `<th style="${isToday?'background:var(--accent-light);color:var(--accent);':''}">${DAY_LABELS[i]}<br><span style="font-weight:400;font-size:10px;${isToday?'color:var(--accent);':''}">${fmtWeekDate(d)}${isToday?' ★':''}</span></th>`;
         }).join('')}
       </tr></thead>
       <tbody>
-      ${allTemplates.map(t => `
-        <tr>
-          <td>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <div style="width:10px;height:10px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;"></div>
-              <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);">${t.name}</div>
-            </div>
+      ${bands.map((band, bi) => {
+        const timeLabel = band.ws ? `${fmtT(band.ws)} – ${fmtT(band.we)}` : 'Unscheduled';
+        const isFirst = bi === 0;
+        return `<tr style="${!isFirst ? 'border-top:2px solid var(--gray-200)' : ''}">
+          <td style="vertical-align:top;padding:10px 8px 14px;">
+            <div style="font-size:12px;font-weight:700;color:var(--accent);white-space:nowrap;margin-bottom:6px">${timeLabel}</div>
+            ${band.routes.map(r => `
+              <div style="display:flex;align-items:center;gap:5px;margin:3px 0">
+                <span style="width:7px;height:7px;border-radius:50%;background:${r.color||'#635bff'};flex-shrink:0;display:inline-block"></span>
+                <span style="font-size:10.5px;color:var(--gray-500);font-weight:500">${r.name}</span>
+              </div>`).join('')}
           </td>
-          ${[0,1,2,3,4,5,6].map(day => makeSchedCell(t, day)).join('')}
-        </tr>`).join('')}
+          ${[0,1,2,3,4,5,6].map(day => {
+            const chips = band.routes.map(t => makeChip(t, day)).filter(Boolean);
+            if (!chips.length) return `<td style="vertical-align:top;text-align:center;padding-top:12px"><span style="color:var(--gray-200);font-size:13px;">—</span></td>`;
+            return `<td style="vertical-align:top;padding:6px 4px">${chips.join('')}</td>`;
+          }).join('')}
+        </tr>`;
+      }).join('')}
       </tbody>
     </table>`;
 
