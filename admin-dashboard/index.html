@@ -616,14 +616,29 @@
 
     /* ── PROCESSING QUEUE ── */
     .proc-queue-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px; }
-    .proc-card { background:white;border:1px solid var(--gray-200);border-radius:var(--radius);padding:18px 20px;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s,border-color .15s; }
+    .proc-card { background:white;border:1px solid var(--gray-200);border-radius:var(--radius);padding:18px 20px;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s,border-color .15s;cursor:grab; }
     .proc-card:hover { box-shadow:0 4px 18px rgba(0,0,0,.1);border-color:var(--accent); }
+    .proc-card:active { cursor:grabbing; }
+    .proc-card.dragging { opacity:.2;box-shadow:none; }
     .proc-card-order { font-size:11.5px;color:var(--gray-400);font-family:monospace;letter-spacing:.03em; }
     .proc-card-name { font-size:16px;font-weight:700;color:var(--gray-900);line-height:1.2; }
     .proc-card-meta { font-size:13px;color:var(--gray-500);display:flex;align-items:center;gap:12px;flex-wrap:wrap; }
     .proc-card-pref-chip { font-size:11px;padding:2px 8px;border-radius:12px;background:#ede9ff;color:var(--accent);font-weight:600; }
     .proc-card-btn { width:100%;padding:11px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px;transition:background .12s; }
     .proc-card-btn:hover { background:#5049e8; }
+    /* Kanban board */
+    .kanban-board { display:grid;grid-template-columns:1fr 1fr;height:calc(100vh - 215px);min-height:450px; }
+    .kanban-col { display:flex;flex-direction:column;border-right:1px solid var(--gray-100);overflow:hidden; }
+    .kanban-col:last-child { border-right:none; }
+    .kanban-col-header { display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--gray-50);border-bottom:2px solid var(--gray-100);flex-shrink:0;font-weight:700;font-size:13px; }
+    .kanban-col-header.folding-col-header { background:#f0fdf4;border-bottom-color:#86efac; }
+    .kanban-col-body { flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px; }
+    .kanban-col-fold { transition:background .15s,outline .1s; }
+    .kanban-col-fold.drag-over { background:rgba(16,185,129,.06) !important;outline:3px dashed #10b981;outline-offset:-4px; }
+    .kanban-col-hint { font-size:10.5px;color:var(--gray-400);margin-left:auto;font-weight:400; }
+    .kanban-fold-badge { background:#d1fae5 !important;color:#065f46 !important; }
+    .kanban-drop-label { font-size:10.5px;color:#10b981;font-weight:600;margin-left:auto;opacity:0;transition:opacity .15s; }
+    .kanban-col-fold.drag-over .kanban-drop-label { opacity:1; }
     /* Intake panel */
     .intake-over { position:fixed;top:0;right:0;bottom:0;width:560px;background:white;box-shadow:-8px 0 40px rgba(0,0,0,.18);z-index:900;transform:translateX(100%);transition:transform .22s ease;display:flex;flex-direction:column;overflow:hidden; }
     .intake-over.open { transform:translateX(0); }
@@ -915,21 +930,32 @@
                 <div class="card-sub" id="proc-subtitle">Orders in progress</div>
               </div>
             </div>
-            <div class="proc-tab-bar">
-              <button class="proc-tab active" id="proctab-btn-intake" onclick="setProcTab('intake',this)">
-                ⚖️ Intake
-                <span class="proc-tab-badge" id="ptab-badge-intake">0</span>
-              </button>
-              <button class="proc-tab" id="proctab-btn-folding" onclick="setProcTab('folding',this)">
-                👕 Folding
-                <span class="proc-tab-badge" id="ptab-badge-folding">0</span>
-              </button>
-            </div>
-            <div id="proctab-intake" style="padding:20px 20px 24px;">
-              <div id="proc-queue-wrap"><div class="loading"><div class="spinner"></div> Loading…</div></div>
-            </div>
-            <div id="proctab-folding" style="display:none;padding:20px 20px 24px;">
-              <div id="fold-queue-wrap"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            <div class="kanban-board">
+              <!-- INTAKE column -->
+              <div class="kanban-col">
+                <div class="kanban-col-header">
+                  ⚖️ Intake
+                  <span class="proc-tab-badge" id="ptab-badge-intake">0</span>
+                  <span class="kanban-col-hint">drag → to assign folder</span>
+                </div>
+                <div class="kanban-col-body" id="proc-queue-wrap">
+                  <div class="loading"><div class="spinner"></div> Loading…</div>
+                </div>
+              </div>
+              <!-- FOLDING drop-zone column -->
+              <div class="kanban-col kanban-col-fold" id="kanban-fold-col"
+                ondragover="event.preventDefault();this.classList.add('drag-over')"
+                ondragleave="onFoldColLeave(event)"
+                ondrop="dropOrderToFolding(event)">
+                <div class="kanban-col-header folding-col-header">
+                  👕 Folding
+                  <span class="proc-tab-badge kanban-fold-badge" id="ptab-badge-folding">0</span>
+                  <span class="kanban-drop-label">← drop here</span>
+                </div>
+                <div class="kanban-col-body" id="fold-queue-wrap">
+                  <div class="loading"><div class="spinner"></div> Loading…</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -5893,15 +5919,92 @@
   // ── PROC TABS ──
   let procTabActive = 'intake';
 
-  function setProcTab(tab, btn) {
-    procTabActive = tab;
-    document.querySelectorAll('.proc-tab').forEach(b => b.classList.remove('active'));
-    if (btn) btn.classList.add('active');
-    ['intake','folding'].forEach(t => {
-      const el = document.getElementById('proctab-'+t);
-      if (el) el.style.display = t === tab ? '' : 'none';
+  function setProcTab(tab, btn) { /* kept for compatibility — kanban replaced tabs */ }
+
+  // ── KANBAN DRAG (desktop) ──
+  function dragStartOrder(event, id) {
+    event.dataTransfer.setData('text/plain', id);
+    event.dataTransfer.effectAllowed = 'move';
+    setTimeout(() => document.getElementById('proc-card-'+id)?.classList.add('dragging'), 0);
+  }
+
+  function dragEndOrder(id) {
+    document.getElementById('proc-card-'+id)?.classList.remove('dragging');
+    document.getElementById('kanban-fold-col')?.classList.remove('drag-over');
+  }
+
+  function onFoldColLeave(event) {
+    const col = document.getElementById('kanban-fold-col');
+    if (col && !col.contains(event.relatedTarget)) col.classList.remove('drag-over');
+  }
+
+  function dropOrderToFolding(event) {
+    event.preventDefault();
+    document.getElementById('kanban-fold-col')?.classList.remove('drag-over');
+    const id = event.dataTransfer.getData('text/plain');
+    if (!id) return;
+    // If already in folding queue, ignore
+    if (allFoldOrders.some(o => o.id === id)) return;
+    openFoldPanel(id);
+  }
+
+  // ── KANBAN TOUCH DRAG (tablet / iOS) ──
+  let _tdId = null, _tdClone = null, _tdOff = {x:0,y:0};
+
+  function touchStartOrder(event, id) {
+    _tdId = id;
+    const card = document.getElementById('proc-card-'+id);
+    if (!card) return;
+    const touch = event.touches[0];
+    const rect  = card.getBoundingClientRect();
+    _tdOff = { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+    _tdClone = card.cloneNode(true);
+    _tdClone.removeAttribute('id');
+    Object.assign(_tdClone.style, {
+      position:'fixed', pointerEvents:'none', zIndex:'9999',
+      width: rect.width+'px', opacity:'0.85',
+      boxShadow:'0 12px 40px rgba(0,0,0,.22)',
+      transform:'rotate(1.5deg)',
+      border:'2px solid var(--accent)',
+      left: (touch.clientX - _tdOff.x)+'px',
+      top:  (touch.clientY - _tdOff.y)+'px'
     });
-    if (tab === 'folding') loadFolding();
+    document.body.appendChild(_tdClone);
+    card.style.opacity = '0.25';
+  }
+
+  function touchMoveOrder(event) {
+    if (!_tdClone) return;
+    event.preventDefault();
+    const touch = event.touches[0];
+    _tdClone.style.left = (touch.clientX - _tdOff.x)+'px';
+    _tdClone.style.top  = (touch.clientY - _tdOff.y)+'px';
+    const foldCol = document.getElementById('kanban-fold-col');
+    if (foldCol) {
+      const r = foldCol.getBoundingClientRect();
+      const over = touch.clientX >= r.left && touch.clientX <= r.right
+                && touch.clientY >= r.top  && touch.clientY <= r.bottom;
+      foldCol.classList.toggle('drag-over', over);
+    }
+  }
+
+  function touchEndOrder(event) {
+    if (!_tdClone || !_tdId) return;
+    const touch = event.changedTouches[0];
+    document.body.removeChild(_tdClone);
+    _tdClone = null;
+    const orig = document.getElementById('proc-card-'+_tdId);
+    if (orig) orig.style.opacity = '';
+    const foldCol = document.getElementById('kanban-fold-col');
+    if (foldCol) {
+      foldCol.classList.remove('drag-over');
+      const r = foldCol.getBoundingClientRect();
+      if (touch.clientX >= r.left && touch.clientX <= r.right
+       && touch.clientY >= r.top  && touch.clientY <= r.bottom) {
+        openFoldPanel(_tdId);
+      }
+    }
+    _tdId = null;
   }
 
   // ── FOLDING QUEUE ──
@@ -5937,13 +6040,13 @@
       </div>`;
       return;
     }
-    wrap.innerHTML = '<div class="proc-queue-grid">' + allFoldOrders.map(o => {
+    wrap.innerHTML = allFoldOrders.map(o => {
       const fn   = o.customers?.first_name_cache || '';
       const ln   = o.customers?.last_name_cache  || '';
       const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
       const bags = o.total_bags || 1;
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
-      return `<div class="proc-card">
+      return `<div class="proc-card" id="fold-card-${o.id}">
         <div>
           <div class="proc-card-order">#${o.order_number||'—'}</div>
           <div class="proc-card-name">${name}</div>
@@ -5954,13 +6057,16 @@
           <span>${o.services?.name||'—'}</span>
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
-        <button class="proc-card-btn" style="background:#059669" onclick="openFoldPanel('${o.id}')">👕 Fold &amp; Pack</button>
+        <button class="proc-card-btn" style="background:#059669;cursor:pointer" onclick="openFoldPanel('${o.id}')">👕 Assign Folder</button>
       </div>`;
-    }).join('') + '</div>';
+    }).join('');
   }
 
   function openFoldPanel(orderId) {
-    const order = allFoldOrders.find(o => o.id === orderId);
+    // Order may come from the folding queue (processing status)
+    // OR be dragged directly from intake (picked_up status)
+    const order = allFoldOrders.find(o => o.id === orderId)
+               || allProcOrders.find(o => o.id === orderId);
     if (!order) return;
     foldActiveOrder    = order;
     foldSelectedLaunId = null;
@@ -6033,7 +6139,7 @@
     const launName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
     closeFoldPanel();
     showToast(`Order #${foldActiveOrder.order_number} packed by ${launName}!`, 'success');
-    loadFolding();
+    loadProcessing(); // reloads intake + triggers loadFolding for both kanban columns
   }
 
   // ── PROCESSING ──
@@ -6068,6 +6174,7 @@
     if (foldBadge) foldBadge.textContent = foldCount;
 
     renderProcQueue();
+    loadFolding(); // populate both kanban columns at once
   }
 
   function renderProcQueue() {
@@ -6087,7 +6194,7 @@
 
     if (sub) sub.textContent = `${allProcOrders.length} order${allProcOrders.length!==1?'s':''} waiting`;
 
-    wrap.innerHTML = '<div class="proc-queue-grid">' + allProcOrders.map(o => {
+    wrap.innerHTML = allProcOrders.map(o => {
       const fn   = o.customers?.first_name_cache || '';
       const ln   = o.customers?.last_name_cache  || '';
       const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
@@ -6097,7 +6204,13 @@
       // Show chips for pref options that have a price mod (non-standard selections)
       const premiumOpts = [];
       prefs.forEach(g => { const d = (g.options||[]).find(opt=>opt.is_default); if(d&&d.price_mod>0) premiumOpts.push(d.label); });
-      return `<div class="proc-card">
+      return `<div class="proc-card" id="proc-card-${o.id}"
+        draggable="true"
+        ondragstart="dragStartOrder(event,'${o.id}')"
+        ondragend="dragEndOrder('${o.id}')"
+        ontouchstart="touchStartOrder(event,'${o.id}')"
+        ontouchmove="touchMoveOrder(event)"
+        ontouchend="touchEndOrder(event)">
         <div>
           <div class="proc-card-order">#${o.order_number||'—'}</div>
           <div class="proc-card-name">${name}</div>
@@ -6110,7 +6223,7 @@
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
         <button class="proc-card-btn" onclick="openIntakePanel('${o.id}')">⚖️ Process Order</button>
       </div>`;
-    }).join('') + '</div>';
+    }).join('');
   }
 
   async function openIntakePanel(orderId) {
