@@ -257,6 +257,31 @@
     .cat-del-btn { padding: 5px; background: none; border: none; cursor: pointer; color: var(--gray-300); border-radius: 5px; transition: all .12s; display: flex; align-items: center; flex-shrink: 0; }
     .cat-del-btn:hover { color: var(--red); background: var(--red-light); }
     .cat-empty { padding: 40px; text-align: center; color: var(--gray-400); font-size: 13.5px; }
+    /* Fees tab */
+    .fee-group-header { display: flex; align-items: center; gap: 8px; padding: 10px 20px 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); border-top: 1px solid var(--gray-100); }
+    .fee-group-header:first-child { border-top: none; }
+    .fee-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+    .fee-badge-delivery  { background: #dbeafe; color: #1d4ed8; }
+    .fee-badge-surcharge { background: #fef3c7; color: #92400e; }
+    .fee-badge-penalty   { background: #fee2e2; color: #991b1b; }
+    .fee-badge-reward    { background: #dcfce7; color: #166534; }
+    .fee-badge-other     { background: var(--gray-100); color: var(--gray-500); }
+    .fee-row { display: grid; grid-template-columns: 40px 1fr 130px 110px 52px 36px; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--gray-100); transition: background .1s; }
+    .fee-row:hover { background: var(--gray-50); }
+    .fee-row.inactive { opacity: .5; }
+    .fee-name-input { border: none; background: transparent; font-size: 14px; font-weight: 500; color: var(--gray-800); font-family: inherit; width: 100%; outline: none; padding: 3px 6px; border-radius: 5px; }
+    .fee-name-input:hover { background: var(--gray-100); }
+    .fee-name-input:focus { background: white; border: 1.5px solid var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
+    .fee-amount-wrap { display: flex; align-items: center; gap: 0; }
+    .fee-symbol { font-size: 13px; color: var(--gray-400); font-weight: 600; width: 16px; flex-shrink: 0; }
+    .fee-amount-input { border: none; background: transparent; font-size: 14px; font-weight: 600; color: var(--gray-800); font-family: inherit; width: 72px; outline: none; padding: 3px 6px; border-radius: 5px; text-align: right; }
+    .fee-amount-input:hover { background: var(--gray-100); }
+    .fee-amount-input:focus { background: white; border: 1.5px solid var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
+    .fee-type-select { border: none; background: transparent; font-size: 12px; color: var(--gray-500); font-family: inherit; cursor: pointer; padding: 3px 4px; border-radius: 5px; outline: none; }
+    .fee-type-select:hover { background: var(--gray-100); }
+    .fee-del-btn { padding: 5px; background: none; border: none; cursor: pointer; color: var(--gray-300); border-radius: 5px; display: flex; align-items: center; justify-content: center; transition: all .12s; }
+    .fee-del-btn:hover { color: var(--red); background: var(--red-light); }
+    .fee-add-row { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-top: 2px dashed var(--gray-200); background: var(--gray-50); border-radius: 0 0 var(--radius) var(--radius); flex-wrap: wrap; }
     /* Preferences builder */
     .pref-empty { padding: 40px; text-align: center; color: var(--gray-400); font-size: 13.5px; }
     .pref-svc-card { border-bottom: 1px solid var(--gray-100); }
@@ -1071,6 +1096,7 @@
             <!-- Tab bar -->
             <div class="svc-page-tabs">
               <button class="svc-page-tab active" id="svctab-btn-services"     onclick="svcPageTab('services',this)">Services</button>
+              <button class="svc-page-tab"        id="svctab-btn-fees"         onclick="svcPageTab('fees',this)">Fees</button>
               <button class="svc-page-tab"        id="svctab-btn-preferences"  onclick="svcPageTab('preferences',this)">Preferences</button>
               <button class="svc-page-tab"        id="svctab-btn-categories"   onclick="svcPageTab('categories',this)">Categories</button>
             </div>
@@ -1094,6 +1120,30 @@
                 <select class="svc-add-select" id="ns-category"></select>
                 <div></div>
                 <button class="btn btn-primary" onclick="saveNewService()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
+              </div>
+            </div>
+            <!-- Fees tab -->
+            <div id="svctab-fees" style="display:none">
+              <div id="fees-body"></div>
+              <!-- Add new fee row -->
+              <div class="fee-add-row">
+                <input class="svc-add-input" id="nf-name" placeholder="Fee name… (e.g. Rush Surcharge)" onkeydown="if(event.key==='Enter')saveNewFee()" style="flex:1" />
+                <div class="svc-price-wrap">
+                  <span class="svc-price-prefix" id="nf-prefix">$</span>
+                  <input class="svc-add-input" id="nf-amount" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
+                </div>
+                <select class="svc-add-select" id="nf-type" onchange="document.getElementById('nf-prefix').textContent=this.value==='percent'?'%':'$'">
+                  <option value="flat">$ Flat</option>
+                  <option value="percent">% Percent</option>
+                </select>
+                <select class="svc-add-select" id="nf-category">
+                  <option value="Delivery">Delivery</option>
+                  <option value="Surcharge">Surcharge</option>
+                  <option value="Penalty">Penalty</option>
+                  <option value="Reward">Reward</option>
+                  <option value="Other">Other</option>
+                </select>
+                <button class="btn btn-primary" onclick="saveNewFee()" style="font-size:12.5px;padding:6px 14px">+ Add Fee</button>
               </div>
             </div>
             <!-- Preferences tab -->
@@ -2015,7 +2065,9 @@
   let driverFilter = 'all';
   let allServices        = [];
   let allCategories      = []; // { id, name, sort_order }
+  let allFees            = []; // { id, name, amount, fee_type, category, is_active, sort_order }
   let svcAutoSaveTimers  = {}; // debounced auto-save per service id
+  let feeAutoSaveTimers  = {}; // debounced auto-save per fee id
   let currentConversation = null;
   let currentOrderFilter = null; // null = all
   let orderSortCol = 'pickup_window_start'; // default sort
@@ -3090,8 +3142,8 @@
 
   // ── SERVICES CRUD ──
   async function loadServices() {
-    // Load categories first so dropdowns are ready before services render
-    await loadCategories();
+    // Load categories + fees in parallel before services render
+    await Promise.all([loadCategories(), loadFees()]);
     const { data } = await db.from('services').select('*').order('category').order('sort_order').order('name');
     allServices = data || [];
     allServices.forEach(s => {
@@ -3124,7 +3176,7 @@
   }
 
   function svcPageTab(name, btn) {
-    ['services','preferences','categories'].forEach(n => {
+    ['services','fees','preferences','categories'].forEach(n => {
       const el = document.getElementById('svctab-'+n);
       if (el) el.style.display = n===name ? '' : 'none';
       const b = document.getElementById('svctab-btn-'+n);
@@ -3134,6 +3186,7 @@
     if (controls) controls.style.display = name==='services' ? '' : 'none';
     if (name==='preferences') renderSvcPrefs();
     if (name==='categories')  renderCategoryManager();
+    if (name==='fees')        renderFees();
   }
 
   function filterServices() {
@@ -3435,6 +3488,134 @@
     showToast(`"${name}" deleted.`, 'success');
     await loadCategories();
     renderCategoryManager();
+  }
+
+  // ── FEES MANAGER ──
+
+  async function loadFees() {
+    const { data, error } = await db.from('service_fees').select('*').order('category').order('sort_order').order('name');
+    if (error) { console.error('loadFees:', error.message); return; }
+    allFees = data || [];
+  }
+
+  const FEE_CATEGORY_ORDER = ['Delivery','Surcharge','Penalty','Reward','Other'];
+  const FEE_BADGE_CLASS    = { Delivery:'fee-badge-delivery', Surcharge:'fee-badge-surcharge', Penalty:'fee-badge-penalty', Reward:'fee-badge-reward', Other:'fee-badge-other' };
+  const FEE_CATEGORY_ICON  = { Delivery:'🚗', Surcharge:'⚡', Penalty:'⚠️', Reward:'🎁', Other:'📌' };
+
+  function renderFees() {
+    const body = document.getElementById('fees-body');
+    if (!body) return;
+    if (!allFees.length) {
+      body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--gray-400);font-size:13.5px">No fees yet. Add one below.</div>';
+      return;
+    }
+    const groups = FEE_CATEGORY_ORDER.filter(cat => allFees.some(f => f.category === cat));
+    body.innerHTML = groups.map(cat => {
+      const rows = allFees.filter(f => f.category === cat);
+      return `
+        <div class="fee-group-header">
+          ${FEE_CATEGORY_ICON[cat]} ${cat}
+          <span class="fee-badge ${FEE_BADGE_CLASS[cat]}">${rows.length}</span>
+        </div>
+        ${rows.map(f => feeRow(f)).join('')}`;
+    }).join('');
+  }
+
+  function feeRow(f) {
+    const isPercent = f.fee_type === 'percent';
+    return `
+      <div class="fee-row${f.is_active ? '' : ' inactive'}" id="fee-row-${f.id}">
+        <div>
+          <label class="toggle-switch" style="transform:scale(.85);transform-origin:left center">
+            <input type="checkbox" ${f.is_active ? 'checked' : ''} onchange="toggleFeeActive('${f.id}',this.checked)" />
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <input class="fee-name-input" id="fee-name-${f.id}" value="${svcEsc(f.name)}"
+               oninput="markFeeDirty('${f.id}')" placeholder="Fee name" />
+        <div class="fee-amount-wrap">
+          <span class="fee-symbol" id="fee-sym-${f.id}">${isPercent ? '%' : '$'}</span>
+          <input class="fee-amount-input" id="fee-amt-${f.id}" type="number" step="0.01" min="0"
+                 value="${parseFloat(f.amount||0).toFixed(2)}"
+                 oninput="markFeeDirty('${f.id}')" />
+        </div>
+        <select class="fee-type-select" id="fee-type-${f.id}"
+                onchange="updateFeeSymbol('${f.id}');markFeeDirty('${f.id}')">
+          <option value="flat"    ${f.fee_type==='flat'    ?'selected':''}>$ Flat</option>
+          <option value="percent" ${f.fee_type==='percent' ?'selected':''}>% Percent</option>
+        </select>
+        <div id="fee-save-${f.id}" style="display:none;font-size:11px;font-weight:700;color:var(--accent)">●</div>
+        <button class="fee-del-btn" onclick="confirmDeleteFee('${f.id}','${svcEsc(f.name)}')" title="Delete fee">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+        </button>
+      </div>`;
+  }
+
+  function updateFeeSymbol(id) {
+    const sel = document.getElementById('fee-type-'+id);
+    const sym = document.getElementById('fee-sym-'+id);
+    if (sel && sym) sym.textContent = sel.value === 'percent' ? '%' : '$';
+  }
+
+  function markFeeDirty(id) {
+    const dot = document.getElementById('fee-save-'+id);
+    if (dot) dot.style.display = '';
+    clearTimeout(feeAutoSaveTimers[id]);
+    feeAutoSaveTimers[id] = setTimeout(() => autoSaveFee(id), 1800);
+  }
+
+  async function autoSaveFee(id) {
+    const name   = document.getElementById('fee-name-'+id)?.value.trim();
+    const amount = parseFloat(document.getElementById('fee-amt-'+id)?.value) || 0;
+    const type   = document.getElementById('fee-type-'+id)?.value;
+    if (!name) return;
+    const { error } = await db.from('service_fees').update({ name, amount, fee_type: type }).eq('id', id);
+    if (error) { showToast(error.message,'error'); return; }
+    allFees = allFees.map(f => f.id===id ? {...f, name, amount, fee_type: type} : f);
+    const dot = document.getElementById('fee-save-'+id);
+    if (dot) { dot.style.color = '#22c55e'; setTimeout(() => { dot.style.display='none'; dot.style.color='var(--accent)'; }, 1200); }
+  }
+
+  async function toggleFeeActive(id, isActive) {
+    const { error } = await db.from('service_fees').update({ is_active: isActive }).eq('id', id);
+    if (error) { showToast(error.message,'error'); return; }
+    allFees = allFees.map(f => f.id===id ? {...f, is_active: isActive} : f);
+    const row = document.getElementById('fee-row-'+id);
+    if (row) row.classList.toggle('inactive', !isActive);
+  }
+
+  async function saveNewFee() {
+    const name   = document.getElementById('nf-name')?.value.trim();
+    const amount = parseFloat(document.getElementById('nf-amount')?.value) || 0;
+    const type   = document.getElementById('nf-type')?.value || 'flat';
+    const cat    = document.getElementById('nf-category')?.value || 'Other';
+    if (!name) { document.getElementById('nf-name').focus(); return; }
+    const maxSort = allFees.reduce((m,f) => Math.max(m, f.sort_order||0), 0);
+    const { data, error } = await db.from('service_fees')
+      .insert({ name, amount, fee_type: type, category: cat, is_active: true, sort_order: maxSort+1 })
+      .select().single();
+    if (error) { showToast(error.message,'error'); return; }
+    allFees.push(data);
+    document.getElementById('nf-name').value   = '';
+    document.getElementById('nf-amount').value = '';
+    document.getElementById('nf-prefix').textContent = '$';
+    document.getElementById('nf-type').value = 'flat';
+    showToast(`"${name}" added!`, 'success');
+    renderFees();
+    document.getElementById('nf-name').focus();
+  }
+
+  function confirmDeleteFee(id, name) {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    deleteFee(id, name);
+  }
+
+  async function deleteFee(id, name) {
+    const { error } = await db.from('service_fees').delete().eq('id', id);
+    if (error) { showToast(error.message,'error'); return; }
+    allFees = allFees.filter(f => f.id !== id);
+    showToast(`"${name}" deleted.`);
+    renderFees();
   }
 
   // ── SERVICE PREFERENCES BUILDER ──
