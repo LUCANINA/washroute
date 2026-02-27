@@ -1061,7 +1061,7 @@ async function loadUserData() {
 
 /* ── SERVICES ── */
 async function loadServices() {
-  const { data } = await db.from('services').select('*').eq('is_active', true).order('sort_order');
+  const { data } = await db.from('services').select('*').eq('is_active', true).eq('show_in_app', true).order('sort_order');
   allServices = data || [];
   // Default service = first active service (Wash & Fold)
   defaultService = allServices[0] || null;

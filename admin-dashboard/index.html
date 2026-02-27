@@ -257,6 +257,26 @@
     .cat-del-btn { padding: 5px; background: none; border: none; cursor: pointer; color: var(--gray-300); border-radius: 5px; transition: all .12s; display: flex; align-items: center; flex-shrink: 0; }
     .cat-del-btn:hover { color: var(--red); background: var(--red-light); }
     .cat-empty { padding: 40px; text-align: center; color: var(--gray-400); font-size: 13.5px; }
+    /* Services — Main/Add-on split */
+    .svc-section-divider { display:flex; align-items:center; gap:10px; padding:14px 20px 8px; border-top:2px solid var(--gray-100); margin-top:4px; }
+    .svc-section-divider:first-child { border-top:none; margin-top:0; }
+    .svc-section-title { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.07em; color:var(--gray-500); }
+    .svc-section-pill { font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:20px; }
+    .svc-section-pill-main  { background:#ede9ff; color:#5b21b6; }
+    .svc-section-pill-addon { background:#fff3cd; color:#92400e; }
+    .svc-addon-toggle { font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; border:none; cursor:pointer; transition:all .15s; margin-left:auto; }
+    .svc-addon-toggle-main  { background:#ede9ff; color:#5b21b6; }
+    .svc-addon-toggle-addon { background:#fff3cd; color:#92400e; }
+    /* Prices tab */
+    .prices-section { border-bottom:1px solid var(--gray-100); padding-bottom:4px; margin-bottom:4px; }
+    .prices-section-header { display:flex; align-items:center; gap:8px; padding:14px 20px 8px; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.07em; color:var(--gray-500); }
+    .prices-row { display:grid; grid-template-columns:1fr auto auto; align-items:center; gap:16px; padding:10px 20px; border-bottom:1px solid var(--gray-100); transition:background .1s; }
+    .prices-row:hover { background:var(--gray-50); }
+    .prices-row:last-child { border-bottom:none; }
+    .prices-row.prices-off { opacity:.45; }
+    .prices-name { font-size:14px; font-weight:500; color:var(--gray-800); }
+    .prices-amount { font-size:13px; font-weight:600; color:var(--gray-600); min-width:64px; text-align:right; }
+    .prices-empty { padding:24px 20px; text-align:center; color:var(--gray-400); font-size:13px; }
     /* Fees tab */
     .fee-group-header { display: flex; align-items: center; gap: 8px; padding: 10px 20px 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); border-top: 1px solid var(--gray-100); }
     .fee-group-header:first-child { border-top: none; }
@@ -1096,6 +1116,7 @@
             <!-- Tab bar -->
             <div class="svc-page-tabs">
               <button class="svc-page-tab active" id="svctab-btn-services"     onclick="svcPageTab('services',this)">Services</button>
+              <button class="svc-page-tab"        id="svctab-btn-prices"       onclick="svcPageTab('prices',this)">Prices</button>
               <button class="svc-page-tab"        id="svctab-btn-fees"         onclick="svcPageTab('fees',this)">Fees</button>
               <button class="svc-page-tab"        id="svctab-btn-preferences"  onclick="svcPageTab('preferences',this)">Preferences</button>
               <button class="svc-page-tab"        id="svctab-btn-categories"   onclick="svcPageTab('categories',this)">Categories</button>
@@ -1118,9 +1139,16 @@
                 </select>
                 <!-- Populated dynamically by rebuildCategoryDropdowns() -->
                 <select class="svc-add-select" id="ns-category"></select>
-                <div></div>
+                <select class="svc-add-select" id="ns-addon">
+                  <option value="false">Main service</option>
+                  <option value="true">Add-on</option>
+                </select>
                 <button class="btn btn-primary" onclick="saveNewService()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
               </div>
+            </div>
+            <!-- Prices tab -->
+            <div id="svctab-prices" style="display:none">
+              <div id="prices-body"></div>
             </div>
             <!-- Fees tab -->
             <div id="svctab-fees" style="display:none">
@@ -3176,7 +3204,7 @@
   }
 
   function svcPageTab(name, btn) {
-    ['services','fees','preferences','categories'].forEach(n => {
+    ['services','prices','fees','preferences','categories'].forEach(n => {
       const el = document.getElementById('svctab-'+n);
       if (el) el.style.display = n===name ? '' : 'none';
       const b = document.getElementById('svctab-btn-'+n);
@@ -3187,6 +3215,7 @@
     if (name==='preferences') renderSvcPrefs();
     if (name==='categories')  renderCategoryManager();
     if (name==='fees')        renderFees();
+    if (name==='prices')      renderPrices();
   }
 
   function filterServices() {
@@ -3203,20 +3232,35 @@
       el.innerHTML = `<div style="padding:40px;text-align:center;color:var(--gray-400);font-size:13.5px">No services found. Add one below.</div>`;
       return;
     }
-    const cats = [...new Set(data.map(s => s.category || 'Uncategorized'))].sort();
-    el.innerHTML = cats.map(cat => {
-      const rows = data.filter(s => (s.category||'Uncategorized') === cat);
-      return `<div class="svc-category-group">
-        <div class="svc-cat-header">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M4 6h16M4 12h16M4 18h7"/></svg>
-          ${cat} <span style="color:var(--gray-400);font-size:11px;font-weight:400">${rows.length} service${rows.length!==1?'s':''}</span>
-        </div>
-        <div class="svc-table-head">
-          <div>Service Name</div><div>Price</div><div>Pricing Type</div><div>Category</div><div>Active</div><div></div>
-        </div>
-        ${rows.map(s => svcRow(s)).join('')}
-      </div>`;
-    }).join('');
+    function renderCategoryGroups(items) {
+      const cats = [...new Set(items.map(s => s.category || 'Uncategorized'))].sort();
+      return cats.map(cat => {
+        const rows = items.filter(s => (s.category||'Uncategorized') === cat);
+        return `<div class="svc-category-group">
+          <div class="svc-cat-header">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M4 6h16M4 12h16M4 18h7"/></svg>
+            ${cat} <span style="color:var(--gray-400);font-size:11px;font-weight:400">${rows.length} service${rows.length!==1?'s':''}</span>
+          </div>
+          <div class="svc-table-head">
+            <div>Service Name</div><div>Price</div><div>Pricing Type</div><div>Category</div><div>Active</div><div></div>
+          </div>
+          ${rows.map(s => svcRow(s)).join('')}
+        </div>`;
+      }).join('');
+    }
+    const main   = data.filter(s => !s.is_addon);
+    const addons = data.filter(s =>  s.is_addon);
+    el.innerHTML =
+      `<div class="svc-section-divider">
+        <span class="svc-section-title">🧺 Main Services</span>
+        <span class="svc-section-pill svc-section-pill-main">${main.length}</span>
+      </div>` +
+      (main.length ? renderCategoryGroups(main) : `<div style="padding:12px 20px 16px;font-size:13px;color:var(--gray-400)">No main services yet.</div>`) +
+      `<div class="svc-section-divider">
+        <span class="svc-section-title">➕ Add-ons</span>
+        <span class="svc-section-pill svc-section-pill-addon">${addons.length}</span>
+      </div>` +
+      (addons.length ? renderCategoryGroups(addons) : `<div style="padding:12px 20px 16px;font-size:13px;color:var(--gray-400)">No add-ons yet.</div>`);
   }
 
   function svcRow(s) {
@@ -3253,6 +3297,10 @@
         </button>
       </div>
       <div id="svc-overage-row-${s.id}" style="grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:4px 0 3px;border-top:1px dashed var(--gray-100);margin-top:2px;min-height:28px">
+        <button class="svc-addon-toggle ${s.is_addon?'svc-addon-toggle-addon':'svc-addon-toggle-main'}"
+          onclick="toggleIsAddon('${s.id}',${!s.is_addon})" title="${s.is_addon?'Move to Main Services':'Move to Add-ons'}">
+          ${s.is_addon ? '➕ Add-on' : '🧺 Main'}
+        </button>
         ${s.has_weight_overage ? `
           <span style="font-size:11px;color:var(--gray-400);font-weight:600;text-transform:uppercase;letter-spacing:.05em;flex-shrink:0">⚖ Overage</span>
           <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--gray-600)">
@@ -3375,15 +3423,16 @@
   }
 
   async function saveNewService() {
-    const name  = document.getElementById('ns-name').value.trim();
-    const price = parseFloat(document.getElementById('ns-price').value) || 0;
-    const type  = document.getElementById('ns-type').value;
-    const cat   = document.getElementById('ns-category').value;
+    const name    = document.getElementById('ns-name').value.trim();
+    const price   = parseFloat(document.getElementById('ns-price').value) || 0;
+    const type    = document.getElementById('ns-type').value;
+    const cat     = document.getElementById('ns-category').value;
+    const isAddon = document.getElementById('ns-addon')?.value === 'true';
     if (!name) { document.getElementById('ns-name').focus(); document.getElementById('ns-name').style.borderColor='var(--red)'; setTimeout(()=>document.getElementById('ns-name').style.borderColor='',1500); return; }
     const maxSort = Math.max(0, ...allServices.map(s => s.sort_order||0));
     const { data, error } = await db.from('services').insert({
       name, base_price: price, pricing_type: type, category: cat,
-      is_active: true, show_in_app: true, sort_order: maxSort + 1
+      is_active: true, show_in_app: true, is_addon: isAddon, sort_order: maxSort + 1
     }).select().single();
     if (error) { showToast(error.message,'error'); return; }
     allServices.push(data);
@@ -3488,6 +3537,74 @@
     showToast(`"${name}" deleted.`, 'success');
     await loadCategories();
     renderCategoryManager();
+  }
+
+  // ── ADDON TOGGLE ──
+
+  async function toggleIsAddon(id, isAddon) {
+    const { error } = await db.from('services').update({ is_addon: isAddon }).eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    allServices = allServices.map(s => s.id===id ? {...s, is_addon: isAddon} : s);
+    filterServices(); // re-renders, moves row to correct section
+    showToast(isAddon ? 'Moved to Add-ons' : 'Moved to Main Services');
+  }
+
+  // ── PRICES TAB ──
+
+  function renderPrices() {
+    const body = document.getElementById('prices-body');
+    if (!body) return;
+
+    const fmt = v => `$${parseFloat(v||0).toFixed(2)}`;
+    const fmtFee = f => f.fee_type === 'percent' ? `${parseFloat(f.amount||0).toFixed(2)}%` : fmt(f.amount);
+
+    function priceSection(title, icon, items, toggleFn, amountFn) {
+      if (!items.length) return `
+        <div class="prices-section">
+          <div class="prices-section-header">${icon} ${title}</div>
+          <div class="prices-empty">None configured yet.</div>
+        </div>`;
+      return `
+        <div class="prices-section">
+          <div class="prices-section-header">${icon} ${title}</div>
+          ${items.map(item => `
+            <div class="prices-row${item.show_in_app === false || item.is_active === false ? ' prices-off' : ''}" id="prices-row-${item.id}">
+              <div class="prices-name">${svcEsc(item.name)}</div>
+              <div class="prices-amount">${amountFn(item)}</div>
+              <label class="toggle-switch" style="transform:scale(.85);transform-origin:right center" title="${item.show_in_app !== false ? 'Shown in app' : 'Hidden from app'}">
+                <input type="checkbox" ${item.show_in_app !== false ? 'checked' : ''} onchange="${toggleFn}('${item.id}',this.checked)" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>`).join('')}
+        </div>`;
+    }
+
+    const main   = allServices.filter(s => !s.is_addon);
+    const addons = allServices.filter(s =>  s.is_addon);
+    const fees   = allFees;
+
+    body.innerHTML =
+      priceSection('Main Services', '🧺', main,   'toggleServiceShowInApp', fmt) +
+      priceSection('Add-ons',       '➕', addons, 'toggleServiceShowInApp', fmt) +
+      priceSection('Fees & Surcharges', '💳', fees, 'toggleFeeShowInApp', fmtFee);
+  }
+
+  async function toggleServiceShowInApp(id, show) {
+    const { error } = await db.from('services').update({ show_in_app: show }).eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    allServices = allServices.map(s => s.id===id ? {...s, show_in_app: show} : s);
+    const row = document.getElementById('prices-row-'+id);
+    if (row) row.classList.toggle('prices-off', !show);
+    showToast(show ? 'Shown in app ✓' : 'Hidden from app');
+  }
+
+  async function toggleFeeShowInApp(id, show) {
+    const { error } = await db.from('service_fees').update({ show_in_app: show }).eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    allFees = allFees.map(f => f.id===id ? {...f, show_in_app: show} : f);
+    const row = document.getElementById('prices-row-'+id);
+    if (row) row.classList.toggle('prices-off', !show);
+    showToast(show ? 'Shown in app ✓' : 'Hidden from app');
   }
 
   // ── FEES MANAGER ──
