@@ -785,6 +785,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><rect x="2" y="10" width="20" height="5" rx="1"/><rect x="2" y="17" width="20" height="5" rx="1"/></svg>
         Racks
       </div>
+      <div class="nav-item" onclick="showPage('driver-messages',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        Driver Messages
+        <span id="admin-msg-badge" style="display:none;background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:auto">0</span>
+      </div>
       <div class="sidebar-footer" onclick="handleSignOut()">
         <div class="avatar" id="user-avatar">?</div>
         <div class="sidebar-user">
@@ -1516,6 +1521,40 @@
             </div>
           </div>
         </div><!-- /page-racks -->
+
+        <!-- ── DRIVER MESSAGES ── -->
+        <div class="page" id="page-driver-messages">
+          <div style="display:grid;grid-template-columns:260px 1fr;gap:0;height:calc(100vh - 130px);border-radius:14px;overflow:hidden;border:1px solid var(--gray-200);background:white">
+
+            <!-- Driver list -->
+            <div style="border-right:1px solid var(--gray-200);display:flex;flex-direction:column;overflow:hidden">
+              <div style="padding:14px 16px;border-bottom:1px solid var(--gray-200);font-size:13px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:0.5px">Drivers</div>
+              <div id="admin-driver-list" style="flex:1;overflow-y:auto">
+                <div style="padding:32px;text-align:center;color:var(--gray-400)">Loading…</div>
+              </div>
+            </div>
+
+            <!-- Thread panel -->
+            <div style="display:flex;flex-direction:column;overflow:hidden">
+              <div id="admin-thread-hdr" style="padding:14px 18px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:10px;min-height:53px">
+                <div style="color:var(--gray-400);font-size:14px">Select a driver to view the conversation</div>
+              </div>
+              <div id="admin-thread" style="flex:1;overflow-y:auto;padding:18px 18px 4px;background:#f9fafb"></div>
+              <div id="admin-compose" style="padding:12px 16px;border-top:1px solid var(--gray-200);display:none;gap:10px;align-items:flex-end">
+                <textarea id="admin-msg-input"
+                  style="flex:1;background:#f3f4f6;border:1.5px solid var(--gray-200);border-radius:12px;padding:10px 14px;font-size:14px;font-family:inherit;resize:none;min-height:42px;max-height:120px;outline:none;line-height:1.4"
+                  placeholder="Message to driver…" rows="1"
+                  onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAdminMessage();}"
+                  oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'"></textarea>
+                <button onclick="sendAdminMessage()"
+                  style="height:42px;padding:0 18px;background:var(--accent);color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">
+                  Send ↑
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div><!-- /page-driver-messages -->
 
       </div><!-- /content -->
     </div><!-- /main -->
@@ -2347,8 +2386,8 @@
   });
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports' };
-  const pageCTAs   = { overview:'New Order', customers:'', orders:'', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', 'driver-messages':'Driver Messages' };
+  const pageCTAs   = { overview:'New Order', customers:'', orders:'', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', 'driver-messages':'' };
 
   function showPage(id, navEl) {
     // If leaving orders page, clear any active batch selection
@@ -2372,6 +2411,7 @@
     if (id === 'processing') loadProcessing();
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
+    if (id === 'driver-messages') loadAdminDriverMessages();
   }
 
   function handleCTA() {
@@ -7091,6 +7131,185 @@
         <td style="color:var(--gray-600)">${bags}</td>
       </tr>`;
     }).join('');
+  }
+
+  /* ──────────────────────────────
+     DRIVER MESSAGES (Admin)
+  ────────────────────────────── */
+  let adminMsgDrivers = [], adminMsgAllMessages = [], adminMsgActiveDriver = null, adminMsgSub = null;
+
+  async function loadAdminDriverMessages() {
+    // Load all active drivers with their profiles
+    const { data: drivers } = await db
+      .from('drivers')
+      .select('id, profile_id, profiles(first_name, last_name, email)')
+      .eq('is_active', true)
+      .order('created_at', { ascending: true });
+    adminMsgDrivers = drivers || [];
+
+    // Load all messages for all drivers at once
+    const { data: msgs } = await db
+      .from('driver_messages')
+      .select('*')
+      .order('created_at', { ascending: true });
+    adminMsgAllMessages = msgs || [];
+
+    renderAdminDriverList();
+    updateAdminMsgBadge();
+
+    // Subscribe to new incoming driver replies
+    if (!adminMsgSub) {
+      adminMsgSub = db.channel('admin-driver-msgs')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'driver_messages' }, payload => {
+          if (!adminMsgAllMessages.find(m => m.id === payload.new.id)) {
+            adminMsgAllMessages.push(payload.new);
+            updateAdminMsgBadge();
+            renderAdminDriverList();
+            // If this driver's thread is open, refresh it
+            if (adminMsgActiveDriver?.id === payload.new.driver_id) {
+              renderAdminThread(adminMsgActiveDriver);
+            }
+          }
+        })
+        .subscribe();
+    }
+  }
+
+  function adminDriverName(drv) {
+    const p = drv.profiles;
+    if (!p) return drv.id.slice(0, 8);
+    return `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.email || 'Driver';
+  }
+
+  function updateAdminMsgBadge() {
+    const unread = adminMsgAllMessages.filter(m => m.sender_type === 'driver' && !m.read_at).length;
+    const badge = document.getElementById('admin-msg-badge');
+    if (!badge) return;
+    badge.textContent = unread;
+    badge.style.display = unread > 0 ? 'inline-flex' : 'none';
+  }
+
+  function renderAdminDriverList() {
+    const el = document.getElementById('admin-driver-list');
+    if (!el) return;
+
+    if (!adminMsgDrivers.length) {
+      el.innerHTML = '<div style="padding:24px 16px;text-align:center;color:var(--gray-400);font-size:13px">No active drivers</div>';
+      return;
+    }
+
+    el.innerHTML = adminMsgDrivers.map(drv => {
+      const msgs   = adminMsgAllMessages.filter(m => m.driver_id === drv.id);
+      const unread = msgs.filter(m => m.sender_type === 'driver' && !m.read_at).length;
+      const last   = msgs[msgs.length - 1];
+      const lastText = last ? last.body.slice(0, 38) + (last.body.length > 38 ? '…' : '') : 'No messages yet';
+      const lastTime = last ? new Date(last.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
+      const isActive = adminMsgActiveDriver?.id === drv.id;
+
+      return `<div onclick="selectAdminDriver('${drv.id}')"
+        style="padding:12px 16px;cursor:pointer;border-bottom:1px solid var(--gray-100);
+               background:${isActive ? '#eff6ff' : 'white'};
+               border-left:3px solid ${isActive ? 'var(--accent)' : 'transparent'};
+               transition:background .1s">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
+          <div style="font-size:14px;font-weight:700;color:var(--gray-800)">${adminDriverName(drv)}</div>
+          ${unread > 0 ? `<span style="background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:800;padding:1px 7px">${unread}</span>` : `<span style="font-size:11px;color:var(--gray-400)">${lastTime}</span>`}
+        </div>
+        <div style="font-size:12px;color:${unread > 0 ? 'var(--gray-700)' : 'var(--gray-400)'};font-weight:${unread > 0 ? '600' : '400'}">${lastText}</div>
+      </div>`;
+    }).join('');
+  }
+
+  async function selectAdminDriver(driverId) {
+    adminMsgActiveDriver = adminMsgDrivers.find(d => d.id === driverId);
+    if (!adminMsgActiveDriver) return;
+
+    // Mark driver replies as read
+    const unreadIds = adminMsgAllMessages
+      .filter(m => m.driver_id === driverId && m.sender_type === 'driver' && !m.read_at)
+      .map(m => m.id);
+    if (unreadIds.length) {
+      const now = new Date().toISOString();
+      await db.from('driver_messages').update({ read_at: now }).in('id', unreadIds);
+      adminMsgAllMessages.forEach(m => { if (unreadIds.includes(m.id)) m.read_at = now; });
+      updateAdminMsgBadge();
+    }
+
+    renderAdminDriverList();
+    renderAdminThread(adminMsgActiveDriver);
+
+    // Show compose area
+    const compose = document.getElementById('admin-compose');
+    if (compose) compose.style.display = 'flex';
+    document.getElementById('admin-msg-input')?.focus();
+  }
+
+  function renderAdminThread(drv) {
+    const thread = document.getElementById('admin-thread');
+    const hdr    = document.getElementById('admin-thread-hdr');
+    if (!thread || !drv) return;
+
+    hdr.innerHTML = `<div style="width:36px;height:36px;border-radius:50%;background:var(--accent);color:white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0">${adminDriverName(drv)[0]}</div>
+      <div>
+        <div style="font-size:15px;font-weight:700;color:var(--gray-800)">${adminDriverName(drv)}</div>
+        <div style="font-size:12px;color:var(--gray-400)">${drv.profiles?.email || ''}</div>
+      </div>`;
+
+    const msgs = adminMsgAllMessages.filter(m => m.driver_id === drv.id);
+
+    if (!msgs.length) {
+      thread.innerHTML = '<div style="text-align:center;padding:60px 32px;color:var(--gray-400)"><div style="font-size:40px;margin-bottom:12px">💬</div><div style="font-size:14px">No messages yet — send one below!</div></div>';
+      return;
+    }
+
+    thread.innerHTML = msgs.map(m => {
+      const isAdmin = m.sender_type === 'admin';
+      const timeStr = new Date(m.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+      return `<div style="display:flex;flex-direction:${isAdmin ? 'row-reverse' : 'row'};gap:10px;align-items:flex-end;margin-bottom:14px">
+        <div style="width:30px;height:30px;border-radius:50%;background:${isAdmin ? '#1e40af' : 'var(--accent)'};color:white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">
+          ${isAdmin ? 'CS' : adminDriverName(drv)[0]}
+        </div>
+        <div style="max-width:72%;display:flex;flex-direction:column;align-items:${isAdmin ? 'flex-end' : 'flex-start'}">
+          <div style="font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;padding:0 4px">
+            ${isAdmin ? 'WashRoute Team' : adminDriverName(drv)}
+          </div>
+          <div style="background:${isAdmin ? 'var(--accent)' : 'white'};color:${isAdmin ? 'white' : 'var(--gray-800)'};border-radius:${isAdmin ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};padding:10px 14px;font-size:14px;font-weight:500;line-height:1.45;box-shadow:0 1px 3px rgba(0,0,0,.07);word-break:break-word">
+            ${m.body.replace(/\n/g, '<br>')}
+          </div>
+          <div style="font-size:11px;color:var(--gray-400);margin-top:4px;padding:0 4px">${timeStr}</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    setTimeout(() => { thread.scrollTop = thread.scrollHeight; }, 50);
+  }
+
+  async function sendAdminMessage() {
+    const input = document.getElementById('admin-msg-input');
+    const body  = input?.value.trim();
+    if (!body || !adminMsgActiveDriver) return;
+
+    input.disabled = true;
+
+    const { data, error } = await db.from('driver_messages').insert({
+      driver_id:   adminMsgActiveDriver.id,
+      sender_type: 'admin',
+      body,
+    }).select().single();
+
+    if (error) {
+      console.error('sendAdminMessage error:', error);
+      input.disabled = false;
+      return;
+    }
+
+    adminMsgAllMessages.push(data);
+    input.value = '';
+    input.style.height = 'auto';
+    input.disabled = false;
+    renderAdminThread(adminMsgActiveDriver);
+    renderAdminDriverList();
+    input.focus();
   }
 </script>
 </body>

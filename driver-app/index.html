@@ -417,6 +417,112 @@
       text-align: center; padding: 11px; border-radius: 10px;
       font-size: 14px; font-weight: 700; text-decoration: none;
     }
+
+    /* ══════════════════════════════
+       NAV UNREAD BADGE
+    ══════════════════════════════ */
+    .nav-btn { position: relative; }
+    .nav-unread-badge {
+      position: absolute; top: 5px; right: calc(50% - 20px);
+      background: var(--danger); color: var(--white);
+      border-radius: 10px; font-size: 10px; font-weight: 800;
+      min-width: 18px; height: 18px; padding: 0 5px;
+      display: flex; align-items: center; justify-content: center;
+      line-height: 1; pointer-events: none;
+    }
+
+    /* ══════════════════════════════
+       MESSAGES SCREEN
+    ══════════════════════════════ */
+    .msg-hdr {
+      background: var(--dark); color: var(--white);
+      padding: 18px 20px 18px;
+      padding-top: calc(18px + env(safe-area-inset-top));
+      flex-shrink: 0;
+    }
+    .msg-hdr-title { font-size: 19px; font-weight: 800; }
+    .msg-hdr-sub   { font-size: 13px; color: rgba(255,255,255,0.45); margin-top: 2px; }
+
+    .msg-thread {
+      flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: 16px 14px 12px;
+    }
+
+    .msg-bubble-wrap {
+      display: flex; margin-bottom: 16px; gap: 10px; align-items: flex-end;
+    }
+    .msg-bubble-wrap.from-driver { flex-direction: row-reverse; }
+
+    .msg-avatar {
+      width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 800; margin-bottom: 2px;
+    }
+    .avatar-admin  { background: #1e40af; color: var(--white); }
+    .avatar-driver { background: var(--accent); color: var(--white); }
+
+    .msg-bubble-inner { display: flex; flex-direction: column; max-width: 78%; }
+    .msg-bubble-wrap.from-driver .msg-bubble-inner { align-items: flex-end; }
+
+    .msg-sender {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px;
+      padding: 0 4px;
+    }
+
+    .msg-bubble {
+      background: var(--white); border-radius: 16px; border-bottom-left-radius: 4px;
+      padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+    }
+    .msg-bubble-wrap.from-driver .msg-bubble {
+      background: var(--accent); color: var(--white);
+      border-radius: 16px; border-bottom-right-radius: 4px;
+    }
+    .msg-bubble.unread {
+      background: #eff6ff; border: 1.5px solid #93c5fd;
+    }
+
+    .msg-body { font-size: 15px; font-weight: 500; line-height: 1.45; word-break: break-word; }
+    .msg-time { font-size: 11px; color: var(--muted); margin-top: 5px; }
+    .msg-bubble-wrap.from-driver .msg-time { color: rgba(255,255,255,0.65); }
+
+    .msg-unread-indicator {
+      font-size: 11px; font-weight: 700; color: var(--danger);
+      text-align: center; margin: 8px 0 4px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .msg-unread-indicator::before,
+    .msg-unread-indicator::after {
+      content: ''; flex: 1; height: 1px; background: #fecaca;
+    }
+
+    .msg-empty { text-align: center; padding: 64px 32px; }
+    .msg-empty-icon { font-size: 52px; margin-bottom: 14px; }
+
+    .msg-compose {
+      padding: 10px 14px;
+      padding-bottom: calc(10px + env(safe-area-inset-bottom));
+      background: var(--white); border-top: 1px solid var(--border);
+      display: flex; gap: 10px; align-items: flex-end; flex-shrink: 0;
+    }
+    .msg-input {
+      flex: 1; background: var(--bg); border: 1.5px solid var(--border);
+      border-radius: 22px; padding: 10px 16px; font-size: 15px;
+      font-family: inherit; color: var(--dark); outline: none;
+      resize: none; max-height: 100px; min-height: 42px; line-height: 1.4;
+      transition: border-color .15s;
+    }
+    .msg-input:focus { border-color: var(--accent); }
+
+    .btn-msg-send {
+      width: 42px; height: 42px; border-radius: 50%;
+      background: var(--accent); color: var(--white); border: none;
+      cursor: pointer; font-size: 20px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: background .15s;
+    }
+    .btn-msg-send:disabled { background: var(--border); cursor: not-allowed; }
+    .btn-msg-send:not(:disabled):active { background: #ea6c0a; transform: scale(0.95); }
   </style>
 </head>
 <body>
@@ -539,6 +645,23 @@
   </div>
 </div>
 
+<!-- ════════════════════════════
+     MESSAGES
+════════════════════════════ -->
+<div class="screen" id="screen-messages">
+  <div class="msg-hdr">
+    <div class="msg-hdr-title">💬 Messages</div>
+    <div class="msg-hdr-sub">From the WashRoute team</div>
+  </div>
+  <div class="msg-thread" id="msg-thread"></div>
+  <div class="msg-compose">
+    <textarea class="msg-input" id="msg-input" placeholder="Reply to the team…" rows="1"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendDriverReply();}"
+      oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'"></textarea>
+    <button class="btn-msg-send" id="btn-msg-send" onclick="sendDriverReply()">↑</button>
+  </div>
+</div>
+
 <!-- Bottom Nav -->
 <div id="bottom-nav">
   <div class="nav-inner">
@@ -547,6 +670,11 @@
     </button>
     <button class="nav-btn" id="nav-route" onclick="goTo('route')">
       <span class="nav-icon">📍</span>Route
+    </button>
+    <button class="nav-btn" id="nav-messages" onclick="goTo('messages')">
+      <span class="nav-icon">💬</span>
+      <span id="msg-nav-badge" class="nav-unread-badge" style="display:none">0</span>
+      Messages
     </button>
     <button class="nav-btn" id="nav-profile" onclick="goTo('profile')">
       <span class="nav-icon">👤</span>Profile
@@ -597,9 +725,10 @@ function showScreen(id) {
 
 function goTo(id) {
   showScreen(id);
-  if (id === 'home')    renderHome();
-  if (id === 'route')   renderRoute();
-  if (id === 'profile') renderProfile();
+  if (id === 'home')     renderHome();
+  if (id === 'route')    renderRoute();
+  if (id === 'profile')  renderProfile();
+  if (id === 'messages') { renderMessages(); markMessagesRead(); }
 }
 
 function today() { return new Date().toISOString().split('T')[0]; }
@@ -699,10 +828,13 @@ function resetMagicLink() {
 
 async function doSignOut() {
   clearUndo();
+  // Unsubscribe from realtime
+  if (msgSubscription) { db.removeChannel(msgSubscription); msgSubscription = null; }
   await db.auth.signOut();
   appReady = false;
   currentUser = currentProfile = currentDriver = null;
   todayRoutes = []; allStops = []; pendingOrders = [];
+  allMessages = []; unreadCount = 0;
   document.getElementById('bottom-nav').style.display = 'none';
   showScreen('auth');
   // Reset auth form
@@ -768,6 +900,9 @@ async function loadDriverData() {
       .order('created_at', { ascending: true });
     pendingOrders = orders || [];
   }
+
+  // Load messages
+  await loadDriverMessages();
 }
 
 async function refreshRoute() {
@@ -1419,6 +1554,148 @@ function renderProfile() {
 /* ──────────────────────────────
    AUTH STATE CHANGE
 ────────────────────────────── */
+/* ──────────────────────────────
+   MESSAGING
+────────────────────────────── */
+let allMessages = [], msgSubscription = null, unreadCount = 0;
+
+async function loadDriverMessages() {
+  if (!currentDriver) return;
+  const { data } = await db.from('driver_messages')
+    .select('*')
+    .eq('driver_id', currentDriver.id)
+    .order('created_at', { ascending: true });
+  allMessages = data || [];
+  updateMsgBadge();
+}
+
+function updateMsgBadge() {
+  unreadCount = allMessages.filter(m => m.sender_type === 'admin' && !m.read_at).length;
+  const badge = document.getElementById('msg-nav-badge');
+  if (!badge) return;
+  badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+  badge.style.display = unreadCount > 0 ? 'flex' : 'none';
+}
+
+async function markMessagesRead() {
+  const unread = allMessages.filter(m => m.sender_type === 'admin' && !m.read_at);
+  if (!unread.length) return;
+  const ids = unread.map(m => m.id);
+  const now = new Date().toISOString();
+  await db.from('driver_messages').update({ read_at: now }).in('id', ids);
+  allMessages.forEach(m => { if (ids.includes(m.id)) m.read_at = now; });
+  updateMsgBadge();
+}
+
+function renderMessages() {
+  const thread = document.getElementById('msg-thread');
+  if (!thread) return;
+
+  if (!allMessages.length) {
+    thread.innerHTML = `<div class="msg-empty">
+      <div class="msg-empty-icon">💬</div>
+      <div style="font-size:18px;font-weight:800;margin-bottom:8px">No Messages Yet</div>
+      <div style="font-size:14px;color:var(--muted);line-height:1.6">The team will send important updates here. You can reply directly from this screen.</div>
+    </div>`;
+    return;
+  }
+
+  let h = '';
+  let shownUnreadDivider = false;
+
+  allMessages.forEach(m => {
+    const isDriver = m.sender_type === 'driver';
+    const isUnread = !isDriver && !m.read_at;
+
+    // Show "New Messages" divider before first unread
+    if (isUnread && !shownUnreadDivider) {
+      h += `<div class="msg-unread-indicator">New Messages</div>`;
+      shownUnreadDivider = true;
+    }
+
+    const wrapClass   = isDriver ? 'from-driver' : 'from-admin';
+    const avatarClass = isDriver ? 'avatar-driver' : 'avatar-admin';
+    const avatarText  = isDriver
+      ? (currentProfile?.first_name?.[0] || 'D').toUpperCase()
+      : 'CS';
+    const senderName  = isDriver ? 'You' : 'WashRoute Team';
+    const d = new Date(m.created_at);
+    const timeStr = d.toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+
+    h += `<div class="msg-bubble-wrap ${wrapClass}">
+      <div class="msg-avatar ${avatarClass}">${avatarText}</div>
+      <div class="msg-bubble-inner">
+        <div class="msg-sender">${senderName}</div>
+        <div class="msg-bubble${isUnread ? ' unread' : ''}">
+          <div class="msg-body">${m.body.replace(/\n/g, '<br>')}</div>
+          <div class="msg-time">${timeStr}</div>
+        </div>
+      </div>
+    </div>`;
+  });
+
+  thread.innerHTML = h;
+  // Scroll to bottom after render
+  setTimeout(() => { thread.scrollTop = thread.scrollHeight; }, 50);
+}
+
+async function sendDriverReply() {
+  const input = document.getElementById('msg-input');
+  const btn   = document.getElementById('btn-msg-send');
+  const body  = input?.value.trim();
+  if (!body || !currentDriver) return;
+
+  btn.disabled   = true;
+  input.disabled = true;
+
+  const { data, error } = await db.from('driver_messages').insert({
+    driver_id:   currentDriver.id,
+    sender_type: 'driver',
+    body,
+  }).select().single();
+
+  if (error) {
+    toast('Could not send — check your connection');
+    btn.disabled = false; input.disabled = false;
+    return;
+  }
+
+  allMessages.push(data);
+  input.value = '';
+  input.style.height = 'auto';
+  btn.disabled   = false;
+  input.disabled = false;
+  renderMessages();
+  input.focus();
+}
+
+function subscribeToDriverMessages() {
+  if (!currentDriver || msgSubscription) return;
+  msgSubscription = db.channel('driver-msgs-' + currentDriver.id)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'driver_messages',
+      filter: `driver_id=eq.${currentDriver.id}`
+    }, payload => {
+      if (allMessages.find(m => m.id === payload.new.id)) return;
+      allMessages.push(payload.new);
+      // If on messages screen, re-render + mark read immediately
+      if (document.getElementById('screen-messages')?.classList.contains('active')) {
+        renderMessages();
+        markMessagesRead();
+      } else {
+        // Show toast + update badge for admin messages
+        if (payload.new.sender_type === 'admin') {
+          updateMsgBadge();
+          toast('💬 New message from the team', 3500);
+        }
+      }
+    })
+    .subscribe();
+}
+
+/* ──────────────────────────────
+   AUTH STATE CHANGE
+────────────────────────────── */
 db.auth.onAuthStateChange(async (event, session) => {
   if (session?.user) {
     if (appReady && event === 'TOKEN_REFRESHED') return;
@@ -1427,6 +1704,7 @@ db.auth.onAuthStateChange(async (event, session) => {
     try { await loadDriverData(); } catch(e) { console.error('loadDriverData:', e); } finally { showLoading(false); }
     appReady = true;
     document.getElementById('bottom-nav').style.display = 'flex';
+    subscribeToDriverMessages();
     goTo('home');
   } else {
     appReady = false;
