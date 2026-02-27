@@ -1116,7 +1116,7 @@
             <!-- Tab bar -->
             <div class="svc-page-tabs">
               <button class="svc-page-tab active" id="svctab-btn-services"     onclick="svcPageTab('services',this)">Services</button>
-              <button class="svc-page-tab"        id="svctab-btn-prices"       onclick="svcPageTab('prices',this)">Prices</button>
+              <button class="svc-page-tab"        id="svctab-btn-display"      onclick="svcPageTab('display',this)">Display</button>
               <button class="svc-page-tab"        id="svctab-btn-fees"         onclick="svcPageTab('fees',this)">Fees</button>
               <button class="svc-page-tab"        id="svctab-btn-preferences"  onclick="svcPageTab('preferences',this)">Preferences</button>
               <button class="svc-page-tab"        id="svctab-btn-categories"   onclick="svcPageTab('categories',this)">Categories</button>
@@ -1146,8 +1146,8 @@
                 <button class="btn btn-primary" onclick="saveNewService()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
               </div>
             </div>
-            <!-- Prices tab -->
-            <div id="svctab-prices" style="display:none">
+            <!-- Display tab -->
+            <div id="svctab-display" style="display:none">
               <div id="prices-body"></div>
             </div>
             <!-- Fees tab -->
@@ -3204,7 +3204,7 @@
   }
 
   function svcPageTab(name, btn) {
-    ['services','prices','fees','preferences','categories'].forEach(n => {
+    ['services','display','fees','preferences','categories'].forEach(n => {
       const el = document.getElementById('svctab-'+n);
       if (el) el.style.display = n===name ? '' : 'none';
       const b = document.getElementById('svctab-btn-'+n);
@@ -3215,7 +3215,7 @@
     if (name==='preferences') renderSvcPrefs();
     if (name==='categories')  renderCategoryManager();
     if (name==='fees')        renderFees();
-    if (name==='prices')      renderPrices();
+    if (name==='display')     renderPrices();
   }
 
   function filterServices() {
@@ -3555,8 +3555,8 @@
     const body = document.getElementById('prices-body');
     if (!body) return;
 
-    const fmt = v => `$${parseFloat(v||0).toFixed(2)}`;
-    const fmtFee = f => f.fee_type === 'percent' ? `${parseFloat(f.amount||0).toFixed(2)}%` : fmt(f.amount);
+    const fmt    = item => `$${parseFloat(item.base_price||0).toFixed(2)}`;
+    const fmtFee = item => item.fee_type === 'percent' ? `${parseFloat(item.amount||0).toFixed(2)}%` : `$${parseFloat(item.amount||0).toFixed(2)}`;
 
     function priceSection(title, icon, items, toggleFn, amountFn) {
       if (!items.length) return `
