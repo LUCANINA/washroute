@@ -523,6 +523,24 @@
     .laun-row:last-child { border-bottom:none; }
     .laun-name { flex:1;font-size:14px;font-weight:500;color:var(--gray-800); }
     .laun-add-row { display:flex;align-items:center;gap:10px;padding:14px 20px;border-top:1px solid var(--gray-100);background:var(--gray-50);border-radius:0 0 var(--radius) var(--radius); }
+    /* ── LAUNDERER HISTORY PANEL ── */
+    .laun-hist-date-bar { display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--gray-100);background:var(--gray-50);flex-shrink:0; }
+    .laun-hist-date-label { font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap; }
+    .laun-hist-date-input { border:1.5px solid var(--gray-200);border-radius:8px;padding:7px 12px;font-size:13px;font-family:inherit;color:var(--gray-800);outline:none;flex:1;min-width:0; }
+    .laun-hist-nav-btn { padding:6px 12px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--gray-600);font-family:inherit;white-space:nowrap;flex-shrink:0; }
+    .laun-hist-summary { padding:14px 20px;background:var(--gray-50);border-bottom:1px solid var(--gray-100);display:flex;gap:28px;flex-shrink:0; }
+    .laun-hist-stat { display:flex;flex-direction:column;gap:2px; }
+    .laun-hist-stat-val { font-size:22px;font-weight:700;color:var(--gray-900); }
+    .laun-hist-stat-lbl { font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em; }
+    .laun-hist-order-list { display:flex;flex-direction:column;overflow-y:auto; }
+    .laun-hist-order-row { display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--gray-100);transition:background .1s; }
+    .laun-hist-order-row:hover { background:var(--gray-50); }
+    .laun-hist-order-num { font-size:13px;font-weight:700;color:var(--gray-800);min-width:56px; }
+    .laun-hist-order-cust { flex:1;font-size:13.5px;color:var(--gray-700); }
+    .laun-hist-order-meta { display:flex;flex-direction:column;align-items:flex-end;gap:2px; }
+    .laun-hist-order-amount { font-size:14px;font-weight:700;color:var(--gray-900); }
+    .laun-hist-order-bags { font-size:12px;color:var(--gray-500); }
+    .laun-hist-order-time { font-size:11px;color:var(--gray-400); }
     /* ── FOLD PANEL ── */
     .fold-laun-grid { display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px; }
     .fold-laun-btn { padding:14px 16px;border-radius:10px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;color:var(--gray-700);transition:all .12s;text-align:left; }
@@ -1921,6 +1939,42 @@
   <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
     <div id="fold-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
     <button class="proc-save-btn" id="fold-save-btn" onclick="saveFolding()" disabled>✅ Mark as Packed</button>
+  </div>
+</div>
+
+<!-- ── LAUNDERER HISTORY PANEL ── -->
+<div class="intake-over" id="laun-hist-panel">
+  <div class="slide-over-header">
+    <button class="btn btn-ghost" style="padding:6px 10px;margin-right:4px" onclick="closeLaunHistory()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div>
+      <div style="font-weight:700;font-size:15px" id="laun-hist-title">Order History</div>
+      <div style="font-size:12px;color:var(--gray-400)" id="laun-hist-subtitle"></div>
+    </div>
+  </div>
+  <div class="slide-over-body" style="padding:0;display:flex;flex-direction:column;overflow:hidden" id="laun-hist-body">
+    <div class="laun-hist-date-bar">
+      <span class="laun-hist-date-label">Date</span>
+      <input type="date" class="laun-hist-date-input" id="laun-hist-date" onchange="loadLaunHistory()" />
+      <button class="laun-hist-nav-btn" onclick="shiftLaunHistDate(-1)">← Prev</button>
+      <button class="laun-hist-nav-btn" onclick="shiftLaunHistDate(1)">Next →</button>
+    </div>
+    <div id="laun-hist-summary" class="laun-hist-summary" style="display:none">
+      <div class="laun-hist-stat">
+        <span class="laun-hist-stat-val" id="laun-hist-count">0</span>
+        <span class="laun-hist-stat-lbl">Orders Packed</span>
+      </div>
+      <div class="laun-hist-stat">
+        <span class="laun-hist-stat-val" id="laun-hist-bags">0</span>
+        <span class="laun-hist-stat-lbl">Total Bags</span>
+      </div>
+      <div class="laun-hist-stat">
+        <span class="laun-hist-stat-val" id="laun-hist-revenue">$0</span>
+        <span class="laun-hist-stat-lbl">Revenue</span>
+      </div>
+    </div>
+    <div id="laun-hist-orders" class="laun-hist-order-list"></div>
   </div>
 </div>
 
@@ -5159,6 +5213,7 @@
         <input type="checkbox" ${l.is_active?'checked':''} onchange="toggleLaunActive('${l.id}',this.checked)" />
         <span class="toggle-slider"></span>
       </label>
+      <button class="btn btn-ghost" style="padding:5px 10px;font-size:13px;flex-shrink:0" title="View packed orders" onclick="openLaunHistory('${l.id}','${l.name.replace(/'/g,"\\'")}')">📋</button>
       <button class="svc-del-btn" onclick="deleteLaunderer('${l.id}','${l.name.replace(/'/g,"\\'")}')" title="Remove">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
       </button>
@@ -5192,6 +5247,110 @@
     allLaunCache = allLaunCache.filter(l => l.id !== id);
     renderLaunList();
     showToast('Removed', 'success');
+  }
+
+  // ── LAUNDERER HISTORY ──
+  let launHistLaunId = null, launHistLaunName = '';
+
+  function openLaunHistory(launId, launName) {
+    launHistLaunId  = launId;
+    launHistLaunName = launName;
+    // Default to today in local time
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm   = String(now.getMonth()+1).padStart(2,'0');
+    const dd   = String(now.getDate()).padStart(2,'0');
+    const dateInput = document.getElementById('laun-hist-date');
+    if (dateInput) dateInput.value = `${yyyy}-${mm}-${dd}`;
+    document.getElementById('laun-hist-title').textContent    = launName;
+    document.getElementById('laun-hist-subtitle').textContent = 'Packed orders by date';
+    loadLaunHistory();
+    document.getElementById('laun-hist-panel').classList.add('open');
+  }
+
+  async function loadLaunHistory() {
+    const dateInput = document.getElementById('laun-hist-date');
+    const dateVal   = dateInput?.value;
+    if (!launHistLaunId || !dateVal) return;
+
+    const ordersEl  = document.getElementById('laun-hist-orders');
+    const summaryEl = document.getElementById('laun-hist-summary');
+    ordersEl.innerHTML = '<div style="padding:32px;text-align:center"><div class="spinner"></div></div>';
+    summaryEl.style.display = 'none';
+
+    // Convert local date to UTC range
+    const start = new Date(dateVal + 'T00:00:00').toISOString();
+    const end   = new Date(dateVal + 'T23:59:59.999').toISOString();
+
+    const { data: orders, error } = await db.from('orders')
+      .select(`id, order_number, status, total_bags, total_amount, folded_at,
+               customers(first_name_cache, last_name_cache)`)
+      .eq('folded_by_id', launHistLaunId)
+      .gte('folded_at', start)
+      .lte('folded_at', end)
+      .order('folded_at', { ascending: true });
+
+    if (error) {
+      ordersEl.innerHTML = `<div style="padding:32px;text-align:center;color:var(--red);font-size:13px">${error.message}</div>`;
+      return;
+    }
+    renderLaunHistoryOrders(orders || []);
+  }
+
+  function renderLaunHistoryOrders(orders) {
+    const ordersEl  = document.getElementById('laun-hist-orders');
+    const summaryEl = document.getElementById('laun-hist-summary');
+
+    if (!orders.length) {
+      ordersEl.innerHTML = `<div class="empty" style="padding:48px 0">
+        <div class="empty-icon">📭</div>
+        <div class="empty-title">No orders packed this day</div>
+        <div class="empty-sub">Try a different date using the arrows above.</div>
+      </div>`;
+      summaryEl.style.display = 'none';
+      return;
+    }
+
+    const totalBags    = orders.reduce((s,o) => s+(o.total_bags||0), 0);
+    const totalRevenue = orders.reduce((s,o) => s+(parseFloat(o.total_amount)||0), 0);
+    document.getElementById('laun-hist-count').textContent   = orders.length;
+    document.getElementById('laun-hist-bags').textContent    = totalBags;
+    document.getElementById('laun-hist-revenue').textContent = fmtMoney(totalRevenue);
+    summaryEl.style.display = '';
+
+    ordersEl.innerHTML = orders.map(o => {
+      const cust = o.customers;
+      const name = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : '—';
+      const time = o.folded_at
+        ? new Date(o.folded_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
+        : '';
+      return `<div class="laun-hist-order-row">
+        <div class="laun-hist-order-num">#${o.order_number}</div>
+        <div class="laun-hist-order-cust">${name}</div>
+        <div class="laun-hist-order-meta">
+          <div class="laun-hist-order-amount">${fmtMoney(o.total_amount)}</div>
+          <div class="laun-hist-order-bags">${o.total_bags||0} bag${(o.total_bags||0)!==1?'s':''}</div>
+          <div class="laun-hist-order-time">${time}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function shiftLaunHistDate(delta) {
+    const inp = document.getElementById('laun-hist-date');
+    if (!inp?.value) return;
+    const d = new Date(inp.value + 'T00:00:00');
+    d.setDate(d.getDate() + delta);
+    const yyyy = d.getFullYear();
+    const mm   = String(d.getMonth()+1).padStart(2,'0');
+    const dd   = String(d.getDate()).padStart(2,'0');
+    inp.value = `${yyyy}-${mm}-${dd}`;
+    loadLaunHistory();
+  }
+
+  function closeLaunHistory() {
+    document.getElementById('laun-hist-panel').classList.remove('open');
+    launHistLaunId = null; launHistLaunName = '';
   }
 
   // ── PROC TABS ──
