@@ -1581,13 +1581,9 @@
 <div class="batch-bar" id="orders-batch-bar">
   <span class="batch-bar-count" id="batch-bar-count">0 selected</span>
   <div class="batch-bar-sep"></div>
-  <button class="batch-bar-btn" onclick="batchReassignRun()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
-    Reassign Route
-  </button>
-  <button class="batch-bar-btn" onclick="openSetStatusModal()">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
-    Set Status
+  <button class="batch-bar-btn" id="batch-advance-btn" onclick="batchAdvanceStatus()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+    Advance Status
   </button>
   <button class="batch-bar-btn" onclick="batchSendSMS()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
@@ -1601,23 +1597,19 @@
   <button class="batch-bar-dismiss" onclick="clearOrderSelection()" title="Dismiss">×</button>
 </div>
 
-<!-- Reassign Route modal -->
+<!-- Reschedule Route modal (per-order pickup or delivery) -->
 <div id="reassign-run-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
   <div class="modal" style="max-width:420px;">
-    <div class="modal-header"><div class="modal-title">Reassign Route</div></div>
+    <div class="modal-header"><div class="modal-title" id="reschedule-modal-title">Reschedule Route</div></div>
     <div class="modal-body">
-      <div style="margin-bottom:12px;font-size:13px;color:var(--gray-600);">Which leg would you like to reassign?</div>
-      <div style="display:flex;gap:8px;margin-bottom:16px;">
-        <button class="filter-tab active" id="reassign-leg-pickup" onclick="setReassignLeg('pickup',this)">Pickup Route</button>
-        <button class="filter-tab" id="reassign-leg-delivery" onclick="setReassignLeg('delivery',this)">Delivery Route</button>
-      </div>
+      <div style="margin-bottom:12px;font-size:13px;color:var(--gray-600);" id="reschedule-modal-desc"></div>
       <label class="form-label">Select Route</label>
       <select class="form-input" id="reassign-run-select"><option value="">Loading routes…</option></select>
       <div id="reassign-error" style="color:var(--red);font-size:12px;margin-top:8px;display:none;"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeReassignModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="confirmReassignRun()">Reassign</button>
+      <button class="btn btn-primary" onclick="confirmReassignRun()">Save</button>
     </div>
   </div>
 </div>
@@ -2801,23 +2793,27 @@
         ${thSort('total_amount','Total')}
       </tr></thead><tbody>
       ${sorted.map(o => {
-        const nextStatus = STATUS_FLOW[o.status];
-        const willCharge = nextStatus === 'ready_for_delivery';
-        const advBtn = nextStatus
-          ? `<button class="btn-advance${willCharge?' will-charge':''}" style="margin-left:6px" onclick="updateOrderStatus('${o.id}','${o.order_number}','${nextStatus}',this)" title="Advance to ${STATUS_NEXT_LABEL[nextStatus]}">→ ${STATUS_NEXT_LABEL[nextStatus]}</button>`
-          : '';
         const pickupRoute  = o.pickup_run?.name  || '—';
         const deliveryRoute = o.delivery_run?.name || '—';
         const stopNum = '—';
         const bags = o.weight_lbs != null ? Number(o.weight_lbs).toFixed(1)+' lb' : '—';
+        // Pickup route is clickable (to reschedule) for pre-pickup orders
+        const canReschedulePickup = ['scheduled','ready_for_pickup'].includes(o.status);
+        const canRescheduleDelivery = ['assembled','ready_for_delivery','out_for_delivery'].includes(o.status);
+        const pickupRouteCell = canReschedulePickup
+          ? `<span style="cursor:pointer;color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:2px" onclick="rescheduleRoute('${o.id}','${o.order_number}','pickup')" title="Reschedule pickup">${pickupRoute}</span>`
+          : pickupRoute;
+        const deliveryRouteCell = canRescheduleDelivery
+          ? `<span style="cursor:pointer;color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:2px" onclick="rescheduleRoute('${o.id}','${o.order_number}','delivery')" title="Reschedule delivery">${deliveryRoute}</span>`
+          : deliveryRoute;
         return `<tr>
           <td style="width:36px"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" onchange="updateOrderBatchBar()"></td>
           <td class="td-name">${orderCustomerName(o)}</td>
           <td style="font-size:12.5px">${pickupCell(o)}</td>
-          <td style="color:var(--gray-600);font-size:12.5px">${pickupRoute}</td>
+          <td style="font-size:12.5px">${pickupRouteCell}</td>
           <td style="font-size:12.5px">${deliveryCell(o)}</td>
-          <td style="color:var(--gray-600);font-size:12.5px">${deliveryRoute}</td>
-          <td style="white-space:nowrap">${statusBadge(o.status)}${advBtn}</td>
+          <td style="font-size:12.5px">${deliveryRouteCell}</td>
+          <td style="white-space:nowrap"><span style="cursor:pointer" onclick="openSingleStatusPicker('${o.id}','${o.order_number}','${o.status}')" title="Click to change status">${statusBadge(o.status)}</span></td>
           <td style="text-align:center;color:var(--gray-500);font-size:12.5px">${stopNum}</td>
           <td class="td-mono">#${o.order_number}</td>
           <td style="color:var(--gray-600);font-size:12.5px;text-align:right;padding-right:20px">${bags}</td>
@@ -2847,6 +2843,20 @@
       selAll.indeterminate = count > 0 && count < all.length;
       selAll.checked = count > 0 && count === all.length;
     }
+    // Advance Status button: enabled only when all selected share the same status
+    const advBtn = document.getElementById('batch-advance-btn');
+    if (advBtn && count > 0) {
+      const checked = [...document.querySelectorAll('.order-select-cb:checked')];
+      const statuses = [...new Set(checked.map(c => c.dataset.status))];
+      const allSame = statuses.length === 1;
+      const canAdvance = allSame && STATUS_FLOW[statuses[0]];
+      advBtn.disabled = !canAdvance;
+      advBtn.title = !allSame
+        ? 'Select orders with the same status to advance'
+        : !canAdvance ? 'These orders cannot be advanced further' : '';
+      advBtn.style.opacity = canAdvance ? '1' : '0.45';
+      advBtn.style.cursor = canAdvance ? 'pointer' : 'not-allowed';
+    }
   }
 
   function clearOrderSelection() {
@@ -2872,57 +2882,10 @@
   }
 
   // ── BATCH ACTION: REASSIGN RUN ──
-  let reassignLeg = 'pickup'; // 'pickup' | 'delivery'
-  async function batchReassignRun() {
-    const sel = getSelectedOrderData();
-    if (!sel.length) return;
-    reassignLeg = 'pickup';
-    document.getElementById('reassign-leg-pickup').classList.add('active');
-    document.getElementById('reassign-leg-delivery').classList.remove('active');
-    document.getElementById('reassign-error').style.display = 'none';
-    // Load available runs
-    await loadReassignRuns();
-    document.getElementById('reassign-run-modal').style.display = 'flex';
-  }
-
-  function setReassignLeg(leg, btn) {
-    reassignLeg = leg;
-    document.querySelectorAll('#reassign-run-modal .filter-tab').forEach(t=>t.classList.remove('active'));
-    btn.classList.add('active');
-    loadReassignRuns();
-  }
-
-  async function loadReassignRuns() {
-    const sel = document.getElementById('reassign-run-select');
-    sel.innerHTML = '<option value="">Loading…</option>';
-    const { data, error } = await db.from('routes')
-      .select('id, name, run_date, total_stops')
-      .order('run_date', { ascending: false }).limit(60);
-    if (error || !data) { sel.innerHTML = '<option value="">Failed to load runs</option>'; return; }
-    sel.innerHTML = `<option value="">— Select a run —</option>` +
-      data.map(r => `<option value="${r.id}">${r.name} (${fmtDate(r.run_date)}, ${r.total_stops||0} stops)</option>`).join('');
-  }
-
   function closeReassignModal() {
     document.getElementById('reassign-run-modal').style.display = 'none';
   }
 
-  async function confirmReassignRun() {
-    const runId = document.getElementById('reassign-run-select').value;
-    const errEl = document.getElementById('reassign-error');
-    if (!runId) { errEl.textContent = 'Please select a run.'; errEl.style.display=''; return; }
-    const sel = getSelectedOrderData();
-    const col = reassignLeg === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
-    const ids = sel.map(s => s.id);
-    const { error } = await db.from('orders').update({ [col]: runId }).in('id', ids);
-    if (error) { errEl.textContent = error.message; errEl.style.display=''; return; }
-    closeReassignModal();
-    showToast(`✓ ${ids.length} order${ids.length>1?'s':''} reassigned`);
-    clearOrderSelection();
-    loadOrders(currentOrderFilter);
-  }
-
-  // ── BATCH ACTION: ADVANCE STATUS ──
   // ── BATCH ACTION: SET STATUS (any direction) ──
   const ALL_STATUSES = [
     { value: 'scheduled',          label: 'Scheduled',            icon: '📅' },
@@ -2998,13 +2961,20 @@
     setTimeout(() => loadOrders(currentOrderFilter), 400);
   }
 
-  // Keep batchAdvanceStatus as a quick-advance shortcut used inline
   async function batchAdvanceStatus() {
     const sel = getSelectedOrderData();
     if (!sel.length) return;
+    // All selected must share the same status
+    const statuses = [...new Set(sel.map(s => s.status))];
+    if (statuses.length > 1) {
+      showToast('Select orders with the same status to advance them together.', 'error');
+      return;
+    }
     const advanceable = sel.filter(s => STATUS_FLOW[s.status]);
-    if (!advanceable.length) { showToast('No selected orders can be advanced further.', ''); return; }
-    if (!confirm(`Advance ${advanceable.length} order${advanceable.length>1?'s':''} to their next status?`)) return;
+    if (!advanceable.length) { showToast('These orders cannot be advanced further.', ''); return; }
+    const nextStatus = STATUS_FLOW[advanceable[0].status];
+    const nextLabel = STATUS_NEXT_LABEL[nextStatus] || nextStatus;
+    if (!confirm(`Advance ${advanceable.length} order${advanceable.length>1?'s':''} to "${nextLabel}"?`)) return;
     const now = new Date().toISOString();
     let succeeded = 0, chargeNeeded = 0;
     for (const s of advanceable) {
@@ -3040,16 +3010,101 @@
     showToast(`SMS feature coming soon — would message ${sel.length} customer${sel.length>1?'s':''}`, '');
   }
 
-  // ── BATCH ACTION: CANCEL ORDERS ──
+  // ── BATCH ACTION: CANCEL ORDERS (deletes them) ──
   async function batchCancelOrders() {
     const sel = getSelectedOrderData();
     if (!sel.length) return;
-    if (!confirm(`Cancel ${sel.length} order${sel.length>1?'s':''}? This will mark them as cancelled.`)) return;
+    if (!confirm(`Delete ${sel.length} order${sel.length>1?'s':''}? This cannot be undone.`)) return;
     const ids = sel.map(s => s.id);
-    const { error } = await db.from('orders').update({ status: 'cancelled' }).in('id', ids);
+    const { error } = await db.from('orders').delete().in('id', ids);
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
-    showToast(`✓ ${ids.length} order${ids.length>1?'s':''} cancelled`);
+    showToast(`✓ ${ids.length} order${ids.length>1?'s':''} deleted`);
     clearOrderSelection();
+    setTimeout(() => loadOrders(currentOrderFilter), 400);
+  }
+
+  // ── SINGLE ORDER STATUS PICKER ──
+  let _singleStatusOrderId = null, _singleStatusOrderNum = null;
+
+  function openSingleStatusPicker(orderId, orderNum, currentStatus) {
+    _singleStatusOrderId = orderId;
+    _singleStatusOrderNum = orderNum;
+    document.getElementById('set-status-subtitle').textContent = `Order #${orderNum}`;
+    const allOpts = [
+      ...ALL_STATUSES,
+      { value: 'cancel_delete', label: 'Cancel & Delete', icon: '🗑️' },
+    ];
+    document.getElementById('set-status-options').innerHTML = allOpts.map(s => {
+      const isCurrent = s.value === currentStatus;
+      const isDanger = s.value === 'cancel_delete';
+      return `<button onclick="setSingleOrderStatus('${s.value}')"
+        style="width:100%;text-align:left;padding:11px 20px;border:none;border-bottom:1px solid var(--gray-100);
+               background:${isCurrent?'var(--gray-50)':'white'};cursor:pointer;font-size:13.5px;
+               display:flex;align-items:center;gap:10px;transition:background .1s;
+               ${isDanger?'color:var(--red);':''}${isCurrent?'pointer-events:none;':''}"
+        onmouseover="this.style.background='${isDanger?'#fef2f2':'var(--accent-light)'}'"
+        onmouseout="this.style.background='${isCurrent?'var(--gray-50)':'white'}'">
+        <span style="font-size:15px;flex-shrink:0">${s.icon}</span>
+        <span style="font-weight:${isCurrent?'700':'500'}">${s.label}</span>
+        ${isCurrent ? '<span style="margin-left:auto;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400)">current</span>' : ''}
+      </button>`;
+    }).join('');
+    document.getElementById('set-status-modal').style.display = 'flex';
+  }
+
+  async function setSingleOrderStatus(newStatus) {
+    closeSetStatusModal();
+    if (!_singleStatusOrderId) return;
+    const orderId = _singleStatusOrderId, orderNum = _singleStatusOrderNum;
+    if (newStatus === 'cancel_delete') {
+      if (!confirm(`Delete order #${orderNum}? This cannot be undone.`)) return;
+      const { error } = await db.from('orders').delete().eq('id', orderId);
+      if (error) { showToast('Error: ' + error.message, 'error'); return; }
+      showToast(`✓ Order #${orderNum} deleted`);
+    } else {
+      const label = ALL_STATUSES.find(s => s.value === newStatus)?.label || newStatus;
+      const now = new Date().toISOString();
+      const payload = { status: newStatus };
+      if (newStatus === 'picked_up')  payload.actual_pickup_at   = now;
+      if (newStatus === 'delivered')  payload.actual_delivery_at = now;
+      const { error } = await db.from('orders').update(payload).eq('id', orderId);
+      if (error) { showToast('Error: ' + error.message, 'error'); return; }
+      showToast(`✓ Order #${orderNum} → ${label}`);
+    }
+    setTimeout(() => loadOrders(currentOrderFilter), 400);
+  }
+
+  // ── PER-ORDER RESCHEDULE ROUTE ──
+  let _rescheduleOrderId = null, _rescheduleOrderNum = null, _rescheduleLeg = null;
+
+  async function rescheduleRoute(orderId, orderNum, leg) {
+    _rescheduleOrderId = orderId;
+    _rescheduleOrderNum = orderNum;
+    _rescheduleLeg = leg;
+    const legLabel = leg === 'pickup' ? 'Pickup' : 'Delivery';
+    document.getElementById('reschedule-modal-title').textContent = `Reschedule ${legLabel}`;
+    document.getElementById('reschedule-modal-desc').textContent = `Move order #${orderNum} to a different ${legLabel.toLowerCase()} route.`;
+    document.getElementById('reassign-error').style.display = 'none';
+    // Load routes
+    const sel = document.getElementById('reassign-run-select');
+    sel.innerHTML = '<option value="">Loading…</option>';
+    const { data } = await db.from('routes')
+      .select('id, name, run_date, total_stops')
+      .order('run_date', { ascending: false }).limit(60);
+    sel.innerHTML = `<option value="">— Select a route —</option>` +
+      (data||[]).map(r => `<option value="${r.id}">${r.name} (${fmtDate(r.run_date)}, ${r.total_stops||0} stops)</option>`).join('');
+    document.getElementById('reassign-run-modal').style.display = 'flex';
+  }
+
+  async function confirmReassignRun() {
+    const runId = document.getElementById('reassign-run-select').value;
+    const errEl = document.getElementById('reassign-error');
+    if (!runId) { errEl.textContent = 'Please select a route.'; errEl.style.display=''; return; }
+    const col = _rescheduleLeg === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
+    const { error } = await db.from('orders').update({ [col]: runId }).eq('id', _rescheduleOrderId);
+    if (error) { errEl.textContent = error.message; errEl.style.display=''; return; }
+    closeReassignModal();
+    showToast(`✓ Order #${_rescheduleOrderNum} rescheduled`);
     setTimeout(() => loadOrders(currentOrderFilter), 400);
   }
 
@@ -4692,16 +4747,13 @@
       const payBtn = o.stripe_payment_intent_id
         ? '<span style="color:#059669;font-size:11px;font-weight:600">✓ Paid</span>'
         : chargeable ? `<button class="btn btn-primary" style="padding:3px 8px;font-size:11.5px" onclick="chargeOrder('${o.id}','${o.order_number}',this)">💳 Charge</button>` : '';
-      const nextStatus = STATUS_FLOW[o.status];
-      const willCharge = nextStatus==='ready_for_delivery';
-      const advBtn = nextStatus ? `<button class="btn-advance${willCharge?' will-charge':''}" onclick="updateOrderStatus('${o.id}','${o.order_number}','${nextStatus}',this)" title="→ ${STATUS_NEXT_LABEL[nextStatus]}">→ ${STATUS_NEXT_LABEL[nextStatus]}</button>` : '';
       return `<div class="cp-order-row">
         <span class="cp-order-num">#${o.order_number}</span>
         <div class="cp-order-svc">
           <div style="font-weight:500">${o.services?.name||'—'}</div>
           <div style="font-size:11.5px;color:var(--gray-400)">${fmtDate(o.pickup_window_start||o.created_at)}${o.weight_lbs?' · '+o.weight_lbs+' lbs':''}</div>
         </div>
-        ${statusBadge(o.status)} ${advBtn}
+        <span style="cursor:pointer" onclick="openSingleStatusPicker('${o.id}','${o.order_number}','${o.status}')" title="Click to change status">${statusBadge(o.status)}</span>
         <span class="cp-order-amt">${fmtMoney(o.total_amount)}</span>
         ${payBtn}
       </div>`;
