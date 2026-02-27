@@ -1111,6 +1111,27 @@
             </div>
           </div>
 
+          <!-- Reassign stop driver modal -->
+          <div id="reassign-driver-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
+            <div style="background:white;border-radius:10px;padding:24px;width:340px;box-shadow:0 20px 60px rgba(0,0,0,.2);">
+              <div style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:4px">Reassign Stop</div>
+              <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px" id="reassign-stop-desc">Assign this stop to a specific driver</div>
+              <div class="form-group">
+                <label class="form-label">Assign to Driver</label>
+                <select class="form-input" id="reassign-driver-select">
+                  <option value="">— Route's default driver —</option>
+                </select>
+              </div>
+              <div style="font-size:12px;color:var(--gray-400);margin-top:8px;line-height:1.5">
+                The stop stays on its current route but will appear in this driver's app instead.
+              </div>
+              <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
+                <button class="btn btn-ghost" onclick="document.getElementById('reassign-driver-modal').style.display='none'">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmReassignDriver()">Reassign</button>
+              </div>
+            </div>
+          </div>
+
           <!-- Driver assignment popover (weekly schedule) -->
           <div id="driver-popover" style="display:none;position:fixed;z-index:2000;background:white;border-radius:12px;padding:16px;width:230px;box-shadow:0 8px 32px rgba(0,0,0,.18);border:1px solid var(--gray-200);">
             <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;" id="driver-popover-title">Assign Driver</div>
@@ -5449,7 +5470,7 @@
     if (optBtn) optBtn.style.display = '';
 
     const { data: stops } = await db.from('route_stops')
-      .select(`id, stop_number, stop_type, status, estimated_arrival,
+      .select(`id, stop_number, stop_type, status, estimated_arrival, driver_id,
                orders(order_number, customers(first_name_cache, last_name_cache)),
                addresses(line1, city, lat, lng)`)
       .eq('route_id', runId)
@@ -5475,15 +5496,22 @@
       const label = s.status === 'complete' ? '✓' : s.stop_number.toString();
       const eta = s.estimated_arrival ? fmtDate(s.estimated_arrival) : '';
       const lat = s.addresses?.lat || 0, lng = s.addresses?.lng || 0;
+      const overrideDriver = s.driver_id ? (allDriversCache.find(d => d.id === s.driver_id)?.name || 'Driver') : null;
       return `<div class="rsl-item" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}">
         <div class="rsl-pin" style="background:${dot}">${label}</div>
         <div class="rsl-info">
           <div class="rsl-name">${name}</div>
           <div class="rsl-addr">${addr}</div>
-          <div style="display:flex;gap:6px;align-items:center;margin-top:3px;">
+          <div style="display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap;">
             <span class="rsl-tag ${s.stop_type==='pickup'?'tag-pickup':'tag-delivery'}">${s.stop_type==='pickup'?'Pickup':'Delivery'}</span>
+            ${overrideDriver ? `<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:1px 6px;border-radius:4px">↗ ${overrideDriver}</span>` : ''}
             ${eta ? `<span style="font-size:10px;color:var(--gray-400)">${eta}</span>` : ''}
-            ${otherRuns.length ? `<button class="btn btn-ghost" style="padding:1px 7px;font-size:10px;margin-left:auto" onclick="event.stopPropagation();openMoveStop('${s.id}','#${s.stop_number} ${name}')">Move →</button>` : ''}
+            <span style="margin-left:auto;display:flex;gap:4px">
+              <button class="btn btn-ghost" style="padding:1px 7px;font-size:10px;color:#7c3aed;border-color:#e9d5ff" onclick="event.stopPropagation();openReassignDriver('${s.id}','#${s.stop_number} ${name}','${s.driver_id||''}')">
+                ${overrideDriver ? '↗ Reassigned' : 'Reassign'}
+              </button>
+              ${otherRuns.length ? `<button class="btn btn-ghost" style="padding:1px 7px;font-size:10px" onclick="event.stopPropagation();openMoveStop('${s.id}','#${s.stop_number} ${name}')">Move →</button>` : ''}
+            </span>
           </div>
         </div>
       </div>`;
@@ -5591,6 +5619,40 @@
       showToast('Move failed: ' + e.message, 'error');
     }
     routeStopMoving = null;
+  }
+
+  // ── REASSIGN STOP TO DRIVER ──
+  let reassignStopId = null;
+
+  function openReassignDriver(stopId, stopDesc, currentDriverId) {
+    reassignStopId = stopId;
+    document.getElementById('reassign-stop-desc').textContent = stopDesc;
+    const sel = document.getElementById('reassign-driver-select');
+    sel.innerHTML = `<option value="">— Route's default driver —</option>` +
+      allDriversCache.map(d =>
+        `<option value="${d.id}" ${d.id === currentDriverId ? 'selected' : ''}>${d.name}</option>`
+      ).join('');
+    document.getElementById('reassign-driver-modal').style.display = 'flex';
+  }
+
+  async function confirmReassignDriver() {
+    if (!reassignStopId) return;
+    const driverId = document.getElementById('reassign-driver-select').value || null;
+    document.getElementById('reassign-driver-modal').style.display = 'none';
+    try {
+      await db.from('route_stops').update({ driver_id: driverId }).eq('id', reassignStopId);
+      const driverName = driverId ? (allDriversCache.find(d => d.id === driverId)?.name || 'Driver') : 'route default';
+      showToast(`✓ Stop reassigned to ${driverName}`);
+      // Refresh current route stop list
+      const activeBtn = document.querySelector('.run-toggle-btn[style*="background: var(--accent)"], .run-toggle-btn[style*="background:var(--accent)"]');
+      if (routeLiveRouteId) {
+        const btn = document.querySelector(`.run-toggle-btn[data-rid="${routeLiveRouteId}"]`);
+        if (btn) selectRunOnMap(routeLiveRouteId, btn);
+      }
+    } catch(e) {
+      showToast('Reassign failed: ' + e.message, 'error');
+    }
+    reassignStopId = null;
   }
 
   // ── CUSTOMER LIST / MAP TOGGLE ──

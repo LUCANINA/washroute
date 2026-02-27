@@ -867,43 +867,46 @@ async function loadDriverData() {
   currentDriver = drv;
   if (!currentDriver) return;
 
-  // Today's routes — check BOTH pickup_driver_id and delivery_driver_id
+  const stopFields = `
+    *,
+    addresses(*),
+    orders(*, customers(*), services(*))
+  `;
+
+  // ── Part 1: stops on routes assigned to this driver (no individual override) ──
   const { data: routes } = await db.from('routes')
-    .select('*')
+    .select('id, name, status, run_date')
     .or(`pickup_driver_id.eq.${currentDriver.id},delivery_driver_id.eq.${currentDriver.id}`)
     .eq('run_date', today())
     .neq('status', 'cancelled');
   todayRoutes = routes || [];
 
+  let routeStops = [];
   if (todayRoutes.length > 0) {
     const routeIds = todayRoutes.map(r => r.id);
-    const { data: stops } = await db.from('route_stops')
-      .select(`
-        *,
-        addresses(*),
-        orders(
-          *,
-          customers(*),
-          services(*)
-        )
-      `)
+    const { data: rs } = await db.from('route_stops')
+      .select(stopFields)
       .in('route_id', routeIds)
+      .is('driver_id', null)          // only stops not individually reassigned elsewhere
       .order('stop_number', { ascending: true });
-    allStops = stops || [];
-  } else {
-    // No assigned route — show pending orders driver can pick up
-    const { data: orders } = await db.from('orders')
-      .select(`
-        *,
-        customers(*),
-        services(*),
-        pickup_addr:addresses!orders_pickup_address_id_fkey(*),
-        delivery_addr:addresses!orders_delivery_address_id_fkey(*)
-      `)
-      .in('status', ['scheduled', 'ready_for_pickup', 'out_for_delivery'])
-      .order('created_at', { ascending: true });
-    pendingOrders = orders || [];
+    routeStops = rs || [];
   }
+
+  // ── Part 2: stops individually assigned to this driver (any route, any date) ──
+  const { data: overrideStops } = await db.from('route_stops')
+    .select(`${stopFields}, routes(id, name, run_date)`)
+    .eq('driver_id', currentDriver.id)
+    .order('stop_number', { ascending: true });
+
+  // Merge — mark override stops so we can show "↗ from Route X" badge
+  const tagged = (overrideStops || []).map(s => ({ ...s, _reassigned: true }));
+  allStops = [...routeStops, ...tagged];
+
+  // Rebuild todayRoutes to include any routes referenced by override stops
+  const extraRoutes = (overrideStops || [])
+    .map(s => s.routes)
+    .filter(r => r && !todayRoutes.find(tr => tr.id === r.id));
+  todayRoutes = [...todayRoutes, ...extraRoutes];
 
   // Load messages
   await loadDriverMessages();
@@ -931,14 +934,14 @@ function renderHome() {
     <div class="hero-greeting">${greet()}, ${name}! 👋</div>
     <div class="hero-date">${dateStr}</div>`;
 
-  if (todayRoutes.length > 0) {
+  if (allStops.length > 0) {
     const route = todayRoutes[0];
-    const statusLabel = route.status === 'in_progress' ? '🟢 In Progress'
-                      : route.status === 'complete'    ? '✅ Complete' : '⏳ Scheduled';
-    const btnLabel = route.status === 'complete' ? 'View Completed Route'
-                   : route.status === 'in_progress' ? '▶️ Continue Route' : '🚀 Start Route';
+    const statusLabel = route?.status === 'in_progress' ? '🟢 In Progress'
+                      : route?.status === 'complete'    ? '✅ Complete' : '⏳ Scheduled';
+    const btnLabel = route?.status === 'complete' ? 'View Completed Route'
+                   : route?.status === 'in_progress' ? '▶️ Continue Route' : '🚀 Start Route';
     h += `<div class="route-summary-card">
-      <div class="route-name">📋 ${route.name || "Today's Route"} &nbsp;<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.45)">${statusLabel}</span></div>
+      <div class="route-name">📋 ${route?.name || "Today's Stops"} &nbsp;<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.45)">${statusLabel}</span></div>
       <div class="route-stats">
         <div class="rstat"><div class="rstat-num">${total}</div><div class="rstat-label">Stops</div></div>
         <div class="rstat"><div class="rstat-num">${done}</div><div class="rstat-label">Done</div></div>
@@ -948,16 +951,10 @@ function renderHome() {
       <div class="route-progress"><div class="route-progress-fill" style="width:${pct}%"></div></div>
       <button class="btn-big" onclick="goTo('route')">${btnLabel}</button>
     </div>`;
-  } else if (pendingOrders.length > 0) {
-    h += `<div class="route-summary-card">
-      <div class="route-name">📦 ${pendingOrders.length} Pending Order${pendingOrders.length !== 1 ? 's' : ''}</div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.45);margin-bottom:14px">No route assigned — showing all pending orders.</div>
-      <button class="btn-big" onclick="goTo('route')">📋 View Orders</button>
-    </div>`;
   } else {
     h += `<div class="route-summary-card">
-      <div class="route-name">No Orders Today</div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.45)">No route or pending orders right now.</div>
+      <div class="route-name">No Stops Today</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.45)">No stops have been assigned to you yet.</div>
     </div>`;
   }
   h += '</div>';
@@ -997,33 +994,11 @@ function renderHome() {
 function renderRoute() {
   const body = document.getElementById('route-body');
 
-  if (todayRoutes.length === 0) {
-    document.getElementById('rh-title').textContent = 'Pending Orders';
-    const n = pendingOrders.length;
-    document.getElementById('rh-sub').textContent = `${n} order${n!==1?'s':''} awaiting pickup`;
+  if (allStops.length === 0) {
+    document.getElementById('rh-title').textContent = "Today's Stops";
+    document.getElementById('rh-sub').textContent = 'No stops assigned yet';
     document.getElementById('rh-bar').style.width = '0%';
-
-    if (n === 0) {
-      body.innerHTML = `<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">Nothing Pending</div><div class="empty-sub">All clear! No orders waiting right now.</div></div>`;
-      return;
-    }
-
-    let h = '<div style="padding:12px 14px">';
-    pendingOrders.forEach(o => {
-      const addr = o.pickup_addr;
-      const cust = o.customers;
-      const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
-      h += `<div class="po-card">
-        <div class="po-top"><div class="po-num">Order #${o.order_number}</div><div class="po-date">${fmtDate(o.created_at)}</div></div>
-        <div class="po-name">${custName}</div>
-        <div class="po-addr">📍 ${addr ? fmtAddr(addr) : 'No address on file'}</div>
-        <div class="po-meta">📦 ${o.total_bags||1} bag(s) · ${o.services?.name||'Service'} · <span style="color:var(--pickup)">Pickup</span></div>
-        ${cust?.phone_cache ? `<div class="po-meta">📞 <a href="tel:${cust.phone_cache}" style="color:var(--accent);font-weight:600">${cust.phone_cache}</a></div>` : ''}
-        ${addr ? `<a class="btn-nav-small" href="${mapsLink(addr)}" target="_blank">🗺️ Get Directions</a>` : ''}
-      </div>`;
-    });
-    h += '</div>';
-    body.innerHTML = h;
+    body.innerHTML = `<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">No Stops Today</div><div class="empty-sub">Check back later — stops will appear here once they're assigned to you.</div></div>`;
     return;
   }
 
@@ -1052,10 +1027,13 @@ function renderRoute() {
     const badgeText  = isDone ? 'DONE' : isSkip ? 'SKIPPED' : isEnRoute ? 'EN ROUTE' : stop.stop_type.toUpperCase();
     const cardClass  = isDone || isSkip ? ' done' : isEnRoute ? ' en-route' : '';
 
+    const reassignedTag = stop._reassigned
+      ? `<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:2px 7px;border-radius:5px;margin-left:5px">↗ reassigned</span>`
+      : '';
     h += `<div class="stop-card${cardClass}" onclick="openStop('${stop.id}')">
       <div class="stop-num ${numClass}">${isDone ? '✓' : isSkip ? '⤷' : isEnRoute ? '↑' : stop.stop_number}</div>
       <div class="stop-body">
-        <div><span class="stop-badge ${badgeClass}">${badgeText}</span></div>
+        <div><span class="stop-badge ${badgeClass}">${badgeText}</span>${reassignedTag}</div>
         <div class="stop-name">${custName}</div>
         <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
         <div class="stop-meta">📦 ${stop.orders?.total_bags||1} bag(s) · ${stop.orders?.services?.name||'Service'}${isDone && stop.completed_at ? ' · ' + fmtTime(stop.completed_at) : ''}</div>
