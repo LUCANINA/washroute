@@ -3,423 +3,398 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WashRoute — Receipt Mockups</title>
+<title>Family Laundry — Thermal Receipt</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #f1f5f9;
-    padding: 40px 24px;
-    color: #1e293b;
-  }
-  h1 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; margin-bottom: 32px; }
-  .layout { display: flex; gap: 60px; align-items: flex-start; flex-wrap: wrap; }
-  .col { display: flex; flex-direction: column; gap: 10px; }
-  .col-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: #94a3b8; margin-bottom: 4px; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
-  /* ── BAG TAG ── */
-  .bag-tag {
-    width: 300px;
-    background: white;
-    border: 1px dashed #cbd5e1;
-    border-radius: 6px;
-    padding: 22px 20px;
-    font-family: 'Courier New', monospace;
-    box-shadow: 0 2px 8px rgba(0,0,0,.06);
-  }
-  .tag-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-bottom: 2px solid #0f172a;
-    padding-bottom: 12px;
-    margin-bottom: 14px;
-  }
-  .tag-brand {
-    font-size: 15px;
-    font-weight: 900;
-    letter-spacing: .04em;
-    color: #0f172a;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  }
-  .tag-brand span { color: #635bff; }
-  .tag-order-num {
-    font-size: 22px;
-    font-weight: 900;
-    letter-spacing: .02em;
-    color: #0f172a;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  }
-  .tag-customer {
-    font-size: 16px;
-    font-weight: 800;
-    color: #0f172a;
-    margin-bottom: 4px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    text-transform: uppercase;
-    letter-spacing: .03em;
-  }
-  .tag-address {
-    font-size: 11px;
-    color: #64748b;
-    margin-bottom: 14px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  }
-  .tag-divider {
-    border: none;
-    border-top: 1px dashed #e2e8f0;
-    margin: 12px 0;
-  }
-  .tag-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 6px;
-  }
-  .tag-row-label {
-    font-size: 9px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-    color: #94a3b8;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  }
-  .tag-row-value {
-    font-size: 12px;
-    font-weight: 700;
-    color: #1e293b;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    text-align: right;
-  }
-  .tag-service-block {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 5px;
-    padding: 10px 12px;
-    margin: 12px 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .tag-service-name {
-    font-size: 13px;
-    font-weight: 700;
-    color: #0f172a;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  }
-  .tag-bags {
-    font-size: 11px;
-    color: #635bff;
-    font-weight: 700;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  }
-  .tag-schedule {
-    margin-top: 12px;
-  }
-  .tag-sched-item {
-    margin-bottom: 10px;
-  }
-  .tag-sched-type {
-    font-size: 8px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: .1em;
-    color: #94a3b8;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    margin-bottom: 2px;
-  }
-  .tag-sched-value {
-    font-size: 12.5px;
-    font-weight: 700;
-    color: #1e293b;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  }
-  .tag-notes {
-    font-size: 10.5px;
-    color: #475569;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #fffbeb;
-    border-left: 3px solid #f59e0b;
-    padding: 6px 8px;
-    border-radius: 0 4px 4px 0;
-    margin-top: 12px;
-  }
-  .tag-notes-label {
-    font-size: 8px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: .1em;
-    color: #92400e;
-    margin-bottom: 2px;
-  }
-  .tag-footer {
-    margin-top: 16px;
-    padding-top: 10px;
-    border-top: 1px dashed #e2e8f0;
-    text-align: center;
-    font-size: 9px;
-    color: #94a3b8;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  }
+body {
+  background: #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px;
+  gap: 16px;
+  font-family: 'Courier New', Courier, monospace;
+}
+.preview-label {
+  font-family: -apple-system, sans-serif;
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .1em; color: #6b7280;
+}
+.print-btn {
+  font-family: -apple-system, sans-serif;
+  background: #1e293b; color: white; border: none;
+  padding: 10px 22px; border-radius: 6px;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.print-btn:hover { background: #334155; }
 
-  /* ── EMAIL RECEIPT ── */
-  .email-wrap {
-    width: 520px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 2px 12px rgba(0,0,0,.07);
-  }
-  .email-chrome {
-    background: #e2e8f0;
-    padding: 10px 14px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .email-chrome-dot { width: 10px; height: 10px; border-radius: 50%; }
-  .email-subject-bar {
-    background: white;
-    border-bottom: 1px solid #e2e8f0;
-    padding: 10px 16px;
-    font-size: 12px;
-    color: #64748b;
-  }
-  .email-subject-bar strong { color: #0f172a; font-size: 13px; }
-  .email-body { background: white; padding: 32px 36px; }
-  .email-logo { font-size: 20px; font-weight: 900; color: #0f172a; margin-bottom: 24px; }
-  .email-logo span { color: #635bff; }
-  .email-hero {
-    background: linear-gradient(135deg, #635bff 0%, #4f46e5 100%);
-    border-radius: 10px;
-    padding: 24px 28px;
-    margin-bottom: 28px;
-    color: white;
-  }
-  .email-hero-label { font-size: 11px; font-weight: 600; opacity: .75; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 4px; }
-  .email-hero-title { font-size: 24px; font-weight: 800; margin-bottom: 2px; }
-  .email-hero-sub { font-size: 13px; opacity: .8; }
-  .email-greeting { font-size: 14px; color: #374151; margin-bottom: 20px; line-height: 1.6; }
-  .email-section-label {
-    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
-    color: #94a3b8; margin-bottom: 10px; margin-top: 24px;
-  }
-  .email-detail-card {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 16px 18px;
-    margin-bottom: 12px;
-  }
-  .email-detail-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 5px 0;
-    font-size: 13px;
-  }
-  .email-detail-row:not(:last-child) { border-bottom: 1px solid #f1f5f9; }
-  .email-detail-key { color: #64748b; }
-  .email-detail-val { font-weight: 600; color: #0f172a; text-align: right; }
-  .email-sched-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    margin-bottom: 12px;
-  }
-  .email-sched-card {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 14px 16px;
-  }
-  .email-sched-icon { font-size: 18px; margin-bottom: 6px; }
-  .email-sched-type { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; margin-bottom: 3px; }
-  .email-sched-date { font-size: 13px; font-weight: 700; color: #0f172a; }
-  .email-sched-time { font-size: 11.5px; color: #64748b; margin-top: 2px; }
-  .email-notes-card {
-    background: #fffbeb;
-    border: 1px solid #fde68a;
-    border-radius: 8px;
-    padding: 12px 14px;
-    font-size: 12.5px;
-    color: #78350f;
-    margin-bottom: 12px;
-  }
-  .email-notes-title { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
-  .email-total-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 14px 18px;
-    font-size: 15px;
-    font-weight: 700;
-    color: #0f172a;
-    margin-top: 8px;
-  }
-  .email-cta {
-    margin-top: 28px;
-    text-align: center;
-  }
-  .email-cta-btn {
-    display: inline-block;
-    background: #635bff;
-    color: white;
-    text-decoration: none;
-    padding: 12px 28px;
-    border-radius: 8px;
-    font-size: 13.5px;
-    font-weight: 700;
-  }
-  .email-footer {
-    margin-top: 32px;
-    padding-top: 20px;
-    border-top: 1px solid #f1f5f9;
-    font-size: 11px;
-    color: #94a3b8;
-    line-height: 1.6;
-    text-align: center;
-  }
+/* ── RECEIPT ── */
+.receipt {
+  width: 302px;
+  background: white;
+  padding: 13px 12px 16px;
+  box-shadow: 0 4px 24px rgba(0,0,0,.18);
+  color: #000;
+}
+
+/* Dividers */
+.r-divider       { border: none; border-top: 1px dashed #aaa; margin: 9px 0; }
+.r-divider-solid { border: none; border-top: 2px solid #000;  margin: 9px 0; }
+.r-divider-thin  { border: none; border-top: 1px solid #ccc;  margin: 5px 0; }
+
+/* ── HEADER ── */
+.r-biz-name {
+  font-family: -apple-system, sans-serif;
+  font-size: 20px; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .05em;
+  text-align: center;
+}
+.r-biz-addr {
+  font-size: 10.5px; color: #555; text-align: center;
+  line-height: 1.5; margin-top: 2px;
+}
+.r-timestamp {
+  font-size: 10px; color: #777;
+  display: flex; justify-content: space-between;
+  margin-top: 8px;
+}
+
+/* ── CUSTOMER ── */
+.r-customer-name {
+  font-family: -apple-system, sans-serif;
+  font-size: 19px; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .03em;
+  line-height: 1.2; margin-bottom: 3px;
+}
+.r-customer-address {
+  font-size: 12px; color: #333; line-height: 1.5;
+}
+
+/* ── ORDER HEADER ── */
+.r-order-meta {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 4px;
+}
+.r-order-num {
+  font-family: -apple-system, sans-serif;
+  font-size: 19px; font-weight: 900;
+}
+.r-weight-bags {
+  font-family: -apple-system, sans-serif;
+  font-size: 13px; font-weight: 700; color: #333;
+}
+
+/* ── SCHEDULE ── */
+.r-sched {
+  border: 2px solid #000; border-radius: 4px;
+  padding: 8px 10px; margin: 8px 0;
+}
+.r-sched-row {
+  display: flex; justify-content: space-between; align-items: flex-start;
+}
+.r-sched-label {
+  font-family: -apple-system, sans-serif;
+  font-size: 8.5px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .08em; color: #666;
+  margin-bottom: 1px;
+}
+.r-sched-value {
+  font-family: -apple-system, sans-serif;
+  font-size: 14px; font-weight: 800;
+}
+.r-sched-sub {
+  font-size: 11px; color: #555; font-weight: 600;
+  font-family: -apple-system, sans-serif;
+}
+
+/* ── ADD-ONS ── */
+.r-addons-label {
+  font-family: -apple-system, sans-serif;
+  font-size: 9.5px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .08em; color: #555;
+  margin-bottom: 4px;
+}
+.r-addon-tag {
+  display: inline-block;
+  border: 2px solid #000; border-radius: 3px;
+  padding: 2px 6px;
+  font-family: -apple-system, sans-serif;
+  font-size: 12.5px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .03em;
+  margin: 2px 3px 2px 0;
+}
+.r-no-addons { font-size: 11px; color: #888; font-style: italic; }
+
+/* ── INVOICE ── */
+.r-inv-header {
+  font-family: -apple-system, sans-serif;
+  font-size: 9.5px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .08em;
+  text-align: center; color: #555; margin-bottom: 5px;
+}
+.r-inv-cols {
+  display: flex; justify-content: space-between;
+  font-size: 9px; font-weight: 700; color: #999;
+  text-transform: uppercase; letter-spacing: .05em;
+  padding-bottom: 3px;
+  font-family: -apple-system, sans-serif;
+}
+.r-inv-row {
+  display: flex; justify-content: space-between;
+  align-items: baseline; padding: 3px 0;
+  border-bottom: 1px dotted #ddd;
+}
+.r-inv-row:last-child { border-bottom: none; }
+.r-inv-desc {
+  flex: 1; font-size: 12.5px; padding-right: 4px;
+  font-family: -apple-system, sans-serif;
+}
+.r-inv-qty {
+  width: 26px; text-align: right;
+  font-size: 12px; color: #555;
+  font-family: -apple-system, sans-serif;
+}
+.r-inv-amt {
+  width: 56px; text-align: right;
+  font-size: 13px; font-weight: 700;
+  font-family: -apple-system, sans-serif;
+}
+
+/* ── TOTALS ── */
+.r-totals-row {
+  display: flex; justify-content: space-between;
+  font-size: 12.5px; padding: 2.5px 0;
+  font-family: -apple-system, sans-serif;
+}
+.r-totals-label { color: #444; }
+.r-totals-value { font-weight: 600; }
+
+/* ── AMOUNT DUE ── */
+.r-amount-due {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 4px;
+}
+.r-amount-label {
+  font-family: -apple-system, sans-serif;
+  font-size: 12px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.r-amount-value {
+  font-family: -apple-system, sans-serif;
+  font-size: 28px; font-weight: 900;
+}
+
+/* ── BARCODE ── */
+.r-barcode-wrap { text-align: center; margin: 6px 0 2px; }
+.r-barcode-id {
+  font-family: -apple-system, sans-serif;
+  font-size: 13px; font-weight: 700;
+  letter-spacing: .04em; margin-top: 2px;
+}
+
+/* ── FOOTER ── */
+.r-footer {
+  text-align: center; font-size: 10px; color: #666;
+  line-height: 1.6; font-family: -apple-system, sans-serif;
+}
+
+/* ── PRINT ── */
+@media print {
+  body { background: white; padding: 0; display: block; }
+  .preview-label, .print-btn { display: none; }
+  .receipt { width: 80mm; box-shadow: none; padding: 4mm 3mm 6mm; }
+  .r-sched { border: 2px solid #000 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
 </head>
 <body>
-<h1>WashRoute — Receipt Mockups</h1>
 
-<div class="layout">
+<div class="preview-label">🖨 Thermal Receipt — 80mm · Print Preview</div>
+<button class="print-btn" onclick="window.print()">Print Receipt</button>
 
-  <!-- BAG TAG -->
-  <div class="col">
-    <div class="col-label">🖨 Bag Tag — Thermal Print (80mm)</div>
-    <div class="bag-tag">
+<div class="receipt">
 
-      <div class="tag-header">
-        <div class="tag-brand">Wash<span>Route</span></div>
-        <div class="tag-order-num">#27</div>
+  <!-- HEADER -->
+  <div class="r-biz-name">Family Laundry</div>
+  <div class="r-biz-addr">2609 Foothill Blvd · Oakland, CA 94601</div>
+  <div class="r-timestamp">
+    <span>FL</span>
+    <span id="printDate"></span>
+  </div>
+
+  <hr class="r-divider-solid">
+
+  <!-- CUSTOMER -->
+  <div class="r-customer-name" id="customerName">LAURA GUEVARA</div>
+  <div class="r-customer-address" id="customerAddress">5215 Genoa Street, Oakland, CA 94608</div>
+
+  <hr class="r-divider">
+
+  <!-- ORDER # + WEIGHT -->
+  <div class="r-order-meta">
+    <div class="r-order-num" id="orderNum">#59541</div>
+    <div class="r-weight-bags" id="weightBags">84 LBS · 4 BAGS</div>
+  </div>
+
+  <!-- SCHEDULE -->
+  <div class="r-sched">
+    <div class="r-sched-row" style="margin-bottom:6px;">
+      <div>
+        <div class="r-sched-label">📦 Pickup Due</div>
+        <div class="r-sched-value" id="pickupDate">Fri 2/27 · 8:00 AM</div>
       </div>
-
-      <div class="tag-customer">Aisha Johnson</div>
-      <div class="tag-address">890 Pico Blvd, Santa Monica, CA 90405</div>
-
-      <div class="tag-service-block">
-        <div class="tag-service-name">Wash &amp; Fold</div>
-        <div class="tag-bags">2 bags</div>
+    </div>
+    <div style="border-top:1px dashed #ccc;margin-bottom:6px;"></div>
+    <div class="r-sched-row">
+      <div>
+        <div class="r-sched-label">🚐 Delivery</div>
+        <div class="r-sched-value" id="deliveryDate">Fri 2/27 · 9:25 PM</div>
       </div>
-
-      <hr class="tag-divider">
-
-      <div class="tag-schedule">
-        <div class="tag-sched-item">
-          <div class="tag-sched-type">📦 Pickup</div>
-          <div class="tag-sched-value">Fri Feb 28 · 7:00 – 10:00 AM</div>
-        </div>
-        <div class="tag-sched-item">
-          <div class="tag-sched-type">🚐 Delivery</div>
-          <div class="tag-sched-value">Mon Mar 2 · 6:00 – 9:00 PM</div>
-        </div>
+      <div style="text-align:right;">
+        <div class="r-sched-label">Stop · Route</div>
+        <div class="r-sched-sub" id="stopRoute">15 · SF-PM</div>
       </div>
-
-      <div class="tag-notes">
-        <div class="tag-notes-label">⚠ Special Instructions</div>
-        Leave bags by the front gate. Ring doorbell.
-      </div>
-
-      <div class="tag-footer">
-        Printed by WashRoute · washroute.com<br>
-        Keep this tag with the order
-      </div>
-
     </div>
   </div>
 
-  <!-- EMAIL RECEIPT -->
-  <div class="col">
-    <div class="col-label">✉ Customer Email Receipt</div>
-    <div class="email-wrap">
-      <!-- fake email chrome -->
-      <div class="email-chrome">
-        <div class="email-chrome-dot" style="background:#fc5753"></div>
-        <div class="email-chrome-dot" style="background:#fdbc40"></div>
-        <div class="email-chrome-dot" style="background:#34c84a"></div>
-      </div>
-      <div class="email-subject-bar">
-        <strong>Your WashRoute pickup is confirmed — Order #27</strong><br>
-        From: no-reply@washroute.com &nbsp;·&nbsp; To: aisha.johnson@email.com
-      </div>
+  <!-- ADD-ONS (YES items only) -->
+  <div id="addonsSection">
+    <div class="r-addons-label">Add-ons</div>
+    <div id="addonTags"></div>
+  </div>
 
-      <div class="email-body">
-        <div class="email-logo">Wash<span>Route</span></div>
+  <hr class="r-divider">
 
-        <div class="email-hero">
-          <div class="email-hero-label">Pickup Confirmed</div>
-          <div class="email-hero-title">Order #27</div>
-          <div class="email-hero-sub">Thanks, Aisha — we've got you scheduled!</div>
-        </div>
+  <!-- INVOICE -->
+  <div class="r-inv-header">Invoice</div>
+  <div class="r-inv-cols">
+    <span style="flex:1;">Item</span>
+    <span style="width:26px;text-align:right;">Qty</span>
+    <span style="width:56px;text-align:right;">Amt</span>
+  </div>
+  <div style="border-top:1px solid #000;margin-bottom:3px;"></div>
 
-        <div class="email-greeting">
-          Hi Aisha,<br><br>
-          Your laundry pickup is confirmed. Here's everything you need to know about your order.
-        </div>
+  <div id="lineItems"></div>
 
-        <div class="email-section-label">Order Details</div>
-        <div class="email-detail-card">
-          <div class="email-detail-row">
-            <span class="email-detail-key">Service</span>
-            <span class="email-detail-val">Wash &amp; Fold</span>
-          </div>
-          <div class="email-detail-row">
-            <span class="email-detail-key">Bags</span>
-            <span class="email-detail-val">2 bags</span>
-          </div>
-          <div class="email-detail-row">
-            <span class="email-detail-key">Pickup address</span>
-            <span class="email-detail-val">890 Pico Blvd, Santa Monica</span>
-          </div>
-        </div>
+  <hr class="r-divider-thin" style="margin-top:6px;">
 
-        <div class="email-section-label">Schedule</div>
-        <div class="email-sched-grid">
-          <div class="email-sched-card">
-            <div class="email-sched-icon">📦</div>
-            <div class="email-sched-type">Pickup</div>
-            <div class="email-sched-date">Friday, Feb 28</div>
-            <div class="email-sched-time">7:00 – 10:00 AM</div>
-          </div>
-          <div class="email-sched-card">
-            <div class="email-sched-icon">🚐</div>
-            <div class="email-sched-type">Delivery</div>
-            <div class="email-sched-date">Monday, Mar 2</div>
-            <div class="email-sched-time">6:00 – 9:00 PM</div>
-          </div>
-        </div>
+  <div class="r-totals-row">
+    <span class="r-totals-label">Subtotal</span>
+    <span class="r-totals-value" id="subtotal">$260.00</span>
+  </div>
+  <div class="r-totals-row">
+    <span class="r-totals-label">Delivery Fee</span>
+    <span class="r-totals-value" id="deliveryFee">$9.95</span>
+  </div>
 
-        <div class="email-notes-card">
-          <div class="email-notes-title">📝 Your Instructions</div>
-          Leave bags by the front gate. Ring doorbell.
-        </div>
+  <hr class="r-divider-solid">
 
-        <div class="email-section-label">Payment</div>
-        <div class="email-total-row">
-          <span>Order Total</span>
-          <span>$34.00</span>
-        </div>
+  <div class="r-amount-due">
+    <span class="r-amount-label">Amount Due</span>
+    <span class="r-amount-value" id="amountDue">$269.95</span>
+  </div>
 
-        <div class="email-cta">
-          <a class="email-cta-btn" href="#">Track My Order →</a>
-        </div>
+  <hr class="r-divider">
 
-        <div class="email-footer">
-          Questions? Reply to this email or text us at (415) 555-0100<br>
-          WashRoute · 123 Laundry Lane, Berkeley CA · washroute.com<br><br>
-          You're receiving this because you placed an order with WashRoute.
-        </div>
-      </div>
-    </div>
+  <!-- BARCODE -->
+  <div class="r-barcode-wrap">
+    <svg id="barcodeOrder"></svg>
+    <div class="r-barcode-id" id="orderIdLabel">59541</div>
+  </div>
+
+  <hr class="r-divider">
+
+  <!-- FOOTER -->
+  <div class="r-footer">
+    Thank you for choosing Family Laundry!<br>
+    Questions? Text us · (510) 588-4102
   </div>
 
 </div>
+
+<script>
+const ORDER = {
+  id: 59541,
+  customer: {
+    name: 'LAURA GUEVARA',
+    address: '5215 Genoa Street, Oakland, CA 94608'
+  },
+  weight_lbs: 84,
+  bags: 4,
+  stop_number: 15,
+  route_name: 'SF-PM',
+  pickup_date: 'Fri 2/27 · 8:00 AM',
+  delivery_date: 'Fri 2/27 · 9:25 PM',
+  preferences: {
+    'Add Oxi':           true,
+    'Vinegar Boost':     true,
+    'Air Dry Delicates': false,
+    'Double Wash':       false,
+    'Shirt Service':     false
+  },
+  line_items: [
+    { desc: 'Wash & Fold (lbs)', qty: 84, amount: 0.00   },
+    { desc: 'Bag up to 25 lbs',  qty: 4,  amount: 236.00 },
+    { desc: 'Oxiclean per bag',  qty: 4,  amount: 12.00  },
+    { desc: 'Vinegar per bag',   qty: 4,  amount: 12.00  }
+  ],
+  subtotal: 260.00,
+  delivery_fee: 9.95,
+  amount_due: 269.95
+};
+
+function fmt(n) { return '$' + n.toFixed(2); }
+
+function populate(o) {
+  const now = new Date();
+  document.getElementById('printDate').textContent =
+    (now.getMonth()+1).toString().padStart(2,'0') + '/' +
+    now.getDate().toString().padStart(2,'0') + '/' +
+    String(now.getFullYear()).slice(-2) + '  ' +
+    now.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
+
+  document.getElementById('customerName').textContent    = o.customer.name;
+  document.getElementById('customerAddress').textContent = o.customer.address;
+  document.getElementById('orderNum').textContent        = '#' + o.id;
+  document.getElementById('orderIdLabel').textContent    = o.id;
+  document.getElementById('weightBags').textContent      = o.weight_lbs + ' LBS · ' + o.bags + ' BAGS';
+  document.getElementById('pickupDate').textContent      = o.pickup_date;
+  document.getElementById('deliveryDate').textContent    = o.delivery_date;
+  document.getElementById('stopRoute').textContent       = o.stop_number + ' · ' + o.route_name;
+
+  // Add-ons — YES items only
+  const yesItems = Object.entries(o.preferences).filter(([,v]) => v).map(([k]) => k);
+  const addonsSection = document.getElementById('addonsSection');
+  if (yesItems.length === 0) {
+    addonsSection.innerHTML = '<div class="r-no-addons">No add-ons</div>';
+  } else {
+    document.getElementById('addonTags').innerHTML =
+      yesItems.map(p => `<span class="r-addon-tag">${p}</span>`).join('');
+  }
+
+  // Line items
+  document.getElementById('lineItems').innerHTML = o.line_items.map(li => `
+    <div class="r-inv-row">
+      <div class="r-inv-desc">${li.desc}</div>
+      <div class="r-inv-qty">${li.qty}</div>
+      <div class="r-inv-amt">${fmt(li.amount)}</div>
+    </div>
+  `).join('');
+
+  document.getElementById('subtotal').textContent    = fmt(o.subtotal);
+  document.getElementById('deliveryFee').textContent = fmt(o.delivery_fee);
+  document.getElementById('amountDue').textContent   = fmt(o.amount_due);
+
+  JsBarcode('#barcodeOrder', String(o.id), {
+    format: 'CODE128', width: 2, height: 46,
+    displayValue: false, margin: 0,
+    background: '#ffffff', lineColor: '#000000'
+  });
+}
+
+populate(ORDER);
+</script>
 </body>
 </html>

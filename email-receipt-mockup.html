@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Family Laundry — Email Receipt Mockup</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #e5e7eb;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.preview-label {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .1em; color: #6b7280;
+}
+
+/* ── EMAIL CHROME ── */
+.email-wrap {
+  width: 520px;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,.14);
+}
+.email-chrome {
+  background: #d1d5db;
+  padding: 10px 14px;
+  display: flex; align-items: center; gap: 6px;
+}
+.email-chrome-dot { width: 11px; height: 11px; border-radius: 50%; }
+.email-subject-bar {
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 10px 20px;
+  font-size: 12px; color: #6b7280; line-height: 1.6;
+}
+.email-subject-bar strong {
+  color: #111827; font-size: 13.5px; display: block; margin-bottom: 1px;
+}
+
+/* ── EMAIL BODY ── */
+.email-body { padding: 30px 32px 32px; color: #111827; }
+
+.e-biz-name {
+  font-size: 20px; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .05em;
+  margin-bottom: 2px;
+}
+.e-biz-addr { font-size: 11.5px; color: #9ca3af; margin-bottom: 22px; }
+
+.e-greeting { font-size: 14px; color: #374151; margin-bottom: 18px; line-height: 1.6; }
+
+.e-divider { border: none; border-top: 1px solid #e5e7eb; margin: 16px 0; }
+
+/* Invoice */
+.e-inv-header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 10px;
+}
+.e-inv-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #9ca3af; }
+.e-inv-order { font-size: 14px; font-weight: 800; color: #111827; }
+
+.e-inv-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 13.5px;
+}
+.e-inv-row:last-child { border-bottom: none; }
+.e-inv-desc { flex: 1; color: #374151; padding-right: 8px; }
+.e-inv-qty  { width: 30px; text-align: right; color: #9ca3af; font-size: 12px; margin-right: 8px; }
+.e-inv-amt  { width: 60px; text-align: right; font-weight: 600; }
+
+/* Totals */
+.e-totals-row {
+  display: flex; justify-content: space-between;
+  font-size: 13px; padding: 4px 0; color: #6b7280;
+}
+.e-totals-val { color: #111827; font-weight: 500; }
+
+/* Total paid */
+.e-total-paid {
+  display: flex; justify-content: space-between; align-items: center;
+  padding-top: 14px; margin-top: 6px;
+  border-top: 2px solid #111827;
+}
+.e-total-label {
+  font-size: 13px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.e-total-value { font-size: 24px; font-weight: 900; }
+
+/* Footer */
+.e-footer {
+  margin-top: 22px; padding-top: 16px;
+  border-top: 1px solid #f3f4f6;
+  font-size: 11.5px; color: #9ca3af;
+  line-height: 1.7; text-align: center;
+}
+</style>
+</head>
+<body>
+
+<div class="preview-label">✉ Email Receipt — Preview</div>
+
+<div class="email-wrap">
+
+  <div class="email-chrome">
+    <div class="email-chrome-dot" style="background:#fc5753"></div>
+    <div class="email-chrome-dot" style="background:#fdbc40"></div>
+    <div class="email-chrome-dot" style="background:#34c84a"></div>
+  </div>
+
+  <div class="email-subject-bar">
+    <strong id="emailSubject">Your receipt — Family Laundry Order #59541</strong>
+    From: orders@familylaundry.com &nbsp;·&nbsp; To: <span id="emailTo">laura@email.com</span>
+  </div>
+
+  <div class="email-body">
+
+    <div class="e-biz-name">Family Laundry</div>
+    <div class="e-biz-addr">2609 Foothill Blvd · Oakland, CA 94601</div>
+
+    <div class="e-greeting">
+      Hi <span id="firstName">Laura</span>, thanks for your order —
+      here's your receipt.
+    </div>
+
+    <hr class="e-divider" style="margin-top:0;">
+
+    <!-- Invoice -->
+    <div class="e-inv-header">
+      <span class="e-inv-title">Receipt</span>
+      <span class="e-inv-order" id="orderNum">#59541</span>
+    </div>
+
+    <div id="lineItems"></div>
+
+    <hr class="e-divider" style="margin-bottom:8px;">
+
+    <div class="e-totals-row">
+      <span>Subtotal</span>
+      <span class="e-totals-val" id="subtotal">$260.00</span>
+    </div>
+    <div class="e-totals-row">
+      <span>Delivery Fee</span>
+      <span class="e-totals-val" id="deliveryFee">$9.95</span>
+    </div>
+
+    <div class="e-total-paid">
+      <span class="e-total-label">Total Paid</span>
+      <span class="e-total-value" id="totalPaid">$269.95</span>
+    </div>
+
+    <div class="e-footer">
+      Questions? Reply to this email or text us at (510) 588-4102<br>
+      Family Laundry · 2609 Foothill Blvd, Oakland CA 94601
+    </div>
+
+  </div>
+</div>
+
+<script>
+const ORDER = {
+  id: 59541,
+  customer: { firstName: 'Laura', email: 'laura@email.com' },
+  line_items: [
+    { desc: 'Wash & Fold (lbs)', qty: 84, amount: 0.00   },
+    { desc: 'Bag up to 25 lbs',  qty: 4,  amount: 236.00 },
+    { desc: 'Oxiclean per bag',  qty: 4,  amount: 12.00  },
+    { desc: 'Vinegar per bag',   qty: 4,  amount: 12.00  }
+  ],
+  subtotal: 260.00,
+  delivery_fee: 9.95,
+  total_paid: 269.95
+};
+
+function fmt(n) { return '$' + n.toFixed(2); }
+
+function populate(o) {
+  document.getElementById('emailSubject').textContent = 'Your receipt — Family Laundry Order #' + o.id;
+  document.getElementById('emailTo').textContent      = o.customer.email;
+  document.getElementById('firstName').textContent    = o.customer.firstName;
+  document.getElementById('orderNum').textContent     = '#' + o.id;
+
+  document.getElementById('lineItems').innerHTML = o.line_items.map(li => `
+    <div class="e-inv-row">
+      <div class="e-inv-desc">${li.desc}</div>
+      <div class="e-inv-qty">${li.qty}</div>
+      <div class="e-inv-amt">${fmt(li.amount)}</div>
+    </div>
+  `).join('');
+
+  document.getElementById('subtotal').textContent    = fmt(o.subtotal);
+  document.getElementById('deliveryFee').textContent = fmt(o.delivery_fee);
+  document.getElementById('totalPaid').textContent   = fmt(o.total_paid);
+}
+
+populate(ORDER);
+</script>
+</body>
+</html>
