@@ -2800,11 +2800,13 @@
         // Pickup route is clickable (to reschedule) for pre-pickup orders
         const canReschedulePickup = ['scheduled','ready_for_pickup'].includes(o.status);
         const canRescheduleDelivery = ['assembled','ready_for_delivery','out_for_delivery'].includes(o.status);
+        const pickupRouteLabel  = pickupRoute  === '—' ? '+ Assign' : pickupRoute;
+        const deliveryRouteLabel = deliveryRoute === '—' ? '+ Assign' : deliveryRoute;
         const pickupRouteCell = canReschedulePickup
-          ? `<span style="cursor:pointer;color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:2px" onclick="rescheduleRoute('${o.id}','${o.order_number}','pickup')" title="Reschedule pickup">${pickupRoute}</span>`
+          ? `<span style="cursor:pointer;color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:2px" onclick="rescheduleRoute('${o.id}','${o.order_number}','pickup')" title="${pickupRoute==='—'?'Assign pickup route':'Reschedule pickup'}">${pickupRouteLabel}</span>`
           : pickupRoute;
         const deliveryRouteCell = canRescheduleDelivery
-          ? `<span style="cursor:pointer;color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:2px" onclick="rescheduleRoute('${o.id}','${o.order_number}','delivery')" title="Reschedule delivery">${deliveryRoute}</span>`
+          ? `<span style="cursor:pointer;color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:2px" onclick="rescheduleRoute('${o.id}','${o.order_number}','delivery')" title="${deliveryRoute==='—'?'Assign delivery route':'Reschedule delivery'}">${deliveryRouteLabel}</span>`
           : deliveryRoute;
         return `<tr>
           <td style="width:36px"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" onchange="updateOrderBatchBar()"></td>
