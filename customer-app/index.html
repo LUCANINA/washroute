@@ -570,7 +570,7 @@
         </div>
 
         <!-- Time Window -->
-        <div class="sched-label">🕐 What time works best?</div>
+        <div class="sched-label" id="window-section-label">🕐 What time works best?</div>
         <div class="window-btn-list" id="window-btn-list">
           <!-- Rendered by renderWindowButtons() -->
         </div>
@@ -1373,7 +1373,7 @@ function renderStep(step) {
     if (dot) dot.classList.toggle('active', i <= step);
   });
   document.getElementById('order-title').textContent = STEP_TITLES[step];
-  if (step === 1) { renderDayButtons(); renderWindowButtons(); }
+  if (step === 1) { renderDayButtons(); updateWindowLabel(draft.pickupDate); renderWindowButtons(); }
   if (step === 3) {
     document.getElementById('bags-display').textContent = draft.bags;
     updateEstimate();
@@ -1459,12 +1459,32 @@ function computeSubWindows(runDate, tmpl, routeId, routeName) {
   return windows;
 }
 
+function updateWindowLabel(iso) {
+  const el = document.getElementById('window-section-label');
+  if (!el) return;
+  if (!iso) {
+    el.textContent = '🕐 What time works best?';
+    return;
+  }
+  const d       = new Date(iso + 'T12:00:00');
+  const today   = new Date();
+  const todayIso = today.toISOString().split('T')[0];
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+  const tomorrowIso = tomorrow.toISOString().split('T')[0];
+  let dayLabel;
+  if (iso === todayIso)     dayLabel = 'Today';
+  else if (iso === tomorrowIso) dayLabel = 'Tomorrow';
+  else dayLabel = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  el.textContent = `🕐 Available times for ${dayLabel}`;
+}
+
 async function fetchWindowsForDate(iso) {
   const container = document.getElementById('window-btn-list');
   if (!container) return;
   // Reset immediately so stale selection can't pass validation during the fetch
   draft.pickupWindow     = null;
   draft.availableWindows = [];
+  updateWindowLabel(iso);
   container.innerHTML = '<div style="padding:12px 4px;color:var(--gray-400);font-size:13px">Loading available times…</div>';
 
   const { data: routes, error } = await db
@@ -1683,7 +1703,8 @@ async function placeOrder() {
 
   // Success screen
   const pickupFmt = new Date(pickupDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
-  document.getElementById('success-info').textContent = `First pickup: ${pickupFmt}`;
+  const winSuffix = pw?.label ? ` · ${pw.label}` : '';
+  document.getElementById('success-info').textContent = `First pickup: ${pickupFmt}${winSuffix}`;
   const recurLabels = { weekly:'Every week', biweekly:'Every 2 weeks', monthly:'Every month' };
   document.getElementById('success-recur-wrap').innerHTML = draft.recurring
     ? `<div class="success-recur">🔁 ${recurLabels[draft.recurring]} · Auto-scheduled</div>`
