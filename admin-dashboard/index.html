@@ -1597,6 +1597,42 @@
   <button class="batch-bar-dismiss" onclick="clearOrderSelection()" title="Dismiss">×</button>
 </div>
 
+<!-- SMS Compose Modal -->
+<div id="modal-sms-compose" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1050;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:460px;width:90%">
+    <div class="modal-header">
+      <div class="modal-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="vertical-align:-2px;margin-right:6px"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        Send SMS
+      </div>
+      <button class="modal-close" onclick="closeSMSCompose()">×</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+      <!-- To field: for compose-new only -->
+      <div id="sms-compose-to-row">
+        <label class="form-label">To (phone number)</label>
+        <input type="tel" id="sms-modal-to" class="form-input" placeholder="+1 (510) 555-1234" />
+      </div>
+      <!-- Recipient summary: for batch only -->
+      <div id="sms-compose-recipients" style="display:none;font-size:12.5px;color:var(--gray-600);background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px" id="sms-modal-recipients">
+        Recipients will appear here
+      </div>
+      <div id="sms-modal-recipients" style="font-size:12.5px;color:var(--gray-600)"></div>
+      <div>
+        <label class="form-label">Message</label>
+        <textarea id="sms-compose-body" class="form-input" rows="4" maxlength="640" placeholder="Type your message…"
+          style="resize:vertical;font-family:inherit;font-size:13.5px;line-height:1.5"
+          oninput="document.getElementById('sms-char-count').textContent=(this.value.length)+' / 160'"></textarea>
+        <div style="text-align:right;font-size:11px;color:var(--gray-400);margin-top:3px" id="sms-char-count">0 / 160</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeSMSCompose()">Cancel</button>
+      <button class="btn btn-primary" id="sms-send-btn" onclick="sendBatchSMS()">Send</button>
+    </div>
+  </div>
+</div>
+
 <!-- Reschedule Route modal (per-order pickup or delivery) -->
 <div id="reassign-run-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
   <div class="modal" style="max-width:420px;">
@@ -2255,7 +2291,11 @@
   let allFees            = []; // { id, name, amount, fee_type, category, is_active, sort_order }
   let svcAutoSaveTimers  = {}; // debounced auto-save per service id
   let feeAutoSaveTimers  = {}; // debounced auto-save per fee id
-  let currentConversation = null;
+  let currentConversation    = null;
+  let currentConvPhone       = null;
+  let currentConvCustomerId  = null;
+  let _smsBatchOrders        = [];
+  let _smsSub                = null;
   let currentOrderFilter = null; // null = all
   let orderSortCol = 'pickup_window_start'; // default sort
   let schedWeekOffset = 0; // 0 = current week, -1 = last week, +1 = next week
@@ -2417,7 +2457,8 @@
   function handleCTA() {
     if (currentPage === 'routes')  { openTemplateEditor(null); return; }
     if (currentPage === 'drivers') { openDriverEditor(null);   return; }
-    const map = { overview:'add-order', customers:'add-customer', orders:'add-order', inbox:'compose' };
+    if (currentPage === 'inbox') { openComposeSMS(); return; }
+    const map = { overview:'add-order', customers:'add-customer', orders:'add-order' };
     if (map[currentPage]) openModal(map[currentPage]);
   }
 
@@ -2670,7 +2711,7 @@
                pickup_run_id, delivery_run_id,
                created_at,
                services(name),
-               customers(id, first_name_cache, last_name_cache),
+               customers(id, first_name_cache, last_name_cache, phone_cache),
                pickup_run:pickup_run_id(id, name),
                delivery_run:delivery_run_id(id, name)`);
     // Group filters: translate to .in() query
@@ -2809,7 +2850,7 @@
           ? `<span style="cursor:pointer;color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:2px" onclick="rescheduleRoute('${o.id}','${o.order_number}','delivery')" title="${deliveryRoute==='—'?'Assign delivery route':'Reschedule delivery'}">${deliveryRouteLabel}</span>`
           : deliveryRoute;
         return `<tr>
-          <td style="width:36px"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" onchange="updateOrderBatchBar()"></td>
+          <td style="width:36px"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${o.customers?.id||''}" data-phone="${o.customers?.phone_cache||''}" data-cust-name="${(o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||'')}" onchange="updateOrderBatchBar()"></td>
           <td class="td-name">${orderCustomerName(o)}</td>
           <td style="font-size:12.5px">${pickupCell(o)}</td>
           <td style="font-size:12.5px">${pickupRouteCell}</td>
@@ -2873,6 +2914,9 @@
       id: cb.dataset.id,
       num: cb.dataset.num,
       status: cb.dataset.status,
+      customerId: cb.dataset.customerId,
+      phone: cb.dataset.phone,
+      custName: cb.dataset.custName,
     }));
   }
 
@@ -3007,9 +3051,79 @@
 
   // ── BATCH ACTION: SEND SMS ──
   function batchSendSMS() {
-    const sel = getSelectedOrderData();
-    if (!sel.length) return;
-    showToast(`SMS feature coming soon — would message ${sel.length} customer${sel.length>1?'s':''}`, '');
+    const sel = getSelectedOrderData().filter(o => o.phone);
+    const all = getSelectedOrderData();
+    if (!all.length) return;
+    const noPhone = all.filter(o => !o.phone);
+    if (noPhone.length && !sel.length) {
+      showToast('None of the selected orders have a phone number on file.', 'error'); return;
+    }
+    _smsBatchOrders = sel;
+    // Show recipient summary
+    document.getElementById('sms-compose-to-row').style.display = 'none';
+    document.getElementById('sms-compose-recipients').style.display = 'block';
+    const names = sel.map(o => o.custName.trim() || o.phone).join(', ');
+    document.getElementById('sms-modal-recipients').textContent =
+      `${sel.length} customer${sel.length>1?'s':''}: ${names.length > 120 ? names.slice(0,120)+'…' : names}`;
+    if (noPhone.length) document.getElementById('sms-modal-recipients').textContent +=
+      ` (${noPhone.length} skipped — no phone)`;
+    document.getElementById('sms-compose-body').value = '';
+    document.getElementById('sms-char-count').textContent = '0 / 160';
+    document.getElementById('modal-sms-compose').style.display = 'flex';
+    setTimeout(() => document.getElementById('sms-compose-body').focus(), 50);
+  }
+
+  async function sendBatchSMS() {
+    const body = document.getElementById('sms-compose-body').value.trim();
+    if (!body) { showToast('Message cannot be empty.', 'error'); return; }
+
+    // Single compose (from Inbox "Compose" button)
+    if (!_smsBatchOrders.length) {
+      const to = document.getElementById('sms-modal-to').value.trim();
+      if (!to) { showToast('Enter a phone number.', 'error'); return; }
+      const btn = document.getElementById('sms-send-btn');
+      btn.disabled = true; btn.textContent = 'Sending…';
+      try {
+        const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+          body: JSON.stringify({ to, body }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Send failed');
+        closeSMSCompose();
+        showToast('Message sent ✓', 'success');
+        if (currentPage === 'inbox') loadInbox();
+      } catch (err) {
+        showToast('Send failed: ' + err.message, 'error');
+        btn.disabled = false; btn.textContent = 'Send';
+      }
+      return;
+    }
+
+    // Batch send
+    const btn = document.getElementById('sms-send-btn');
+    btn.disabled = true; btn.textContent = `Sending to ${_smsBatchOrders.length}…`;
+    let sent = 0, failed = 0;
+    for (const o of _smsBatchOrders) {
+      try {
+        const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+          body: JSON.stringify({ to: o.phone, body, customer_id: o.customerId }),
+        });
+        if (res.ok) sent++; else failed++;
+      } catch { failed++; }
+    }
+    closeSMSCompose();
+    showToast(failed ? `Sent ${sent}, failed ${failed}` : `✓ Sent to ${sent} customer${sent>1?'s':''}`, failed ? 'error' : 'success');
+    if (currentPage === 'inbox') loadInbox();
+  }
+
+  function closeSMSCompose() {
+    document.getElementById('modal-sms-compose').style.display = 'none';
+    document.getElementById('sms-send-btn').disabled = false;
+    document.getElementById('sms-send-btn').textContent = 'Send';
   }
 
   // ── BATCH ACTION: CANCEL ORDERS (deletes them) ──
@@ -3257,91 +3371,153 @@
     return m ? `${h12}:${String(m).padStart(2,'0')} ${ampm}` : `${h12} ${ampm}`;
   }
 
-  // ── INBOX ──
+  // ── INBOX (SMS via Twilio / sms_messages table) ──
   async function loadInbox() {
-    const { data } = await db.from('conversations')
-      .select(`id, channel, status, subject, last_message_at, customers(first_name_cache,last_name_cache), messages(body,direction,sent_at)`)
-      .order('last_message_at', { ascending: false });
-
     const el = document.getElementById('inbox-list');
-    const openCount = (data||[]).filter(c=>c.status==='open').length;
-    document.getElementById('badge-inbox').textContent = openCount;
+    el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
 
-    if (!data || data.length === 0) {
-      el.innerHTML = `<div class="empty"><div class="empty-title">Inbox empty</div><div class="empty-sub">Customer messages will appear here.</div></div>`;
+    const { data: msgs, error } = await db.from('sms_messages')
+      .select('id, customer_id, direction, body, from_number, to_number, created_at, customers(id, first_name_cache, last_name_cache, phone_cache)')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load inbox</div></div>`;
+      return;
+    }
+    if (!msgs || msgs.length === 0) {
+      el.innerHTML = `<div class="empty"><div class="empty-title">Inbox empty</div><div class="empty-sub">SMS messages will appear here once sent or received.</div></div>`;
+      document.getElementById('badge-inbox').textContent = '0';
       return;
     }
 
-    el.innerHTML = data.map(c=>{
-      const cust = c.customers||{};
-      const name = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim()||'Unknown';
-      const lastMsg = (c.messages||[]).slice(-1)[0];
-      return `<div class="inbox-item" onclick="openConversation('${c.id}', this)">
+    // Group by customer (use customer_id if available, else phone)
+    const convMap = {};
+    msgs.forEach(m => {
+      const key = m.customer_id || (m.direction === 'inbound' ? m.from_number : m.to_number);
+      if (!convMap[key]) {
+        const phone = m.direction === 'inbound' ? m.from_number : m.to_number;
+        convMap[key] = { key, customer_id: m.customer_id, cust: m.customers, phone, latest: m, unread: 0 };
+      }
+      if (m.direction === 'inbound') convMap[key].unread++;
+    });
+
+    const convs = Object.values(convMap).sort((a, b) => new Date(b.latest.created_at) - new Date(a.latest.created_at));
+    const totalUnread = convs.reduce((s, c) => s + c.unread, 0);
+    document.getElementById('badge-inbox').textContent = totalUnread;
+
+    el.innerHTML = convs.map(c => {
+      const name = c.cust
+        ? `${c.cust.first_name_cache||''} ${c.cust.last_name_cache||''}`.trim() || c.phone
+        : c.phone;
+      const arrow = c.latest.direction === 'inbound' ? '↓ ' : '↑ ';
+      const unreadDot = c.unread > 0
+        ? `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:5px;vertical-align:middle"></span>` : '';
+      return `<div class="inbox-item" data-conv-key="${c.key}" onclick="openSMSConversation('${c.customer_id||''}','${c.phone}',this)">
         <div class="inbox-item-header">
-          <div class="inbox-item-name">${name} <span style="font-size:10px;padding:1px 5px;background:${c.channel==='sms'?'var(--green-light)':'var(--blue-light)'};color:${c.channel==='sms'?'var(--green)':'var(--blue)'};border-radius:4px;font-weight:600">${c.channel.toUpperCase()}</span></div>
-          <div class="inbox-item-time">${fmtDate(c.last_message_at)}</div>
+          <div class="inbox-item-name">${name}${unreadDot} <span style="font-size:10px;padding:1px 5px;background:var(--green-light);color:var(--green);border-radius:4px;font-weight:600;margin-left:4px">SMS</span></div>
+          <div class="inbox-item-time">${fmtDate(c.latest.created_at)}</div>
         </div>
-        <div class="inbox-item-preview">${lastMsg?.body||'No messages yet'}</div>
+        <div class="inbox-item-preview">${arrow}${c.latest.body}</div>
       </div>`;
     }).join('');
+
+    // Start realtime subscription if not already running
+    if (!_smsSub) {
+      _smsSub = db.channel('sms-inbox')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sms_messages' }, () => {
+          loadInbox();
+          if (currentConvPhone) {
+            const activeEl = document.querySelector('.inbox-item.active');
+            if (activeEl) openSMSConversation(currentConvCustomerId||'', currentConvPhone, activeEl);
+          }
+        })
+        .subscribe();
+    }
   }
 
-  async function openConversation(id, el) {
-    document.querySelectorAll('.inbox-item').forEach(i=>i.classList.remove('active'));
-    el.classList.add('active');
-    currentConversation = id;
+  async function openSMSConversation(customerId, phone, itemEl) {
+    document.querySelectorAll('.inbox-item').forEach(i => i.classList.remove('active'));
+    if (itemEl) itemEl.classList.add('active');
+    currentConvPhone      = phone;
+    currentConvCustomerId = customerId || null;
 
-    const { data: conv } = await db.from('conversations')
-      .select(`*, customers(first_name_cache,last_name_cache,phone_cache,email_cache)`)
-      .eq('id', id).single();
+    let query = db.from('sms_messages')
+      .select('*, customers(first_name_cache, last_name_cache, phone_cache)')
+      .order('created_at', { ascending: true });
+    if (customerId) {
+      query = query.eq('customer_id', customerId);
+    } else {
+      query = query.or(`from_number.eq.${phone},to_number.eq.${phone}`);
+    }
+    const { data: msgs } = await query;
 
-    const { data: msgs } = await db.from('messages')
-      .select('*').eq('conversation_id', id).order('sent_at');
-
-    const cust = conv?.customers||{};
-    const name = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim();
+    const cust = msgs?.[0]?.customers;
+    const name = cust
+      ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || phone
+      : phone;
 
     document.getElementById('inbox-thread').innerHTML = `
       <div class="inbox-thread-header">
         <div>
           <div style="font-weight:600;font-size:14px;color:var(--gray-900)">${name}</div>
-          <div style="font-size:12px;color:var(--gray-500)">${cust.phone_cache||cust.email_cache||''}</div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-ghost" style="padding:5px 10px;font-size:12px" onclick="resolveConv('${id}')">Mark Resolved</button>
+          <div style="font-size:12px;color:var(--gray-500)">${phone}</div>
         </div>
       </div>
       <div class="inbox-messages" id="msg-thread">
-        ${(msgs||[]).map(m=>`
-          <div>
+        ${(msgs||[]).map(m => `
+          <div style="display:flex;flex-direction:column;align-items:${m.direction==='outbound'?'flex-end':'flex-start'}">
             <div class="message-bubble message-${m.direction}">${m.body}</div>
-            <div style="font-size:11px;color:var(--gray-400);margin-top:3px;text-align:${m.direction==='outbound'?'right':'left'}">${fmtDate(m.sent_at)}</div>
+            <div style="font-size:11px;color:var(--gray-400);margin-top:3px">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}</div>
           </div>`).join('')}
         ${(!msgs||msgs.length===0)?'<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:20px">No messages yet</div>':''}
       </div>
       <div class="inbox-composer">
-        <input type="text" id="compose-input" placeholder="Type a reply…" onkeydown="if(event.key==='Enter')sendReply('${id}')" />
-        <button class="btn btn-primary" onclick="sendReply('${id}')">Send</button>
+        <input type="text" id="compose-input" placeholder="Type a reply…" onkeydown="if(event.key==='Enter')sendSMSReply()" />
+        <button class="btn btn-primary" id="sms-reply-btn" onclick="sendSMSReply()">Send</button>
       </div>`;
+
+    // Scroll to bottom of thread
+    setTimeout(() => { const mt = document.getElementById('msg-thread'); if (mt) mt.scrollTop = mt.scrollHeight; }, 50);
   }
 
-  async function sendReply(convId) {
+  async function sendSMSReply() {
     const input = document.getElementById('compose-input');
-    const body = input.value.trim();
-    if (!body) return;
+    const body  = input.value.trim();
+    if (!body || !currentConvPhone) return;
+    const btn = document.getElementById('sms-reply-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
     input.value = '';
-    const { data: { user } } = await db.auth.getUser();
-    await db.from('messages').insert({ conversation_id: convId, direction: 'outbound', body, sent_by: user.id });
-    await db.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', convId);
-    openConversation(convId, document.querySelector('.inbox-item.active'));
-    showToast('Reply sent', 'success');
+
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+        body: JSON.stringify({ to: currentConvPhone, body, customer_id: currentConvCustomerId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Send failed');
+      showToast('Message sent ✓', 'success');
+      // Refresh thread
+      const activeEl = document.querySelector('.inbox-item.active');
+      openSMSConversation(currentConvCustomerId||'', currentConvPhone, activeEl);
+      loadInbox();
+    } catch (err) {
+      showToast('Failed to send: ' + err.message, 'error');
+      input.value = body; // restore
+      if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+    }
   }
 
-  async function resolveConv(id) {
-    await db.from('conversations').update({ status: 'resolved' }).eq('id', id);
-    loadInbox();
-    document.getElementById('inbox-thread').innerHTML = `<div class="inbox-empty"><div style="font-size:13px;color:var(--gray-500)">Conversation resolved</div></div>`;
-    showToast('Conversation resolved', 'success');
+  // Compose: new SMS from Inbox "Compose" CTA
+  function openComposeSMS() {
+    _smsBatchOrders = [];
+    document.getElementById('sms-compose-to-row').style.display = 'block';
+    document.getElementById('sms-compose-recipients').style.display = 'none';
+    document.getElementById('sms-modal-to').value = '';
+    document.getElementById('sms-compose-body').value = '';
+    document.getElementById('sms-char-count').textContent = '0 / 160';
+    document.getElementById('modal-sms-compose').style.display = 'flex';
+    setTimeout(() => document.getElementById('sms-modal-to').focus(), 50);
   }
 
   // ── MODALS ──

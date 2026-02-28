@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WashRoute — Receipt Mockups</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f1f5f9;
+    padding: 40px 24px;
+    color: #1e293b;
+  }
+  h1 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; margin-bottom: 32px; }
+  .layout { display: flex; gap: 60px; align-items: flex-start; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 10px; }
+  .col-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: #94a3b8; margin-bottom: 4px; }
+
+  /* ── BAG TAG ── */
+  .bag-tag {
+    width: 300px;
+    background: white;
+    border: 1px dashed #cbd5e1;
+    border-radius: 6px;
+    padding: 22px 20px;
+    font-family: 'Courier New', monospace;
+    box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  }
+  .tag-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 2px solid #0f172a;
+    padding-bottom: 12px;
+    margin-bottom: 14px;
+  }
+  .tag-brand {
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: .04em;
+    color: #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  .tag-brand span { color: #635bff; }
+  .tag-order-num {
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: .02em;
+    color: #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  .tag-customer {
+    font-size: 16px;
+    font-weight: 800;
+    color: #0f172a;
+    margin-bottom: 4px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+  }
+  .tag-address {
+    font-size: 11px;
+    color: #64748b;
+    margin-bottom: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  .tag-divider {
+    border: none;
+    border-top: 1px dashed #e2e8f0;
+    margin: 12px 0;
+  }
+  .tag-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .tag-row-label {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: #94a3b8;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  .tag-row-value {
+    font-size: 12px;
+    font-weight: 700;
+    color: #1e293b;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    text-align: right;
+  }
+  .tag-service-block {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    padding: 10px 12px;
+    margin: 12px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .tag-service-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  .tag-bags {
+    font-size: 11px;
+    color: #635bff;
+    font-weight: 700;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  .tag-schedule {
+    margin-top: 12px;
+  }
+  .tag-sched-item {
+    margin-bottom: 10px;
+  }
+  .tag-sched-type {
+    font-size: 8px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: #94a3b8;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    margin-bottom: 2px;
+  }
+  .tag-sched-value {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #1e293b;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  .tag-notes {
+    font-size: 10.5px;
+    color: #475569;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    padding: 6px 8px;
+    border-radius: 0 4px 4px 0;
+    margin-top: 12px;
+  }
+  .tag-notes-label {
+    font-size: 8px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: #92400e;
+    margin-bottom: 2px;
+  }
+  .tag-footer {
+    margin-top: 16px;
+    padding-top: 10px;
+    border-top: 1px dashed #e2e8f0;
+    text-align: center;
+    font-size: 9px;
+    color: #94a3b8;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  /* ── EMAIL RECEIPT ── */
+  .email-wrap {
+    width: 520px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(0,0,0,.07);
+  }
+  .email-chrome {
+    background: #e2e8f0;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .email-chrome-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .email-subject-bar {
+    background: white;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 10px 16px;
+    font-size: 12px;
+    color: #64748b;
+  }
+  .email-subject-bar strong { color: #0f172a; font-size: 13px; }
+  .email-body { background: white; padding: 32px 36px; }
+  .email-logo { font-size: 20px; font-weight: 900; color: #0f172a; margin-bottom: 24px; }
+  .email-logo span { color: #635bff; }
+  .email-hero {
+    background: linear-gradient(135deg, #635bff 0%, #4f46e5 100%);
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin-bottom: 28px;
+    color: white;
+  }
+  .email-hero-label { font-size: 11px; font-weight: 600; opacity: .75; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 4px; }
+  .email-hero-title { font-size: 24px; font-weight: 800; margin-bottom: 2px; }
+  .email-hero-sub { font-size: 13px; opacity: .8; }
+  .email-greeting { font-size: 14px; color: #374151; margin-bottom: 20px; line-height: 1.6; }
+  .email-section-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+    color: #94a3b8; margin-bottom: 10px; margin-top: 24px;
+  }
+  .email-detail-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+  }
+  .email-detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    font-size: 13px;
+  }
+  .email-detail-row:not(:last-child) { border-bottom: 1px solid #f1f5f9; }
+  .email-detail-key { color: #64748b; }
+  .email-detail-val { font-weight: 600; color: #0f172a; text-align: right; }
+  .email-sched-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .email-sched-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .email-sched-icon { font-size: 18px; margin-bottom: 6px; }
+  .email-sched-type { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; margin-bottom: 3px; }
+  .email-sched-date { font-size: 13px; font-weight: 700; color: #0f172a; }
+  .email-sched-time { font-size: 11.5px; color: #64748b; margin-top: 2px; }
+  .email-notes-card {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 12.5px;
+    color: #78350f;
+    margin-bottom: 12px;
+  }
+  .email-notes-title { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+  .email-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-top: 8px;
+  }
+  .email-cta {
+    margin-top: 28px;
+    text-align: center;
+  }
+  .email-cta-btn {
+    display: inline-block;
+    background: #635bff;
+    color: white;
+    text-decoration: none;
+    padding: 12px 28px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    font-weight: 700;
+  }
+  .email-footer {
+    margin-top: 32px;
+    padding-top: 20px;
+    border-top: 1px solid #f1f5f9;
+    font-size: 11px;
+    color: #94a3b8;
+    line-height: 1.6;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<h1>WashRoute — Receipt Mockups</h1>
+
+<div class="layout">
+
+  <!-- BAG TAG -->
+  <div class="col">
+    <div class="col-label">🖨 Bag Tag — Thermal Print (80mm)</div>
+    <div class="bag-tag">
+
+      <div class="tag-header">
+        <div class="tag-brand">Wash<span>Route</span></div>
+        <div class="tag-order-num">#27</div>
+      </div>
+
+      <div class="tag-customer">Aisha Johnson</div>
+      <div class="tag-address">890 Pico Blvd, Santa Monica, CA 90405</div>
+
+      <div class="tag-service-block">
+        <div class="tag-service-name">Wash &amp; Fold</div>
+        <div class="tag-bags">2 bags</div>
+      </div>
+
+      <hr class="tag-divider">
+
+      <div class="tag-schedule">
+        <div class="tag-sched-item">
+          <div class="tag-sched-type">📦 Pickup</div>
+          <div class="tag-sched-value">Fri Feb 28 · 7:00 – 10:00 AM</div>
+        </div>
+        <div class="tag-sched-item">
+          <div class="tag-sched-type">🚐 Delivery</div>
+          <div class="tag-sched-value">Mon Mar 2 · 6:00 – 9:00 PM</div>
+        </div>
+      </div>
+
+      <div class="tag-notes">
+        <div class="tag-notes-label">⚠ Special Instructions</div>
+        Leave bags by the front gate. Ring doorbell.
+      </div>
+
+      <div class="tag-footer">
+        Printed by WashRoute · washroute.com<br>
+        Keep this tag with the order
+      </div>
+
+    </div>
+  </div>
+
+  <!-- EMAIL RECEIPT -->
+  <div class="col">
+    <div class="col-label">✉ Customer Email Receipt</div>
+    <div class="email-wrap">
+      <!-- fake email chrome -->
+      <div class="email-chrome">
+        <div class="email-chrome-dot" style="background:#fc5753"></div>
+        <div class="email-chrome-dot" style="background:#fdbc40"></div>
+        <div class="email-chrome-dot" style="background:#34c84a"></div>
+      </div>
+      <div class="email-subject-bar">
+        <strong>Your WashRoute pickup is confirmed — Order #27</strong><br>
+        From: no-reply@washroute.com &nbsp;·&nbsp; To: aisha.johnson@email.com
+      </div>
+
+      <div class="email-body">
+        <div class="email-logo">Wash<span>Route</span></div>
+
+        <div class="email-hero">
+          <div class="email-hero-label">Pickup Confirmed</div>
+          <div class="email-hero-title">Order #27</div>
+          <div class="email-hero-sub">Thanks, Aisha — we've got you scheduled!</div>
+        </div>
+
+        <div class="email-greeting">
+          Hi Aisha,<br><br>
+          Your laundry pickup is confirmed. Here's everything you need to know about your order.
+        </div>
+
+        <div class="email-section-label">Order Details</div>
+        <div class="email-detail-card">
+          <div class="email-detail-row">
+            <span class="email-detail-key">Service</span>
+            <span class="email-detail-val">Wash &amp; Fold</span>
+          </div>
+          <div class="email-detail-row">
+            <span class="email-detail-key">Bags</span>
+            <span class="email-detail-val">2 bags</span>
+          </div>
+          <div class="email-detail-row">
+            <span class="email-detail-key">Pickup address</span>
+            <span class="email-detail-val">890 Pico Blvd, Santa Monica</span>
+          </div>
+        </div>
+
+        <div class="email-section-label">Schedule</div>
+        <div class="email-sched-grid">
+          <div class="email-sched-card">
+            <div class="email-sched-icon">📦</div>
+            <div class="email-sched-type">Pickup</div>
+            <div class="email-sched-date">Friday, Feb 28</div>
+            <div class="email-sched-time">7:00 – 10:00 AM</div>
+          </div>
+          <div class="email-sched-card">
+            <div class="email-sched-icon">🚐</div>
+            <div class="email-sched-type">Delivery</div>
+            <div class="email-sched-date">Monday, Mar 2</div>
+            <div class="email-sched-time">6:00 – 9:00 PM</div>
+          </div>
+        </div>
+
+        <div class="email-notes-card">
+          <div class="email-notes-title">📝 Your Instructions</div>
+          Leave bags by the front gate. Ring doorbell.
+        </div>
+
+        <div class="email-section-label">Payment</div>
+        <div class="email-total-row">
+          <span>Order Total</span>
+          <span>$34.00</span>
+        </div>
+
+        <div class="email-cta">
+          <a class="email-cta-btn" href="#">Track My Order →</a>
+        </div>
+
+        <div class="email-footer">
+          Questions? Reply to this email or text us at (415) 555-0100<br>
+          WashRoute · 123 Laundry Lane, Berkeley CA · washroute.com<br><br>
+          You're receiving this because you placed an order with WashRoute.
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
