@@ -766,6 +766,25 @@ function fmtDate(ts) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+// Compact time range: "7 – 9 AM"
+function fmtSlot(start, end) {
+  if (!start) return '';
+  const s = fmtTime(start);
+  if (!end) return s;
+  const e = fmtTime(end);
+  return s.replace(/\s*(AM|PM)\s*$/i, '') + ' – ' + e;
+}
+
+// Get the relevant window timestamps for a stop based on its type
+function stopWindow(stop) {
+  const o = stop.orders;
+  if (!o) return { start: null, end: null, key: '__none__' };
+  const isDelivery = stop.stop_type === 'delivery';
+  const start = isDelivery ? o.delivery_window_start : o.pickup_window_start;
+  const end   = isDelivery ? o.delivery_window_end   : o.pickup_window_end;
+  return { start, end, key: start || '__none__' };
+}
+
 /* ──────────────────────────────
    AUTH — TABS
 ────────────────────────────── */
@@ -1014,8 +1033,24 @@ function renderRoute() {
     return;
   }
 
-  let h = '<div style="padding:12px 14px">';
+  // Group stops by their time window
+  const windowGroups = new Map();
   allStops.forEach(stop => {
+    const { start, end, key } = stopWindow(stop);
+    if (!windowGroups.has(key)) {
+      windowGroups.set(key, { start, end, label: start ? fmtSlot(start, end) : null, stops: [] });
+    }
+    windowGroups.get(key).stops.push(stop);
+  });
+  // Sort groups chronologically; stops without a window go last
+  const sortedGroups = [...windowGroups.values()].sort((a, b) => {
+    if (!a.start) return 1;
+    if (!b.start) return -1;
+    return a.start < b.start ? -1 : 1;
+  });
+  const multiGroup = sortedGroups.length > 1;
+
+  const renderStopCard = (stop) => {
     const addr = stop.addresses;
     const cust = stop.orders?.customers;
     const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
@@ -1026,11 +1061,10 @@ function renderRoute() {
     const badgeClass = isDone ? 'sb-done' : isSkip ? 'sb-skipped' : isEnRoute ? 'sb-enroute' : `sb-${stop.stop_type}`;
     const badgeText  = isDone ? 'DONE' : isSkip ? 'SKIPPED' : isEnRoute ? 'EN ROUTE' : stop.stop_type.toUpperCase();
     const cardClass  = isDone || isSkip ? ' done' : isEnRoute ? ' en-route' : '';
-
     const reassignedTag = stop._reassigned
       ? `<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:2px 7px;border-radius:5px;margin-left:5px">↗ reassigned</span>`
       : '';
-    h += `<div class="stop-card${cardClass}" onclick="openStop('${stop.id}')">
+    return `<div class="stop-card${cardClass}" onclick="openStop('${stop.id}')">
       <div class="stop-num ${numClass}">${isDone ? '✓' : isSkip ? '⤷' : isEnRoute ? '↑' : stop.stop_number}</div>
       <div class="stop-body">
         <div><span class="stop-badge ${badgeClass}">${badgeText}</span>${reassignedTag}</div>
@@ -1040,6 +1074,19 @@ function renderRoute() {
       </div>
       <span class="stop-chevron">›</span>
     </div>`;
+  };
+
+  let h = '<div style="padding:12px 14px">';
+  sortedGroups.forEach(group => {
+    if (group.label) {
+      const doneInGroup  = group.stops.filter(s => s.status === 'complete').length;
+      const totalInGroup = group.stops.length;
+      h += `<div style="display:flex;align-items:center;justify-content:space-between;margin:${h.length > 40 ? '20px' : '4px'} 0 8px">
+        <span style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--gray-500)">${group.label}</span>
+        ${multiGroup ? `<span style="font-size:11px;color:var(--gray-400)">${doneInGroup}/${totalInGroup}</span>` : ''}
+      </div>`;
+    }
+    group.stops.forEach(stop => { h += renderStopCard(stop); });
   });
   h += '</div>';
   body.innerHTML = h;
