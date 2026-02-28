@@ -1902,6 +1902,15 @@
           <input type="time" class="form-input" id="so-window-end" value="10:00">
         </div>
       </div>
+      <div style="margin-top:10px;">
+        <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px;">Slot size <span style="color:var(--gray-400)">(how long each booking window is)</span></div>
+        <select class="form-input" id="so-arrival-window">
+          <option value="1">1 hour slots</option>
+          <option value="2">2 hour slots</option>
+          <option value="3">3 hour slots</option>
+          <option value="4">4 hour slots</option>
+        </select>
+      </div>
     </div>
     <!-- Service Zone -->
     <div class="so-section">
@@ -5416,6 +5425,7 @@
 
     document.getElementById('so-window-start').value = tmpl?.window_start?.slice(0,5) || '07:00';
     document.getElementById('so-window-end').value   = tmpl?.window_end?.slice(0,5)   || '10:00';
+    document.getElementById('so-arrival-window').value = tmpl?.arrival_window_hours ?? 3;
     document.getElementById('so-turnaround-days').value = tmpl?.turnaround_days ?? 1;
     document.getElementById('so-stop-limit').value = tmpl?.stop_limit || '';
     document.getElementById('so-service-type').value = tmpl?.service_type || 'pickup_delivery';
@@ -5499,6 +5509,7 @@
       schedule_days: activeDays,
       window_start: document.getElementById('so-window-start').value + ':00',
       window_end:   document.getElementById('so-window-end').value   + ':00',
+      arrival_window_hours: parseInt(document.getElementById('so-arrival-window').value) || 3,
       turnaround_days: parseInt(document.getElementById('so-turnaround-days').value) || 1,
       stop_limit: document.getElementById('so-stop-limit').value ? parseInt(document.getElementById('so-stop-limit').value) : null,
       service_type: document.getElementById('so-service-type').value,
