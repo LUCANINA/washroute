@@ -499,6 +499,24 @@
     .workload-avatar { width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:white;flex-shrink:0; }
     .slide-backdrop { display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:899; }
 
+    /* ── SLOT PICKER SLIDE-OVER ── */
+    .sp-route-pills { display:flex;flex-direction:column;gap:6px; }
+    .sp-route-pill { display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--gray-200);border-radius:10px;background:white;cursor:pointer;transition:all .12s;text-align:left;width:100%; }
+    .sp-route-pill:hover { border-color:var(--accent);background:var(--accent-light,#f0effe); }
+    .sp-route-pill.selected { border-color:var(--accent);background:var(--accent-light,#f0effe);box-shadow:0 0 0 2px rgba(99,91,255,.15); }
+    .sp-day-grid { display:grid;grid-template-columns:repeat(7,1fr);gap:5px; }
+    .sp-day-btn { display:flex;flex-direction:column;align-items:center;padding:7px 2px;border:1.5px solid var(--gray-200);border-radius:8px;background:white;cursor:pointer;transition:all .12s;gap:1px; }
+    .sp-day-btn:hover:not(:disabled) { border-color:var(--accent);background:var(--accent-light,#f0effe); }
+    .sp-day-btn.selected { border-color:var(--accent);background:var(--accent);color:white; }
+    .sp-day-btn:disabled,.sp-day-disabled { opacity:.28;cursor:default;pointer-events:none; }
+    .sp-day-abbr { font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em; }
+    .sp-day-num  { font-size:15px;font-weight:800;line-height:1; }
+    .sp-day-mon  { font-size:9px;color:inherit;opacity:.7; }
+    .sp-slot-grid { display:flex;flex-direction:column;gap:7px; }
+    .sp-slot-btn { padding:12px 16px;border:1.5px solid var(--gray-200);border-radius:10px;background:white;cursor:pointer;font-size:14px;font-weight:600;color:var(--gray-800);transition:all .13s;text-align:left; }
+    .sp-slot-btn:hover { border-color:var(--accent);background:var(--accent-light,#f0effe);color:var(--accent); }
+    .sp-slot-btn.saving { opacity:.6;pointer-events:none; }
+
     /* ── REPORTS PAGE ── */
     .rpt-period-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
     .rpt-period-bar .filter-tabs { background: var(--gray-100); }
@@ -1841,6 +1859,34 @@
   </div>
 </div>
 
+<!-- ── SLOT PICKER SLIDE-OVER ── -->
+<div class="slide-backdrop" id="sp-backdrop" onclick="closeSlotPicker()"></div>
+<div class="slide-over" id="slideover-slotpicker">
+  <div class="slide-over-header">
+    <button onclick="closeSlotPicker()" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--gray-400);display:flex;align-items:center;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
+    </button>
+    <div style="font-size:16px;font-weight:700;color:var(--gray-900);flex:1" id="sp-title">Schedule Pickup</div>
+  </div>
+  <div class="slide-over-body">
+    <!-- Route selection -->
+    <div class="so-section">
+      <div class="so-label">Route</div>
+      <div class="sp-route-pills" id="sp-routes"><span style="color:var(--gray-400);font-size:13px">Loading…</span></div>
+    </div>
+    <!-- Day picker -->
+    <div class="so-section" id="sp-day-section" style="display:none">
+      <div class="so-label" id="sp-day-label">Pick a Day</div>
+      <div class="sp-day-grid" id="sp-days"></div>
+    </div>
+    <!-- Slot picker -->
+    <div class="so-section" id="sp-slot-section" style="display:none">
+      <div class="so-label" id="sp-slot-label">Pick a Time Window</div>
+      <div class="sp-slot-grid" id="sp-slots"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ── TEMPLATE EDITOR SLIDE-OVER ── -->
 <div class="slide-backdrop" id="slideover-backdrop" onclick="closeTemplateEditor()"></div>
 <div class="slide-over" id="slideover-template">
@@ -2354,9 +2400,15 @@
     } else if (canReschedule) {
       nameHtml = `<span style="cursor:pointer;color:var(--accent);font-size:11.5px;text-decoration:underline;text-underline-offset:2px" onclick="event.stopPropagation();rescheduleRoute('${o.id}','${o.order_number}','pickup')" title="Assign pickup route">+ Assign route</span>`;
     }
+    const custId = o.customers?.id || '';
+    const slotEditLink = !o.actual_pickup_at
+      ? `<span style="cursor:pointer;color:var(--accent);font-size:10.5px;margin-left:5px;font-weight:600;text-decoration:underline;text-underline-offset:2px" onclick="event.stopPropagation();openSlotPicker('${o.id}','${o.order_number}','${custId}')" title="Change pickup slot">✎</span>`
+      : '';
     let slotHtml = '';
     if (o.pickup_window_start) {
-      slotHtml = `<div style="font-size:11px;color:var(--gray-500);margin-top:1px">${fmtDate(o.pickup_window_start)} · ${fmtSlot(o.pickup_window_start, o.pickup_window_end)}</div>`;
+      slotHtml = `<div style="font-size:11px;color:var(--gray-500);margin-top:1px">${fmtDate(o.pickup_window_start)} · ${fmtSlot(o.pickup_window_start, o.pickup_window_end)}${slotEditLink}</div>`;
+    } else {
+      slotHtml = `<div style="font-size:11px;margin-top:2px"><span style="cursor:pointer;color:var(--accent);font-size:11px;font-weight:600;text-decoration:underline;text-underline-offset:2px" onclick="event.stopPropagation();openSlotPicker('${o.id}','${o.order_number}','${custId}')" title="Set pickup slot">+ Set slot</span></div>`;
     }
     if (!nameHtml && !slotHtml) return '—';
     return `<div style="white-space:nowrap">${nameHtml}${slotHtml}</div>`;
@@ -5044,6 +5096,9 @@
         : chargeable
           ? `<button class="btn btn-primary" style="padding:3px 8px;font-size:11.5px" onclick="chargeOrder('${o.id}','${o.order_number}',this)">💳 Charge</button>`
           : '';
+      const slotBtn = o.status !== 'delivered' && o.status !== 'cancelled'
+        ? `<button class="btn" style="padding:3px 8px;font-size:11.5px;border:1px solid var(--gray-200);flex-shrink:0" onclick="openSlotPicker('${o.id}','${o.order_number}','${panelCustomerId}')" title="Schedule pickup slot">📅 Slot</button>`
+        : '';
       return `<div class="cp-order-row">
         <span class="cp-order-num">#${o.order_number}</span>
         <div class="cp-order-svc">
@@ -5052,6 +5107,7 @@
         </div>
         <span style="cursor:pointer" onclick="openSingleStatusPicker('${o.id}','${o.order_number}','${o.status}')" title="Click to change status">${statusBadge(o.status)}</span>
         <span class="cp-order-amt">${fmtMoney(o.total_amount)}</span>
+        ${slotBtn}
         ${actionBtn}
       </div>`;
     }).join('');
@@ -5104,6 +5160,185 @@
     document.getElementById('panel-backdrop').classList.remove('open');
     panelCustomerId = null;
     cpAllOrders = [];
+  }
+
+  // ── SLOT PICKER ──
+  let _spOrderId, _spOrderNum, _spCustomerId, _spTemplates = [], _spSelectedTmpl = null;
+
+  async function openSlotPicker(orderId, orderNum, customerId) {
+    _spOrderId = orderId;
+    _spOrderNum = orderNum;
+    _spCustomerId = customerId;
+    _spSelectedTmpl = null;
+
+    document.getElementById('sp-title').textContent = `Schedule Pickup – Order #${orderNum}`;
+    document.getElementById('sp-day-section').style.display = 'none';
+    document.getElementById('sp-slot-section').style.display = 'none';
+    document.getElementById('sp-routes').innerHTML = '<span style="color:var(--gray-400);font-size:13px">Loading…</span>';
+    document.getElementById('slideover-slotpicker').classList.add('open');
+    document.getElementById('sp-backdrop').style.display = 'block';
+
+    // Load active route templates with zone info
+    const { data: tmpls } = await db.from('route_templates')
+      .select('id, name, color, schedule_days, window_start, window_end, arrival_window_hours, zone_id, service_zones(name)')
+      .eq('is_active', true).order('name');
+    _spTemplates = tmpls || [];
+
+    // Detect customer's preferred zone from their most recent routed order
+    let preferredZoneId = null;
+    if (customerId) {
+      const { data: recent } = await db.from('orders')
+        .select('pickup_run:pickup_run_id(template_id)')
+        .eq('customer_id', customerId)
+        .not('pickup_run_id', 'is', null)
+        .order('created_at', { ascending: false }).limit(5);
+      if (recent?.length) {
+        const tmplId = recent[0]?.pickup_run?.template_id;
+        if (tmplId) {
+          const found = _spTemplates.find(t => t.id === tmplId);
+          if (found) preferredZoneId = found.zone_id;
+        }
+      }
+    }
+
+    // Sort: preferred zone first, then alphabetical
+    _spTemplates.sort((a, b) => {
+      const aZ = a.zone_id === preferredZoneId ? 0 : 1;
+      const bZ = b.zone_id === preferredZoneId ? 0 : 1;
+      return aZ - bZ || a.name.localeCompare(b.name);
+    });
+
+    renderSpRoutes();
+
+    // Auto-select top template if it matches the customer's zone
+    if (_spTemplates.length && preferredZoneId && _spTemplates[0].zone_id === preferredZoneId) {
+      selectSpTemplate(_spTemplates[0].id);
+    }
+  }
+
+  function renderSpRoutes() {
+    const el = document.getElementById('sp-routes');
+    if (!_spTemplates.length) {
+      el.innerHTML = '<span style="color:var(--gray-400);font-size:13px">No active routes found.</span>';
+      return;
+    }
+    el.innerHTML = _spTemplates.map(t => {
+      const zoneName = t.service_zones?.name || '';
+      const dot = `<span style="width:10px;height:10px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>`;
+      const zoneTag = zoneName ? `<span style="font-size:10.5px;color:var(--gray-500);margin-top:1px">${zoneName}</span>` : '';
+      return `<button class="sp-route-pill" onclick="selectSpTemplate('${t.id}')" data-tmpl="${t.id}">
+        ${dot}
+        <span style="display:flex;flex-direction:column;align-items:flex-start;gap:1px">
+          <span style="font-size:13px;font-weight:600;color:var(--gray-900)">${t.name}</span>
+          ${zoneTag}
+        </span>
+      </button>`;
+    }).join('');
+  }
+
+  function selectSpTemplate(tmplId) {
+    _spSelectedTmpl = _spTemplates.find(t => t.id === tmplId);
+    document.querySelectorAll('.sp-route-pill').forEach(p =>
+      p.classList.toggle('selected', p.dataset.tmpl === tmplId));
+    document.getElementById('sp-slot-section').style.display = 'none';
+    renderSpDays();
+    document.getElementById('sp-day-section').style.display = '';
+  }
+
+  function renderSpDays() {
+    const tmpl = _spSelectedTmpl;
+    if (!tmpl) return;
+    const activeDays = tmpl.schedule_days || [0,1,2,3,4]; // 0=Mon…6=Sun
+    const DAY_ABBR = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const todayMs = new Date(); todayMs.setHours(0,0,0,0);
+    const days = [];
+    for (let i = 1; i <= 14; i++) {
+      const d = new Date(todayMs); d.setDate(todayMs.getDate() + i);
+      const dow = (d.getDay() + 6) % 7; // Sun=0 in JS → convert to Mon=0
+      const iso = d.toLocaleDateString('sv'); // 'sv' locale gives YYYY-MM-DD without timezone issues
+      days.push({ d, dow, iso, avail: activeDays.includes(dow) });
+    }
+    const el = document.getElementById('sp-days');
+    el.innerHTML = days.map(({ d, dow, iso, avail }) => {
+      const mon = d.toLocaleDateString('en-US', { month: 'short' });
+      return `<button class="sp-day-btn${avail?'':' sp-day-disabled'}" data-iso="${iso}"
+        onclick="selectSpDay('${iso}')" ${avail?'':'disabled'}>
+        <span class="sp-day-abbr">${DAY_ABBR[dow]}</span>
+        <span class="sp-day-num">${d.getDate()}</span>
+        <span class="sp-day-mon">${mon}</span>
+      </button>`;
+    }).join('');
+    document.getElementById('sp-day-label').textContent = 'Pick a Day';
+  }
+
+  function selectSpDay(iso) {
+    document.querySelectorAll('#sp-days .sp-day-btn').forEach(b =>
+      b.classList.toggle('selected', b.dataset.iso === iso));
+    renderSpSlots(iso);
+    document.getElementById('sp-slot-section').style.display = '';
+    // Scroll slot section into view
+    const sec = document.getElementById('sp-slot-section');
+    setTimeout(() => sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+  }
+
+  function renderSpSlots(iso) {
+    const tmpl = _spSelectedTmpl;
+    if (!tmpl) return;
+    const toMins = (t) => { const parts = (t||'07:00').split(':'); return parseInt(parts[0])*60+parseInt(parts[1]||0); };
+    const startMins = toMins(tmpl.window_start);
+    const endMins   = toMins(tmpl.window_end);
+    const slotSize  = (tmpl.arrival_window_hours || 3) * 60;
+    const fmtHM = (mins) => {
+      const h = Math.floor(mins/60), m = mins%60;
+      const period = h < 12 ? 'am' : 'pm';
+      const h12 = h===0?12:h>12?h-12:h;
+      return m===0 ? `${h12}${period}` : `${h12}:${String(m).padStart(2,'0')}${period}`;
+    };
+    const [yr, mo, dy] = iso.split('-').map(Number);
+    const slots = [];
+    for (let m = startMins; m + slotSize <= endMins; m += slotSize) {
+      const sDate = new Date(yr, mo-1, dy, Math.floor(m/60), m%60, 0);
+      const eDate = new Date(yr, mo-1, dy, Math.floor((m+slotSize)/60), (m+slotSize)%60, 0);
+      slots.push({ start: sDate.toISOString(), end: eDate.toISOString(), startMins: m, endMins: m+slotSize });
+    }
+    const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
+    document.getElementById('sp-slot-label').textContent = `Time Slots for ${dayFmt}`;
+    const el = document.getElementById('sp-slots');
+    if (!slots.length) {
+      el.innerHTML = '<span style="color:var(--gray-400);font-size:13px">No slots — check the route\'s window times.</span>';
+      return;
+    }
+    el.innerHTML = slots.map(s =>
+      `<button class="sp-slot-btn" onclick="selectSpSlot(this,'${s.start}','${s.end}')">
+        ${fmtHM(s.startMins)} – ${fmtHM(s.endMins)}
+      </button>`).join('');
+  }
+
+  async function selectSpSlot(btn, startIso, endIso) {
+    // Mark saving state
+    document.querySelectorAll('.sp-slot-btn').forEach(b => b.classList.add('saving'));
+    btn.textContent = 'Saving…';
+    const { error } = await db.from('orders').update({
+      pickup_window_start: startIso,
+      pickup_window_end: endIso,
+    }).eq('id', _spOrderId);
+    if (error) {
+      document.querySelectorAll('.sp-slot-btn').forEach(b => { b.classList.remove('saving'); });
+      showToast('Failed to save: ' + error.message, 'error');
+      return;
+    }
+    showToast(`✓ Order #${_spOrderNum} → ${fmtDate(startIso)} · ${fmtSlot(startIso, endIso)}`, 'success');
+    closeSlotPicker();
+    // Refresh open views
+    setTimeout(() => {
+      loadOrders(currentOrderFilter);
+      if (panelCustomerId) loadPanelOrders(panelCustomerId);
+    }, 300);
+  }
+
+  function closeSlotPicker() {
+    document.getElementById('slideover-slotpicker').classList.remove('open');
+    document.getElementById('sp-backdrop').style.display = 'none';
   }
 
   // ── MAP STATE ──
