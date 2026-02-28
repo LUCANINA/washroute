@@ -2321,20 +2321,57 @@
     const dt = new Date(d);
     return dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase();
   };
-  // Show actual time if available (green ✓), else show scheduled window as "Feb 26 · 7–10am"
+  // Format a compact time range: "7 – 9 am" or "7:30 – 9 am"
+  const fmtSlot = (start, end) => {
+    if (!start) return '';
+    const s = fmtTime(start);
+    if (!end) return s;
+    const e = fmtTime(end);
+    // Strip am/pm from the start half so it reads "7 – 9 am" instead of "7 am – 9 am"
+    const sPart = s.replace(/\s*(am|pm)\s*$/i, '');
+    return `${sPart} – ${e}`;
+  };
+  // Merged pickup cell: route name (with reschedule link) + date · slot
   const pickupCell = (o) => {
     if (o.actual_pickup_at)
       return `<span style="color:var(--green);font-weight:600;white-space:nowrap">✓ ${fmtDate(o.actual_pickup_at)} · ${fmtTime(o.actual_pickup_at)}</span>`;
-    if (!o.pickup_window_start) return '—';
-    const end = o.pickup_window_end ? ` – ${fmtTime(o.pickup_window_end)}` : '';
-    return `<span style="white-space:nowrap">${fmtDate(o.pickup_window_start)} · ${fmtTime(o.pickup_window_start)}${end}</span>`;
+    const canReschedule = ['scheduled','ready_for_pickup'].includes(o.status);
+    const routeName = o.pickup_run?.name || '';
+    let nameHtml = '';
+    if (routeName) {
+      nameHtml = canReschedule
+        ? `<span style="cursor:pointer;font-weight:700;color:var(--accent);text-decoration:underline;text-underline-offset:2px" onclick="event.stopPropagation();rescheduleRoute('${o.id}','${o.order_number}','pickup')" title="Reschedule pickup">${routeName}</span>`
+        : `<span style="font-weight:700">${routeName}</span>`;
+    } else if (canReschedule) {
+      nameHtml = `<span style="cursor:pointer;color:var(--accent);font-size:11.5px;text-decoration:underline;text-underline-offset:2px" onclick="event.stopPropagation();rescheduleRoute('${o.id}','${o.order_number}','pickup')" title="Assign pickup route">+ Assign route</span>`;
+    }
+    let slotHtml = '';
+    if (o.pickup_window_start) {
+      slotHtml = `<div style="font-size:11px;color:var(--gray-500);margin-top:1px">${fmtDate(o.pickup_window_start)} · ${fmtSlot(o.pickup_window_start, o.pickup_window_end)}</div>`;
+    }
+    if (!nameHtml && !slotHtml) return '—';
+    return `<div style="white-space:nowrap">${nameHtml}${slotHtml}</div>`;
   };
+  // Merged delivery cell: route name + date · slot
   const deliveryCell = (o) => {
     if (o.actual_delivery_at)
       return `<span style="color:var(--green);font-weight:600;white-space:nowrap">✓ ${fmtDate(o.actual_delivery_at)} · ${fmtTime(o.actual_delivery_at)}</span>`;
-    if (!o.delivery_window_start) return '—';
-    const end = o.delivery_window_end ? ` – ${fmtTime(o.delivery_window_end)}` : '';
-    return `<span style="white-space:nowrap">${fmtDate(o.delivery_window_start)} · ${fmtTime(o.delivery_window_start)}${end}</span>`;
+    const canReschedule = ['assembled','ready_for_delivery','out_for_delivery'].includes(o.status);
+    const routeName = o.delivery_run?.name || '';
+    let nameHtml = '';
+    if (routeName) {
+      nameHtml = canReschedule
+        ? `<span style="cursor:pointer;font-weight:700;color:var(--accent);text-decoration:underline;text-underline-offset:2px" onclick="event.stopPropagation();rescheduleRoute('${o.id}','${o.order_number}','delivery')" title="Reschedule delivery">${routeName}</span>`
+        : `<span style="font-weight:700">${routeName}</span>`;
+    } else if (canReschedule) {
+      nameHtml = `<span style="cursor:pointer;color:var(--accent);font-size:11.5px;text-decoration:underline;text-underline-offset:2px" onclick="event.stopPropagation();rescheduleRoute('${o.id}','${o.order_number}','delivery')" title="Assign delivery route">+ Assign route</span>`;
+    }
+    let slotHtml = '';
+    if (o.delivery_window_start) {
+      slotHtml = `<div style="font-size:11px;color:var(--gray-500);margin-top:1px">${fmtDate(o.delivery_window_start)} · ${fmtSlot(o.delivery_window_start, o.delivery_window_end)}</div>`;
+    }
+    if (!nameHtml && !slotHtml) return '—';
+    return `<div style="white-space:nowrap">${nameHtml}${slotHtml}</div>`;
   };
   const today = () => new Date().toISOString().split('T')[0];
 
@@ -2817,17 +2854,9 @@
           av = a.pickup_window_start || '';
           bv = b.pickup_window_start || '';
           break;
-        case 'pickup_route':
-          av = (a.pickup_run?.name || '').toLowerCase();
-          bv = (b.pickup_run?.name || '').toLowerCase();
-          break;
         case 'delivery_window_start':
           av = a.delivery_window_start || '';
           bv = b.delivery_window_start || '';
-          break;
-        case 'delivery_route':
-          av = (a.delivery_run?.name || '').toLowerCase();
-          bv = (b.delivery_run?.name || '').toLowerCase();
           break;
         case 'status':
           av = a.status || '';
@@ -2879,13 +2908,11 @@
         : 'th-sort';
       return `<th class="${cls}" onclick="setOrderSort('${col}')">${label}</th>`;
     };
-    el.innerHTML = `<table style="min-width:1000px"><thead><tr>
+    el.innerHTML = `<table style="min-width:820px"><thead><tr>
         <th style="width:36px"><input type="checkbox" id="select-all-orders" onchange="toggleSelectAllOrders(this)" title="Select all"></th>
         ${thSort('customer','Customer')}
         ${thSort('pickup_window_start','Pickup')}
-        ${thSort('pickup_route','Pickup Route')}
         ${thSort('delivery_window_start','Delivery')}
-        ${thSort('delivery_route','Delivery Route')}
         ${thSort('status','Status')}
         ${thSort('stop','Stop #')}
         ${thSort('order_number','Code')}
@@ -2893,31 +2920,15 @@
         ${thSort('total_amount','Total')}
       </tr></thead><tbody>
       ${sorted.map(o => {
-        const pickupRoute  = o.pickup_run?.name  || '—';
-        const deliveryRoute = o.delivery_run?.name || '—';
-        const stopNum = '—';
-        const bags = o.weight_lbs != null ? Number(o.weight_lbs).toFixed(1)+' lb' : '—';
-        // Pickup route is clickable (to reschedule) for pre-pickup orders
-        const canReschedulePickup = ['scheduled','ready_for_pickup'].includes(o.status);
-        const canRescheduleDelivery = ['assembled','ready_for_delivery','out_for_delivery'].includes(o.status);
-        const pickupRouteLabel  = pickupRoute  === '—' ? '+ Assign' : pickupRoute;
-        const deliveryRouteLabel = deliveryRoute === '—' ? '+ Assign' : deliveryRoute;
         const custId = o.customers?.id || '';
-        const pickupRouteCell = canReschedulePickup
-          ? `<span style="cursor:pointer;color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:2px" onclick="event.stopPropagation();rescheduleRoute('${o.id}','${o.order_number}','pickup')" title="${pickupRoute==='—'?'Assign pickup route':'Reschedule pickup'}">${pickupRouteLabel}</span>`
-          : pickupRoute;
-        const deliveryRouteCell = canRescheduleDelivery
-          ? `<span style="cursor:pointer;color:var(--accent);font-weight:600;text-decoration:underline;text-underline-offset:2px" onclick="event.stopPropagation();rescheduleRoute('${o.id}','${o.order_number}','delivery')" title="${deliveryRoute==='—'?'Assign delivery route':'Reschedule delivery'}">${deliveryRouteLabel}</span>`
-          : deliveryRoute;
+        const bags = o.weight_lbs != null ? Number(o.weight_lbs).toFixed(1)+' lb' : '—';
         return `<tr style="cursor:pointer" onclick="if('${custId}')openCustomerPanel('${custId}')">
           <td style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${o.customers?.phone_cache||''}" data-cust-name="${(o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||'')}" onchange="updateOrderBatchBar()"></td>
           <td class="td-name">${orderCustomerName(o)}</td>
           <td style="font-size:12.5px">${pickupCell(o)}</td>
-          <td style="font-size:12.5px">${pickupRouteCell}</td>
           <td style="font-size:12.5px">${deliveryCell(o)}</td>
-          <td style="font-size:12.5px">${deliveryRouteCell}</td>
           <td style="white-space:nowrap"><span style="cursor:pointer" onclick="event.stopPropagation();openSingleStatusPicker('${o.id}','${o.order_number}','${o.status}')" title="Click to change status">${statusBadge(o.status)}</span></td>
-          <td style="text-align:center;color:var(--gray-500);font-size:12.5px">${stopNum}</td>
+          <td style="text-align:center;color:var(--gray-500);font-size:12.5px">—</td>
           <td class="td-mono">#${o.order_number}</td>
           <td style="color:var(--gray-600);font-size:12.5px;text-align:right;padding-right:20px">${bags}</td>
           <td style="font-weight:600;text-align:right;padding-right:20px">${fmtMoney(o.total_amount)}</td>
@@ -4982,7 +4993,7 @@
     const el = document.getElementById('cp-orders-list');
     el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
     const { data } = await db.from('orders')
-      .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, pickup_window_start, created_at, services(name)')
+      .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, pickup_window_start, pickup_window_end, created_at, services(name), pickup_run:pickup_run_id(id, name)')
       .eq('customer_id', customerId).order('created_at', { ascending: false });
     cpAllOrders = data || [];
     if (!cpAllOrders.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>'; return; }
@@ -4996,6 +5007,15 @@
     document.querySelectorAll('#cptab-orders .filter-tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
     renderCpOrders(cpAllOrders, filter);
+  }
+
+  // Format the compact sub-line shown on customer panel order rows: "Oakland AM · Feb 28 · 7 – 9 am"
+  function cpOrderMeta(o) {
+    const rn = o.pickup_run?.name || '';
+    const dt = fmtDate(o.pickup_window_start || o.created_at);
+    const sl = o.pickup_window_start ? fmtSlot(o.pickup_window_start, o.pickup_window_end) : '';
+    const wt = o.weight_lbs ? ' · ' + o.weight_lbs + ' lbs' : '';
+    return (rn ? rn + ' · ' : '') + dt + (sl ? ' · ' + sl : '') + wt;
   }
 
   function renderCpOrders(data, filter) {
@@ -5019,7 +5039,7 @@
         <span class="cp-order-num">#${o.order_number}</span>
         <div class="cp-order-svc">
           <div style="font-weight:500">${o.services?.name||'—'}</div>
-          <div style="font-size:11.5px;color:var(--gray-400)">${fmtDate(o.pickup_window_start||o.created_at)}${o.weight_lbs?' · '+o.weight_lbs+' lbs':''}</div>
+          <div style="font-size:11.5px;color:var(--gray-400)">${cpOrderMeta(o)}</div>
         </div>
         <span style="cursor:pointer" onclick="openSingleStatusPicker('${o.id}','${o.order_number}','${o.status}')" title="Click to change status">${statusBadge(o.status)}</span>
         <span class="cp-order-amt">${fmtMoney(o.total_amount)}</span>
