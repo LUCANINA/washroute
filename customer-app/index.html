@@ -867,7 +867,8 @@ let defaultService  = null; // the single W&F service
 
 let draft = {
   address: '', lat: null, lng: null, zoneId: null,
-  bags: 1, pickupDate: null, pickupWindow: null, recurring: 'weekly',
+  bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [],
+  recurring: 'weekly',
   prefs: {} // { groupId: { optId, label, priceMod } }
 };
 let orderStep = 0;
@@ -1149,7 +1150,7 @@ function buildActiveCard(o) {
 const STEP_TITLES = ['Your Address','Pickup Day & Time','Preferences','Bag Count','Confirm Order'];
 
 function startNewOrder() {
-  draft = { address: '', lat: null, lng: null, zoneId: null, bags: 1, pickupDate: null, pickupWindow: null, recurring: 'weekly', prefs: {} };
+  draft = { address: '', lat: null, lng: null, zoneId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], recurring: 'weekly', prefs: {} };
   orderStep = 0;
   calMonth  = new Date();
   // Reset address UI
@@ -1422,12 +1423,72 @@ function selectDay(iso) {
 }
 
 /* ── SCHEDULE STEP: DAY + WINDOW BUTTONS ── */
-const TIME_WINDOWS = [
-  { id: 'morning',   icon: '☀️',  label: 'Morning',   time: '8am – 10am'  },
-  { id: 'midday',    icon: '🌤',  label: 'Midday',    time: '10am – 12pm' },
-  { id: 'afternoon', icon: '🌇',  label: 'Afternoon', time: '12pm – 2pm'  },
-  { id: 'evening',   icon: '🌙',  label: 'Evening',   time: '4pm – 6pm'   },
-];
+
+// Format a time string like "07:00:00" + hours into a readable slot label
+function fmtHourMin(totalMins) {
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  const suffix = h < 12 ? 'am' : 'pm';
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return m === 0 ? `${h12}${suffix}` : `${h12}:${String(m).padStart(2,'0')}${suffix}`;
+}
+
+function slotIcon(startMins) {
+  if (startMins < 10 * 60)  return '☀️';
+  if (startMins < 12 * 60)  return '🌤';
+  if (startMins < 15 * 60)  return '🌇';
+  return '🌙';
+}
+
+// Compute sub-windows from a route template for a given date
+function computeSubWindows(runDate, tmpl, routeId, routeName) {
+  const [sh, sm] = tmpl.window_start.split(':').map(Number);
+  const [eh, em] = tmpl.window_end.split(':').map(Number);
+  const sMins = sh * 60 + (sm || 0);
+  const eMins = eh * 60 + (em || 0);
+  const step  = (tmpl.arrival_window_hours || 2) * 60;
+  const pad2  = n => String(n).padStart(2, '0');
+  const windows = [];
+  for (let from = sMins; from + step <= eMins; from += step) {
+    const to        = from + step;
+    const slotStart = `${runDate}T${pad2(Math.floor(from/60))}:${pad2(from%60)}:00`;
+    const slotEnd   = `${runDate}T${pad2(Math.floor(to/60))}:${pad2(to%60)}:00`;
+    const label     = `${fmtHourMin(from)} – ${fmtHourMin(to)}`;
+    windows.push({ routeId, routeName, slotStart, slotEnd, label, icon: slotIcon(from) });
+  }
+  return windows;
+}
+
+async function fetchWindowsForDate(iso) {
+  const container = document.getElementById('window-btn-list');
+  if (!container) return;
+  // Reset immediately so stale selection can't pass validation during the fetch
+  draft.pickupWindow     = null;
+  draft.availableWindows = [];
+  container.innerHTML = '<div style="padding:12px 4px;color:var(--gray-400);font-size:13px">Loading available times…</div>';
+
+  const { data: routes, error } = await db
+    .from('routes')
+    .select('id, name, route_templates(window_start, window_end, arrival_window_hours)')
+    .eq('run_date', iso)
+    .eq('zone_id', draft.zoneId);
+
+  if (error || !routes?.length) {
+    container.innerHTML = '<div style="padding:12px 4px;color:var(--gray-400);font-size:13px">No pickup slots available for this day — try another date.</div>';
+    return;
+  }
+
+  const windows = [];
+  routes.forEach(r => {
+    const tmpl = r.route_templates;
+    if (!tmpl?.window_start || !tmpl?.window_end) return;
+    computeSubWindows(iso, tmpl, r.id, r.name).forEach(w => windows.push(w));
+  });
+
+  windows.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
+  draft.availableWindows = windows;
+  renderWindowButtons();
+}
 
 function renderDayButtons() {
   const container = document.getElementById('day-btn-list');
@@ -1462,26 +1523,34 @@ function selectPickupDay(iso, btn) {
   draft.pickupDate = iso;
   document.querySelectorAll('.day-btn').forEach(b => b.classList.remove('selected'));
   btn?.classList.add('selected');
+  fetchWindowsForDate(iso);
 }
 
 function renderWindowButtons() {
   const container = document.getElementById('window-btn-list');
   if (!container) return;
-  container.innerHTML = TIME_WINDOWS.map(w => {
-    const sel = draft.pickupWindow === w.id;
-    return `<button class="window-btn${sel ? ' selected' : ''}" onclick="selectPickupWindow('${w.id}',this)">
+
+  if (!draft.availableWindows.length) {
+    container.innerHTML = '<div style="padding:12px 4px;color:var(--gray-400);font-size:13px">Pick a day above to see available times.</div>';
+    return;
+  }
+
+  container.innerHTML = draft.availableWindows.map((w, i) => {
+    const sel    = draft.pickupWindow?.slotStart === w.slotStart;
+    const idxStr = String(i);
+    return `<button class="window-btn${sel ? ' selected' : ''}" onclick="selectPickupWindow(${idxStr},this)">
       <span class="window-btn-icon">${w.icon}</span>
       <div class="window-btn-middle">
-        <span class="window-btn-label">${w.label}</span>
-        <span class="window-btn-time">${w.time}</span>
+        <span class="window-btn-label">${w.routeName || 'Pickup'}</span>
+        <span class="window-btn-time">${w.label}</span>
       </div>
       <span class="window-btn-check">✓</span>
     </button>`;
   }).join('');
 }
 
-function selectPickupWindow(windowId, btn) {
-  draft.pickupWindow = windowId;
+function selectPickupWindow(idx, btn) {
+  draft.pickupWindow = draft.availableWindows[idx] || null;
   document.querySelectorAll('.window-btn').forEach(b => b.classList.remove('selected'));
   btn?.classList.add('selected');
 }
@@ -1497,8 +1566,8 @@ function buildConfirmSummary() {
   const fmt = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
   const freqLabels = { weekly:'Every week 🔁', biweekly:'Every 2 weeks 🔁', monthly:'Every month 🔁' };
   const freqLabel  = freqLabels[draft.recurring] || 'One-time pickup';
-  const winMeta    = TIME_WINDOWS.find(w => w.id === draft.pickupWindow);
-  const winLabel   = winMeta ? `${winMeta.icon} ${winMeta.label} (${winMeta.time})` : '—';
+  const pw         = draft.pickupWindow;
+  const winLabel   = pw ? `${pw.icon} ${pw.routeName || 'Pickup'} · ${pw.label}` : '—';
 
   const addonRows = Object.values(draft.prefs).map(p =>
     `<div class="confirm-row"><span class="confirm-key">${p.label}</span><span class="confirm-val">+${$m(p.priceMod)}</span></div>`
@@ -1575,19 +1644,22 @@ async function placeOrder() {
     ...Object.values(draft.prefs).filter(p=>p.priceMod).map(p=>({ type:'addon', label:p.label, amount:p.priceMod }))
   ];
 
+  const pw = draft.pickupWindow;
   const { data: order, error } = await db.from('orders').insert({
-    customer_id:        currentCustomer.id,
-    service_id:         svc?.id || null,
-    status:             'scheduled',
-    total_bags:         bags,
-    total_amount:       total,
-    pickup_date:        pickupDate,
-    pickup_window:      draft.pickupWindow || null,
-    delivery_date:      deliveryDate,
-    recurring_interval: draft.recurring || null,
-    line_items:         lineItems,
+    customer_id:          currentCustomer.id,
+    service_id:           svc?.id || null,
+    status:               'scheduled',
+    total_bags:           bags,
+    total_amount:         total,
+    pickup_date:          pickupDate,
+    pickup_window_start:  pw?.slotStart || null,
+    pickup_window_end:    pw?.slotEnd   || null,
+    pickup_run_id:        pw?.routeId   || null,
+    delivery_date:        deliveryDate,
+    recurring_interval:   draft.recurring || null,
+    line_items:           lineItems,
     special_instructions: draft.address || null,
-    order_number:       Math.floor(1000 + Math.random() * 9000)
+    order_number:         Math.floor(1000 + Math.random() * 9000)
   }).select().single();
 
   btn.disabled = false; btn.textContent = currentCustomer ? 'Place Order' : 'Create Account & Place Order';
