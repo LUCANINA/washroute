@@ -4066,43 +4066,49 @@
     if (!silent) setTimeout(() => { const mt = document.getElementById('msg-thread'); if (mt) mt.scrollTop = mt.scrollHeight; }, 50);
   }
 
+  // ── _upsertConvStatus: single-operation resolve/reopen helper ──
+  // Avoids the two-step get-then-update race. Tries UPDATE first (fast path),
+  // falls back to INSERT if no row exists yet, and surfaces the real error.
+  async function _upsertConvStatus(convId, customerId, phone, newStatus) {
+    const ts = new Date().toISOString();
+    const patch = { status: newStatus, resolved_at: newStatus === 'resolved' ? ts : null, updated_at: ts };
+
+    if (convId) {
+      // Fast path: row already known
+      const { error } = await db.from('conversations').update(patch).eq('id', convId);
+      if (error) { showToast('DB error: ' + error.message, 'error'); return null; }
+      return convId;
+    }
+
+    // No row yet — INSERT directly with the target status
+    const ins = { channel: 'sms', ...patch };
+    if (customerId) ins.customer_id = customerId;
+    else            ins.phone = phone;
+    const { data, error } = await db.from('conversations').insert(ins).select('id').single();
+    if (error) { showToast('DB error: ' + error.message, 'error'); return null; }
+    return data.id;
+  }
+
   // ── toggleResolve ──
   async function toggleResolve() {
     if (!currentConv) return;
     const isResolved = currentConv.status === 'resolved';
     const newStatus  = isResolved ? 'open' : 'resolved';
-    // Use known conv_id if available; otherwise look up / create
-    let convId = currentConv.conv_id;
-    if (!convId) {
-      const conv = await getOrCreateConversation(currentConv.customer_id, currentConv.phone, 'sms');
-      if (!conv) { showToast('Could not update conversation', 'error'); return; }
-      convId = conv.id;
-    }
-    const { error } = await db.from('conversations').update({
-      status: newStatus,
-      resolved_at: newStatus === 'resolved' ? new Date().toISOString() : null,
-      updated_at: new Date().toISOString()
-    }).eq('id', convId);
-    if (error) { showToast('Failed to update: ' + error.message, 'error'); return; }
+    const btn = document.getElementById('btn-resolve-thread');
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    const convId = await _upsertConvStatus(currentConv.conv_id, currentConv.customer_id, currentConv.phone, newStatus);
+    if (!convId) { if (btn) { btn.disabled = false; btn.textContent = isResolved ? '↩ Reopen' : '✓ Resolve'; } return; }
     showToast(newStatus === 'resolved' ? 'Conversation resolved ✓' : 'Conversation reopened', 'success');
     currentConv = { ...currentConv, status: newStatus, conv_id: convId };
-    const btn = document.getElementById('btn-resolve-thread');
-    if (btn) { btn.textContent = newStatus === 'resolved' ? '↩ Reopen' : '✓ Resolve'; btn.classList.toggle('resolved', newStatus === 'resolved'); }
+    if (btn) { btn.disabled = false; btn.textContent = newStatus === 'resolved' ? '↩ Reopen' : '✓ Resolve'; btn.classList.toggle('resolved', newStatus === 'resolved'); }
     loadInbox();
   }
 
   // ── quickResolve (from list hover) ──
   async function quickResolve(key, customerId, phone) {
-    // Find conv_id from cache first
     const cached = _allConvs.find(c => c.key === key);
-    let convId = cached?.conv_id;
-    if (!convId) {
-      const conv = await getOrCreateConversation(customerId || null, phone, 'sms');
-      if (!conv) { showToast('Could not resolve conversation', 'error'); return; }
-      convId = conv.id;
-    }
-    const { error } = await db.from('conversations').update({ status: 'resolved', resolved_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', convId);
-    if (error) { showToast('Failed: ' + error.message, 'error'); return; }
+    const convId = await _upsertConvStatus(cached?.conv_id || null, customerId || null, phone, 'resolved');
+    if (!convId) return;
     showToast('Resolved ✓', 'success');
     if (currentConv && currentConv.key === key) {
       currentConv = { ...currentConv, status: 'resolved', conv_id: convId };
