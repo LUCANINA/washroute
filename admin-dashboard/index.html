@@ -1189,7 +1189,7 @@
                 <div id="new-zone-city-tags" style="display:flex;flex-wrap:wrap;gap:5px;"></div>
                 <input class="form-input" id="new-zone-city-input" placeholder="e.g. San Leandro" style="width:150px;padding:5px 8px;font-size:12.5px;"
                   onkeydown="if(event.key==='Enter'){event.preventDefault();addNewZoneCity();}">
-                <button class="btn" onclick="addNewZoneCity()" style="padding:5px 10px;font-size:12px;">Add city</button>
+                <button id="new-zone-city-btn" class="btn" onclick="addNewZoneCity()" style="padding:5px 10px;font-size:12px;">Add city</button>
               </div>
             </div>
             <!-- Map + zone panel -->
@@ -1232,7 +1232,7 @@
                     <div style="display:flex;gap:5px;margin-bottom:4px;">
                       <input class="form-input" id="edit-zone-city-input" placeholder="e.g. San Leandro" style="flex:1;padding:6px 8px;font-size:12.5px;"
                         onkeydown="if(event.key==='Enter'){event.preventDefault();addEditZoneCity();}">
-                      <button class="btn" onclick="addEditZoneCity()" style="padding:6px 10px;font-size:12.5px;white-space:nowrap;">Add</button>
+                      <button id="edit-zone-city-btn" class="btn" onclick="addEditZoneCity()" style="padding:6px 10px;font-size:12.5px;white-space:nowrap;">Add</button>
                     </div>
 
                     <div id="edit-zone-polygon-hint" style="margin-top:14px;padding:8px 10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:11.5px;color:var(--gray-500);line-height:1.45;"></div>
@@ -6634,15 +6634,16 @@
   // ── ADD / REMOVE CITIES (edit panel) ──
   async function addEditZoneCity() {
     const inp = document.getElementById('edit-zone-city-input');
+    const btn = document.getElementById('edit-zone-city-btn');
     const city = inp.value.trim();
     if (!city) return;
     if (_editZoneCities.find(c => c.name.toLowerCase() === city.toLowerCase())) {
       showToast(`"${city}" is already in this zone.`, ''); inp.value = ''; return;
     }
-    // Show loading state
-    inp.disabled = true; inp.value = 'Looking up…';
+    // Show loading state — disable both input and button to prevent double-submit
+    inp.disabled = true; btn.disabled = true; inp.value = 'Looking up…';
     const geojson = await fetchCityBoundary(city);
-    inp.disabled = false; inp.value = '';
+    inp.disabled = false; btn.disabled = false; inp.value = '';
 
     const color = document.getElementById('edit-zone-color').value || '#635bff';
     _editZoneCities.push({ name: city, geojson });
@@ -6667,12 +6668,13 @@
   // ── ADD / REMOVE CITIES (save bar for new polygon zone) ──
   async function addNewZoneCity() {
     const inp = document.getElementById('new-zone-city-input');
+    const btn = document.getElementById('new-zone-city-btn');
     const city = inp.value.trim();
     if (!city) return;
     if (_newZoneCities.find(c => c.name.toLowerCase() === city.toLowerCase())) { inp.value = ''; return; }
-    inp.disabled = true; inp.value = 'Looking up…';
+    inp.disabled = true; btn.disabled = true; inp.value = 'Looking up…';
     const geojson = await fetchCityBoundary(city);
-    inp.disabled = false; inp.value = '';
+    inp.disabled = false; btn.disabled = false; inp.value = '';
 
     const color = document.getElementById('new-zone-color').value || '#635bff';
     _newZoneCities.push({ name: city, geojson });
