@@ -3765,7 +3765,8 @@
     let q = db.from('conversations').select('*').eq('channel', channel).limit(1);
     if (customerId) q = q.eq('customer_id', customerId);
     else            q = q.eq('phone', phone).is('customer_id', null);
-    const { data: rows } = await q;
+    const { data: rows, error: selErr } = await q;
+    if (selErr) { showToast('Conv SELECT error: ' + selErr.message, 'error'); return null; }
     const existing = rows?.[0];
     if (existing) return existing;
 
@@ -3774,7 +3775,7 @@
     if (customerId) ins.customer_id = customerId;
     else            ins.phone = phone;
     const { data: created, error: insErr } = await db.from('conversations').insert(ins).select().single();
-    if (insErr) { console.error('getOrCreateConversation insert failed:', insErr); return null; }
+    if (insErr) { showToast('Conv INSERT error: ' + insErr.message, 'error'); return null; }
     return created;
   }
 
