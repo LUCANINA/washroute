@@ -6370,23 +6370,77 @@
   }
 
   // ── DELIVERY ZONES MAP ──
-  let newZoneLayer = null;         // currently drawn but not-yet-saved polygon layer
-  let zonePolygonLayers = {};      // { zoneId: leafletLayer } for existing zones
-  let editingZoneId = null;
+  let newZoneLayer    = null;  // currently drawn but not-yet-saved polygon layer
+  let zonePolygonLayers = {};  // { zoneId: L.FeatureGroup } for saved zones (drawn + city shapes)
+  let editingZoneId   = null;
   let zonesDrawnItems = null;
-  let _editZoneCities  = [];   // working city list while editing a zone
-  let _newZoneCities   = [];   // city list for the polygon save bar
+  // _editZoneCities: Array<{ name: string, geojson: object|null }>
+  let _editZoneCities = [];
+  let _newZoneCities  = [];    // same structure, for the save bar
+  let _editCityLayers = {};    // name → Leaflet layer, temp layers while panel is open
+  let _newCityLayers  = {};    // same for save-bar cities
+
+  // ── NOMINATIM CITY BOUNDARY LOOKUP ──
+  async function fetchCityBoundary(cityName) {
+    const q = encodeURIComponent(cityName + ', California, USA');
+    const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&polygon_geojson=1&limit=10&countrycodes=us`;
+    try {
+      const res = await fetch(url, { headers: { 'Accept-Language': 'en', 'User-Agent': 'WashRoute/1.0' } });
+      if (!res.ok) return null;
+      const results = await res.json();
+      // Prefer administrative boundary (city limits polygon)
+      const hit = results.find(r => r.class === 'boundary' && r.type === 'administrative')
+               || results.find(r => ['city','town','municipality','village','suburb'].includes(r.addresstype))
+               || results[0];
+      return (hit && hit.geojson) ? hit.geojson : null;
+    } catch(e) { return null; }
+  }
+
+  // ── CITY POLYGON LAYER HELPERS ──
+  function _addCityLayer(cityName, geojson, color, layerDict) {
+    if (!zonesMap || !geojson) return;
+    _removeCityLayer(cityName, layerDict);
+    try {
+      const layer = L.geoJSON(geojson, {
+        style: { color, fillColor: color, fillOpacity: 0.13, weight: 2, dashArray: '6,4' }
+      }).addTo(zonesMap);
+      layerDict[cityName] = layer;
+      try { zonesMap.fitBounds(layer.getBounds(), { padding: [40, 40], maxZoom: 13 }); } catch(e) {}
+    } catch(e) { console.warn('City polygon layer error:', e); }
+  }
+
+  function _removeCityLayer(cityName, layerDict) {
+    if (layerDict[cityName]) {
+      try { zonesMap.removeLayer(layerDict[cityName]); } catch(e) {}
+      delete layerDict[cityName];
+    }
+  }
+
+  function _clearCityLayers(layerDict) {
+    Object.keys(layerDict).forEach(n => _removeCityLayer(n, layerDict));
+  }
+
+  // ── CITY TAG RENDERING ──
+  // cities = Array<{ name, geojson }> or string[] (legacy)
+  function renderZoneCityTags(containerId, cities, removeFnName) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    if (!cities.length) { el.innerHTML = ''; return; }
+    el.innerHTML = cities.map((c, i) => {
+      const name = typeof c === 'string' ? c : c.name;
+      const hasBoundary = typeof c === 'object' && c.geojson;
+      const badge = hasBoundary
+        ? `<span style="font-size:9px;margin-right:3px;opacity:.7;" title="Boundary found">✓</span>`
+        : `<span style="font-size:9px;margin-right:3px;opacity:.45;" title="No boundary found — matching by city name">~</span>`;
+      return `<span class="zone-city-tag">${badge}${name}<button onclick="${removeFnName}(${i});return false;" title="Remove">×</button></span>`;
+    }).join('');
+  }
 
   // ── INIT MAP ──
   async function initZonesMap() {
-    if (zonesMap) {
-      zonesMap.invalidateSize();
-      await loadAndRenderZones();
-      return;
-    }
+    if (zonesMap) { zonesMap.invalidateSize(); await loadAndRenderZones(); return; }
     zonesMap = L.map('zones-map').setView([37.835, -122.265], 12);
     cartoTiles().addTo(zonesMap);
-
     zonesDrawnItems = new L.FeatureGroup().addTo(zonesMap);
     zoneDrawControl = new L.Control.Draw({
       draw: {
@@ -6396,19 +6450,18 @@
       edit: { featureGroup: zonesDrawnItems }
     });
     zonesMap.addControl(zoneDrawControl);
-
     zonesMap.on(L.Draw.Event.CREATED, function(e) {
       if (newZoneLayer) zonesDrawnItems.removeLayer(newZoneLayer);
       newZoneLayer = e.layer;
       zonesDrawnItems.addLayer(newZoneLayer);
+      _clearCityLayers(_newCityLayers);
       _newZoneCities = [];
-      renderZoneCityTags('new-zone-city-tags', _newZoneCities, removeNewZoneCity);
+      renderZoneCityTags('new-zone-city-tags', _newZoneCities, 'removeNewZoneCityAt');
       document.getElementById('zone-save-bar').style.display = 'block';
       document.getElementById('new-zone-name').value = '';
       document.getElementById('new-zone-city-input').value = '';
       document.getElementById('new-zone-name').focus();
     });
-
     await loadAndRenderZones();
   }
 
@@ -6435,8 +6488,11 @@
     }
     el.innerHTML = drawnZones.map(z => {
       const count = zoneCounts ? (zoneCounts[z.id] || 0) : 0;
-      const cityNote = z.cities?.length ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:1px;">${z.cities.length} cit${z.cities.length===1?'y':'ies'}</div>` : '';
-      const polyNote = z.geojson ? `<div style="font-size:10px;color:var(--gray-300);margin-top:1px;">polygon</div>` : '';
+      const cps = Array.isArray(z.city_polygons) ? z.city_polygons : [];
+      const cityNote = cps.length
+        ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:1px;">${cps.map(c=>c.name).join(', ')}</div>`
+        : (z.cities?.length ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:1px;">${z.cities.join(', ')}</div>` : '');
+      const polyNote = z.geojson ? `<div style="font-size:10px;color:var(--gray-300);margin-top:1px;">+ polygon</div>` : '';
       return `<div class="zone-row" onclick="openZoneDetail('${z.id}')" id="zone-list-row-${z.id}">
         <div style="width:10px;height:10px;border-radius:50%;background:${z.color};flex-shrink:0;"></div>
         <div style="flex:1;min-width:0;">
@@ -6450,28 +6506,44 @@
   }
 
   function renderZonePolygons() {
+    // Remove existing rendered zone layers
     Object.values(zonePolygonLayers).forEach(l => { try { zonesMap.removeLayer(l); } catch(e) {} });
     zonePolygonLayers = {};
+
     drawnZones.forEach(z => {
-      if (!z.geojson) return;
-      try {
-        const geojson = typeof z.geojson === 'string' ? JSON.parse(z.geojson) : z.geojson;
-        const layer = L.geoJSON(geojson, {
-          style: { color: z.color, fillColor: z.color, fillOpacity: 0.18, weight: 2.5 }
-        }).addTo(zonesMap);
-        const cityList = z.cities?.length ? `<br><span style="font-weight:400;font-size:11px">+ ${z.cities.join(', ')}</span>` : '';
-        layer.bindTooltip(`<strong>${z.name}</strong>${cityList}`, { sticky: true });
-        layer.on('click', () => openZoneDetail(z.id));
-        zonePolygonLayers[z.id] = layer;
-      } catch(e) { console.warn('Zone GeoJSON parse error:', z.id, e); }
+      const color = z.color || '#635bff';
+      const layers = [];
+
+      // Hand-drawn polygon (solid fill)
+      if (z.geojson) {
+        try {
+          const g = typeof z.geojson === 'string' ? JSON.parse(z.geojson) : z.geojson;
+          layers.push(L.geoJSON(g, { style: { color, fillColor: color, fillOpacity: 0.18, weight: 2.5 } }));
+        } catch(e) {}
+      }
+
+      // Stored city boundary polygons (dashed outline, lighter fill)
+      const cps = Array.isArray(z.city_polygons) ? z.city_polygons : [];
+      cps.forEach(cp => {
+        if (!cp.geojson) return;
+        try {
+          layers.push(L.geoJSON(cp.geojson, { style: { color, fillColor: color, fillOpacity: 0.12, weight: 2, dashArray: '6,4' } }));
+        } catch(e) {}
+      });
+
+      if (!layers.length) return;
+
+      const group = L.featureGroup(layers).addTo(zonesMap);
+      const cityNames = cps.map(c => c.name).join(', ');
+      const tooltip = `<strong>${z.name}</strong>${cityNames ? `<br><span style="font-size:11px;font-weight:400">${cityNames}</span>` : ''}`;
+      group.bindTooltip(tooltip, { sticky: true });
+      group.on('click', () => openZoneDetail(z.id));
+      zonePolygonLayers[z.id] = group;
     });
-    const allBounds = Object.values(zonePolygonLayers).map(l => l.getBounds()).filter(b => b.isValid());
+
+    const allBounds = Object.values(zonePolygonLayers).map(l => { try { return l.getBounds(); } catch(e) { return null; } }).filter(b => b && b.isValid());
     if (allBounds.length && zonesMap) {
-      try {
-        let combined = allBounds[0];
-        allBounds.slice(1).forEach(b => { combined = combined.extend(b); });
-        zonesMap.fitBounds(combined, { padding: [30, 30] });
-      } catch(e) {}
+      try { let c = allBounds[0]; allBounds.slice(1).forEach(b => { c = c.extend(b); }); zonesMap.fitBounds(c, { padding: [30, 30] }); } catch(e) {}
     }
   }
 
@@ -6480,7 +6552,22 @@
     const z = drawnZones.find(z => z.id === zoneId);
     if (!z) return;
     editingZoneId = zoneId;
-    _editZoneCities = [...(z.cities || [])];
+
+    // Clear any leftover temp city layers from previous edit
+    _clearCityLayers(_editCityLayers);
+
+    // Load existing city polygons into working array
+    const cps = Array.isArray(z.city_polygons) ? z.city_polygons : [];
+    _editZoneCities = cps.map(cp => ({ name: cp.name, geojson: cp.geojson || null }));
+    // Migrate legacy cities-text-only records
+    if (!_editZoneCities.length && z.cities?.length) {
+      _editZoneCities = z.cities.map(name => ({ name, geojson: null }));
+    }
+
+    // Show city boundary layers on map (as dashed temp overlays)
+    _editZoneCities.forEach(c => {
+      if (c.geojson) _addCityLayer(c.name, c.geojson, z.color || '#635bff', _editCityLayers);
+    });
 
     document.getElementById('zone-detail-title').textContent = z.name;
     document.getElementById('edit-zone-name').value = z.name;
@@ -6489,31 +6576,26 @@
 
     const hint = document.getElementById('edit-zone-polygon-hint');
     if (z.geojson) {
-      hint.textContent = '✓ This zone has a drawn polygon. It will continue to match addresses inside that shape.';
-      hint.style.color = 'var(--green)';
+      hint.innerHTML = '<span style="color:var(--green)">✓ Hand-drawn polygon active.</span> Cities expand the covered area.';
     } else {
-      hint.textContent = 'No polygon drawn. This zone matches addresses purely by city name.';
+      hint.innerHTML = 'No hand-drawn polygon — coverage is defined entirely by cities above. You can draw a polygon too.';
       hint.style.color = 'var(--gray-400)';
     }
 
-    renderZoneCityTags('edit-zone-city-tags', _editZoneCities, removeEditZoneCity);
-
-    // Switch panel to detail view
+    renderZoneCityTags('edit-zone-city-tags', _editZoneCities, 'removeEditZoneCityAt');
     document.getElementById('zone-panel-list').style.display = 'none';
     document.getElementById('zone-panel-detail').style.display = 'flex';
 
-    // Highlight on map
     document.querySelectorAll('.zone-row').forEach(r => r.classList.remove('selected'));
     const row = document.getElementById('zone-list-row-' + zoneId);
     if (row) row.classList.add('selected');
     const layer = zonePolygonLayers[zoneId];
-    if (layer && zonesMap) {
-      try { zonesMap.fitBounds(layer.getBounds(), { padding: [40, 40] }); } catch(e) {}
-    }
+    if (layer && zonesMap) { try { zonesMap.fitBounds(layer.getBounds(), { padding: [40,40] }); } catch(e) {} }
   }
 
   function closeZoneDetail() {
     editingZoneId = null;
+    _clearCityLayers(_editCityLayers);
     document.getElementById('zone-panel-detail').style.display = 'none';
     document.getElementById('zone-panel-list').style.display = 'block';
     document.querySelectorAll('.zone-row').forEach(r => r.classList.remove('selected'));
@@ -6523,9 +6605,12 @@
     const name = document.getElementById('edit-zone-name').value.trim();
     if (!name) { showToast('Zone name is required.', 'error'); return; }
     const color = document.getElementById('edit-zone-color').value;
+    const cityNames = _editZoneCities.map(c => c.name);
+    const cityPolygons = _editZoneCities.map(c => ({ name: c.name, geojson: c.geojson || null }));
     const { error } = await db.rpc('upsert_service_zone', {
       p_id: editingZoneId, p_name: name, p_color: color,
-      p_geojson: null, p_cities: _editZoneCities
+      p_geojson: null, p_cities: cityNames,
+      p_city_polygons: JSON.stringify(cityPolygons)
     });
     if (error) { showToast('Update failed: ' + error.message, 'error'); return; }
     showToast(`Zone "${name}" saved!`, 'success');
@@ -6546,52 +6631,73 @@
     await loadAndRenderZones();
   }
 
-  // ── CITY TAG HELPERS ──
-  function renderZoneCityTags(containerId, cities, removeFn) {
-    const el = document.getElementById(containerId);
-    if (!el) return;
-    if (!cities.length) { el.innerHTML = ''; return; }
-    el.innerHTML = cities.map(c =>
-      `<span class="zone-city-tag">${c}<button onclick="${removeFn.name}('${c.replace(/'/g,"\\'")}');return false;" title="Remove">×</button></span>`
-    ).join('');
-  }
-
-  function addEditZoneCity() {
+  // ── ADD / REMOVE CITIES (edit panel) ──
+  async function addEditZoneCity() {
     const inp = document.getElementById('edit-zone-city-input');
     const city = inp.value.trim();
     if (!city) return;
-    if (_editZoneCities.includes(city)) { showToast(`"${city}" is already in this zone.`, ''); inp.value = ''; return; }
-    _editZoneCities.push(city);
-    inp.value = '';
-    renderZoneCityTags('edit-zone-city-tags', _editZoneCities, removeEditZoneCity);
+    if (_editZoneCities.find(c => c.name.toLowerCase() === city.toLowerCase())) {
+      showToast(`"${city}" is already in this zone.`, ''); inp.value = ''; return;
+    }
+    // Show loading state
+    inp.disabled = true; inp.value = 'Looking up…';
+    const geojson = await fetchCityBoundary(city);
+    inp.disabled = false; inp.value = '';
+
+    const color = document.getElementById('edit-zone-color').value || '#635bff';
+    _editZoneCities.push({ name: city, geojson });
+    if (geojson) {
+      _addCityLayer(city, geojson, color, _editCityLayers);
+      showToast(`"${city}" boundary added — polygon expanded.`, 'success');
+    } else {
+      showToast(`No boundary found for "${city}" — it will match by city name.`, '');
+    }
+    renderZoneCityTags('edit-zone-city-tags', _editZoneCities, 'removeEditZoneCityAt');
+    inp.focus();
   }
 
-  function removeEditZoneCity(city) {
-    _editZoneCities = _editZoneCities.filter(c => c !== city);
-    renderZoneCityTags('edit-zone-city-tags', _editZoneCities, removeEditZoneCity);
+  function removeEditZoneCityAt(idx) {
+    const city = _editZoneCities[idx];
+    if (!city) return;
+    _removeCityLayer(city.name, _editCityLayers);
+    _editZoneCities.splice(idx, 1);
+    renderZoneCityTags('edit-zone-city-tags', _editZoneCities, 'removeEditZoneCityAt');
   }
 
-  function addNewZoneCity() {
+  // ── ADD / REMOVE CITIES (save bar for new polygon zone) ──
+  async function addNewZoneCity() {
     const inp = document.getElementById('new-zone-city-input');
     const city = inp.value.trim();
     if (!city) return;
-    if (_newZoneCities.includes(city)) { inp.value = ''; return; }
-    _newZoneCities.push(city);
-    inp.value = '';
-    renderZoneCityTags('new-zone-city-tags', _newZoneCities, removeNewZoneCity);
+    if (_newZoneCities.find(c => c.name.toLowerCase() === city.toLowerCase())) { inp.value = ''; return; }
+    inp.disabled = true; inp.value = 'Looking up…';
+    const geojson = await fetchCityBoundary(city);
+    inp.disabled = false; inp.value = '';
+
+    const color = document.getElementById('new-zone-color').value || '#635bff';
+    _newZoneCities.push({ name: city, geojson });
+    if (geojson) {
+      _addCityLayer(city, geojson, color, _newCityLayers);
+      showToast(`"${city}" boundary added.`, 'success');
+    } else {
+      showToast(`No boundary found for "${city}" — will match by city name.`, '');
+    }
+    renderZoneCityTags('new-zone-city-tags', _newZoneCities, 'removeNewZoneCityAt');
+    inp.focus();
   }
 
-  function removeNewZoneCity(city) {
-    _newZoneCities = _newZoneCities.filter(c => c !== city);
-    renderZoneCityTags('new-zone-city-tags', _newZoneCities, removeNewZoneCity);
+  function removeNewZoneCityAt(idx) {
+    const city = _newZoneCities[idx];
+    if (!city) return;
+    _removeCityLayer(city.name, _newCityLayers);
+    _newZoneCities.splice(idx, 1);
+    renderZoneCityTags('new-zone-city-tags', _newZoneCities, 'removeNewZoneCityAt');
   }
 
   // ── DRAW NEW ZONE (polygon) ──
   function startZoneDraw() {
     closeZoneDetail();
-    if (zonesMap && zoneDrawControl) {
-      new L.Draw.Polygon(zonesMap, zoneDrawControl.options.draw.polygon).enable();
-    }
+    if (zonesMap && zoneDrawControl) new L.Draw.Polygon(zonesMap, zoneDrawControl.options.draw.polygon).enable();
     showToast('Click on the map to place polygon vertices. Double-click to finish.');
   }
 
@@ -6601,12 +6707,15 @@
     if (!newZoneLayer) { showToast('Please draw a polygon first.', 'error'); return; }
     const color = document.getElementById('new-zone-color').value;
     const geojson = JSON.stringify(newZoneLayer.toGeoJSON().geometry);
+    const cityNames = _newZoneCities.map(c => c.name);
+    const cityPolygons = _newZoneCities.map(c => ({ name: c.name, geojson: c.geojson || null }));
     const { error } = await db.rpc('upsert_service_zone', {
-      p_name: name, p_color: color, p_geojson: geojson, p_cities: _newZoneCities
+      p_name: name, p_color: color, p_geojson: geojson,
+      p_cities: cityNames, p_city_polygons: JSON.stringify(cityPolygons)
     });
     if (error) { showToast('Save failed: ' + error.message, 'error'); return; }
-    if (newZoneLayer) { zonesDrawnItems.removeLayer(newZoneLayer); newZoneLayer = null; }
-    _newZoneCities = [];
+    zonesDrawnItems.removeLayer(newZoneLayer); newZoneLayer = null;
+    _clearCityLayers(_newCityLayers); _newZoneCities = [];
     document.getElementById('zone-save-bar').style.display = 'none';
     showToast(`Zone "${name}" saved!`, 'success');
     await loadAndRenderZones();
@@ -6617,26 +6726,25 @@
 
   function cancelZoneDraw() {
     if (newZoneLayer) { zonesDrawnItems.removeLayer(newZoneLayer); newZoneLayer = null; }
-    _newZoneCities = [];
+    _clearCityLayers(_newCityLayers); _newZoneCities = [];
     document.getElementById('zone-save-bar').style.display = 'none';
   }
 
   // ── CITY-ONLY ZONE (no polygon) ──
   function openNewCityZone() {
-    // Reuse the detail panel but for a new zone (no id)
     editingZoneId = null;
+    _clearCityLayers(_editCityLayers);
     _editZoneCities = [];
     document.getElementById('zone-detail-title').textContent = 'New City Zone';
     document.getElementById('edit-zone-name').value = '';
     document.getElementById('edit-zone-color').value = '#635bff';
     document.getElementById('edit-zone-city-input').value = '';
     const hint = document.getElementById('edit-zone-polygon-hint');
-    hint.textContent = 'No polygon needed. This zone will match orders by city name only. You can draw a polygon later.';
+    hint.textContent = 'Add cities below — each will pull in its real boundary from OpenStreetMap and expand the zone on the map.';
     hint.style.color = 'var(--gray-400)';
-    renderZoneCityTags('edit-zone-city-tags', _editZoneCities, removeEditZoneCity);
+    renderZoneCityTags('edit-zone-city-tags', _editZoneCities, 'removeEditZoneCityAt');
     document.getElementById('zone-panel-list').style.display = 'none';
     document.getElementById('zone-panel-detail').style.display = 'flex';
-    // Override save to create new
     document.querySelector('#zone-panel-detail .btn-primary').onclick = saveNewCityZone;
     setTimeout(() => document.getElementById('edit-zone-name').focus(), 50);
   }
@@ -6646,12 +6754,14 @@
     if (!name) { showToast('Zone name is required.', 'error'); return; }
     if (!_editZoneCities.length) { showToast('Add at least one city, or use "Draw New Zone" for a polygon zone.', 'error'); return; }
     const color = document.getElementById('edit-zone-color').value;
+    const cityNames = _editZoneCities.map(c => c.name);
+    const cityPolygons = _editZoneCities.map(c => ({ name: c.name, geojson: c.geojson || null }));
     const { error } = await db.rpc('upsert_service_zone', {
-      p_name: name, p_color: color, p_geojson: null, p_cities: _editZoneCities
+      p_name: name, p_color: color, p_geojson: null,
+      p_cities: cityNames, p_city_polygons: JSON.stringify(cityPolygons)
     });
     if (error) { showToast('Save failed: ' + error.message, 'error'); return; }
     showToast(`Zone "${name}" saved!`, 'success');
-    // Restore save button to normal edit behaviour
     document.querySelector('#zone-panel-detail .btn-primary').onclick = saveZoneEdit;
     closeZoneDetail();
     await loadAndRenderZones();
