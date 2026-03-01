@@ -3928,7 +3928,10 @@
       </div>
       <div class="inbox-item-preview">${arrow}${esc(c.latest.body)}</div>
       <div class="inbox-item-actions">
-        <button class="inbox-quick-btn resolve" title="Resolve" onclick="event.stopPropagation();quickResolve('${c.key}','${c.customer_id||''}','${c.phone}')">✓ Resolve</button>
+        ${c.status === 'resolved'
+          ? `<button class="inbox-quick-btn resolve resolved" title="Reopen" onclick="event.stopPropagation();quickToggleResolve('${c.key}','${c.customer_id||''}','${c.phone}','open')">↩ Reopen</button>`
+          : `<button class="inbox-quick-btn resolve" title="Resolve" onclick="event.stopPropagation();quickToggleResolve('${c.key}','${c.customer_id||''}','${c.phone}','resolved')">✓ Resolve</button>`
+        }
         <button class="inbox-quick-btn" title="Create Issue" onclick="event.stopPropagation();openSMSConversation('${c.customer_id||''}','${c.phone}',this.closest('.inbox-item'));setTimeout(()=>showIssueForm(),100)">⚑ Issue</button>
       </div>
     </div>`;
@@ -4104,16 +4107,16 @@
     loadInbox();
   }
 
-  // ── quickResolve (from list hover) ──
-  async function quickResolve(key, customerId, phone) {
+  // ── quickToggleResolve (from list hover — works both directions) ──
+  async function quickToggleResolve(key, customerId, phone, newStatus) {
     const cached = _allConvs.find(c => c.key === key);
-    const convId = await _upsertConvStatus(cached?.conv_id || null, customerId || null, phone, 'resolved');
+    const convId = await _upsertConvStatus(cached?.conv_id || null, customerId || null, phone, newStatus);
     if (!convId) return;
-    showToast('Resolved ✓', 'success');
+    showToast(newStatus === 'resolved' ? 'Resolved ✓' : 'Reopened ✓', 'success');
     if (currentConv && currentConv.key === key) {
-      currentConv = { ...currentConv, status: 'resolved', conv_id: convId };
+      currentConv = { ...currentConv, status: newStatus, conv_id: convId };
       const btn = document.getElementById('btn-resolve-thread');
-      if (btn) { btn.textContent = '↩ Reopen'; btn.classList.add('resolved'); }
+      if (btn) { btn.textContent = newStatus === 'resolved' ? '↩ Reopen' : '✓ Resolve'; btn.classList.toggle('resolved', newStatus === 'resolved'); }
     }
     loadInbox();
   }
