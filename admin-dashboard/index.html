@@ -4549,9 +4549,10 @@
 
   async function addGlobalPref() {
     const maxSort = allGlobalPrefs.filter(p => p.category===prefActiveCat).length;
-    const { data, error } = await db.from('preferences')
-      .insert({ name: '', category: prefActiveCat, options: [], sort_order: maxSort })
-      .select().single();
+    // Use SECURITY DEFINER RPC to bypass PostgREST RLS restrictions on new table
+    const { data, error } = await db.rpc('upsert_preference', {
+      p_name: '', p_category: prefActiveCat, p_options: [], p_sort_order: maxSort
+    });
     if (error) { showToast(error.message, 'error'); return; }
     allGlobalPrefs.push(data);
     globalPrefsLocalState[data.id] = { name: '', options: [] };
@@ -4563,7 +4564,11 @@
     const state = globalPrefsLocalState[prefId];
     if (!state) return;
     if (!state.name.trim()) { showToast('Please enter a preference name.', 'error'); return; }
-    const { error } = await db.from('preferences').update({ name: state.name.trim(), options: state.options }).eq('id', prefId);
+    const pref = allGlobalPrefs.find(p => p.id === prefId);
+    const { error } = await db.rpc('upsert_preference', {
+      p_id: prefId, p_name: state.name.trim(), p_category: pref?.category || prefActiveCat,
+      p_options: state.options, p_sort_order: pref?.sort_order || 0
+    });
     if (error) { showToast(error.message, 'error'); return; }
     allGlobalPrefs = allGlobalPrefs.map(p => p.id===prefId ? {...p, name: state.name.trim(), options: JSON.parse(JSON.stringify(state.options))} : p);
     const msgEl = document.getElementById('gpref-msg-'+prefId);
@@ -4572,7 +4577,7 @@
 
   async function deleteGlobalPref(prefId) {
     if (!confirm('Delete this preference? This cannot be undone.')) return;
-    const { error } = await db.from('preferences').delete().eq('id', prefId);
+    const { error } = await db.rpc('delete_preference', { p_id: prefId });
     if (error) { showToast(error.message, 'error'); return; }
     allGlobalPrefs = allGlobalPrefs.filter(p => p.id !== prefId);
     delete globalPrefsLocalState[prefId];
