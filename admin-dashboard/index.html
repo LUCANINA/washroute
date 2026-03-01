@@ -6610,7 +6610,7 @@
     const { error } = await db.rpc('upsert_service_zone', {
       p_id: editingZoneId, p_name: name, p_color: color,
       p_geojson: null, p_cities: cityNames,
-      p_city_polygons: JSON.stringify(cityPolygons)
+      p_city_polygons: cityPolygons
     });
     if (error) { showToast('Update failed: ' + error.message, 'error'); return; }
     showToast(`Zone "${name}" saved!`, 'success');
@@ -6713,7 +6713,7 @@
     const cityPolygons = _newZoneCities.map(c => ({ name: c.name, geojson: c.geojson || null }));
     const { error } = await db.rpc('upsert_service_zone', {
       p_name: name, p_color: color, p_geojson: geojson,
-      p_cities: cityNames, p_city_polygons: JSON.stringify(cityPolygons)
+      p_cities: cityNames, p_city_polygons: cityPolygons
     });
     if (error) { showToast('Save failed: ' + error.message, 'error'); return; }
     zonesDrawnItems.removeLayer(newZoneLayer); newZoneLayer = null;
@@ -6760,7 +6760,7 @@
     const cityPolygons = _editZoneCities.map(c => ({ name: c.name, geojson: c.geojson || null }));
     const { error } = await db.rpc('upsert_service_zone', {
       p_name: name, p_color: color, p_geojson: null,
-      p_cities: cityNames, p_city_polygons: JSON.stringify(cityPolygons)
+      p_cities: cityNames, p_city_polygons: cityPolygons
     });
     if (error) { showToast('Save failed: ' + error.message, 'error'); return; }
     showToast(`Zone "${name}" saved!`, 'success');
