@@ -3327,13 +3327,15 @@
     document.getElementById('sms-send-btn').textContent = 'Send';
   }
 
-  // ── BATCH ACTION: CANCEL ORDERS (deletes them) ──
+  // ── BATCH ACTION: DELETE ORDERS ──
   async function batchCancelOrders() {
     const sel = getSelectedOrderData();
     if (!sel.length) return;
     if (!confirm(`Delete ${sel.length} order${sel.length>1?'s':''}? This cannot be undone.`)) return;
     const ids = sel.map(s => s.id);
-    const { error } = await db.from('orders').delete().in('id', ids);
+    // Use RPC (SECURITY DEFINER) so cascade deletes on route_stops/notifications
+    // are not blocked by their RLS policies
+    const { error } = await db.rpc('delete_orders', { p_ids: ids });
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     showToast(`✓ ${ids.length} order${ids.length>1?'s':''} deleted`);
     clearOrderSelection();
