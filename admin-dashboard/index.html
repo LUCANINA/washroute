@@ -1015,6 +1015,12 @@
                 <button class="filter-tab" onclick="filterCustomers('at_risk',this)">At Risk</button>
                 <button class="filter-tab" onclick="filterCustomers('churned',this)">Churned</button>
               </div>
+              <select id="cust-map-city" class="form-input" style="height:30px;font-size:12px;width:130px;padding:0 8px;" onchange="setCustCityFilter(this.value)">
+                <option value="all">All Cities</option>
+              </select>
+              <select id="cust-map-route" class="form-input" style="height:30px;font-size:12px;width:160px;padding:0 8px;" onchange="setCustRouteFilter(this.value)">
+                <option value="all">All Routes</option>
+              </select>
               <div class="filter-tabs">
                 <button class="filter-tab active" id="cust-view-list" onclick="setCustView('list')">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:middle;margin-right:2px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/></svg>
@@ -1030,17 +1036,6 @@
             <div id="customers-table-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             <!-- MAP VIEW -->
             <div id="customers-map-view" style="display:none;">
-              <!-- Map filter bar -->
-              <div style="padding:10px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="color:var(--gray-400);flex-shrink:0"><path d="M22 3H2l8 9.46V19l4 2V12.46z"/></svg>
-                <select id="cust-map-city" class="form-input" style="height:30px;font-size:12px;width:160px;padding:0 8px;" onchange="setCustCityFilter(this.value)">
-                  <option value="all">All Cities</option>
-                </select>
-                <select id="cust-map-route" class="form-input" style="height:30px;font-size:12px;width:200px;padding:0 8px;" onchange="setCustRouteFilter(this.value)">
-                  <option value="all">All Routes</option>
-                </select>
-                <span id="cust-map-count" style="margin-left:auto;font-size:12px;color:var(--gray-400);font-weight:500;"></span>
-              </div>
               <div style="height:625px;position:relative;">
                 <div id="cust-map" style="height:100%;width:100%;"></div>
                 <div class="map-info-card" id="cust-info-card">
@@ -1053,6 +1048,7 @@
                   <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Active</div>
                   <div class="leg-row"><div class="leg-dot" style="background:#d97706"></div>At Risk</div>
                   <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>Inactive</div>
+                  <div id="cust-map-count" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08);font-size:11px;color:var(--gray-500);font-weight:500;"></div>
                 </div>
               </div>
             </div>
@@ -2899,6 +2895,7 @@
     });
     updateCustomerStats(allCustomers);
     renderCustomers(allCustomers);
+    populateCustMapFilters();
   }
 
   function updateCustomerStats(data) {
@@ -6896,7 +6893,7 @@
       mapEl.style.display   = 'block';
       btnList.classList.remove('active');
       btnMap.classList.add('active');
-      setTimeout(()=>{ initCustMap(); populateCustMapFilters(); }, 60);
+      setTimeout(()=>initCustMap(), 60);
     } else {
       tableEl.style.display = '';
       mapEl.style.display   = 'none';
