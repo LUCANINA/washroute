@@ -1041,7 +1041,7 @@
                 </select>
                 <span id="cust-map-count" style="margin-left:auto;font-size:12px;color:var(--gray-400);font-weight:500;"></span>
               </div>
-              <div style="height:500px;position:relative;">
+              <div style="height:625px;position:relative;">
                 <div id="cust-map" style="height:100%;width:100%;"></div>
                 <div class="map-info-card" id="cust-info-card">
                   <div class="mic-name" id="cim-name"></div>
@@ -6931,14 +6931,16 @@
       const ln = p.last_name  || c.last_name_cache  || '';
       const name=`${fn} ${ln}`.trim()||'Unknown';
       const addr = c.address_cache || (c.city ? `${c.city}` : '') || p.email||c.email_cache||'';
+      const showCard = () => {
+        document.getElementById('cim-name').textContent=name;
+        document.getElementById('cim-addr').textContent=addr;
+        document.getElementById('cim-badge').innerHTML=statusBadge(c.risk_status||'active');
+        document.getElementById('cust-info-card').style.display='block';
+      };
       const m=L.marker([c.lat,c.lng],{icon:makePin(col,'',24)}).addTo(custMap)
-        .on('click',()=>{
-          document.getElementById('cim-name').textContent=name;
-          document.getElementById('cim-addr').textContent=addr;
-          document.getElementById('cim-badge').innerHTML=statusBadge(c.risk_status||'active');
-          document.getElementById('cust-info-card').style.display='block';
-          custMap.flyTo([c.lat,c.lng],15,{duration:.8});
-        });
+        .on('mouseover', showCard)
+        .on('mouseout', ()=>{ document.getElementById('cust-info-card').style.display='none'; })
+        .on('click', ()=>{ showCard(); custMap.flyTo([c.lat,c.lng],15,{duration:.8}); });
       custMarkers.push(m);
     });
     // update pin count display
