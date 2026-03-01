@@ -5463,8 +5463,9 @@
     document.getElementById('cpe-last').value   = ln;
     document.getElementById('cpe-phone').value  = phone;
     document.getElementById('cpe-email').value  = email;
-    // Populate price list from service categories (always rebuild so it stays in sync)
+    // Populate price list from service categories — fetch if not yet loaded
     const typeEl = document.getElementById('cpe-type');
+    if (!allCategories.length) await loadCategories();
     typeEl.innerHTML = allCategories.length
       ? allCategories.map(cat => `<option value="${svcEsc(cat.name)}">${svcEsc(cat.name)}</option>`).join('')
       : '<option value="Delivery">Delivery</option>';
