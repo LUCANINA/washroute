@@ -727,69 +727,8 @@
       <!-- Laundry Preferences -->
       <div class="pref-section">
         <div class="pref-title">Laundry Preferences</div>
-        <div class="pref-row">
-          <div class="pref-left">
-            <div class="pref-icon">🧴</div>
-            <div><div class="pref-name">Detergent</div><div class="pref-sub">Type of detergent</div></div>
-          </div>
-          <select class="pref-select" id="pref-detergent">
-            <option value="regular">Regular</option>
-            <option value="fragrance_free">Fragrance-free</option>
-            <option value="hypoallergenic">Hypoallergenic</option>
-            <option value="eco">Eco-friendly</option>
-          </select>
-        </div>
-        <div class="pref-row">
-          <div class="pref-left">
-            <div class="pref-icon">💧</div>
-            <div><div class="pref-name">Water Temperature</div><div class="pref-sub">For washing</div></div>
-          </div>
-          <select class="pref-select" id="pref-water-temp">
-            <option value="cold">Cold</option>
-            <option value="warm">Warm</option>
-            <option value="hot">Hot</option>
-          </select>
-        </div>
-        <div class="pref-row">
-          <div class="pref-left">
-            <div class="pref-icon">🌀</div>
-            <div><div class="pref-name">Dryer Heat</div><div class="pref-sub">For drying</div></div>
-          </div>
-          <select class="pref-select" id="pref-dryer-heat">
-            <option value="low">Low heat</option>
-            <option value="medium">Medium heat</option>
-            <option value="high">High heat</option>
-          </select>
-        </div>
-        <div class="pref-row">
-          <div class="pref-left">
-            <div class="pref-icon">🪝</div>
-            <div><div class="pref-name">Fabric Softener</div><div class="pref-sub">Add to wash</div></div>
-          </div>
-          <label class="pref-toggle">
-            <input type="checkbox" id="pref-softener" checked>
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="pref-row">
-          <div class="pref-left">
-            <div class="pref-icon">👗</div>
-            <div><div class="pref-name">Hang Dry Delicates</div><div class="pref-sub">When possible</div></div>
-          </div>
-          <label class="pref-toggle">
-            <input type="checkbox" id="pref-hang-dry">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="pref-row">
-          <div class="pref-left">
-            <div class="pref-icon">🚫</div>
-            <div><div class="pref-name">No Bleach</div><div class="pref-sub">Even on whites</div></div>
-          </div>
-          <label class="pref-toggle">
-            <input type="checkbox" id="pref-no-bleach">
-            <span class="toggle-slider"></span>
-          </label>
+        <div id="account-prefs-container">
+          <div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">Loading preferences…</div>
         </div>
         <button class="pref-save-btn" onclick="savePreferences()">Save Preferences</button>
       </div>
@@ -868,6 +807,7 @@ let currentCustomer = null;
 let allServices     = [];
 let dbPlans         = [];
 let defaultService  = null; // the single W&F service
+let globalPrefs     = []; // global service preferences from preferences table
 
 let draft = {
   address: '', lat: null, lng: null, zoneId: null,
@@ -2049,14 +1989,12 @@ async function loadAccount() {
       ${activePlan?.name || 'Pay As You Go'} Plan
     </div>`;
 
-  // Preferences
-  const prefs = currentCustomer?.preferences || {};
-  document.getElementById('pref-detergent').value  = prefs.detergent  || 'regular';
-  document.getElementById('pref-water-temp').value = prefs.water_temp || 'cold';
-  document.getElementById('pref-dryer-heat').value = prefs.dryer_heat || 'medium';
-  document.getElementById('pref-softener').checked  = prefs.softener  !== false;
-  document.getElementById('pref-hang-dry').checked  = prefs.hang_dry  === true;
-  document.getElementById('pref-no-bleach').checked = prefs.no_bleach === true;
+  // Preferences — load global prefs if not yet cached, then render
+  if (!globalPrefs.length) {
+    const { data: gp } = await db.from('preferences').select('*').order('sort_order');
+    globalPrefs = gp || [];
+  }
+  renderAccountPrefs();
 
   // Plan cards
   renderPlanCards(activePlanId);
@@ -2118,16 +2056,47 @@ async function selectPlan(planId, isFree) {
   await startSubscription(planId);
 }
 
+function renderAccountPrefs() {
+  const container = document.getElementById('account-prefs-container');
+  if (!container) return;
+  const customerSel = currentCustomer?.preferences || {};
+
+  if (!globalPrefs.length) {
+    container.innerHTML = '<div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">No preferences configured yet.</div>';
+    return;
+  }
+
+  // Group by category
+  const byCategory = {};
+  globalPrefs.forEach(p => {
+    if (!byCategory[p.category]) byCategory[p.category] = [];
+    byCategory[p.category].push(p);
+  });
+
+  container.innerHTML = Object.entries(byCategory).map(([cat, catPrefs]) => `
+    <div style="margin-bottom:4px">
+      <div class="pref-title" style="margin-top:4px;margin-bottom:10px">${cat}</div>
+      ${catPrefs.map(p => {
+        const selOpt = customerSel[p.id] || p.options.find(o => o.is_default)?.id || '';
+        return `<div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-name">${p.name}</div>
+          </div>
+          <select class="pref-select" id="acct-pref-${p.id}" data-pref-id="${p.id}">
+            ${p.options.map(o => `<option value="${o.id}"${selOpt===o.id?' selected':''}>${o.label}</option>`).join('')}
+          </select>
+        </div>`;
+      }).join('')}
+    </div>
+  `).join('');
+}
+
 async function savePreferences() {
   if (!currentCustomer) return;
-  const prefs = {
-    detergent:  document.getElementById('pref-detergent').value,
-    water_temp: document.getElementById('pref-water-temp').value,
-    dryer_heat: document.getElementById('pref-dryer-heat').value,
-    softener:   document.getElementById('pref-softener').checked,
-    hang_dry:   document.getElementById('pref-hang-dry').checked,
-    no_bleach:  document.getElementById('pref-no-bleach').checked
-  };
+  const prefs = {};
+  document.querySelectorAll('#account-prefs-container select[data-pref-id]').forEach(sel => {
+    if (sel.value) prefs[sel.dataset.prefId] = sel.value;
+  });
   const { error } = await db.from('customers').update({ preferences: prefs }).eq('id', currentCustomer.id);
   if (error) { toast('Error saving preferences'); return; }
   currentCustomer.preferences = prefs;
@@ -2167,6 +2136,7 @@ window.startCardSetup    = startCardSetup;
 window.removeCard        = removeCard;
 window.selectPlan        = selectPlan;
 window.savePreferences   = savePreferences;
+window.renderAccountPrefs = renderAccountPrefs;
 </script>
 </body>
 </html>

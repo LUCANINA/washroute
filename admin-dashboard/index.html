@@ -2166,30 +2166,7 @@
   <!-- ── PREFERENCES TAB ── -->
   <div class="cp-body" id="cptab-preferences" style="display:none">
     <div class="cp-section-head"><span>Service Preferences</span></div>
-    <div class="cp-field"><div class="cp-field-label">Detergent</div><input class="cp-input" id="cpref-detergent" placeholder="e.g. Tide, Free &amp; Clear, Hypoallergenic"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-      <div class="cp-field">
-        <div class="cp-field-label">Fabric Softener</div>
-        <select class="cp-input" id="cpref-fabric-softener">
-          <option value="">— Not set —</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
-        </select>
-      </div>
-      <div class="cp-field">
-        <div class="cp-field-label">Separate Colors</div>
-        <select class="cp-input" id="cpref-separate-colors">
-          <option value="">— Not set —</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
-        </select>
-      </div>
-    </div>
-    <div class="cp-field"><div class="cp-field-label">Hang Dry Items</div><input class="cp-input" id="cpref-hang-dry" placeholder="e.g. Delicates, wool sweaters"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-      <div class="cp-field"><div class="cp-field-label">Preferred Pickup Time</div><input class="cp-input" id="cpref-pickup" placeholder="e.g. Morning"></div>
-      <div class="cp-field"><div class="cp-field-label">Preferred Delivery Time</div><input class="cp-input" id="cpref-delivery" placeholder="e.g. Afternoon"></div>
-    </div>
+    <div id="cp-global-prefs-list"></div>
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--gray-100)">
       <button class="btn btn-primary cp-save-btn" onclick="savePanelPreferences()">Save Preferences</button>
       <div class="cp-save-msg" id="cp-pref-msg">✓ Saved</div>
@@ -5192,30 +5169,56 @@
   }
 
   async function loadPanelPreferences(customerId) {
+    const container = document.getElementById('cp-global-prefs-list');
+    container.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:4px 0">Loading…</div>';
+
+    // Use already-loaded global prefs if available, otherwise fetch
+    let gPrefs = (typeof allGlobalPrefs !== 'undefined' && allGlobalPrefs?.length) ? allGlobalPrefs : null;
+    if (!gPrefs) {
+      const { data } = await db.from('preferences').select('*').order('sort_order');
+      gPrefs = data || [];
+    }
+
+    // Load customer's current selections
     const { data: c } = await db.from('customers').select('preferences').eq('id', customerId).single();
-    if (!c) return;
-    const prefs = c.preferences || {};
-    document.getElementById('cpref-detergent').value       = prefs.detergent || '';
-    document.getElementById('cpref-fabric-softener').value = prefs.fabric_softener || '';
-    document.getElementById('cpref-separate-colors').value = prefs.separate_colors===true ? 'yes' : prefs.separate_colors===false ? 'no' : '';
-    document.getElementById('cpref-hang-dry').value        = prefs.hang_dry || '';
-    document.getElementById('cpref-pickup').value          = prefs.preferred_pickup || '';
-    document.getElementById('cpref-delivery').value        = prefs.preferred_delivery || '';
+    const customerSel = c?.preferences || {};
+
+    if (!gPrefs.length) {
+      container.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No preferences configured yet. Add them in the Services &amp; Pricing tab.</div>';
+      return;
+    }
+
+    // Group by category
+    const byCategory = {};
+    gPrefs.forEach(p => {
+      if (!byCategory[p.category]) byCategory[p.category] = [];
+      byCategory[p.category].push(p);
+    });
+
+    container.innerHTML = Object.entries(byCategory).map(([cat, catPrefs]) => `
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin:16px 0 8px">${cat}</div>
+        ${catPrefs.map(p => {
+          const selOpt = customerSel[p.id] || p.options.find(o => o.is_default)?.id || '';
+          return `<div class="cp-field">
+            <div class="cp-field-label">${p.name}</div>
+            <select class="cp-input" id="cpref-dyn-${p.id}" data-pref-id="${p.id}">
+              ${p.options.map(o => `<option value="${o.id}"${selOpt===o.id?' selected':''}>${o.label}${o.is_default?' (default)':''}</option>`).join('')}
+            </select>
+          </div>`;
+        }).join('')}
+      </div>
+    `).join('');
   }
 
   async function savePanelPreferences() {
     if (!panelCustomerId) return;
     const btn = document.querySelector('#cptab-preferences .btn-primary');
     const origText = btn.textContent; btn.disabled=true; btn.textContent='Saving…';
-    const sepVal = document.getElementById('cpref-separate-colors').value;
-    const prefs = {
-      detergent:         document.getElementById('cpref-detergent').value.trim() || null,
-      fabric_softener:   document.getElementById('cpref-fabric-softener').value || null,
-      separate_colors:   sepVal==='yes' ? true : sepVal==='no' ? false : null,
-      hang_dry:          document.getElementById('cpref-hang-dry').value.trim() || null,
-      preferred_pickup:  document.getElementById('cpref-pickup').value.trim() || null,
-      preferred_delivery:document.getElementById('cpref-delivery').value.trim() || null,
-    };
+    const prefs = {};
+    document.querySelectorAll('#cp-global-prefs-list select[data-pref-id]').forEach(sel => {
+      if (sel.value) prefs[sel.dataset.prefId] = sel.value;
+    });
     await db.from('customers').update({ preferences: prefs }).eq('id', panelCustomerId);
     btn.disabled=false; btn.textContent=origText;
     const msg=document.getElementById('cp-pref-msg'); msg.style.display='block'; setTimeout(()=>msg.style.display='none',2500);
