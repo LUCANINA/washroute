@@ -2217,12 +2217,9 @@
     <div class="cp-field"><div class="cp-field-label">Email</div><input class="cp-input" id="cpe-email" type="email" placeholder="Email address"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
       <div class="cp-field">
-        <div class="cp-field-label">Customer Type</div>
+        <div class="cp-field-label">Price List</div>
         <select class="cp-input" id="cpe-type">
-          <option value="">— Select —</option>
-          <option value="individual">Individual</option>
-          <option value="business">Business</option>
-          <option value="managed">Managed</option>
+          <option value="Delivery">Delivery</option>
         </select>
       </div>
       <div class="cp-field">
@@ -5466,7 +5463,13 @@
     document.getElementById('cpe-last').value   = ln;
     document.getElementById('cpe-phone').value  = phone;
     document.getElementById('cpe-email').value  = email;
-    document.getElementById('cpe-type').value   = c.customer_type || '';
+    // Populate price list from service categories (always rebuild so it stays in sync)
+    const typeEl = document.getElementById('cpe-type');
+    typeEl.innerHTML = allCategories.length
+      ? allCategories.map(cat => `<option value="${svcEsc(cat.name)}">${svcEsc(cat.name)}</option>`).join('')
+      : '<option value="Delivery">Delivery</option>';
+    typeEl.value = c.customer_type || 'Delivery';
+    if (!typeEl.value) typeEl.value = typeEl.options[0]?.value || 'Delivery';
     document.getElementById('cpe-source').value = c.referral_source || '';
 
     // Payment on file
