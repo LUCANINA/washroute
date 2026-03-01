@@ -446,11 +446,16 @@
     .zone-layout > .map-side { flex: 1; }
     .zone-panel { width: 240px; border-left: 1px solid var(--gray-200); background: white; display: flex; flex-direction: column; }
     .zone-panel-header { padding: 14px 16px; border-bottom: 1px solid var(--gray-100); }
-    .zone-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--gray-100); }
+    .zone-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--gray-100); cursor: pointer; transition: background .1s; }
+    .zone-row:hover { background: var(--gray-50); }
+    .zone-row.selected { background: var(--accent-light); }
     .zone-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
     .zone-row-name { flex: 1; font-size: 13px; font-weight: 600; color: var(--gray-900); }
     .zone-row-count { font-size: 11.5px; color: var(--gray-400); margin-right: 4px; }
     .zone-draw-hint { padding: 12px 16px; background: var(--accent-light); font-size: 12.5px; color: var(--accent); line-height: 1.5; border-bottom: 1px solid var(--gray-200); display: none; }
+    .zone-city-tag { display:inline-flex;align-items:center;gap:4px;background:var(--accent-light);color:var(--accent);padding:3px 9px 3px 10px;border-radius:100px;font-size:11.5px;font-weight:600;white-space:nowrap; }
+    .zone-city-tag button { background:none;border:none;cursor:pointer;padding:0 0 0 2px;color:var(--accent);opacity:.55;line-height:1;font-size:14px;display:flex;align-items:center; }
+    .zone-city-tag button:hover { opacity:1; }
 
     /* ── ROUTES PAGE ── */
     .rtab-panel { }
@@ -1171,35 +1176,77 @@
               </button>
             </div>
             <!-- Save bar: appears after polygon is drawn -->
-            <div id="zone-save-bar" style="display:none;padding:12px 20px;background:var(--accent-light);border-top:1px solid rgba(99,91,255,.2);border-bottom:1px solid rgba(99,91,255,.2);flex-wrap:wrap;align-items:center;gap:10px;">
-              <div style="font-size:13px;font-weight:600;color:var(--accent);white-space:nowrap;">Zone drawn — give it a name:</div>
-              <input class="form-input" id="new-zone-name" placeholder="e.g. Oakland North" style="width:200px;padding:6px 10px;">
-              <input type="color" id="new-zone-color" value="#635bff" style="width:38px;height:34px;border:1.5px solid rgba(99,91,255,.3);border-radius:6px;cursor:pointer;padding:2px;background:white;">
-              <button class="btn btn-primary" onclick="saveNewZone()" style="padding:6px 14px;font-size:12.5px;">Save Zone</button>
-              <button class="btn btn-ghost" onclick="cancelZoneDraw()" style="padding:6px 12px;font-size:12.5px;">Cancel</button>
+            <div id="zone-save-bar" style="display:none;padding:12px 20px;background:var(--accent-light);border-top:1px solid rgba(99,91,255,.2);border-bottom:1px solid rgba(99,91,255,.2);">
+              <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px;">
+                <div style="font-size:13px;font-weight:600;color:var(--accent);white-space:nowrap;">Polygon drawn — name this zone:</div>
+                <input class="form-input" id="new-zone-name" placeholder="e.g. Oakland North" style="width:180px;padding:6px 10px;">
+                <input type="color" id="new-zone-color" value="#635bff" style="width:38px;height:34px;border:1.5px solid rgba(99,91,255,.3);border-radius:6px;cursor:pointer;padding:2px;background:white;">
+                <button class="btn btn-primary" onclick="saveNewZone()" style="padding:6px 14px;font-size:12.5px;">Save Zone</button>
+                <button class="btn btn-ghost" onclick="cancelZoneDraw()" style="padding:6px 12px;font-size:12.5px;">Cancel</button>
+              </div>
+              <div style="font-size:11.5px;color:var(--accent);font-weight:600;margin-bottom:5px;">Also include full cities: <span style="font-weight:400;opacity:.7">(optional — type city name, press Enter)</span></div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                <div id="new-zone-city-tags" style="display:flex;flex-wrap:wrap;gap:5px;"></div>
+                <input class="form-input" id="new-zone-city-input" placeholder="e.g. San Leandro" style="width:150px;padding:5px 8px;font-size:12.5px;"
+                  onkeydown="if(event.key==='Enter'){event.preventDefault();addNewZoneCity();}">
+                <button class="btn" onclick="addNewZoneCity()" style="padding:5px 10px;font-size:12px;">Add city</button>
+              </div>
             </div>
-            <!-- Map + zone list -->
+            <!-- Map + zone panel -->
             <div class="zone-layout" style="height:560px;">
               <div class="map-side" id="zones-map" style="height:100%;flex:1;"></div>
-              <div class="zone-panel" style="width:270px;flex-shrink:0;">
-                <div class="zone-panel-header">
-                  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);">Zones</div>
-                </div>
-                <div id="zones-list"><div class="loading"><div class="spinner"></div></div></div>
-                <!-- Edit zone name/color in-panel -->
-                <div id="zone-edit-form" style="display:none;padding:12px 16px;border-top:1px solid var(--gray-200);background:var(--gray-50);">
-                  <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--gray-500);margin-bottom:8px;">Edit Zone</div>
-                  <input class="form-input" id="edit-zone-name" placeholder="Zone name" style="margin-bottom:8px;">
-                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-                    <label style="font-size:12px;color:var(--gray-600);">Color:</label>
-                    <input type="color" id="edit-zone-color" style="width:38px;height:30px;border:1.5px solid var(--gray-200);border-radius:6px;cursor:pointer;padding:1px;">
+              <div class="zone-panel" style="width:290px;flex-shrink:0;overflow-y:auto;">
+
+                <!-- ── LIST VIEW ── -->
+                <div id="zone-panel-list">
+                  <div class="zone-panel-header" style="display:flex;align-items:center;justify-content:space-between;">
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);">Zones</div>
+                    <button onclick="openNewCityZone()" style="background:none;border:none;cursor:pointer;font-size:11px;font-weight:600;color:var(--accent);padding:2px 4px;" title="Add a city-based zone without drawing">+ City zone</button>
                   </div>
-                  <div style="display:flex;gap:6px;">
-                    <button class="btn btn-primary" onclick="saveZoneEdit()" style="flex:1;font-size:12px;padding:5px;">Save</button>
-                    <button class="btn btn-ghost" onclick="cancelZoneEdit()" style="font-size:12px;padding:5px;">Cancel</button>
+                  <div id="zones-list"><div class="loading"><div class="spinner"></div></div></div>
+                </div>
+
+                <!-- ── DETAIL / EDIT VIEW ── -->
+                <div id="zone-panel-detail" style="display:none;flex-direction:column;height:100%;">
+                  <!-- Back header -->
+                  <div class="zone-panel-header" style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="closeZoneDetail()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" style="color:var(--gray-400)"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);">All Zones</div>
+                  </div>
+                  <!-- Fields -->
+                  <div style="padding:14px 16px;flex:1;overflow-y:auto;">
+                    <div style="font-size:14px;font-weight:700;color:var(--gray-900);margin-bottom:14px;" id="zone-detail-title">Edit Zone</div>
+
+                    <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Name</div>
+                    <input class="form-input" id="edit-zone-name" placeholder="Zone name" style="margin-bottom:12px;width:100%;box-sizing:border-box;">
+
+                    <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Color</div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+                      <input type="color" id="edit-zone-color" style="width:38px;height:30px;border:1.5px solid var(--gray-200);border-radius:6px;cursor:pointer;padding:1px;">
+                      <span style="font-size:12px;color:var(--gray-500);">Used on the map and route list</span>
+                    </div>
+
+                    <div style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">Cities covered</div>
+                    <div style="font-size:11.5px;color:var(--gray-400);margin-bottom:8px;line-height:1.4;">Any order whose address city matches will be placed in this zone — no polygon needed.</div>
+                    <div id="edit-zone-city-tags" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;min-height:10px;"></div>
+                    <div style="display:flex;gap:5px;margin-bottom:4px;">
+                      <input class="form-input" id="edit-zone-city-input" placeholder="e.g. San Leandro" style="flex:1;padding:6px 8px;font-size:12.5px;"
+                        onkeydown="if(event.key==='Enter'){event.preventDefault();addEditZoneCity();}">
+                      <button class="btn" onclick="addEditZoneCity()" style="padding:6px 10px;font-size:12.5px;white-space:nowrap;">Add</button>
+                    </div>
+
+                    <div id="edit-zone-polygon-hint" style="margin-top:14px;padding:8px 10px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;font-size:11.5px;color:var(--gray-500);line-height:1.45;"></div>
+                  </div>
+                  <!-- Action buttons -->
+                  <div style="padding:12px 16px;border-top:1px solid var(--gray-100);display:flex;gap:6px;">
+                    <button class="btn btn-primary" onclick="saveZoneEdit()" style="flex:1;font-size:12.5px;padding:7px;">Save</button>
+                    <button class="btn" onclick="deleteZoneFromDetail()" style="padding:7px 10px;font-size:12.5px;color:var(--red);border-color:var(--red);" title="Delete zone">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6m4-6v6"/></svg>
+                    </button>
                   </div>
                 </div>
-              </div>
+
+              </div><!-- /zone-panel -->
             </div>
           </div>
         </div>
@@ -6325,9 +6372,12 @@
   // ── DELIVERY ZONES MAP ──
   let newZoneLayer = null;         // currently drawn but not-yet-saved polygon layer
   let zonePolygonLayers = {};      // { zoneId: leafletLayer } for existing zones
-  let editingZoneId = null;        // zone being renamed/recolored
-  let zonesDrawnItems = null;      // L.FeatureGroup for draw control
+  let editingZoneId = null;
+  let zonesDrawnItems = null;
+  let _editZoneCities  = [];   // working city list while editing a zone
+  let _newZoneCities   = [];   // city list for the polygon save bar
 
+  // ── INIT MAP ──
   async function initZonesMap() {
     if (zonesMap) {
       zonesMap.invalidateSize();
@@ -6347,72 +6397,61 @@
     });
     zonesMap.addControl(zoneDrawControl);
 
-    // When user finishes drawing a polygon
     zonesMap.on(L.Draw.Event.CREATED, function(e) {
       if (newZoneLayer) zonesDrawnItems.removeLayer(newZoneLayer);
       newZoneLayer = e.layer;
       zonesDrawnItems.addLayer(newZoneLayer);
-      // Show save bar
-      const bar = document.getElementById('zone-save-bar');
-      bar.style.display = 'flex';
+      _newZoneCities = [];
+      renderZoneCityTags('new-zone-city-tags', _newZoneCities, removeNewZoneCity);
+      document.getElementById('zone-save-bar').style.display = 'block';
       document.getElementById('new-zone-name').value = '';
+      document.getElementById('new-zone-city-input').value = '';
       document.getElementById('new-zone-name').focus();
     });
 
     await loadAndRenderZones();
   }
 
+  // ── LOAD & RENDER ──
   async function loadAndRenderZones() {
-    // Load zones with their polygon as GeoJSON
-    const { data, error } = await db.rpc('get_service_zones_geojson');
+    const { data } = await db.rpc('get_service_zones_geojson');
     drawnZones = data || [];
-
-    // Load route template counts per zone
     const { data: templates } = await db.from('route_templates').select('zone_id').eq('is_active', true);
     const zoneCounts = {};
     (templates||[]).forEach(t => { if (t.zone_id) zoneCounts[t.zone_id] = (zoneCounts[t.zone_id]||0)+1; });
-
     renderZonesList(zoneCounts);
     renderZonePolygons();
-
     const n = drawnZones.length;
     document.getElementById('zones-count-sub').textContent = n
-      ? `${n} zone${n!==1?'s':''} — click a zone on the map or in the list to edit`
-      : 'Draw zones on the map to define your service areas';
+      ? `${n} zone${n!==1?'s':''} — click any zone to edit`
+      : 'Draw a zone or add a city-based zone to get started';
   }
 
   function renderZonesList(zoneCounts) {
     const el = document.getElementById('zones-list');
     if (!drawnZones.length) {
-      el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px;text-align:center;">No zones yet.<br>Use the button above to draw one.</div>';
+      el.innerHTML = '<div style="padding:20px 16px;color:var(--gray-400);font-size:13px;text-align:center;line-height:1.6;">No zones yet.<br>Draw a polygon or click<br>"+ City zone" to add one.</div>';
       return;
     }
     el.innerHTML = drawnZones.map(z => {
       const count = zoneCounts ? (zoneCounts[z.id] || 0) : 0;
-      return `<div class="zone-row" onclick="selectZoneInList('${z.id}')" id="zone-list-row-${z.id}" style="cursor:pointer;transition:background .1s;">
-        <div class="zone-swatch" style="background:${z.color};border-radius:50%;width:12px;height:12px;flex-shrink:0;"></div>
-        <div class="zone-row-name">${z.name}</div>
+      const cityNote = z.cities?.length ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:1px;">${z.cities.length} cit${z.cities.length===1?'y':'ies'}</div>` : '';
+      const polyNote = z.geojson ? `<div style="font-size:10px;color:var(--gray-300);margin-top:1px;">polygon</div>` : '';
+      return `<div class="zone-row" onclick="openZoneDetail('${z.id}')" id="zone-list-row-${z.id}">
+        <div style="width:10px;height:10px;border-radius:50%;background:${z.color};flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div class="zone-row-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${z.name}</div>
+          ${cityNote}${polyNote}
+        </div>
         <div class="zone-row-count">${count} route${count!==1?'s':''}</div>
-        <button onclick="event.stopPropagation();openZoneEdit('${z.id}')"
-          style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--gray-300);line-height:1;" title="Edit name/color">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        </button>
-        <button onclick="event.stopPropagation();deleteZone('${z.id}','${z.name.replace(/'/g,"\\'")}')"
-          style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--gray-300);line-height:1;" title="Delete zone">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6m4-6v6"/></svg>
-        </button>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="color:var(--gray-300);flex-shrink:0"><path d="M9 18l6-6-6-6"/></svg>
       </div>`;
     }).join('');
   }
 
   function renderZonePolygons() {
-    // Remove old zone layers
-    Object.values(zonePolygonLayers).forEach(l => {
-      try { zonesMap.removeLayer(l); } catch(e) {}
-    });
+    Object.values(zonePolygonLayers).forEach(l => { try { zonesMap.removeLayer(l); } catch(e) {} });
     zonePolygonLayers = {};
-
-    const bounds = [];
     drawnZones.forEach(z => {
       if (!z.geojson) return;
       try {
@@ -6420,40 +6459,136 @@
         const layer = L.geoJSON(geojson, {
           style: { color: z.color, fillColor: z.color, fillOpacity: 0.18, weight: 2.5 }
         }).addTo(zonesMap);
-        layer.bindTooltip(`<strong>${z.name}</strong>`, { sticky: true });
-        layer.on('click', () => selectZoneInList(z.id));
+        const cityList = z.cities?.length ? `<br><span style="font-weight:400;font-size:11px">+ ${z.cities.join(', ')}</span>` : '';
+        layer.bindTooltip(`<strong>${z.name}</strong>${cityList}`, { sticky: true });
+        layer.on('click', () => openZoneDetail(z.id));
         zonePolygonLayers[z.id] = layer;
-        try { bounds.push(...layer.getBounds().toBBoxString().split(',').map(Number)); } catch(e){}
       } catch(e) { console.warn('Zone GeoJSON parse error:', z.id, e); }
     });
-
-    if (Object.keys(zonePolygonLayers).length && zonesMap) {
+    const allBounds = Object.values(zonePolygonLayers).map(l => l.getBounds()).filter(b => b.isValid());
+    if (allBounds.length && zonesMap) {
       try {
-        const allBounds = Object.values(zonePolygonLayers).map(l => l.getBounds()).filter(b => b.isValid());
-        if (allBounds.length) {
-          let combined = allBounds[0];
-          allBounds.slice(1).forEach(b => combined = combined.extend(b));
-          zonesMap.fitBounds(combined, { padding: [30, 30] });
-        }
+        let combined = allBounds[0];
+        allBounds.slice(1).forEach(b => { combined = combined.extend(b); });
+        zonesMap.fitBounds(combined, { padding: [30, 30] });
       } catch(e) {}
     }
   }
 
-  function selectZoneInList(zoneId) {
-    // Highlight in list
-    document.querySelectorAll('.zone-row').forEach(r => r.style.background = '');
+  // ── ZONE DETAIL PANEL ──
+  function openZoneDetail(zoneId) {
+    const z = drawnZones.find(z => z.id === zoneId);
+    if (!z) return;
+    editingZoneId = zoneId;
+    _editZoneCities = [...(z.cities || [])];
+
+    document.getElementById('zone-detail-title').textContent = z.name;
+    document.getElementById('edit-zone-name').value = z.name;
+    document.getElementById('edit-zone-color').value = z.color || '#635bff';
+    document.getElementById('edit-zone-city-input').value = '';
+
+    const hint = document.getElementById('edit-zone-polygon-hint');
+    if (z.geojson) {
+      hint.textContent = '✓ This zone has a drawn polygon. It will continue to match addresses inside that shape.';
+      hint.style.color = 'var(--green)';
+    } else {
+      hint.textContent = 'No polygon drawn. This zone matches addresses purely by city name.';
+      hint.style.color = 'var(--gray-400)';
+    }
+
+    renderZoneCityTags('edit-zone-city-tags', _editZoneCities, removeEditZoneCity);
+
+    // Switch panel to detail view
+    document.getElementById('zone-panel-list').style.display = 'none';
+    document.getElementById('zone-panel-detail').style.display = 'flex';
+
+    // Highlight on map
+    document.querySelectorAll('.zone-row').forEach(r => r.classList.remove('selected'));
     const row = document.getElementById('zone-list-row-' + zoneId);
-    if (row) row.style.background = 'var(--gray-50)';
-    // Fly to zone on map
+    if (row) row.classList.add('selected');
     const layer = zonePolygonLayers[zoneId];
     if (layer && zonesMap) {
       try { zonesMap.fitBounds(layer.getBounds(), { padding: [40, 40] }); } catch(e) {}
     }
   }
 
-  // ── DRAW NEW ZONE ──
+  function closeZoneDetail() {
+    editingZoneId = null;
+    document.getElementById('zone-panel-detail').style.display = 'none';
+    document.getElementById('zone-panel-list').style.display = 'block';
+    document.querySelectorAll('.zone-row').forEach(r => r.classList.remove('selected'));
+  }
+
+  async function saveZoneEdit() {
+    const name = document.getElementById('edit-zone-name').value.trim();
+    if (!name) { showToast('Zone name is required.', 'error'); return; }
+    const color = document.getElementById('edit-zone-color').value;
+    const { error } = await db.rpc('upsert_service_zone', {
+      p_id: editingZoneId, p_name: name, p_color: color,
+      p_geojson: null, p_cities: _editZoneCities
+    });
+    if (error) { showToast('Update failed: ' + error.message, 'error'); return; }
+    showToast(`Zone "${name}" saved!`, 'success');
+    closeZoneDetail();
+    await loadAndRenderZones();
+    if (document.getElementById('slideover-template').classList.contains('open')) {
+      loadZonesIntoSelect(document.getElementById('so-zone').value);
+    }
+  }
+
+  async function deleteZoneFromDetail() {
+    const z = drawnZones.find(z => z.id === editingZoneId);
+    if (!z || !confirm(`Delete zone "${z.name}"? Any routes using it will be unlinked.`)) return;
+    const { error } = await db.rpc('delete_service_zone', { p_id: editingZoneId });
+    if (error) { showToast('Delete failed: ' + error.message, 'error'); return; }
+    showToast(`Zone "${z.name}" deleted.`);
+    closeZoneDetail();
+    await loadAndRenderZones();
+  }
+
+  // ── CITY TAG HELPERS ──
+  function renderZoneCityTags(containerId, cities, removeFn) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    if (!cities.length) { el.innerHTML = ''; return; }
+    el.innerHTML = cities.map(c =>
+      `<span class="zone-city-tag">${c}<button onclick="${removeFn.name}('${c.replace(/'/g,"\\'")}');return false;" title="Remove">×</button></span>`
+    ).join('');
+  }
+
+  function addEditZoneCity() {
+    const inp = document.getElementById('edit-zone-city-input');
+    const city = inp.value.trim();
+    if (!city) return;
+    if (_editZoneCities.includes(city)) { showToast(`"${city}" is already in this zone.`, ''); inp.value = ''; return; }
+    _editZoneCities.push(city);
+    inp.value = '';
+    renderZoneCityTags('edit-zone-city-tags', _editZoneCities, removeEditZoneCity);
+  }
+
+  function removeEditZoneCity(city) {
+    _editZoneCities = _editZoneCities.filter(c => c !== city);
+    renderZoneCityTags('edit-zone-city-tags', _editZoneCities, removeEditZoneCity);
+  }
+
+  function addNewZoneCity() {
+    const inp = document.getElementById('new-zone-city-input');
+    const city = inp.value.trim();
+    if (!city) return;
+    if (_newZoneCities.includes(city)) { inp.value = ''; return; }
+    _newZoneCities.push(city);
+    inp.value = '';
+    renderZoneCityTags('new-zone-city-tags', _newZoneCities, removeNewZoneCity);
+  }
+
+  function removeNewZoneCity(city) {
+    _newZoneCities = _newZoneCities.filter(c => c !== city);
+    renderZoneCityTags('new-zone-city-tags', _newZoneCities, removeNewZoneCity);
+  }
+
+  // ── DRAW NEW ZONE (polygon) ──
   function startZoneDraw() {
-    cancelZoneEdit();
+    closeZoneDetail();
     if (zonesMap && zoneDrawControl) {
       new L.Draw.Polygon(zonesMap, zoneDrawControl.options.draw.polygon).enable();
     }
@@ -6464,81 +6599,65 @@
     const name = document.getElementById('new-zone-name').value.trim();
     if (!name) { showToast('Please enter a zone name.', 'error'); return; }
     if (!newZoneLayer) { showToast('Please draw a polygon first.', 'error'); return; }
-
     const color = document.getElementById('new-zone-color').value;
     const geojson = JSON.stringify(newZoneLayer.toGeoJSON().geometry);
-
-    const { data: zoneId, error } = await db.rpc('upsert_service_zone', {
-      p_name: name,
-      p_color: color,
-      p_geojson: geojson
+    const { error } = await db.rpc('upsert_service_zone', {
+      p_name: name, p_color: color, p_geojson: geojson, p_cities: _newZoneCities
     });
-
     if (error) { showToast('Save failed: ' + error.message, 'error'); return; }
-
-    // Clean up
-    if (newZoneLayer) {
-      zonesDrawnItems.removeLayer(newZoneLayer);
-      newZoneLayer = null;
-    }
+    if (newZoneLayer) { zonesDrawnItems.removeLayer(newZoneLayer); newZoneLayer = null; }
+    _newZoneCities = [];
     document.getElementById('zone-save-bar').style.display = 'none';
     showToast(`Zone "${name}" saved!`, 'success');
     await loadAndRenderZones();
-    // Refresh zone dropdown in template editor if open
     if (document.getElementById('slideover-template').classList.contains('open')) {
       loadZonesIntoSelect(document.getElementById('so-zone').value);
     }
   }
 
   function cancelZoneDraw() {
-    if (newZoneLayer) {
-      zonesDrawnItems.removeLayer(newZoneLayer);
-      newZoneLayer = null;
-    }
+    if (newZoneLayer) { zonesDrawnItems.removeLayer(newZoneLayer); newZoneLayer = null; }
+    _newZoneCities = [];
     document.getElementById('zone-save-bar').style.display = 'none';
   }
 
-  // ── EDIT ZONE NAME/COLOR ──
-  function openZoneEdit(zoneId) {
-    editingZoneId = zoneId;
-    const z = drawnZones.find(z => z.id === zoneId);
-    if (!z) return;
-    document.getElementById('edit-zone-name').value = z.name;
-    document.getElementById('edit-zone-color').value = z.color;
-    document.getElementById('zone-edit-form').style.display = 'block';
-    selectZoneInList(zoneId);
+  // ── CITY-ONLY ZONE (no polygon) ──
+  function openNewCityZone() {
+    // Reuse the detail panel but for a new zone (no id)
+    editingZoneId = null;
+    _editZoneCities = [];
+    document.getElementById('zone-detail-title').textContent = 'New City Zone';
+    document.getElementById('edit-zone-name').value = '';
+    document.getElementById('edit-zone-color').value = '#635bff';
+    document.getElementById('edit-zone-city-input').value = '';
+    const hint = document.getElementById('edit-zone-polygon-hint');
+    hint.textContent = 'No polygon needed. This zone will match orders by city name only. You can draw a polygon later.';
+    hint.style.color = 'var(--gray-400)';
+    renderZoneCityTags('edit-zone-city-tags', _editZoneCities, removeEditZoneCity);
+    document.getElementById('zone-panel-list').style.display = 'none';
+    document.getElementById('zone-panel-detail').style.display = 'flex';
+    // Override save to create new
+    document.querySelector('#zone-panel-detail .btn-primary').onclick = saveNewCityZone;
+    setTimeout(() => document.getElementById('edit-zone-name').focus(), 50);
   }
 
-  async function saveZoneEdit() {
+  async function saveNewCityZone() {
     const name = document.getElementById('edit-zone-name').value.trim();
     if (!name) { showToast('Zone name is required.', 'error'); return; }
+    if (!_editZoneCities.length) { showToast('Add at least one city, or use "Draw New Zone" for a polygon zone.', 'error'); return; }
     const color = document.getElementById('edit-zone-color').value;
-
     const { error } = await db.rpc('upsert_service_zone', {
-      p_id: editingZoneId,
-      p_name: name,
-      p_color: color,
-      p_geojson: null   // don't change geometry
+      p_name: name, p_color: color, p_geojson: null, p_cities: _editZoneCities
     });
-
-    if (error) { showToast('Update failed: ' + error.message, 'error'); return; }
-    cancelZoneEdit();
-    showToast('Zone updated!', 'success');
+    if (error) { showToast('Save failed: ' + error.message, 'error'); return; }
+    showToast(`Zone "${name}" saved!`, 'success');
+    // Restore save button to normal edit behaviour
+    document.querySelector('#zone-panel-detail .btn-primary').onclick = saveZoneEdit;
+    closeZoneDetail();
     await loadAndRenderZones();
-  }
-
-  function cancelZoneEdit() {
-    editingZoneId = null;
-    document.getElementById('zone-edit-form').style.display = 'none';
-  }
-
-  // ── DELETE ZONE ──
-  async function deleteZone(zoneId, zoneName) {
-    if (!confirm(`Delete zone "${zoneName}"? Any routes using this zone will be unlinked.`)) return;
-    const { error } = await db.rpc('delete_service_zone', { p_id: zoneId });
-    if (error) { showToast('Delete failed: ' + error.message, 'error'); return; }
-    showToast(`Zone "${zoneName}" deleted.`);
-    await loadAndRenderZones();
+    if (document.getElementById('slideover-template').classList.contains('open')) {
+      loadZonesIntoSelect(document.getElementById('so-zone').value);
+    }
   }
 
   // ── LAUNDERERS ──
