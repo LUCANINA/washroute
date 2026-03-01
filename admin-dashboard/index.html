@@ -1030,7 +1030,18 @@
             <div id="customers-table-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             <!-- MAP VIEW -->
             <div id="customers-map-view" style="display:none;">
-              <div style="height:540px;position:relative;">
+              <!-- Map filter bar -->
+              <div style="padding:10px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="color:var(--gray-400);flex-shrink:0"><path d="M22 3H2l8 9.46V19l4 2V12.46z"/></svg>
+                <select id="cust-map-city" class="form-input" style="height:30px;font-size:12px;width:160px;padding:0 8px;" onchange="setCustCityFilter(this.value)">
+                  <option value="all">All Cities</option>
+                </select>
+                <select id="cust-map-route" class="form-input" style="height:30px;font-size:12px;width:200px;padding:0 8px;" onchange="setCustRouteFilter(this.value)">
+                  <option value="all">All Routes</option>
+                </select>
+                <span id="cust-map-count" style="margin-left:auto;font-size:12px;color:var(--gray-400);font-weight:500;"></span>
+              </div>
+              <div style="height:500px;position:relative;">
                 <div id="cust-map" style="height:100%;width:100%;"></div>
                 <div class="map-info-card" id="cust-info-card">
                   <div class="mic-name" id="cim-name"></div>
@@ -2865,7 +2876,7 @@
 
   async function loadCustomers() {
     const { data, error } = await db.from('customers')
-      .select('id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache')
+      .select('id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, addresses(id,lat,lng,city,is_default)')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -2874,7 +2885,18 @@
       if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load customers</div><div class="empty-sub">${error.message}</div></div>`;
       return;
     }
-    allCustomers = data || [];
+    // Normalise: pull lat/lng/city/addr_id from default address
+    allCustomers = (data || []).map(c => {
+      const addrs = Array.isArray(c.addresses) ? c.addresses : (c.addresses ? [c.addresses] : []);
+      const def = addrs.find(a => a.is_default) || addrs[0] || {};
+      return {
+        ...c,
+        lat:     def.lat  ? parseFloat(def.lat)  : null,
+        lng:     def.lng  ? parseFloat(def.lng)  : null,
+        city:    def.city || null,
+        addr_id: def.id   || null,
+      };
+    });
     updateCustomerStats(allCustomers);
     renderCustomers(allCustomers);
   }
@@ -2980,6 +3002,10 @@
 
   // active status filter (persists across search)
   let custStatusFilter = 'all';
+  // map-only filters
+  let custCityFilter  = 'all';
+  let custRouteFilter = 'all';
+  let _routeCustomerSet = null; // Set<customerId> when a route is selected
 
   function filterCustomers(status, btn) {
     custStatusFilter = status;
@@ -2992,6 +3018,45 @@
 
   function searchCustomers(raw) {
     const q = raw.trim().toLowerCase();
+    applyCustomerFilters(q, custStatusFilter);
+  }
+
+  function populateCustMapFilters() {
+    // Cities dropdown — unique non-null cities from loaded customers
+    const cityEl = document.getElementById('cust-map-city');
+    if (cityEl) {
+      const cities = [...new Set(allCustomers.map(c => c.city).filter(Boolean))].sort();
+      cityEl.innerHTML = '<option value="all">All Cities</option>'
+        + cities.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+      cityEl.value = custCityFilter;
+    }
+    // Routes dropdown
+    const routeEl = document.getElementById('cust-map-route');
+    if (routeEl) {
+      routeEl.innerHTML = '<option value="all">All Routes</option>'
+        + allRoutes.map(r => `<option value="${r.id}">${esc(r.name||'Unnamed Route')}</option>`).join('');
+      routeEl.value = custRouteFilter;
+    }
+  }
+
+  function setCustCityFilter(val) {
+    custCityFilter = val;
+    const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
+    applyCustomerFilters(q, custStatusFilter);
+  }
+
+  async function setCustRouteFilter(val) {
+    custRouteFilter = val;
+    if (val === 'all') {
+      _routeCustomerSet = null;
+    } else {
+      // Find which customers have a stop on this route via address linkage
+      const { data, error } = await db.from('route_stops').select('address_id').eq('route_id', val);
+      if (error) { showToast('Route filter error: ' + error.message, 'error'); return; }
+      const addrIds = new Set((data || []).map(s => s.address_id).filter(Boolean));
+      _routeCustomerSet = new Set(allCustomers.filter(c => c.addr_id && addrIds.has(c.addr_id)).map(c => c.id));
+    }
+    const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
     applyCustomerFilters(q, custStatusFilter);
   }
 
@@ -3013,10 +3078,17 @@
           || phone.includes(q);
       });
     }
+    // map-specific filters (city + route)
+    if (custCityFilter !== 'all') data = data.filter(c => c.city === custCityFilter);
+    if (custRouteFilter !== 'all' && _routeCustomerSet) data = data.filter(c => _routeCustomerSet.has(c.id));
     renderCustomers(data);
     // if map is visible, refresh pins too
-    if (document.getElementById('customers-map-view')?.style.display !== 'none') {
+    const mapView = document.getElementById('customers-map-view');
+    if (mapView?.style.display !== 'none') {
       refreshCustMapPins(data);
+      const pinCount = data.filter(c => c.lat && c.lng).length;
+      const countEl = document.getElementById('cust-map-count');
+      if (countEl) countEl.textContent = `${pinCount} customer${pinCount !== 1 ? 's' : ''} on map`;
     }
   }
 
@@ -6824,7 +6896,7 @@
       mapEl.style.display   = 'block';
       btnList.classList.remove('active');
       btnMap.classList.add('active');
-      setTimeout(()=>initCustMap(), 60);
+      setTimeout(()=>{ initCustMap(); populateCustMapFilters(); }, 60);
     } else {
       tableEl.style.display = '';
       mapEl.style.display   = 'none';
@@ -6837,22 +6909,10 @@
     if(custMap){ custMap.invalidateSize(); return; }
     custMap=L.map('cust-map').setView([37.835,-122.255],12);
     cartoTiles().addTo(custMap);
-    // get the currently filtered set (or all if no filter active)
+    populateCustMapFilters();
+    // apply current filters (re-uses the unified filter function)
     const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
-    const data = q || custStatusFilter !== 'all'
-      ? allCustomers.filter(c=>{
-          const p=custProfile(c);
-          const name=`${p.first_name||c.first_name_cache||''} ${p.last_name||c.last_name_cache||''}`.toLowerCase();
-          const email=(p.email||c.email_cache||'').toLowerCase();
-          const phone=(p.phone||c.phone_cache||'').replace(/\D/g,'');
-          const qd=q.replace(/\D/g,'');
-          const matchSearch = !q || name.includes(q)||email.includes(q)||(qd&&phone.includes(qd));
-          const matchStatus = custStatusFilter==='all'||c.risk_status===custStatusFilter;
-          return matchSearch && matchStatus;
-        })
-      : allCustomers;
-    if(!data.length) showToast('No customers to display on map','');
-    addCustPins(data);
+    applyCustomerFilters(q, custStatusFilter);
   }
 
   function refreshCustMapPins(data){
@@ -6864,22 +6924,29 @@
 
   function addCustPins(data){
     data.forEach(c=>{
-      if(!c.lat&&!c.lng) return;
+      if(!c.lat||!c.lng) return;
       const col=statusColor[c.risk_status||'active'];
       const p=custProfile(c);
       const fn = p.first_name || c.first_name_cache || '';
       const ln = p.last_name  || c.last_name_cache  || '';
-      const name=`${fn} ${ln}`.trim();
-      const contact = p.email||c.email_cache||p.phone||c.phone_cache||c.address_cache||'';
+      const name=`${fn} ${ln}`.trim()||'Unknown';
+      const addr = c.address_cache || (c.city ? `${c.city}` : '') || p.email||c.email_cache||'';
       const m=L.marker([c.lat,c.lng],{icon:makePin(col,'',24)}).addTo(custMap)
         .on('click',()=>{
           document.getElementById('cim-name').textContent=name;
-          document.getElementById('cim-addr').textContent=contact;
+          document.getElementById('cim-addr').textContent=addr;
+          document.getElementById('cim-badge').innerHTML=statusBadge(c.risk_status||'active');
           document.getElementById('cust-info-card').style.display='block';
           custMap.flyTo([c.lat,c.lng],15,{duration:.8});
         });
       custMarkers.push(m);
     });
+    // update pin count display
+    const countEl = document.getElementById('cust-map-count');
+    if (countEl) {
+      const n = data.filter(c=>c.lat&&c.lng).length;
+      countEl.textContent = `${n} customer${n!==1?'s':''} on map`;
+    }
   }
 
   // ── DELIVERY ZONES MAP ──
