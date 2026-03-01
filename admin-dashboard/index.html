@@ -3761,18 +3761,20 @@
 
   // ── getOrCreateConversation ──
   async function getOrCreateConversation(customerId, phone, channel = 'sms') {
-    // Try to find existing
-    let q = db.from('conversations').select('*').eq('channel', channel);
+    // Try to find existing — use limit(1) so multiple rows don't cause maybeSingle() to silently return null
+    let q = db.from('conversations').select('*').eq('channel', channel).limit(1);
     if (customerId) q = q.eq('customer_id', customerId);
     else            q = q.eq('phone', phone).is('customer_id', null);
-    const { data: existing } = await q.maybeSingle();
+    const { data: rows } = await q;
+    const existing = rows?.[0];
     if (existing) return existing;
 
     // Create new
     const ins = { channel, status: 'open' };
     if (customerId) ins.customer_id = customerId;
     else            ins.phone = phone;
-    const { data: created } = await db.from('conversations').insert(ins).select().single();
+    const { data: created, error: insErr } = await db.from('conversations').insert(ins).select().single();
+    if (insErr) { console.error('getOrCreateConversation insert failed:', insErr); return null; }
     return created;
   }
 
@@ -4068,16 +4070,21 @@
     if (!currentConv) return;
     const isResolved = currentConv.status === 'resolved';
     const newStatus  = isResolved ? 'open' : 'resolved';
-    const conv = await getOrCreateConversation(currentConv.customer_id, currentConv.phone, 'sms');
-    if (!conv) return;
-    await db.from('conversations').update({
+    // Use known conv_id if available; otherwise look up / create
+    let convId = currentConv.conv_id;
+    if (!convId) {
+      const conv = await getOrCreateConversation(currentConv.customer_id, currentConv.phone, 'sms');
+      if (!conv) { showToast('Could not update conversation', 'error'); return; }
+      convId = conv.id;
+    }
+    const { error } = await db.from('conversations').update({
       status: newStatus,
       resolved_at: newStatus === 'resolved' ? new Date().toISOString() : null,
       updated_at: new Date().toISOString()
-    }).eq('id', conv.id);
+    }).eq('id', convId);
+    if (error) { showToast('Failed to update: ' + error.message, 'error'); return; }
     showToast(newStatus === 'resolved' ? 'Conversation resolved ✓' : 'Conversation reopened', 'success');
-    currentConv = { ...currentConv, status: newStatus, conv_id: conv.id };
-    // Update the button
+    currentConv = { ...currentConv, status: newStatus, conv_id: convId };
     const btn = document.getElementById('btn-resolve-thread');
     if (btn) { btn.textContent = newStatus === 'resolved' ? '↩ Reopen' : '✓ Resolve'; btn.classList.toggle('resolved', newStatus === 'resolved'); }
     loadInbox();
@@ -4085,12 +4092,19 @@
 
   // ── quickResolve (from list hover) ──
   async function quickResolve(key, customerId, phone) {
-    const conv = await getOrCreateConversation(customerId || null, phone, 'sms');
-    if (!conv) return;
-    await db.from('conversations').update({ status: 'resolved', resolved_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', conv.id);
+    // Find conv_id from cache first
+    const cached = _allConvs.find(c => c.key === key);
+    let convId = cached?.conv_id;
+    if (!convId) {
+      const conv = await getOrCreateConversation(customerId || null, phone, 'sms');
+      if (!conv) { showToast('Could not resolve conversation', 'error'); return; }
+      convId = conv.id;
+    }
+    const { error } = await db.from('conversations').update({ status: 'resolved', resolved_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', convId);
+    if (error) { showToast('Failed: ' + error.message, 'error'); return; }
     showToast('Resolved ✓', 'success');
     if (currentConv && currentConv.key === key) {
-      currentConv = { ...currentConv, status: 'resolved' };
+      currentConv = { ...currentConv, status: 'resolved', conv_id: convId };
       const btn = document.getElementById('btn-resolve-thread');
       if (btn) { btn.textContent = '↩ Reopen'; btn.classList.add('resolved'); }
     }
