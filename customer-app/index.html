@@ -46,8 +46,8 @@
     .auth-tab.active { background: white; color: var(--navy); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
     .auth-form { display: none; flex-direction: column; gap: 14px; }
     .auth-form.active { display: flex; }
-    .field label { display: block; font-size: 11.5px; font-weight: 700; color: var(--gray-600); margin-bottom: 5px; letter-spacing: .5px; text-transform: uppercase; }
-    .field input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 15px; outline: none; transition: border-color .2s; background: white; color: var(--text); }
+    .field label { display: block; font-size: 12px; font-weight: 700; color: var(--gray-600); margin-bottom: 5px; letter-spacing: .5px; text-transform: uppercase; }
+    .field input { width: 100%; padding: 13px 16px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 15px; outline: none; transition: border-color .2s; background: white; color: var(--text); }
     .field input:focus { border-color: var(--navy); }
     .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .auth-error { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 10px 14px; border-radius: 8px; font-size: 13.5px; display: none; }
@@ -68,10 +68,10 @@
 
     /* ── BOTTOM NAV ── */
     .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 430px; background: white; border-top: 1px solid var(--gray-200); display: flex; z-index: 100; padding-bottom: env(safe-area-inset-bottom, 0px); }
-    .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 10px 0 8px; border: none; background: transparent; cursor: pointer; gap: 3px; color: var(--gray-400); transition: color .15s; font-size: 10.5px; font-weight: 500; }
-    .nav-btn svg { width: 22px; height: 22px; stroke-width: 1.8; fill: none; stroke: currentColor; }
+    .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 10px 0 8px; border: none; background: transparent; cursor: pointer; gap: 3px; color: var(--gray-400); transition: color .15s; font-size: 11px; font-weight: 500; }
+    .nav-btn svg { width: 22px; height: 22px; stroke-width: 1.8; fill: none; stroke: currentColor; transition: transform .15s; }
     .nav-btn.active { color: var(--navy); }
-    .nav-btn.active svg { stroke-width: 2.3; }
+    .nav-btn.active svg { transform: scale(1.12); }
 
     /* ── HOME ── */
     .home-hero { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); padding: 22px 20px 28px; color: white; flex-shrink: 0; }
@@ -80,9 +80,9 @@
     .stats-row { display: flex; gap: 10px; margin-top: 18px; }
     .stat-chip { flex: 1; background: rgba(255,255,255,.12); border-radius: 10px; padding: 12px 8px; text-align: center; }
     .stat-num { font-size: 20px; font-weight: 800; color: white; }
-    .stat-label { font-size: 10.5px; color: rgba(255,255,255,.55); margin-top: 2px; }
+    .stat-label { font-size: 11px; color: rgba(255,255,255,.55); margin-top: 2px; }
     .section { padding: 18px 18px 0; }
-    .section-title { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--gray-400); margin-bottom: 12px; }
+    .section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--gray-400); margin-bottom: 12px; }
     .active-order-card { background: white; border-radius: var(--radius); border: 1.5px solid var(--gray-200); padding: 16px; box-shadow: var(--shadow); cursor: pointer; transition: box-shadow .15s; }
     .active-order-card:hover { box-shadow: 0 4px 24px rgba(0,0,0,.12); }
     .aoc-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
@@ -147,7 +147,7 @@
     .back-btn svg { width: 18px; height: 18px; stroke: white; stroke-width: 2.2; fill: none; }
     .order-step-title { color: white; font-size: 15px; font-weight: 700; flex: 1; }
     .step-indicator { display: flex; gap: 6px; padding: 12px 18px 0; }
-    .sdot { flex: 1; height: 3px; border-radius: 2px; background: var(--gray-200); }
+    .sdot { flex: 1; height: 4px; border-radius: 2px; background: var(--gray-200); transition: background .25s; }
     .sdot.active { background: var(--navy); }
     .step-content { padding: 18px; }
     .step-sub { font-size: 13.5px; color: var(--gray-600); margin-bottom: 18px; }
@@ -179,7 +179,7 @@
 
     /* Time slots */
     .slot-group { margin-bottom: 20px; }
-    .slot-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 10px; }
+    .slot-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 10px; }
     .slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .slot-btn { padding: 11px 8px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; text-align: center; font-size: 13px; font-weight: 500; transition: all .15s; line-height: 1.3; }
     .slot-btn:hover { border-color: var(--navy); }
@@ -195,18 +195,18 @@
     .confirm-row.editable:active { background: var(--gray-200); }
     .confirm-key { font-size: 13.5px; color: var(--gray-600); }
     .confirm-val { font-size: 13.5px; font-weight: 600; text-align: right; max-width: 58%; }
-    .confirm-edit { font-size: 11.5px; color: var(--accent); font-weight: 600; margin-left: 8px; flex-shrink: 0; }
+    .confirm-edit { font-size: 12px; color: var(--accent); font-weight: 600; margin-left: 8px; flex-shrink: 0; }
     .confirm-total { font-size: 16px !important; font-weight: 800 !important; color: var(--navy); }
     .recurring-badge { display: inline-flex; align-items: center; gap: 5px; background: #eef3ff; color: var(--navy); padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 
     /* ── ORDERS ── */
     .orders-list { padding: 14px 18px; }
-    .order-item { border: 1.5px solid var(--gray-200); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; cursor: pointer; transition: box-shadow .15s; }
+    .order-item { border: 1.5px solid var(--gray-200); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 12px; cursor: pointer; transition: box-shadow .15s; }
     .order-item:hover { box-shadow: var(--shadow); }
-    .oi-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .oi-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     .oi-num { font-size: 12.5px; font-weight: 700; color: var(--navy); font-family: monospace; }
     .oi-date { font-size: 12px; color: var(--gray-400); }
-    .oi-svc { font-size: 14px; color: var(--gray-600); margin-bottom: 10px; }
+    .oi-svc { font-size: 14.5px; font-weight: 600; color: var(--text); margin-bottom: 12px; }
     .oi-bottom { display: flex; justify-content: space-between; align-items: center; }
     .oi-total { font-size: 15px; font-weight: 700; }
     .oi-recur { font-size: 11px; color: var(--accent); font-weight: 600; margin-top: 4px; }
@@ -220,7 +220,7 @@
     .d-date { font-size: 13px; color: rgba(255,255,255,.55); margin-top: 4px; }
     .detail-body { padding: 18px; }
     .d-section { margin-bottom: 24px; }
-    .d-section-title { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 12px; }
+    .d-section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 12px; }
     .d-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--gray-100); }
     .d-row:last-child { border-bottom: none; }
     .d-key { font-size: 14px; color: var(--gray-600); }
@@ -243,7 +243,7 @@
     .plan-card:hover { border-color: var(--navy); }
     .plan-card.current { border-color: var(--navy); background: #eef3ff; }
     .plan-card.popular { border-color: var(--accent); }
-    .popular-tag { position: absolute; top: -10px; right: 16px; background: var(--accent); color: white; font-size: 10.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: .4px; }
+    .popular-tag { position: absolute; top: -10px; right: 16px; background: var(--accent); color: white; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: .4px; }
     .plan-name { font-size: 15px; font-weight: 800; margin-bottom: 4px; }
     .plan-price { font-size: 22px; font-weight: 800; color: var(--navy); margin-bottom: 6px; }
     .plan-price span { font-size: 13px; font-weight: 500; color: var(--gray-600); }
@@ -256,7 +256,7 @@
 
     /* Preferences */
     .pref-section { padding: 0 18px 18px; }
-    .pref-title { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 14px; padding-top: 4px; }
+    .pref-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 14px; padding-top: 4px; }
     .pref-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--gray-100); }
     .pref-row:last-child { border-bottom: none; }
     .pref-left { display: flex; align-items: center; gap: 10px; }
@@ -327,7 +327,7 @@
 
     /* ── CALENDAR ── */
     .cal-wrap { margin-bottom: 24px; }
-    .cal-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 12px; }
+    .cal-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 12px; }
     .cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
     .cal-title { font-size: 15px; font-weight: 700; color: var(--navy); }
     .cal-nav { width: 36px; height: 36px; border: none; background: var(--gray-100); border-radius: 8px; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--navy); font-weight: 700; line-height: 1; transition: background .15s; }
@@ -433,7 +433,7 @@
 
     /* ── ORDER PREFERENCES ── */
     .order-pref-group { margin-bottom: 22px; }
-    .order-pref-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 10px; }
+    .order-pref-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 10px; }
     .order-pref-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .order-pref-btn { padding: 12px 14px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; font-family: inherit; font-size: 13.5px; font-weight: 500; color: var(--text); text-align: center; transition: all .15s; line-height: 1.3; }
     .order-pref-btn:hover { border-color: var(--navy); }
@@ -453,6 +453,23 @@
     .confirm-or { text-align: center; font-size: 12.5px; color: var(--gray-400); margin: 14px 0 10px; }
     .confirm-signin-link { width: 100%; padding: 12px; background: white; border: 1.5px solid var(--gray-300); border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--navy); cursor: pointer; transition: border-color .15s; font-family: inherit; }
     .confirm-signin-link:hover { border-color: var(--navy); }
+
+    /* ── STEP TRANSITIONS ── */
+    .step-pane { animation: stepFadeIn .18s ease both; }
+    @keyframes stepFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    /* ── SUCCESS SCREEN ENHANCEMENTS ── */
+    .success-order-num { font-size: 13px; font-family: monospace; color: var(--gray-400); margin-bottom: 6px; letter-spacing: .5px; }
+    .success-sms-note { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; color: var(--gray-600); margin-bottom: 28px; }
+    .success-view-btn { display: block; width: 100%; max-width: 280px; padding: 15px; background: var(--navy); color: white; border: none; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; transition: opacity .2s; margin-bottom: 14px; }
+    .success-view-btn:hover { opacity: .88; }
+    .success-back-link { background: none; border: none; color: var(--gray-400); font-size: 13.5px; cursor: pointer; padding: 4px 8px; text-decoration: underline; }
+    .success-back-link:hover { color: var(--navy); }
+
+    /* ── ACCOUNT SECTION LABELS ── */
+    .acct-section-header { display: flex; align-items: center; gap: 10px; padding: 16px 18px 10px; }
+    .acct-section-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--gray-400); }
+    .acct-section-line { flex: 1; height: 1px; background: var(--gray-100); }
   </style>
 </head>
 <body>
@@ -709,7 +726,7 @@
 
       <!-- Quick links -->
       <div class="acct-menu">
-        <div class="menu-section-title">Account</div>
+        <div class="acct-section-header"><span class="acct-section-label">Account</span><div class="acct-section-line"></div></div>
         <div class="menu-item" onclick="goTo('orders')">
           <div class="mi-left">
             <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><path d="M9 12h6M9 16h4"/></svg></div>
@@ -726,7 +743,7 @@
 
       <!-- Laundry Preferences -->
       <div class="pref-section">
-        <div class="pref-title">Laundry Preferences</div>
+        <div class="acct-section-header" style="padding:16px 0 10px"><span class="acct-section-label">Laundry Preferences</span><div class="acct-section-line"></div></div>
         <div id="account-prefs-container">
           <div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">Loading preferences…</div>
         </div>
@@ -736,8 +753,8 @@
       <div class="section-divider"></div>
 
       <!-- Subscription Plans -->
-      <div style="padding: 18px 18px 8px;">
-        <div class="pref-title" style="margin-bottom:14px">My Plan</div>
+      <div style="padding: 16px 18px 8px;">
+        <div class="acct-section-header" style="padding:0 0 10px"><span class="acct-section-label">My Plan</span><div class="acct-section-line"></div></div>
       </div>
       <div class="plan-cards" id="plan-cards">
         <!-- Rendered by JS -->
@@ -754,12 +771,15 @@
       <div class="success-circle">
         <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
       </div>
-      <div class="success-h">Order Placed! 🎉</div>
-      <div class="success-sub">We'll see you at pickup.</div>
+      <div class="success-order-num" id="success-order-num"></div>
+      <div class="success-h">You're all set! 🎉</div>
+      <div class="success-sub">Your order is confirmed.</div>
       <div class="success-detail" id="success-info"></div>
-      <div class="success-detail" id="success-delivery" style="margin-bottom:16px"></div>
+      <div class="success-detail" id="success-delivery" style="margin-bottom:12px"></div>
       <div id="success-recur-wrap"></div>
-      <button class="btn-primary" style="max-width:280px" onclick="afterSuccess()">Back to Home</button>
+      <div class="success-sms-note">💬 You'll get a text when we're on the way.</div>
+      <button class="success-view-btn" onclick="viewMyOrder()">View My Order</button>
+      <button class="success-back-link" onclick="afterSuccess()">Back to Home</button>
     </div>
   </div>
 
@@ -1068,7 +1088,13 @@ async function loadHome() {
 }
 
 function renderNoActive() {
-  document.getElementById('home-active').innerHTML = `<div class="nudge-card"><p>No active orders right now.<br>Use the button below to get started!</p></div>`;
+  document.getElementById('home-active').innerHTML = `
+    <div class="nudge-card" style="cursor:pointer" onclick="goTo('new-order')">
+      <div style="font-size:36px;margin-bottom:10px">🧺</div>
+      <p style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px">Ready for pickup day?</p>
+      <p style="margin-bottom:16px;font-size:13.5px">Schedule your first bag — we'll handle the rest.</p>
+      <span class="nudge-btn">Schedule a Pickup →</span>
+    </div>`;
 }
 
 function buildActiveCard(o) {
@@ -1098,7 +1124,7 @@ function buildActiveCard(o) {
         <div class="aoc-num">#${o.order_number || '—'}</div>
         <div class="aoc-svc">${svc}</div>
         ${pickupLine}
-        ${recLabel ? `<div style="font-size:11.5px;color:var(--accent);font-weight:600;margin-top:3px">${recLabel}</div>` : ''}
+        ${recLabel ? `<div style="font-size:12px;color:var(--accent);font-weight:600;margin-top:3px">${recLabel}</div>` : ''}
       </div>
       ${buildStatusBadge(o.status)}
     </div>
@@ -1332,7 +1358,16 @@ function goOrderStep(step) {
 function renderStep(step) {
   [0,1,2,3,4].forEach(i => {
     const el = document.getElementById(`o-step-${i}`);
-    if (el) el.style.display = i === step ? '' : 'none';
+    if (el) {
+      if (i === step) {
+        el.style.display = '';
+        el.classList.remove('step-pane');
+        void el.offsetWidth; // force reflow to restart animation
+        el.classList.add('step-pane');
+      } else {
+        el.style.display = 'none';
+      }
+    }
     const dot = document.getElementById(`sd${i}`);
     if (dot) dot.classList.toggle('active', i <= step);
   });
@@ -1706,13 +1741,24 @@ async function placeOrder() {
   const longDate  = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
   const pickupFmt = longDate(pickupDate);
   const winSuffix = pw?.label ? ` · ${pw.label}` : '';
-  document.getElementById('success-info').textContent     = `First pickup: ${pickupFmt}${winSuffix}`;
+  const orderNumEl = document.getElementById('success-order-num');
+  if (orderNumEl) orderNumEl.textContent = order?.order_number ? `ORDER #${order.order_number}` : '';
+  window._lastOrderId = order?.id;
+  document.getElementById('success-info').textContent     = `Pickup: ${pickupFmt}${winSuffix}`;
   document.getElementById('success-delivery').textContent = `Est. delivery: ${longDate(deliveryDate)}`;
   const recurLabels = { weekly:'Every week', biweekly:'Every 2 weeks', monthly:'Every month' };
   document.getElementById('success-recur-wrap').innerHTML = draft.recurring
-    ? `<div class="success-recur">🔁 ${recurLabels[draft.recurring]} · Auto-scheduled</div>`
-    : '<div style="height:20px"></div>';
+    ? `<div class="success-recur" style="margin-bottom:16px">🔁 ${recurLabels[draft.recurring]} · Auto-scheduled</div>`
+    : '<div style="height:8px"></div>';
   showScreen('success');
+}
+
+function viewMyOrder() {
+  if (window._lastOrderId) {
+    openDetail(window._lastOrderId);
+  } else {
+    afterSuccess();
+  }
 }
 
 function afterSuccess() {
@@ -1970,7 +2016,7 @@ async function loadAccount() {
   if (!currentProfile) return;
   const first = currentProfile.first_name || '';
   const last  = currentProfile.last_name  || '';
-  document.getElementById('acct-avatar').textContent = (first[0] || '?').toUpperCase();
+  document.getElementById('acct-avatar').textContent = ((first[0] || '') + (last[0] || '') || '?').toUpperCase();
   document.getElementById('acct-name').textContent   = `${first} ${last}`.trim() || 'You';
   document.getElementById('acct-email').textContent  = currentProfile.email || currentUser?.email || '';
 
