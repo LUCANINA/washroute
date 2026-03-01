@@ -7405,17 +7405,16 @@
     wrap.innerHTML = allRackOrders.map(o => {
       const name = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.trim() || '—';
       const rack = allRacksCache.find(r => r.id === o.rack_id);
-      const rackLabel = rack ? `🗂️ ${rack.name}` : '—';
-      return `<div class="proc-card" id="racked-card-${o.id}" style="cursor:default;opacity:.8">
+      const rackLabel = rack ? rack.name : '—';
+      return `<div class="proc-card" id="racked-card-${o.id}" onclick="openRackPanel('${o.id}')" style="cursor:pointer">
         <div>
           <div class="proc-card-order">#${o.order_number||'—'}</div>
           <div class="proc-card-name">${name}</div>
         </div>
         <div class="proc-card-meta">
           <span>📦 ${o.total_bags||1} bag${(o.total_bags||1)!==1?'s':''}</span>
-          <span>${rackLabel}</span>
+          <span style="color:#7c3aed;font-weight:600;text-decoration:underline;text-decoration-style:dotted;cursor:pointer">🗂️ ${rackLabel}</span>
         </div>
-        <div style="font-size:11px;color:#7c3aed;font-weight:600;text-align:center;margin-top:4px">✅ Ready for delivery</div>
       </div>`;
     }).join('');
   }
@@ -7424,15 +7423,22 @@
   function openRackPanel(orderId) {
     const order = allFoldOrders.find(o => o.id === orderId)
                || allCleanOrders.find(o => o.id === orderId)
-               || allProcOrders.find(o => o.id === orderId);
+               || allProcOrders.find(o => o.id === orderId)
+               || allRackOrders.find(o => o.id === orderId);
     if (!order) return;
     rackActiveOrder = order;
-    selectedRackId  = null;
+    // Pre-select current rack if already racked (for re-assignment)
+    selectedRackId = order.rack_id || null;
     const fn = order.customers?.first_name_cache || '';
     const ln = order.customers?.last_name_cache  || '';
-    document.getElementById('rack-title').textContent    = `${`${fn} ${ln}`.trim()||'Order'} — Assign Rack`;
+    const isRerack = !!order.rack_id;
+    document.getElementById('rack-title').textContent    = isRerack
+      ? `${`${fn} ${ln}`.trim()||'Order'} — Change Rack`
+      : `${`${fn} ${ln}`.trim()||'Order'} — Assign Rack`;
     document.getElementById('rack-subtitle').textContent = `Order #${order.order_number||'—'} · ${order.services?.name||''}`;
-    document.getElementById('rack-save-btn').disabled    = true;
+    // Enable save immediately if re-racking (current rack is pre-selected)
+    document.getElementById('rack-save-btn').disabled    = !isRerack;
+    document.getElementById('rack-save-btn').textContent = isRerack ? '🗂️ Move to Rack' : '🗂️ Rack & Mark Assembled';
     document.getElementById('rack-error').style.display  = 'none';
     renderRackPanel();
     document.getElementById('rack-panel').classList.add('open');
@@ -7472,7 +7478,9 @@
   function selectRack(rackId) {
     selectedRackId = rackId;
     renderRackPanel();
-    document.getElementById('rack-save-btn').disabled = false;
+    const btn = document.getElementById('rack-save-btn');
+    btn.disabled = false;
+    btn.textContent = rackActiveOrder?.rack_id ? '🗂️ Move to Rack' : '🗂️ Rack & Mark Assembled';
   }
 
   function closeRackPanel() {
@@ -7491,7 +7499,7 @@
     if (error) {
       document.getElementById('rack-error').textContent = error.message;
       document.getElementById('rack-error').style.display = '';
-      btn.disabled = false; btn.textContent = '🗂️ Rack & Mark Assembled';
+      btn.disabled = false; btn.textContent = rackActiveOrder?.rack_id ? '🗂️ Move to Rack' : '🗂️ Rack & Mark Assembled';
       return;
     }
     const rackName = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
