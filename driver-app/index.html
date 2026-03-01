@@ -62,11 +62,11 @@
     }
     #undo-bar.show { opacity: 1; transform: translateY(0); pointer-events: all; }
     .undo-msg { font-size: 14px; font-weight: 600; }
-    .undo-countdown { font-size: 12px; color: rgba(255,255,255,0.45); margin-top: 2px; }
+    .undo-countdown { font-size: 12px; color: rgba(255,255,255,0.65); margin-top: 2px; }
     .btn-undo {
       background: var(--accent); color: var(--white); border: none;
       border-radius: 10px; font-size: 13px; font-weight: 700;
-      padding: 8px 16px; cursor: pointer; flex-shrink: 0;
+      padding: 12px 16px; cursor: pointer; flex-shrink: 0;
     }
 
     /* ── Screens ── */
@@ -84,10 +84,10 @@
     .nav-btn {
       flex: 1; display: flex; flex-direction: column; align-items: center;
       justify-content: center; gap: 3px; border: none; background: none;
-      cursor: pointer; color: var(--muted); font-size: 11px; font-weight: 600;
-      transition: color .15s;
+      cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 600;
+      transition: color .15s; border-radius: 10px;
     }
-    .nav-btn.active { color: var(--accent); }
+    .nav-btn.active { color: var(--accent); background: rgba(249,115,22,0.08); }
     .nav-icon { width: 24px; height: 24px; display: block; }
     .nav-icon svg { width: 100%; height: 100%; }
 
@@ -122,7 +122,7 @@
     }
     .auth-tab {
       flex: 1; background: none; border: none; color: rgba(255,255,255,0.5);
-      font-size: 13px; font-weight: 700; padding: 8px; border-radius: 7px;
+      font-size: 13px; font-weight: 700; padding: 10px 8px; border-radius: 7px;
       cursor: pointer; transition: all .18s;
     }
     .auth-tab.active { background: rgba(255,255,255,0.12); color: var(--white); }
@@ -182,7 +182,7 @@
     .route-stats { display: flex; gap: 0; margin-bottom: 14px; }
     .rstat { flex: 1; text-align: center; }
     .rstat-num { font-size: 30px; font-weight: 800; color: var(--white); line-height: 1; }
-    .rstat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: rgba(255,255,255,0.4); margin-top: 3px; }
+    .rstat-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: rgba(255,255,255,0.4); margin-top: 3px; }
     .route-progress { background: rgba(255,255,255,0.14); border-radius: 4px; height: 5px; margin-bottom: 16px; }
     .route-progress-fill { background: var(--accent); height: 100%; border-radius: 4px; transition: width .4s; }
 
@@ -225,9 +225,9 @@
 
     .stop-body { flex: 1; min-width: 0; }
     .stop-badge {
-      display: inline-block; font-size: 10px; font-weight: 700;
+      display: inline-block; font-size: 11px; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.5px;
-      padding: 2px 8px; border-radius: 6px; margin-bottom: 4px;
+      padding: 3px 8px; border-radius: 6px; margin-bottom: 4px;
     }
     .sb-pickup   { background: #dbeafe; color: var(--pickup); }
     .sb-delivery { background: #d1fae5; color: var(--deliver); }
@@ -250,13 +250,13 @@
       display: inline-flex; align-items: center; gap: 5px;
       color: rgba(255,255,255,0.55); font-size: 14px; font-weight: 600;
       border: none; background: none; cursor: pointer; margin-bottom: 12px;
-      padding: 0;
+      padding: 6px 8px; margin-left: -8px;
     }
     .detail-eyebrow { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: rgba(255,255,255,0.45); margin-bottom: 4px; }
     .detail-title { font-size: 22px; font-weight: 800; }
 
     .dsection { padding: 14px 20px; border-bottom: 1px solid var(--border); }
-    .dsection-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 10px; }
+    .dsection-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 10px; }
     .drow { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
     .drow:last-child { margin-bottom: 0; }
     .dicon { font-size: 16px; margin-top: 1px; flex-shrink: 0; width: 22px; text-align: center; }
@@ -290,7 +290,7 @@
 
     /* Photo capture section */
     .photo-section { margin-bottom: 12px; }
-    .photo-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 7px; }
+    .photo-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 7px; }
     .photo-row { display: flex; gap: 10px; align-items: center; }
     .photo-thumb {
       width: 72px; height: 72px; border-radius: 10px; object-fit: cover;
@@ -307,7 +307,7 @@
     .btn-camera:active { border-color: var(--accent); color: var(--accent); }
     .btn-camera.has-photo { border-style: solid; border-color: var(--deliver); color: var(--deliver); background: #f0fdf4; }
     .photo-input { display: none; }
-    .photo-uploading { font-size: 12px; color: var(--muted); margin-top: 6px; display: none; }
+    .photo-uploading { font-size: 14px; color: var(--muted); margin-top: 6px; display: none; }
     .photo-uploading.show { display: block; }
 
     /* Complete / Skip buttons */
@@ -377,7 +377,7 @@
     .info-row { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
     .info-row:last-child { border-bottom: none; }
     .info-icon { font-size: 18px; width: 26px; text-align: center; }
-    .info-lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+    .info-lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
     .info-val { font-size: 15px; font-weight: 600; color: var(--dark); margin-top: 2px; }
 
     .btn-signout {
@@ -403,7 +403,7 @@
     .rh-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .rh-title { font-size: 19px; font-weight: 800; }
     .rh-sub { font-size: 13px; color: rgba(255,255,255,0.45); }
-    .rh-refresh { font-size: 20px; cursor: pointer; background: none; border: none; color: rgba(255,255,255,0.55); }
+    .rh-refresh { font-size: 20px; cursor: pointer; background: none; border: none; color: rgba(255,255,255,0.55); padding: 10px; margin: -10px; }
 
     /* Pending order cards */
     .po-card { background: var(--white); border-radius: var(--radius); padding: 15px 16px; margin-bottom: 9px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
@@ -466,7 +466,7 @@
     .msg-bubble-wrap.from-driver .msg-bubble-inner { align-items: flex-end; }
 
     .msg-sender {
-      font-size: 11px; font-weight: 700; color: var(--muted);
+      font-size: 12px; font-weight: 700; color: var(--muted);
       text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px;
       padding: 0 4px;
     }
@@ -484,11 +484,11 @@
     }
 
     .msg-body { font-size: 15px; font-weight: 500; line-height: 1.45; word-break: break-word; }
-    .msg-time { font-size: 11px; color: var(--muted); margin-top: 5px; }
+    .msg-time { font-size: 12px; color: var(--muted); margin-top: 5px; }
     .msg-bubble-wrap.from-driver .msg-time { color: rgba(255,255,255,0.65); }
 
     .msg-unread-indicator {
-      font-size: 11px; font-weight: 700; color: var(--danger);
+      font-size: 12px; font-weight: 700; color: var(--danger);
       text-align: center; margin: 8px 0 4px;
       display: flex; align-items: center; gap: 8px;
     }
@@ -516,7 +516,7 @@
     .msg-input:focus { border-color: var(--accent); }
 
     .btn-msg-send {
-      width: 42px; height: 42px; border-radius: 50%;
+      width: 44px; height: 44px; border-radius: 50%;
       background: var(--accent); color: var(--white); border: none;
       cursor: pointer; font-size: 20px; font-weight: 800;
       display: flex; align-items: center; justify-content: center;
@@ -524,6 +524,30 @@
     }
     .btn-msg-send:disabled { background: var(--border); cursor: not-allowed; }
     .btn-msg-send:not(:disabled):active { background: #ea6c0a; transform: scale(0.95); }
+
+    /* ── Skip confirmation sheet ── */
+    #skip-confirm-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+      z-index: 9995; display: none; align-items: flex-end;
+      padding: 0; animation: fadeIn .15s;
+    }
+    #skip-confirm-overlay.show { display: flex; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .skip-confirm-sheet {
+      width: 100%; background: #1f2937; border-radius: 20px 20px 0 0;
+      padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+      animation: slideUp .2s ease-out;
+    }
+    @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    .skip-confirm-title { font-size: 17px; font-weight: 800; color: var(--white); margin-bottom: 6px; }
+    .skip-confirm-sub { font-size: 14px; color: rgba(255,255,255,0.55); margin-bottom: 20px; line-height: 1.5; }
+    .skip-confirm-btns { display: flex; flex-direction: column; gap: 10px; }
+    .btn-skip-confirm {
+      width: 100%; padding: 14px; border-radius: 12px; border: none;
+      font-size: 16px; font-weight: 700; cursor: pointer;
+    }
+    .btn-skip-confirm.danger { background: var(--danger); color: var(--white); }
+    .btn-skip-confirm.cancel { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.75); }
   </style>
 </head>
 <body>
@@ -541,6 +565,18 @@
     <div class="undo-countdown" id="undo-countdown">Undo in 12s</div>
   </div>
   <button class="btn-undo" onclick="triggerUndo()">Undo</button>
+</div>
+
+<!-- Skip confirm sheet -->
+<div id="skip-confirm-overlay" onclick="if(event.target===this)resolveSkipConfirm(false)">
+  <div class="skip-confirm-sheet">
+    <div class="skip-confirm-title">Skip this stop?</div>
+    <div class="skip-confirm-sub">You can undo this within 12 seconds if you change your mind.</div>
+    <div class="skip-confirm-btns">
+      <button class="btn-skip-confirm danger" onclick="resolveSkipConfirm(true)">Yes, Skip Stop</button>
+      <button class="btn-skip-confirm cancel" onclick="resolveSkipConfirm(false)">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <!-- ════════════════════════════
@@ -1017,7 +1053,7 @@ function renderRoute() {
     document.getElementById('rh-title').textContent = "Today's Stops";
     document.getElementById('rh-sub').textContent = 'No stops assigned yet';
     document.getElementById('rh-bar').style.width = '0%';
-    body.innerHTML = `<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">No Stops Today</div><div class="empty-sub">Check back later — stops will appear here once they're assigned to you.</div></div>`;
+    body.innerHTML = `<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">No Stops Today</div><div class="empty-sub">Check back later — stops will appear here once they're assigned to you.</div><button class="btn-big" style="max-width:200px;margin:20px auto 0;font-size:15px;padding:12px" onclick="refreshRoute()">↻ Refresh</button></div>`;
     return;
   }
 
@@ -1029,7 +1065,7 @@ function renderRoute() {
   document.getElementById('rh-bar').style.width   = pct + '%';
 
   if (total === 0) {
-    body.innerHTML = `<div class="empty"><div class="empty-icon">🗺️</div><div class="empty-title">No Stops Yet</div><div class="empty-sub">Your route has been assigned but no stops have been added yet.</div></div>`;
+    body.innerHTML = `<div class="empty"><div class="empty-icon">🗺️</div><div class="empty-title">No Stops Yet</div><div class="empty-sub">Your route has been assigned but no stops have been added yet.</div><button class="btn-big" style="max-width:200px;margin:20px auto 0;font-size:15px;padding:12px" onclick="refreshRoute()">↻ Refresh</button></div>`;
     return;
   }
 
@@ -1082,8 +1118,8 @@ function renderRoute() {
       const doneInGroup  = group.stops.filter(s => s.status === 'complete').length;
       const totalInGroup = group.stops.length;
       h += `<div style="display:flex;align-items:center;justify-content:space-between;margin:${h.length > 40 ? '20px' : '4px'} 0 8px">
-        <span style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--gray-500)">${group.label}</span>
-        ${multiGroup ? `<span style="font-size:11px;color:var(--gray-400)">${doneInGroup}/${totalInGroup}</span>` : ''}
+        <span style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--gray)">${group.label}</span>
+        ${multiGroup ? `<span style="font-size:12px;color:var(--muted)">${doneInGroup}/${totalInGroup}</span>` : ''}
       </div>`;
     }
     group.stops.forEach(stop => { h += renderStopCard(stop); });
@@ -1526,10 +1562,25 @@ async function completeStop(stopId, stopType) {
 }
 
 /* ──────────────────────────────
+   SKIP CONFIRM SHEET
+────────────────────────────── */
+let _skipConfirmResolve = null;
+function showSkipConfirm() {
+  return new Promise(resolve => {
+    _skipConfirmResolve = resolve;
+    document.getElementById('skip-confirm-overlay').classList.add('show');
+  });
+}
+function resolveSkipConfirm(confirmed) {
+  document.getElementById('skip-confirm-overlay').classList.remove('show');
+  if (_skipConfirmResolve) { _skipConfirmResolve(confirmed); _skipConfirmResolve = null; }
+}
+
+/* ──────────────────────────────
    SKIP STOP
 ────────────────────────────── */
 async function skipStop(stopId) {
-  const really = confirm('Skip this stop? You can undo this within 12 seconds.');
+  const really = await showSkipConfirm();
   if (!really) return;
 
   const stop = allStops.find(s => s.id === stopId);
