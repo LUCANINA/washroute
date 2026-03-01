@@ -391,24 +391,120 @@
     tbody tr:hover .row-action { opacity: 1; }
 
     /* ── INBOX ── */
-    .inbox-layout { display: grid; grid-template-columns: 300px 1fr; height: calc(100vh - 56px - 56px); border: 1px solid var(--gray-200); border-radius: var(--radius); background: white; overflow: hidden; }
-    .inbox-list { border-right: 1px solid var(--gray-200); overflow-y: auto; }
-    .inbox-item { padding: 14px 16px; border-bottom: 1px solid var(--gray-100); cursor: pointer; transition: background .1s; }
-    .inbox-item:hover, .inbox-item.active { background: var(--gray-50); }
-    .inbox-item-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }
-    .inbox-item-name { font-weight: 600; font-size: 13px; color: var(--gray-900); }
-    .inbox-item-time { font-size: 11px; color: var(--gray-400); }
+    .inbox-layout { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 56px - 56px); border: 1px solid var(--gray-200); border-radius: var(--radius); background: white; overflow: hidden; }
+    .inbox-list { border-right: 1px solid var(--gray-200); display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Search + tabs bar */
+    .inbox-list-top { flex-shrink: 0; border-bottom: 1px solid var(--gray-200); }
+    .inbox-search-wrap { padding: 12px 14px 0; position: relative; }
+    .inbox-search-icon { position: absolute; left: 24px; top: 50%; transform: translateY(-50%); color: var(--gray-400); pointer-events: none; }
+    .inbox-search { width: 100%; padding: 7px 12px 7px 32px; border: 1.5px solid var(--gray-200); border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; background: var(--gray-50); }
+    .inbox-search:focus { border-color: var(--accent); background: white; }
+    .inbox-ch-tabs { display: flex; padding: 8px 14px 0; gap: 2px; }
+    .inbox-ch-tab { flex: 1; text-align: center; padding: 6px 4px; font-size: 12px; font-weight: 600; color: var(--gray-500); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; }
+    .inbox-ch-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* Scrollable list body */
+    .inbox-list-body { flex: 1; overflow-y: auto; }
+
+    /* Section headers */
+    .inbox-section { }
+    .inbox-section-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 14px 6px; cursor: pointer; user-select: none;
+      position: sticky; top: 0; background: var(--gray-50); z-index: 1;
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .inbox-section-head:hover { background: var(--gray-100); }
+    .inbox-section-left { display: flex; align-items: center; gap: 7px; }
+    .inbox-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-500); }
+    .inbox-section-count { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 10px; }
+    .cnt-needs  { background: #fee2e2; color: #b91c1c; }
+    .cnt-waiting { background: #fef3c7; color: #92400e; }
+    .cnt-resolved { background: var(--gray-100); color: var(--gray-500); }
+    .inbox-section-chevron { font-size: 10px; color: var(--gray-400); transition: transform .15s; }
+    .inbox-section.collapsed .inbox-section-chevron { transform: rotate(-90deg); }
+    .inbox-section.collapsed .inbox-section-items { display: none; }
+
+    /* Conversation items */
+    .inbox-item { padding: 11px 14px; border-bottom: 1px solid var(--gray-100); cursor: pointer; transition: background .1s; position: relative; }
+    .inbox-item:hover { background: var(--gray-50); }
+    .inbox-item.active { background: #eff6ff; border-right: 3px solid var(--accent); }
+    .inbox-item-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+    .inbox-item-name { font-weight: 600; font-size: 13px; color: var(--gray-900); display: flex; align-items: center; gap: 5px; }
+    .inbox-item-time { font-size: 11px; color: var(--gray-400); flex-shrink: 0; }
     .inbox-item-preview { font-size: 12.5px; color: var(--gray-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .inbox-thread { display: flex; flex-direction: column; }
-    .inbox-thread-header { padding: 16px 20px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: center; justify-content: space-between; }
+    .inbox-item-actions { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); display: none; gap: 4px; background: white; border-radius: 8px; box-shadow: var(--shadow-sm); border: 1px solid var(--gray-200); padding: 3px; }
+    .inbox-item:hover .inbox-item-actions { display: flex; }
+    .inbox-item.active .inbox-item-actions { background: #eff6ff; }
+    .inbox-quick-btn { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 5px; font-size: 11px; font-weight: 600; color: var(--gray-600); transition: all .1s; white-space: nowrap; }
+    .inbox-quick-btn:hover { background: var(--gray-100); color: var(--gray-900); }
+    .inbox-quick-btn.resolve { color: var(--green); }
+    .inbox-quick-btn.resolve:hover { background: #d1fae5; }
+
+    /* Channel + unread badges */
+    .ch-badge { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
+    .ch-sms   { background: #dbeafe; color: #1d4ed8; }
+    .ch-email { background: #ede9fe; color: #6d28d9; }
+    .unread-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+
+    /* Thread panel */
+    .inbox-thread { display: flex; flex-direction: column; overflow: hidden; }
+    .inbox-thread-header { padding: 14px 20px; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; }
+    .inbox-thread-header-top { display: flex; align-items: center; justify-content: space-between; }
+    .inbox-thread-name { font-weight: 700; font-size: 15px; color: var(--gray-900); }
+    .inbox-thread-meta { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
+    .inbox-thread-btns { display: flex; gap: 8px; flex-shrink: 0; }
+    .btn-resolve { background: #d1fae5; color: #065f46; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 6px 12px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all .12s; }
+    .btn-resolve:hover { background: #a7f3d0; }
+    .btn-resolve.resolved { background: var(--gray-100); color: var(--gray-500); }
+    .btn-create-issue { background: var(--gray-100); color: var(--gray-700); border: none; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 6px 12px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all .12s; }
+    .btn-create-issue:hover { background: var(--gray-200); }
+
+    /* Issue badge in thread header */
+    .issue-badge { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer; transition: border-color .12s; }
+    .issue-badge:hover { border-color: var(--accent); }
+    .issue-priority-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .pri-urgent { background: #ef4444; }
+    .pri-high   { background: #f97316; }
+    .pri-normal { background: #3b82f6; }
+    .pri-low    { background: var(--gray-400); }
+
+    /* Issue creation form */
+    .issue-form { border-top: 1px solid var(--gray-100); padding: 14px 20px; background: #f8faff; flex-shrink: 0; display: none; }
+    .issue-form.show { display: block; }
+    .issue-form-title { font-size: 13px; font-weight: 700; color: var(--gray-900); margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
+    .issue-form-row { display: flex; gap: 10px; margin-bottom: 10px; }
+    .issue-form-row > * { flex: 1; }
+    .issue-form select, .issue-form input[type=text] { width: 100%; padding: 7px 10px; border: 1.5px solid var(--gray-200); border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; background: white; }
+    .issue-form select:focus, .issue-form input:focus { border-color: var(--accent); }
+    .issue-form-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+
+    /* Messages */
     .inbox-messages { flex: 1; padding: 16px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
     .message-bubble { max-width: 72%; padding: 10px 14px; border-radius: 12px; font-size: 13.5px; line-height: 1.5; }
     .message-inbound { background: var(--gray-100); color: var(--gray-800); align-self: flex-start; border-bottom-left-radius: 3px; }
     .message-outbound { background: var(--accent); color: white; align-self: flex-end; border-bottom-right-radius: 3px; }
-    .inbox-composer { padding: 14px 20px; border-top: 1px solid var(--gray-200); display: flex; gap: 10px; }
-    .inbox-composer input { flex: 1; padding: 9px 14px; border: 1.5px solid var(--gray-200); border-radius: 20px; font-size: 13.5px; outline: none; }
-    .inbox-composer input:focus { border-color: var(--accent); }
+    .msg-ts { font-size: 11px; color: var(--gray-400); margin-top: 3px; }
+
+    /* Composer */
+    .inbox-composer { padding: 12px 20px; border-top: 1px solid var(--gray-200); display: flex; gap: 10px; align-items: flex-end; flex-shrink: 0; }
+    .inbox-composer-input { flex: 1; padding: 9px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 13.5px; font-family: inherit; outline: none; resize: none; min-height: 38px; max-height: 120px; line-height: 1.4; }
+    .inbox-composer-input:focus { border-color: var(--accent); }
     .inbox-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--gray-400); flex-direction: column; gap: 8px; }
+
+    /* Overview issues panel */
+    .issues-panel { margin-top: 24px; }
+    .issue-row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--gray-100); cursor: pointer; transition: background .1s; }
+    .issue-row:last-child { border-bottom: none; }
+    .issue-row:hover { background: var(--gray-50); }
+    .issue-row-title { font-size: 13px; font-weight: 600; color: var(--gray-900); flex: 1; }
+    .issue-row-meta { font-size: 12px; color: var(--gray-400); white-space: nowrap; }
+    .issue-pri-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; flex-shrink: 0; }
+    .pri-badge-urgent { background: #fee2e2; color: #b91c1c; }
+    .pri-badge-high   { background: #ffedd5; color: #c2410c; }
+    .pri-badge-normal { background: #dbeafe; color: #1d4ed8; }
+    .pri-badge-low    { background: var(--gray-100); color: var(--gray-500); }
 
     /* ── MAP VIEWS ── */
     .section-tabs { display: flex; border-bottom: 1px solid var(--gray-200); background: white; }
@@ -878,6 +974,16 @@
               <div id="today-routes-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
           </div>
+          <div class="card issues-panel">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Open Issues</div>
+                <div class="card-sub" id="issues-count-sub">Loading…</div>
+              </div>
+              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('inbox',document.querySelectorAll('.nav-item')[6])">View inbox →</button>
+            </div>
+            <div id="overview-issues-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+          </div>
         </div>
 
         <!-- ── CUSTOMERS ── -->
@@ -1255,13 +1361,28 @@
         <!-- ── INBOX ── -->
         <div class="page" id="page-inbox">
           <div class="inbox-layout card" style="margin:0">
-            <div class="inbox-list" id="inbox-list">
-              <div class="loading"><div class="spinner"></div></div>
+            <!-- Left: conversation list -->
+            <div class="inbox-list">
+              <div class="inbox-list-top">
+                <div class="inbox-search-wrap" style="padding-bottom:8px">
+                  <svg class="inbox-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="top:18px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input class="inbox-search" id="inbox-search" placeholder="Search conversations…" oninput="filterInbox(this.value)" />
+                </div>
+                <div class="inbox-ch-tabs">
+                  <button class="inbox-ch-tab active" id="cht-all"   onclick="setInboxChannel('all',this)">All</button>
+                  <button class="inbox-ch-tab"        id="cht-sms"   onclick="setInboxChannel('sms',this)">SMS</button>
+                  <button class="inbox-ch-tab"        id="cht-email" onclick="setInboxChannel('email',this)">Email</button>
+                </div>
+              </div>
+              <div class="inbox-list-body" id="inbox-list-body">
+                <div class="loading"><div class="spinner"></div></div>
+              </div>
             </div>
+            <!-- Right: thread -->
             <div class="inbox-thread" id="inbox-thread">
               <div class="inbox-empty">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                <div style="font-size:13px;color:var(--gray-500)">Select a conversation</div>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="36" height="36"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                <div style="font-size:13px;color:var(--gray-500);margin-top:4px">Select a conversation</div>
               </div>
             </div>
           </div>
@@ -2642,6 +2763,7 @@
 
     loadRecentOrders();
     loadTodayRoutesWidget();
+    loadOverviewIssues();
   }
 
   async function loadRecentOrders() {
@@ -2694,6 +2816,45 @@
           ${statusBadge(r.status)}
         </div>`).join('')}
     </div>`;
+  }
+
+  // ── loadOverviewIssues ──
+  async function loadOverviewIssues() {
+    const el = document.getElementById('overview-issues-body');
+    const subEl = document.getElementById('issues-count-sub');
+    if (!el) return;
+
+    const { data: issues, error } = await db.from('cs_issues')
+      .select('*, customers(first_name_cache, last_name_cache)')
+      .in('status', ['open', 'in_progress'])
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (error || !issues) { el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Could not load issues.</div>'; return; }
+    if (!issues.length) {
+      if (subEl) subEl.textContent = 'All clear';
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px">✓ No open issues</div>';
+      return;
+    }
+    const urgentCount = issues.filter(i => i.priority === 'urgent').length;
+    const highCount   = issues.filter(i => i.priority === 'high').length;
+    const parts = [];
+    if (urgentCount) parts.push(`${urgentCount} urgent`);
+    if (highCount)   parts.push(`${highCount} high`);
+    parts.push(`${issues.length} total`);
+    if (subEl) subEl.textContent = parts.join(' · ');
+
+    el.innerHTML = issues.map(iss => {
+      const custName = iss.customers
+        ? `${iss.customers.first_name_cache||''} ${iss.customers.last_name_cache||''}`.trim()
+        : '—';
+      const age = inboxTimeAgo(iss.created_at);
+      return `<div class="issue-row" onclick="showPage('inbox',document.querySelectorAll('.nav-item')[6])">
+        <span class="issue-pri-badge ${priBadgeClass(iss.priority)}">${iss.priority.toUpperCase()}</span>
+        <span class="issue-row-title">${esc(iss.title)}</span>
+        <span class="issue-row-meta">${esc(custName)} · ${age}${iss.assigned_to ? ' · ' + esc(iss.assigned_to) : ''}</span>
+      </div>`;
+    }).join('');
   }
 
   // ── CUSTOMERS ──
@@ -3576,122 +3737,413 @@
     return m ? `${h12}:${String(m).padStart(2,'0')} ${ampm}` : `${h12} ${ampm}`;
   }
 
-  // ── INBOX (SMS via Twilio / sms_messages table) ──
+  // ── INBOX ──────────────────────────────────────────────────
+  let currentConv          = null;   // { key, customer_id, phone, channel, conv_id, status }
+  let _allConvs            = [];     // cached conversation list
+  let _inboxChannel        = 'all';  // channel filter
+  let _inboxSearch         = '';     // search filter
+
+  // ── helpers ──
+  function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  function inboxTimeAgo(iso) {
+    const diff = (Date.now() - new Date(iso)) / 1000;
+    if (diff < 60)   return 'just now';
+    if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+    return fmtDate(iso);
+  }
+
+  function priDotClass(p)   { return { urgent:'pri-urgent', high:'pri-high', normal:'pri-normal', low:'pri-low' }[p] || 'pri-normal'; }
+  function priBadgeClass(p) { return { urgent:'pri-badge-urgent', high:'pri-badge-high', normal:'pri-badge-normal', low:'pri-badge-low' }[p] || 'pri-badge-normal'; }
+
+  // ── getOrCreateConversation ──
+  async function getOrCreateConversation(customerId, phone, channel = 'sms') {
+    // Try to find existing
+    let q = db.from('conversations').select('*').eq('channel', channel);
+    if (customerId) q = q.eq('customer_id', customerId);
+    else            q = q.eq('phone', phone).is('customer_id', null);
+    const { data: existing } = await q.maybeSingle();
+    if (existing) return existing;
+
+    // Create new
+    const ins = { channel, status: 'open' };
+    if (customerId) ins.customer_id = customerId;
+    else            ins.phone = phone;
+    const { data: created } = await db.from('conversations').insert(ins).select().single();
+    return created;
+  }
+
+  // ── loadInbox ──
   async function loadInbox() {
-    const el = document.getElementById('inbox-list');
+    const el = document.getElementById('inbox-list-body');
     el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
 
+    // Load messages
     const { data: msgs, error } = await db.from('sms_messages')
       .select('id, customer_id, direction, body, from_number, to_number, created_at, customers(id, first_name_cache, last_name_cache, phone_cache)')
       .order('created_at', { ascending: false });
 
     if (error) {
-      el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load inbox</div></div>`;
-      return;
-    }
-    if (!msgs || msgs.length === 0) {
-      el.innerHTML = `<div class="empty"><div class="empty-title">Inbox empty</div><div class="empty-sub">SMS messages will appear here once sent or received.</div></div>`;
-      document.getElementById('badge-inbox').textContent = '0';
+      el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--red);font-size:13px">Failed to load inbox</div>`;
       return;
     }
 
-    // Group by customer (use customer_id if available, else phone)
+    // Load conversations (status)
+    const { data: convRows } = await db.from('conversations').select('*').eq('channel', 'sms');
+    const convByCustomer = {};
+    const convByPhone    = {};
+    (convRows || []).forEach(c => {
+      if (c.customer_id) convByCustomer[c.customer_id] = c;
+      else if (c.phone)  convByPhone[c.phone] = c;
+    });
+
+    // Group messages into conversations
     const convMap = {};
-    msgs.forEach(m => {
+    (msgs || []).forEach(m => {
       const key = m.customer_id || (m.direction === 'inbound' ? m.from_number : m.to_number);
       if (!convMap[key]) {
         const phone = m.direction === 'inbound' ? m.from_number : m.to_number;
-        convMap[key] = { key, customer_id: m.customer_id, cust: m.customers, phone, latest: m, unread: 0 };
+        const convRow = m.customer_id ? convByCustomer[m.customer_id] : convByPhone[phone];
+        convMap[key] = {
+          key, customer_id: m.customer_id, cust: m.customers,
+          phone, latest: m, unread: 0, channel: 'sms',
+          conv_id: convRow?.id || null,
+          db_status: convRow?.status || null,
+        };
       }
       if (m.direction === 'inbound') convMap[key].unread++;
     });
 
-    const convs = Object.values(convMap).sort((a, b) => new Date(b.latest.created_at) - new Date(a.latest.created_at));
-    const totalUnread = convs.reduce((s, c) => s + c.unread, 0);
-    document.getElementById('badge-inbox').textContent = totalUnread;
+    // Determine effective status
+    const convs = Object.values(convMap).map(c => {
+      const latestIsInbound = c.latest.direction === 'inbound';
+      let status = c.db_status || 'open';
+      // New inbound on waiting/resolved conv → re-open
+      if (latestIsInbound && (status === 'waiting' || status === 'resolved')) status = 'open';
+      return { ...c, status };
+    }).sort((a, b) => new Date(b.latest.created_at) - new Date(a.latest.created_at));
 
-    el.innerHTML = convs.map(c => {
-      const name = c.cust
-        ? `${c.cust.first_name_cache||''} ${c.cust.last_name_cache||''}`.trim() || c.phone
-        : c.phone;
-      const arrow = c.latest.direction === 'inbound' ? '↓ ' : '↑ ';
-      const unreadDot = c.unread > 0
-        ? `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-left:5px;vertical-align:middle"></span>` : '';
-      return `<div class="inbox-item" data-conv-key="${c.key}" onclick="openSMSConversation('${c.customer_id||''}','${c.phone}',this)">
-        <div class="inbox-item-header">
-          <div class="inbox-item-name">${name}${unreadDot} <span style="font-size:10px;padding:1px 5px;background:var(--green-light);color:var(--green);border-radius:4px;font-weight:600;margin-left:4px">SMS</span></div>
-          <div class="inbox-item-time">${fmtDate(c.latest.created_at)}</div>
-        </div>
-        <div class="inbox-item-preview">${arrow}${c.latest.body}</div>
-      </div>`;
-    }).join('');
+    _allConvs = convs;
 
-    // Start realtime subscription if not already running
+    // Update nav badge
+    const totalUnread = convs.filter(c => c.status === 'open').length;
+    const badgeEl = document.getElementById('badge-inbox');
+    if (badgeEl) badgeEl.textContent = totalUnread || '';
+
+    renderInboxList();
+
+    // Start realtime subscription
     if (!_smsSub) {
       _smsSub = db.channel('sms-inbox')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sms_messages' }, () => {
           loadInbox();
-          if (currentConvPhone) {
+          if (currentConv) {
             const activeEl = document.querySelector('.inbox-item.active');
-            if (activeEl) openSMSConversation(currentConvCustomerId||'', currentConvPhone, activeEl);
+            if (activeEl) openSMSConversation(currentConv.customer_id||'', currentConv.phone, activeEl, true);
           }
         })
         .subscribe();
     }
   }
 
-  async function openSMSConversation(customerId, phone, itemEl) {
+  // ── renderInboxList ──
+  function renderInboxList() {
+    const el = document.getElementById('inbox-list-body');
+    if (!el) return;
+
+    let convs = _allConvs;
+
+    // Channel filter
+    if (_inboxChannel !== 'all') convs = convs.filter(c => c.channel === _inboxChannel);
+
+    // Search filter
+    if (_inboxSearch) {
+      const q = _inboxSearch.toLowerCase();
+      convs = convs.filter(c => {
+        const name = c.cust ? `${c.cust.first_name_cache||''} ${c.cust.last_name_cache||''}`.toLowerCase() : '';
+        return name.includes(q) || (c.phone||'').includes(q) || c.latest.body.toLowerCase().includes(q);
+      });
+    }
+
+    if (_inboxChannel === 'email') {
+      el.innerHTML = `<div class="empty" style="padding:48px 24px"><div class="empty-icon">📧</div><div class="empty-title">Email coming soon</div><div class="empty-sub">Email conversations will appear here once connected.</div></div>`;
+      return;
+    }
+
+    const sections = [
+      { id: 'needs',    label: 'Needs Reply', statuses: ['open'],     cntClass: 'cnt-needs',   items: [] },
+      { id: 'waiting',  label: 'Waiting',     statuses: ['waiting'],  cntClass: 'cnt-waiting', items: [] },
+      { id: 'resolved', label: 'Resolved',    statuses: ['resolved'], cntClass: 'cnt-resolved', items: [], collapsed: true },
+    ];
+
+    convs.forEach(c => {
+      const sec = sections.find(s => s.statuses.includes(c.status)) || sections[0];
+      sec.items.push(c);
+    });
+
+    if (convs.length === 0) {
+      el.innerHTML = `<div class="empty" style="padding:48px 24px"><div class="empty-icon">📭</div><div class="empty-title">No conversations</div><div class="empty-sub">SMS messages from customers will appear here.</div></div>`;
+      return;
+    }
+
+    el.innerHTML = sections.map(sec => {
+      if (sec.items.length === 0) return '';
+      const isCollapsed = sec.collapsed && sec.items.length > 0;
+      return `<div class="inbox-section${isCollapsed ? ' collapsed' : ''}" id="inbox-sec-${sec.id}">
+        <div class="inbox-section-head" onclick="toggleInboxSection('${sec.id}')">
+          <div class="inbox-section-left">
+            <span class="inbox-section-label">${sec.label}</span>
+            <span class="inbox-section-count ${sec.cntClass}">${sec.items.length}</span>
+          </div>
+          <span class="inbox-section-chevron">▼</span>
+        </div>
+        <div class="inbox-section-items">
+          ${sec.items.map(c => renderConvItem(c)).join('')}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderConvItem(c) {
+    const name = c.cust
+      ? `${c.cust.first_name_cache||''} ${c.cust.last_name_cache||''}`.trim() || c.phone
+      : c.phone;
+    const arrow = c.latest.direction === 'inbound' ? '↓ ' : '↑ ';
+    const isActive = currentConv && currentConv.key === c.key;
+    const unreadDot = c.unread > 0 ? `<span class="unread-dot"></span>` : '';
+    return `<div class="inbox-item${isActive ? ' active' : ''}" data-conv-key="${c.key}"
+      onclick="openSMSConversation('${c.customer_id||''}','${c.phone}',this)">
+      <div class="inbox-item-header">
+        <div class="inbox-item-name">
+          ${unreadDot}${esc(name)}
+          <span class="ch-badge ch-${c.channel}">${c.channel.toUpperCase()}</span>
+        </div>
+        <div class="inbox-item-time">${inboxTimeAgo(c.latest.created_at)}</div>
+      </div>
+      <div class="inbox-item-preview">${arrow}${esc(c.latest.body)}</div>
+      <div class="inbox-item-actions">
+        <button class="inbox-quick-btn resolve" title="Resolve" onclick="event.stopPropagation();quickResolve('${c.key}','${c.customer_id||''}','${c.phone}')">✓ Resolve</button>
+        <button class="inbox-quick-btn" title="Create Issue" onclick="event.stopPropagation();openSMSConversation('${c.customer_id||''}','${c.phone}',this.closest('.inbox-item'));setTimeout(()=>showIssueForm(),100)">⚑ Issue</button>
+      </div>
+    </div>`;
+  }
+
+  // ── toggleInboxSection ──
+  function toggleInboxSection(id) {
+    const sec = document.getElementById('inbox-sec-' + id);
+    if (sec) sec.classList.toggle('collapsed');
+  }
+
+  // ── filterInbox / setInboxChannel ──
+  function filterInbox(val) {
+    _inboxSearch = val;
+    renderInboxList();
+  }
+
+  function setInboxChannel(ch, btn) {
+    _inboxChannel = ch;
+    document.querySelectorAll('.inbox-ch-tab').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderInboxList();
+  }
+
+  // ── openSMSConversation ──
+  async function openSMSConversation(customerId, phone, itemEl, silent = false) {
     document.querySelectorAll('.inbox-item').forEach(i => i.classList.remove('active'));
-    if (itemEl) itemEl.classList.add('active');
+    const clickedItem = typeof itemEl === 'string' ? document.querySelector(`[data-conv-key="${customerId||phone}"]`) : itemEl;
+    if (clickedItem) clickedItem.classList.add('active');
+
     currentConvPhone      = phone;
     currentConvCustomerId = customerId || null;
 
+    // Find conv in cached list
+    const convMeta = _allConvs.find(c => c.key === (customerId || phone)) || { key: customerId||phone, customer_id: customerId||null, phone, channel: 'sms', status: 'open', conv_id: null };
+    currentConv = convMeta;
+
+    // Load messages
     let query = db.from('sms_messages')
       .select('*, customers(first_name_cache, last_name_cache, phone_cache)')
       .order('created_at', { ascending: true });
-    if (customerId) {
-      query = query.eq('customer_id', customerId);
-    } else {
-      query = query.or(`from_number.eq.${phone},to_number.eq.${phone}`);
-    }
+    if (customerId) query = query.eq('customer_id', customerId);
+    else            query = query.or(`from_number.eq.${phone},to_number.eq.${phone}`);
     const { data: msgs } = await query;
 
     const cust = msgs?.[0]?.customers;
-    const name = cust
-      ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || phone
-      : phone;
+    const name = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || phone : phone;
+
+    // Load any open issue for this conv
+    let issueHtml = '';
+    if (convMeta.conv_id) {
+      const { data: issues } = await db.from('cs_issues')
+        .select('*').eq('conversation_id', convMeta.conv_id)
+        .neq('status', 'resolved').order('created_at', { ascending: false }).limit(1);
+      if (issues?.length) {
+        const iss = issues[0];
+        issueHtml = `<div class="issue-badge" onclick="showIssueForm()">
+          <span class="issue-priority-dot ${priDotClass(iss.priority)}"></span>
+          <span style="font-size:12px;font-weight:600;color:var(--gray-700)">Issue #${iss.id} · ${iss.priority.charAt(0).toUpperCase()+iss.priority.slice(1)}${iss.assigned_to ? ' · ' + iss.assigned_to : ''}</span>
+          <span style="color:var(--gray-400);font-size:11px">→</span>
+        </div>`;
+      }
+    }
+
+    const isResolved = convMeta.status === 'resolved';
+    const resolveLabel = isResolved ? '↩ Reopen' : '✓ Resolve';
+    const resolveClass = isResolved ? 'resolved' : '';
 
     document.getElementById('inbox-thread').innerHTML = `
       <div class="inbox-thread-header">
+        <div class="inbox-thread-header-top">
+          <div>
+            <div class="inbox-thread-name">${name}</div>
+            <div class="inbox-thread-meta">${phone} · <span class="ch-badge ch-sms">SMS</span></div>
+          </div>
+          <div class="inbox-thread-btns">
+            <button class="btn-resolve ${resolveClass}" onclick="toggleResolve()" id="btn-resolve-thread">
+              ${resolveLabel}
+            </button>
+            <button class="btn-create-issue" onclick="showIssueForm()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Issue
+            </button>
+          </div>
+        </div>
+        ${issueHtml}
+      </div>
+      <div class="issue-form" id="issue-form">
+        <div class="issue-form-title">
+          Create Issue
+          <button onclick="hideIssueForm()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:16px;line-height:1">×</button>
+        </div>
         <div>
-          <div style="font-weight:600;font-size:14px;color:var(--gray-900)">${name}</div>
-          <div style="font-size:12px;color:var(--gray-500)">${phone}</div>
+          <label class="form-label">Title</label>
+          <input type="text" id="issue-title" class="form-input" style="margin-bottom:10px"
+            value="${msgs?.slice().reverse().find(m=>m.direction==='inbound')?.body?.slice(0,80) || ''}"
+            placeholder="Describe the issue…" />
+        </div>
+        <div class="issue-form-row">
+          <div>
+            <label class="form-label">Priority</label>
+            <select id="issue-priority" class="form-input">
+              <option value="low">Low</option>
+              <option value="normal" selected>Normal</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Assign to</label>
+            <input type="text" id="issue-assignee" class="form-input" placeholder="Staff name…" />
+          </div>
+        </div>
+        <div class="issue-form-footer">
+          <button class="btn btn-ghost" onclick="hideIssueForm()">Cancel</button>
+          <button class="btn btn-primary" onclick="saveIssue()">Save Issue</button>
         </div>
       </div>
       <div class="inbox-messages" id="msg-thread">
         ${(msgs||[]).map(m => `
           <div style="display:flex;flex-direction:column;align-items:${m.direction==='outbound'?'flex-end':'flex-start'}">
-            <div class="message-bubble message-${m.direction}">${m.body}</div>
-            <div style="font-size:11px;color:var(--gray-400);margin-top:3px">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}</div>
+            <div class="message-bubble message-${m.direction}">${esc(m.body)}</div>
+            <div class="msg-ts">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}</div>
           </div>`).join('')}
         ${(!msgs||msgs.length===0)?'<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:20px">No messages yet</div>':''}
       </div>
       <div class="inbox-composer">
-        <input type="text" id="compose-input" placeholder="Type a reply…" onkeydown="if(event.key==='Enter')sendSMSReply()" />
+        <textarea class="inbox-composer-input" id="compose-input" rows="1"
+          placeholder="Type a reply…"
+          oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendSMSReply()}"></textarea>
         <button class="btn btn-primary" id="sms-reply-btn" onclick="sendSMSReply()">Send</button>
       </div>`;
 
-    // Scroll to bottom of thread
-    setTimeout(() => { const mt = document.getElementById('msg-thread'); if (mt) mt.scrollTop = mt.scrollHeight; }, 50);
+    if (!silent) setTimeout(() => { const mt = document.getElementById('msg-thread'); if (mt) mt.scrollTop = mt.scrollHeight; }, 50);
   }
 
+  // ── toggleResolve ──
+  async function toggleResolve() {
+    if (!currentConv) return;
+    const isResolved = currentConv.status === 'resolved';
+    const newStatus  = isResolved ? 'open' : 'resolved';
+    const conv = await getOrCreateConversation(currentConv.customer_id, currentConv.phone, 'sms');
+    if (!conv) return;
+    await db.from('conversations').update({
+      status: newStatus,
+      resolved_at: newStatus === 'resolved' ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString()
+    }).eq('id', conv.id);
+    showToast(newStatus === 'resolved' ? 'Conversation resolved ✓' : 'Conversation reopened', 'success');
+    currentConv = { ...currentConv, status: newStatus, conv_id: conv.id };
+    // Update the button
+    const btn = document.getElementById('btn-resolve-thread');
+    if (btn) { btn.textContent = newStatus === 'resolved' ? '↩ Reopen' : '✓ Resolve'; btn.classList.toggle('resolved', newStatus === 'resolved'); }
+    loadInbox();
+  }
+
+  // ── quickResolve (from list hover) ──
+  async function quickResolve(key, customerId, phone) {
+    const conv = await getOrCreateConversation(customerId || null, phone, 'sms');
+    if (!conv) return;
+    await db.from('conversations').update({ status: 'resolved', resolved_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', conv.id);
+    showToast('Resolved ✓', 'success');
+    if (currentConv && currentConv.key === key) {
+      currentConv = { ...currentConv, status: 'resolved' };
+      const btn = document.getElementById('btn-resolve-thread');
+      if (btn) { btn.textContent = '↩ Reopen'; btn.classList.add('resolved'); }
+    }
+    loadInbox();
+  }
+
+  // ── showIssueForm / hideIssueForm ──
+  function showIssueForm() {
+    const f = document.getElementById('issue-form');
+    if (f) f.classList.add('show');
+  }
+  function hideIssueForm() {
+    const f = document.getElementById('issue-form');
+    if (f) f.classList.remove('show');
+  }
+
+  // ── saveIssue ──
+  async function saveIssue() {
+    const title    = (document.getElementById('issue-title')?.value || '').trim();
+    const priority = document.getElementById('issue-priority')?.value || 'normal';
+    const assignee = (document.getElementById('issue-assignee')?.value || '').trim();
+    if (!title) { showToast('Please add a title for the issue.', 'error'); return; }
+
+    const conv = currentConv?.conv_id
+      ? { id: currentConv.conv_id }
+      : await getOrCreateConversation(currentConv?.customer_id, currentConv?.phone, 'sms');
+
+    const { data, error } = await db.from('cs_issues').insert({
+      conversation_id: conv?.id || null,
+      customer_id:     currentConv?.customer_id || null,
+      title, priority,
+      assigned_to:     assignee || null,
+      status: 'open',
+    }).select().single();
+
+    if (error) { showToast('Failed to save issue.', 'error'); return; }
+    showToast(`Issue #${data.id} created ✓`, 'success');
+    hideIssueForm();
+    const tf = document.getElementById('issue-title'); if (tf) tf.value = '';
+    const af = document.getElementById('issue-assignee'); if (af) af.value = '';
+    const pf = document.getElementById('issue-priority'); if (pf) pf.value = 'normal';
+    // Refresh thread to show issue badge
+    if (currentConv) openSMSConversation(currentConv.customer_id||'', currentConv.phone, null, true);
+  }
+
+  // ── sendSMSReply ──
   async function sendSMSReply() {
     const input = document.getElementById('compose-input');
     const body  = input.value.trim();
     if (!body || !currentConvPhone) return;
     const btn = document.getElementById('sms-reply-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-    input.value = '';
+    input.value = ''; input.style.height = 'auto';
 
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
@@ -3701,19 +4153,26 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Send failed');
-      showToast('Message sent ✓', 'success');
-      // Refresh thread
-      const activeEl = document.querySelector('.inbox-item.active');
-      openSMSConversation(currentConvCustomerId||'', currentConvPhone, activeEl);
+
+      // Auto-set conversation to 'waiting'
+      const conv = await getOrCreateConversation(currentConvCustomerId, currentConvPhone, 'sms');
+      if (conv && conv.status !== 'resolved') {
+        await db.from('conversations').update({ status: 'waiting', updated_at: new Date().toISOString() }).eq('id', conv.id);
+      }
+      if (currentConv) currentConv = { ...currentConv, status: conv?.status !== 'resolved' ? 'waiting' : 'resolved', conv_id: conv?.id };
+
+      showToast('Sent ✓', 'success');
+      openSMSConversation(currentConvCustomerId||'', currentConvPhone, null, true);
       loadInbox();
     } catch (err) {
       showToast('Failed to send: ' + err.message, 'error');
-      input.value = body; // restore
+      input.value = body;
       if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
     }
+    if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
   }
 
-  // Compose: new SMS from Inbox "Compose" CTA
+  // ── openComposeSMS ──
   function openComposeSMS() {
     _smsBatchOrders = [];
     document.getElementById('sms-compose-to-row').style.display = 'block';

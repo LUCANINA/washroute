@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Feb 28, 2026*
+*Last updated: Mar 1, 2026*
 
 ---
 
@@ -125,10 +125,53 @@ Postgres function: `find_customer_by_phone(digits TEXT)`.
 
 ---
 
+## SMS / Email Automation — Roadmap
+
+The goal is to auto-handle common customer requests that arrive via SMS or email
+(e.g. "I'd like to book a pickup tonight") without requiring admin intervention.
+
+### Pipeline overview
+1. **Ingestion** — Twilio webhook (SMS) or Postmark/SendGrid inbound parse (email)
+   fires a Supabase Edge Function when a message arrives.
+2. **Intent recognition** — Call Claude API with the message + customer context.
+   Claude classifies intent (booking, cancellation, status check, other) and
+   extracts entities (date/time, address, service type).
+3. **Customer matching** — Match inbound phone/email to a `customers` row.
+   Unknown sender → route to human inbox.
+4. **Action execution** — Write to Supabase (create order, update status, etc.)
+   and send a confirmation reply.
+
+### Build order (start simple, prove pipeline first)
+| Phase | What | Why |
+|-------|------|-----|
+| 1 | **Status checks** — "Where's my driver?" / "What time is my pickup?" | Read-only, zero risk, proves pipeline |
+| 2 | **Cancellations** — "Can I cancel Thursday?" | Simple write, business logic is clear |
+| 3 | **New bookings** — "Book a pickup tonight" | Complex: availability check, multi-turn conversation, order creation |
+
+### Key new pieces needed
+- `conversations` table — tracks state for multi-turn SMS threads
+  (which step of the booking flow a customer is currently in)
+- New Edge Function (or extend `twilio-webhook`) — orchestrates intent → action → reply
+- Admin dashboard: "Automation log" panel — shows what was auto-handled vs. escalated
+
+### Fallback-to-human triggers
+- Claude confidence below threshold
+- Customer replies more than twice without resolution
+- Certain keywords: "speak to someone", out-of-area address, angry language
+- Any request the system has no data to answer
+
+### Notes
+- Twilio webhook URL already exists: `twilio-webhook` Edge Function
+- Phone matching already solved: `find_customer_by_phone()` Postgres function
+- Start with Phase 1 as a contained afternoon project
+
+---
+
 ## Pending / Next Up
 - ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix)
 - Receipt printing: print button on order detail (thermal 80mm bag tag) — mockup exists at `receipt-mockup.html`
 - ~~Customer email receipt (SendGrid)~~ ✅
+- SMS/email automation — Phase 1: status check auto-replies (see section above)
 - Live driver tracking (Google Maps)
 - Xero accounting sync
 - Klaviyo marketing integration
@@ -138,13 +181,13 @@ Postgres function: `find_customer_by_phone(digits TEXT)`.
 
 ## Git Log (recent)
 ```
+174bcc1  ux: driver app polish pass
+ce44eed  ux: admin dashboard polish pass
+6026ff8  ux: customer app polish pass
 de39bea  Add full SMS feature: Inbox, batch send, On My Way driver button
 1f51670  Orders: show '+ Assign' instead of '—' for unassigned routes
 ea44434  Orders page: 6 UX improvements
 6316a10  Remove This Week's Workload section
-a4d3f88  Fix weekly schedule: align each route chip with its route name row
-edef6e4  Redesign Weekly Schedule: time-banded rows
-ae1ce2b  Fix reassign cancel + remove Upcoming Routes Preview
 ```
 
 ---
