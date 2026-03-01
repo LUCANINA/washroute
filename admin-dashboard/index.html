@@ -1276,9 +1276,7 @@
               </div>
               <div style="display:flex;gap:8px;align-items:center" id="svc-header-controls">
                 <!-- Populated dynamically by rebuildCategoryDropdowns() -->
-                <select class="form-select" id="svc-cat-filter" onchange="filterServices()" style="font-size:13px;padding:6px 10px;width:190px">
-                  <option value="">All Categories</option>
-                </select>
+                <select class="form-select" id="svc-cat-filter" onchange="filterServices()" style="font-size:13px;padding:6px 10px;width:190px"></select>
               </div>
             </div>
             <!-- Tab bar -->
@@ -3820,9 +3818,16 @@
 
   function rebuildCategoryDropdowns() {
     const opts = allCategories.map(c => `<option value="${svcEsc(c.name)}">${svcEsc(c.name)}</option>`).join('');
-    // Filter header dropdown
+    // Filter header dropdown — no "All" option, default to Delivery
     const filter = document.getElementById('svc-cat-filter');
-    if (filter) filter.innerHTML = `<option value="">All Categories</option>` + opts;
+    if (filter) {
+      const prev = filter.value;
+      filter.innerHTML = opts || '<option value="">— add a category first —</option>';
+      // Preserve selection across reloads; default to "Delivery" on first load
+      if (prev && allCategories.some(c => c.name === prev)) filter.value = prev;
+      else if (allCategories.some(c => c.name === 'Delivery')) filter.value = 'Delivery';
+      filterServices();
+    }
     // Add-new-service category dropdown
     const nscat = document.getElementById('ns-category');
     if (nscat) nscat.innerHTML = opts || '<option value="">— add a category first —</option>';
@@ -3844,7 +3849,7 @@
     });
     const controls = document.getElementById('svc-header-controls');
     if (controls) controls.style.display = name==='services' ? '' : 'none';
-    if (name==='preferences') renderSvcPrefs();
+    if (name==='preferences') loadGlobalPrefs();
     if (name==='categories')  renderCategoryManager();
     if (name==='fees')        renderFees();
     if (name==='display')     renderPrices();
@@ -4394,189 +4399,185 @@
     renderFees();
   }
 
-  // ── SERVICE PREFERENCES BUILDER ──
-  let svcPrefsState = {}; // { [svcId]: [ { id, name, options: [{id,label,price_mod,is_default}] } ] }
+  // ── GLOBAL PREFERENCES BUILDER ──
   const svcEsc = v => (v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const rndId  = () => Math.random().toString(36).slice(2,9);
 
-  function renderSvcPrefs() {
+  let allGlobalPrefs = [];
+  let globalPrefsLocalState = {}; // prefId → { name, options: [{id,label,is_default}] }
+  let prefActiveCat = 'Delivery';
+
+  async function loadGlobalPrefs() {
     const body = document.getElementById('pref-builder-body');
-    if (!allServices || !allServices.length) {
-      body.innerHTML = '<div class="pref-empty">No services yet. Add services first, then come back here to define their preferences.</div>';
+    if (body) body.innerHTML = '<div class="loading" style="padding:32px"><div class="spinner"></div> Loading…</div>';
+    const { data } = await db.from('preferences').select('*').order('sort_order').order('name');
+    allGlobalPrefs = data || [];
+    globalPrefsLocalState = {};
+    allGlobalPrefs.forEach(p => {
+      globalPrefsLocalState[p.id] = { name: p.name, options: JSON.parse(JSON.stringify(p.options || [])) };
+    });
+    // Default category to Delivery if not already set to a valid one
+    const cats = allCategories.map(c => c.name);
+    if (!cats.includes(prefActiveCat)) prefActiveCat = cats.includes('Delivery') ? 'Delivery' : (cats[0] || 'Delivery');
+    renderGlobalPrefs();
+  }
+
+  function renderGlobalPrefs() {
+    const body = document.getElementById('pref-builder-body');
+    if (!body) return;
+    const cats = allCategories.map(c => c.name);
+    if (!cats.length) {
+      body.innerHTML = '<div class="pref-empty">No categories yet — add categories in the Categories tab first.</div>';
       return;
     }
-    body.innerHTML = allServices.map(svc => {
-      // Ensure state is seeded (may have been added after initial load)
-      if (!svcPrefsState[svc.id]) svcPrefsState[svc.id] = JSON.parse(JSON.stringify(svc.preferences || []));
-      return svcPrefCard(svc);
-    }).join('');
-  }
-
-  function svcPrefCard(svc) {
-    const prefs = svcPrefsState[svc.id] || [];
-    const count = prefs.length;
-    return `<div class="pref-svc-card" id="pref-card-${svc.id}">
-      <div class="pref-svc-header" onclick="togglePrefCard('${svc.id}')">
-        <div style="display:flex;align-items:center">
-          <span class="pref-svc-name">${svcEsc(svc.name)}</span>
-          <span class="pref-svc-meta">${count ? count+' preference'+(count!==1?'s':'') : 'No preferences'}</span>
-        </div>
-        <svg id="pref-chevron-${svc.id}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="transition:transform .2s;color:var(--gray-400)"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      <div class="pref-svc-body" id="pref-body-${svc.id}">
-        ${renderPrefGroups(svc.id)}
-        <button class="pref-add-group-btn" onclick="addPrefGroup('${svc.id}')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add Preference
-        </button>
-        <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid var(--gray-100)">
-          <span class="pref-save-msg" id="pref-msg-${svc.id}"></span>
-          <button class="pref-save-btn" onclick="saveSvcPrefs('${svc.id}')">Save Preferences</button>
-        </div>
-      </div>
+    if (!cats.includes(prefActiveCat)) prefActiveCat = cats.includes('Delivery') ? 'Delivery' : cats[0];
+    const catTabs = `<div class="filter-tabs" style="margin:14px 20px 12px">
+      ${cats.map(c => `<button class="filter-tab${c===prefActiveCat?' active':''}" onclick="setPrefCat('${svcEsc(c)}')">${svcEsc(c)}</button>`).join('')}
     </div>`;
+    const catPrefs = allGlobalPrefs.filter(p => p.category === prefActiveCat);
+    const prefsHtml = catPrefs.length
+      ? `<div style="padding:0 20px">${catPrefs.map(p => renderGlobalPrefCard(p)).join('')}</div>`
+      : `<div class="pref-empty" style="padding:24px 20px">No preferences for ${svcEsc(prefActiveCat)} yet.<br><span style="font-size:12px">Click "+ Add Preference" below to create one.</span></div>`;
+    const addBtn = `<div style="padding:8px 20px 16px">
+      <button class="pref-add-group-btn" onclick="addGlobalPref()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Preference
+      </button>
+    </div>`;
+    body.innerHTML = catTabs + prefsHtml + addBtn;
   }
 
-  function renderPrefGroups(svcId) {
-    const prefs = svcPrefsState[svcId] || [];
-    if (!prefs.length) return '<p style="color:var(--gray-400);font-size:13px;margin:0 0 10px">No preferences yet — click "+ Add Preference" to define options for this service.</p>';
-    return prefs.map(g => renderPrefGroup(svcId, g)).join('');
+  function setPrefCat(cat) {
+    prefActiveCat = cat;
+    renderGlobalPrefs();
   }
 
-  function renderPrefGroup(svcId, group) {
-    const opts = group.options || [];
-    return `<div class="pref-group" id="pref-group-${svcId}-${group.id}">
+  function renderGlobalPrefCard(pref) {
+    const state = globalPrefsLocalState[pref.id] || { name: pref.name, options: [] };
+    const opts = state.options || [];
+    return `<div class="pref-group" id="gpref-${pref.id}" style="margin-bottom:12px">
       <div class="pref-group-header">
-        <input class="pref-group-name" value="${svcEsc(group.name)}" placeholder="Preference name (e.g. Detergent)"
-               oninput="updatePrefGroupName('${svcId}','${group.id}',this.value)" />
-        <button class="pref-group-del" onclick="removePrefGroup('${svcId}','${group.id}')" title="Remove this preference">
+        <input class="pref-group-name" value="${svcEsc(state.name)}" placeholder="Preference name (e.g. Wash Temperature)"
+               oninput="updateGlobalPrefName('${pref.id}',this.value)" />
+        <button class="pref-group-del" onclick="deleteGlobalPref('${pref.id}')" title="Delete preference">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
-      <div class="pref-options-wrap" id="opts-${svcId}-${group.id}">
-        ${opts.map(opt => renderOptionChip(svcId, group.id, opt)).join('')}
-        <button class="pref-add-option-btn" onclick="showAddOptForm('${svcId}','${group.id}')">
+      <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Click an option to set it as the default (highlighted in purple)</div>
+      <div class="pref-options-wrap" id="gopts-${pref.id}">
+        ${opts.map(opt => renderGlobalOptionChip(pref.id, opt)).join('')}
+        <button class="pref-add-option-btn" onclick="showGlobalAddOptForm('${pref.id}')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="11" height="11"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Add option
         </button>
       </div>
-      <div class="pref-add-option-form" id="add-opt-form-${svcId}-${group.id}">
-        <input class="pref-opt-input" id="new-opt-label-${svcId}-${group.id}" placeholder="Option label (e.g. Hypoallergenic)" style="width:200px"
-               onkeydown="if(event.key==='Enter')commitAddOpt('${svcId}','${group.id}')" />
-        <div style="display:flex;align-items:center;gap:4px">
-          <span style="color:var(--gray-400);font-size:13px">+$</span>
-          <input class="pref-opt-input" id="new-opt-price-${svcId}-${group.id}" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px"
-                 onkeydown="if(event.key==='Enter')commitAddOpt('${svcId}','${group.id}')" />
-        </div>
-        <button class="btn btn-primary" onclick="commitAddOpt('${svcId}','${group.id}')" style="font-size:12.5px;padding:6px 12px">Add</button>
-        <button onclick="hideAddOptForm('${svcId}','${group.id}')" style="font-size:12.5px;padding:6px 10px;background:none;border:none;color:var(--gray-400);cursor:pointer;font-family:inherit">Cancel</button>
+      <div class="pref-add-option-form" id="gadd-opt-form-${pref.id}">
+        <input class="pref-opt-input" id="gnew-opt-label-${pref.id}" placeholder="Option label (e.g. Cold)" style="width:200px"
+               onkeydown="if(event.key==='Enter')commitGlobalAddOpt('${pref.id}')" />
+        <button class="btn btn-primary" onclick="commitGlobalAddOpt('${pref.id}')" style="font-size:12.5px;padding:6px 12px">Add</button>
+        <button onclick="hideGlobalAddOptForm('${pref.id}')" style="font-size:12.5px;padding:6px 10px;background:none;border:none;color:var(--gray-400);cursor:pointer;font-family:inherit">Cancel</button>
+      </div>
+      <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--gray-100)">
+        <span id="gpref-msg-${pref.id}" style="font-size:12px;color:#059669"></span>
+        <button class="pref-save-btn" onclick="saveGlobalPref('${pref.id}')">Save</button>
       </div>
     </div>`;
   }
 
-  function renderOptionChip(svcId, groupId, opt) {
+  function renderGlobalOptionChip(prefId, opt) {
     const isDef = opt.is_default;
-    const price = opt.price_mod > 0 ? `+$${parseFloat(opt.price_mod).toFixed(2)}` : '';
     return `<span class="pref-option-chip${isDef?' default':''}"
-              onclick="setDefaultOpt('${svcId}','${groupId}','${opt.id}')"
-              title="${isDef ? '✓ Default option' : 'Click to set as default'}">
-      ${svcEsc(opt.label)}${price ? `<span class="chip-price"> ${price}</span>` : ''}
-      <button class="pref-chip-del" onclick="event.stopPropagation();removeOpt('${svcId}','${groupId}','${opt.id}')" title="Remove option">×</button>
+              onclick="setGlobalDefaultOpt('${prefId}','${opt.id}')"
+              title="${isDef ? '✓ Default — click another to change' : 'Click to set as default'}">
+      ${svcEsc(opt.label)}
+      <button class="pref-chip-del" onclick="event.stopPropagation();removeGlobalOpt('${prefId}','${opt.id}')" title="Remove option">×</button>
     </span>`;
   }
 
-  function togglePrefCard(svcId) {
-    const body = document.getElementById('pref-body-'+svcId);
-    const chev = document.getElementById('pref-chevron-'+svcId);
-    const isOpen = body.classList.toggle('open');
-    if (chev) chev.style.transform = isOpen ? 'rotate(180deg)' : '';
+  function updateGlobalPrefName(prefId, value) {
+    if (globalPrefsLocalState[prefId]) globalPrefsLocalState[prefId].name = value;
   }
 
-  function addPrefGroup(svcId) {
-    if (!svcPrefsState[svcId]) svcPrefsState[svcId] = [];
-    svcPrefsState[svcId].push({ id: rndId(), name: '', options: [] });
-    refreshPrefCard(svcId, true);
+  function showGlobalAddOptForm(prefId) {
+    const form = document.getElementById('gadd-opt-form-'+prefId);
+    if (form) { form.classList.add('open'); document.getElementById('gnew-opt-label-'+prefId)?.focus(); }
   }
 
-  function removePrefGroup(svcId, groupId) {
-    svcPrefsState[svcId] = (svcPrefsState[svcId]||[]).filter(g => g.id !== groupId);
-    refreshPrefCard(svcId, true);
-  }
-
-  function updatePrefGroupName(svcId, groupId, value) {
-    const g = (svcPrefsState[svcId]||[]).find(g => g.id === groupId);
-    if (g) g.name = value;
-  }
-
-  function showAddOptForm(svcId, groupId) {
-    const form = document.getElementById(`add-opt-form-${svcId}-${groupId}`);
-    if (form) { form.classList.add('open'); document.getElementById(`new-opt-label-${svcId}-${groupId}`)?.focus(); }
-  }
-
-  function hideAddOptForm(svcId, groupId) {
-    const form = document.getElementById(`add-opt-form-${svcId}-${groupId}`);
+  function hideGlobalAddOptForm(prefId) {
+    const form = document.getElementById('gadd-opt-form-'+prefId);
     if (form) form.classList.remove('open');
-    const li = document.getElementById(`new-opt-label-${svcId}-${groupId}`);
+    const li = document.getElementById('gnew-opt-label-'+prefId);
     if (li) li.value = '';
-    const pi = document.getElementById(`new-opt-price-${svcId}-${groupId}`);
-    if (pi) pi.value = '';
   }
 
-  function commitAddOpt(svcId, groupId) {
-    const labelEl = document.getElementById(`new-opt-label-${svcId}-${groupId}`);
-    const priceEl = document.getElementById(`new-opt-price-${svcId}-${groupId}`);
+  function commitGlobalAddOpt(prefId) {
+    const labelEl = document.getElementById('gnew-opt-label-'+prefId);
     const label = labelEl?.value.trim();
     if (!label) {
-      if (labelEl) { labelEl.style.borderColor='var(--red)'; setTimeout(()=>{ if(labelEl)labelEl.style.borderColor=''; },1500); }
+      if (labelEl) { labelEl.style.borderColor='var(--red)'; setTimeout(()=>{ if(labelEl) labelEl.style.borderColor=''; },1500); }
       return;
     }
-    const price_mod = parseFloat(priceEl?.value)||0;
-    const group = (svcPrefsState[svcId]||[]).find(g => g.id===groupId);
-    if (!group) return;
-    const isFirst = !group.options.some(o => o.is_default);
-    group.options.push({ id: rndId(), label, price_mod, is_default: isFirst });
-    refreshPrefCard(svcId, true);
-    hideAddOptForm(svcId, groupId);
+    const state = globalPrefsLocalState[prefId];
+    if (!state) return;
+    const isFirst = !state.options.some(o => o.is_default);
+    state.options.push({ id: rndId(), label, is_default: isFirst });
+    refreshGlobalPrefCard(prefId);
+    hideGlobalAddOptForm(prefId);
   }
 
-  function removeOpt(svcId, groupId, optId) {
-    const group = (svcPrefsState[svcId]||[]).find(g => g.id===groupId);
-    if (!group) return;
-    group.options = group.options.filter(o => o.id!==optId);
-    if (group.options.length && !group.options.some(o => o.is_default)) group.options[0].is_default = true;
-    refreshPrefCard(svcId, true);
+  function removeGlobalOpt(prefId, optId) {
+    const state = globalPrefsLocalState[prefId];
+    if (!state) return;
+    state.options = state.options.filter(o => o.id !== optId);
+    if (state.options.length && !state.options.some(o => o.is_default)) state.options[0].is_default = true;
+    refreshGlobalPrefCard(prefId);
   }
 
-  function setDefaultOpt(svcId, groupId, optId) {
-    const group = (svcPrefsState[svcId]||[]).find(g => g.id===groupId);
-    if (!group) return;
-    group.options.forEach(o => o.is_default = o.id===optId);
-    refreshPrefCard(svcId, true);
+  function setGlobalDefaultOpt(prefId, optId) {
+    const state = globalPrefsLocalState[prefId];
+    if (!state) return;
+    state.options.forEach(o => o.is_default = o.id === optId);
+    refreshGlobalPrefCard(prefId);
   }
 
-  function refreshPrefCard(svcId, keepOpen=false) {
-    const card = document.getElementById('pref-card-'+svcId);
-    const wasOpen = keepOpen || document.getElementById('pref-body-'+svcId)?.classList.contains('open');
-    if (!card) return;
-    const svc = allServices.find(s => s.id===svcId);
-    if (!svc) return;
-    card.outerHTML = svcPrefCard(svc);
-    if (wasOpen) {
-      const body = document.getElementById('pref-body-'+svcId);
-      const chev = document.getElementById('pref-chevron-'+svcId);
-      if (body) body.classList.add('open');
-      if (chev) chev.style.transform = 'rotate(180deg)';
-    }
+  function refreshGlobalPrefCard(prefId) {
+    const pref = allGlobalPrefs.find(p => p.id === prefId);
+    const card = document.getElementById('gpref-'+prefId);
+    if (!pref || !card) return;
+    card.outerHTML = renderGlobalPrefCard(pref);
   }
 
-  async function saveSvcPrefs(svcId) {
-    const prefs = svcPrefsState[svcId] || [];
-    const { error } = await db.from('services').update({ preferences: prefs }).eq('id', svcId);
-    const msgEl = document.getElementById('pref-msg-'+svcId);
-    if (error) { showToast(error.message,'error'); return; }
-    allServices = allServices.map(s => s.id===svcId ? {...s, preferences: JSON.parse(JSON.stringify(prefs))} : s);
-    if (msgEl) { msgEl.textContent = 'Saved!'; setTimeout(()=>{ if(msgEl) msgEl.textContent=''; },2500); }
-    showToast('Preferences saved!','success');
+  async function addGlobalPref() {
+    const maxSort = allGlobalPrefs.filter(p => p.category===prefActiveCat).length;
+    const { data, error } = await db.from('preferences')
+      .insert({ name: '', category: prefActiveCat, options: [], sort_order: maxSort })
+      .select().single();
+    if (error) { showToast(error.message, 'error'); return; }
+    allGlobalPrefs.push(data);
+    globalPrefsLocalState[data.id] = { name: '', options: [] };
+    renderGlobalPrefs();
+    setTimeout(() => document.getElementById('gpref-'+data.id)?.querySelector('.pref-group-name')?.focus(), 50);
+  }
+
+  async function saveGlobalPref(prefId) {
+    const state = globalPrefsLocalState[prefId];
+    if (!state) return;
+    if (!state.name.trim()) { showToast('Please enter a preference name.', 'error'); return; }
+    const { error } = await db.from('preferences').update({ name: state.name.trim(), options: state.options }).eq('id', prefId);
+    if (error) { showToast(error.message, 'error'); return; }
+    allGlobalPrefs = allGlobalPrefs.map(p => p.id===prefId ? {...p, name: state.name.trim(), options: JSON.parse(JSON.stringify(state.options))} : p);
+    const msgEl = document.getElementById('gpref-msg-'+prefId);
+    if (msgEl) { msgEl.textContent = '✓ Saved'; setTimeout(()=>{ if(msgEl) msgEl.textContent=''; },2000); }
+  }
+
+  async function deleteGlobalPref(prefId) {
+    if (!confirm('Delete this preference? This cannot be undone.')) return;
+    const { error } = await db.from('preferences').delete().eq('id', prefId);
+    if (error) { showToast(error.message, 'error'); return; }
+    allGlobalPrefs = allGlobalPrefs.filter(p => p.id !== prefId);
+    delete globalPrefsLocalState[prefId];
+    renderGlobalPrefs();
+    showToast('Preference deleted.', 'success');
   }
 
   // ── NOTIFICATIONS ──
