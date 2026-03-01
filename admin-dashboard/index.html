@@ -6393,11 +6393,12 @@
       const res = await fetch(url, { headers: { 'Accept-Language': 'en', 'User-Agent': 'WashRoute/1.0' } });
       if (!res.ok) return null;
       const results = await res.json();
-      // Prefer administrative boundary (city limits polygon)
-      const hit = results.find(r => r.class === 'boundary' && r.type === 'administrative')
-               || results.find(r => ['city','town','municipality','village','suburb'].includes(r.addresstype))
-               || results[0];
-      return (hit && hit.geojson) ? hit.geojson : null;
+      // Only accept results that actually have a polygon (not a point/marker)
+      const isPolygon = r => r.geojson && (r.geojson.type === 'Polygon' || r.geojson.type === 'MultiPolygon');
+      const hit = results.find(r => r.class === 'boundary' && r.type === 'administrative' && isPolygon(r))
+               || results.find(r => ['city','town','municipality','village','suburb'].includes(r.addresstype) && isPolygon(r))
+               || results.find(r => isPolygon(r));  // any polygon result as last resort
+      return hit ? hit.geojson : null;
     } catch(e) { return null; }
   }
 
