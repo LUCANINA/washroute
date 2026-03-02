@@ -3044,6 +3044,89 @@
     updateCustomerStats(allCustomers);
     renderCustomers(allCustomers);
     populateCustMapFilters();
+    recalcRiskStatuses(); // async — runs in background, re-renders only if any statuses changed
+  }
+
+  // ─── RISK STATUS AUTO-CALCULATION ───────────────────────────────────────────
+  // Definition: risk_status is calculated relative to each customer's own
+  // ordering frequency — not a fixed calendar threshold.
+  //
+  //   "active"  — gap since last order is within their normal ordering pattern
+  //   "at_risk" — gap is > 1.5× their average order interval
+  //   "churned" — gap is > 3.0× their average order interval
+  //
+  // For customers with fewer than 2 delivered orders (new or infrequent), we
+  // fall back to absolute thresholds:
+  //   "at_risk" if last order (or account creation) was > 30 days ago
+  //   "churned" if > 60 days ago
+  //
+  // Runs automatically after customers load. Supabase is only updated when
+  // the calculated status differs from the stored value, keeping writes minimal.
+  // ────────────────────────────────────────────────────────────────────────────
+  async function recalcRiskStatuses() {
+    // Fetch all delivered orders so we can compute per-customer intervals
+    const { data: orders, error } = await db
+      .from('orders')
+      .select('customer_id, created_at')
+      .eq('status', 'delivered')
+      .order('created_at', { ascending: true });
+    if (error) { console.warn('recalcRiskStatuses: could not fetch orders', error); return; }
+
+    // Group order timestamps by customer_id
+    const ordersByCustomer = {};
+    (orders || []).forEach(o => {
+      if (!o.customer_id) return;
+      if (!ordersByCustomer[o.customer_id]) ordersByCustomer[o.customer_id] = [];
+      ordersByCustomer[o.customer_id].push(new Date(o.created_at).getTime());
+    });
+
+    const now      = Date.now();
+    const DAY_MS   = 86_400_000;
+    const updates  = [];
+
+    allCustomers.forEach(c => {
+      const dates = (ordersByCustomer[c.id] || []).sort((a, b) => a - b);
+      const lastOrderTs = dates.length > 0 ? dates[dates.length - 1] : null;
+
+      // Days since last order; if no orders, use account age as the baseline
+      const daysSinceLast = lastOrderTs
+        ? (now - lastOrderTs) / DAY_MS
+        : (now - new Date(c.created_at).getTime()) / DAY_MS;
+
+      let newStatus = 'active';
+
+      if (dates.length >= 2) {
+        // Relative approach — compare gap to the customer's own average interval
+        let totalGap = 0;
+        for (let i = 1; i < dates.length; i++) totalGap += (dates[i] - dates[i - 1]);
+        const avgIntervalDays = (totalGap / (dates.length - 1)) / DAY_MS;
+
+        if      (daysSinceLast > avgIntervalDays * 3.0) newStatus = 'churned';
+        else if (daysSinceLast > avgIntervalDays * 1.5) newStatus = 'at_risk';
+        else                                             newStatus = 'active';
+      } else {
+        // Absolute fallback for customers with 0–1 orders
+        if      (daysSinceLast > 60) newStatus = 'churned';
+        else if (daysSinceLast > 30) newStatus = 'at_risk';
+        else                         newStatus = 'active';
+      }
+
+      if (newStatus !== c.risk_status) {
+        updates.push({ id: c.id, risk_status: newStatus });
+        c.risk_status = newStatus; // update in-memory immediately so UI is consistent
+      }
+    });
+
+    // Write only changed records back to Supabase
+    if (updates.length > 0) {
+      await Promise.all(
+        updates.map(u => db.from('customers').update({ risk_status: u.risk_status }).eq('id', u.id))
+      );
+      console.log(`recalcRiskStatuses: updated ${updates.length} customer(s)`);
+      // Re-render so stat cards and table badges show the new values
+      updateCustomerStats(allCustomers);
+      renderCustomers(allCustomers);
+    }
   }
 
   function updateCustomerStats(data) {
