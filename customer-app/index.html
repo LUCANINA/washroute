@@ -1505,8 +1505,10 @@ function computeSubWindows(runDate, tmpl, routeId, routeName) {
   const windows = [];
   for (let from = sMins; from + step <= eMins; from += step) {
     const to        = from + step;
-    const slotStart = `${runDate}T${pad2(Math.floor(from/60))}:${pad2(from%60)}:00`;
-    const slotEnd   = `${runDate}T${pad2(Math.floor(to/60))}:${pad2(to%60)}:00`;
+    // Use new Date() to treat the time as local, then .toISOString() converts to UTC
+    // so that Postgres timestamptz stores the correct wall-clock time for the customer's timezone
+    const slotStart = new Date(`${runDate}T${pad2(Math.floor(from/60))}:${pad2(from%60)}:00`).toISOString();
+    const slotEnd   = new Date(`${runDate}T${pad2(Math.floor(to/60))}:${pad2(to%60)}:00`).toISOString();
     const label     = `${fmtHourMin(from)} – ${fmtHourMin(to)}`;
     windows.push({ routeId, routeName, slotStart, slotEnd, label, icon: slotIcon(from) });
   }

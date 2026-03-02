@@ -2413,7 +2413,7 @@
       <div class="op-section-label">Customer</div>
       <div class="op-field">
         <span class="op-field-label">Name</span>
-        <span class="op-field-val"><a id="op-cust-link" href="#" onclick="event.preventDefault();closeOrderPanel();setTimeout(()=>openCustomerPanel(opCurrentCustId,'orders'),200)" style="color:var(--accent);text-decoration:none;font-weight:600" id="op-cust-name">—</a></span>
+        <span class="op-field-val"><a id="op-cust-name" href="#" onclick="event.preventDefault();closeOrderPanel();setTimeout(()=>openCustomerPanel(opCurrentCustId,'orders'),200)" style="color:var(--accent);text-decoration:none;font-weight:600">—</a></span>
       </div>
       <div class="op-field">
         <span class="op-field-label">Phone</span>
@@ -3590,7 +3590,7 @@
 
     let q = db.from('orders')
       .select(`id, order_number, status, total_amount, stripe_payment_intent_id,
-               weight_lbs, service_id,
+               weight_lbs, total_bags, service_id, special_instructions,
                pickup_window_start, pickup_window_end,
                delivery_window_start, delivery_window_end,
                actual_pickup_at, actual_delivery_at,
@@ -3833,7 +3833,7 @@
       : '—';
 
     // Details
-    document.getElementById('op-bags').textContent = o.weight_lbs != null ? Number(o.weight_lbs) : '—';
+    document.getElementById('op-bags').textContent = o.total_bags != null ? o.total_bags : (o.weight_lbs != null ? Number(o.weight_lbs) : '—');
     document.getElementById('op-total').textContent = fmtMoney(o.total_amount);
     const notesRow = document.getElementById('op-notes-row');
     const notesEl = document.getElementById('op-notes');
