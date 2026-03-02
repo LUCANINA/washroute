@@ -1537,22 +1537,29 @@ async function fetchWindowsForDate(iso) {
   updateWindowLabel(iso);
   container.innerHTML = '<div style="padding:12px 4px;color:var(--gray-400);font-size:13px">Loading available times…</div>';
 
-  const { data: routes, error } = await db
-    .from('routes')
-    .select('id, name, route_templates(window_start, window_end, arrival_window_hours)')
-    .eq('run_date', iso)
-    .eq('zone_id', draft.zoneId);
+  // Convert selected date to ISO weekday (0=Mon … 6=Sun) to match schedule_days in route_templates
+  // JS Date.getDay() returns 0=Sun, so: (jsDay + 6) % 7  →  0=Mon, 1=Tue, … 6=Sun
+  const selDate = new Date(iso + 'T12:00:00');
+  const isoDay  = (selDate.getDay() + 6) % 7;
 
-  if (error || !routes?.length) {
+  // Query route_templates (not route instances) so customers see availability
+  // based on the recurring schedule — no need for admin to pre-create routes for every date.
+  const { data: templates, error } = await db
+    .from('route_templates')
+    .select('id, name, window_start, window_end, arrival_window_hours')
+    .eq('zone_id', draft.zoneId)
+    .eq('is_active', true)
+    .contains('schedule_days', [isoDay]);
+
+  if (error || !templates?.length) {
     container.innerHTML = '<div style="padding:12px 4px;color:var(--gray-400);font-size:13px">No pickup slots available for this day — try another date.</div>';
     return;
   }
 
   const windows = [];
-  routes.forEach(r => {
-    const tmpl = r.route_templates;
-    if (!tmpl?.window_start || !tmpl?.window_end) return;
-    computeSubWindows(iso, tmpl, r.id, r.name).forEach(w => windows.push(w));
+  templates.forEach(tmpl => {
+    if (!tmpl.window_start || !tmpl.window_end) return;
+    computeSubWindows(iso, tmpl, tmpl.id, tmpl.name).forEach(w => windows.push(w));
   });
 
   windows.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
