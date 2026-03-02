@@ -689,7 +689,7 @@
               </label>
             </div>
             <div class="confirm-or">or</div>
-            <button class="confirm-signin-link" onclick="showScreen('auth');switchTab('login')">Sign in to an existing account</button>
+            <button class="confirm-signin-link" onclick="saveDraftToSession();showScreen('auth');switchTab('login')">Sign in to an existing account</button>
           </div>
         </div>
 
@@ -1037,7 +1037,7 @@ db.auth.onAuthStateChange(async (event, session) => {
         goTo('home');
         setTimeout(() => toast('Payment successful! ✓'), 400);
       }
-    } else {
+    } else if (!restoreDraftFromSession()) {
       goTo('home');
     }
     loadServices();
@@ -1117,7 +1117,8 @@ function buildProgressTrack(status) {
 
 async function loadHome() {
   if (!currentProfile) return;
-  document.getElementById('home-greeting').textContent = `Hello, ${currentProfile.first_name || 'there'} 👋`;
+  const firstName = currentProfile?.first_name || currentCustomer?.first_name_cache || 'there';
+  document.getElementById('home-greeting').textContent = `Hello, ${firstName} 👋`;
 
   // Show card-on-file nudge if no card saved
   const cardPrompt = document.getElementById('home-card-prompt');
@@ -1189,6 +1190,27 @@ function buildActiveCard(o) {
 const STEP_TITLES = ['Your Address','Pickup Day & Time','Preferences','Bag Count','Confirm Order'];
 
 // Called when a non-logged-in user taps "Continue without an account"
+// ── Draft persistence (survives auth redirect from confirm screen) ──
+function saveDraftToSession() {
+  try { sessionStorage.setItem('wr_draft_resume', JSON.stringify({ draft, orderStep })); } catch(_) {}
+}
+function restoreDraftFromSession() {
+  try {
+    const saved = sessionStorage.getItem('wr_draft_resume');
+    if (!saved) return false;
+    sessionStorage.removeItem('wr_draft_resume');
+    const parsed = JSON.parse(saved);
+    if (parsed.draft && parsed.orderStep >= 4) {
+      draft     = parsed.draft;
+      orderStep = 4;
+      showScreen('order');
+      goOrderStep(4);
+      return true;
+    }
+  } catch(_) {}
+  return false;
+}
+
 async function guestStart() {
   if (!allServices.length) await loadServices();
   startNewOrder();

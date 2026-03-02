@@ -2465,7 +2465,19 @@
     <button class="btn btn-primary" id="op-advance-btn" onclick="opAdvanceStatus()" style="flex:1">Advance Status</button>
     <button class="btn" onclick="opOpenReschedule()" style="color:var(--gray-700)">Reschedule</button>
     <button class="btn" onclick="printBagTag()" style="color:var(--gray-700)">🖨 Print</button>
+    <button class="btn" id="op-assign-route-btn" onclick="opAssignRoute()" style="color:var(--gray-700)" title="Assign pickup stop to a route">📍 Assign Route</button>
     <button class="btn" onclick="opViewCustomer()" style="color:var(--accent)">View Customer</button>
+  </div>
+  <!-- Assign Route mini-modal (inline) -->
+  <div id="op-assign-route-modal" style="display:none;padding:14px 22px 16px;border-top:1px solid var(--gray-100);background:var(--gray-50)">
+    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px">Assign Pickup Stop to Route</div>
+    <select id="op-route-select" style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;margin-bottom:8px">
+      <option value="">Loading routes…</option>
+    </select>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" style="flex:1;font-size:13px" onclick="opConfirmAssignRoute()">Assign</button>
+      <button class="btn" style="font-size:13px" onclick="document.getElementById('op-assign-route-modal').style.display='none'">Cancel</button>
+    </div>
   </div>
 </div>
 
@@ -3170,7 +3182,8 @@
         const fn = cust?.first_name_cache || '';
         const ln = cust?.last_name_cache  || '';
         const custId = cust?.id || '';
-        const clickable = custId ? `style="cursor:pointer" onclick="openCustomerPanel('${custId}','orders')"` : '';
+        // Open order detail panel when clicking a recent order row
+        const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
         return `<tr ${clickable}>
           <td class="td-mono">#${o.order_number}</td>
           <td class="td-name">${(fn+' '+ln).trim() || 'Unknown'}</td>
@@ -3893,6 +3906,78 @@
     if (!opCurrentCustId) return;
     closeOrderPanel();
     setTimeout(() => openCustomerPanel(opCurrentCustId, 'orders'), 200);
+  }
+
+  async function opAssignRoute() {
+    if (!opCurrentOrderId) return;
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+    const modal  = document.getElementById('op-assign-route-modal');
+    const select = document.getElementById('op-route-select');
+    modal.style.display = modal.style.display === 'none' ? '' : 'none';
+    if (modal.style.display === 'none') return;
+
+    // Load routes — prefer routes on the order's pickup date, fall back to all upcoming
+    const pickupDate = o.pickup_window_start
+      ? new Date(o.pickup_window_start).toISOString().split('T')[0]
+      : null;
+    let q = db.from('routes').select('id, name, run_date').neq('status','cancelled').order('run_date');
+    if (pickupDate) q = q.gte('run_date', pickupDate).lte('run_date', pickupDate);
+    const { data: routes } = await q;
+
+    // If no routes on that exact date, fetch next 14 days
+    const routeList = (routes?.length ? routes : null) ||
+      (await db.from('routes').select('id, name, run_date')
+        .neq('status','cancelled').gte('run_date', today())
+        .order('run_date').limit(20)).data || [];
+
+    select.innerHTML = routeList.length
+      ? `<option value="">— Choose a route —</option>` +
+        routeList.map(r => `<option value="${r.id}">${r.name} (${r.run_date})</option>`).join('')
+      : `<option value="">No routes available</option>`;
+    // Pre-select current route if already linked
+    if (o.pickup_run_id) select.value = o.pickup_run_id;
+  }
+
+  async function opConfirmAssignRoute() {
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+    const routeId = document.getElementById('op-route-select').value;
+    if (!routeId) { showToast('Please choose a route', 'error'); return; }
+
+    // Find customer's address
+    const cust = allCustomers.find(c => c.id === o.customer_id);
+    const addr = cust?.addresses?.find(a => a.is_default) || cust?.addresses?.[0];
+
+    // Upsert: update existing stop if one exists for this order, otherwise insert
+    const { data: existingStop } = await db.from('route_stops')
+      .select('id').eq('order_id', opCurrentOrderId).eq('stop_type','pickup').maybeSingle();
+
+    if (existingStop) {
+      await db.from('route_stops').update({ route_id: routeId }).eq('id', existingStop.id);
+    } else {
+      // Get next stop number for this route
+      const { data: stops } = await db.from('route_stops').select('stop_number').eq('route_id', routeId).order('stop_number', { ascending: false }).limit(1);
+      const nextNum = (stops?.[0]?.stop_number || 0) + 1;
+      await db.from('route_stops').insert({
+        route_id:    routeId,
+        order_id:    opCurrentOrderId,
+        stop_type:   'pickup',
+        stop_number: nextNum,
+        address_id:  addr?.id || null,
+        status:      'pending'
+      });
+    }
+
+    // Also update order's pickup_run_id
+    const { error } = await db.from('orders').update({ pickup_run_id: routeId }).eq('id', opCurrentOrderId);
+    if (error) { showToast('Failed to assign route', 'error'); return; }
+
+    o.pickup_run_id = routeId;
+    const routeName = document.getElementById('op-route-select').selectedOptions[0]?.text || '—';
+    document.getElementById('op-pickup-route').textContent = routeName.split(' (')[0];
+    document.getElementById('op-assign-route-modal').style.display = 'none';
+    showToast('Pickup stop assigned ✓', 'success');
   }
 
   function printBagTag() {
