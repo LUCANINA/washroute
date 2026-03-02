@@ -106,7 +106,7 @@
     .stat-delta { font-size: 12px; font-weight: 500; color: var(--gray-500); }
     .delta-up { color: var(--green); }
     .card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 20px; transition: background .12s; }
-    .card:hover { background: var(--gray-50); }
+    .card-clickable:hover { background: var(--gray-50); cursor: pointer; }
     .card-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--gray-100); }
     .card-title { font-size: 13.5px; font-weight: 600; color: var(--gray-900); }
     .card-sub { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
@@ -381,6 +381,29 @@
     .cp-order-num { font-family: monospace; font-weight: 700; color: var(--accent); font-size: 12px; min-width: 46px; }
     .cp-order-svc { flex: 1; color: var(--gray-700); min-width: 100px; }
     .cp-order-amt { font-weight: 600; color: var(--gray-900); min-width: 52px; text-align: right; }
+
+    /* ── ORDER DETAIL PANEL ── */
+    .order-panel { position: fixed; top: 0; right: -500px; width: 460px; height: 100vh; background: white; box-shadow: -4px 0 40px rgba(0,0,0,.18); z-index: 301; display: flex; flex-direction: column; transition: right .3s cubic-bezier(.4,0,.2,1); overflow: hidden; }
+    .order-panel.open { right: 0; }
+    .op-header { padding: 18px 22px 14px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
+    .op-num { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); margin-bottom: 4px; }
+    .op-body { flex: 1; overflow-y: auto; padding: 20px 22px 32px; display: flex; flex-direction: column; gap: 18px; }
+    .op-section { }
+    .op-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--gray-400); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--gray-100); }
+    .op-field { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; font-size: 13.5px; }
+    .op-field-label { width: 100px; flex-shrink: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--gray-400); }
+    .op-field-val { flex: 1; color: var(--gray-800); font-weight: 500; }
+    .op-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 22px; border-top: 1px solid var(--gray-100); flex-shrink: 0; }
+    /* Customer combobox in New Order modal */
+    .cust-combo-wrap { position: relative; }
+    .cust-combo-input { width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:var(--radius);font-size:14px;color:var(--gray-900);outline:none; }
+    .cust-combo-input:focus { border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,91,255,.1); }
+    .cust-combo-list { position:absolute;top:100%;left:0;right:0;background:white;border:1.5px solid var(--gray-200);border-radius:var(--radius);box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:500;max-height:200px;overflow-y:auto;display:none;margin-top:3px; }
+    .cust-combo-list.open { display:block; }
+    .cust-combo-opt { padding:9px 12px;cursor:pointer;font-size:13.5px;color:var(--gray-800);border-bottom:1px solid var(--gray-100); }
+    .cust-combo-opt:last-child { border-bottom:none; }
+    .cust-combo-opt:hover,.cust-combo-opt.active { background:var(--accent-light);color:var(--accent); }
+    .cust-combo-opt small { color:var(--gray-400);font-size:11.5px;margin-left:6px; }
 
     /* ── PROGRESS BAR ── */
     .progress-bar { height: 4px; background: var(--gray-200); border-radius: 2px; overflow: hidden; margin-top: 8px; }
@@ -854,37 +877,37 @@
         <img src="../assets/logo.png" alt="Family Laundry" style="width:100%;max-width:107px;height:auto;object-fit:contain;" onerror="this.outerHTML='<div style=\'font-size:15px;font-weight:800;color:white;letter-spacing:-.02em;\'>Family <span style=\'font-weight:400;opacity:.5\'>Laundry</span></div>'" />
       </div>
       <div class="sidebar-section-label">Main</div>
-      <div class="nav-item active" onclick="showPage('overview',this)">
+      <div id="nav-overview" class="nav-item active" onclick="showPage('overview',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
         Overview
       </div>
       <div class="sidebar-section-label">Operations</div>
-      <div class="nav-item" onclick="showPage('customers',this)">
+      <div id="nav-customers" class="nav-item" onclick="showPage('customers',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
         Customers
         <span class="nav-badge" id="badge-customers">0</span>
       </div>
-      <div class="nav-item" onclick="showPage('orders',this)">
+      <div id="nav-orders" class="nav-item" onclick="showPage('orders',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
         Orders
         <span class="nav-badge" id="badge-orders">0</span>
       </div>
-      <div class="nav-item" onclick="showPage('processing',this)">
+      <div id="nav-processing" class="nav-item" onclick="showPage('processing',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6l9-4 9 4v12l-9 4-9-4V6z"/><polyline points="3 6 12 10 21 6"/><line x1="12" y1="10" x2="12" y2="22"/></svg>
         Processing
         <span class="nav-badge" id="badge-processing">0</span>
       </div>
-      <div class="nav-item" onclick="showPage('routes',this)">
+      <div id="nav-routes" class="nav-item" onclick="showPage('routes',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/></svg>
         Routes
       </div>
-      <div class="nav-item" onclick="showPage('inbox',this)">
+      <div id="nav-inbox" class="nav-item" onclick="showPage('inbox',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         Inbox
         <span class="nav-badge" id="badge-inbox" style="background:var(--red)">0</span>
       </div>
       <div class="sidebar-section-label">Analytics</div>
-      <div class="nav-item" onclick="showPage('reports',this)">
+      <div id="nav-reports" class="nav-item" onclick="showPage('reports',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         Reports
       </div>
@@ -914,7 +937,7 @@
         Racks
       </div>
       <div class="nav-item" onclick="showPage('discounts',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
         Discounts
       </div>
       <div class="nav-item" onclick="showPage('driver-messages',this)">
@@ -946,22 +969,22 @@
         <!-- ── OVERVIEW ── -->
         <div class="page active" id="page-overview">
           <div class="stats-grid">
-            <div class="stat-card stat-card-link" onclick="showPage('customers',document.querySelectorAll('.nav-item')[1])" title="View customers">
+            <div class="stat-card stat-card-link" onclick="showPage('customers',document.getElementById('nav-customers'))" title="View customers">
               <div class="stat-label">Total Customers</div>
               <div class="stat-value" id="stat-customers">—</div>
               <div class="stat-delta" id="stat-customers-sub">Loading…</div>
             </div>
-            <div class="stat-card stat-card-link" onclick="showPage('orders',document.querySelectorAll('.nav-item')[2])" title="View orders">
+            <div class="stat-card stat-card-link" onclick="showPage('orders',document.getElementById('nav-orders'))" title="View orders">
               <div class="stat-label">Active Orders</div>
               <div class="stat-value" id="stat-orders">—</div>
               <div class="stat-delta" id="stat-orders-sub">Loading…</div>
             </div>
-            <div class="stat-card stat-card-link" onclick="showPage('routes',document.querySelectorAll('.nav-item')[3])" title="View routes">
+            <div class="stat-card stat-card-link" onclick="showPage('routes',document.getElementById('nav-routes'))" title="View routes">
               <div class="stat-label">Routes Today</div>
               <div class="stat-value" id="stat-routes">—</div>
               <div class="stat-delta" id="stat-routes-sub">Loading…</div>
             </div>
-            <div class="stat-card stat-card-link" onclick="showPage('reports',document.querySelectorAll('.nav-item')[8])" title="View reports">
+            <div class="stat-card stat-card-link" onclick="showPage('reports',document.getElementById('nav-reports'))" title="View reports">
               <div class="stat-label">Revenue this month</div>
               <div class="stat-value" id="stat-revenue">—</div>
               <div class="stat-delta" id="stat-revenue-sub">Loading…</div>
@@ -971,14 +994,14 @@
             <div class="card">
               <div class="card-header">
                 <div><div class="card-title">Recent Orders</div><div class="card-sub">Last 10</div></div>
-                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('orders',document.querySelectorAll('.nav-item')[2])">View all</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('orders',document.getElementById('nav-orders'))">View all</button>
               </div>
               <div id="recent-orders-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
             <div class="card">
               <div class="card-header">
                 <div><div class="card-title">Today's Routes</div><div class="card-sub" id="today-date"></div></div>
-                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('routes',document.querySelectorAll('.nav-item')[3])">View all</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('routes',document.getElementById('nav-routes'))">View all</button>
               </div>
               <div id="today-routes-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
@@ -989,7 +1012,7 @@
                 <div class="card-title">Open Issues</div>
                 <div class="card-sub" id="issues-count-sub">Loading…</div>
               </div>
-              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('inbox',document.querySelectorAll('.nav-item')[6])">View inbox →</button>
+              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('inbox',document.getElementById('nav-inbox'))">View inbox →</button>
             </div>
             <div id="overview-issues-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
@@ -998,22 +1021,34 @@
         <!-- ── CUSTOMERS ── -->
         <div class="page" id="page-customers">
           <div class="stats-grid">
-            <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value" id="cstat-total">—</div></div>
-            <div class="stat-card"><div class="stat-label">Active (90 days)</div><div class="stat-value" id="cstat-active">—</div></div>
+            <div class="stat-card stat-card-link" title="All customers" onclick="filterCustomers('all',document.querySelector('#cust-filter-tabs .filter-tab'))"><div class="stat-label">Total</div><div class="stat-value" id="cstat-total">—</div></div>
+            <div class="stat-card stat-card-link" title="Active customers" onclick="filterCustomers('active',document.querySelectorAll('#cust-filter-tabs .filter-tab')[1])"><div class="stat-label">Active (90 days)</div><div class="stat-value" id="cstat-active">—</div></div>
             <div class="stat-card"><div class="stat-label">Avg. Order Value</div><div class="stat-value" id="cstat-aov">—</div></div>
-            <div class="stat-card"><div class="stat-label">At Risk</div><div class="stat-value" id="cstat-risk" style="color:var(--amber)">—</div></div>
+            <div class="stat-card stat-card-link" title="At risk customers" onclick="filterCustomers('at_risk',document.querySelectorAll('#cust-filter-tabs .filter-tab')[2])"><div class="stat-label">At Risk</div><div class="stat-value" id="cstat-risk" style="color:var(--amber)">—</div></div>
           </div>
           <div class="card">
             <!-- Header row -->
             <div class="card-header">
               <div><div class="card-title">All Customers</div><div class="card-sub" id="cust-count-label"></div></div>
-              <button class="btn btn-primary" style="padding:6px 12px" onclick="openModal('add-customer')">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Add Customer
-              </button>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="filter-tabs">
+                  <button class="filter-tab active" id="cust-view-list" onclick="setCustView('list')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:middle;margin-right:2px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/></svg>
+                    List
+                  </button>
+                  <button class="filter-tab" id="cust-view-map" onclick="setCustView('map')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:middle;margin-right:2px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    Map
+                  </button>
+                </div>
+                <button class="btn btn-primary" style="padding:6px 12px" onclick="openModal('add-customer')">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Add Customer
+                </button>
+              </div>
             </div>
-            <!-- Search + view toggle row -->
-            <div style="padding:12px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:center;">
+            <!-- Search + status filter row -->
+            <div style="padding:10px 16px 8px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:center;">
               <div style="flex:1;position:relative;">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input id="cust-search" class="form-input" placeholder="Search name, email, phone…" style="padding-left:32px;height:34px;font-size:13px;" oninput="searchCustomers(this.value)" />
@@ -1024,22 +1059,16 @@
                 <button class="filter-tab" onclick="filterCustomers('at_risk',this)">At Risk</button>
                 <button class="filter-tab" onclick="filterCustomers('churned',this)">Churned</button>
               </div>
-              <select id="cust-map-city" class="form-input" style="height:30px;font-size:12px;width:130px;padding:0 8px;" onchange="setCustCityFilter(this.value)">
+            </div>
+            <!-- City + Route filter row -->
+            <div style="padding:8px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:8px;align-items:center;background:var(--gray-50)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="color:var(--gray-400);flex-shrink:0"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              <select id="cust-map-city" class="form-input" style="height:28px;font-size:12px;width:140px;padding:0 8px;" onchange="setCustCityFilter(this.value)">
                 <option value="all">All Cities</option>
               </select>
-              <select id="cust-map-route" class="form-input" style="height:30px;font-size:12px;width:160px;padding:0 8px;" onchange="setCustRouteFilter(this.value)">
+              <select id="cust-map-route" class="form-input" style="height:28px;font-size:12px;width:170px;padding:0 8px;" onchange="setCustRouteFilter(this.value)">
                 <option value="all">All Routes</option>
               </select>
-              <div class="filter-tabs">
-                <button class="filter-tab active" id="cust-view-list" onclick="setCustView('list')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:middle;margin-right:2px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/></svg>
-                  List
-                </button>
-                <button class="filter-tab" id="cust-view-map" onclick="setCustView('map')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:middle;margin-right:2px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                  Map
-                </button>
-              </div>
             </div>
             <!-- LIST VIEW -->
             <div id="customers-table-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
@@ -1056,7 +1085,7 @@
                   <div class="leg-title">Status</div>
                   <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Active</div>
                   <div class="leg-row"><div class="leg-dot" style="background:#d97706"></div>At Risk</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>Inactive</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>Churned</div>
                   <div id="cust-map-count" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08);font-size:11px;color:var(--gray-500);font-weight:500;"></div>
                 </div>
               </div>
@@ -1080,10 +1109,7 @@
                 <div class="filter-tabs" id="order-filter-tabs">
                   <button class="filter-tab active" data-filter="all" onclick="filterOrders(null,this)">All</button>
                   <button class="filter-tab" data-filter="upcoming" onclick="filterOrders('upcoming',this)">Upcoming</button>
-                  <button class="filter-tab" data-filter="picked_up" onclick="filterOrders('picked_up',this)">Picked Up</button>
-                  <button class="filter-tab" data-filter="processing" onclick="filterOrders('processing',this)">Processing</button>
-                  <button class="filter-tab" data-filter="assembled" onclick="filterOrders('assembled',this)">Assembled</button>
-                  <button class="filter-tab" data-filter="ready_for_delivery" onclick="filterOrders('ready_for_delivery',this)">Ready for Delivery</button>
+                  <button class="filter-tab" data-filter="active" onclick="filterOrders('active',this)">Active</button>
                   <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
                   <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
                 </div>
@@ -1841,7 +1867,7 @@
   <div class="batch-bar-sep"></div>
   <button class="batch-bar-btn danger" onclick="batchCancelOrders()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-    Delete
+    Delete Orders
   </button>
   <button class="batch-bar-dismiss" onclick="clearOrderSelection()" title="Dismiss">×</button>
 </div>
@@ -1885,7 +1911,10 @@
 <!-- Reschedule Route modal (per-order pickup or delivery) -->
 <div id="reassign-run-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
   <div class="modal" style="max-width:420px;">
-    <div class="modal-header"><div class="modal-title" id="reschedule-modal-title">Reschedule Route</div></div>
+    <div class="modal-header">
+      <div class="modal-title" id="reschedule-modal-title">Reschedule Route</div>
+      <button class="modal-close" onclick="closeReassignModal()"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
     <div class="modal-body">
       <div style="margin-bottom:12px;font-size:13px;color:var(--gray-600);" id="reschedule-modal-desc"></div>
       <label class="form-label">Select Route</label>
@@ -2064,7 +2093,15 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group" style="margin:0">
           <label class="form-label">Customer</label>
-          <select class="form-select" id="o-customer" onchange="onOrderCustomerChange(this.value)"></select>
+          <input type="hidden" id="o-customer">
+          <div class="cust-combo-wrap">
+            <input type="text" id="o-customer-input" class="cust-combo-input" placeholder="Search customer…" autocomplete="off"
+              oninput="custComboFilter(this.value)"
+              onfocus="custComboFilter(this.value)"
+              onblur="setTimeout(()=>custComboClose(),180)"
+              onkeydown="custComboKeydown(event)">
+            <div class="cust-combo-list" id="o-customer-list"></div>
+          </div>
         </div>
         <div class="form-group" style="margin:0">
           <label class="form-label">Address</label>
@@ -2325,6 +2362,79 @@
 
 <!-- ─── TOAST ─── -->
 <div class="toast" id="toast"></div>
+
+<!-- ─── ORDER DETAIL PANEL ─── -->
+<div class="panel-backdrop" id="order-panel-backdrop" onclick="closeOrderPanel()"></div>
+<div class="order-panel" id="order-panel">
+  <div class="op-header">
+    <div style="flex:1;min-width:0">
+      <div class="op-num" id="op-num">ORDER #—</div>
+      <div id="op-status-badge"></div>
+    </div>
+    <button class="modal-close" onclick="closeOrderPanel()" title="Close" style="margin-left:12px;flex-shrink:0">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="op-body">
+    <!-- Customer -->
+    <div>
+      <div class="op-section-label">Customer</div>
+      <div class="op-field">
+        <span class="op-field-label">Name</span>
+        <span class="op-field-val"><a id="op-cust-link" href="#" onclick="event.preventDefault();closeOrderPanel();setTimeout(()=>openCustomerPanel(opCurrentCustId,'orders'),200)" style="color:var(--accent);text-decoration:none;font-weight:600" id="op-cust-name">—</a></span>
+      </div>
+      <div class="op-field">
+        <span class="op-field-label">Phone</span>
+        <span class="op-field-val" id="op-cust-phone">—</span>
+      </div>
+    </div>
+    <!-- Pickup -->
+    <div>
+      <div class="op-section-label">Pickup</div>
+      <div class="op-field">
+        <span class="op-field-label">Route</span>
+        <span class="op-field-val" id="op-pickup-route">—</span>
+      </div>
+      <div class="op-field">
+        <span class="op-field-label">Window</span>
+        <span class="op-field-val" id="op-pickup-time">—</span>
+      </div>
+    </div>
+    <!-- Delivery -->
+    <div>
+      <div class="op-section-label">Delivery</div>
+      <div class="op-field">
+        <span class="op-field-label">Route</span>
+        <span class="op-field-val" id="op-delivery-route">—</span>
+      </div>
+      <div class="op-field">
+        <span class="op-field-label">Window</span>
+        <span class="op-field-val" id="op-delivery-time">—</span>
+      </div>
+    </div>
+    <!-- Order Details -->
+    <div>
+      <div class="op-section-label">Order Details</div>
+      <div class="op-field">
+        <span class="op-field-label">Bags</span>
+        <span class="op-field-val" id="op-bags">—</span>
+      </div>
+      <div class="op-field">
+        <span class="op-field-label">Total</span>
+        <span class="op-field-val" id="op-total">—</span>
+      </div>
+      <div class="op-field" id="op-notes-row" style="display:none">
+        <span class="op-field-label">Notes</span>
+        <span class="op-field-val" id="op-notes" style="white-space:pre-wrap;color:var(--gray-600)"></span>
+      </div>
+    </div>
+  </div>
+  <div class="op-actions">
+    <button class="btn btn-primary" id="op-advance-btn" onclick="opAdvanceStatus()" style="flex:1">Advance Status</button>
+    <button class="btn" onclick="opOpenReschedule()" style="color:var(--gray-700)">Reschedule</button>
+    <button class="btn" onclick="opViewCustomer()" style="color:var(--accent)">View Customer</button>
+  </div>
+</div>
 
 <!-- ─── CUSTOMER SIDE PANEL ─── -->
 <div class="panel-backdrop" id="panel-backdrop" onclick="closeCustomerPanel()"></div>
@@ -2924,7 +3034,7 @@
 
   // ── NAVIGATION ──
   const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', 'driver-messages':'Driver Messages' };
-  const pageCTAs   = { overview:'New Order', customers:'', orders:'', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', 'driver-messages':'' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', 'driver-messages':'' };
 
   function showPage(id, navEl) {
     // If leaving orders page, clear any active batch selection
@@ -2953,9 +3063,9 @@
   }
 
   function handleCTA() {
-    if (currentPage === 'routes')  { openTemplateEditor(null); return; }
-    if (currentPage === 'drivers') { openDriverEditor(null);   return; }
-    if (currentPage === 'inbox') { openComposeSMS(); return; }
+    if (currentPage === 'routes')    { openTemplateEditor(null); return; }
+    if (currentPage === 'drivers')   { openDriverEditor(null);   return; }
+    if (currentPage === 'inbox')     { openComposeSMS(); return; }
     const map = { overview:'add-order', customers:'add-customer', orders:'add-order' };
     if (map[currentPage]) openModal(map[currentPage]);
   }
@@ -3430,6 +3540,7 @@
   // Group filter → actual statuses mapping
   const ORDER_FILTER_GROUPS = {
     upcoming:  ['scheduled','ready_for_pickup'],
+    active:    ['picked_up','processing','assembled','ready_for_delivery','out_for_delivery'],
     issues:    ['pickup_missed','delivery_missed','on_hold','cancelled'],
   };
 
@@ -3550,9 +3661,10 @@
         : 'th-sort';
       return `<th class="${cls}" onclick="setOrderSort('${col}')">${label}</th>`;
     };
-    el.innerHTML = `<table style="min-width:900px"><thead><tr>
+    el.innerHTML = `<table style="min-width:960px"><thead><tr>
         <th style="width:36px"><input type="checkbox" id="select-all-orders" onchange="toggleSelectAllOrders(this)" title="Select all"></th>
         ${thSort('customer','Customer')}
+        ${thSort('status','Status')}
         ${thSort('pickup_run_id','Pickup Route')}
         ${thSort('pickup_window_start','Pickup Time')}
         ${thSort('delivery_run_id','Delivery Route')}
@@ -3563,9 +3675,10 @@
       ${sorted.map(o => {
         const custId = o.customers?.id || '';
         const bags = o.weight_lbs != null ? Number(o.weight_lbs) : '—';
-        return `<tr style="cursor:pointer" onclick="if('${custId}')openCustomerPanel('${custId}','orders')">
+        return `<tr style="cursor:pointer" onclick="openOrderPanel('${o.id}')">
           <td style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${o.customers?.phone_cache||''}" data-cust-name="${(o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||'')}" onchange="updateOrderBatchBar()"></td>
           <td class="td-name">${orderCustomerName(o)}</td>
+          <td>${statusBadge(o.status)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${pickupRouteCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${pickupTimeCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${deliveryRouteCell(o)}</td>
@@ -3651,6 +3764,101 @@
         })
       : allOrders;
     renderOrders(filtered);
+  }
+
+  // ── ORDER DETAIL PANEL ──
+  let opCurrentOrderId = null;
+  let opCurrentCustId = null;
+
+  function openOrderPanel(orderId) {
+    const o = allOrders.find(x => x.id === orderId);
+    if (!o) return;
+    opCurrentOrderId = orderId;
+    opCurrentCustId = o.customers?.id || null;
+
+    // Header
+    document.getElementById('op-num').textContent = `ORDER #${o.order_number || '—'}`;
+    document.getElementById('op-status-badge').innerHTML = statusBadge(o.status);
+
+    // Customer
+    const custName = orderCustomerName(o);
+    const custLink = document.getElementById('op-cust-name');
+    if (custLink) custLink.textContent = custName;
+    document.getElementById('op-cust-phone').textContent = o.customers?.phone_cache || '—';
+
+    // Pickup
+    document.getElementById('op-pickup-route').textContent = o.pickup_run?.name || '—';
+    document.getElementById('op-pickup-time').textContent = o.pickup_window_start
+      ? `${fmtDate(o.pickup_window_start)}${o.pickup_window_end ? ' · ' + fmtTime(o.pickup_window_start) + '–' + fmtTime(o.pickup_window_end) : ''}`
+      : '—';
+
+    // Delivery
+    document.getElementById('op-delivery-route').textContent = o.delivery_run?.name || '—';
+    document.getElementById('op-delivery-time').textContent = o.delivery_window_start
+      ? `${fmtDate(o.delivery_window_start)}${o.delivery_window_end ? ' · ' + fmtTime(o.delivery_window_start) + '–' + fmtTime(o.delivery_window_end) : ''}`
+      : '—';
+
+    // Details
+    document.getElementById('op-bags').textContent = o.weight_lbs != null ? Number(o.weight_lbs) : '—';
+    document.getElementById('op-total').textContent = fmtMoney(o.total_amount);
+    const notesRow = document.getElementById('op-notes-row');
+    const notesEl = document.getElementById('op-notes');
+    if (o.special_instructions) {
+      notesEl.textContent = o.special_instructions;
+      notesRow.style.display = '';
+    } else {
+      notesRow.style.display = 'none';
+    }
+
+    // Advance button
+    const advBtn = document.getElementById('op-advance-btn');
+    const nextStatus = STATUS_FLOW[o.status];
+    advBtn.disabled = !nextStatus;
+    advBtn.style.opacity = nextStatus ? '1' : '0.45';
+    advBtn.style.cursor = nextStatus ? 'pointer' : 'not-allowed';
+    advBtn.textContent = nextStatus
+      ? `Advance to ${nextStatus.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}`
+      : 'Fully Delivered';
+
+    // Open panel
+    document.getElementById('order-panel').classList.add('open');
+    document.getElementById('order-panel-backdrop').classList.add('open');
+  }
+
+  function closeOrderPanel() {
+    document.getElementById('order-panel').classList.remove('open');
+    document.getElementById('order-panel-backdrop').classList.remove('open');
+    opCurrentOrderId = null;
+    opCurrentCustId = null;
+  }
+
+  async function opAdvanceStatus() {
+    if (!opCurrentOrderId) return;
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+    const next = STATUS_FLOW[o.status];
+    if (!next) return;
+    const { error } = await db.from('orders').update({ status: next }).eq('id', opCurrentOrderId);
+    if (error) { showToast('Failed to update status', 'error'); return; }
+    o.status = next;
+    // Refresh panel
+    openOrderPanel(opCurrentOrderId);
+    renderOrders(allOrders);
+    showToast('Status updated', 'success');
+  }
+
+  function opOpenReschedule() {
+    if (!opCurrentOrderId) return;
+    closeOrderPanel();
+    // Re-use existing reschedule flow: select the order checkbox first
+    const cb = document.querySelector(`.order-select-cb[data-id="${opCurrentOrderId}"]`);
+    if (cb) { cb.checked = true; updateOrderBatchBar(); batchReschedule(); }
+  }
+
+  function opViewCustomer() {
+    if (!opCurrentCustId) return;
+    closeOrderPanel();
+    setTimeout(() => openCustomerPanel(opCurrentCustId, 'orders'), 200);
   }
 
   // ── BATCH ACTION: REASSIGN RUN ──
@@ -5629,6 +5837,74 @@
   let _noDelivStart   = null;
   let _noDelivEnd     = null;
 
+  // ── CUSTOMER COMBOBOX (New Order modal) ──
+  let _custComboHighlight = -1;
+
+  function custComboFilter(term) {
+    const t = term.trim().toLowerCase();
+    const list = document.getElementById('o-customer-list');
+    const filtered = t
+      ? allCustomers.filter(c => {
+          const p  = custProfile(c);
+          const fn = (p.first_name || c.first_name_cache || '').toLowerCase();
+          const ln = (p.last_name  || c.last_name_cache  || '').toLowerCase();
+          const ph = (c.phone_cache || '').toLowerCase();
+          return (fn + ' ' + ln).includes(t) || ph.includes(t);
+        })
+      : allCustomers;
+    _custComboHighlight = -1;
+    if (!filtered.length) {
+      list.innerHTML = `<div class="cust-combo-opt" style="color:var(--gray-400);cursor:default">No customers found</div>`;
+    } else {
+      list.innerHTML = filtered.slice(0, 40).map((c, i) => {
+        const p  = custProfile(c);
+        const fn = p.first_name || c.first_name_cache || '';
+        const ln = p.last_name  || c.last_name_cache  || '';
+        const label = (fn + ' ' + ln).trim() || 'Unknown';
+        const phone = c.phone_cache ? `<small>${c.phone_cache}</small>` : '';
+        return `<div class="cust-combo-opt" data-id="${c.id}" data-label="${label}" onclick="custComboSelect('${c.id}','${label.replace(/'/g,"&#39;")}')">
+          ${label}${phone}
+        </div>`;
+      }).join('');
+    }
+    list.classList.add('open');
+  }
+
+  function custComboSelect(id, label) {
+    document.getElementById('o-customer').value = id;
+    document.getElementById('o-customer-input').value = label;
+    document.getElementById('o-customer-list').classList.remove('open');
+    _custComboHighlight = -1;
+    onOrderCustomerChange(id);
+  }
+
+  function custComboClose() {
+    document.getElementById('o-customer-list').classList.remove('open');
+    _custComboHighlight = -1;
+  }
+
+  function custComboKeydown(e) {
+    const list = document.getElementById('o-customer-list');
+    const opts = list.querySelectorAll('.cust-combo-opt[data-id]');
+    if (!list.classList.contains('open') || !opts.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      _custComboHighlight = Math.min(_custComboHighlight + 1, opts.length - 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      _custComboHighlight = Math.max(_custComboHighlight - 1, 0);
+    } else if (e.key === 'Enter' && _custComboHighlight >= 0) {
+      e.preventDefault();
+      const opt = opts[_custComboHighlight];
+      if (opt) custComboSelect(opt.dataset.id, opt.dataset.label);
+      return;
+    } else if (e.key === 'Escape') {
+      custComboClose(); return;
+    } else { return; }
+    opts.forEach((o, i) => o.classList.toggle('active', i === _custComboHighlight));
+    if (opts[_custComboHighlight]) opts[_custComboHighlight].scrollIntoView({ block: 'nearest' });
+  }
+
   async function populateOrderModal() {
     // Reset all state
     _noSelectedTmpl = null;
@@ -5651,17 +5927,21 @@
     document.getElementById('o-tip').value   = '';
     document.getElementById('o-error').style.display = 'none';
 
-    // Customers
-    const cSelect = document.getElementById('o-customer');
-    cSelect.innerHTML = allCustomers.length
-      ? allCustomers.map(c => {
-          const p  = custProfile(c);
-          const fn = p.first_name || c.first_name_cache || '';
-          const ln = p.last_name  || c.last_name_cache  || '';
-          return `<option value="${c.id}">${(fn+' '+ln).trim() || 'Unknown'}</option>`;
-        }).join('')
-      : '<option>No customers yet</option>';
-    if (allCustomers.length) onOrderCustomerChange(allCustomers[0].id);
+    // Customers — init combobox
+    if (allCustomers.length) {
+      const first = allCustomers[0];
+      const p  = custProfile(first);
+      const fn = p.first_name || first.first_name_cache || '';
+      const ln = p.last_name  || first.last_name_cache  || '';
+      const label = (fn + ' ' + ln).trim() || 'Unknown';
+      document.getElementById('o-customer').value = first.id;
+      document.getElementById('o-customer-input').value = label;
+      onOrderCustomerChange(first.id);
+    } else {
+      document.getElementById('o-customer').value = '';
+      document.getElementById('o-customer-input').value = '';
+      document.getElementById('o-customer-input').placeholder = 'No customers yet';
+    }
 
     // Route templates for inline slot picker
     const { data: tmpls } = await db.from('route_templates')
