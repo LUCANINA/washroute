@@ -904,6 +904,8 @@ function toast(msg, dur = 3200) {
 
 function $m(n) { return '$' + (+(n || 0)).toFixed(2); }
 function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'; }
+function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase() : ''; }
+function fmtSlot(start, end) { const s = fmtTime(start); if (!end) return s; const e = fmtTime(end); return s.replace(/\s*(am|pm)\s*$/i,'') + ' – ' + e; }
 function daysFromNow(n) { const d = new Date(); d.setDate(d.getDate() + n); return d; }
 function fmtDay(d) { return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
 
@@ -1373,6 +1375,20 @@ function renderOrderPrefs() {
     el.innerHTML = '<p style="color:var(--gray-400);font-size:14px;text-align:center;padding:20px 0">No preference options configured yet.</p>';
     return;
   }
+
+  // Pre-populate from customer's saved preferences (returning customers only).
+  // Only runs when the customer hasn't made any selections yet this session.
+  if (Object.keys(draft.prefs).length === 0 && currentCustomer?.preferences) {
+    const savedPrefs = currentCustomer.preferences; // { groupId: optId }
+    prefs.forEach(group => {
+      const savedOptId = savedPrefs[group.id];
+      if (!savedOptId) return;
+      const opt = (group.options || []).find(o => o.id === savedOptId);
+      if (!opt) return;
+      draft.prefs[group.id] = { optId: opt.id, label: opt.label, priceMod: opt.price_mod || 0 };
+    });
+  }
+
   el.innerHTML = prefs.map(group => {
     return `<div class="order-pref-group">
       <div class="order-pref-label">${group.name}</div>
@@ -1810,12 +1826,64 @@ async function placeOrder() {
   btn.disabled = false; btn.textContent = currentCustomer ? 'Place Order' : 'Create Account & Place Order';
   if (error) { toast('Error: ' + error.message); return; }
 
-  // Update customer stats
+  // ── Auto-assign to route stop (best-effort, don't block success screen) ──
+  (async () => {
+    try {
+      const pickupIso = draft.pickupDate;
+      // Find route templates for this zone + day of week
+      const selDate = new Date(pickupIso + 'T12:00:00');
+      const isoDay  = (selDate.getDay() + 6) % 7; // 0=Mon … 6=Sun
+      const { data: tmplIds } = await db.from('route_templates')
+        .select('id').eq('zone_id', draft.zoneId).eq('is_active', true)
+        .contains('schedule_days', [isoDay]);
+      if (!tmplIds?.length) return;
+
+      // Find an actual route on that date for one of those templates
+      const { data: routes } = await db.from('routes')
+        .select('id').in('template_id', tmplIds.map(t => t.id))
+        .eq('run_date', pickupIso).neq('status','cancelled').limit(1);
+      const route = routes?.[0];
+      if (!route) return; // No route created by admin yet — admin can assign manually
+
+      // Get customer's default address
+      const { data: addrs } = await db.from('addresses')
+        .select('id').eq('customer_id', currentCustomer.id).eq('is_default', true).limit(1);
+      const addressId = addrs?.[0]?.id || null;
+
+      // Get next stop number for this route
+      const { data: stops } = await db.from('route_stops')
+        .select('stop_number').eq('route_id', route.id)
+        .order('stop_number', { ascending: false }).limit(1);
+      const nextNum = (stops?.[0]?.stop_number || 0) + 1;
+
+      // Create the pickup stop
+      await db.from('route_stops').insert({
+        route_id:    route.id,
+        order_id:    order.id,
+        stop_type:   'pickup',
+        stop_number: nextNum,
+        address_id:  addressId,
+        status:      'pending'
+      });
+
+      // Link the route back to the order
+      await db.from('orders').update({ pickup_run_id: route.id }).eq('id', order.id);
+    } catch(_) { /* best-effort — don't block the success screen */ }
+  })();
+
+  // Build a compact { groupId: optId } map from this order's prefs to save for next time
+  const savedPrefsMap = {};
+  Object.entries(draft.prefs).forEach(([groupId, pref]) => { savedPrefsMap[groupId] = pref.optId; });
+
+  // Update customer stats and save preferences for future orders
   await db.from('customers').update({
     total_orders:  (currentCustomer.total_orders||0)+1,
     total_bags:    (currentCustomer.total_bags||0)+bags,
-    last_order_at: new Date().toISOString()
+    last_order_at: new Date().toISOString(),
+    preferences:   Object.keys(savedPrefsMap).length ? savedPrefsMap : currentCustomer.preferences
   }).eq('id', currentCustomer.id);
+  // Keep local copy in sync so next order in this session also pre-populates
+  if (Object.keys(savedPrefsMap).length) currentCustomer.preferences = savedPrefsMap;
   currentCustomer.total_orders = (currentCustomer.total_orders||0)+1;
   currentCustomer.total_bags   = (currentCustomer.total_bags||0)+bags;
 
@@ -1966,8 +2034,8 @@ async function openDetail(orderId) {
     <div class="d-row"><span class="d-key">Service</span><span class="d-val">${o.services?.name || '—'}</span></div>
     <div class="d-row"><span class="d-key">Bags</span><span class="d-val">${bags} bag${bags !== 1 ? 's' : ''}</span></div>
     <div class="d-row"><span class="d-key">Schedule</span><span class="d-val">${o.recurring_interval ? '🔁 ' + RLABELS[o.recurring_interval] : 'One-time'}</span></div>
-    <div class="d-row"><span class="d-key">Pickup Date</span><span class="d-val">${fmtDate(o.pickup_date)}</span></div>
-    <div class="d-row"><span class="d-key">Delivery Date</span><span class="d-val">${fmtDate(o.delivery_date)}</span></div>
+    <div class="d-row"><span class="d-key">Pickup</span><span class="d-val">${o.pickup_window_start ? fmtDate(o.pickup_window_start) + (o.pickup_window_end ? ' · ' + fmtSlot(o.pickup_window_start, o.pickup_window_end) : '') : '—'}</span></div>
+    <div class="d-row"><span class="d-key">Est. Delivery</span><span class="d-val">${o.delivery_window_start ? fmtDate(o.delivery_window_start) : (o.pickup_window_start ? fmtDate(new Date(new Date(o.pickup_window_start).getTime() + 86400000).toISOString()) : '—')}</span></div>
     ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${o.special_instructions}</span></div>` : ''}
     <div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${o.total_amount ? $m(o.total_amount) : 'Confirmed at pickup'}</span></div>`;
 

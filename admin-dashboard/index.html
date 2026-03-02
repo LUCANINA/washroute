@@ -1450,6 +1450,7 @@
               <button class="svc-page-tab"        id="svctab-btn-fees"         onclick="svcPageTab('fees',this)">Fees</button>
               <button class="svc-page-tab"        id="svctab-btn-preferences"  onclick="svcPageTab('preferences',this)">Preferences</button>
               <button class="svc-page-tab"        id="svctab-btn-categories"   onclick="svcPageTab('categories',this)">Categories</button>
+              <button class="svc-page-tab"        id="svctab-btn-settings"     onclick="svcPageTab('settings',this);renderSettingsTab()">⚙️ Settings</button>
             </div>
             <!-- Services tab -->
             <div id="svctab-services">
@@ -1517,6 +1518,8 @@
                 <button class="btn btn-primary" onclick="addCategory()" style="font-size:12.5px;padding:6px 14px">+ Add Category</button>
               </div>
             </div>
+            <!-- Settings tab -->
+            <div id="svctab-settings" style="display:none"></div>
           </div>
         </div>
 
@@ -2879,6 +2882,7 @@
   const db = createClient(SUPA_URL, SUPA_ANON_KEY);
 
   // ── STATE ──
+  let BIZ_TZ = 'America/Los_Angeles'; // loaded from settings table at startup
   let currentPage = 'overview';
   let allCustomers = [];
   let allOrders = [];
@@ -2912,15 +2916,18 @@
   const fmtMoney = (n) => '$'+Number(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   // Date-only strings ('2026-02-26') are UTC midnight by default, which shows as the previous
   // day in Pacific time. Appending T00:00:00 forces local-midnight parsing instead.
+  // Both fmtDate and fmtTime respect BIZ_TZ (loaded from settings table).
   const fmtDate = (d) => {
     if (!d) return '—';
-    const date = typeof d === 'string' && d.length === 10 ? new Date(d + 'T00:00:00') : new Date(d);
-    return date.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+    // Date-only string: render in BIZ_TZ so "2026-03-09" shows as "Mar 9" not "Mar 8"
+    if (typeof d === 'string' && d.length === 10) {
+      return new Date(d + 'T00:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric', timeZone: BIZ_TZ});
+    }
+    return new Date(d).toLocaleDateString('en-US', {month:'short', day:'numeric', timeZone: BIZ_TZ});
   };
   const fmtTime = (d) => {
     if (!d) return '';
-    const dt = new Date(d);
-    return dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase();
+    return new Date(d).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:BIZ_TZ}).toLowerCase();
   };
   // Format a compact time range: "7 – 9 am" or "7:30 – 9 am"
   const fmtSlot = (start, end) => {
@@ -3075,8 +3082,34 @@
       document.getElementById('today-date').textContent = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
       // routes-date-label and r-date removed — routes page uses run_date now
       loadAll();
+      startNewOrderListener();
     }
   });
+
+  // ── REALTIME: New order notification ──
+  let _newOrderSub = null;
+  let _newOrderCount = 0;
+  function startNewOrderListener() {
+    if (_newOrderSub) return; // Already listening
+    _newOrderSub = db.channel('admin-new-orders')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, payload => {
+        _newOrderCount++;
+        const badge = document.getElementById('badge-orders');
+        if (badge) { badge.textContent = _newOrderCount; badge.style.display = ''; }
+        // Flash a toast
+        const cust = payload.new;
+        showToast(`🛍 New order placed — #${cust.order_number || '…'}`, 'success');
+        // Reload overview + orders if we're on those pages
+        if (currentPage === 'overview') loadOverview();
+        if (currentPage === 'orders')   loadOrders(currentOrderFilter);
+      })
+      .subscribe();
+  }
+  function clearNewOrderBadge() {
+    _newOrderCount = 0;
+    const badge = document.getElementById('badge-orders');
+    if (badge) badge.textContent = '0';
+  }
 
   // ── NAVIGATION ──
   const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', 'driver-messages':'Driver Messages' };
@@ -3094,6 +3127,7 @@
     document.getElementById('topbar-cta-label').textContent = pageCTAs[id];
     document.getElementById('topbar-cta').style.display = pageCTAs[id] ? '' : 'none';
     currentPage = id;
+    if (id === 'orders') clearNewOrderBadge();
     if (id === 'inbox')   loadInbox();
     if (id === 'maps')    setTimeout(()=>initZonesMap(), 80);
     if (id === 'routes')  setTimeout(()=>initRoutesPage(), 80);
@@ -3116,9 +3150,55 @@
     if (map[currentPage]) openModal(map[currentPage]);
   }
 
+  // ── SETTINGS ──
+  async function loadSettings() {
+    const { data } = await db.from('settings').select('timezone').eq('id', 1).single();
+    if (data?.timezone) BIZ_TZ = data.timezone;
+  }
+
+  async function saveSettings() {
+    const tz = document.getElementById('settings-tz-select')?.value;
+    if (!tz) return;
+    const { error } = await db.from('settings').update({ timezone: tz }).eq('id', 1);
+    if (error) { showToast('Failed to save settings', 'error'); return; }
+    BIZ_TZ = tz;
+    showToast('✓ Settings saved', 'success');
+  }
+
+  function renderSettingsTab() {
+    const timezones = [
+      { value: 'America/Los_Angeles', label: 'Pacific Time (PT) — Los Angeles' },
+      { value: 'America/Denver',      label: 'Mountain Time (MT) — Denver' },
+      { value: 'America/Chicago',     label: 'Central Time (CT) — Chicago' },
+      { value: 'America/New_York',    label: 'Eastern Time (ET) — New York' },
+      { value: 'America/Phoenix',     label: 'Arizona Time — Phoenix' },
+      { value: 'America/Anchorage',   label: 'Alaska Time — Anchorage' },
+      { value: 'Pacific/Honolulu',    label: 'Hawaii Time — Honolulu' },
+    ];
+    const options = timezones.map(tz =>
+      `<option value="${tz.value}" ${BIZ_TZ === tz.value ? 'selected' : ''}>${tz.label}</option>`
+    ).join('');
+    const el = document.getElementById('svctab-settings');
+    if (!el) return;
+    el.innerHTML = `
+      <div style="padding:24px 24px 32px;max-width:540px">
+        <div style="font-size:13.5px;font-weight:700;color:var(--gray-800);margin-bottom:6px">Business Timezone</div>
+        <div style="font-size:13px;color:var(--gray-500);margin-bottom:14px">
+          Controls how pickup and delivery times are displayed throughout the admin dashboard.
+          Should match the timezone where your business operates.
+        </div>
+        <select id="settings-tz-select" class="form-select" style="width:100%;font-size:13.5px;margin-bottom:16px">
+          ${options}
+        </select>
+        <button class="btn btn-primary" onclick="saveSettings()" style="font-size:13.5px;padding:8px 20px">
+          Save Settings
+        </button>
+      </div>`;
+  }
+
   // ── LOAD ALL DATA ──
   async function loadAll() {
-    const results = await Promise.allSettled([loadOverview(), loadCustomers(), loadOrders(), loadRoutes(), loadDiscounts()]);
+    const results = await Promise.allSettled([loadSettings(), loadOverview(), loadCustomers(), loadOrders(), loadRoutes(), loadDiscounts()]);
     const failed = results.filter(r => r.status === 'rejected');
     if (failed.length) {
       console.error('loadAll failures:', failed.map(r => r.reason));
@@ -5379,7 +5459,7 @@ window.onload=()=>{window.print();};
   }
 
   function svcPageTab(name, btn) {
-    ['services','display','fees','preferences','categories'].forEach(n => {
+    ['services','display','fees','preferences','categories','settings'].forEach(n => {
       const el = document.getElementById('svctab-'+n);
       if (el) el.style.display = n===name ? '' : 'none';
       const b = document.getElementById('svctab-btn-'+n);
