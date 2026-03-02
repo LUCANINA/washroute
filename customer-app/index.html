@@ -459,6 +459,9 @@
     .confirm-or { text-align: center; font-size: 12.5px; color: var(--gray-400); margin: 14px 0 10px; }
     .confirm-signin-link { width: 100%; padding: 12px; background: white; border: 1.5px solid var(--gray-300); border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--navy); cursor: pointer; transition: border-color .15s; font-family: inherit; }
     .confirm-signin-link:hover { border-color: var(--navy); }
+    .sms-consent-row { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; margin-top: 4px; }
+    .sms-consent-row input[type=checkbox] { margin-top: 2px; flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+    .sms-consent-row span { font-size: 12px; color: var(--gray-600); line-height: 1.5; }
 
     /* ── STEP TRANSITIONS ── */
     .step-pane { animation: stepFadeIn .18s ease both; }
@@ -520,6 +523,10 @@
         <div class="field"><label>Email</label><input type="email" id="s-email" placeholder="you@email.com" autocomplete="email" required></div>
         <div class="field"><label>Phone</label><input type="tel" id="s-phone" placeholder="(415) 555-0100" required></div>
         <div class="field"><label>Password</label><input type="password" id="s-pass" placeholder="Min. 8 characters" autocomplete="new-password" minlength="8" required></div>
+        <label class="sms-consent-row">
+          <input type="checkbox" id="s-sms-consent" required>
+          <span>I agree to receive text messages from Family Laundry about my orders. Message &amp; data rates may apply. Reply STOP to opt out.</span>
+        </label>
         <button class="btn-primary" type="submit" id="btn-signup">Create Account</button>
       </form>
 
@@ -672,6 +679,10 @@
               <div class="field"><label>Phone</label><input type="tel" id="c-phone" placeholder="(415) 555-0100"></div>
               <div class="field"><label>Email</label><input type="email" id="c-email" placeholder="you@email.com"></div>
               <div class="field"><label>Password</label><input type="password" id="c-pass" placeholder="Min. 8 characters" minlength="8"></div>
+              <label class="sms-consent-row">
+                <input type="checkbox" id="c-sms-consent">
+                <span>I agree to receive text messages from Family Laundry about my orders. Message &amp; data rates may apply. Reply STOP to opt out.</span>
+              </label>
             </div>
             <div class="confirm-or">or</div>
             <button class="confirm-signin-link" onclick="showScreen('auth');switchTab('login')">Sign in to an existing account</button>
@@ -921,20 +932,34 @@ async function handleSignup(e) {
   const email = document.getElementById('s-email').value.trim();
   const phone = document.getElementById('s-phone').value.trim();
   const pass  = document.getElementById('s-pass').value;
+  const smsConsent = document.getElementById('s-sms-consent').checked;
   const btn = document.getElementById('btn-signup');
   const errEl = document.getElementById('signup-err');
   errEl.classList.remove('show');
+  if (!smsConsent) {
+    errEl.textContent = 'Please agree to receive SMS updates to continue.';
+    errEl.classList.add('show');
+    return;
+  }
   btn.disabled = true; btn.textContent = 'Creating account…';
   const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone } } });
   btn.disabled = false; btn.textContent = 'Create Account';
   if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
-  if (data.user) await ensureProfile(data.user, first, last, email, phone);
+  if (data.user) await ensureProfile(data.user, first, last, email, phone, smsConsent);
 }
 
-async function ensureProfile(user, first, last, email, phone) {
+async function ensureProfile(user, first, last, email, phone, smsConsent = false) {
   await db.from('profiles').upsert({ id: user.id, first_name: first || user.user_metadata?.first_name || '', last_name: last || user.user_metadata?.last_name || '', email: email || user.email, phone: phone || user.user_metadata?.phone || '' }, { onConflict: 'id' });
   const { data: ec } = await db.from('customers').select('id').eq('profile_id', user.id).maybeSingle();
-  if (!ec) await db.from('customers').insert({ profile_id: user.id, is_active: true });
+  if (!ec) {
+    await db.from('customers').insert({
+      profile_id: user.id,
+      is_active: true,
+      sms_consent_at: smsConsent ? new Date().toISOString() : null
+    });
+  } else if (smsConsent && !ec.sms_consent_at) {
+    await db.from('customers').update({ sms_consent_at: new Date().toISOString() }).eq('id', ec.id);
+  }
 }
 
 async function handleSignOut() { await db.auth.signOut(); }
@@ -1692,8 +1717,13 @@ async function placeOrder() {
     const phone = document.getElementById('c-phone')?.value.trim();
     const email = document.getElementById('c-email')?.value.trim();
     const pass  = document.getElementById('c-pass')?.value;
+    const smsConsent = document.getElementById('c-sms-consent')?.checked || false;
     if (!first || !email || !pass || !phone) {
       if (errEl) { errEl.textContent = 'Please fill in all fields.'; errEl.classList.add('show'); }
+      return;
+    }
+    if (!smsConsent) {
+      if (errEl) { errEl.textContent = 'Please agree to receive SMS updates to continue.'; errEl.classList.add('show'); }
       return;
     }
     btn.disabled = true; btn.textContent = 'Creating account…';
@@ -1705,7 +1735,7 @@ async function placeOrder() {
       if (errEl) { errEl.textContent = authErr.message; errEl.classList.add('show'); }
       return;
     }
-    if (authData.user) await ensureProfile(authData.user, first, last, email, phone);
+    if (authData.user) await ensureProfile(authData.user, first, last, email, phone, smsConsent);
   }
 
   if (!currentCustomer) { toast('Account error — please try again'); btn.disabled = false; return; }
