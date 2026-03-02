@@ -633,9 +633,13 @@
 
       <!-- Step 2 — Preferences -->
       <div class="step-content" id="o-step-2" style="display:none">
-        <div class="step-sub">Any care instructions? We'll apply these to every order.</div>
+        <div class="step-sub">Set your laundry preferences for this order.</div>
         <div id="order-pref-groups"></div>
-        <button class="btn-primary" onclick="goOrderStep(3)">Looks good →</button>
+        <div style="margin-top:16px">
+          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);display:block;margin-bottom:8px">Special Care Notes</label>
+          <textarea id="o-instructions" rows="3" placeholder="e.g. No fabric softener, hang dry delicates…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none" oninput="draft.specialInstructions=this.value.trim()||null"></textarea>
+        </div>
+        <button class="btn-primary" style="margin-top:16px" onclick="goOrderStep(3)">Looks good →</button>
       </div>
 
       <!-- Step 3 — Bags + Estimate -->
@@ -1400,7 +1404,7 @@ function goOrderStep(step) {
   if (step === 1 && !draft.zoneId)         { toast('Please check your address first');  return; }
   if (step === 2 && !draft.pickupDate)     { toast('Please choose a pickup day');       return; }
   if (step === 2 && !draft.pickupWindow)   { toast('Please choose a pickup time');      return; }
-  if (step === 3) renderOrderPrefs();
+  if (step === 2) renderOrderPrefs();
   if (step === 4) { buildConfirmSummary(); renderConfirmAuth(); }
   orderStep = step;
   renderStep(step);
@@ -1770,14 +1774,12 @@ async function placeOrder() {
     status:               'scheduled',
     total_bags:           bags,
     total_amount:         total,
-    pickup_date:          pickupDate,
     pickup_window_start:  pw?.slotStart || null,
     pickup_window_end:    pw?.slotEnd   || null,
-    pickup_run_id:        pw?.routeId   || null,
-    delivery_date:        deliveryDate,
+    pickup_run_id:        null,                   // routes table FK — template IDs don't match; linked by admin later
     recurring_interval:   draft.recurring || null,
     line_items:           lineItems,
-    special_instructions: draft.address || null,
+    special_instructions: draft.specialInstructions || null,
     order_number:         Math.floor(1000 + Math.random() * 9000)
   }).select().single();
 
