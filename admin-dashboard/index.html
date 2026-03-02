@@ -2048,34 +2048,90 @@
 </div>
 
 <div class="modal-overlay" id="modal-add-order">
-  <div class="modal">
+  <div class="modal" style="width:580px;max-width:95vw">
     <div class="modal-header">
       <div class="modal-title">New Order</div>
       <button class="modal-close" onclick="closeModal('add-order')"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
     </div>
-    <div class="modal-body">
-      <div class="form-group">
-        <label class="form-label">Customer</label>
-        <select class="form-select" id="o-customer"></select>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
+
+      <!-- Customer + Address -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Customer</label>
+          <select class="form-select" id="o-customer" onchange="onOrderCustomerChange(this.value)"></select>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Address</label>
+          <select class="form-select" id="o-address"><option value="">Loading…</option></select>
+        </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Service</label>
-        <select class="form-select" id="o-service"></select>
+
+      <!-- Service + Weight -->
+      <div style="display:grid;grid-template-columns:1fr 120px;gap:12px;align-items:end">
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Service</label>
+          <select class="form-select" id="o-service"></select>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Est. Weight (lbs)</label>
+          <input class="form-input" id="o-weight" type="number" min="0" step="0.5" placeholder="e.g. 12" />
+        </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Estimated Weight (lbs) <span style="color:var(--gray-400);font-weight:400">— for per-lb pricing</span></label>
-        <input class="form-input" id="o-weight" type="number" min="0" step="0.5" placeholder="e.g. 12" />
+
+      <!-- Pickup slot picker (inline) -->
+      <div style="border:1px solid var(--gray-200);border-radius:10px;overflow:hidden">
+        <div style="background:var(--gray-50);padding:9px 14px;border-bottom:1px solid var(--gray-200);font-size:11.5px;font-weight:700;color:var(--gray-600);text-transform:uppercase;letter-spacing:.05em">
+          Pickup Slot
+        </div>
+        <div style="padding:14px;display:flex;flex-direction:column;gap:14px">
+          <!-- Route pills -->
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">Route</div>
+            <div id="no-routes" style="display:flex;flex-wrap:wrap;gap:6px">
+              <span style="color:var(--gray-400);font-size:13px">Loading routes…</span>
+            </div>
+          </div>
+          <!-- Day grid -->
+          <div id="no-day-section" style="display:none">
+            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">Day</div>
+            <div id="no-days" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+          </div>
+          <!-- Slot pills -->
+          <div id="no-slot-section" style="display:none">
+            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">Time Window</div>
+            <div id="no-slots" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+          </div>
+          <!-- Confirmed summary -->
+          <div id="no-pickup-summary" style="display:none;background:rgba(99,91,255,.07);border:1px solid rgba(99,91,255,.22);border-radius:8px;padding:8px 12px;font-size:13px;color:var(--accent);font-weight:600"></div>
+        </div>
       </div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Pickup Window Start</label><input class="form-input" id="o-pickup-start" type="datetime-local" /></div>
-        <div class="form-group"><label class="form-label">Pickup Window End</label><input class="form-input" id="o-pickup-end" type="datetime-local" /></div>
+
+      <!-- Tip + Coupon -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Coupon / Discount</label>
+          <select class="form-select" id="o-coupon"><option value="">No discount</option></select>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Tip</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input class="form-input" id="o-tip" type="number" min="0" step="0.50" placeholder="0" style="flex:1" />
+            <div style="display:flex;border:1.5px solid var(--gray-200);border-radius:var(--radius);overflow:hidden;flex-shrink:0">
+              <button id="o-tip-dollar" onclick="setNoTipType('dollar')" style="padding:6px 10px;font-size:12px;font-weight:700;background:var(--accent);color:white;border:none;cursor:pointer">$</button>
+              <button id="o-tip-pct"    onclick="setNoTipType('pct')"    style="padding:6px 10px;font-size:12px;font-weight:700;background:white;color:var(--gray-500);border:none;cursor:pointer">%</button>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Delivery Window Start</label><input class="form-input" id="o-del-start" type="datetime-local" /></div>
-        <div class="form-group"><label class="form-label">Delivery Window End</label><input class="form-input" id="o-del-end" type="datetime-local" /></div>
+
+      <!-- Special Instructions -->
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Special Instructions</label>
+        <textarea class="form-textarea" id="o-notes" placeholder="Any pickup or delivery notes…" style="min-height:68px"></textarea>
       </div>
-      <div class="form-group"><label class="form-label">Special Instructions</label><textarea class="form-textarea" id="o-notes" placeholder="Any pickup or delivery notes…"></textarea></div>
-      <div id="o-error" style="color:var(--red);font-size:13px;margin-top:8px;display:none;"></div>
+
+      <div id="o-error" style="color:var(--red);font-size:13px;display:none;"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('add-order')">Cancel</button>
@@ -5528,22 +5584,190 @@
     showToast('Template saved!','success');
   }
 
+  // ── NEW ORDER MODAL — inline slot picker state ──────────────────────────────
+  let _noTemplates   = [];
+  let _noSelectedTmpl = null;
+  let _noPickupStart  = null;
+  let _noPickupEnd    = null;
+  let _noTipType      = 'dollar';
+
   async function populateOrderModal() {
+    // Reset inline slot picker state
+    _noSelectedTmpl = null;
+    _noPickupStart  = null;
+    _noPickupEnd    = null;
+    _noTipType      = 'dollar';
+    document.getElementById('no-day-section').style.display   = 'none';
+    document.getElementById('no-slot-section').style.display  = 'none';
+    document.getElementById('no-pickup-summary').style.display = 'none';
+    setNoTipType('dollar');
+    document.getElementById('o-weight').value = '';
+    document.getElementById('o-notes').value  = '';
+    document.getElementById('o-tip').value    = '';
+    document.getElementById('o-error').style.display = 'none';
+
+    // Customers
     const cSelect = document.getElementById('o-customer');
     cSelect.innerHTML = allCustomers.length
-      ? allCustomers.map(c=>{
-          const p = custProfile(c);
+      ? allCustomers.map(c => {
+          const p  = custProfile(c);
           const fn = p.first_name || c.first_name_cache || '';
           const ln = p.last_name  || c.last_name_cache  || '';
           return `<option value="${c.id}">${(fn+' '+ln).trim() || 'Unknown'}</option>`;
         }).join('')
       : '<option>No customers yet</option>';
+    if (allCustomers.length) onOrderCustomerChange(allCustomers[0].id);
+
+    // Services
     const { data: services } = await db.from('services').select('id, name, base_price, pricing_type').eq('is_active', true).order('sort_order');
     allServices = services || [];
     const sSelect = document.getElementById('o-service');
     sSelect.innerHTML = allServices.length
-      ? allServices.map(s=>`<option value="${s.id}" data-price="${s.base_price}" data-type="${s.pricing_type}">${s.name} — ${s.pricing_type==='per_lb'?fmtMoney(s.base_price)+'/lb':fmtMoney(s.base_price)}</option>`).join('')
+      ? allServices.map(s => `<option value="${s.id}" data-price="${s.base_price}" data-type="${s.pricing_type}">${s.name} — ${s.pricing_type==='per_lb'?fmtMoney(s.base_price)+'/lb':fmtMoney(s.base_price)}</option>`).join('')
       : '<option value="">No active services</option>';
+
+    // Route templates for inline slot picker
+    const { data: tmpls } = await db.from('route_templates')
+      .select('id, name, color, schedule_days, window_start, window_end, arrival_window_hours, zone_id, service_zones(name)')
+      .eq('is_active', true).order('name');
+    _noTemplates = tmpls || [];
+    renderNoRoutes();
+
+    // Discounts/coupons
+    const { data: discs } = await db.from('discounts').select('id, name, type, value').eq('active', true).order('name');
+    const couponSel = document.getElementById('o-coupon');
+    couponSel.innerHTML = '<option value="">No discount</option>' +
+      (discs||[]).map(d => `<option value="${d.id}">${d.name} (${d.type==='percent'? d.value+'%' : '$'+d.value})</option>`).join('');
+  }
+
+  async function onOrderCustomerChange(customerId) {
+    // Load addresses for this customer
+    const addrSel = document.getElementById('o-address');
+    addrSel.innerHTML = '<option value="">Loading…</option>';
+    const { data: addrs } = await db.from('addresses')
+      .select('id, label, line1, city, is_default')
+      .eq('customer_id', customerId)
+      .order('is_default', { ascending: false });
+    addrSel.innerHTML = addrs?.length
+      ? addrs.map(a => `<option value="${a.id}"${a.is_default?' selected':''}>${a.label ? a.label+' — ' : ''}${a.line1}${a.city ? ', '+a.city : ''}</option>`).join('')
+      : '<option value="">No addresses on file</option>';
+
+    // Pre-fill tip from customer defaults
+    const cust = allCustomers.find(c => c.id === customerId);
+    if (cust?.default_tip) {
+      document.getElementById('o-tip').value = cust.default_tip;
+      setNoTipType(cust.default_tip_type === 'percent' ? 'pct' : 'dollar');
+    }
+  }
+
+  function setNoTipType(type) {
+    _noTipType = type;
+    const dBtn = document.getElementById('o-tip-dollar');
+    const pBtn = document.getElementById('o-tip-pct');
+    if (!dBtn || !pBtn) return;
+    dBtn.style.background = type === 'dollar' ? 'var(--accent)' : 'white';
+    dBtn.style.color      = type === 'dollar' ? 'white' : 'var(--gray-500)';
+    pBtn.style.background = type === 'pct'    ? 'var(--accent)' : 'white';
+    pBtn.style.color      = type === 'pct'    ? 'white' : 'var(--gray-500)';
+  }
+
+  function renderNoRoutes() {
+    const el = document.getElementById('no-routes');
+    if (!_noTemplates.length) {
+      el.innerHTML = '<span style="color:var(--gray-400);font-size:13px">No active routes — add one under Routes first.</span>';
+      return;
+    }
+    el.innerHTML = _noTemplates.map(t => {
+      const dot = `<span style="width:8px;height:8px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>`;
+      return `<button class="sp-route-pill" style="padding:6px 12px;font-size:12.5px" onclick="selectNoTemplate('${t.id}')" data-no-tmpl="${t.id}">
+        ${dot}<span style="font-weight:600;color:var(--gray-900)">${t.name}</span>
+      </button>`;
+    }).join('');
+  }
+
+  function selectNoTemplate(tmplId) {
+    _noSelectedTmpl = _noTemplates.find(t => t.id === tmplId);
+    _noPickupStart  = null;
+    _noPickupEnd    = null;
+    document.querySelectorAll('[data-no-tmpl]').forEach(p =>
+      p.classList.toggle('selected', p.dataset.noTmpl === tmplId));
+    document.getElementById('no-slot-section').style.display   = 'none';
+    document.getElementById('no-pickup-summary').style.display = 'none';
+    renderNoDays();
+    document.getElementById('no-day-section').style.display = '';
+  }
+
+  function renderNoDays() {
+    const tmpl = _noSelectedTmpl;
+    if (!tmpl) return;
+    const activeDays = tmpl.schedule_days || [0,1,2,3,4]; // Mon=0…Sun=6
+    const DAY_ABBR   = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const base       = new Date(); base.setHours(0,0,0,0);
+    const days = [];
+    for (let i = 1; i <= 14; i++) {
+      const d   = new Date(base); d.setDate(base.getDate() + i);
+      const dow = (d.getDay() + 6) % 7;           // JS Sun=0 → convert to Mon=0
+      const iso = d.toLocaleDateString('sv');      // 'sv' → YYYY-MM-DD, no tz shift
+      days.push({ d, dow, iso, avail: activeDays.includes(dow) });
+    }
+    document.getElementById('no-days').innerHTML = days.map(({ d, dow, iso, avail }) => {
+      const mon = d.toLocaleDateString('en-US', { month: 'short' });
+      return `<button class="sp-day-btn${avail?'':' sp-day-disabled'}" data-no-iso="${iso}"
+        onclick="selectNoDay('${iso}')" ${avail?'':'disabled'}>
+        <span class="sp-day-abbr">${DAY_ABBR[dow]}</span>
+        <span class="sp-day-num">${d.getDate()}</span>
+        <span class="sp-day-mon">${mon}</span>
+      </button>`;
+    }).join('');
+  }
+
+  function selectNoDay(iso) {
+    document.querySelectorAll('#no-days .sp-day-btn').forEach(b =>
+      b.classList.toggle('selected', b.dataset.noIso === iso));
+    _noPickupStart = null;
+    _noPickupEnd   = null;
+    document.getElementById('no-pickup-summary').style.display = 'none';
+    renderNoSlots(iso);
+    document.getElementById('no-slot-section').style.display = '';
+  }
+
+  function renderNoSlots(iso) {
+    const tmpl = _noSelectedTmpl; if (!tmpl) return;
+    const toMins = t => { const p=(t||'07:00').split(':'); return parseInt(p[0])*60+parseInt(p[1]||0); };
+    const startMins = toMins(tmpl.window_start);
+    const endMins   = toMins(tmpl.window_end);
+    const slotSize  = (tmpl.arrival_window_hours || 3) * 60;
+    const fmtHM = mins => {
+      const h = Math.floor(mins/60), m = mins%60;
+      const period = h < 12 ? 'am' : 'pm';
+      const h12    = h === 0 ? 12 : h > 12 ? h - 12 : h;
+      return m === 0 ? `${h12}${period}` : `${h12}:${String(m).padStart(2,'0')}${period}`;
+    };
+    const [yr, mo, dy] = iso.split('-').map(Number);
+    const slots = [];
+    for (let m = startMins; m + slotSize <= endMins; m += slotSize) {
+      const sDate = new Date(yr, mo-1, dy, Math.floor(m/60),          m%60,          0);
+      const eDate = new Date(yr, mo-1, dy, Math.floor((m+slotSize)/60), (m+slotSize)%60, 0);
+      slots.push({ start: sDate.toISOString(), end: eDate.toISOString(), label: `${fmtHM(m)} – ${fmtHM(m+slotSize)}` });
+    }
+    document.getElementById('no-slots').innerHTML = !slots.length
+      ? '<span style="color:var(--gray-400);font-size:13px">No slots — check the route\'s window times.</span>'
+      : slots.map(s =>
+          `<button class="sp-slot-btn" data-no-slot onclick="selectNoSlot(this,'${s.start}','${s.end}','${s.label}')">
+            ${s.label}
+          </button>`).join('');
+  }
+
+  function selectNoSlot(btn, startIso, endIso, label) {
+    document.querySelectorAll('[data-no-slot]').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    _noPickupStart = startIso;
+    _noPickupEnd   = endIso;
+    const [yr, mo, dy] = startIso.split('T')[0].split('-').map(Number);
+    const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+    const summary = document.getElementById('no-pickup-summary');
+    summary.textContent = `✓ ${_noSelectedTmpl?.name || ''} · ${dayFmt} · ${label}`;
+    summary.style.display = 'block';
   }
 
   async function populateRouteModal() {
@@ -5632,42 +5856,49 @@
   async function saveOrder() {
     const err = document.getElementById('o-error');
     err.style.display = 'none';
-    const customerId  = document.getElementById('o-customer').value;
-    const serviceId   = document.getElementById('o-service').value || null;
-    const weightRaw   = parseFloat(document.getElementById('o-weight').value) || null;
-    const pickupStart = document.getElementById('o-pickup-start').value;
-    const pickupEnd   = document.getElementById('o-pickup-end').value;
-    const delStart    = document.getElementById('o-del-start').value;
-    const delEnd      = document.getElementById('o-del-end').value;
-    const notes       = document.getElementById('o-notes').value.trim();
-    if (!customerId) { err.textContent='Please select a customer.'; err.style.display='block'; return; }
 
-    // Compute total from selected service
+    const customerId  = document.getElementById('o-customer').value;
+    const addressId   = document.getElementById('o-address').value || null;
+    const serviceId   = document.getElementById('o-service').value  || null;
+    const weightRaw   = parseFloat(document.getElementById('o-weight').value) || null;
+    const notes       = document.getElementById('o-notes').value.trim();
+    const tipRaw      = parseFloat(document.getElementById('o-tip').value) || 0;
+    const discountId  = document.getElementById('o-coupon').value || null;
+
+    if (!customerId) { err.textContent='Please select a customer.'; err.style.display='block'; return; }
+    if (!_noPickupStart) { err.textContent='Please select a pickup slot.'; err.style.display='block'; return; }
+
+    // Compute base total from selected service
     let totalAmount = 0;
     if (serviceId) {
       const svc = allServices.find(s => s.id === serviceId);
       if (svc) {
-        if (svc.pricing_type === 'per_lb' && weightRaw) {
-          totalAmount = Math.round(svc.base_price * weightRaw * 100) / 100;
-        } else {
-          totalAmount = svc.base_price || 0;
-        }
+        totalAmount = (svc.pricing_type === 'per_lb' && weightRaw)
+          ? Math.round(svc.base_price * weightRaw * 100) / 100
+          : (svc.base_price || 0);
       }
     }
 
+    const btn = document.querySelector('#modal-add-order .btn-primary');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
     const { error } = await db.from('orders').insert({
-      customer_id: customerId,
-      service_id: serviceId,
-      status: 'scheduled',
-      weight_lbs: weightRaw,
-      pickup_window_start: pickupStart||null,
-      pickup_window_end: pickupEnd||null,
-      delivery_window_start: delStart||null,
-      delivery_window_end: delEnd||null,
-      special_instructions: notes||null,
-      total_amount: totalAmount
+      customer_id:          customerId,
+      service_id:           serviceId,
+      status:               'scheduled',
+      weight_lbs:           weightRaw,
+      pickup_address_id:    addressId,
+      delivery_address_id:  addressId,   // default same; can be changed later
+      pickup_window_start:  _noPickupStart,
+      pickup_window_end:    _noPickupEnd,
+      special_instructions: notes || null,
+      tip_amount:           tipRaw,
+      tip_type:             _noTipType,
+      discount_id:          discountId,
+      total_amount:         totalAmount,
     });
 
+    if (btn) { btn.disabled = false; btn.textContent = 'Create Order'; }
     if (error) { err.textContent = error.message; err.style.display='block'; return; }
     showToast('Order created!', 'success');
     closeModal('add-order');
