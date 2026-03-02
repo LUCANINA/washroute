@@ -6368,6 +6368,22 @@
     const btn = document.querySelector('#modal-add-order .btn-primary');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
+    // Look up the matching route run records so pickup_run_id / delivery_run_id are set
+    // immediately and the route names show in the orders table without manual assignment.
+    let pickupRunId = null, delivRunId = null;
+    if (_noSelectedTmpl?.id && _noPickupStart) {
+      const pickupDate = _noPickupStart.split('T')[0];
+      const { data: pr } = await db.from('routes')
+        .select('id').eq('template_id', _noSelectedTmpl.id).eq('run_date', pickupDate).maybeSingle();
+      if (pr) pickupRunId = pr.id;
+    }
+    if (_noSelectedTmpl?.id && _noDelivStart) {
+      const delivDate = _noDelivStart.split('T')[0];
+      const { data: dr } = await db.from('routes')
+        .select('id').eq('template_id', _noSelectedTmpl.id).eq('run_date', delivDate).maybeSingle();
+      if (dr) delivRunId = dr.id;
+    }
+
     const { error } = await db.from('orders').insert({
       customer_id:           customerId,
       status:                'scheduled',
@@ -6377,6 +6393,8 @@
       pickup_window_end:     _noPickupEnd,
       delivery_window_start: _noDelivStart || null,
       delivery_window_end:   _noDelivEnd   || null,
+      pickup_run_id:         pickupRunId,
+      delivery_run_id:       delivRunId,
       special_instructions:  notes || null,
       tip_amount:            tipRaw,
       tip_type:              _noTipType,
