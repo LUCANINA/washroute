@@ -52,6 +52,12 @@
     .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .auth-error { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 10px 14px; border-radius: 8px; font-size: 13.5px; display: none; }
     .auth-error.show { display: block; }
+    .auth-guest-row { margin-top: 20px; }
+    .auth-guest-divider { text-align: center; position: relative; margin-bottom: 14px; }
+    .auth-guest-divider::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: var(--gray-200); }
+    .auth-guest-divider span { position: relative; background: white; padding: 0 12px; color: var(--gray-400); font-size: 12px; }
+    .auth-guest-btn { width: 100%; padding: 13px; background: transparent; color: var(--accent); border: 2px solid var(--accent); border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all .2s; }
+    .auth-guest-btn:hover { background: #f0f1ff; }
 
     /* ── BUTTONS ── */
     .btn-primary { width: 100%; padding: 14px; background: var(--navy); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity .2s; }
@@ -516,6 +522,12 @@
         <div class="field"><label>Password</label><input type="password" id="s-pass" placeholder="Min. 8 characters" autocomplete="new-password" minlength="8" required></div>
         <button class="btn-primary" type="submit" id="btn-signup">Create Account</button>
       </form>
+
+      <!-- Guest shortcut -->
+      <div class="auth-guest-row">
+        <div class="auth-guest-divider"><span>or</span></div>
+        <button class="auth-guest-btn" type="button" onclick="guestStart()">Continue without an account →</button>
+      </div>
     </div>
   </div>
 
@@ -997,9 +1009,10 @@ db.auth.onAuthStateChange(async (event, session) => {
     appReady = false;
     currentUser = currentProfile = currentCustomer = null;
     document.getElementById('bottom-nav').style.display = 'none';
-    // No auth gate — new visitors go straight into the order flow.
-    // Account creation happens inline at Step 4 (Confirm Order).
-    loadServices().then(() => startNewOrder());
+    // Show auth screen so existing customers can sign in.
+    // New visitors click "Continue without an account" to start the order flow.
+    showScreen('auth');
+    loadServices(); // load in background so order flow is ready when they tap
   }
 });
 
@@ -1138,6 +1151,12 @@ function buildActiveCard(o) {
 
 /* ── NEW ORDER ── */
 const STEP_TITLES = ['Your Address','Pickup Day & Time','Preferences','Bag Count','Confirm Order'];
+
+// Called when a non-logged-in user taps "Continue without an account"
+async function guestStart() {
+  if (!allServices.length) await loadServices();
+  startNewOrder();
+}
 
 function startNewOrder() {
   draft = { address: '', lat: null, lng: null, zoneId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], recurring: 'weekly', prefs: {} };
