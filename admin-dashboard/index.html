@@ -4857,13 +4857,24 @@
 
   // ── SERVICES CRUD ──
   async function loadServices() {
-    // Load categories + fees in parallel before services render
-    await Promise.all([loadCategories(), loadFees()]);
-    const { data } = await db.from('services').select('*').order('category').order('sort_order').order('name');
-    allServices = data || [];
-    allServices.forEach(s => {
-      svcPrefsState[s.id] = JSON.parse(JSON.stringify(s.preferences || []));
-    });
+    // Show a loading indicator so nothing flashes "No services found" during fetch
+    const bodyEl = document.getElementById('services-table-body');
+    if (bodyEl) bodyEl.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+
+    // Fetch categories, fees AND services all at once — filterServices() runs only
+    // after every piece of data is ready, avoiding the old race where categories
+    // resolved first and triggered an empty render.
+    await Promise.all([
+      loadCategories(),
+      loadFees(),
+      db.from('services').select('*').order('category').order('sort_order').order('name')
+        .then(({ data }) => {
+          allServices = data || [];
+          allServices.forEach(s => {
+            svcPrefsState[s.id] = JSON.parse(JSON.stringify(s.preferences || []));
+          });
+        })
+    ]);
     filterServices();
   }
 
