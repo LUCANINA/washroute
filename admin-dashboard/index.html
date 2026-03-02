@@ -2067,22 +2067,10 @@
         </div>
       </div>
 
-      <!-- Service + Weight -->
-      <div style="display:grid;grid-template-columns:1fr 120px;gap:12px;align-items:end">
-        <div class="form-group" style="margin:0">
-          <label class="form-label">Service</label>
-          <select class="form-select" id="o-service"></select>
-        </div>
-        <div class="form-group" style="margin:0">
-          <label class="form-label">Est. Weight (lbs)</label>
-          <input class="form-input" id="o-weight" type="number" min="0" step="0.5" placeholder="e.g. 12" />
-        </div>
-      </div>
-
       <!-- Pickup slot picker (inline) -->
       <div style="border:1px solid var(--gray-200);border-radius:10px;overflow:hidden">
         <div style="background:var(--gray-50);padding:9px 14px;border-bottom:1px solid var(--gray-200);font-size:11.5px;font-weight:700;color:var(--gray-600);text-transform:uppercase;letter-spacing:.05em">
-          Pickup Slot
+          Pickup
         </div>
         <div style="padding:14px;display:flex;flex-direction:column;gap:14px">
           <!-- Route pills -->
@@ -2096,6 +2084,7 @@
           <div id="no-day-section" style="display:none">
             <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">Day</div>
             <div id="no-days" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+            <button id="no-days-more-btn" onclick="showMoreNoDays()" style="display:none;margin-top:8px;background:none;border:none;cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);padding:0">+ Show more weeks</button>
           </div>
           <!-- Slot pills -->
           <div id="no-slot-section" style="display:none">
@@ -2104,6 +2093,28 @@
           </div>
           <!-- Confirmed summary -->
           <div id="no-pickup-summary" style="display:none;background:rgba(99,91,255,.07);border:1px solid rgba(99,91,255,.22);border-radius:8px;padding:8px 12px;font-size:13px;color:var(--accent);font-weight:600"></div>
+        </div>
+      </div>
+
+      <!-- Delivery section — appears after pickup slot confirmed -->
+      <div id="no-delivery-section" style="display:none;border:1px solid var(--gray-200);border-radius:10px;overflow:hidden">
+        <div style="background:var(--gray-50);padding:9px 14px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:11.5px;font-weight:700;color:var(--gray-600);text-transform:uppercase;letter-spacing:.05em">Delivery</span>
+          <button onclick="toggleNdDays()" id="nd-change-btn" style="background:none;border:none;cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);padding:0">Change</button>
+        </div>
+        <div style="padding:14px;display:flex;flex-direction:column;gap:12px">
+          <!-- Confirmed delivery summary (shown by default) -->
+          <div id="nd-delivery-summary" style="font-size:13px;color:var(--gray-700);font-weight:500"></div>
+          <!-- Day grid (hidden until Change clicked or no auto-slot found) -->
+          <div id="nd-day-section" style="display:none">
+            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">Day</div>
+            <div id="nd-days" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+          </div>
+          <!-- Delivery slot pills -->
+          <div id="nd-slot-section" style="display:none">
+            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">Time Window</div>
+            <div id="nd-slots" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+          </div>
         </div>
       </div>
 
@@ -5585,25 +5596,31 @@
   }
 
   // ── NEW ORDER MODAL — inline slot picker state ──────────────────────────────
-  let _noTemplates   = [];
+  let _noTemplates    = [];
   let _noSelectedTmpl = null;
   let _noPickupStart  = null;
   let _noPickupEnd    = null;
   let _noTipType      = 'dollar';
+  let _noDayLimit     = 28;   // how many days the pickup day picker shows
+  let _noDelivStart   = null;
+  let _noDelivEnd     = null;
 
   async function populateOrderModal() {
-    // Reset inline slot picker state
+    // Reset all state
     _noSelectedTmpl = null;
     _noPickupStart  = null;
     _noPickupEnd    = null;
+    _noDelivStart   = null;
+    _noDelivEnd     = null;
+    _noDayLimit     = 28;
     _noTipType      = 'dollar';
-    document.getElementById('no-day-section').style.display   = 'none';
-    document.getElementById('no-slot-section').style.display  = 'none';
-    document.getElementById('no-pickup-summary').style.display = 'none';
+    document.getElementById('no-day-section').style.display      = 'none';
+    document.getElementById('no-slot-section').style.display     = 'none';
+    document.getElementById('no-pickup-summary').style.display   = 'none';
+    document.getElementById('no-delivery-section').style.display = 'none';
     setNoTipType('dollar');
-    document.getElementById('o-weight').value = '';
-    document.getElementById('o-notes').value  = '';
-    document.getElementById('o-tip').value    = '';
+    document.getElementById('o-notes').value = '';
+    document.getElementById('o-tip').value   = '';
     document.getElementById('o-error').style.display = 'none';
 
     // Customers
@@ -5617,14 +5634,6 @@
         }).join('')
       : '<option>No customers yet</option>';
     if (allCustomers.length) onOrderCustomerChange(allCustomers[0].id);
-
-    // Services
-    const { data: services } = await db.from('services').select('id, name, base_price, pricing_type').eq('is_active', true).order('sort_order');
-    allServices = services || [];
-    const sSelect = document.getElementById('o-service');
-    sSelect.innerHTML = allServices.length
-      ? allServices.map(s => `<option value="${s.id}" data-price="${s.base_price}" data-type="${s.pricing_type}">${s.name} — ${s.pricing_type==='per_lb'?fmtMoney(s.base_price)+'/lb':fmtMoney(s.base_price)}</option>`).join('')
-      : '<option value="">No active services</option>';
 
     // Route templates for inline slot picker
     const { data: tmpls } = await db.from('route_templates')
@@ -5697,17 +5706,52 @@
     document.getElementById('no-day-section').style.display = '';
   }
 
+  // Shared helper: build time-slot array from a route template + ISO date
+  function buildSlots(tmpl, iso) {
+    const toMins = t => { const p=(t||'07:00').split(':'); return parseInt(p[0])*60+parseInt(p[1]||0); };
+    const fmtHM  = mins => {
+      const h=Math.floor(mins/60), m=mins%60, period=h<12?'am':'pm', h12=h===0?12:h>12?h-12:h;
+      return m===0?`${h12}${period}`:`${h12}:${String(m).padStart(2,'0')}${period}`;
+    };
+    const startMins = toMins(tmpl.window_start);
+    const endMins   = toMins(tmpl.window_end);
+    const slotSize  = (tmpl.arrival_window_hours || 3) * 60;
+    const [yr, mo, dy] = iso.split('-').map(Number);
+    const slots = [];
+    for (let m=startMins; m+slotSize<=endMins; m+=slotSize) {
+      const sDate = new Date(yr, mo-1, dy, Math.floor(m/60),          m%60,          0);
+      const eDate = new Date(yr, mo-1, dy, Math.floor((m+slotSize)/60), (m+slotSize)%60, 0);
+      slots.push({ start: sDate.toISOString(), end: eDate.toISOString(), label: `${fmtHM(m)} – ${fmtHM(m+slotSize)}` });
+    }
+    return slots;
+  }
+
+  // Shared helper: find the next route-available ISO date after a given ISO date
+  function nextAvailableDay(afterIso, tmpl, skipCount = 0) {
+    const activeDays = tmpl.schedule_days || [0,1,2,3,4];
+    const base = new Date(afterIso + 'T00:00:00');
+    let found = 0;
+    for (let i = 1; i <= 90; i++) {
+      const d = new Date(base); d.setDate(base.getDate() + i);
+      const dow = (d.getDay() + 6) % 7;
+      if (activeDays.includes(dow)) {
+        if (found === skipCount) return d.toLocaleDateString('sv');
+        found++;
+      }
+    }
+    return null;
+  }
+
   function renderNoDays() {
-    const tmpl = _noSelectedTmpl;
-    if (!tmpl) return;
-    const activeDays = tmpl.schedule_days || [0,1,2,3,4]; // Mon=0…Sun=6
+    const tmpl = _noSelectedTmpl; if (!tmpl) return;
+    const activeDays = tmpl.schedule_days || [0,1,2,3,4];
     const DAY_ABBR   = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
     const base       = new Date(); base.setHours(0,0,0,0);
     const days = [];
-    for (let i = 1; i <= 14; i++) {
+    for (let i = 1; i <= _noDayLimit; i++) {
       const d   = new Date(base); d.setDate(base.getDate() + i);
-      const dow = (d.getDay() + 6) % 7;           // JS Sun=0 → convert to Mon=0
-      const iso = d.toLocaleDateString('sv');      // 'sv' → YYYY-MM-DD, no tz shift
+      const dow = (d.getDay() + 6) % 7;
+      const iso = d.toLocaleDateString('sv');
       days.push({ d, dow, iso, avail: activeDays.includes(dow) });
     }
     document.getElementById('no-days').innerHTML = days.map(({ d, dow, iso, avail }) => {
@@ -5719,6 +5763,13 @@
         <span class="sp-day-mon">${mon}</span>
       </button>`;
     }).join('');
+    // Show "more" button only if there are more days to show
+    document.getElementById('no-days-more-btn').style.display = _noDayLimit < 90 ? '' : 'none';
+  }
+
+  function showMoreNoDays() {
+    _noDayLimit = Math.min(_noDayLimit + 28, 90);
+    renderNoDays();
   }
 
   function selectNoDay(iso) {
@@ -5727,35 +5778,15 @@
     _noPickupStart = null;
     _noPickupEnd   = null;
     document.getElementById('no-pickup-summary').style.display = 'none';
-    renderNoSlots(iso);
-    document.getElementById('no-slot-section').style.display = '';
-  }
-
-  function renderNoSlots(iso) {
-    const tmpl = _noSelectedTmpl; if (!tmpl) return;
-    const toMins = t => { const p=(t||'07:00').split(':'); return parseInt(p[0])*60+parseInt(p[1]||0); };
-    const startMins = toMins(tmpl.window_start);
-    const endMins   = toMins(tmpl.window_end);
-    const slotSize  = (tmpl.arrival_window_hours || 3) * 60;
-    const fmtHM = mins => {
-      const h = Math.floor(mins/60), m = mins%60;
-      const period = h < 12 ? 'am' : 'pm';
-      const h12    = h === 0 ? 12 : h > 12 ? h - 12 : h;
-      return m === 0 ? `${h12}${period}` : `${h12}:${String(m).padStart(2,'0')}${period}`;
-    };
-    const [yr, mo, dy] = iso.split('-').map(Number);
-    const slots = [];
-    for (let m = startMins; m + slotSize <= endMins; m += slotSize) {
-      const sDate = new Date(yr, mo-1, dy, Math.floor(m/60),          m%60,          0);
-      const eDate = new Date(yr, mo-1, dy, Math.floor((m+slotSize)/60), (m+slotSize)%60, 0);
-      slots.push({ start: sDate.toISOString(), end: eDate.toISOString(), label: `${fmtHM(m)} – ${fmtHM(m+slotSize)}` });
-    }
+    document.getElementById('no-delivery-section').style.display = 'none';
+    const slots = buildSlots(_noSelectedTmpl, iso);
     document.getElementById('no-slots').innerHTML = !slots.length
       ? '<span style="color:var(--gray-400);font-size:13px">No slots — check the route\'s window times.</span>'
       : slots.map(s =>
           `<button class="sp-slot-btn" data-no-slot onclick="selectNoSlot(this,'${s.start}','${s.end}','${s.label}')">
             ${s.label}
           </button>`).join('');
+    document.getElementById('no-slot-section').style.display = '';
   }
 
   function selectNoSlot(btn, startIso, endIso, label) {
@@ -5763,11 +5794,112 @@
     btn.classList.add('selected');
     _noPickupStart = startIso;
     _noPickupEnd   = endIso;
-    const [yr, mo, dy] = startIso.split('T')[0].split('-').map(Number);
+    const pickupDateIso = startIso.split('T')[0];
+    const [yr, mo, dy] = pickupDateIso.split('-').map(Number);
     const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
     const summary = document.getElementById('no-pickup-summary');
     summary.textContent = `✓ ${_noSelectedTmpl?.name || ''} · ${dayFmt} · ${label}`;
     summary.style.display = 'block';
+    // Auto-populate the delivery section with the next available day
+    initDeliverySection(pickupDateIso);
+  }
+
+  // ── DELIVERY SECTION ─────────────────────────────────────────────────────────
+  let _ndDaysVisible = false;   // whether the day/slot pickers are expanded
+
+  function initDeliverySection(pickupDateIso) {
+    const tmpl = _noSelectedTmpl; if (!tmpl) return;
+    _noDelivStart  = null;
+    _noDelivEnd    = null;
+    _ndDaysVisible = false;
+    document.getElementById('nd-day-section').style.display  = 'none';
+    document.getElementById('nd-slot-section').style.display = 'none';
+    document.getElementById('nd-change-btn').textContent = 'Change';
+
+    // Find the next available route day after pickup
+    const nextIso = nextAvailableDay(pickupDateIso, tmpl);
+    if (!nextIso) {
+      document.getElementById('nd-delivery-summary').textContent = 'No upcoming route days found — change manually.';
+      _ndDaysVisible = true;
+      renderNdDays(pickupDateIso);
+      document.getElementById('nd-day-section').style.display = '';
+    } else {
+      // Auto-select first slot on that day
+      const slots = buildSlots(tmpl, nextIso);
+      if (slots.length) {
+        _noDelivStart = slots[0].start;
+        _noDelivEnd   = slots[0].end;
+        const [yr, mo, dy] = nextIso.split('-').map(Number);
+        const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+        document.getElementById('nd-delivery-summary').innerHTML =
+          `<span style="color:var(--accent);font-weight:700">✓</span> ${tmpl.name} · ${dayFmt} · ${slots[0].label}`;
+      } else {
+        document.getElementById('nd-delivery-summary').textContent = 'No time slots for this route — change manually.';
+      }
+      // Pre-render day+slot grids in background so "Change" is instant
+      renderNdDays(pickupDateIso);
+    }
+    document.getElementById('no-delivery-section').style.display = '';
+  }
+
+  function toggleNdDays() {
+    _ndDaysVisible = !_ndDaysVisible;
+    document.getElementById('nd-day-section').style.display  = _ndDaysVisible ? '' : 'none';
+    document.getElementById('nd-slot-section').style.display = _ndDaysVisible ? '' : 'none';
+    document.getElementById('nd-change-btn').textContent = _ndDaysVisible ? 'Done' : 'Change';
+  }
+
+  function renderNdDays(afterIso) {
+    const tmpl = _noSelectedTmpl; if (!tmpl) return;
+    const activeDays = tmpl.schedule_days || [0,1,2,3,4];
+    const DAY_ABBR   = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const base = new Date(afterIso + 'T00:00:00');
+    const days = [];
+    for (let i = 1; i <= 60; i++) {
+      const d   = new Date(base); d.setDate(base.getDate() + i);
+      const dow = (d.getDay() + 6) % 7;
+      const iso = d.toLocaleDateString('sv');
+      days.push({ d, dow, iso, avail: activeDays.includes(dow) });
+    }
+    document.getElementById('nd-days').innerHTML = days.map(({ d, dow, iso, avail }) => {
+      const mon = d.toLocaleDateString('en-US', { month: 'short' });
+      return `<button class="sp-day-btn${avail?'':' sp-day-disabled'}" data-nd-iso="${iso}"
+        onclick="selectNdDay('${iso}')" ${avail?'':'disabled'}>
+        <span class="sp-day-abbr">${DAY_ABBR[dow]}</span>
+        <span class="sp-day-num">${d.getDate()}</span>
+        <span class="sp-day-mon">${mon}</span>
+      </button>`;
+    }).join('');
+  }
+
+  function selectNdDay(iso) {
+    document.querySelectorAll('#nd-days .sp-day-btn').forEach(b =>
+      b.classList.toggle('selected', b.dataset.ndIso === iso));
+    _noDelivStart = null; _noDelivEnd = null;
+    const slots = buildSlots(_noSelectedTmpl, iso);
+    document.getElementById('nd-slots').innerHTML = !slots.length
+      ? '<span style="color:var(--gray-400);font-size:13px">No slots — check route window times.</span>'
+      : slots.map(s =>
+          `<button class="sp-slot-btn" data-nd-slot onclick="selectNdSlot(this,'${s.start}','${s.end}','${s.label}')">
+            ${s.label}
+          </button>`).join('');
+    document.getElementById('nd-slot-section').style.display = '';
+  }
+
+  function selectNdSlot(btn, startIso, endIso, label) {
+    document.querySelectorAll('[data-nd-slot]').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    _noDelivStart = startIso;
+    _noDelivEnd   = endIso;
+    const [yr, mo, dy] = startIso.split('T')[0].split('-').map(Number);
+    const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+    document.getElementById('nd-delivery-summary').innerHTML =
+      `<span style="color:var(--accent);font-weight:700">✓</span> ${_noSelectedTmpl?.name || ''} · ${dayFmt} · ${label}`;
+    // Collapse the pickers
+    _ndDaysVisible = false;
+    document.getElementById('nd-day-section').style.display  = 'none';
+    document.getElementById('nd-slot-section').style.display = 'none';
+    document.getElementById('nd-change-btn').textContent = 'Change';
   }
 
   async function populateRouteModal() {
@@ -5857,45 +5989,32 @@
     const err = document.getElementById('o-error');
     err.style.display = 'none';
 
-    const customerId  = document.getElementById('o-customer').value;
-    const addressId   = document.getElementById('o-address').value || null;
-    const serviceId   = document.getElementById('o-service').value  || null;
-    const weightRaw   = parseFloat(document.getElementById('o-weight').value) || null;
-    const notes       = document.getElementById('o-notes').value.trim();
-    const tipRaw      = parseFloat(document.getElementById('o-tip').value) || 0;
-    const discountId  = document.getElementById('o-coupon').value || null;
+    const customerId = document.getElementById('o-customer').value;
+    const addressId  = document.getElementById('o-address').value  || null;
+    const notes      = document.getElementById('o-notes').value.trim();
+    const tipRaw     = parseFloat(document.getElementById('o-tip').value) || 0;
+    const discountId = document.getElementById('o-coupon').value || null;
 
-    if (!customerId) { err.textContent='Please select a customer.'; err.style.display='block'; return; }
-    if (!_noPickupStart) { err.textContent='Please select a pickup slot.'; err.style.display='block'; return; }
-
-    // Compute base total from selected service
-    let totalAmount = 0;
-    if (serviceId) {
-      const svc = allServices.find(s => s.id === serviceId);
-      if (svc) {
-        totalAmount = (svc.pricing_type === 'per_lb' && weightRaw)
-          ? Math.round(svc.base_price * weightRaw * 100) / 100
-          : (svc.base_price || 0);
-      }
-    }
+    if (!customerId)    { err.textContent='Please select a customer.';     err.style.display='block'; return; }
+    if (!_noPickupStart){ err.textContent='Please select a pickup slot.';  err.style.display='block'; return; }
 
     const btn = document.querySelector('#modal-add-order .btn-primary');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
     const { error } = await db.from('orders').insert({
-      customer_id:          customerId,
-      service_id:           serviceId,
-      status:               'scheduled',
-      weight_lbs:           weightRaw,
-      pickup_address_id:    addressId,
-      delivery_address_id:  addressId,   // default same; can be changed later
-      pickup_window_start:  _noPickupStart,
-      pickup_window_end:    _noPickupEnd,
-      special_instructions: notes || null,
-      tip_amount:           tipRaw,
-      tip_type:             _noTipType,
-      discount_id:          discountId,
-      total_amount:         totalAmount,
+      customer_id:           customerId,
+      status:                'scheduled',
+      pickup_address_id:     addressId,
+      delivery_address_id:   addressId,     // same address by default
+      pickup_window_start:   _noPickupStart,
+      pickup_window_end:     _noPickupEnd,
+      delivery_window_start: _noDelivStart || null,
+      delivery_window_end:   _noDelivEnd   || null,
+      special_instructions:  notes || null,
+      tip_amount:            tipRaw,
+      tip_type:              _noTipType,
+      discount_id:           discountId,
+      total_amount:          0,             // set properly when weighed / charged
     });
 
     if (btn) { btn.disabled = false; btn.textContent = 'Create Order'; }
