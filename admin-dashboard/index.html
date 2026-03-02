@@ -4883,7 +4883,9 @@
       // Preserve selection across reloads; default to "Delivery" on first load
       if (prev && allCategories.some(c => c.name === prev)) filter.value = prev;
       else if (allCategories.some(c => c.name === 'Delivery')) filter.value = 'Delivery';
-      filterServices();
+      // Only re-render if services are already loaded — avoids "No services found" flash
+      // on initial page load where categories resolve before the services query returns
+      if (allServices.length) filterServices();
     }
     // Add-new-service category dropdown
     const nscat = document.getElementById('ns-category');
