@@ -1779,8 +1779,8 @@ async function placeOrder() {
     pickup_run_id:        null,                   // routes table FK — template IDs don't match; linked by admin later
     recurring_interval:   draft.recurring || null,
     line_items:           lineItems,
-    special_instructions: draft.specialInstructions || null,
-    order_number:         Math.floor(1000 + Math.random() * 9000)
+    special_instructions: draft.specialInstructions || null
+    // order_number is GENERATED ALWAYS AS IDENTITY — DB auto-assigns, do not supply
   }).select().single();
 
   btn.disabled = false; btn.textContent = currentCustomer ? 'Place Order' : 'Create Account & Place Order';
