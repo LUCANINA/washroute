@@ -2321,9 +2321,6 @@
       </div>
     </div>
 
-    <div class="cp-section-head" style="margin-top:4px"><span>Access Instructions</span></div>
-    <textarea class="cp-input" id="cpnote-access" rows="2" placeholder="Gate codes, entry notes, preferred drop-off spot, building access…" style="margin-bottom:12px"></textarea>
-
     <div class="cp-section-head"><span>Today's Routes</span></div>
     <div id="cp-route-assignments" style="font-size:13px;color:var(--gray-400);font-style:italic">Loading…</div>
 
@@ -5901,10 +5898,9 @@
     const email = document.getElementById('cpe-email').value.trim();
     const type   = document.getElementById('cpe-type').value;
     const src    = document.getElementById('cpe-source').value;
-    const access = (document.getElementById('cpnote-access')?.value || '').trim();
     const { data: c } = await db.from('customers').select('profile_id').eq('id',panelCustomerId).single();
     if (c?.profile_id) await db.from('profiles').update({ first_name:fn, last_name:ln, phone, email }).eq('id', c.profile_id);
-    await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, customer_type:type||null, referral_source:src||null, access_instructions:access||null }).eq('id', panelCustomerId);
+    await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, customer_type:type||null, referral_source:src||null }).eq('id', panelCustomerId);
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
     document.getElementById('cp-meta').innerHTML = `${phone?`<a href="tel:${phone}">${phone}</a>`:''}${phone&&email?' · ':''}${email?`<a href="mailto:${email}">${email}</a>`:''}`;
     loadCustomers();
