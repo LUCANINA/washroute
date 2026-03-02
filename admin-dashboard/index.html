@@ -4345,6 +4345,7 @@ window.onload=()=>{window.print();};
 
   async function adminSendCardLink(customerId, email) {
     const btn = event?.target;
+    const originalBtnText = btn?.textContent || '📧 Send Card Setup Link';
     if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
     try {
       // Generate Stripe setup link for this customer
@@ -4390,7 +4391,7 @@ window.onload=()=>{window.print();};
     } catch (e) {
       showToast('Error: ' + e.message, 'error');
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = email ? '📧 Send Card Setup Link' : '📧 Send New Card Link'; }
+      if (btn) { btn.disabled = false; btn.textContent = originalBtnText; }
     }
   }
 
