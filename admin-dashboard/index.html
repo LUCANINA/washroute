@@ -1908,6 +1908,38 @@
   </div>
 </div>
 
+<!-- Email Compose Modal -->
+<div id="modal-email-compose" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1050;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:480px;width:90%">
+    <div class="modal-header">
+      <div class="modal-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="vertical-align:-2px;margin-right:6px"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        Compose Email
+      </div>
+      <button class="modal-close" onclick="closeEmailCompose()"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
+      <div>
+        <label class="form-label">To (email address)</label>
+        <input type="email" id="email-compose-to" class="form-input" placeholder="customer@example.com" />
+      </div>
+      <div>
+        <label class="form-label">Subject</label>
+        <input type="text" id="email-compose-subject" class="form-input" placeholder="Subject…" />
+      </div>
+      <div>
+        <label class="form-label">Message</label>
+        <textarea id="email-compose-body" class="form-input" rows="5" placeholder="Type your message…"
+          style="resize:vertical;font-family:inherit;font-size:13.5px;line-height:1.5"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeEmailCompose()">Cancel</button>
+      <button class="btn btn-primary" id="email-send-btn" onclick="sendComposeEmail()">Send Email</button>
+    </div>
+  </div>
+</div>
+
 <!-- Reschedule Route modal (per-order pickup or delivery) -->
 <div id="reassign-run-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
   <div class="modal" style="max-width:420px;">
@@ -2432,6 +2464,7 @@
   <div class="op-actions">
     <button class="btn btn-primary" id="op-advance-btn" onclick="opAdvanceStatus()" style="flex:1">Advance Status</button>
     <button class="btn" onclick="opOpenReschedule()" style="color:var(--gray-700)">Reschedule</button>
+    <button class="btn" onclick="printBagTag()" style="color:var(--gray-700)">🖨 Print</button>
     <button class="btn" onclick="opViewCustomer()" style="color:var(--accent)">View Customer</button>
   </div>
 </div>
@@ -3065,7 +3098,7 @@
   function handleCTA() {
     if (currentPage === 'routes')    { openTemplateEditor(null); return; }
     if (currentPage === 'drivers')   { openDriverEditor(null);   return; }
-    if (currentPage === 'inbox')     { openComposeSMS(); return; }
+    if (currentPage === 'inbox')     { _inboxChannel === 'email' ? openComposeEmail() : openComposeSMS(); return; }
     const map = { overview:'add-order', customers:'add-customer', orders:'add-order' };
     if (map[currentPage]) openModal(map[currentPage]);
   }
@@ -3861,6 +3894,107 @@
     setTimeout(() => openCustomerPanel(opCurrentCustId, 'orders'), 200);
   }
 
+  function printBagTag() {
+    if (!opCurrentOrderId) return;
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+    const cust = allCustomers.find(c => c.id === o.customer_id) || {};
+    const custName = [cust.first_name_cache, cust.last_name_cache].filter(Boolean).join(' ').toUpperCase() || '—';
+    const custAddr  = cust.address_cache || '';
+    const orderNum  = o.order_number || o.id.slice(-5).toUpperCase();
+    const bags      = o.bag_count || '—';
+    const weightLbs = o.weight_lbs ? `${o.weight_lbs} LBS · ` : '';
+    const pickupStr = o.pickup_window_start  ? fmtDate(o.pickup_window_start)  + ' · ' + fmtTime(o.pickup_window_start)  : '—';
+    const delivStr  = o.delivery_window_start ? fmtDate(o.delivery_window_start) + ' · ' + fmtTime(o.delivery_window_start) : '—';
+    const printDate = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+    const items = Array.isArray(o.line_items) ? o.line_items : [];
+    const subtotal = items.reduce((s, i) => s + Number(i.amount || 0), 0);
+    const total    = Number(o.total_amount || 0);
+    const delivFee = Math.max(0, +(total - subtotal).toFixed(2));
+    const lineItemsHtml = items.length
+      ? items.map(i => `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;"><span style="flex:1">${i.label||'Service'}</span><span style="width:56px;text-align:right;font-weight:600">$${Number(i.amount||0).toFixed(2)}</span></div>`).join('')
+      : '<div style="font-size:11px;color:#555;">Wash &amp; Fold</div>';
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Bag Tag #${orderNum}</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"><\/script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Courier New',monospace;background:white;padding:6mm 3mm;width:80mm}
+.biz-name{font-family:-apple-system,sans-serif;font-size:18px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;text-align:center}
+.biz-addr{font-size:9.5px;color:#555;text-align:center;line-height:1.5;margin-top:2px}
+.ts{font-size:9px;color:#777;display:flex;justify-content:space-between;margin-top:6px}
+.cust-name{font-family:-apple-system,sans-serif;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.03em;line-height:1.2;margin-bottom:2px}
+.cust-addr{font-size:11px;color:#333;line-height:1.5}
+.order-meta{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+.order-num{font-family:-apple-system,sans-serif;font-size:18px;font-weight:900}
+.weight-bags{font-family:-apple-system,sans-serif;font-size:12px;font-weight:700;color:#333}
+.sched{border:2px solid #000;border-radius:3px;padding:7px 9px;margin:7px 0}
+.sched-row{display:flex;justify-content:space-between;align-items:flex-start}
+.sched-label{font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px}
+.sched-val{font-size:12px;font-weight:700}
+.sched-sub{font-size:11px;font-weight:700;text-align:right}
+.inv-header{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:2px}
+.totals-row{display:flex;justify-content:space-between;font-size:11px;padding:2px 0}
+.amount-due{display:flex;justify-content:space-between;align-items:baseline;margin-top:6px}
+.amount-label{font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.amount-value{font-family:-apple-system,sans-serif;font-size:22px;font-weight:900}
+.barcode-wrap{text-align:center;margin:6px 0 2px}
+.barcode-id{font-size:9px;color:#777;margin-top:1px;letter-spacing:.08em}
+.footer{font-size:9.5px;color:#555;text-align:center;line-height:1.6}
+hr.dash{border:none;border-top:1px dashed #aaa;margin:7px 0}
+hr.solid{border:none;border-top:2px solid #000;margin:7px 0}
+hr.thin{border:none;border-top:1px solid #ccc;margin:4px 0}
+@media print{body{padding:0;width:80mm}}
+</style></head><body>
+<div class="biz-name">Family Laundry</div>
+<div class="biz-addr">2609 Foothill Blvd · Oakland, CA 94601</div>
+<div class="ts"><span>FL</span><span>${printDate}</span></div>
+<hr class="solid">
+<div class="cust-name">${custName}</div>
+${custAddr ? `<div class="cust-addr">${custAddr}</div>` : ''}
+<hr class="dash">
+<div class="order-meta">
+  <div class="order-num">#${orderNum}</div>
+  <div class="weight-bags">${weightLbs}${bags} BAGS</div>
+</div>
+<div class="sched">
+  <div class="sched-row" style="margin-bottom:5px">
+    <div><div class="sched-label">📦 Pickup Due</div><div class="sched-val">${pickupStr}</div></div>
+  </div>
+  <div style="border-top:1px dashed #ccc;margin-bottom:5px"></div>
+  <div class="sched-row">
+    <div><div class="sched-label">🚐 Delivery</div><div class="sched-val">${delivStr}</div></div>
+  </div>
+</div>
+<hr class="dash">
+<div class="inv-header">Invoice</div>
+${lineItemsHtml}
+<hr class="thin" style="margin-top:5px">
+${subtotal > 0 && delivFee > 0 ? `<div class="totals-row"><span style="color:#444">Subtotal</span><span>$${subtotal.toFixed(2)}</span></div><div class="totals-row"><span style="color:#444">Delivery Fee</span><span>$${delivFee.toFixed(2)}</span></div>` : ''}
+<hr class="solid">
+<div class="amount-due">
+  <span class="amount-label">Amount Due</span>
+  <span class="amount-value">$${total.toFixed(2)}</span>
+</div>
+<hr class="dash">
+<div class="barcode-wrap">
+  <svg id="bc"></svg>
+  <div class="barcode-id">${orderNum}</div>
+</div>
+<hr class="dash">
+<div class="footer">Thank you for choosing Family Laundry!<br>Questions? Text us · (510) 588-4102</div>
+<script>
+JsBarcode("#bc","${orderNum}",{format:"CODE128",width:1.6,height:48,displayValue:false,margin:0});
+window.onload=()=>{window.print();};
+<\/script>
+</body></html>`;
+
+    const w = window.open('', '_blank', 'width=400,height=700');
+    if (w) { w.document.write(html); w.document.close(); }
+  }
+
   // ── BATCH ACTION: REASSIGN RUN ──
   function closeReassignModal() {
     document.getElementById('reassign-run-modal').style.display = 'none';
@@ -4380,17 +4514,22 @@
     const el = document.getElementById('inbox-list-body');
     el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
 
-    // Load messages
-    const { data: msgs, error } = await db.from('sms_messages')
-      .select('id, customer_id, direction, body, from_number, to_number, created_at, customers(id, first_name_cache, last_name_cache, phone_cache)')
-      .order('created_at', { ascending: false });
+    // Load SMS messages + email messages in parallel
+    const [{ data: msgs, error }, { data: emails }] = await Promise.all([
+      db.from('sms_messages')
+        .select('id, customer_id, direction, body, from_number, to_number, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, email_cache)')
+        .order('created_at', { ascending: false }),
+      db.from('email_messages')
+        .select('id, customer_id, direction, subject, body, from_email, to_email, created_at, customers(id, first_name_cache, last_name_cache, email_cache)')
+        .order('created_at', { ascending: false }),
+    ]);
 
     if (error) {
       el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--red);font-size:13px">Failed to load inbox</div>`;
       return;
     }
 
-    // Load conversations (status)
+    // Load SMS conversation status rows
     const { data: convRows } = await db.from('conversations').select('*').eq('channel', 'sms');
     const convByCustomer = {};
     const convByPhone    = {};
@@ -4399,10 +4538,10 @@
       else if (c.phone)  convByPhone[c.phone] = c;
     });
 
-    // Group messages into conversations
+    // ── Build SMS conversations ──
     const convMap = {};
     (msgs || []).forEach(m => {
-      const key = m.customer_id || (m.direction === 'inbound' ? m.from_number : m.to_number);
+      const key = 'sms:' + (m.customer_id || (m.direction === 'inbound' ? m.from_number : m.to_number));
       if (!convMap[key]) {
         const phone = m.direction === 'inbound' ? m.from_number : m.to_number;
         const convRow = m.customer_id ? convByCustomer[m.customer_id] : convByPhone[phone];
@@ -4416,11 +4555,24 @@
       if (m.direction === 'inbound') convMap[key].unread++;
     });
 
+    // ── Build Email conversations ──
+    (emails || []).forEach(m => {
+      const emailAddr = m.direction === 'inbound' ? m.from_email : m.to_email;
+      const key = 'email:' + (m.customer_id || emailAddr);
+      if (!convMap[key]) {
+        convMap[key] = {
+          key, customer_id: m.customer_id, cust: m.customers,
+          email: emailAddr, latest: m, unread: 0, channel: 'email',
+          conv_id: null, db_status: null,
+        };
+      }
+      if (m.direction === 'inbound') convMap[key].unread++;
+    });
+
     // Determine effective status
     const convs = Object.values(convMap).map(c => {
       const latestIsInbound = c.latest.direction === 'inbound';
       let status = c.db_status || 'open';
-      // New inbound on waiting/resolved conv → re-open
       if (latestIsInbound && (status === 'waiting' || status === 'resolved')) status = 'open';
       return { ...c, status };
     }).sort((a, b) => new Date(b.latest.created_at) - new Date(a.latest.created_at));
@@ -4467,11 +4619,6 @@
       });
     }
 
-    if (_inboxChannel === 'email') {
-      el.innerHTML = `<div class="empty" style="padding:48px 24px"><div class="empty-icon">📧</div><div class="empty-title">Email coming soon</div><div class="empty-sub">Email conversations will appear here once connected.</div></div>`;
-      return;
-    }
-
     const sections = [
       { id: 'needs',    label: 'Needs Reply', statuses: ['open'],     cntClass: 'cnt-needs',   items: [] },
       { id: 'waiting',  label: 'Waiting',     statuses: ['waiting'],  cntClass: 'cnt-waiting', items: [] },
@@ -4484,7 +4631,7 @@
     });
 
     if (convs.length === 0) {
-      el.innerHTML = `<div class="empty" style="padding:48px 24px"><div class="empty-icon">📭</div><div class="empty-title">No conversations</div><div class="empty-sub">SMS messages from customers will appear here.</div></div>`;
+      el.innerHTML = `<div class="empty" style="padding:48px 24px"><div class="empty-icon">📭</div><div class="empty-title">No conversations</div><div class="empty-sub">SMS and email messages from customers will appear here.</div></div>`;
       return;
     }
 
@@ -4507,14 +4654,28 @@
   }
 
   function renderConvItem(c) {
+    const isEmail = c.channel === 'email';
+    const identifier = isEmail ? (c.email || '') : (c.phone || '');
     const name = c.cust
-      ? `${c.cust.first_name_cache||''} ${c.cust.last_name_cache||''}`.trim() || c.phone
-      : c.phone;
+      ? `${c.cust.first_name_cache||''} ${c.cust.last_name_cache||''}`.trim() || identifier
+      : identifier;
     const arrow = c.latest.direction === 'inbound' ? '↓ ' : '↑ ';
+    const preview = isEmail
+      ? (c.latest.subject ? `[${c.latest.subject}] ` : '') + (c.latest.body || '')
+      : (c.latest.body || '');
     const isActive = currentConv && currentConv.key === c.key;
     const unreadDot = c.unread > 0 ? `<span class="unread-dot"></span>` : '';
-    return `<div class="inbox-item${isActive ? ' active' : ''}" data-conv-key="${c.key}"
-      onclick="openSMSConversation('${c.customer_id||''}','${c.phone}',this)">
+    const safeKey = c.key.replace(/'/g, "\\'");
+    const clickFn = isEmail
+      ? `openEmailConversation('${safeKey}')`
+      : `openSMSConversation('${c.customer_id||''}','${c.phone||''}',this)`;
+    const resolveFn  = `quickToggleResolve('${safeKey}','${c.customer_id||''}','${c.phone||''}','resolved')`;
+    const reopenFn   = `quickToggleResolve('${safeKey}','${c.customer_id||''}','${c.phone||''}','open')`;
+    const issueFn    = isEmail
+      ? `openEmailConversation('${safeKey}');setTimeout(()=>showIssueForm(),100)`
+      : `openSMSConversation('${c.customer_id||''}','${c.phone||''}',this.closest('.inbox-item'));setTimeout(()=>showIssueForm(),100)`;
+    return `<div class="inbox-item${isActive ? ' active' : ''}" data-conv-key="${esc(c.key)}"
+      onclick="${clickFn}">
       <div class="inbox-item-header">
         <div class="inbox-item-name">
           ${unreadDot}${esc(name)}
@@ -4522,12 +4683,12 @@
         </div>
         <div class="inbox-item-time">${inboxTimeAgo(c.latest.created_at)}</div>
       </div>
-      <div class="inbox-item-preview">${arrow}${esc(c.latest.body)}</div>
+      <div class="inbox-item-preview">${arrow}${esc(preview)}</div>
       <div class="inbox-item-actions">
         ${c.status === 'resolved'
-          ? `<button class="inbox-quick-btn resolve resolved" title="Reopen" onclick="event.stopPropagation();quickToggleResolve('${c.key}','${c.customer_id||''}','${c.phone}','open')">↩ Reopen</button>`
-          : `<button class="inbox-quick-btn resolve" title="Resolve" onclick="event.stopPropagation();quickToggleResolve('${c.key}','${c.customer_id||''}','${c.phone}','resolved')">✓ Resolve</button>
-             <button class="inbox-quick-btn" title="Create Issue" onclick="event.stopPropagation();openSMSConversation('${c.customer_id||''}','${c.phone}',this.closest('.inbox-item'));setTimeout(()=>showIssueForm(),100)">⚑ Issue</button>`
+          ? `<button class="inbox-quick-btn resolve resolved" title="Reopen" onclick="event.stopPropagation();${reopenFn}">↩ Reopen</button>`
+          : `<button class="inbox-quick-btn resolve" title="Resolve" onclick="event.stopPropagation();${resolveFn}">✓ Resolve</button>
+             <button class="inbox-quick-btn" title="Create Issue" onclick="event.stopPropagation();${issueFn}">⚑ Issue</button>`
         }
       </div>
     </div>`;
@@ -4561,8 +4722,10 @@
     currentConvPhone      = phone;
     currentConvCustomerId = customerId || null;
 
-    // Find conv in cached list
-    const convMeta = _allConvs.find(c => c.key === (customerId || phone)) || { key: customerId||phone, customer_id: customerId||null, phone, channel: 'sms', status: 'open', conv_id: null };
+    // Find conv in cached list (keys are now prefixed: 'sms:...')
+    const convMeta = _allConvs.find(c => c.key === ('sms:' + (customerId || phone)))
+      || _allConvs.find(c => c.customer_id === customerId && c.channel === 'sms')
+      || { key: 'sms:'+(customerId||phone), customer_id: customerId||null, phone, channel: 'sms', status: 'open', conv_id: null };
     currentConv = convMeta;
 
     // Load messages
@@ -4663,6 +4826,109 @@
       </div>`;
 
     if (!silent) setTimeout(() => { const mt = document.getElementById('msg-thread'); if (mt) mt.scrollTop = mt.scrollHeight; }, 50);
+  }
+
+  // ── openEmailConversation ──
+  async function openEmailConversation(key) {
+    document.querySelectorAll('.inbox-item').forEach(i => i.classList.remove('active'));
+    const itemEl = document.querySelector(`[data-conv-key="${key.replace(/"/g,'&quot;')}"]`);
+    if (itemEl) itemEl.classList.add('active');
+
+    const convMeta = _allConvs.find(c => c.key === key)
+      || { key, customer_id: null, email: '', channel: 'email', status: 'open', conv_id: null };
+    currentConv = convMeta;
+
+    const emailAddr  = convMeta.email || '';
+    const custId     = convMeta.customer_id || null;
+    const cust       = convMeta.cust;
+    const name       = cust
+      ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || emailAddr
+      : emailAddr;
+
+    // Load messages from DB
+    let query = db.from('email_messages')
+      .select('id, customer_id, direction, subject, body, from_email, to_email, created_at')
+      .order('created_at', { ascending: true });
+    if (custId) query = query.eq('customer_id', custId);
+    else        query = query.or(`from_email.eq.${emailAddr},to_email.eq.${emailAddr}`);
+    const { data: emails } = await query;
+
+    const isResolved   = convMeta.status === 'resolved';
+    const resolveLabel = isResolved ? '↩ Reopen' : '✓ Resolve';
+    const resolveClass = isResolved ? 'resolved' : '';
+    const lastSubject  = emails?.length ? (emails[emails.length - 1].subject || '') : '';
+    const replySubject = lastSubject.startsWith('Re:') ? lastSubject : (lastSubject ? 'Re: ' + lastSubject : '');
+
+    document.getElementById('inbox-thread').innerHTML = `
+      <div class="inbox-thread-header">
+        <div class="inbox-thread-header-top">
+          <div>
+            <div class="inbox-thread-name">${esc(name)}</div>
+            <div class="inbox-thread-meta">${esc(emailAddr)} · <span class="ch-badge ch-email">EMAIL</span></div>
+          </div>
+          <div class="inbox-thread-btns">
+            <button class="btn-resolve ${resolveClass}" onclick="toggleResolve()" id="btn-resolve-thread">${resolveLabel}</button>
+          </div>
+        </div>
+      </div>
+      <div class="inbox-messages" id="msg-thread">
+        ${(emails||[]).map(m => {
+          const isOut = m.direction === 'outbound';
+          const subjectLine = m.subject ? `<div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:3px">${esc(m.subject)}</div>` : '';
+          return `<div style="display:flex;flex-direction:column;align-items:${isOut?'flex-end':'flex-start'}">
+            ${subjectLine}
+            <div class="message-bubble message-${m.direction}" style="white-space:pre-wrap">${esc(m.body)}</div>
+            <div class="msg-ts">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}</div>
+          </div>`;
+        }).join('')}
+        ${(!emails||emails.length===0) ? '<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:20px">No emails yet</div>' : ''}
+      </div>
+      <div class="inbox-composer" style="flex-direction:column;gap:6px;padding:12px 16px">
+        <input type="text" id="email-reply-subject" class="form-input" style="font-size:13px"
+          placeholder="Subject…" value="${esc(replySubject)}">
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <textarea class="inbox-composer-input" id="email-compose-input" rows="2"
+            placeholder="Type a reply…"
+            oninput="this.style.height=&quot;auto&quot;;this.style.height=this.scrollHeight+&quot;px&quot;"
+            onkeydown="if(event.key===&quot;Enter&quot;&amp;&amp;(event.metaKey||event.ctrlKey)){event.preventDefault();sendEmailReply()}"></textarea>
+          <button class="btn btn-primary" id="email-reply-btn" onclick="sendEmailReply()">Send</button>
+        </div>
+        <div style="font-size:11px;color:var(--gray-400)">⌘ Enter to send</div>
+      </div>`;
+
+    setTimeout(() => { const mt = document.getElementById('msg-thread'); if (mt) mt.scrollTop = mt.scrollHeight; }, 50);
+  }
+
+  // ── sendEmailReply ──
+  async function sendEmailReply() {
+    const subjectEl = document.getElementById('email-reply-subject');
+    const bodyEl    = document.getElementById('email-compose-input');
+    const subject   = (subjectEl?.value || '').trim();
+    const body      = (bodyEl?.value || '').trim();
+    if (!body) return;
+    const toEmail   = currentConv?.email || '';
+    if (!toEmail) { showToast('No email address for this conversation', 'error'); return; }
+
+    const btn = document.getElementById('email-reply-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    if (bodyEl) { bodyEl.value = ''; bodyEl.style.height = 'auto'; }
+
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ customer_id: currentConv?.customer_id || null, to_email: toEmail, subject, body }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Send failed');
+      showToast('Email sent ✓', 'success');
+      openEmailConversation(currentConv.key);
+      loadInbox();
+    } catch (err) {
+      showToast('Failed to send: ' + err.message, 'error');
+      if (bodyEl) bodyEl.value = body;
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
   }
 
   // ── _upsertConvStatus: single-operation resolve/reopen helper ──
@@ -4790,6 +5056,48 @@
       if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
     }
     if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+  }
+
+  // ── openComposeEmail / closeEmailCompose / sendComposeEmail ──
+  function openComposeEmail() {
+    document.getElementById('email-compose-to').value      = '';
+    document.getElementById('email-compose-subject').value = '';
+    document.getElementById('email-compose-body').value    = '';
+    const btn = document.getElementById('email-send-btn');
+    if (btn) { btn.disabled = false; btn.textContent = 'Send Email'; }
+    document.getElementById('modal-email-compose').style.display = 'flex';
+    setTimeout(() => document.getElementById('email-compose-to').focus(), 50);
+  }
+
+  function closeEmailCompose() {
+    document.getElementById('modal-email-compose').style.display = 'none';
+  }
+
+  async function sendComposeEmail() {
+    const toEmail = (document.getElementById('email-compose-to')?.value    || '').trim();
+    const subject = (document.getElementById('email-compose-subject')?.value || '').trim();
+    const body    = (document.getElementById('email-compose-body')?.value    || '').trim();
+    if (!toEmail) { showToast('Please enter a recipient email address', 'error'); return; }
+    if (!body)    { showToast('Message cannot be empty', 'error'); return; }
+
+    const btn = document.getElementById('email-send-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ customer_id: null, to_email: toEmail, subject, body }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Send failed');
+      showToast('Email sent ✓', 'success');
+      closeEmailCompose();
+      if (currentPage === 'inbox') loadInbox();
+    } catch (err) {
+      showToast('Failed to send: ' + err.message, 'error');
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Send Email'; }
   }
 
   // ── openComposeSMS ──
@@ -6408,6 +6716,42 @@
     closeModal('add-order');
     loadOrders();
     loadOverview();
+
+    // Fire booking confirmation email (best-effort, don't block)
+    const _cust = allCustomers?.find(c => c.id === customerId);
+    const _toEmail = _cust?.email_cache;
+    if (_toEmail) {
+      const _fmtD = s => new Date(s).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+      const _esc  = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const _rows = [
+        _noPickupStart ? ['Pickup',       _fmtD(_noPickupStart)] : null,
+        _noDelivStart  ? ['Est. Delivery', _fmtD(_noDelivStart)] : null,
+        notes          ? ['Notes',         notes]                : null,
+      ].filter(Boolean);
+      const _htmlBody = `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#111827;max-width:520px;margin:0 auto;padding:32px 20px">
+        <div style="font-size:22px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Family Laundry</div>
+        <div style="font-size:12px;color:#9ca3af;margin-bottom:24px">2609 Foothill Blvd · Oakland, CA 94601</div>
+        <p style="margin:0 0 20px">Hi ${_esc(_cust.first_name_cache||'there')}, your laundry pickup has been scheduled!</p>
+        <table style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:20px">
+          ${_rows.map(([l,v])=>`<tr><td style="padding:7px 12px 7px 0;color:#6b7280;white-space:nowrap">${_esc(l)}</td><td style="padding:7px 0;font-weight:600">${_esc(v)}</td></tr>`).join('')}
+        </table>
+        <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+        <div style="font-size:12px;color:#9ca3af;text-align:center">
+          Questions? Reply to this email or text us at (510) 588-4102<br>
+          Family Laundry · 2609 Foothill Blvd, Oakland CA 94601
+        </div>
+      </body></html>`;
+      fetch(`${SUPA_URL}/functions/v1/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({
+          customer_id: customerId,
+          to_email:    _toEmail,
+          subject:     'Your laundry pickup has been scheduled — Family Laundry',
+          body:        _htmlBody
+        })
+      }).catch(() => {});
+    }
   }
 
   async function saveRoute() {

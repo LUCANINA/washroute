@@ -952,14 +952,21 @@ async function handleMagicLink() {
   if (!email) { toast('Please enter your email address'); return; }
   const btn = document.getElementById('btn-magic');
   btn.disabled = true; btn.textContent = 'Sending…';
-  const { error } = await db.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: window.location.origin + window.location.pathname }
-  });
+  try {
+    // Use our branded send-magic-link Edge Function instead of Supabase's default email
+    const res = await fetch(`${SUPA_URL}/functions/v1/send-magic-link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+      body: JSON.stringify({ email, redirectTo: window.location.origin + window.location.pathname }),
+    });
+    const { ok, error } = await res.json();
+    if (!ok) throw new Error(error || 'Failed to send link');
+    document.getElementById('magic-section').style.display = 'none';
+    document.getElementById('magic-sent').style.display = '';
+  } catch (err) {
+    toast(err.message || 'Error sending link');
+  }
   btn.disabled = false; btn.textContent = 'Send Magic Link';
-  if (error) { toast(error.message); return; }
-  document.getElementById('magic-section').style.display = 'none';
-  document.getElementById('magic-sent').style.display = '';
 }
 
 /* ── AUTH STATE ── */
@@ -1755,6 +1762,46 @@ async function placeOrder() {
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
     body: JSON.stringify({ orderId: order.id, event: 'confirmed' })
   }).catch(() => {});
+
+  // Fire booking confirmation email (best-effort, don't block)
+  const _emailAddr = currentCustomer.email_cache;
+  if (_emailAddr) {
+    const _fmtD = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+    const _pickupLine = pw?.label ? `${_fmtD(pickupDate)} · ${pw.label}` : _fmtD(pickupDate);
+    const _recurLabel = draft.recurring ? ({weekly:'Every week',biweekly:'Every 2 weeks',monthly:'Every month'})[draft.recurring] : null;
+    const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const _rows = [
+      ['Order','#'+order.order_number],
+      ['Bags', bags + ' bag' + (bags!==1?'s':'')],
+      ['Pickup', _pickupLine],
+      ['Est. Delivery', _fmtD(deliveryDate)],
+      _recurLabel ? ['Recurring', _recurLabel] : null,
+      ['Total', '$'+total.toFixed(2)]
+    ].filter(Boolean);
+    const _htmlBody = `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#111827;max-width:520px;margin:0 auto;padding:32px 20px">
+      <div style="font-size:22px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Family Laundry</div>
+      <div style="font-size:12px;color:#9ca3af;margin-bottom:24px">2609 Foothill Blvd · Oakland, CA 94601</div>
+      <p style="margin:0 0 20px">Hi ${_esc(currentCustomer.first_name_cache||'there')}, your pickup is confirmed!</p>
+      <table style="border-collapse:collapse;width:100%;font-size:14px;margin-bottom:20px">
+        ${_rows.map(([l,v])=>`<tr><td style="padding:7px 12px 7px 0;color:#6b7280;white-space:nowrap">${_esc(l)}</td><td style="padding:7px 0;font-weight:600">${_esc(v)}</td></tr>`).join('')}
+      </table>
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
+      <div style="font-size:12px;color:#9ca3af;text-align:center">
+        Questions? Reply to this email or text us at (510) 588-4102<br>
+        Family Laundry · 2609 Foothill Blvd, Oakland CA 94601
+      </div>
+    </body></html>`;
+    fetch(`${SUPA_URL}/functions/v1/send-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
+      body: JSON.stringify({
+        customer_id: currentCustomer.id,
+        to_email:    _emailAddr,
+        subject:     `Booking Confirmed — Family Laundry Order #${order.order_number}`,
+        body:        _htmlBody
+      })
+    }).catch(() => {});
+  }
 
   // Success screen
   const longDate  = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
