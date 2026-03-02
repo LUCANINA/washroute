@@ -2530,7 +2530,8 @@
     </div>
 
     <div class="cp-section-head"><span>Payment on File</span></div>
-    <div id="cp-payment-info" style="font-size:13.5px;color:var(--gray-600);margin-bottom:4px">—</div>
+    <div id="cp-payment-info" style="margin-bottom:4px">—</div>
+    <div id="cp-card-actions" style="display:flex;gap:8px;margin-top:8px;margin-bottom:4px"></div>
 
     <div class="cp-section-head">
       <span>Addresses</span>
@@ -4317,6 +4318,79 @@ window.onload=()=>{window.print();};
     } catch (err) {
       btn.disabled = false; btn.textContent = orig;
       showToast('Failed to send receipt: ' + err.message, 'error');
+    }
+  }
+
+  async function adminRemoveCard(customerId) {
+    if (!confirm('Remove this customer\'s saved card? They will need to add a new one before their next order can be charged.')) return;
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/remove-card`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ customer_id: customerId }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Failed to remove card');
+      showToast('Card removed successfully', 'success');
+      // Refresh customer panel
+      const cust = allCustomers?.find(c => c.id === customerId);
+      if (cust) {
+        cust.card_last4 = cust.card_brand = cust.card_exp_month = cust.card_exp_year = cust.stripe_default_payment_method_id = null;
+        openCustomerPanel(customerId);
+      }
+    } catch (e) {
+      showToast('Error: ' + e.message, 'error');
+    }
+  }
+
+  async function adminSendCardLink(customerId, email) {
+    const btn = event?.target;
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    try {
+      // Generate Stripe setup link for this customer
+      const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({
+          type: 'setup',
+          customerId,
+          successUrl: 'https://washroute.vercel.app/customer-app/',
+          cancelUrl: 'https://washroute.vercel.app/customer-app/',
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Failed to create link');
+
+      // Email the link to the customer
+      const toEmail = email || result.email;
+      if (toEmail) {
+        await fetch(`${SUPA_URL}/functions/v1/send-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+          body: JSON.stringify({
+            customer_id: customerId,
+            to_email: toEmail,
+            subject: 'Add your card to Family Laundry',
+            body: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+              <h2 style="color:#1e293b;margin-bottom:8px">Add your payment card</h2>
+              <p style="color:#64748b;line-height:1.6">Hi! Your Family Laundry account is ready. Click the button below to securely add your card on file — we'll charge it automatically after each order is complete.</p>
+              <div style="text-align:center;margin:28px 0">
+                <a href="${result.url}" style="background:#635bff;color:white;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Add My Card →</a>
+              </div>
+              <p style="color:#94a3b8;font-size:12px;text-align:center">This link expires in 24 hours. Questions? Reply to this email.</p>
+            </div>`,
+          }),
+        });
+        showToast(`Card setup link sent to ${toEmail}`, 'success');
+      } else {
+        // No email — copy link to clipboard
+        await navigator.clipboard.writeText(result.url);
+        showToast('Link copied to clipboard (no email on file)', 'success');
+      }
+    } catch (e) {
+      showToast('Error: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = email ? '📧 Send Card Setup Link' : '📧 Send New Card Link'; }
     }
   }
 
@@ -6878,14 +6952,19 @@ window.onload=()=>{window.print();};
 
     // Payment on file
     const payEl = document.getElementById('cp-payment-info');
+    const actEl = document.getElementById('cp-card-actions');
     if (c.card_last4) {
       const brand = (c.card_brand||'Card').charAt(0).toUpperCase()+(c.card_brand||'').slice(1);
       const exp = (c.card_exp_month && c.card_exp_year) ? ` · exp ${c.card_exp_month}/${String(c.card_exp_year).slice(-2)}` : '';
       const now = new Date(); const expYr = c.card_exp_year; const expMo = c.card_exp_month;
       const expired = expYr && expMo && (expYr < now.getFullYear() || (expYr===now.getFullYear() && expMo < now.getMonth()+1));
       payEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:7px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:7px;padding:7px 12px;font-size:13px">💳 <span>${brand} ···· ${c.card_last4}${exp}</span>${expired?'<span style="color:var(--red);font-size:11px;font-weight:600">EXPIRED</span>':''}</span>`;
+      actEl.innerHTML = `
+        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${c.id}','${c.email_cache||''}')">📧 Send New Card Link</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px;color:var(--red);border-color:#fecaca" onclick="adminRemoveCard('${c.id}')">Remove Card</button>`;
     } else {
-      payEl.innerHTML = '<span style="color:var(--gray-300);font-style:italic;font-size:13px">No card on file</span>';
+      payEl.innerHTML = '<span style="color:var(--gray-400);font-style:italic;font-size:13px">No card on file</span>';
+      actEl.innerHTML = `<button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${c.id}','${c.email_cache||''}')">📧 Send Card Setup Link</button>`;
     }
 
     // Addresses

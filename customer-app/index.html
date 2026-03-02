@@ -2037,20 +2037,23 @@ async function startCardSetup() {
 async function removeCard() {
   if (!currentCustomer) return;
   if (!confirm('Remove your saved card? You can add a new one any time.')) return;
-  const { error } = await db.from('customers').update({
-    stripe_default_payment_method_id: null,
-    card_last4:      null,
-    card_brand:      null,
-    card_exp_month:  null,
-    card_exp_year:   null,
-  }).eq('id', currentCustomer.id);
-  if (error) { toast('Error removing card'); return; }
-  currentCustomer.stripe_default_payment_method_id = null;
-  currentCustomer.card_last4 = currentCustomer.card_brand = currentCustomer.card_exp_month = currentCustomer.card_exp_year = null;
-  renderPaymentSection();
-  const cardPrompt = document.getElementById('home-card-prompt');
-  if (cardPrompt) cardPrompt.style.display = '';
-  toast('Card removed');
+  try {
+    const res = await fetch(`${SUPA_URL}/functions/v1/remove-card`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
+      body: JSON.stringify({ customer_id: currentCustomer.id }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to remove card');
+    currentCustomer.stripe_default_payment_method_id = null;
+    currentCustomer.card_last4 = currentCustomer.card_brand = currentCustomer.card_exp_month = currentCustomer.card_exp_year = null;
+    renderPaymentSection();
+    const cardPrompt = document.getElementById('home-card-prompt');
+    if (cardPrompt) cardPrompt.style.display = '';
+    toast('Card removed');
+  } catch (e) {
+    toast('Error removing card: ' + e.message, 'error');
+  }
 }
 
 function renderPaymentSection() {
