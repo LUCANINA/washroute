@@ -619,7 +619,12 @@
     .sp-slot-grid { display:flex;flex-direction:column;gap:7px; }
     .sp-slot-btn { padding:12px 16px;border:1.5px solid var(--gray-200);border-radius:10px;background:white;cursor:pointer;font-size:14px;font-weight:600;color:var(--gray-800);transition:all .13s;text-align:left; }
     .sp-slot-btn:hover { border-color:var(--accent);background:var(--accent-light,#f0effe);color:var(--accent); }
+    .sp-slot-btn.selected { border-color:var(--accent);background:var(--accent-light,#f0effe);color:var(--accent); }
     .sp-slot-btn.saving { opacity:.6;pointer-events:none; }
+    /* New-order modal stepper chips */
+    .no-step-bar { display:flex;align-items:center;justify-content:space-between;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:7px 12px; }
+    .no-step-change { background:none;border:none;cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);padding:0;flex-shrink:0; }
+    .no-step-label { font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em; }
 
     /* ── REPORTS PAGE ── */
     .rpt-period-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
@@ -2072,26 +2077,45 @@
         <div style="background:var(--gray-50);padding:9px 14px;border-bottom:1px solid var(--gray-200);font-size:11.5px;font-weight:700;color:var(--gray-600);text-transform:uppercase;letter-spacing:.05em">
           Pickup
         </div>
-        <div style="padding:14px;display:flex;flex-direction:column;gap:14px">
-          <!-- Route pills -->
-          <div>
-            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">Route</div>
+        <div style="padding:14px;display:flex;flex-direction:column;gap:12px">
+
+          <!-- STEP 1: Route (expanded by default) -->
+          <div id="no-route-expanded">
+            <div class="no-step-label">Route</div>
             <div id="no-routes" style="display:flex;flex-wrap:wrap;gap:6px">
               <span style="color:var(--gray-400);font-size:13px">Loading routes…</span>
             </div>
           </div>
-          <!-- Day grid -->
-          <div id="no-day-section" style="display:none">
-            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">Day</div>
-            <div id="no-days" style="display:flex;flex-wrap:wrap;gap:5px"></div>
-            <button id="no-days-more-btn" onclick="showMoreNoDays()" style="display:none;margin-top:8px;background:none;border:none;cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);padding:0">+ Show more weeks</button>
+          <!-- Route collapsed chip -->
+          <div id="no-route-bar" class="no-step-bar" style="display:none">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span id="no-route-dot" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block;background:var(--accent)"></span>
+              <span id="no-route-bar-text" style="font-size:13px;font-weight:600;color:var(--gray-900)"></span>
+            </div>
+            <button onclick="expandNoRoute()" class="no-step-change">Change</button>
           </div>
-          <!-- Slot pills -->
+
+          <!-- STEP 2: Day (hidden until route picked) -->
+          <div id="no-day-section" style="display:none">
+            <div id="no-day-expanded">
+              <div class="no-step-label">Day</div>
+              <div id="no-days" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+              <button id="no-days-more-btn" onclick="showMoreNoDays()" style="display:none;margin-top:8px;background:none;border:none;cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);padding:0">+ Show more weeks</button>
+            </div>
+            <!-- Day collapsed chip -->
+            <div id="no-day-bar" class="no-step-bar" style="display:none">
+              <span id="no-day-bar-text" style="font-size:13px;font-weight:600;color:var(--gray-900)"></span>
+              <button onclick="expandNoDay()" class="no-step-change">Change</button>
+            </div>
+          </div>
+
+          <!-- STEP 3: Slot (hidden until day picked) -->
           <div id="no-slot-section" style="display:none">
-            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">Time Window</div>
+            <div class="no-step-label">Time Window</div>
             <div id="no-slots" style="display:flex;flex-wrap:wrap;gap:6px"></div>
           </div>
-          <!-- Confirmed summary -->
+
+          <!-- Final confirmed summary (replaces slot section after selection) -->
           <div id="no-pickup-summary" style="display:none;background:rgba(99,91,255,.07);border:1px solid rgba(99,91,255,.22);border-radius:8px;padding:8px 12px;font-size:13px;color:var(--accent);font-weight:600"></div>
         </div>
       </div>
@@ -5614,7 +5638,11 @@
     _noDelivEnd     = null;
     _noDayLimit     = 28;
     _noTipType      = 'dollar';
+    document.getElementById('no-route-expanded').style.display   = '';
+    document.getElementById('no-route-bar').style.display        = 'none';
     document.getElementById('no-day-section').style.display      = 'none';
+    document.getElementById('no-day-expanded').style.display     = '';
+    document.getElementById('no-day-bar').style.display          = 'none';
     document.getElementById('no-slot-section').style.display     = 'none';
     document.getElementById('no-pickup-summary').style.display   = 'none';
     document.getElementById('no-delivery-section').style.display = 'none';
@@ -5698,12 +5726,46 @@
     _noSelectedTmpl = _noTemplates.find(t => t.id === tmplId);
     _noPickupStart  = null;
     _noPickupEnd    = null;
-    document.querySelectorAll('[data-no-tmpl]').forEach(p =>
-      p.classList.toggle('selected', p.dataset.noTmpl === tmplId));
-    document.getElementById('no-slot-section').style.display   = 'none';
-    document.getElementById('no-pickup-summary').style.display = 'none';
+
+    // Collapse route to chip
+    document.getElementById('no-route-expanded').style.display = 'none';
+    document.getElementById('no-route-dot').style.background   = _noSelectedTmpl?.color || 'var(--accent)';
+    document.getElementById('no-route-bar-text').textContent   = _noSelectedTmpl?.name || '';
+    document.getElementById('no-route-bar').style.display      = '';
+
+    // Reset downstream
+    document.getElementById('no-day-bar').style.display          = 'none';
+    document.getElementById('no-day-expanded').style.display     = '';
+    document.getElementById('no-slot-section').style.display     = 'none';
+    document.getElementById('no-pickup-summary').style.display   = 'none';
+    document.getElementById('no-delivery-section').style.display = 'none';
+    _noDelivStart = null; _noDelivEnd = null;
+
     renderNoDays();
     document.getElementById('no-day-section').style.display = '';
+  }
+
+  function expandNoRoute() {
+    // Expand route back, hide everything downstream
+    document.getElementById('no-route-bar').style.display        = 'none';
+    document.getElementById('no-route-expanded').style.display   = '';
+    document.getElementById('no-day-section').style.display      = 'none';
+    document.getElementById('no-slot-section').style.display     = 'none';
+    document.getElementById('no-pickup-summary').style.display   = 'none';
+    document.getElementById('no-delivery-section').style.display = 'none';
+    _noSelectedTmpl = null; _noPickupStart = null; _noPickupEnd = null;
+    _noDelivStart   = null; _noDelivEnd    = null;
+  }
+
+  function expandNoDay() {
+    // Expand day back, hide slot/summary/delivery
+    document.getElementById('no-day-bar').style.display          = 'none';
+    document.getElementById('no-day-expanded').style.display     = '';
+    document.getElementById('no-slot-section').style.display     = 'none';
+    document.getElementById('no-pickup-summary').style.display   = 'none';
+    document.getElementById('no-delivery-section').style.display = 'none';
+    _noPickupStart = null; _noPickupEnd = null;
+    _noDelivStart  = null; _noDelivEnd  = null;
   }
 
   // Shared helper: build time-slot array from a route template + ISO date
@@ -5773,12 +5835,22 @@
   }
 
   function selectNoDay(iso) {
-    document.querySelectorAll('#no-days .sp-day-btn').forEach(b =>
-      b.classList.toggle('selected', b.dataset.noIso === iso));
     _noPickupStart = null;
     _noPickupEnd   = null;
-    document.getElementById('no-pickup-summary').style.display = 'none';
+
+    // Collapse day grid to chip
+    const [yr, mo, dy] = iso.split('-').map(Number);
+    const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+    document.getElementById('no-day-expanded').style.display = 'none';
+    document.getElementById('no-day-bar-text').textContent   = dayFmt;
+    document.getElementById('no-day-bar').style.display      = '';
+
+    // Reset downstream
+    document.getElementById('no-pickup-summary').style.display   = 'none';
     document.getElementById('no-delivery-section').style.display = 'none';
+    _noDelivStart = null; _noDelivEnd = null;
+
+    // Render slot buttons
     const slots = buildSlots(_noSelectedTmpl, iso);
     document.getElementById('no-slots').innerHTML = !slots.length
       ? '<span style="color:var(--gray-400);font-size:13px">No slots — check the route\'s window times.</span>'
@@ -5790,16 +5862,18 @@
   }
 
   function selectNoSlot(btn, startIso, endIso, label) {
-    document.querySelectorAll('[data-no-slot]').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
     _noPickupStart = startIso;
     _noPickupEnd   = endIso;
     const pickupDateIso = startIso.split('T')[0];
     const [yr, mo, dy] = pickupDateIso.split('-').map(Number);
     const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+
+    // Hide slot section, show final summary
+    document.getElementById('no-slot-section').style.display = 'none';
     const summary = document.getElementById('no-pickup-summary');
     summary.textContent = `✓ ${_noSelectedTmpl?.name || ''} · ${dayFmt} · ${label}`;
     summary.style.display = 'block';
+
     // Auto-populate the delivery section with the next available day
     initDeliverySection(pickupDateIso);
   }
