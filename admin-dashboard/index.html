@@ -2321,6 +2321,9 @@
       </div>
     </div>
 
+    <div class="cp-section-head" style="margin-top:4px"><span>Access Instructions</span></div>
+    <textarea class="cp-input" id="cpnote-access" rows="2" placeholder="Gate codes, entry notes, preferred drop-off spot, building access…" style="margin-bottom:12px"></textarea>
+
     <div class="cp-section-head"><span>Today's Routes</span></div>
     <div id="cp-route-assignments" style="font-size:13px;color:var(--gray-400);font-style:italic">Loading…</div>
 
@@ -2451,9 +2454,7 @@
   <!-- ── NOTES TAB ── -->
   <div class="cp-body" id="cptab-notes" style="display:none">
     <div class="cp-section-head"><span>Internal Notes</span></div>
-    <textarea class="cp-input" id="cpnote-text" rows="5" placeholder="Staff notes, special instructions, anything the team should know about this customer…"></textarea>
-    <div class="cp-section-head" style="margin-top:20px"><span>Access Instructions</span></div>
-    <textarea class="cp-input" id="cpnote-access" rows="3" placeholder="Gate codes, entry notes, preferred drop-off spot, building access…"></textarea>
+    <textarea class="cp-input" id="cpnote-text" rows="6" placeholder="Staff notes, special instructions, anything the team should know about this customer…"></textarea>
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--gray-100)">
       <button class="btn btn-primary cp-save-btn" onclick="savePanelNotes()">Save Notes</button>
       <div class="cp-save-msg" id="cp-notes-msg">✓ Saved</div>
@@ -5740,22 +5741,87 @@
     document.getElementById('cpnote-access').value = c.access_instructions || '';
   }
 
+  let _cpAddrs = [];
+
   function renderPanelAddresses(addrs) {
+    _cpAddrs = addrs || [];
     const el = document.getElementById('cp-addresses');
-    if (!addrs || !addrs.length) {
+    if (!_cpAddrs.length) {
       el.innerHTML = '<div style="color:var(--gray-300);font-style:italic;font-size:13px;margin-bottom:8px">No addresses on file</div>';
       return;
     }
-    el.innerHTML = addrs.map(a=>`
-      <div style="margin-bottom:8px;padding:10px 12px;background:var(--gray-50);border-radius:8px;border:1px solid var(--gray-200)">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
-          <span style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em">${a.label||'Address'}${a.is_default?' · <span style="color:var(--green);text-transform:none;font-weight:500">Default</span>':''}</span>
+    el.innerHTML = _cpAddrs.map(a => addrCardHTML(a)).join('');
+  }
+
+  function addrCardHTML(a) {
+    return `<div id="addr-card-${a.id}" style="margin-bottom:8px;padding:10px 12px;background:var(--gray-50);border-radius:8px;border:1px solid var(--gray-200)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
+        <span style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em">${esc(a.label||'Address')}${a.is_default?' · <span style="color:var(--green);text-transform:none;font-weight:500">Default</span>':''}</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button onclick="editAddress('${a.id}')" style="background:none;border:none;cursor:pointer;font-size:12px;font-weight:600;color:var(--accent);padding:0" title="Edit">Edit</button>
           <button onclick="deleteAddress('${a.id}')" style="background:none;border:none;cursor:pointer;color:var(--gray-300);font-size:15px;padding:0;line-height:1;transition:color .1s" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--gray-300)'" title="Remove">✕</button>
         </div>
-        <div style="font-size:13.5px;color:var(--gray-800);font-weight:500">${a.line1}${a.line2?', '+a.line2:''}</div>
-        <div style="font-size:12.5px;color:var(--gray-500)">${a.city||''}, ${a.state||''} ${a.zip||''}</div>
-        ${a.delivery_instructions?`<div style="font-size:12px;color:var(--gray-400);margin-top:4px;display:flex;gap:4px;align-items:flex-start"><span>📝</span><span>${a.delivery_instructions}</span></div>`:''}
-      </div>`).join('');
+      </div>
+      <div style="font-size:13.5px;color:var(--gray-800);font-weight:500">${esc(a.line1||'')}${a.line2?', '+esc(a.line2):''}</div>
+      <div style="font-size:12.5px;color:var(--gray-500)">${esc(a.city||'')}, ${esc(a.state||'')} ${esc(a.zip||'')}</div>
+      ${a.delivery_instructions?`<div style="font-size:12px;color:var(--gray-500);margin-top:4px">📝 ${esc(a.delivery_instructions)}</div>`:''}
+    </div>`;
+  }
+
+  function editAddress(id) {
+    const a = _cpAddrs.find(x => x.id === id);
+    if (!a) return;
+    const card = document.getElementById('addr-card-' + id);
+    if (!card) return;
+    card.innerHTML = `
+      <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">Edit Address</div>
+      <div class="cp-field" style="margin-bottom:8px"><input class="cp-input" id="cpea-label-${id}" value="${esc(a.label||'')}" placeholder="Label (e.g. Home, Work)"></div>
+      <div class="cp-field" style="margin-bottom:8px"><input class="cp-input" id="cpea-line1-${id}" value="${esc(a.line1||'')}" placeholder="Street address"></div>
+      <div class="cp-field" style="margin-bottom:8px"><input class="cp-input" id="cpea-line2-${id}" value="${esc(a.line2||'')}" placeholder="Apt / Unit (optional)"></div>
+      <div style="display:grid;grid-template-columns:1fr 70px 80px;gap:8px;margin-bottom:8px">
+        <input class="cp-input" id="cpea-city-${id}" value="${esc(a.city||'')}" placeholder="City">
+        <input class="cp-input" id="cpea-state-${id}" value="${esc(a.state||'')}" placeholder="State" maxlength="2">
+        <input class="cp-input" id="cpea-zip-${id}" value="${esc(a.zip||'')}" placeholder="ZIP">
+      </div>
+      <div class="cp-field" style="margin-bottom:8px"><textarea class="cp-input" id="cpea-instructions-${id}" rows="2" placeholder="Delivery instructions (optional)">${esc(a.delivery_instructions||'')}</textarea></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--gray-600);margin-bottom:12px;cursor:pointer">
+        <input type="checkbox" id="cpea-default-${id}" ${a.is_default?'checked':''} style="accent-color:var(--accent)"> Set as default address
+      </label>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" style="padding:6px 14px;font-size:12.5px" onclick="saveEditAddress('${id}')">Save</button>
+        <button class="btn btn-ghost" style="padding:6px 12px;font-size:12.5px" onclick="cancelEditAddress('${id}')">Cancel</button>
+      </div>`;
+  }
+
+  function cancelEditAddress(id) {
+    const a = _cpAddrs.find(x => x.id === id);
+    if (!a) return;
+    const card = document.getElementById('addr-card-' + id);
+    if (card) card.outerHTML = addrCardHTML(a);
+  }
+
+  async function saveEditAddress(id) {
+    const patch = {
+      label:                 document.getElementById('cpea-label-'+id)?.value.trim() || 'Home',
+      line1:                 document.getElementById('cpea-line1-'+id)?.value.trim(),
+      line2:                 document.getElementById('cpea-line2-'+id)?.value.trim() || null,
+      city:                  document.getElementById('cpea-city-'+id)?.value.trim(),
+      state:                 document.getElementById('cpea-state-'+id)?.value.trim(),
+      zip:                   document.getElementById('cpea-zip-'+id)?.value.trim(),
+      delivery_instructions: document.getElementById('cpea-instructions-'+id)?.value.trim() || null,
+      is_default:            document.getElementById('cpea-default-'+id)?.checked || false,
+    };
+    if (!patch.line1) { showToast('Street address is required', 'error'); return; }
+    // If setting as default, clear default on others first
+    if (patch.is_default) await db.from('addresses').update({ is_default: false }).eq('customer_id', panelCustomerId);
+    const { error } = await db.from('addresses').update(patch).eq('id', id);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    const { data: updated } = await db.from('customers')
+      .select('addresses(id,label,line1,line2,city,state,zip,delivery_instructions,is_default)')
+      .eq('id', panelCustomerId).single();
+    renderPanelAddresses(updated?.addresses || []);
+    showToast('Address updated ✓', 'success');
+    loadCustomers();
   }
 
   async function loadRouteAssignments(customerId) {
@@ -5833,11 +5899,12 @@
     const ln    = document.getElementById('cpe-last').value.trim();
     const phone = document.getElementById('cpe-phone').value.trim();
     const email = document.getElementById('cpe-email').value.trim();
-    const type  = document.getElementById('cpe-type').value;
-    const src   = document.getElementById('cpe-source').value;
+    const type   = document.getElementById('cpe-type').value;
+    const src    = document.getElementById('cpe-source').value;
+    const access = (document.getElementById('cpnote-access')?.value || '').trim();
     const { data: c } = await db.from('customers').select('profile_id').eq('id',panelCustomerId).single();
     if (c?.profile_id) await db.from('profiles').update({ first_name:fn, last_name:ln, phone, email }).eq('id', c.profile_id);
-    await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, customer_type:type||null, referral_source:src||null }).eq('id', panelCustomerId);
+    await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, customer_type:type||null, referral_source:src||null, access_instructions:access||null }).eq('id', panelCustomerId);
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
     document.getElementById('cp-meta').innerHTML = `${phone?`<a href="tel:${phone}">${phone}</a>`:''}${phone&&email?' · ':''}${email?`<a href="mailto:${email}">${email}</a>`:''}`;
     loadCustomers();
