@@ -908,6 +908,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><rect x="2" y="10" width="20" height="5" rx="1"/><rect x="2" y="17" width="20" height="5" rx="1"/></svg>
         Racks
       </div>
+      <div class="nav-item" onclick="showPage('discounts',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        Discounts
+      </div>
       <div class="nav-item" onclick="showPage('driver-messages',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
         Driver Messages
@@ -1734,6 +1738,50 @@
           </div>
         </div><!-- /page-racks -->
 
+        <!-- ── DISCOUNTS ── -->
+        <div class="page" id="page-discounts">
+          <div class="card" style="margin-bottom:20px">
+            <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+              <div>
+                <div class="card-title">Discounts</div>
+                <div class="card-sub">Create discounts to apply to customer accounts</div>
+              </div>
+              <button class="btn btn-primary" style="padding:7px 14px;font-size:13px" onclick="showAddDiscountForm()">+ New Discount</button>
+            </div>
+
+            <!-- Add form (hidden by default) -->
+            <div id="discount-add-form" style="display:none;padding:16px;background:var(--gray-50);border-top:1px solid var(--gray-100)">
+              <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-600);margin-bottom:12px">New Discount</div>
+              <div style="display:grid;grid-template-columns:1fr 140px 120px auto;gap:10px;align-items:end">
+                <div>
+                  <div style="font-size:11.5px;font-weight:600;color:var(--gray-500);margin-bottom:4px">Name</div>
+                  <input class="form-input" id="disc-new-name" placeholder="e.g. VIP 20% Off" style="height:34px;font-size:13px">
+                </div>
+                <div>
+                  <div style="font-size:11.5px;font-weight:600;color:var(--gray-500);margin-bottom:4px">Type</div>
+                  <select class="form-input" id="disc-new-type" style="height:34px;font-size:13px">
+                    <option value="percent">Percent (%)</option>
+                    <option value="fixed">Fixed ($)</option>
+                  </select>
+                </div>
+                <div>
+                  <div style="font-size:11.5px;font-weight:600;color:var(--gray-500);margin-bottom:4px">Value</div>
+                  <input class="form-input" id="disc-new-value" type="number" min="0" step="0.01" placeholder="0" style="height:34px;font-size:13px">
+                </div>
+                <div style="display:flex;gap:8px;padding-bottom:1px">
+                  <button class="btn btn-primary" style="padding:6px 14px;font-size:13px;height:34px" onclick="saveNewDiscount()">Save</button>
+                  <button class="btn btn-ghost" style="padding:6px 10px;font-size:13px;height:34px" onclick="hideAddDiscountForm()">✕</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Discounts list -->
+            <div id="discounts-list" style="padding:4px 0">
+              <div style="color:var(--gray-400);font-size:13px;padding:16px">Loading…</div>
+            </div>
+          </div>
+        </div><!-- /page-discounts -->
+
         <!-- ── DRIVER MESSAGES ── -->
         <div class="page" id="page-driver-messages">
           <div style="display:grid;grid-template-columns:260px 1fr;gap:0;height:calc(100vh - 130px);border-radius:14px;overflow:hidden;border:1px solid var(--gray-200);background:white">
@@ -2208,7 +2256,10 @@
   </div>
   <div class="cp-tabs">
     <button class="cp-tab active" onclick="cpTab('contact',this)">Contact</button>
+    <button class="cp-tab" onclick="cpTab('billing',this)">Billing</button>
     <button class="cp-tab" onclick="cpTab('orders',this)">Orders</button>
+    <button class="cp-tab" onclick="cpTab('transactions',this)">Transactions</button>
+    <button class="cp-tab" onclick="cpTab('engagement',this)">Engagement</button>
     <button class="cp-tab" onclick="cpTab('preferences',this)">Preferences</button>
     <button class="cp-tab" onclick="cpTab('notes',this)">Notes</button>
   </div>
@@ -2277,6 +2328,104 @@
       <button class="btn btn-primary cp-save-btn" onclick="saveCustomerContact()">Save Contact Info</button>
       <div class="cp-save-msg" id="cp-contact-msg">✓ Saved</div>
     </div>
+  </div>
+
+  <!-- ── BILLING TAB ── -->
+  <div class="cp-body" id="cptab-billing" style="display:none">
+
+    <div class="cp-section-head"><span>Billing Settings</span></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+      <div class="cp-field">
+        <div class="cp-field-label">Billing Type</div>
+        <select class="cp-input" id="cpb-billing-type">
+          <option value="automatic">Automatic</option>
+          <option value="on_account">On Account</option>
+        </select>
+      </div>
+      <div class="cp-field">
+        <div class="cp-field-label">Payment Method</div>
+        <select class="cp-input" id="cpb-payment-method">
+          <option value="credit_card">Credit Card</option>
+          <option value="check">Check</option>
+          <option value="ach">ACH</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+      <div class="cp-field">
+        <div class="cp-field-label">Discount</div>
+        <select class="cp-input" id="cpb-discount">
+          <option value="">— None —</option>
+        </select>
+      </div>
+      <div class="cp-field">
+        <div class="cp-field-label" style="display:flex;align-items:center;gap:6px">
+          <label style="display:flex;align-items:center;gap:5px;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);cursor:pointer">
+            <input type="checkbox" id="cpb-fee-exempt" style="width:14px;height:14px;accent-color:var(--accent)"> Fee/Min Exempt
+          </label>
+        </div>
+        <div style="font-size:12px;color:var(--gray-400);margin-top:4px">Customer is not charged pickup fees</div>
+      </div>
+    </div>
+
+    <div class="cp-section-head" style="margin-top:8px"><span>Credits</span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div style="font-size:22px;font-weight:700;color:var(--gray-900)" id="cpb-credits-display">$0.00</div>
+      <div style="display:flex;gap:6px;margin-left:4px">
+        <button class="btn btn-ghost" style="padding:5px 12px;font-size:12.5px" onclick="showCreditAdjust('add')">+ Add</button>
+        <button class="btn btn-ghost" style="padding:5px 12px;font-size:12.5px" onclick="showCreditAdjust('remove')">− Remove</button>
+      </div>
+    </div>
+    <div id="cpb-credit-adjust-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:12px;margin-bottom:14px">
+      <div style="font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:8px" id="cpb-adjust-label">Add Credits</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:14px;color:var(--gray-500)">$</span>
+        <input class="cp-input" id="cpb-adjust-amount" type="number" min="0" step="0.01" placeholder="0.00" style="width:100px">
+        <input class="cp-input" id="cpb-adjust-note" type="text" placeholder="Reason (optional)" style="flex:1">
+        <button class="btn btn-primary" style="padding:6px 14px;font-size:12.5px" onclick="applyCreditAdjust()">Apply</button>
+        <button class="btn btn-ghost" style="padding:6px 10px;font-size:12.5px" onclick="hideCreditAdjust()">✕</button>
+      </div>
+    </div>
+
+    <div class="cp-section-head" style="margin-top:4px"><span>Default Tip</span></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+      <input class="cp-input" id="cpb-tip-amount" type="number" min="0" step="0.01" placeholder="0" style="width:90px">
+      <div class="filter-tabs" style="flex-shrink:0">
+        <button class="filter-tab active" id="cpb-tip-dollar" onclick="setCpTipType('$',this)">$</button>
+        <button class="filter-tab" id="cpb-tip-pct" onclick="setCpTipType('%',this)">%</button>
+      </div>
+      <span style="font-size:12px;color:var(--gray-400)">Set by customer in their app</span>
+    </div>
+
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--gray-100)">
+      <button class="btn btn-primary cp-save-btn" onclick="saveBilling()">Save Billing</button>
+      <div class="cp-save-msg" id="cp-billing-msg">✓ Saved</div>
+    </div>
+  </div>
+
+  <!-- ── TRANSACTIONS TAB ── -->
+  <div class="cp-body" id="cptab-transactions" style="display:none">
+    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+      <button class="filter-tab active" onclick="filterCpTxns(0,this)">All</button>
+      <button class="filter-tab" onclick="filterCpTxns(7,this)">7 days</button>
+      <button class="filter-tab" onclick="filterCpTxns(30,this)">30 days</button>
+      <button class="filter-tab" onclick="filterCpTxns(60,this)">60 days</button>
+      <button class="filter-tab" onclick="filterCpTxns(120,this)">120 days</button>
+      <span id="cp-txn-summary" style="margin-left:auto;font-size:12px;color:var(--gray-500);font-weight:600"></span>
+    </div>
+    <div id="cp-transactions-list"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
+  </div>
+
+  <!-- ── ENGAGEMENT TAB ── -->
+  <div class="cp-body" id="cptab-engagement" style="display:none">
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <button class="filter-tab active" onclick="filterCpEngagement('all',this)" id="cpeng-all">All</button>
+      <button class="filter-tab" onclick="filterCpEngagement('sms',this)" id="cpeng-sms">SMS</button>
+      <button class="filter-tab" onclick="filterCpEngagement('email',this)" id="cpeng-email">Email</button>
+    </div>
+    <div id="cp-engagement-list"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
   </div>
 
   <!-- ── ORDERS TAB ── -->
@@ -2685,8 +2834,8 @@
   });
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', 'driver-messages':'Driver Messages' };
-  const pageCTAs   = { overview:'New Order', customers:'', orders:'', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', 'driver-messages':'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', 'driver-messages':'Driver Messages' };
+  const pageCTAs   = { overview:'New Order', customers:'', orders:'', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', 'driver-messages':'' };
 
   function showPage(id, navEl) {
     // If leaving orders page, clear any active batch selection
@@ -2710,6 +2859,7 @@
     if (id === 'processing') loadProcessing();
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
+    if (id === 'discounts') renderDiscounts();
     if (id === 'driver-messages') loadAdminDriverMessages();
   }
 
@@ -2723,7 +2873,7 @@
 
   // ── LOAD ALL DATA ──
   async function loadAll() {
-    const results = await Promise.allSettled([loadOverview(), loadCustomers(), loadOrders(), loadRoutes()]);
+    const results = await Promise.allSettled([loadOverview(), loadCustomers(), loadOrders(), loadRoutes(), loadDiscounts()]);
     const failed = results.filter(r => r.status === 'rejected');
     if (failed.length) {
       console.error('loadAll failures:', failed.map(r => r.reason));
@@ -5473,23 +5623,28 @@
 
   // ── CUSTOMER SIDE PANEL ──
   let panelCustomerId = null;
+  let _panelPhone = null;
   let cpAllOrders = [];
 
   function cpTab(name, btn) {
     document.querySelectorAll('.cp-tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
-    ['contact','orders','preferences','notes'].forEach(n=>{
+    ['contact','billing','orders','transactions','engagement','preferences','notes'].forEach(n=>{
       const el = document.getElementById('cptab-'+n);
       if (el) el.style.display = (n===name) ? '' : 'none';
     });
     if (name==='orders' && panelCustomerId) loadPanelOrders(panelCustomerId);
     if (name==='preferences' && panelCustomerId) loadPanelPreferences(panelCustomerId);
+    // Lazy loads
+    if (name === 'transactions') loadCpTransactions(panelCustomerId);
+    if (name === 'engagement')   loadCpEngagement(panelCustomerId, _panelPhone);
   }
 
   async function openCustomerPanel(customerId, startTab) {
     panelCustomerId = customerId;
+    _panelPhone = null;
     cpAllOrders = [];
-    const tabs = ['contact','orders','preferences','notes'];
+    const tabs = ['contact','billing','orders','transactions','engagement','preferences','notes'];
     const activeIdx = startTab ? Math.max(0, tabs.indexOf(startTab)) : 0;
     document.querySelectorAll('.cp-tab').forEach((t,i)=>{ t.classList.toggle('active', i===activeIdx); });
     tabs.forEach((n,i)=>{
@@ -5499,11 +5654,11 @@
     document.getElementById('customer-panel').classList.add('open');
     document.getElementById('panel-backdrop').classList.add('open');
     // Hide any stale save messages
-    ['cp-contact-msg','cp-pref-msg','cp-notes-msg'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; });
+    ['cp-contact-msg','cp-billing-msg','cp-pref-msg','cp-notes-msg'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; });
     document.getElementById('cp-add-addr-form').style.display = 'none';
 
     const { data: c } = await db.from('customers')
-      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, addresses(id, label, line1, line2, city, state, zip, delivery_instructions, is_default)')
+      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, addresses(id, label, line1, line2, city, state, zip, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id')
       .eq('id', customerId).single();
     if (!c) return;
 
@@ -5511,6 +5666,7 @@
     const ln = c.last_name_cache  || '';
     const email = c.email_cache   || '';
     const phone = c.phone_cache   || '';
+    _panelPhone = phone;
 
     // Header
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
@@ -5541,6 +5697,24 @@
     typeEl.value = c.customer_type || 'Delivery';
     if (!typeEl.value) typeEl.value = typeEl.options[0]?.value || 'Delivery';
     document.getElementById('cpe-source').value = c.referral_source || '';
+
+    // ── Billing tab ──
+    document.getElementById('cpb-billing-type').value   = c.billing_type    || 'automatic';
+    document.getElementById('cpb-payment-method').value = c.payment_method  || 'credit_card';
+    document.getElementById('cpb-fee-exempt').checked   = !!c.fee_exempt;
+    document.getElementById('cpb-credits-display').textContent = fmtMoney(c.credits || 0);
+    document.getElementById('cpb-tip-amount').value     = c.default_tip     || 0;
+    // Tip type toggle
+    const tipType = c.default_tip_type || '$';
+    document.getElementById('cpb-tip-dollar').classList.toggle('active', tipType === '$');
+    document.getElementById('cpb-tip-pct').classList.toggle('active',   tipType === '%');
+    // Populate discount dropdown from allDiscounts
+    const discEl = document.getElementById('cpb-discount');
+    discEl.innerHTML = '<option value="">— None —</option>'
+      + (allDiscounts || []).map(d => `<option value="${d.id}">${esc(d.name)} (${d.type === 'percent' ? d.value + '%' : fmtMoney(d.value)} off)</option>`).join('');
+    discEl.value = c.discount_id || '';
+    // Reset credit adjust form
+    hideCreditAdjust();
 
     // Payment on file
     const payEl = document.getElementById('cp-payment-info');
@@ -5669,6 +5843,231 @@
     loadCustomers();
     btn.disabled=false; btn.textContent=origText;
     const msg=document.getElementById('cp-contact-msg'); msg.style.display='block'; setTimeout(()=>msg.style.display='none',2500);
+  }
+
+  // ── BILLING TAB ──────────────────────────────────────────────────
+  let _cpTipType = '$';
+
+  function setCpTipType(type, btn) {
+    _cpTipType = type;
+    document.getElementById('cpb-tip-dollar').classList.toggle('active', type === '$');
+    document.getElementById('cpb-tip-pct').classList.toggle('active',   type === '%');
+  }
+
+  let _cpCreditMode = 'add';
+  function showCreditAdjust(mode) {
+    _cpCreditMode = mode;
+    document.getElementById('cpb-adjust-label').textContent = mode === 'add' ? 'Add Credits' : 'Remove Credits';
+    document.getElementById('cpb-adjust-amount').value = '';
+    document.getElementById('cpb-adjust-note').value = '';
+    document.getElementById('cpb-credit-adjust-form').style.display = 'block';
+    document.getElementById('cpb-adjust-amount').focus();
+  }
+  function hideCreditAdjust() {
+    document.getElementById('cpb-credit-adjust-form').style.display = 'none';
+  }
+
+  async function applyCreditAdjust() {
+    if (!panelCustomerId) return;
+    const amt = parseFloat(document.getElementById('cpb-adjust-amount').value) || 0;
+    if (amt <= 0) { showToast('Enter an amount greater than 0', 'error'); return; }
+    const { data: cur } = await db.from('customers').select('credits').eq('id', panelCustomerId).single();
+    const current = parseFloat(cur?.credits || 0);
+    const newVal  = _cpCreditMode === 'add' ? current + amt : Math.max(0, current - amt);
+    const { error } = await db.from('customers').update({ credits: newVal, updated_at: new Date().toISOString() }).eq('id', panelCustomerId);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    document.getElementById('cpb-credits-display').textContent = fmtMoney(newVal);
+    hideCreditAdjust();
+    showToast((_cpCreditMode === 'add' ? 'Added' : 'Removed') + ' ' + fmtMoney(amt) + ' credits ✓', 'success');
+    loadCustomers();
+  }
+
+  async function saveBilling() {
+    if (!panelCustomerId) return;
+    const btn = document.querySelector('#cptab-billing .cp-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    const patch = {
+      billing_type:     document.getElementById('cpb-billing-type').value,
+      payment_method:   document.getElementById('cpb-payment-method').value,
+      fee_exempt:       document.getElementById('cpb-fee-exempt').checked,
+      default_tip:      parseFloat(document.getElementById('cpb-tip-amount').value) || 0,
+      default_tip_type: _cpTipType,
+      discount_id:      document.getElementById('cpb-discount').value || null,
+      updated_at:       new Date().toISOString(),
+    };
+    const { error } = await db.from('customers').update(patch).eq('id', panelCustomerId);
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Billing'; }
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    const msg = document.getElementById('cp-billing-msg');
+    if (msg) { msg.style.opacity = '1'; setTimeout(() => msg.style.opacity = '0', 2500); }
+    loadCustomers();
+  }
+
+  // ── TRANSACTIONS TAB ─────────────────────────────────────────────
+  let _cpTxnDays = 0;
+  let _allCpTxns = [];
+
+  async function loadCpTransactions(customerId) {
+    const el = document.getElementById('cp-transactions-list');
+    if (el) el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
+    const { data, error } = await db.from('orders')
+      .select('id, order_number, status, created_at, total_amount, total_bags, weight_lbs, line_items')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
+    if (error) { if (el) el.innerHTML = `<div style="color:var(--red);font-size:13px">${error.message}</div>`; return; }
+    _allCpTxns = data || [];
+    renderCpTxns();
+  }
+
+  function filterCpTxns(days, btn) {
+    _cpTxnDays = days;
+    document.querySelectorAll('#cptab-transactions .filter-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    renderCpTxns();
+  }
+
+  function renderCpTxns() {
+    const el = document.getElementById('cp-transactions-list');
+    if (!el) return;
+    let rows = _allCpTxns;
+    if (_cpTxnDays > 0) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - _cpTxnDays);
+      rows = rows.filter(o => new Date(o.created_at) >= cutoff);
+    }
+    const total = rows.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+    const sumEl = document.getElementById('cp-txn-summary');
+    if (sumEl) sumEl.textContent = `${rows.length} orders · ${fmtMoney(total)}`;
+    if (!rows.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:12px 0">No transactions in this period</div>'; return; }
+    el.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="border-bottom:2px solid var(--gray-200)">
+            <th style="text-align:left;padding:6px 4px;color:var(--gray-500);font-weight:600;font-size:11.5px">Order</th>
+            <th style="text-align:left;padding:6px 4px;color:var(--gray-500);font-weight:600;font-size:11.5px">Date</th>
+            <th style="text-align:left;padding:6px 4px;color:var(--gray-500);font-weight:600;font-size:11.5px">Status</th>
+            <th style="text-align:right;padding:6px 4px;color:var(--gray-500);font-weight:600;font-size:11.5px">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(o => `
+            <tr style="border-bottom:1px solid var(--gray-100)">
+              <td style="padding:8px 4px;font-weight:600;color:var(--accent)">#${o.order_number || '—'}</td>
+              <td style="padding:8px 4px;color:var(--gray-600)">${fmtDate(o.created_at)}</td>
+              <td style="padding:8px 4px">${statusBadge(o.status)}</td>
+              <td style="padding:8px 4px;text-align:right;font-weight:600">${fmtMoney(o.total_amount || 0)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  // ── ENGAGEMENT TAB ───────────────────────────────────────────────
+  let _allCpMsgs = [];
+  let _cpEngFilter = 'all';
+
+  async function loadCpEngagement(customerId, phone) {
+    const el = document.getElementById('cp-engagement-list');
+    if (el) el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
+    // Fetch SMS messages for this customer
+    let q = db.from('sms_messages').select('id, direction, body, created_at, from_number, to_number').order('created_at', { ascending: false }).limit(100);
+    if (customerId) q = q.eq('customer_id', customerId);
+    const { data, error } = await q;
+    if (error) { if (el) el.innerHTML = `<div style="color:var(--red);font-size:13px">${error.message}</div>`; return; }
+    _allCpMsgs = data || [];
+    renderCpEngagement();
+  }
+
+  function filterCpEngagement(type, btn) {
+    _cpEngFilter = type;
+    document.querySelectorAll('#cptab-engagement .filter-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    renderCpEngagement();
+  }
+
+  function renderCpEngagement() {
+    const el = document.getElementById('cp-engagement-list');
+    if (!el) return;
+    let msgs = _allCpMsgs;
+    if (_cpEngFilter === 'sms') msgs = msgs.filter(m => true); // all are SMS for now
+    if (_cpEngFilter === 'email') msgs = []; // email not implemented yet
+    if (!msgs.length) {
+      el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:12px 0">${_cpEngFilter === 'email' ? 'Email history coming soon' : 'No messages yet'}</div>`;
+      return;
+    }
+    el.innerHTML = msgs.map(m => {
+      const isOut = m.direction === 'outbound';
+      return `<div style="margin-bottom:10px;padding:10px 12px;border-radius:8px;background:${isOut ? 'var(--gray-50)' : 'white'};border:1px solid var(--gray-200)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:${isOut ? 'var(--accent)' : 'var(--gray-500)'}">
+            ${isOut ? '↑ Sent' : '↓ Received'}
+          </span>
+          <span style="font-size:11.5px;color:var(--gray-400)">${fmtDate(m.created_at)}</span>
+        </div>
+        <div style="font-size:13.5px;color:var(--gray-800);line-height:1.5">${esc(m.body || '')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Global discounts cache
+  let allDiscounts = [];
+  async function loadDiscounts() {
+    const { data } = await db.from('discounts').select('*').eq('active', true).order('name');
+    allDiscounts = data || [];
+    renderDiscounts();
+  }
+
+  function renderDiscounts() {
+    const el = document.getElementById('discounts-list');
+    if (!el) return;
+    if (!allDiscounts.length) {
+      el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:16px">No discounts yet. Create one above.</div>';
+      return;
+    }
+    el.innerHTML = allDiscounts.map(d => `
+      <div style="display:flex;align-items:center;padding:12px 16px;border-top:1px solid var(--gray-100);gap:12px">
+        <div style="flex:1">
+          <div style="font-weight:600;font-size:13.5px;color:var(--gray-900)">${esc(d.name)}</div>
+          <div style="font-size:12px;color:var(--gray-500);margin-top:2px">
+            ${d.type === 'percent' ? d.value + '% off' : fmtMoney(d.value) + ' off'} · ${d.type === 'percent' ? 'Percentage' : 'Fixed amount'}
+          </div>
+        </div>
+        <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;color:var(--red)" onclick="deleteDiscount('${d.id}')">Delete</button>
+      </div>`).join('');
+  }
+
+  function showAddDiscountForm() {
+    document.getElementById('discount-add-form').style.display = 'block';
+    document.getElementById('disc-new-name').focus();
+  }
+
+  function hideAddDiscountForm() {
+    document.getElementById('discount-add-form').style.display = 'none';
+    document.getElementById('disc-new-name').value = '';
+    document.getElementById('disc-new-value').value = '';
+  }
+
+  async function saveNewDiscount() {
+    const name  = document.getElementById('disc-new-name').value.trim();
+    const type  = document.getElementById('disc-new-type').value;
+    const value = parseFloat(document.getElementById('disc-new-value').value) || 0;
+    if (!name) { showToast('Please enter a name', 'error'); return; }
+    if (value <= 0) { showToast('Please enter a value greater than 0', 'error'); return; }
+    const { data, error } = await db.from('discounts').insert({ name, type, value, active: true }).select().single();
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    allDiscounts.push(data);
+    allDiscounts.sort((a,b) => a.name.localeCompare(b.name));
+    hideAddDiscountForm();
+    renderDiscounts();
+    showToast('Discount created ✓', 'success');
+  }
+
+  async function deleteDiscount(id) {
+    if (!confirm('Delete this discount? It will be removed from all customers using it.')) return;
+    const { error } = await db.from('discounts').delete().eq('id', id);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    allDiscounts = allDiscounts.filter(d => d.id !== id);
+    renderDiscounts();
+    showToast('Discount deleted', '');
   }
 
   async function loadPanelOrders(customerId) {
