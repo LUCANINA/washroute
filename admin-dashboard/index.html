@@ -6071,7 +6071,9 @@ window.onload=()=>{window.print();};
         Add Preference
       </button>
     </div>`;
-    body.innerHTML = catTabs + prefsHtml + addBtn + renderSvcAssignmentSection();
+    let svcSection = '';
+    try { svcSection = renderSvcAssignmentSection(); } catch(e) { console.error('[WashRoute] renderSvcAssignmentSection error:', e); }
+    body.innerHTML = catTabs + prefsHtml + addBtn + svcSection;
   }
 
   function setPrefCat(cat) {
@@ -6222,7 +6224,8 @@ window.onload=()=>{window.print();};
     const catGlobalPrefs = allGlobalPrefs.filter(p => p.category === prefActiveCat);
     if (!svcs.length || !catGlobalPrefs.length) return '';
     const cards = svcs.map(svc => {
-      const assigned = (svcPrefsState[svc.id]||[]).filter(p => catGlobalPrefs.some(gp => gp.id === p.id));
+      const svcRaw = svcPrefsState[svc.id];
+      const assigned = (Array.isArray(svcRaw) ? svcRaw : []).filter(p => catGlobalPrefs.some(gp => gp.id === p.id));
       return `<div class="pref-svc-card">
         <div class="pref-svc-header" onclick="toggleSvcBody('svc-pb-${svc.id}')">
           <div>
@@ -6231,7 +6234,7 @@ window.onload=()=>{window.print();};
           </div>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" style="flex-shrink:0;color:var(--gray-300)"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
-        <div class="pref-svc-body" id="svc-pb-${svc.id}">${renderSvcPrefBodyContent(svc.id)}</div>
+        <div class="pref-svc-body open" id="svc-pb-${svc.id}">${renderSvcPrefBodyContent(svc.id)}</div>
       </div>`;
     }).join('');
     return `<div style="border-top:2px solid var(--gray-100);margin-top:4px">
@@ -6242,7 +6245,8 @@ window.onload=()=>{window.print();};
 
   function renderSvcPrefBodyContent(svcId) {
     const catGlobalPrefs = allGlobalPrefs.filter(p => p.category === prefActiveCat);
-    const svcState = svcPrefsState[svcId] || [];
+    const raw = svcPrefsState[svcId];
+    const svcState = Array.isArray(raw) ? raw : [];
     const rows = catGlobalPrefs.map(gp => {
       const assigned = svcState.find(p => p.id === gp.id);
       const optChips = assigned ? `<div style="margin:6px 0 2px 22px;display:flex;flex-wrap:wrap;gap:6px">
