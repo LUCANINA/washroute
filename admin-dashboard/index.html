@@ -143,6 +143,8 @@
     .filter-tabs { display: flex; gap: 2px; background: var(--gray-100); border-radius: var(--radius); padding: 3px; }
     .filter-tab { padding: 5px 12px; border-radius: 6px; font-size: 12.5px; font-weight: 500; color: var(--gray-600); cursor: pointer; border: none; background: transparent; transition: all .12s; }
     .filter-tab.active { background: white; color: var(--gray-900); font-weight: 600; box-shadow: var(--shadow-sm); }
+    .tab-count { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 15px; padding: 0 4px; background: var(--gray-200); border-radius: 20px; font-size: 10.5px; font-weight: 700; margin-left: 4px; color: var(--gray-600); vertical-align: middle; }
+    .filter-tab.active .tab-count { background: var(--gray-200); color: var(--gray-700); }
 
     /* ── SORTABLE TABLE HEADERS ── */
     .th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
@@ -1094,7 +1096,7 @@
           </div>
           <div class="card">
             <div class="card-header" style="flex-wrap:wrap;gap:10px;">
-              <div><div class="card-title">All Orders</div><div class="card-sub" id="orders-count-label"></div></div>
+              <div><div class="card-title">Orders</div><div class="card-sub" id="orders-count-label"></div></div>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <input type="search" id="order-search" placeholder="Search orders…" class="form-input" style="width:190px;padding:6px 10px;font-size:13px" oninput="filterOrdersBySearch(this.value)">
                 <div class="filter-tabs" id="order-filter-tabs">
@@ -1104,10 +1106,6 @@
                   <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
                   <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
                 </div>
-                <button class="btn btn-primary" style="padding:6px 12px" onclick="openModal('add-order')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  New Order
-                </button>
               </div>
             </div>
             <div id="orders-table-body" style="overflow-x:auto;"><div class="loading"><div class="spinner"></div> Loading…</div></div>
@@ -3675,7 +3673,8 @@
     const el = document.getElementById('orders-table-body');
     if (el) el.innerHTML = `<div class="loading"><div class="spinner"></div> Loading…</div>`;
 
-    let q = db.from('orders')
+    // Always fetch all orders — filtering is done client-side so pill counts stay accurate
+    const { data, error } = await db.from('orders')
       .select(`id, order_number, status, total_amount, stripe_payment_intent_id,
                weight_lbs, total_bags, service_id, special_instructions,
                pickup_window_start, pickup_window_end,
@@ -3687,13 +3686,6 @@
                customers(id, first_name_cache, last_name_cache, phone_cache),
                pickup_run:pickup_run_id(id, name),
                delivery_run:delivery_run_id(id, name)`);
-    // Group filters: translate to .in() query
-    if (statusFilter && ORDER_FILTER_GROUPS[statusFilter]) {
-      q = q.in('status', ORDER_FILTER_GROUPS[statusFilter]);
-    } else if (statusFilter && statusFilter !== 'all') {
-      q = q.eq('status', statusFilter);
-    }
-    const { data, error } = await q;
     if (error) {
       console.error('loadOrders error:', error);
       if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load orders</div><div class="empty-sub">${error.message}</div></div>`;
@@ -3701,7 +3693,7 @@
     }
     allOrders = data || [];
 
-    // stats
+    // Stat cards — always reflect full dataset
     const todayStr = today();
     const active = allOrders.filter(o=>!['delivered','cancelled'].includes(o.status)).length;
     const pending = allOrders.filter(o=>['scheduled','ready_for_pickup'].includes(o.status)).length;
@@ -3711,9 +3703,50 @@
     document.getElementById('ostat-pending').textContent = pending;
     document.getElementById('ostat-out').textContent     = outDel;
     document.getElementById('ostat-done').textContent    = doneTdy;
-    document.getElementById('orders-count-label').textContent = `${allOrders.length} order${allOrders.length!==1?'s':''}`;
 
-    renderOrders(allOrders);
+    // Update pill badge counts, then render filtered view
+    updateOrderFilterCounts();
+    renderOrders(getFilteredOrders());
+  }
+
+  // Returns allOrders filtered by currentOrderFilter + orderSearchTerm
+  function getFilteredOrders() {
+    let data = allOrders;
+    if (currentOrderFilter && currentOrderFilter !== 'all') {
+      if (ORDER_FILTER_GROUPS[currentOrderFilter]) {
+        data = data.filter(o => ORDER_FILTER_GROUPS[currentOrderFilter].includes(o.status));
+      } else {
+        data = data.filter(o => o.status === currentOrderFilter);
+      }
+    }
+    if (orderSearchTerm) {
+      data = data.filter(o => {
+        const name = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.toLowerCase();
+        const phone = (o.customers?.phone_cache||'').toLowerCase();
+        const num = String(o.order_number||'');
+        return name.includes(orderSearchTerm) || phone.includes(orderSearchTerm) || num.includes(orderSearchTerm);
+      });
+    }
+    return data;
+  }
+
+  // Updates each pill button to show its count badge
+  function updateOrderFilterCounts() {
+    const counts = {
+      all:       allOrders.length,
+      upcoming:  allOrders.filter(o => (ORDER_FILTER_GROUPS.upcoming||[]).includes(o.status)).length,
+      active:    allOrders.filter(o => (ORDER_FILTER_GROUPS.active||[]).includes(o.status)).length,
+      delivered: allOrders.filter(o => o.status === 'delivered').length,
+      issues:    allOrders.filter(o => (ORDER_FILTER_GROUPS.issues||[]).includes(o.status)).length,
+    };
+    document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
+      const key = btn.dataset.filter;
+      const label = key.charAt(0).toUpperCase() + key.slice(1);
+      const n = counts[key] ?? 0;
+      btn.innerHTML = n > 0
+        ? `${label} <span class="tab-count">${n}</span>`
+        : label;
+    });
   }
 
   // ── ORDER SORT ──
@@ -3771,6 +3804,9 @@
 
   function renderOrders(data) {
     const el = document.getElementById('orders-table-body');
+    // Keep subtitle count in sync with the visible (filtered) set
+    const countEl = document.getElementById('orders-count-label');
+    if (countEl) countEl.textContent = `${data.length} order${data.length!==1?'s':''}`;
     if (!data.length) {
       el.innerHTML = `<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">No orders found</div><div class="empty-sub">Create your first order to get started.</div><button class="btn btn-primary" style="margin-top:16px" onclick="openModal('add-order')">+ New Order</button></div>`;
       return;
@@ -3866,25 +3902,21 @@
   }
 
   function filterOrders(status, btn) {
-    document.querySelectorAll('#page-orders .filter-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
     clearOrderSelection();
+    currentOrderFilter = status || null;
+    // Reset sort direction for this filter (mirrors loadOrders behaviour)
+    orderSortCol = 'pickup_window_start';
+    orderSortDir = currentOrderFilter === 'delivered' ? 'desc' : 'asc';
     const searchEl = document.getElementById('order-search');
     if (searchEl) { searchEl.value = ''; orderSearchTerm = ''; }
-    loadOrders(status);
+    renderOrders(getFilteredOrders());
   }
 
   function filterOrdersBySearch(term) {
     orderSearchTerm = term.trim().toLowerCase();
-    const filtered = orderSearchTerm
-      ? allOrders.filter(o => {
-          const name = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.toLowerCase();
-          const phone = (o.customers?.phone_cache||'').toLowerCase();
-          const num = String(o.order_number||'');
-          return name.includes(orderSearchTerm) || phone.includes(orderSearchTerm) || num.includes(orderSearchTerm);
-        })
-      : allOrders;
-    renderOrders(filtered);
+    renderOrders(getFilteredOrders());
   }
 
   // ── ORDER DETAIL PANEL ──
@@ -4623,7 +4655,7 @@ window.onload=()=>{window.print();};
       }
       // Re-render after short delay so badge + button update cleanly
       setTimeout(() => {
-        loadOrders();
+        loadOrders(currentOrderFilter); // preserve active filter tab
         // If the customer panel is open, refresh its orders list too
         if (panelCustomerId) loadPanelOrders(panelCustomerId);
       }, 600);
