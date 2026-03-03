@@ -6188,9 +6188,11 @@ window.onload=()=>{window.print();};
   async function saveGlobalPref(prefId) {
     const state = globalPrefsLocalState[prefId];
     if (!state || !state.name.trim()) return;
+    // Guard: abort if pref was deleted while onblur was in flight
+    const pref = allGlobalPrefs.find(p => p.id === prefId);
+    if (!pref) return;
     const msgEl = document.getElementById('gpref-msg-'+prefId);
     if (msgEl) msgEl.textContent = '…';
-    const pref = allGlobalPrefs.find(p => p.id === prefId);
     const { error } = await db.rpc('upsert_preference', {
       p_id: prefId, p_name: state.name.trim(), p_category: pref?.category || prefActiveCat,
       p_options: state.options, p_sort_order: pref?.sort_order || 0
