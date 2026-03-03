@@ -944,6 +944,10 @@
         Driver Messages
         <span id="admin-msg-badge" style="display:none;background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:auto">0</span>
       </div>
+      <div id="nav-settings" class="nav-item" onclick="showPage('settings',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        Settings
+      </div>
       <div class="sidebar-footer" onclick="handleSignOut()">
         <div class="avatar" id="user-avatar">?</div>
         <div class="sidebar-user">
@@ -1449,7 +1453,6 @@
               <button class="svc-page-tab"        id="svctab-btn-fees"         onclick="svcPageTab('fees',this)">Fees</button>
               <button class="svc-page-tab"        id="svctab-btn-preferences"  onclick="svcPageTab('preferences',this)">Preferences</button>
               <button class="svc-page-tab"        id="svctab-btn-categories"   onclick="svcPageTab('categories',this)">Categories</button>
-              <button class="svc-page-tab"        id="svctab-btn-settings"     onclick="svcPageTab('settings',this);renderSettingsTab()">⚙️ Settings</button>
             </div>
             <!-- Services tab -->
             <div id="svctab-services">
@@ -1517,8 +1520,6 @@
                 <button class="btn btn-primary" onclick="addCategory()" style="font-size:12.5px;padding:6px 14px">+ Add Category</button>
               </div>
             </div>
-            <!-- Settings tab -->
-            <div id="svctab-settings" style="display:none"></div>
           </div>
         </div>
 
@@ -1848,6 +1849,9 @@
 
           </div>
         </div><!-- /page-driver-messages -->
+
+        <!-- ── SETTINGS ── -->
+        <div class="page" id="page-settings"></div>
 
       </div><!-- /content -->
     </div><!-- /main -->
@@ -3111,8 +3115,8 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', 'driver-messages':'Driver Messages' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', 'driver-messages':'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', 'driver-messages':'Driver Messages', settings:'Settings' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', 'driver-messages':'', settings:'' };
 
   function showPage(id, navEl) {
     // If leaving orders page, clear any active batch selection
@@ -3139,6 +3143,7 @@
     if (id === 'racks') loadRackManagement();
     if (id === 'discounts') renderDiscounts();
     if (id === 'driver-messages') loadAdminDriverMessages();
+    if (id === 'settings') renderSettingsTab();
   }
 
   function handleCTA() {
@@ -3177,21 +3182,22 @@
     const options = timezones.map(tz =>
       `<option value="${tz.value}" ${BIZ_TZ === tz.value ? 'selected' : ''}>${tz.label}</option>`
     ).join('');
-    const el = document.getElementById('svctab-settings');
+    const el = document.getElementById('page-settings');
     if (!el) return;
     el.innerHTML = `
-      <div style="padding:24px 24px 32px;max-width:540px">
-        <div style="font-size:13.5px;font-weight:700;color:var(--gray-800);margin-bottom:6px">Business Timezone</div>
-        <div style="font-size:13px;color:var(--gray-500);margin-bottom:14px">
-          Controls how pickup and delivery times are displayed throughout the admin dashboard.
-          Should match the timezone where your business operates.
+      <div class="card" style="max-width:540px">
+        <div class="card-header">
+          <div class="card-title">Business Timezone</div>
+          <div class="card-sub">Controls how pickup and delivery times are displayed throughout the admin dashboard.</div>
         </div>
-        <select id="settings-tz-select" class="form-select" style="width:100%;font-size:13.5px;margin-bottom:16px">
-          ${options}
-        </select>
-        <button class="btn btn-primary" onclick="saveSettings()" style="font-size:13.5px;padding:8px 20px">
-          Save Settings
-        </button>
+        <div style="padding:20px 24px 24px">
+          <select id="settings-tz-select" class="form-select" style="width:100%;font-size:13.5px;margin-bottom:16px">
+            ${options}
+          </select>
+          <button class="btn btn-primary" onclick="saveSettings()" style="font-size:13.5px;padding:8px 20px">
+            Save
+          </button>
+        </div>
       </div>`;
   }
 
@@ -5458,7 +5464,7 @@ window.onload=()=>{window.print();};
   }
 
   function svcPageTab(name, btn) {
-    ['services','display','fees','preferences','categories','settings'].forEach(n => {
+    ['services','display','fees','preferences','categories'].forEach(n => {
       const el = document.getElementById('svctab-'+n);
       if (el) el.style.display = n===name ? '' : 'none';
       const b = document.getElementById('svctab-btn-'+n);
