@@ -2895,6 +2895,7 @@
   let currentDriverId = null;
   let driverFilter = 'all';
   let allServices        = [];
+  let svcPrefsState      = {}; // svcId → [{id, name, options:[{id,label,price_mod,is_default}]}]
   let allCategories      = []; // { id, name, sort_order }
   let allFees            = []; // { id, name, amount, fee_type, category, is_active, sort_order }
   let svcAutoSaveTimers  = {}; // debounced auto-save per service id
@@ -6070,7 +6071,7 @@ window.onload=()=>{window.print();};
         Add Preference
       </button>
     </div>`;
-    body.innerHTML = catTabs + prefsHtml + addBtn;
+    body.innerHTML = catTabs + prefsHtml + addBtn + renderSvcAssignmentSection();
   }
 
   function setPrefCat(cat) {
@@ -6212,6 +6213,106 @@ window.onload=()=>{window.print();};
     delete globalPrefsLocalState[prefId];
     renderGlobalPrefs();
     showToast('Preference deleted.', 'success');
+  }
+
+  // ── PREFERENCE → SERVICE ASSIGNMENT ──
+
+  function renderSvcAssignmentSection() {
+    const svcs = allServices.filter(s => s.category === prefActiveCat);
+    const catGlobalPrefs = allGlobalPrefs.filter(p => p.category === prefActiveCat);
+    if (!svcs.length || !catGlobalPrefs.length) return '';
+    const cards = svcs.map(svc => {
+      const assigned = (svcPrefsState[svc.id]||[]).filter(p => catGlobalPrefs.some(gp => gp.id === p.id));
+      return `<div class="pref-svc-card">
+        <div class="pref-svc-header" onclick="toggleSvcBody('svc-pb-${svc.id}')">
+          <div>
+            <span class="pref-svc-name">${svcEsc(svc.name)}</span>
+            <span class="pref-svc-meta" id="svc-pb-meta-${svc.id}">${assigned.length ? assigned.length+' pref'+(assigned.length!==1?'s':'')+' assigned' : 'none assigned'}</span>
+          </div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" style="flex-shrink:0;color:var(--gray-300)"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="pref-svc-body" id="svc-pb-${svc.id}">${renderSvcPrefBodyContent(svc.id)}</div>
+      </div>`;
+    }).join('');
+    return `<div style="border-top:2px solid var(--gray-100);margin-top:4px">
+      <div style="padding:14px 20px 8px;font-size:11px;font-weight:700;color:var(--gray-400);letter-spacing:.06em;text-transform:uppercase">Apply to Services</div>
+      <div>${cards}</div>
+    </div>`;
+  }
+
+  function renderSvcPrefBodyContent(svcId) {
+    const catGlobalPrefs = allGlobalPrefs.filter(p => p.category === prefActiveCat);
+    const svcState = svcPrefsState[svcId] || [];
+    const rows = catGlobalPrefs.map(gp => {
+      const assigned = svcState.find(p => p.id === gp.id);
+      const optChips = assigned ? `<div style="margin:6px 0 2px 22px;display:flex;flex-wrap:wrap;gap:6px">
+        ${(assigned.options||[]).map(opt => `<div style="display:flex;align-items:center;gap:4px;background:white;border:1px solid var(--gray-200);border-radius:7px;padding:4px 8px;font-size:12px">
+          <span style="color:var(--gray-600)">${svcEsc(opt.label)}</span>
+          <span style="color:var(--gray-300);font-size:11px">+$</span>
+          <input type="number" step="0.25" min="0" value="${parseFloat(opt.price_mod||0).toFixed(2)}"
+                 style="width:46px;border:none;font-size:12px;font-family:inherit;color:var(--gray-700);background:transparent;text-align:right;outline:none"
+                 oninput="updateSvcOptPriceMod('${svcId}','${gp.id}','${opt.id}',this.value)" />
+        </div>`).join('')}
+      </div>` : '';
+      return `<div style="margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
+          <input type="checkbox" ${assigned?'checked':''} onchange="togglePrefOnService('${svcId}','${gp.id}',this.checked)" />
+          <span style="font-size:13px;font-weight:600;color:var(--gray-700)">${svcEsc(gp.name)}</span>
+        </label>
+        ${optChips}
+      </div>`;
+    }).join('');
+    return `<div>
+      ${rows || '<div style="color:var(--gray-400);font-size:13px">No preferences defined for this category yet.</div>'}
+      <div style="display:flex;justify-content:flex-end;padding-top:8px;border-top:1px solid var(--gray-100);margin-top:6px">
+        <button class="pref-save-btn" onclick="saveSvcPrefs('${svcId}')">Save</button>
+      </div>
+    </div>`;
+  }
+
+  function toggleSvcBody(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('open');
+  }
+
+  function togglePrefOnService(svcId, globalPrefId, checked) {
+    const gp = allGlobalPrefs.find(p => p.id === globalPrefId);
+    if (!gp) return;
+    if (!svcPrefsState[svcId]) svcPrefsState[svcId] = [];
+    if (checked) {
+      const newEntry = {
+        id: gp.id, name: gp.name,
+        options: (gp.options||[]).map(o => ({ id: o.id, label: o.label, price_mod: 0, is_default: !!o.is_default }))
+      };
+      svcPrefsState[svcId] = [...svcPrefsState[svcId].filter(p => p.id !== globalPrefId), newEntry];
+    } else {
+      svcPrefsState[svcId] = svcPrefsState[svcId].filter(p => p.id !== globalPrefId);
+    }
+    // Refresh only this service's body (preserve open state) and update the meta badge
+    const bodyEl = document.getElementById('svc-pb-'+svcId);
+    if (bodyEl) bodyEl.innerHTML = renderSvcPrefBodyContent(svcId);
+    const metaEl = document.getElementById('svc-pb-meta-'+svcId);
+    if (metaEl) {
+      const catGP = allGlobalPrefs.filter(gp2 => gp2.category === prefActiveCat);
+      const n = (svcPrefsState[svcId]||[]).filter(p => catGP.some(gp2 => gp2.id === p.id)).length;
+      metaEl.textContent = n ? n+' pref'+(n!==1?'s':'')+' assigned' : 'none assigned';
+    }
+  }
+
+  function updateSvcOptPriceMod(svcId, prefId, optId, val) {
+    const pref = (svcPrefsState[svcId]||[]).find(p => p.id === prefId);
+    if (!pref) return;
+    const opt = (pref.options||[]).find(o => o.id === optId);
+    if (opt) opt.price_mod = parseFloat(val) || 0;
+  }
+
+  async function saveSvcPrefs(svcId) {
+    const prefs = svcPrefsState[svcId] || [];
+    const { error } = await db.from('services').update({ preferences: prefs }).eq('id', svcId);
+    if (error) { showToast(error.message, 'error'); return; }
+    const svc = allServices.find(s => s.id === svcId);
+    if (svc) svc.preferences = JSON.parse(JSON.stringify(prefs));
+    showToast('✓ Service preferences saved', 'success');
   }
 
   // ── NOTIFICATIONS ──
