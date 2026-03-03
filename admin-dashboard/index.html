@@ -6180,10 +6180,13 @@ window.onload=()=>{window.print();};
       p_name: '', p_category: prefActiveCat, p_options: [], p_sort_order: maxSort
     });
     if (error) { showToast(error.message, 'error'); return; }
-    allGlobalPrefs.push(data);
-    globalPrefsLocalState[data.id] = { name: '', options: [] };
+    // PostgREST wraps single-row RPC results in an array — unwrap it
+    const newPref = Array.isArray(data) ? data[0] : data;
+    if (!newPref) { showToast('Failed to create preference', 'error'); return; }
+    allGlobalPrefs.push(newPref);
+    globalPrefsLocalState[newPref.id] = { name: '', options: [] };
     renderGlobalPrefs();
-    setTimeout(() => document.getElementById('gpref-'+data.id)?.querySelector('.pref-group-name')?.focus(), 50);
+    setTimeout(() => document.getElementById('gpref-'+newPref.id)?.querySelector('.pref-group-name')?.focus(), 50);
   }
 
   async function saveGlobalPref(prefId) {
