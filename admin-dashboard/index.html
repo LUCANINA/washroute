@@ -6037,7 +6037,12 @@ window.onload=()=>{window.print();};
   async function loadGlobalPrefs() {
     const body = document.getElementById('pref-builder-body');
     if (body) body.innerHTML = '<div class="loading" style="padding:32px"><div class="spinner"></div> Loading…</div>';
-    const { data } = await db.from('preferences').select('*').order('sort_order').order('name');
+    // Load categories and preferences in parallel — ensures categories are always ready
+    // even if the user navigates directly to this tab before loadServices() has run
+    const [{ data }] = await Promise.all([
+      db.from('preferences').select('*').order('sort_order').order('name'),
+      allCategories.length ? Promise.resolve() : loadCategories()
+    ]);
     allGlobalPrefs = data || [];
     globalPrefsLocalState = {};
     allGlobalPrefs.forEach(p => {
@@ -6203,6 +6208,7 @@ window.onload=()=>{window.print();};
     });
     if (error) { showToast(error.message, 'error'); return; }
     allGlobalPrefs = allGlobalPrefs.map(p => p.id===prefId ? {...p, name: state.name.trim(), options: JSON.parse(JSON.stringify(state.options))} : p);
+    showToast('✓ Preference saved', 'success');
     const msgEl = document.getElementById('gpref-msg-'+prefId);
     if (msgEl) { msgEl.textContent = '✓ Saved'; setTimeout(()=>{ if(msgEl) msgEl.textContent=''; },2000); }
   }
