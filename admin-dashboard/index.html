@@ -6201,11 +6201,14 @@ window.onload=()=>{window.print();};
     const state = globalPrefsLocalState[prefId];
     if (!state) return;
     if (!state.name.trim()) { showToast('Please enter a preference name.', 'error'); return; }
+    const btn = document.querySelector('#gpref-'+prefId+' .pref-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     const pref = allGlobalPrefs.find(p => p.id === prefId);
     const { error } = await db.rpc('upsert_preference', {
       p_id: prefId, p_name: state.name.trim(), p_category: pref?.category || prefActiveCat,
       p_options: state.options, p_sort_order: pref?.sort_order || 0
     });
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
     if (error) { showToast(error.message, 'error'); return; }
     allGlobalPrefs = allGlobalPrefs.map(p => p.id===prefId ? {...p, name: state.name.trim(), options: JSON.parse(JSON.stringify(state.options))} : p);
     showToast('✓ Preference saved', 'success');
@@ -6240,7 +6243,7 @@ window.onload=()=>{window.print();};
           </div>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" style="flex-shrink:0;color:var(--gray-300)"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
-        <div class="pref-svc-body open" id="svc-pb-${svc.id}">${renderSvcPrefBodyContent(svc.id)}</div>
+        <div class="pref-svc-body" id="svc-pb-${svc.id}">${renderSvcPrefBodyContent(svc.id)}</div>
       </div>`;
     }).join('');
     return `<div style="border-top:2px solid var(--gray-100);margin-top:4px">
@@ -6317,8 +6320,11 @@ window.onload=()=>{window.print();};
   }
 
   async function saveSvcPrefs(svcId) {
+    const btn = document.querySelector('#svc-pb-'+svcId+' .pref-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     const prefs = svcPrefsState[svcId] || [];
     const { error } = await db.from('services').update({ preferences: prefs }).eq('id', svcId);
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
     if (error) { showToast(error.message, 'error'); return; }
     const svc = allServices.find(s => s.id === svcId);
     if (svc) svc.preferences = JSON.parse(JSON.stringify(prefs));

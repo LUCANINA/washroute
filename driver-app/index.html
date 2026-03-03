@@ -1263,7 +1263,7 @@ function renderStopDetail(stop) {
       h += `<div style="padding:0 20px 16px">
         <div class="next-stop-nudge">
           <div class="nsn-info">
-            <div class="nsn-label">Next Stop · ${next.stop_type.toUpperCase()} ${next.stop_number}</div>
+            <div class="nsn-label">Next Stop · ${(next.stop_type||'').toUpperCase()} ${next.stop_number}</div>
             <div class="nsn-title">${nn}</div>
             <div class="nsn-addr">${na ? `${na.line1}, ${na.city}` : 'No address'}</div>
           </div>

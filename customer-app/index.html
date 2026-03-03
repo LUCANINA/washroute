@@ -1442,6 +1442,11 @@ function goOrderStep(step) {
   if (step === 1 && !draft.zoneId)         { toast('Please check your address first');  return; }
   if (step === 2 && !draft.pickupDate)     { toast('Please choose a pickup day');       return; }
   if (step === 2 && !draft.pickupWindow)   { toast('Please choose a pickup time');      return; }
+  // Skip the preferences step if the selected service has no preferences configured
+  if (step === 2 && !defaultService?.preferences?.length) {
+    goOrderStep(orderStep < 2 ? 3 : 1);
+    return;
+  }
   if (step === 2) renderOrderPrefs();
   if (step === 4) { buildConfirmSummary(); renderConfirmAuth(); }
   orderStep = step;
