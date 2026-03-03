@@ -312,38 +312,26 @@
     .fee-add-row { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-top: 2px dashed var(--gray-200); background: var(--gray-50); border-radius: 0 0 var(--radius) var(--radius); flex-wrap: wrap; }
     /* Preferences builder */
     .pref-empty { padding: 40px; text-align: center; color: var(--gray-400); font-size: 13.5px; }
-    .pref-svc-card { border-bottom: 1px solid var(--gray-100); }
-    .pref-svc-card:last-child { border-bottom: none; }
-    .pref-svc-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; cursor: pointer; user-select: none; transition: background .1s; }
-    .pref-svc-header:hover { background: var(--gray-50); }
-    .pref-svc-name { font-size: 14px; font-weight: 600; color: var(--gray-800); }
-    .pref-svc-meta { font-size: 12px; color: var(--gray-400); margin-left: 8px; font-weight: 400; }
-    .pref-svc-body { padding: 0 20px 16px; display: none; }
-    .pref-svc-body.open { display: block; }
-    .pref-group { background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 10px; padding: 14px; margin-bottom: 10px; }
-    .pref-group-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-    .pref-group-name { flex: 1; border: 1.5px solid var(--gray-200); border-radius: 7px; padding: 7px 10px; font-size: 13.5px; font-weight: 600; font-family: inherit; color: var(--gray-800); background: white; transition: border-color .12s; }
-    .pref-group-name:focus { border-color: var(--accent); outline: none; }
-    .pref-group-del { background: none; border: none; cursor: pointer; color: var(--gray-300); padding: 4px; border-radius: 5px; display: flex; transition: all .12s; }
-    .pref-group-del:hover { color: var(--red); background: var(--red-light); }
-    .pref-options-wrap { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 32px; }
-    .pref-option-chip { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 20px; font-size: 12.5px; font-weight: 500; border: 1.5px solid var(--gray-200); background: white; color: var(--gray-700); cursor: pointer; transition: all .12s; user-select: none; }
+    .pref-row { display: grid; grid-template-columns: 210px 1fr 80px; align-items: flex-start; gap: 14px; padding: 11px 20px; border-bottom: 1px solid var(--gray-100); transition: background .1s; }
+    .pref-row:hover { background: var(--gray-50); }
+    .pref-row:last-child { border-bottom: none; }
+    .pref-name-input { border: none; background: transparent; font-size: 14px; font-weight: 600; color: var(--gray-800); font-family: inherit; width: 100%; outline: none; padding: 4px 6px; border-radius: 5px; margin-top: 2px; }
+    .pref-name-input:hover { background: var(--gray-100); }
+    .pref-name-input:focus { background: white; border: 1.5px solid var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
+    .pref-opts-cell { display: flex; flex-direction: column; gap: 6px; padding: 2px 0; }
+    .pref-option-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px; font-size: 12.5px; font-weight: 500; border: 1.5px solid var(--gray-200); background: white; color: var(--gray-700); cursor: pointer; transition: all .12s; user-select: none; }
     .pref-option-chip.default { background: #ede9ff; border-color: var(--accent); color: var(--accent); }
-    .pref-option-chip .chip-price { font-size: 11px; color: var(--gray-400); }
-    .pref-option-chip.default .chip-price { color: #7c6fcd; }
     .pref-chip-del { background: none; border: none; cursor: pointer; color: var(--gray-300); padding: 0; line-height: 1; font-size: 14px; margin-left: 2px; transition: color .12s; }
     .pref-chip-del:hover { color: var(--red); }
-    .pref-add-option-btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border: 1.5px dashed var(--gray-300); border-radius: 20px; font-size: 12px; color: var(--gray-400); background: none; cursor: pointer; transition: all .12s; font-family: inherit; }
+    .pref-chips-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+    .pref-add-option-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; border: 1.5px dashed var(--gray-300); border-radius: 20px; font-size: 12px; color: var(--gray-400); background: none; cursor: pointer; transition: all .12s; font-family: inherit; }
     .pref-add-option-btn:hover { border-color: var(--accent); color: var(--accent); }
-    .pref-add-option-form { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--gray-200); display: none; }
-    .pref-add-option-form.open { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .pref-opt-input { border: 1.5px solid var(--gray-200); border-radius: 7px; padding: 6px 10px; font-size: 13px; font-family: inherit; color: var(--gray-800); background: white; transition: border-color .12s; }
+    .pref-add-option-form { display: none; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .pref-add-option-form.open { display: flex; }
+    .pref-opt-input { border: 1.5px solid var(--gray-200); border-radius: 7px; padding: 5px 10px; font-size: 13px; font-family: inherit; color: var(--gray-800); background: white; transition: border-color .12s; }
     .pref-opt-input:focus { border-color: var(--accent); outline: none; }
-    .pref-save-btn { padding: 7px 18px; font-size: 13px; font-weight: 600; background: var(--accent); color: white; border: none; border-radius: 8px; cursor: pointer; transition: background .12s; }
-    .pref-save-btn:hover { background: #5046e5; }
-    .pref-save-msg { font-size: 12px; color: #059669; }
-    .pref-add-group-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border: 1.5px dashed var(--gray-300); border-radius: 8px; font-size: 13px; color: var(--gray-400); background: none; cursor: pointer; margin-top: 4px; transition: all .12s; font-family: inherit; }
-    .pref-add-group-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .pref-row-actions { display: flex; align-items: flex-start; justify-content: flex-end; gap: 6px; padding-top: 4px; }
+    .pref-hint { font-size: 11px; color: var(--gray-400); margin-top: 2px; }
 
     /* ── CUSTOMER SIDE PANEL ── */
     .side-panel { position: fixed; top: 0; right: -620px; width: 600px; height: 100vh; background: white; box-shadow: -4px 0 40px rgba(0,0,0,.18); z-index: 300; display: flex; flex-direction: column; transition: right .3s cubic-bezier(.4,0,.2,1); overflow: hidden; }
@@ -2895,7 +2883,7 @@
   let currentDriverId = null;
   let driverFilter = 'all';
   let allServices        = [];
-  let svcPrefsState      = {}; // svcId → [{id, name, options:[{id,label,price_mod,is_default}]}]
+  // svcPrefsState removed — preferences are no longer assigned at service level
   let allCategories      = []; // { id, name, sort_order }
   let allFees            = []; // { id, name, amount, fee_type, category, is_active, sort_order }
   let svcAutoSaveTimers  = {}; // debounced auto-save per service id
@@ -5425,7 +5413,7 @@ window.onload=()=>{window.print();};
         .then(({ data }) => {
           allServices = data || [];
           allServices.forEach(s => {
-            svcPrefsState[s.id] = JSON.parse(JSON.stringify(s.preferences || []));
+            // svcPrefsState removed
           });
         })
     ]);
@@ -6068,17 +6056,15 @@ window.onload=()=>{window.print();};
     </div>`;
     const catPrefs = allGlobalPrefs.filter(p => p.category === prefActiveCat);
     const prefsHtml = catPrefs.length
-      ? `<div style="padding:0 20px">${catPrefs.map(p => renderGlobalPrefCard(p)).join('')}</div>`
+      ? `<div>${catPrefs.map(p => renderGlobalPrefCard(p)).join('')}</div>`
       : `<div class="pref-empty" style="padding:24px 20px">No preferences for ${svcEsc(prefActiveCat)} yet.<br><span style="font-size:12px">Click "+ Add Preference" below to create one.</span></div>`;
-    const addBtn = `<div style="padding:8px 20px 16px">
-      <button class="pref-add-group-btn" onclick="addGlobalPref()">
+    const addBtn = `<div class="fee-add-row" style="border-radius:0 0 var(--radius) var(--radius)">
+      <button class="btn btn-secondary" onclick="addGlobalPref()" style="font-size:13px">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Add Preference
       </button>
     </div>`;
-    let svcSection = '';
-    try { svcSection = renderSvcAssignmentSection(); } catch(e) { console.error('[WashRoute] renderSvcAssignmentSection error:', e); }
-    body.innerHTML = catTabs + prefsHtml + addBtn + svcSection;
+    body.innerHTML = catTabs + prefsHtml + addBtn;
   }
 
   function setPrefCat(cat) {
@@ -6089,31 +6075,30 @@ window.onload=()=>{window.print();};
   function renderGlobalPrefCard(pref) {
     const state = globalPrefsLocalState[pref.id] || { name: pref.name, options: [] };
     const opts = state.options || [];
-    return `<div class="pref-group" id="gpref-${pref.id}" style="margin-bottom:12px">
-      <div class="pref-group-header">
-        <input class="pref-group-name" value="${svcEsc(state.name)}" placeholder="Preference name (e.g. Wash Temperature)"
-               oninput="updateGlobalPrefName('${pref.id}',this.value)" />
-        <button class="pref-group-del" onclick="deleteGlobalPref('${pref.id}')" title="Delete preference">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    return `<div class="pref-row" id="gpref-${pref.id}">
+      <input class="pref-name-input" value="${svcEsc(state.name)}" placeholder="Preference name…"
+             oninput="updateGlobalPrefName('${pref.id}',this.value)"
+             onblur="saveGlobalPref('${pref.id}')" />
+      <div class="pref-opts-cell">
+        <div class="pref-chips-row" id="gopts-${pref.id}">
+          ${opts.map(opt => renderGlobalOptionChip(pref.id, opt)).join('')}
+          <button class="pref-add-option-btn" onclick="showGlobalAddOptForm('${pref.id}')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="10" height="10"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add option
+          </button>
+        </div>
+        <div class="pref-add-option-form" id="gadd-opt-form-${pref.id}">
+          <input class="pref-opt-input" id="gnew-opt-label-${pref.id}" placeholder="Option label…" style="width:160px"
+                 onkeydown="if(event.key==='Enter')commitGlobalAddOpt('${pref.id}');else if(event.key==='Escape')hideGlobalAddOptForm('${pref.id}')" />
+          <button class="btn btn-primary" onclick="commitGlobalAddOpt('${pref.id}')" style="font-size:12px;padding:5px 12px">Add</button>
+          <button onclick="hideGlobalAddOptForm('${pref.id}')" style="font-size:12.5px;padding:5px 8px;background:none;border:none;color:var(--gray-400);cursor:pointer;font-family:inherit">Cancel</button>
+        </div>
+      </div>
+      <div class="pref-row-actions">
+        <span style="font-size:11px;color:#059669;white-space:nowrap" id="gpref-msg-${pref.id}"></span>
+        <button class="fee-del-btn" onclick="deleteGlobalPref('${pref.id}')" title="Delete preference">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
         </button>
-      </div>
-      <div style="font-size:11px;color:var(--gray-400);margin-bottom:8px">Click an option to set it as the default (highlighted in purple)</div>
-      <div class="pref-options-wrap" id="gopts-${pref.id}">
-        ${opts.map(opt => renderGlobalOptionChip(pref.id, opt)).join('')}
-        <button class="pref-add-option-btn" onclick="showGlobalAddOptForm('${pref.id}')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="11" height="11"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add option
-        </button>
-      </div>
-      <div class="pref-add-option-form" id="gadd-opt-form-${pref.id}">
-        <input class="pref-opt-input" id="gnew-opt-label-${pref.id}" placeholder="Option label (e.g. Cold)" style="width:200px"
-               onkeydown="if(event.key==='Enter')commitGlobalAddOpt('${pref.id}')" />
-        <button class="btn btn-primary" onclick="commitGlobalAddOpt('${pref.id}')" style="font-size:12.5px;padding:6px 12px">Add</button>
-        <button onclick="hideGlobalAddOptForm('${pref.id}')" style="font-size:12.5px;padding:6px 10px;background:none;border:none;color:var(--gray-400);cursor:pointer;font-family:inherit">Cancel</button>
-      </div>
-      <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--gray-100)">
-        <span id="gpref-msg-${pref.id}" style="font-size:12px;color:#059669"></span>
-        <button class="pref-save-btn" onclick="saveGlobalPref('${pref.id}')">Save</button>
       </div>
     </div>`;
   }
@@ -6157,6 +6142,7 @@ window.onload=()=>{window.print();};
     state.options.push({ id: rndId(), label, is_default: isFirst });
     refreshGlobalPrefCard(prefId);
     hideGlobalAddOptForm(prefId);
+    saveGlobalPref(prefId);
   }
 
   function removeGlobalOpt(prefId, optId) {
@@ -6165,6 +6151,7 @@ window.onload=()=>{window.print();};
     state.options = state.options.filter(o => o.id !== optId);
     if (state.options.length && !state.options.some(o => o.is_default)) state.options[0].is_default = true;
     refreshGlobalPrefCard(prefId);
+    saveGlobalPref(prefId);
   }
 
   function setGlobalDefaultOpt(prefId, optId) {
@@ -6172,6 +6159,7 @@ window.onload=()=>{window.print();};
     if (!state) return;
     state.options.forEach(o => o.is_default = o.id === optId);
     refreshGlobalPrefCard(prefId);
+    saveGlobalPref(prefId);
   }
 
   function refreshGlobalPrefCard(prefId) {
@@ -6194,26 +6182,22 @@ window.onload=()=>{window.print();};
     allGlobalPrefs.push(newPref);
     globalPrefsLocalState[newPref.id] = { name: '', options: [] };
     renderGlobalPrefs();
-    setTimeout(() => document.getElementById('gpref-'+newPref.id)?.querySelector('.pref-group-name')?.focus(), 50);
+    setTimeout(() => document.getElementById('gpref-'+newPref.id)?.querySelector('.pref-name-input')?.focus(), 50);
   }
 
   async function saveGlobalPref(prefId) {
     const state = globalPrefsLocalState[prefId];
-    if (!state) return;
-    if (!state.name.trim()) { showToast('Please enter a preference name.', 'error'); return; }
-    const btn = document.querySelector('#gpref-'+prefId+' .pref-save-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    if (!state || !state.name.trim()) return;
+    const msgEl = document.getElementById('gpref-msg-'+prefId);
+    if (msgEl) msgEl.textContent = '…';
     const pref = allGlobalPrefs.find(p => p.id === prefId);
     const { error } = await db.rpc('upsert_preference', {
       p_id: prefId, p_name: state.name.trim(), p_category: pref?.category || prefActiveCat,
       p_options: state.options, p_sort_order: pref?.sort_order || 0
     });
-    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
-    if (error) { showToast(error.message, 'error'); return; }
+    if (error) { if (msgEl) msgEl.textContent = ''; showToast(error.message, 'error'); return; }
     allGlobalPrefs = allGlobalPrefs.map(p => p.id===prefId ? {...p, name: state.name.trim(), options: JSON.parse(JSON.stringify(state.options))} : p);
-    showToast('✓ Preference saved', 'success');
-    const msgEl = document.getElementById('gpref-msg-'+prefId);
-    if (msgEl) { msgEl.textContent = '✓ Saved'; setTimeout(()=>{ if(msgEl) msgEl.textContent=''; },2000); }
+    if (msgEl) { msgEl.textContent = '✓'; setTimeout(()=>{ if(msgEl) msgEl.textContent=''; }, 1500); }
   }
 
   async function deleteGlobalPref(prefId) {
@@ -6224,111 +6208,6 @@ window.onload=()=>{window.print();};
     delete globalPrefsLocalState[prefId];
     renderGlobalPrefs();
     showToast('Preference deleted.', 'success');
-  }
-
-  // ── PREFERENCE → SERVICE ASSIGNMENT ──
-
-  function renderSvcAssignmentSection() {
-    const svcs = allServices.filter(s => s.category === prefActiveCat);
-    const catGlobalPrefs = allGlobalPrefs.filter(p => p.category === prefActiveCat);
-    if (!svcs.length || !catGlobalPrefs.length) return '';
-    const cards = svcs.map(svc => {
-      const svcRaw = svcPrefsState[svc.id];
-      const assigned = (Array.isArray(svcRaw) ? svcRaw : []).filter(p => catGlobalPrefs.some(gp => gp.id === p.id));
-      return `<div class="pref-svc-card">
-        <div class="pref-svc-header" onclick="toggleSvcBody('svc-pb-${svc.id}')">
-          <div>
-            <span class="pref-svc-name">${svcEsc(svc.name)}</span>
-            <span class="pref-svc-meta" id="svc-pb-meta-${svc.id}">${assigned.length ? assigned.length+' pref'+(assigned.length!==1?'s':'')+' assigned' : 'none assigned'}</span>
-          </div>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" style="flex-shrink:0;color:var(--gray-300)"><polyline points="6 9 12 15 18 9"/></svg>
-        </div>
-        <div class="pref-svc-body" id="svc-pb-${svc.id}">${renderSvcPrefBodyContent(svc.id)}</div>
-      </div>`;
-    }).join('');
-    return `<div style="border-top:2px solid var(--gray-100);margin-top:4px">
-      <div style="padding:14px 20px 8px;font-size:11px;font-weight:700;color:var(--gray-400);letter-spacing:.06em;text-transform:uppercase">Apply to Services</div>
-      <div>${cards}</div>
-    </div>`;
-  }
-
-  function renderSvcPrefBodyContent(svcId) {
-    const catGlobalPrefs = allGlobalPrefs.filter(p => p.category === prefActiveCat);
-    const raw = svcPrefsState[svcId];
-    const svcState = Array.isArray(raw) ? raw : [];
-    const rows = catGlobalPrefs.map(gp => {
-      const assigned = svcState.find(p => p.id === gp.id);
-      const optChips = assigned ? `<div style="margin:6px 0 2px 22px;display:flex;flex-wrap:wrap;gap:6px">
-        ${(assigned.options||[]).map(opt => `<div style="display:flex;align-items:center;gap:4px;background:white;border:1px solid var(--gray-200);border-radius:7px;padding:4px 8px;font-size:12px">
-          <span style="color:var(--gray-600)">${svcEsc(opt.label)}</span>
-          <span style="color:var(--gray-300);font-size:11px">+$</span>
-          <input type="number" step="0.25" min="0" value="${parseFloat(opt.price_mod||0).toFixed(2)}"
-                 style="width:46px;border:none;font-size:12px;font-family:inherit;color:var(--gray-700);background:transparent;text-align:right;outline:none"
-                 oninput="updateSvcOptPriceMod('${svcId}','${gp.id}','${opt.id}',this.value)" />
-        </div>`).join('')}
-      </div>` : '';
-      return `<div style="margin-bottom:8px">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
-          <input type="checkbox" ${assigned?'checked':''} onchange="togglePrefOnService('${svcId}','${gp.id}',this.checked)" />
-          <span style="font-size:13px;font-weight:600;color:var(--gray-700)">${svcEsc(gp.name)}</span>
-        </label>
-        ${optChips}
-      </div>`;
-    }).join('');
-    return `<div>
-      ${rows || '<div style="color:var(--gray-400);font-size:13px">No preferences defined for this category yet.</div>'}
-      <div style="display:flex;justify-content:flex-end;padding-top:8px;border-top:1px solid var(--gray-100);margin-top:6px">
-        <button class="pref-save-btn" onclick="saveSvcPrefs('${svcId}')">Save</button>
-      </div>
-    </div>`;
-  }
-
-  function toggleSvcBody(id) {
-    const el = document.getElementById(id);
-    if (el) el.classList.toggle('open');
-  }
-
-  function togglePrefOnService(svcId, globalPrefId, checked) {
-    const gp = allGlobalPrefs.find(p => p.id === globalPrefId);
-    if (!gp) return;
-    if (!svcPrefsState[svcId]) svcPrefsState[svcId] = [];
-    if (checked) {
-      const newEntry = {
-        id: gp.id, name: gp.name,
-        options: (gp.options||[]).map(o => ({ id: o.id, label: o.label, price_mod: 0, is_default: !!o.is_default }))
-      };
-      svcPrefsState[svcId] = [...svcPrefsState[svcId].filter(p => p.id !== globalPrefId), newEntry];
-    } else {
-      svcPrefsState[svcId] = svcPrefsState[svcId].filter(p => p.id !== globalPrefId);
-    }
-    // Refresh only this service's body (preserve open state) and update the meta badge
-    const bodyEl = document.getElementById('svc-pb-'+svcId);
-    if (bodyEl) bodyEl.innerHTML = renderSvcPrefBodyContent(svcId);
-    const metaEl = document.getElementById('svc-pb-meta-'+svcId);
-    if (metaEl) {
-      const catGP = allGlobalPrefs.filter(gp2 => gp2.category === prefActiveCat);
-      const n = (svcPrefsState[svcId]||[]).filter(p => catGP.some(gp2 => gp2.id === p.id)).length;
-      metaEl.textContent = n ? n+' pref'+(n!==1?'s':'')+' assigned' : 'none assigned';
-    }
-  }
-
-  function updateSvcOptPriceMod(svcId, prefId, optId, val) {
-    const pref = (svcPrefsState[svcId]||[]).find(p => p.id === prefId);
-    if (!pref) return;
-    const opt = (pref.options||[]).find(o => o.id === optId);
-    if (opt) opt.price_mod = parseFloat(val) || 0;
-  }
-
-  async function saveSvcPrefs(svcId) {
-    const btn = document.querySelector('#svc-pb-'+svcId+' .pref-save-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-    const prefs = svcPrefsState[svcId] || [];
-    const { error } = await db.from('services').update({ preferences: prefs }).eq('id', svcId);
-    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
-    if (error) { showToast(error.message, 'error'); return; }
-    const svc = allServices.find(s => s.id === svcId);
-    if (svc) svc.preferences = JSON.parse(JSON.stringify(prefs));
-    showToast('✓ Service preferences saved', 'success');
   }
 
   // ── NOTIFICATIONS ──
