@@ -167,6 +167,26 @@ The goal is to auto-handle common customer requests that arrive via SMS or email
 
 ---
 
+## Stripe Migration (Starchup → Family Laundry)
+
+When ready to cut over from Starchup, customer payment methods need to be migrated between Stripe accounts.
+
+| | Account ID |
+|---|---|
+| **Source** (Starchup connected account, current) | `acct_1PJhUs2f1JPZhPdh` |
+| **Destination** (Family Laundry standalone account) | `acct_1MPrRDGACgbvEugH` |
+
+### Migration process
+1. Pull the list of `cus_xxx` Stripe customer IDs from Starchup's export
+2. Open a support ticket with Stripe requesting payment method migration between the two accounts — include both account IDs and the customer ID list
+3. Stripe manually migrates card tokens (typically 1–3 weeks)
+4. Once migrated, import customers into WashRoute DB with the new `cus_xxx` IDs
+
+### Fallback plan
+If migration is incomplete or Stripe can't move certain cards, run a re-entry email campaign asking customers to re-add their card (small incentive helps conversion).
+
+---
+
 ## Pending / Next Up
 - ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix)
 - Receipt printing: print button on order detail (thermal 80mm bag tag) — mockup exists at `receipt-mockup.html`
