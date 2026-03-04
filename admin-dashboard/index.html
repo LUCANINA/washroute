@@ -1009,6 +1009,20 @@
             </div>
             <div id="overview-issues-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
+
+          <!-- Recurring Orders panel -->
+          <div class="card" style="margin-top:0">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Recurring Orders</div>
+                <div class="card-sub" id="recurring-sub">Loading…</div>
+              </div>
+              <button class="btn btn-ghost" id="recurring-run-btn" style="font-size:12px;padding:5px 10px" onclick="runRecurringScheduler()">▶ Run Scheduler</button>
+            </div>
+            <div id="recurring-body" style="padding:4px 20px 16px">
+              <div class="loading"><div class="spinner"></div> Loading…</div>
+            </div>
+          </div>
         </div>
 
         <!-- ── CUSTOMERS ── -->
@@ -3235,6 +3249,7 @@
     loadRecentOrders();
     loadTodayRoutesWidget();
     loadOverviewIssues();
+    loadRecurringOverview();
   }
 
   async function loadRecentOrders() {
@@ -3336,6 +3351,65 @@
     if (!p) return {};
     if (Array.isArray(p)) return p[0] || {};
     return p;
+  }
+
+  // ── Recurring Orders overview + manual scheduler trigger ──
+  async function loadRecurringOverview() {
+    const subEl = document.getElementById('recurring-sub');
+    const bodyEl = document.getElementById('recurring-body');
+    if (!bodyEl) return;
+
+    const { data: orders, error } = await db
+      .from('orders')
+      .select('id, customer_id, recurring_interval, pickup_window_start, status')
+      .not('recurring_interval', 'is', null)
+      .neq('status', 'cancelled')
+      .gte('pickup_window_start', new Date().toISOString())
+      .order('pickup_window_start');
+
+    if (error || !orders?.length) {
+      if (subEl) subEl.textContent = 'No active recurring orders';
+      bodyEl.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:4px 0">No upcoming recurring pickups scheduled.</div>';
+      return;
+    }
+
+    const uniqueCustomers = new Set(orders.map(o => o.customer_id)).size;
+    if (subEl) subEl.textContent = `${uniqueCustomers} customer${uniqueCustomers !== 1 ? 's' : ''} · ${orders.length} upcoming`;
+
+    const intervalLabel = { weekly: '🔁 Weekly', biweekly: '📅 Biweekly', monthly: '🗓️ Monthly' };
+    const rows = orders.slice(0, 8).map(o => {
+      const cust = allCustomers.find(c => c.id === o.customer_id);
+      const name = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown' : 'Unknown';
+      const freq = intervalLabel[o.recurring_interval] || o.recurring_interval;
+      const date = fmtDate(new Date(o.pickup_window_start));
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--gray-100);font-size:13px">
+        <span style="font-weight:500;flex:1">${name}</span>
+        <span style="color:var(--gray-500);flex:1;text-align:center">${freq}</span>
+        <span style="color:var(--gray-600);flex:0 0 auto">${date}</span>
+      </div>`;
+    }).join('');
+
+    bodyEl.innerHTML = rows + (orders.length > 8
+      ? `<div style="font-size:12px;color:var(--gray-400);padding-top:8px">+ ${orders.length - 8} more upcoming</div>`
+      : '');
+  }
+
+  async function runRecurringScheduler() {
+    const btn = document.getElementById('recurring-run-btn');
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = '⏳ Running…';
+    try {
+      const { data, error } = await db.rpc('create_recurring_orders');
+      if (error) throw error;
+      showToast(`✓ Scheduler ran — ${data.created} order${data.created !== 1 ? 's' : ''} created, ${data.skipped} skipped`, 'success');
+      await loadRecurringOverview();
+    } catch (err) {
+      showToast('Scheduler error: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '▶ Run Scheduler';
+    }
   }
 
   async function loadCustomers() {

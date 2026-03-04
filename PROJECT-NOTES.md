@@ -187,6 +187,24 @@ If migration is incomplete or Stripe can't move certain cards, run a re-entry em
 
 ---
 
+## Recurring Order Auto-Scheduling
+
+### How it works
+A Postgres function `create_recurring_orders()` runs every day at **8 AM UTC** (midnight Pacific) via pg_cron.
+
+For each customer's most recent recurring order, it:
+1. Calculates the next pickup date (weekly +7d, biweekly +14d, monthly +30d)
+2. If that date is **within 7 days**, checks whether an order already exists in that window
+3. If not, creates a new `scheduled` order copying all the key fields from the previous one
+
+The function is idempotent — running it multiple times won't create duplicates.
+
+**Manual trigger:** Admin Dashboard → Overview → "Recurring Orders" panel → **▶ Run Scheduler** button.
+
+**To view the cron schedule:** Supabase Dashboard → Database → Cron Jobs → `create-recurring-orders`.
+
+---
+
 ## Pending / Next Up
 - ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix)
 - Receipt printing: print button on order detail (thermal 80mm bag tag) — mockup exists at `receipt-mockup.html`
