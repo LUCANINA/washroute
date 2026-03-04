@@ -2309,6 +2309,7 @@ async function openDetail(orderId) {
   showScreen('detail');
   const { data: o } = await db.from('orders').select('*, services(name)').eq('id', orderId).single();
   if (!o) { toast('Order not found'); return; }
+  window._currentDetailOrder = o; // cache for edit modal
 
   document.getElementById('d-num').textContent  = '#' + (o.order_number || '—');
   document.getElementById('d-svc').textContent  = o.services?.name || '—';
@@ -2347,13 +2348,12 @@ async function openDetail(orderId) {
     payEl.innerHTML = `<div class="charged-after">💳 Charged automatically after delivery</div>`;
   }
 
-  // Edit button — show for scheduled orders where pickup window hasn't started yet
+  // Edit button — show for any order not yet picked up
   const editEl = document.getElementById('d-edit-section');
-  const pickupStart = o.pickup_window_start ? new Date(o.pickup_window_start) : null;
-  const canEdit = o.status === 'scheduled' && (!pickupStart || new Date() < pickupStart);
+  const canEdit = o.status === 'scheduled';
   if (editEl) {
     if (canEdit) {
-      editEl.innerHTML = `<button onclick="openEditOrder('${o.id}', ${o.total_bags||1}, ${JSON.stringify(o.special_instructions||'')})" style="
+      editEl.innerHTML = `<button onclick="openEditOrder()" style="
         width:100%;margin-top:4px;padding:13px;border:1.5px solid var(--accent);
         background:transparent;color:var(--accent);border-radius:var(--radius);
         font-size:15px;font-weight:700;cursor:pointer;transition:background .15s,color .15s"
@@ -2388,12 +2388,15 @@ async function openDetail(orderId) {
 }
 
 /* ── ORDER EDITING ── */
-function openEditOrder(orderId, currentBags, currentInstructions) {
+function openEditOrder() {
+  const o = window._currentDetailOrder;
+  if (!o) return;
   const existing = document.getElementById('edit-order-modal');
   if (existing) existing.remove();
 
-  window._editOrderId   = orderId;
-  window._editBags      = Number(currentBags) || 1;
+  window._editOrderId   = o.id;
+  window._editBags      = Number(o.total_bags) || 1;
+  const currentInstructions = o.special_instructions || '';
 
   const modal = document.createElement('div');
   modal.id = 'edit-order-modal';
