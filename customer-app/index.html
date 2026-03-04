@@ -641,7 +641,7 @@
         </div>
 
         <!-- Delivery Date -->
-        <div class="sched-label" style="margin-top:20px">📦 Estimated Delivery</div>
+        <div class="sched-label" style="margin-top:20px">📦 Delivery Date</div>
         <div id="delivery-day-list" style="min-height:44px">
           <!-- Rendered by renderDeliveryButtons() after pickup day selected -->
         </div>
@@ -1901,9 +1901,10 @@ async function renderDeliveryButtons() {
   base.setDate(base.getDate() + turnaround);
   const dates = [];
   const walk = new Date(base);
-  while (dates.length < 4) {
+  let safety = 0;
+  while (dates.length < 4 && safety++ < 30) { // 30-day cap prevents infinite loop if schedule_days is empty
     const isoDay = (walk.getDay() + 6) % 7; // 0=Mon … 6=Sun
-    if (!deliveryDays || deliveryDays.has(isoDay)) {
+    if (!deliveryDays || deliveryDays.size === 0 || deliveryDays.has(isoDay)) {
       dates.push(walk.toISOString().split('T')[0]);
     }
     walk.setDate(walk.getDate() + 1);
@@ -2337,8 +2338,7 @@ async function openDetail(orderId) {
   const canEdit = o.status === 'scheduled' && (!pickupStart || new Date() < pickupStart);
   if (editEl) {
     if (canEdit) {
-      const safeInstructions = (o.special_instructions || '').replace(/'/g, "\\'");
-      editEl.innerHTML = `<button onclick="openEditOrder('${o.id}', ${o.total_bags||1}, '${safeInstructions}')" style="
+      editEl.innerHTML = `<button onclick="openEditOrder('${o.id}', ${o.total_bags||1}, ${JSON.stringify(o.special_instructions||'')})" style="
         width:100%;margin-top:4px;padding:13px;border:1.5px solid var(--accent);
         background:transparent;color:var(--accent);border-radius:var(--radius);
         font-size:15px;font-weight:700;cursor:pointer;transition:background .15s,color .15s"
@@ -2463,6 +2463,10 @@ async function saveEditOrder() {
 
   document.getElementById('edit-order-modal')?.remove();
   toast('Order updated ✓');
+  // Keep orders list cache in sync so going back shows correct bag count + total
+  window._cachedOrders = (window._cachedOrders || []).map(ord =>
+    ord.id === orderId ? { ...ord, total_bags: bags, special_instructions: instructions, total_amount: total } : ord
+  );
   openDetail(orderId); // refresh the detail view
 }
 
