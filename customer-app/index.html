@@ -1108,6 +1108,7 @@ db.auth.onAuthStateChange(async (event, session) => {
       // Instant render — use cached profile/customer data, no spinner needed
       currentProfile  = cached.profile;
       currentCustomer = cached.customer;
+      showLoading(false); // dismiss any spinner handleLogin may have shown
     } else {
       // First login or cache expired — show spinner while fetching
       showLoading(true);
