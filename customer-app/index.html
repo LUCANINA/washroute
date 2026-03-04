@@ -870,6 +870,26 @@ let dbPlans         = [];
 let defaultService  = null; // the single W&F service
 let globalPrefs     = []; // global service preferences from preferences table
 
+/* ── USER DATA CACHE ── */
+// Stores profile + customer in localStorage so returning users see the app instantly.
+// Background refresh runs silently after the cached render to stay up to date.
+const _ucKey = uid => `wr-user-${uid}`;
+function saveUserCache(uid, profile, customer) {
+  try { localStorage.setItem(_ucKey(uid), JSON.stringify({ profile, customer, ts: Date.now() })); } catch (_) {}
+}
+function loadUserCache(uid) {
+  try {
+    const raw = localStorage.getItem(_ucKey(uid));
+    if (!raw) return null;
+    const { profile, customer, ts } = JSON.parse(raw);
+    if (Date.now() - ts > 86400000) return null; // expire after 24 h
+    return { profile, customer };
+  } catch (_) { return null; }
+}
+function clearUserCache(uid) {
+  try { localStorage.removeItem(_ucKey(uid)); } catch (_) {}
+}
+
 let draft = {
   address: '', lat: null, lng: null, zoneId: null,
   bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [],
@@ -1082,8 +1102,17 @@ db.auth.onAuthStateChange(async (event, session) => {
     // appReady is reset to false on sign-out, so re-login always works correctly.
     if (appReady) return;
     currentUser = session.user;
-    showLoading(true);
-    try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }
+
+    const cached = loadUserCache(currentUser.id);
+    if (cached) {
+      // Instant render — use cached profile/customer data, no spinner needed
+      currentProfile  = cached.profile;
+      currentCustomer = cached.customer;
+    } else {
+      // First login or cache expired — show spinner while fetching
+      showLoading(true);
+      try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }
+    }
     appReady = true;
     document.getElementById('bottom-nav').style.display = 'flex';
 
@@ -1118,7 +1147,10 @@ db.auth.onAuthStateChange(async (event, session) => {
       goTo('home');
     }
     loadServices();
+    // If we rendered from cache, silently refresh in background so data stays fresh
+    if (cached) loadUserData().then(() => loadHome()).catch(console.error);
   } else {
+    if (currentUser?.id) clearUserCache(currentUser.id); // wipe cache on sign-out
     appReady = false;
     currentUser = currentProfile = currentCustomer = null;
     document.getElementById('bottom-nav').style.display = 'none';
@@ -1155,6 +1187,8 @@ async function loadUserData() {
     const { data } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
     currentCustomer = data;
   }
+  // Persist to localStorage so next app load is instant
+  saveUserCache(currentUser.id, currentProfile, currentCustomer);
 }
 
 /* ── SERVICES + GLOBAL PREFS ── */
