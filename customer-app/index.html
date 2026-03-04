@@ -2262,6 +2262,15 @@ const PLANS = [
 
 async function loadAccount() {
   if (!currentProfile) return;
+
+  // Always re-fetch fresh customer + preferences data so admin-side changes appear immediately
+  const [{ data: freshCust }, { data: gp }] = await Promise.all([
+    db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle(),
+    db.from('preferences').select('*').order('sort_order')
+  ]);
+  if (freshCust) currentCustomer = freshCust;
+  globalPrefs = gp || [];
+
   const first = currentProfile.first_name || '';
   const last  = currentProfile.last_name  || '';
   document.getElementById('acct-avatar').textContent = ((first[0] || '') + (last[0] || '') || '?').toUpperCase();
@@ -2283,11 +2292,6 @@ async function loadAccount() {
       ${activePlan?.name || 'Pay As You Go'} Plan
     </div>`;
 
-  // Preferences — load global prefs if not yet cached, then render
-  if (!globalPrefs.length) {
-    const { data: gp } = await db.from('preferences').select('*').order('sort_order');
-    globalPrefs = gp || [];
-  }
   renderAccountPrefs();
 
   // Plan cards
