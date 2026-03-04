@@ -1114,12 +1114,16 @@ async function loadUserData() {
   }
 }
 
-/* ── SERVICES ── */
+/* ── SERVICES + GLOBAL PREFS ── */
 async function loadServices() {
-  const { data } = await db.from('services').select('*').eq('is_active', true).eq('show_in_app', true).order('sort_order');
-  allServices = data || [];
-  // Default service = first active service (Wash & Fold)
+  // Fetch services and global preferences in parallel — both needed before new-order flow
+  const [{ data: svcs }, { data: prefs }] = await Promise.all([
+    db.from('services').select('*').eq('is_active', true).eq('show_in_app', true).order('sort_order'),
+    db.from('preferences').select('*').order('sort_order')
+  ]);
+  allServices    = svcs  || [];
   defaultService = allServices[0] || null;
+  globalPrefs    = prefs || [];
 }
 
 /* ── HOME ── */
@@ -1409,7 +1413,9 @@ function selectFreq(val, btn) {
 function renderOrderPrefs() {
   const el = document.getElementById('order-pref-groups');
   if (!el) return;
-  const prefs = defaultService?.preferences;
+  // Use the global preferences table (same IDs as the account screen and admin dashboard)
+  // so that preferences set here sync correctly across all three apps.
+  const prefs = globalPrefs;
   if (!prefs?.length) {
     el.innerHTML = '<p style="color:var(--gray-400);font-size:14px;text-align:center;padding:20px 0">No preference options configured yet.</p>';
     return;
@@ -1418,7 +1424,7 @@ function renderOrderPrefs() {
   // Pre-populate from customer's saved preferences (returning customers only).
   // Only runs when the customer hasn't made any selections yet this session.
   if (Object.keys(draft.prefs).length === 0 && currentCustomer?.preferences) {
-    const savedPrefs = currentCustomer.preferences; // { groupId: optId }
+    const savedPrefs = currentCustomer.preferences; // { groupId: optId } — UUID keys
     prefs.forEach(group => {
       const savedOptId = savedPrefs[group.id];
       if (!savedOptId) return;
@@ -1481,12 +1487,31 @@ function goOrderStep(step) {
   if (step === 1 && !draft.zoneId)         { toast('Please check your address first');  return; }
   if (step === 2 && !draft.pickupDate)     { toast('Please choose a pickup day');       return; }
   if (step === 2 && !draft.pickupWindow)   { toast('Please choose a pickup time');      return; }
-  // Skip the preferences step if the selected service has no preferences configured
-  if (step === 2 && !defaultService?.preferences?.length) {
-    goOrderStep(orderStep < 2 ? 3 : 1);
-    return;
+
+  if (step === 2) {
+    const prefs = globalPrefs;
+    // Skip if no global preferences are configured for this service
+    if (!prefs?.length) {
+      goOrderStep(orderStep < 2 ? 3 : 1);
+      return;
+    }
+    // Skip for returning customers who already have preferences saved —
+    // pre-populate draft.prefs silently and advance to the next step.
+    // Only skip if draft.prefs is still empty (first pass through); if customer
+    // tapped "Edit" from the confirm screen, draft.prefs is already set so they see the step.
+    if (currentCustomer?.preferences && Object.keys(currentCustomer.preferences).length > 0
+        && Object.keys(draft.prefs).length === 0) {
+      prefs.forEach(group => {
+        const savedOptId = currentCustomer.preferences[group.id];
+        if (!savedOptId) return;
+        const opt = (group.options || []).find(o => o.id === savedOptId);
+        if (opt) draft.prefs[group.id] = { optId: opt.id, label: opt.label, priceMod: opt.price_mod || 0 };
+      });
+      if (Object.keys(draft.prefs).length > 0) { goOrderStep(3); return; }
+    }
+    renderOrderPrefs();
   }
-  if (step === 2) renderOrderPrefs();
+
   if (step === 4) { buildConfirmSummary(); renderConfirmAuth(); }
   orderStep = step;
   renderStep(step);
@@ -1721,69 +1746,74 @@ function selectPickupWindow(idx, btn) {
 }
 
 function buildConfirmSummary() {
-  const svc     = defaultService;
-  const bags    = draft.bags;
+  const svc         = defaultService;
+  const bags        = draft.bags;
   const addonsTotal = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
-  const total   = Math.round(((svc?.base_price||0)*bags + addonsTotal)*100)/100;
+  const total       = Math.round(((svc?.base_price||0)*bags + addonsTotal)*100)/100;
 
   const pickup   = new Date(draft.pickupDate + 'T12:00:00');
   const delivery = new Date(pickup); delivery.setDate(pickup.getDate() + 1);
   const fmt = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
-  const freqLabels = { weekly:'Every week 🔁', biweekly:'Every 2 weeks 🔁', monthly:'Every month 🔁' };
-  const freqLabel  = freqLabels[draft.recurring] || 'One-time pickup';
-  const pw         = draft.pickupWindow;
-  const winLabel   = pw ? `${pw.icon} ${pw.routeName || 'Pickup'} · ${pw.label}` : '—';
 
-  const addonRows = Object.values(draft.prefs).map(p =>
-    `<div class="confirm-row"><span class="confirm-key">${p.label}</span><span class="confirm-val">+${$m(p.priceMod)}</span></div>`
+  const freqLabels = { weekly:'Every week', biweekly:'Every 2 weeks', monthly:'Every month' };
+  const freqLabel  = freqLabels[draft.recurring] || 'One-time pickup';
+
+  const pw       = draft.pickupWindow;
+  const timeLabel = pw ? pw.label : '—';
+
+  // Preference summary: show actual option labels (e.g., "Cold · No vinegar")
+  const prefValues    = Object.values(draft.prefs);
+  const prefSummary   = prefValues.length ? prefValues.map(p => p.label).join(' · ') : 'None';
+
+  // Only show paid add-on rows (skip $0 items that add visual noise)
+  const addonRows = prefValues.filter(p => p.priceMod > 0).map(p =>
+    `<div class="confirm-row">
+      <span class="confirm-key">${p.label}</span>
+      <span class="confirm-val">+${$m(p.priceMod)}</span>
+    </div>`
   ).join('');
 
   document.getElementById('confirm-summary').innerHTML = `
     <div class="confirm-row editable" onclick="goOrderStep(0)">
       <span class="confirm-key">Address</span>
-      <span style="display:flex;align-items:center;max-width:65%">
-        <span class="confirm-val" style="font-size:12px">${draft.address||'—'}</span>
+      <span style="display:flex;align-items:center;gap:8px;max-width:65%">
+        <span class="confirm-val" style="font-size:12px;text-align:right">${draft.address||'—'}</span>
         <span class="confirm-edit">Edit</span>
       </span>
     </div>
     <div class="confirm-row editable" onclick="goOrderStep(1)">
-      <span class="confirm-key">Pickup Day</span>
-      <span style="display:flex;align-items:center">
-        <span class="confirm-val">${fmt(pickup)}</span>
+      <span class="confirm-key">Pickup</span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <span class="confirm-val" style="text-align:right">${fmt(pickup)}<br><span style="font-size:11px;color:var(--gray-400);font-weight:400">${timeLabel}</span></span>
         <span class="confirm-edit">Edit</span>
       </span>
     </div>
-    <div class="confirm-row editable" onclick="goOrderStep(1)">
-      <span class="confirm-key">Pickup Time</span>
-      <span style="display:flex;align-items:center;max-width:65%">
-        <span class="confirm-val">${winLabel}</span>
-        <span class="confirm-edit">Edit</span>
-      </span>
-    </div>
-    <div class="confirm-row"><span class="confirm-key">Est. Delivery</span><span class="confirm-val">${fmt(delivery)}</span></div>
     <div class="confirm-row editable" onclick="goOrderStep(1)">
       <span class="confirm-key">Frequency</span>
-      <span style="display:flex;align-items:center">
+      <span style="display:flex;align-items:center;gap:8px">
         <span class="confirm-val">${freqLabel}</span>
         <span class="confirm-edit">Edit</span>
       </span>
     </div>
     <div class="confirm-row editable" onclick="goOrderStep(2)">
       <span class="confirm-key">Preferences</span>
-      <span style="display:flex;align-items:center">
-        <span class="confirm-val">${Object.keys(draft.prefs).length ? Object.keys(draft.prefs).length + ' set' : 'None'}</span>
+      <span style="display:flex;align-items:center;gap:8px;max-width:65%">
+        <span class="confirm-val" style="font-size:12px;text-align:right">${prefSummary}</span>
         <span class="confirm-edit">Edit</span>
       </span>
     </div>
     <div class="confirm-row editable" onclick="goOrderStep(3)">
       <span class="confirm-key">Bags</span>
-      <span style="display:flex;align-items:center">
+      <span style="display:flex;align-items:center;gap:8px">
         <span class="confirm-val">${bags} bag${bags!==1?'s':''}</span>
         <span class="confirm-edit">Edit</span>
       </span>
     </div>
     ${addonRows}
-    <div class="confirm-row"><span class="confirm-key" style="font-weight:700">Estimated Total</span><span class="confirm-val confirm-total">${$m(total)}</span></div>`;
+    <div class="confirm-row" style="border-top:1.5px solid var(--gray-200);margin-top:4px;padding-top:16px">
+      <span class="confirm-key" style="font-weight:700;font-size:15px">Estimated Total</span>
+      <span class="confirm-val confirm-total">${$m(total)}</span>
+    </div>`;
 }
 
 function renderConfirmAuth() {
