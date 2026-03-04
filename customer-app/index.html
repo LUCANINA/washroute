@@ -746,6 +746,7 @@
     <div class="detail-body main-content" style="padding-bottom:20px">
       <div class="d-section"><div class="d-section-title">Status</div><div id="d-badge"></div><div id="d-track" style="margin-top:14px"></div></div>
       <div class="d-section"><div class="d-section-title">Order Details</div><div id="d-rows"></div><div id="d-pay-section"></div></div>
+      <div id="d-cancel-section"></div>
     </div>
   </div>
 
@@ -921,6 +922,15 @@ function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US',{h
 function fmtSlot(start, end) { const s = fmtTime(start); if (!end) return s; const e = fmtTime(end); return s.replace(/\s*(am|pm)\s*$/i,'') + ' – ' + e; }
 function daysFromNow(n) { const d = new Date(); d.setDate(d.getDate() + n); return d; }
 function fmtDay(d) { return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
+// Returns the next business day (Mon–Fri) after a given date string or Date.
+// Pickup on Friday → delivery Monday. Pickup on Thursday → delivery Friday.
+function nextDeliveryDay(dateOrStr) {
+  const d = typeof dateOrStr === 'string' ? new Date(dateOrStr + (dateOrStr.includes('T') ? '' : 'T12:00:00')) : new Date(dateOrStr);
+  d.setDate(d.getDate() + 1);
+  if (d.getDay() === 6) d.setDate(d.getDate() + 2); // Sat → Mon
+  if (d.getDay() === 0) d.setDate(d.getDate() + 1); // Sun → Mon
+  return d.toISOString().split('T')[0];
+}
 
 /* ── AUTH ── */
 function switchTab(tab) {
@@ -1800,9 +1810,12 @@ function buildConfirmSummary() {
   const pw       = draft.pickupWindow;
   const timeLabel = pw ? pw.label : '—';
 
-  // Preference summary: show actual option labels (e.g., "Cold · No vinegar")
-  const prefValues    = Object.values(draft.prefs);
-  const prefSummary   = prefValues.length ? prefValues.map(p => p.label).join(' · ') : 'None';
+  // Preference summary: show "Group: Option" format (e.g., "Temp: Hot · Softener: Yes")
+  const prefValues  = Object.values(draft.prefs);
+  const prefSummary = globalPrefs
+    .filter(g => draft.prefs[g.id])
+    .map(g => `${g.name}: ${draft.prefs[g.id].label}`)
+    .join(' · ') || 'None';
 
   // Only show paid add-on rows (skip $0 items that add visual noise)
   const addonRows = prefValues.filter(p => p.priceMod > 0).map(p =>
@@ -1913,7 +1926,7 @@ async function placeOrder() {
   const total = Math.round(((svc?.base_price||0)*bags + addonsTotal)*100)/100;
 
   const pickupDate   = draft.pickupDate;
-  const deliveryDate = (() => { const d = new Date(pickupDate+'T12:00:00'); d.setDate(d.getDate()+1); return d.toISOString().split('T')[0]; })();
+  const deliveryDate = nextDeliveryDay(pickupDate); // skips weekends (Fri pickup → Mon delivery)
 
   // Build line_items from prefs
   const lineItems = [
@@ -2152,7 +2165,7 @@ async function openDetail(orderId) {
     <div class="d-row"><span class="d-key">Bags</span><span class="d-val">${bags} bag${bags !== 1 ? 's' : ''}</span></div>
     <div class="d-row"><span class="d-key">Schedule</span><span class="d-val">${o.recurring_interval ? '🔁 ' + RLABELS[o.recurring_interval] : 'One-time'}</span></div>
     <div class="d-row"><span class="d-key">Pickup</span><span class="d-val">${o.pickup_window_start ? fmtDate(o.pickup_window_start) + (o.pickup_window_end ? ' · ' + fmtSlot(o.pickup_window_start, o.pickup_window_end) : '') : '—'}</span></div>
-    <div class="d-row"><span class="d-key">Est. Delivery</span><span class="d-val">${o.delivery_window_start ? fmtDate(o.delivery_window_start) : (o.pickup_window_start ? fmtDate(new Date(new Date(o.pickup_window_start).getTime() + 86400000).toISOString()) : '—')}</span></div>
+    <div class="d-row"><span class="d-key">Est. Delivery</span><span class="d-val">${o.delivery_window_start ? fmtDate(o.delivery_window_start) : (o.pickup_window_start ? fmtDate(nextDeliveryDay(o.pickup_window_start)) : '—')}</span></div>
     ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${o.special_instructions}</span></div>` : ''}
     <div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${o.total_amount ? $m(o.total_amount) : 'Confirmed at pickup'}</span></div>`;
 
@@ -2165,6 +2178,36 @@ async function openDetail(orderId) {
   } else {
     payEl.innerHTML = `<div class="charged-after">💳 Charged automatically after delivery</div>`;
   }
+
+  // Cancel button — only show for orders that haven't been picked up yet
+  const cancelEl = document.getElementById('d-cancel-section');
+  const cancellable = ['scheduled', 'ready_for_pickup'].includes(o.status);
+  if (cancellable) {
+    cancelEl.innerHTML = `
+      <button onclick="cancelOrder('${o.id}')" style="
+        width:100%;margin-top:8px;padding:13px;border:1.5px solid var(--red);
+        background:transparent;color:var(--red);border-radius:var(--radius);
+        font-size:14px;font-weight:600;cursor:pointer;transition:background .15s,color .15s"
+        onmouseover="this.style.background='var(--red)';this.style.color='white'"
+        onmouseout="this.style.background='transparent';this.style.color='var(--red)'">
+        Cancel Order
+      </button>`;
+  } else {
+    cancelEl.innerHTML = '';
+  }
+}
+
+async function cancelOrder(orderId) {
+  if (!confirm('Cancel this order? This cannot be undone.')) return;
+  const { error } = await db.from('orders').update({ status: 'cancelled' }).eq('id', orderId);
+  if (error) { toast('Could not cancel order: ' + error.message); return; }
+  toast('Order cancelled');
+  // Refresh cached orders and return to orders list
+  window._cachedOrders = (window._cachedOrders || []).map(o =>
+    o.id === orderId ? { ...o, status: 'cancelled' } : o
+  );
+  showScreen('orders');
+  renderOrdersList(window._cachedOrders);
 }
 
 /* ── STRIPE PAYMENT ── */
