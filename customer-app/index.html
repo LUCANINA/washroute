@@ -640,7 +640,13 @@
           </button>
         </div>
 
-        <button class="btn-primary" onclick="goOrderStep(2)">Next →</button>
+        <!-- Delivery Date -->
+        <div class="sched-label" style="margin-top:20px">📦 Estimated Delivery</div>
+        <div id="delivery-day-list" style="min-height:44px">
+          <!-- Rendered by renderDeliveryButtons() after pickup day selected -->
+        </div>
+
+        <button class="btn-primary" onclick="goOrderStep(2)" style="margin-top:8px">Next →</button>
       </div>
 
       <!-- Step 2 — Preferences -->
@@ -746,6 +752,7 @@
     <div class="detail-body main-content" style="padding-bottom:20px">
       <div class="d-section"><div class="d-section-title">Status</div><div id="d-badge"></div><div id="d-track" style="margin-top:14px"></div></div>
       <div class="d-section"><div class="d-section-title">Order Details</div><div id="d-rows"></div><div id="d-pay-section"></div></div>
+      <div id="d-edit-section"></div>
       <div id="d-cancel-section"></div>
     </div>
   </div>
@@ -893,6 +900,7 @@ function clearUserCache(uid) {
 let draft = {
   address: '', lat: null, lng: null, zoneId: null,
   bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [],
+  deliveryDate: null,
   recurring: '',
   prefs: {} // { groupId: { optId, label, priceMod } }
 };
@@ -1340,7 +1348,7 @@ async function guestStart() {
 }
 
 function startNewOrder() {
-  draft = { address: '', lat: null, lng: null, zoneId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], recurring: '', prefs: {} };
+  draft = { address: '', lat: null, lng: null, zoneId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], deliveryDate: null, recurring: '', prefs: {} };
   orderStep = 0;
   calMonth  = new Date();
   // Reset address UI
@@ -1612,7 +1620,7 @@ async function renderStep(step) {
     if (dot) dot.classList.toggle('active', i <= step);
   });
   document.getElementById('order-title').textContent = STEP_TITLES[step];
-  if (step === 1) { await renderDayButtons(); updateWindowLabel(draft.pickupDate); renderWindowButtons(); }
+  if (step === 1) { await renderDayButtons(); updateWindowLabel(draft.pickupDate); renderWindowButtons(); renderDeliveryButtons(); }
   if (step === 3) {
     document.getElementById('bags-display').textContent = draft.bags;
     updateEstimate();
@@ -1825,9 +1833,11 @@ async function renderDayButtons() {
 
 function selectPickupDay(iso, btn) {
   draft.pickupDate = iso;
+  draft.deliveryDate = null; // reset so renderDeliveryButtons picks a fresh default
   document.querySelectorAll('.day-btn').forEach(b => b.classList.remove('selected'));
   btn?.classList.add('selected');
   fetchWindowsForDate(iso);
+  renderDeliveryButtons();
 }
 
 function renderWindowButtons() {
@@ -1856,6 +1866,73 @@ function renderWindowButtons() {
 function selectPickupWindow(idx, btn) {
   draft.pickupWindow = draft.availableWindows[idx] || null;
   document.querySelectorAll('.window-btn').forEach(b => b.classList.remove('selected'));
+  btn?.classList.add('selected');
+}
+
+// Render available delivery date buttons for step 1.
+// Queries route_templates to get turnaround_days + valid delivery days,
+// then shows the next 4 eligible dates after the selected pickup date.
+async function renderDeliveryButtons() {
+  const container = document.getElementById('delivery-day-list');
+  if (!container) return;
+  if (!draft.pickupDate) {
+    container.innerHTML = '<div style="padding:10px 4px;color:var(--gray-400);font-size:13px">Pick a day above first.</div>';
+    return;
+  }
+  container.innerHTML = '<div class="spinner" style="margin:12px auto;width:22px;height:22px;border-width:2px"></div>';
+
+  // Fetch route template to get turnaround_days + delivery schedule_days
+  let turnaround = 2;
+  let deliveryDays = null; // null = any day
+  try {
+    let q = db.from('route_templates').select('turnaround_days, schedule_days').eq('is_active', true);
+    if (draft.zoneId) q = q.eq('zone_id', draft.zoneId);
+    const { data: templates } = await q;
+    if (templates?.length) {
+      const firstWithTurnaround = templates.find(t => t.turnaround_days > 0);
+      if (firstWithTurnaround) turnaround = firstWithTurnaround.turnaround_days;
+      const allDays = templates.flatMap(t => t.schedule_days || []);
+      if (allDays.length) deliveryDays = new Set(allDays);
+    }
+  } catch (_) { /* fall through */ }
+
+  // Compute delivery candidates: start at pickup + turnaround, find next 4 valid route days
+  const base = new Date(draft.pickupDate + 'T12:00:00');
+  base.setDate(base.getDate() + turnaround);
+  const dates = [];
+  const walk = new Date(base);
+  while (dates.length < 4) {
+    const isoDay = (walk.getDay() + 6) % 7; // 0=Mon … 6=Sun
+    if (!deliveryDays || deliveryDays.has(isoDay)) {
+      dates.push(walk.toISOString().split('T')[0]);
+    }
+    walk.setDate(walk.getDate() + 1);
+  }
+
+  // Auto-select earliest valid date if nothing selected yet
+  if (!draft.deliveryDate || !dates.includes(draft.deliveryDate)) {
+    draft.deliveryDate = dates[0];
+  }
+
+  container.innerHTML = dates.map(iso => {
+    const d = new Date(iso + 'T12:00:00');
+    const sel = draft.deliveryDate === iso;
+    const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+    const dateFmt = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const isFirst = iso === dates[0];
+    return `<button class="day-btn${sel ? ' selected' : ''}" onclick="selectDeliveryDay('${iso}',this)">
+      <div class="day-btn-left">
+        <span class="day-btn-name">${dayName}${isFirst ? ' <span style="font-size:10px;opacity:.6">(default)</span>' : ''}</span>
+        <span class="day-btn-date">${dateFmt}</span>
+      </div>
+      <span class="day-btn-check">✓</span>
+    </button>`;
+  }).join('');
+}
+
+function selectDeliveryDay(iso, btn) {
+  draft.deliveryDate = iso;
+  document.querySelectorAll('#delivery-day-list .day-btn').forEach(b => b.classList.remove('selected'));
   btn?.classList.add('selected');
 }
 
@@ -1899,6 +1976,11 @@ function buildConfirmSummary() {
     <div class="confirm-row editable" onclick="goOrderStep(1)">
       <span class="confirm-key">Pickup</span>
       <span class="confirm-val">${fmt(pickup)}<br><span style="font-size:11px;color:var(--gray-400);font-weight:400">${timeLabel}</span></span>
+      <span class="confirm-edit">Edit</span>
+    </div>
+    <div class="confirm-row editable" onclick="goOrderStep(1)">
+      <span class="confirm-key">Delivery</span>
+      <span class="confirm-val">${draft.deliveryDate ? fmt(new Date(draft.deliveryDate + 'T12:00:00')) : '—'}</span>
       <span class="confirm-edit">Edit</span>
     </div>
     <div class="confirm-row editable" onclick="goOrderStep(1)">
@@ -1982,7 +2064,8 @@ async function placeOrder() {
   const total = Math.round(((svc?.base_price||0)*bags + addonsTotal)*100)/100;
 
   const pickupDate   = draft.pickupDate;
-  const deliveryDate = await getNextDeliveryDay(pickupDate, draft.zoneId); // queries route schedule
+  // Use customer's chosen delivery date; fall back to route-schedule calculation
+  const deliveryDate = draft.deliveryDate || await getNextDeliveryDay(pickupDate, draft.zoneId);
 
   // Build line_items from prefs
   const lineItems = [
@@ -1999,6 +2082,8 @@ async function placeOrder() {
     total_amount:         total,
     pickup_window_start:  pw?.slotStart || null,
     pickup_window_end:    pw?.slotEnd   || null,
+    delivery_window_start: deliveryDate ? new Date(deliveryDate + 'T08:00:00').toISOString() : null,
+    delivery_window_end:   deliveryDate ? new Date(deliveryDate + 'T18:00:00').toISOString() : null,
     pickup_run_id:        null,                   // routes table FK — template IDs don't match; linked by admin later
     recurring_interval:   draft.recurring || null,
     line_items:           lineItems,
@@ -2246,6 +2331,26 @@ async function openDetail(orderId) {
     payEl.innerHTML = `<div class="charged-after">💳 Charged automatically after delivery</div>`;
   }
 
+  // Edit button — show for scheduled orders where pickup window hasn't started yet
+  const editEl = document.getElementById('d-edit-section');
+  const pickupStart = o.pickup_window_start ? new Date(o.pickup_window_start) : null;
+  const canEdit = o.status === 'scheduled' && (!pickupStart || new Date() < pickupStart);
+  if (editEl) {
+    if (canEdit) {
+      const safeInstructions = (o.special_instructions || '').replace(/'/g, "\\'");
+      editEl.innerHTML = `<button onclick="openEditOrder('${o.id}', ${o.total_bags||1}, '${safeInstructions}')" style="
+        width:100%;margin-top:4px;padding:13px;border:1.5px solid var(--accent);
+        background:transparent;color:var(--accent);border-radius:var(--radius);
+        font-size:15px;font-weight:700;cursor:pointer;transition:background .15s,color .15s"
+        onmouseover="this.style.background='var(--accent)';this.style.color='white'"
+        onmouseout="this.style.background='transparent';this.style.color='var(--accent)'">
+        ✏️ Edit Order
+      </button>`;
+    } else {
+      editEl.innerHTML = '';
+    }
+  }
+
   // Cancel button — only show for orders that haven't been picked up yet
   const cancelEl = document.getElementById('d-cancel-section');
   const cancellable = ['scheduled', 'ready_for_pickup'].includes(o.status);
@@ -2262,6 +2367,103 @@ async function openDetail(orderId) {
   } else {
     cancelEl.innerHTML = '';
   }
+}
+
+/* ── ORDER EDITING ── */
+function openEditOrder(orderId, currentBags, currentInstructions) {
+  const existing = document.getElementById('edit-order-modal');
+  if (existing) existing.remove();
+
+  window._editOrderId   = orderId;
+  window._editBags      = Number(currentBags) || 1;
+
+  const modal = document.createElement('div');
+  modal.id = 'edit-order-modal';
+  modal.innerHTML = `
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;display:flex;align-items:flex-end"
+         onclick="if(event.target===this)this.remove()">
+      <div style="background:#fff;border-radius:20px 20px 0 0;width:100%;padding:20px 20px 40px;max-height:85vh;overflow-y:auto;box-sizing:border-box">
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <div style="font-size:17px;font-weight:800">Edit Order</div>
+          <button onclick="document.getElementById('edit-order-modal').remove()"
+                  style="background:none;border:none;font-size:24px;color:var(--gray-400);cursor:pointer;line-height:1;padding:4px">×</button>
+        </div>
+
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:10px">Number of Bags</div>
+        <div class="bags-counter" style="margin-bottom:24px">
+          <button class="bags-btn" onclick="editBagsDelta(-1)">−</button>
+          <div>
+            <div class="bags-num" id="edit-bags-display">${window._editBags}</div>
+            <div class="bags-label">bag(s)</div>
+          </div>
+          <button class="bags-btn" onclick="editBagsDelta(1)">+</button>
+        </div>
+
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px">Special Care Notes</div>
+        <textarea id="edit-instructions" rows="3"
+          placeholder="e.g. No fabric softener, hang dry delicates…"
+          style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none"
+        >${escHtml(currentInstructions || '')}</textarea>
+
+        <div style="font-size:12px;color:var(--gray-400);margin-top:8px;margin-bottom:20px">
+          Changes are locked once your pickup route begins.
+        </div>
+
+        <button id="edit-save-btn" onclick="saveEditOrder()"
+          style="width:100%;padding:14px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-size:16px;font-weight:700;cursor:pointer">
+          Save Changes
+        </button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(modal);
+}
+
+function editBagsDelta(delta) {
+  window._editBags = Math.max(1, Math.min(20, (window._editBags || 1) + delta));
+  const el = document.getElementById('edit-bags-display');
+  if (el) el.textContent = window._editBags;
+}
+
+async function saveEditOrder() {
+  const btn = document.getElementById('edit-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  const orderId      = window._editOrderId;
+  const bags         = window._editBags || 1;
+  const instructions = document.getElementById('edit-instructions')?.value.trim() || null;
+
+  // Fetch existing line_items so we can preserve add-on pricing
+  const { data: existing } = await db.from('orders').select('line_items').eq('id', orderId).single();
+  const existingAddons = (existing?.line_items || []).filter(li => li.type !== 'base');
+  const addonTotal     = existingAddons.reduce((s, li) => s + (li.amount || 0), 0);
+
+  const svc       = defaultService;
+  const basePrice = svc?.base_price || 0;
+  const total     = Math.round((basePrice * bags + addonTotal) * 100) / 100;
+  const lineItems = [
+    { type: 'base', label: `${bags} bag${bags !== 1 ? 's' : ''} × ${$m(basePrice)}`, amount: basePrice * bags },
+    ...existingAddons
+  ];
+
+  const { error } = await db.from('orders').update({
+    total_bags:           bags,
+    special_instructions: instructions,
+    total_amount:         total,
+    line_items:           lineItems,
+    updated_at:           new Date().toISOString()
+  }).eq('id', orderId);
+
+  if (error) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+    toast('Could not save: ' + error.message);
+    return;
+  }
+
+  document.getElementById('edit-order-modal')?.remove();
+  toast('Order updated ✓');
+  openDetail(orderId); // refresh the detail view
 }
 
 async function cancelOrder(orderId) {
@@ -2603,6 +2805,10 @@ window.shiftMonth             = shiftMonth;
 window.selectDay              = selectDay;
 window.selectPickupDay        = selectPickupDay;
 window.selectPickupWindow     = selectPickupWindow;
+window.selectDeliveryDay      = selectDeliveryDay;
+window.openEditOrder          = openEditOrder;
+window.editBagsDelta          = editBagsDelta;
+window.saveEditOrder          = saveEditOrder;
 window.placeOrder        = placeOrder;
 window.afterSuccess      = afterSuccess;
 window.openDetail        = openDetail;
