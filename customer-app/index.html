@@ -904,7 +904,7 @@ let loadingTimer;
 function showLoading(on) {
   document.getElementById('loading').classList.toggle('show', on);
   clearTimeout(loadingTimer);
-  if (on) loadingTimer = setTimeout(() => showLoading(false), 8000);
+  if (on) loadingTimer = setTimeout(() => showLoading(false), 20000);
 }
 
 let toastTimer;
@@ -970,12 +970,16 @@ async function handleLogin(e) {
   const errEl = document.getElementById('login-err');
   errEl.classList.remove('show');
   btn.disabled = true; btn.textContent = 'Signing in…';
+  showLoading(true); // Show spinner immediately — don't wait for auth round-trip
   const { error } = await db.auth.signInWithPassword({
     email: document.getElementById('l-email').value.trim(),
     password: document.getElementById('l-pass').value
   });
-  btn.disabled = false; btn.textContent = 'Sign In';
-  if (error) { errEl.textContent = error.message; errEl.classList.add('show'); }
+  if (error) {
+    showLoading(false); // Only hide on error; success lets onAuthStateChange handle it
+    btn.disabled = false; btn.textContent = 'Sign In';
+    errEl.textContent = error.message; errEl.classList.add('show');
+  }
 }
 
 async function handleSignup(e) {
@@ -1074,7 +1078,9 @@ let appReady = false;
 
 db.auth.onAuthStateChange(async (event, session) => {
   if (session?.user) {
-    if (appReady && event === 'TOKEN_REFRESHED') return;
+    // Once initialized, skip all redundant events (TOKEN_REFRESHED, duplicate SIGNED_IN, etc.)
+    // appReady is reset to false on sign-out, so re-login always works correctly.
+    if (appReady) return;
     currentUser = session.user;
     showLoading(true);
     try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }
