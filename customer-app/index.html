@@ -1215,7 +1215,6 @@ async function loadServices() {
 }
 
 /* ── HOME ── */
-const STATUS_STEPS  = ['scheduled','ready_for_pickup','picked_up','processing','assembled','ready_for_delivery','out_for_delivery'];
 const STATUS_LABELS = {
   scheduled:          'Scheduled',
   ready_for_pickup:   'Ready for Pickup',
@@ -1230,20 +1229,32 @@ const STATUS_LABELS = {
   on_hold:            'On Hold',
   cancelled:          'Cancelled',
 };
-const STEP_LABELS = ['Scheduled','Ready','Picked Up','Processing','Assembled','Ready','Delivery'];
+
+// Customer-facing progress steps (5 clean steps, collapsing internal statuses)
+const VISUAL_STEP_LABELS = ['Scheduled', 'Picked Up', 'Processing', 'Ready for Delivery', 'Delivered'];
+const STATUS_TO_VISUAL = {
+  scheduled:          0,
+  ready_for_pickup:   0,
+  picked_up:          1,
+  processing:         2,
+  assembled:          2,
+  ready_for_delivery: 3,
+  out_for_delivery:   3,
+  delivered:          4,
+};
 
 function buildStatusBadge(status) {
   return `<div class="status-badge s-${status}"><div class="status-dot"></div>${STATUS_LABELS[status] || status}</div>`;
 }
 
 function buildProgressTrack(status) {
-  const idx = STATUS_STEPS.indexOf(status);
+  const idx = STATUS_TO_VISUAL[status] ?? -1;
   if (idx < 0) return '';
   let html = '<div class="progress-wrap">';
-  STATUS_STEPS.forEach((s, i) => {
+  VISUAL_STEP_LABELS.forEach((label, i) => {
     const done = i < idx, cur = i === idx;
     if (i > 0) html += `<div class="p-line ${done || cur ? 'done' : ''}"></div>`;
-    html += `<div class="p-step ${done ? 'done' : cur ? 'current' : ''}"><div class="p-dot"></div><div class="p-label">${STEP_LABELS[i]}</div></div>`;
+    html += `<div class="p-step ${done ? 'done' : cur ? 'current' : ''}"><div class="p-dot"></div><div class="p-label">${label}</div></div>`;
   });
   return html + '</div>';
 }
