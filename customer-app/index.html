@@ -851,7 +851,7 @@ const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
 let db;
 try {
-  db = supabase.createClient(SUPA_URL, SUPA_KEY);
+  db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { flowType: 'implicit' } });
 } catch (initErr) {
   document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;color:#cc0000">App failed to start. Please reload the page.<br><small>' + initErr.message + '</small></div>';
   throw initErr;
