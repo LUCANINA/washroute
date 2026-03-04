@@ -193,14 +193,14 @@
 
     /* Confirm summary */
     .confirm-card { background: var(--gray-50); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
-    .confirm-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--gray-200); }
+    .confirm-row { display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 0 12px; padding: 9px 0; border-bottom: 1px solid var(--gray-200); }
     .confirm-row:last-child { border-bottom: none; padding-bottom: 0; }
     .confirm-row.editable { cursor: pointer; transition: background .12s; margin: 0 -16px; padding: 9px 16px; border-radius: 8px; }
     .confirm-row.editable:hover { background: var(--gray-100); }
     .confirm-row.editable:active { background: var(--gray-200); }
-    .confirm-key { font-size: 13.5px; color: var(--gray-600); }
-    .confirm-val { font-size: 13.5px; font-weight: 600; text-align: right; max-width: 58%; }
-    .confirm-edit { font-size: 12px; color: var(--accent); font-weight: 600; margin-left: 8px; flex-shrink: 0; }
+    .confirm-key { font-size: 13.5px; color: var(--gray-600); white-space: nowrap; padding-top: 2px; }
+    .confirm-val { font-size: 13.5px; font-weight: 600; text-align: right; }
+    .confirm-edit { font-size: 12px; color: var(--accent); font-weight: 600; white-space: nowrap; padding-top: 2px; }
     .confirm-total { font-size: 16px !important; font-weight: 800 !important; color: var(--navy); }
     .recurring-badge { display: inline-flex; align-items: center; gap: 5px; background: #eef3ff; color: var(--navy); padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 
@@ -1886,49 +1886,41 @@ function buildConfirmSummary() {
     `<div class="confirm-row">
       <span class="confirm-key">${p.label}</span>
       <span class="confirm-val">+${$m(p.priceMod)}</span>
+      <span></span>
     </div>`
   ).join('');
 
   document.getElementById('confirm-summary').innerHTML = `
     <div class="confirm-row editable" onclick="goOrderStep(0)">
       <span class="confirm-key">Address</span>
-      <span style="display:flex;align-items:center;gap:8px;max-width:65%">
-        <span class="confirm-val" style="font-size:12px;text-align:right">${draft.address||'—'}</span>
-        <span class="confirm-edit">Edit</span>
-      </span>
+      <span class="confirm-val" style="font-size:12px">${draft.address||'—'}</span>
+      <span class="confirm-edit">Edit</span>
     </div>
     <div class="confirm-row editable" onclick="goOrderStep(1)">
       <span class="confirm-key">Pickup</span>
-      <span style="display:flex;align-items:center;gap:8px">
-        <span class="confirm-val" style="text-align:right">${fmt(pickup)}<br><span style="font-size:11px;color:var(--gray-400);font-weight:400">${timeLabel}</span></span>
-        <span class="confirm-edit">Edit</span>
-      </span>
+      <span class="confirm-val">${fmt(pickup)}<br><span style="font-size:11px;color:var(--gray-400);font-weight:400">${timeLabel}</span></span>
+      <span class="confirm-edit">Edit</span>
     </div>
     <div class="confirm-row editable" onclick="goOrderStep(1)">
       <span class="confirm-key">Frequency</span>
-      <span style="display:flex;align-items:center;gap:8px">
-        <span class="confirm-val">${freqLabel}</span>
-        <span class="confirm-edit">Edit</span>
-      </span>
+      <span class="confirm-val">${freqLabel}</span>
+      <span class="confirm-edit">Edit</span>
     </div>
     <div class="confirm-row editable" onclick="goOrderStep(2)">
       <span class="confirm-key">Preferences</span>
-      <span style="display:flex;align-items:center;gap:8px;max-width:65%">
-        <span class="confirm-val" style="font-size:12px;text-align:right">${prefSummary}</span>
-        <span class="confirm-edit">Edit</span>
-      </span>
+      <span class="confirm-val" style="font-size:12px">${prefSummary}</span>
+      <span class="confirm-edit">Edit</span>
     </div>
     <div class="confirm-row editable" onclick="goOrderStep(3)">
       <span class="confirm-key">Bags</span>
-      <span style="display:flex;align-items:center;gap:8px">
-        <span class="confirm-val">${bags} bag${bags!==1?'s':''}</span>
-        <span class="confirm-edit">Edit</span>
-      </span>
+      <span class="confirm-val">${bags} bag${bags!==1?'s':''}</span>
+      <span class="confirm-edit">Edit</span>
     </div>
     ${addonRows}
     <div class="confirm-row" style="border-top:1.5px solid var(--gray-200);margin-top:4px;padding-top:16px">
       <span class="confirm-key" style="font-weight:700;font-size:15px">Estimated Total</span>
       <span class="confirm-val confirm-total">${$m(total)}</span>
+      <span></span>
     </div>`;
 }
 
