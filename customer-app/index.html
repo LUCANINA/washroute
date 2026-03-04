@@ -607,9 +607,9 @@
         <button class="btn-primary" id="btn-addr-next" style="display:none;margin-top:16px" onclick="goOrderStep(1)">Continue →</button>
       </div>
 
-      <!-- Step 1 — Schedule (day + time window + frequency) -->
+      <!-- Step 1 — Schedule (day + time window + delivery + frequency) -->
       <div class="step-content" id="o-step-1" style="display:none">
-        <div class="step-sub">When should we come by?</div>
+        <div class="step-sub">Schedule your pickup &amp; delivery.</div>
 
         <!-- Pickup Day (quick buttons — no calendar needed) -->
         <div class="sched-label">📅 Pickup Day</div>
@@ -621,6 +621,14 @@
         <div class="sched-label" id="window-section-label">🕐 What time works best?</div>
         <div class="window-btn-list" id="window-btn-list">
           <!-- Rendered by renderWindowButtons() -->
+        </div>
+
+        <!-- Delivery Date — hidden until pickup day chosen -->
+        <div id="delivery-section" style="display:none">
+          <div class="sched-label">📦 Delivery Date</div>
+          <div id="delivery-day-list" class="day-btn-list">
+            <!-- Rendered by renderDeliveryButtons() after pickup day selected -->
+          </div>
         </div>
 
         <!-- Frequency -->
@@ -638,12 +646,6 @@
           <button class="freq-pill selected" data-val="" onclick="selectFreq('',this)">
             ☝️ Just this once
           </button>
-        </div>
-
-        <!-- Delivery Date -->
-        <div class="sched-label" style="margin-top:20px">📦 Delivery Date</div>
-        <div id="delivery-day-list" style="min-height:44px">
-          <!-- Rendered by renderDeliveryButtons() after pickup day selected -->
         </div>
 
         <button class="btn-primary" onclick="goOrderStep(2)" style="margin-top:8px">Next →</button>
@@ -1873,12 +1875,14 @@ function selectPickupWindow(idx, btn) {
 // Queries route_templates to get turnaround_days + valid delivery days,
 // then shows the next 4 eligible dates after the selected pickup date.
 async function renderDeliveryButtons() {
+  const section   = document.getElementById('delivery-section');
   const container = document.getElementById('delivery-day-list');
   if (!container) return;
   if (!draft.pickupDate) {
-    container.innerHTML = '<div style="padding:10px 4px;color:var(--gray-400);font-size:13px">Pick a day above first.</div>';
+    if (section) section.style.display = 'none';
     return;
   }
+  if (section) section.style.display = '';
   container.innerHTML = '<div class="spinner" style="margin:12px auto;width:22px;height:22px;border-width:2px"></div>';
 
   // Fetch route template to get turnaround_days + delivery schedule_days
@@ -1923,7 +1927,7 @@ async function renderDeliveryButtons() {
     const isFirst = iso === dates[0];
     return `<button class="day-btn${sel ? ' selected' : ''}" onclick="selectDeliveryDay('${iso}',this)">
       <div class="day-btn-left">
-        <span class="day-btn-name">${dayName}${isFirst ? ' <span style="font-size:10px;opacity:.6">(default)</span>' : ''}</span>
+        <span class="day-btn-name">${dayName}${isFirst ? ' <span style="font-size:10px;font-weight:700;background:var(--navy);color:white;padding:1px 7px;border-radius:999px;vertical-align:middle;margin-left:4px">Suggested</span>' : ''}</span>
         <span class="day-btn-date">${dateFmt}</span>
       </div>
       <span class="day-btn-check">✓</span>
@@ -2356,14 +2360,17 @@ async function openDetail(orderId) {
   const cancellable = ['scheduled', 'ready_for_pickup'].includes(o.status);
   if (cancellable) {
     cancelEl.innerHTML = `
-      <button onclick="cancelOrder('${o.id}')" style="
-        width:100%;margin-top:8px;padding:13px;border:1.5px solid var(--red);
-        background:transparent;color:var(--red);border-radius:var(--radius);
-        font-size:14px;font-weight:600;cursor:pointer;transition:background .15s,color .15s"
-        onmouseover="this.style.background='var(--red)';this.style.color='white'"
-        onmouseout="this.style.background='transparent';this.style.color='var(--red)'">
-        Cancel Order
-      </button>`;
+      <div style="border-top:1px solid var(--gray-200);margin-top:24px;padding-top:16px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px">Need to cancel?</div>
+        <button onclick="cancelOrder('${o.id}')" style="
+          width:100%;padding:12px;border:1.5px solid var(--red);
+          background:transparent;color:var(--red);border-radius:var(--radius);
+          font-size:14px;font-weight:600;cursor:pointer;transition:background .15s,color .15s"
+          onmouseover="this.style.background='var(--red)';this.style.color='white'"
+          onmouseout="this.style.background='transparent';this.style.color='var(--red)'">
+          Cancel Order
+        </button>
+      </div>`;
   } else {
     cancelEl.innerHTML = '';
   }
@@ -2418,6 +2425,14 @@ function openEditOrder(orderId, currentBags, currentInstructions) {
     </div>`;
 
   document.body.appendChild(modal);
+
+  // Close on Escape key
+  function onEsc(e) { if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', onEsc); } }
+  document.addEventListener('keydown', onEsc);
+  // Clean up listener if modal is removed by other means (backdrop click, × button)
+  new MutationObserver((_, obs) => {
+    if (!document.getElementById('edit-order-modal')) { document.removeEventListener('keydown', onEsc); obs.disconnect(); }
+  }).observe(document.body, { childList: true });
 }
 
 function editBagsDelta(delta) {
