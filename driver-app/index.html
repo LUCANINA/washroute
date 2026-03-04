@@ -739,12 +739,34 @@ let appReady = false, loadingTimer = null;
 let undoTimer = null, undoCountTimer = null, pendingUndo = null;
 
 /* ──────────────────────────────
+   DRIVER DATA CACHE
+────────────────────────────── */
+// Caches profile + driver identity + today's route snapshot so the app
+// renders instantly on reopen. Background refresh keeps data current.
+const _dcKey = uid => `wr-driver-${uid}`;
+function saveDriverCache(uid, profile, driver, routes, stops) {
+  try { localStorage.setItem(_dcKey(uid), JSON.stringify({ profile, driver, routes, stops, ts: Date.now() })); } catch (_) {}
+}
+function loadDriverCache(uid) {
+  try {
+    const raw = localStorage.getItem(_dcKey(uid));
+    if (!raw) return null;
+    const { profile, driver, routes, stops, ts } = JSON.parse(raw);
+    if (Date.now() - ts > 86400000) return null; // expire after 24 h
+    return { profile, driver, routes, stops };
+  } catch (_) { return null; }
+}
+function clearDriverCache(uid) {
+  try { localStorage.removeItem(_dcKey(uid)); } catch (_) {}
+}
+
+/* ──────────────────────────────
    UTILS
 ────────────────────────────── */
 function showLoading(on) {
   document.getElementById('loading').classList.toggle('show', on);
   clearTimeout(loadingTimer);
-  if (on) loadingTimer = setTimeout(() => showLoading(false), 9000);
+  if (on) loadingTimer = setTimeout(() => showLoading(false), 20000);
 }
 
 function toast(msg, dur = 2600) {
@@ -842,8 +864,10 @@ async function doLogin() {
   err.classList.remove('show');
   if (!email || !pass) { err.textContent = 'Please enter email and password.'; err.classList.add('show'); return; }
   btn.textContent = 'Signing in…'; btn.disabled = true;
+  showLoading(true); // show spinner immediately — don't wait for auth round-trip
   const { error } = await db.auth.signInWithPassword({ email, password: pass });
   if (error) {
+    showLoading(false);
     err.textContent = error.message; err.classList.add('show');
     btn.textContent = 'Sign In →'; btn.disabled = false;
   }
@@ -887,6 +911,7 @@ function resetMagicLink() {
 
 async function doSignOut() {
   clearUndo();
+  if (currentUser?.id) clearDriverCache(currentUser.id); // wipe cache on sign-out
   // Unsubscribe from realtime
   if (msgSubscription) { db.removeChannel(msgSubscription); msgSubscription = null; }
   await db.auth.signOut();
@@ -968,6 +993,9 @@ async function loadDriverData() {
     .map(s => s.routes)
     .filter(r => r && !todayRoutes.find(tr => tr.id === r.id));
   todayRoutes = [...todayRoutes, ...extraRoutes];
+
+  // Persist to localStorage so next app open is instant
+  saveDriverCache(currentUser.id, currentProfile, currentDriver, todayRoutes, allStops);
 }
 
 async function refreshRoute() {
@@ -1794,14 +1822,30 @@ function subscribeToDriverMessages() {
 ────────────────────────────── */
 db.auth.onAuthStateChange(async (event, session) => {
   if (session?.user) {
-    if (appReady && event === 'TOKEN_REFRESHED') return;
+    // Once initialized, skip all redundant events (TOKEN_REFRESHED, duplicate SIGNED_IN, etc.)
+    // appReady is reset to false on sign-out, so re-login always works correctly.
+    if (appReady) return;
     currentUser = session.user;
-    showLoading(true);
-    try { await loadDriverData(); } catch(e) { console.error('loadDriverData:', e); } finally { showLoading(false); }
+
+    const cached = loadDriverCache(currentUser.id);
+    if (cached) {
+      // Instant render — use cached data, no spinner needed
+      currentProfile = cached.profile;
+      currentDriver  = cached.driver;
+      todayRoutes    = cached.routes || [];
+      allStops       = cached.stops  || [];
+      showLoading(false); // dismiss any spinner doLogin may have shown
+    } else {
+      // First login or cache expired — show spinner while fetching
+      showLoading(true);
+      try { await loadDriverData(); } catch(e) { console.error('loadDriverData:', e); } finally { showLoading(false); }
+    }
     appReady = true;
     document.getElementById('bottom-nav').style.display = 'flex';
     subscribeToDriverMessages();
     goTo('home');
+    // If we rendered from cache, silently refresh route data in background
+    if (cached) loadDriverData().then(() => renderRoute()).catch(console.error);
   } else {
     appReady = false;
     currentUser = currentProfile = currentDriver = null;
