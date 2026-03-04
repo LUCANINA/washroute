@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <title>WashRoute Driver</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
       --dark:    #111827;
@@ -722,6 +721,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
 <script>
 /* ──────────────────────────────
    INIT
@@ -909,12 +909,15 @@ async function doSignOut() {
    DATA LOADING
 ────────────────────────────── */
 async function loadDriverData() {
-  // Profile
-  const { data: prof } = await db.from('profiles').select('*').eq('id', currentUser.id).single();
+  // ── Group 1: profile + driver record in parallel ──
+  const [{ data: prof }, { data: drv0 }] = await Promise.all([
+    db.from('profiles').select('*').eq('id', currentUser.id).single(),
+    db.from('drivers').select('*').eq('profile_id', currentUser.id).single()
+  ]);
   currentProfile = prof;
 
-  // Driver record — auto-create if first login
-  let { data: drv } = await db.from('drivers').select('*').eq('profile_id', currentUser.id).single();
+  // Auto-create driver record on first login (sequential — depends on group 1 result)
+  let drv = drv0;
   if (!drv) {
     const { data: nd } = await db.from('drivers').insert({ profile_id: currentUser.id, is_active: true }).select().single();
     drv = nd;
@@ -928,14 +931,23 @@ async function loadDriverData() {
     orders(*, customers(*), services(*))
   `;
 
-  // ── Part 1: stops on routes assigned to this driver (no individual override) ──
-  const { data: routes } = await db.from('routes')
-    .select('id, name, status, run_date')
-    .or(`pickup_driver_id.eq.${currentDriver.id},delivery_driver_id.eq.${currentDriver.id}`)
-    .eq('run_date', today())
-    .neq('status', 'cancelled');
+  // ── Group 2: today's routes + override stops + messages in parallel ──
+  // All three only need currentDriver.id and are independent of each other
+  const [{ data: routes }, { data: overrideStops }] = await Promise.all([
+    db.from('routes')
+      .select('id, name, status, run_date')
+      .or(`pickup_driver_id.eq.${currentDriver.id},delivery_driver_id.eq.${currentDriver.id}`)
+      .eq('run_date', today())
+      .neq('status', 'cancelled'),
+    db.from('route_stops')
+      .select(`${stopFields}, routes(id, name, run_date)`)
+      .eq('driver_id', currentDriver.id)
+      .order('stop_number', { ascending: true }),
+    loadDriverMessages()
+  ]);
   todayRoutes = routes || [];
 
+  // ── Group 3: route stops (needs routeIds from group 2) ──
   let routeStops = [];
   if (todayRoutes.length > 0) {
     const routeIds = todayRoutes.map(r => r.id);
@@ -947,12 +959,6 @@ async function loadDriverData() {
     routeStops = rs || [];
   }
 
-  // ── Part 2: stops individually assigned to this driver (any route, any date) ──
-  const { data: overrideStops } = await db.from('route_stops')
-    .select(`${stopFields}, routes(id, name, run_date)`)
-    .eq('driver_id', currentDriver.id)
-    .order('stop_number', { ascending: true });
-
   // Merge — mark override stops so we can show "↗ from Route X" badge
   const tagged = (overrideStops || []).map(s => ({ ...s, _reassigned: true }));
   allStops = [...routeStops, ...tagged];
@@ -962,9 +968,6 @@ async function loadDriverData() {
     .map(s => s.routes)
     .filter(r => r && !todayRoutes.find(tr => tr.id === r.id));
   todayRoutes = [...todayRoutes, ...extraRoutes];
-
-  // Load messages
-  await loadDriverMessages();
 }
 
 async function refreshRoute() {
@@ -1508,42 +1511,55 @@ async function completeStop(stopId, stopType) {
     return;
   }
 
-  // Update order status
-  if (stop?.orders?.id) {
-    const newStatus = stopType === 'pickup' ? 'picked_up' : 'delivered';
-    const timeField = stopType === 'pickup' ? 'actual_pickup_at' : 'actual_delivery_at';
-    await db.from('orders').update({ status: newStatus, [timeField]: now }).eq('id', stop.orders.id);
-    stop.orders.status = newStatus;
-
-    // Fire SMS notification (best-effort, non-blocking)
-    const smsEvent = stopType === 'pickup' ? 'picked_up' : 'delivered';
-    fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
-      body: JSON.stringify({ orderId: stop.orders.id, event: smsEvent })
-    }).catch(() => {});
-  }
-
-  // Update local state
+  // Update local state first (needed to compute route progress accurately)
   const idx = allStops.findIndex(s => s.id === stopId);
   if (idx >= 0) allStops[idx] = { ...allStops[idx], status: 'complete', completed_at: now, driver_notes: notes };
 
-  // Update route progress
+  // Build parallel DB update promises
+  const updatePromises = [];
+
+  // Order status update
+  let newStatus = null;
+  if (stop?.orders?.id) {
+    newStatus = stopType === 'pickup' ? 'picked_up' : 'delivered';
+    const timeField = stopType === 'pickup' ? 'actual_pickup_at' : 'actual_delivery_at';
+    updatePromises.push(
+      db.from('orders').update({ status: newStatus, [timeField]: now }).eq('id', stop.orders.id)
+    );
+    stop.orders.status = newStatus;
+  }
+
+  // Route progress update
   const routeId = stop?.route_id;
   const route   = todayRoutes.find(r => r.id === routeId);
   if (route) {
     const newDone    = allStops.filter(s => s.route_id === routeId && s.status === 'complete').length;
     const routeTotal = allStops.filter(s => s.route_id === routeId).length;
     const allDone    = newDone >= routeTotal;
-    await db.from('routes').update({
-      completed_stops: newDone,
-      status: allDone ? 'complete' : 'in_progress',
-      started_at:   route.started_at || now,
-      completed_at: allDone ? now : null,
-    }).eq('id', routeId);
+    updatePromises.push(
+      db.from('routes').update({
+        completed_stops: newDone,
+        status: allDone ? 'complete' : 'in_progress',
+        started_at:   route.started_at || now,
+        completed_at: allDone ? now : null,
+      }).eq('id', routeId)
+    );
     route.completed_stops = newDone;
     route.status = allDone ? 'complete' : 'in_progress';
     if (!route.started_at) route.started_at = now;
+  }
+
+  // Fire both DB writes in parallel
+  await Promise.all(updatePromises);
+
+  // Fire SMS notification (best-effort, non-blocking)
+  if (stop?.orders?.id && newStatus) {
+    const smsEvent = stopType === 'pickup' ? 'picked_up' : 'delivered';
+    fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
+      body: JSON.stringify({ orderId: stop.orders.id, event: smsEvent })
+    }).catch(() => {});
   }
 
   // Re-render with updated state
