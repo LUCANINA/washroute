@@ -1019,7 +1019,7 @@ async function handleMagicLink() {
     const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://washroute.vercel.app/customer-app/index.html';
     const res = await fetch(`${SUPA_URL}/functions/v1/send-magic-link`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
       body: JSON.stringify({ email, redirectTo: redirectUrl }),
     });
     const { ok, error } = await res.json();
