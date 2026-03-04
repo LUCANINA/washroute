@@ -529,6 +529,16 @@
         </label>
         <button class="btn-primary" type="submit" id="btn-signup">Create Account</button>
       </form>
+      <!-- Shown after successful signup when email confirmation is required -->
+      <div id="signup-success" style="display:none; text-align:center; padding: 32px 16px;">
+        <div style="font-size: 40px; margin-bottom: 16px">✉️</div>
+        <h3 style="font-size: 18px; font-weight: 700; margin: 0 0 10px; color: var(--text)">Check your email!</h3>
+        <p style="font-size: 14px; color: var(--gray-600); line-height: 1.6; margin: 0 0 20px">
+          We sent a confirmation link to<br><strong id="signup-success-email" style="color: var(--text)"></strong>.<br>
+          Tap it to activate your account and sign in.
+        </p>
+        <button class="btn-secondary" onclick="document.getElementById('signup-success').style.display='none'; document.getElementById('form-signup').style.display=''; switchTab('login')" style="width:100%">Back to Sign In</button>
+      </div>
 
       <!-- Guest shortcut -->
       <div class="auth-guest-row">
@@ -948,23 +958,44 @@ async function handleSignup(e) {
     return;
   }
   btn.disabled = true; btn.textContent = 'Creating account…';
-  const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone } } });
+  const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://washroute.vercel.app/customer-app/index.html';
+  const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone }, emailRedirectTo: redirectUrl } });
   btn.disabled = false; btn.textContent = 'Create Account';
   if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
-  if (data.user) await ensureProfile(data.user, first, last, email, phone, smsConsent);
+  if (data.user) {
+    await ensureProfile(data.user, first, last, email, phone, smsConsent);
+    // If no session yet, email confirmation is required — show check-your-email panel
+    if (!data.session) {
+      document.getElementById('form-signup').style.display = 'none';
+      const successEl = document.getElementById('signup-success');
+      if (successEl) {
+        document.getElementById('signup-success-email').textContent = email;
+        successEl.style.display = '';
+      }
+    }
+    // If there IS a session, onAuthStateChange fires and navigates automatically
+  }
 }
 
 async function ensureProfile(user, first, last, email, phone, smsConsent = false) {
   await db.from('profiles').upsert({ id: user.id, first_name: first || user.user_metadata?.first_name || '', last_name: last || user.user_metadata?.last_name || '', email: email || user.email, phone: phone || user.user_metadata?.phone || '' }, { onConflict: 'id' });
-  const { data: ec } = await db.from('customers').select('id, sms_consent_at').eq('profile_id', user.id).maybeSingle();
+  const { data: ec } = await db.from('customers').select('*').eq('profile_id', user.id).maybeSingle();
   if (!ec) {
     await db.from('customers').insert({
       profile_id: user.id,
-      is_active: true,
+      first_name_cache: first || user.user_metadata?.first_name || '',
+      last_name_cache: last || user.user_metadata?.last_name || '',
+      email_cache: email || user.email || '',
+      phone_cache: phone || user.user_metadata?.phone || '',
       sms_consent_at: smsConsent ? new Date().toISOString() : null
     });
-  } else if (smsConsent && !ec.sms_consent_at) {
-    await db.from('customers').update({ sms_consent_at: new Date().toISOString() }).eq('id', ec.id);
+    const { data: newCust } = await db.from('customers').select('*').eq('profile_id', user.id).maybeSingle();
+    currentCustomer = newCust;
+  } else {
+    currentCustomer = ec;
+    if (smsConsent && !ec.sms_consent_at) {
+      await db.from('customers').update({ sms_consent_at: new Date().toISOString() }).eq('id', ec.id);
+    }
   }
 }
 
@@ -985,10 +1016,11 @@ async function handleMagicLink() {
   btn.disabled = true; btn.textContent = 'Sending…';
   try {
     // Use our branded send-magic-link Edge Function instead of Supabase's default email
+    const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://washroute.vercel.app/customer-app/index.html';
     const res = await fetch(`${SUPA_URL}/functions/v1/send-magic-link`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
-      body: JSON.stringify({ email, redirectTo: window.location.origin + window.location.pathname }),
+      body: JSON.stringify({ email, redirectTo: redirectUrl }),
     });
     const { ok, error } = await res.json();
     if (!ok) throw new Error(error || 'Failed to send link');
@@ -1068,8 +1100,15 @@ async function loadUserData() {
     const { data } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
     currentProfile = data;
   }
-  if (!currentCustomer) {
-    await db.from('customers').insert({ profile_id: currentUser.id, is_active: true });
+  if (!currentCustomer && currentProfile) {
+    // Customer row missing — auto-create using profile data
+    await db.from('customers').insert({
+      profile_id: currentUser.id,
+      first_name_cache: currentProfile.first_name || '',
+      last_name_cache: currentProfile.last_name || '',
+      email_cache: currentProfile.email || currentUser.email || '',
+      phone_cache: currentProfile.phone || ''
+    }).then(() => {});
     const { data } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
     currentCustomer = data;
   }
@@ -1783,8 +1822,9 @@ async function placeOrder() {
       return;
     }
     btn.disabled = true; btn.textContent = 'Creating account…';
+    const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://washroute.vercel.app/customer-app/index.html';
     const { data: authData, error: authErr } = await db.auth.signUp({
-      email, password: pass, options: { data: { first_name: first, last_name: last, phone } }
+      email, password: pass, options: { data: { first_name: first, last_name: last, phone }, emailRedirectTo: redirectUrl }
     });
     if (authErr) {
       btn.disabled = false; btn.textContent = 'Create Account & Place Order';
@@ -2004,8 +2044,11 @@ function renderOrdersList(orders) {
 }
 
 async function loadOrders() {
-  if (!currentCustomer) return;
   const el = document.getElementById('orders-list');
+  if (!currentCustomer) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🧺</div><div class="empty-title">No orders yet.</div><div class="empty-sub">Ready for your first pickup?</div><button class="nudge-btn" onclick="goTo(\'new-order\')">Schedule Pickup</button></div>';
+    return;
+  }
   el.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
 
   const { data } = await db.from('orders')
