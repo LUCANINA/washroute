@@ -626,13 +626,13 @@
         <!-- Frequency -->
         <div class="sched-label">🔁 How often?</div>
         <div class="freq-pills" id="freq-pills">
-          <button class="freq-pill selected" data-val="weekly" onclick="selectFreq('weekly',this)">
+          <button class="freq-pill" data-val="weekly" onclick="selectFreq('weekly',this)">
             🔁 Every week <span class="freq-pill-rec">Best value</span>
           </button>
           <button class="freq-pill" data-val="biweekly" onclick="selectFreq('biweekly',this)">
             📅 Every 2 weeks
           </button>
-          <button class="freq-pill" data-val="" onclick="selectFreq('',this)">
+          <button class="freq-pill selected" data-val="" onclick="selectFreq('',this)">
             ☝️ Just this once
           </button>
         </div>
@@ -869,7 +869,7 @@ let globalPrefs     = []; // global service preferences from preferences table
 let draft = {
   address: '', lat: null, lng: null, zoneId: null,
   bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [],
-  recurring: 'weekly',
+  recurring: '',
   prefs: {} // { groupId: { optId, label, priceMod } }
 };
 let orderStep = 0;
@@ -1262,7 +1262,7 @@ async function guestStart() {
 }
 
 function startNewOrder() {
-  draft = { address: '', lat: null, lng: null, zoneId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], recurring: 'weekly', prefs: {} };
+  draft = { address: '', lat: null, lng: null, zoneId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], recurring: '', prefs: {} };
   orderStep = 0;
   calMonth  = new Date();
   // Reset address UI
@@ -1274,9 +1274,9 @@ function startNewOrder() {
   if (zr) { zr.style.display = 'none'; zr.className = 'zone-result'; zr.textContent = ''; }
   const nextBtn = document.getElementById('btn-addr-next');
   if (nextBtn) nextBtn.style.display = 'none';
-  // Reset freq pills
+  // Reset freq pills — default to one-time (empty val)
   document.querySelectorAll('.freq-pill').forEach(p => {
-    p.classList.toggle('selected', p.dataset.val === 'weekly');
+    p.classList.toggle('selected', p.dataset.val === '');
   });
   showScreen('new-order');
   renderStep(0);
@@ -1517,7 +1517,7 @@ function goOrderStep(step) {
   renderStep(step);
 }
 
-function renderStep(step) {
+async function renderStep(step) {
   [0,1,2,3,4].forEach(i => {
     const el = document.getElementById(`o-step-${i}`);
     if (el) {
@@ -1534,7 +1534,7 @@ function renderStep(step) {
     if (dot) dot.classList.toggle('active', i <= step);
   });
   document.getElementById('order-title').textContent = STEP_TITLES[step];
-  if (step === 1) { renderDayButtons(); updateWindowLabel(draft.pickupDate); renderWindowButtons(); }
+  if (step === 1) { await renderDayButtons(); updateWindowLabel(draft.pickupDate); renderWindowButtons(); }
   if (step === 3) {
     document.getElementById('bags-display').textContent = draft.bags;
     updateEstimate();
@@ -1680,20 +1680,56 @@ async function fetchWindowsForDate(iso) {
   renderWindowButtons();
 }
 
-function renderDayButtons() {
+async function renderDayButtons() {
   const container = document.getElementById('day-btn-list');
   if (!container) return;
-  const now    = new Date();
-  const cutoff = 14; // show "Today" only before 2pm
-  const days   = [];
-  if (now.getHours() < cutoff) {
-    days.push({ label: 'Today', date: new Date(now) });
+
+  // Fetch valid weekdays from active route templates for this zone
+  // (0=Mon … 6=Sun, matching the ISO weekday convention used in schedule_days)
+  let validDays = null; // null = show all days (fallback if query fails)
+  if (draft.zoneId) {
+    const { data: templates } = await db
+      .from('route_templates')
+      .select('schedule_days')
+      .eq('zone_id', draft.zoneId)
+      .eq('is_active', true);
+    if (templates?.length) {
+      validDays = new Set(templates.flatMap(t => t.schedule_days || []));
+    }
   }
-  for (let i = 1; i <= 5; i++) {
+
+  const now       = new Date();
+  const cutoff    = 14; // show "Today" only before 2pm
+  const todayIso  = now.toISOString().split('T')[0];
+  const days      = [];
+  const maxShow   = 7; // number of valid days to display
+  const maxLook   = 30; // scan at most 30 calendar days ahead
+
+  // Check today first (if before cutoff)
+  if (now.getHours() < cutoff) {
+    const isoDay = (now.getDay() + 6) % 7; // 0=Mon … 6=Sun
+    if (!validDays || validDays.has(isoDay)) {
+      days.push({ label: 'Today', date: new Date(now) });
+    }
+  }
+
+  // Walk forward up to maxLook days and collect those that match valid weekdays
+  for (let i = 1; i <= maxLook && days.length < maxShow; i++) {
     const d = new Date(now);
     d.setDate(d.getDate() + i);
-    days.push({ label: i === 1 ? 'Tomorrow' : null, date: d });
+    const isoDay = (d.getDay() + 6) % 7; // 0=Mon … 6=Sun
+    if (!validDays || validDays.has(isoDay)) {
+      const iso = d.toISOString().split('T')[0];
+      const isNext = iso === new Date(now.getTime() + 86400000).toISOString().split('T')[0];
+      days.push({ label: isNext ? 'Tomorrow' : null, date: d });
+    }
   }
+
+  if (!days.length) {
+    container.innerHTML = '<div style="padding:12px 4px;color:var(--gray-400);font-size:13px">No pickup days available — please contact us.</div>';
+    return;
+  }
+
   container.innerHTML = days.map(({ label, date }) => {
     const iso     = date.toISOString().split('T')[0];
     const dayName = label || date.toLocaleDateString('en-US', { weekday: 'long' });
