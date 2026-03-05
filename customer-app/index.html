@@ -478,6 +478,37 @@
     .acct-section-header { display: flex; align-items: center; gap: 10px; padding: 16px 18px 10px; }
     .acct-section-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--gray-400); }
     .acct-section-line { flex: 1; height: 1px; background: var(--gray-100); }
+
+    /* ── ADDRESS BOOK ── */
+    .addr-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1.5px solid var(--gray-200); border-radius: var(--radius); margin-bottom: 10px; background: white; cursor: default; }
+    .addr-card.default-card { border-color: var(--accent); background: #f5f4ff; }
+    .addr-card-icon { font-size: 20px; margin-top: 1px; flex-shrink: 0; }
+    .addr-card-body { flex: 1; min-width: 0; }
+    .addr-card-label { font-size: 13px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 6px; }
+    .addr-card-default-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; background: var(--accent); color: white; padding: 2px 7px; border-radius: 99px; }
+    .addr-card-line { font-size: 13px; color: var(--gray-600); margin-top: 2px; line-height: 1.4; }
+    .addr-card-note { font-size: 12px; color: var(--gray-400); margin-top: 3px; font-style: italic; }
+    .addr-card-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .addr-action-btn { font-size: 12px; font-weight: 600; color: var(--accent); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; }
+    .addr-action-btn.danger { color: var(--red); }
+    .add-addr-btn { width: 100%; padding: 12px; border: 1.5px dashed var(--gray-300); border-radius: var(--radius); background: none; color: var(--gray-500); font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s; }
+    .add-addr-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── ADDRESS PICKER MODAL (new order + edit order) ── */
+    .addr-picker-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 950; display: flex; align-items: flex-end; }
+    .addr-picker-sheet { background: white; border-radius: 20px 20px 0 0; width: 100%; padding: 20px 20px 40px; max-height: 85vh; overflow-y: auto; box-sizing: border-box; }
+    .addr-picker-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1.5px solid var(--gray-200); border-radius: var(--radius); margin-bottom: 10px; cursor: pointer; transition: all .15s; }
+    .addr-picker-card:hover, .addr-picker-card.selected { border-color: var(--accent); background: #f5f4ff; }
+    .addr-picker-card-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+    .addr-picker-card-body { flex: 1; }
+    .addr-picker-card-label { font-size: 14px; font-weight: 700; color: var(--text); }
+    .addr-picker-card-line { font-size: 13px; color: var(--gray-600); margin-top: 2px; }
+    .addr-new-toggle { text-align: center; font-size: 13px; color: var(--accent); font-weight: 600; cursor: pointer; padding: 8px; text-decoration: underline; }
+
+    /* ── SAVED ADDRESSES IN ORDER STEP 0 ── */
+    .saved-addr-section { margin-bottom: 18px; }
+    .saved-addr-section .step-sub { margin-bottom: 12px; }
+    .saved-addr-divider { text-align: center; font-size: 12px; color: var(--gray-400); font-weight: 600; margin: 12px 0; letter-spacing: .4px; text-transform: uppercase; }
   </style>
 </head>
 <body>
@@ -591,17 +622,26 @@
 
       <!-- Step 0 — Address + Zone Check -->
       <div class="step-content" id="o-step-0">
-        <div class="step-sub">Enter your pickup address to confirm we serve your area.</div>
-        <div class="addr-outer">
-          <div class="addr-wrap">
-            <input type="text" class="addr-input" id="addr-input"
-                   placeholder="123 Main St, Oakland, CA"
-                   oninput="addrInput()"
-                   onkeydown="if(event.key==='Enter'){hideSuggestions();checkAddress();}"
-                   autocomplete="off" />
-            <button class="addr-btn" id="addr-btn" onclick="checkAddress()">Check →</button>
+        <!-- Saved addresses (shown when logged in with addresses on file) -->
+        <div id="saved-addr-section" class="saved-addr-section" style="display:none">
+          <div class="step-sub">Choose a saved pickup address or enter a new one.</div>
+          <div id="saved-addr-cards"></div>
+          <div class="saved-addr-divider">— or —</div>
+        </div>
+        <!-- Text entry (always shown for guests; shown below saved cards for members) -->
+        <div id="new-addr-entry">
+          <div class="step-sub" id="new-addr-sub">Enter your pickup address to confirm we serve your area.</div>
+          <div class="addr-outer">
+            <div class="addr-wrap">
+              <input type="text" class="addr-input" id="addr-input"
+                     placeholder="123 Main St, Oakland, CA"
+                     oninput="addrInput()"
+                     onkeydown="if(event.key==='Enter'){hideSuggestions();checkAddress();}"
+                     autocomplete="off" />
+              <button class="addr-btn" id="addr-btn" onclick="checkAddress()">Check →</button>
+            </div>
+            <div id="addr-suggestions" class="addr-suggestions" style="display:none"></div>
           </div>
-          <div id="addr-suggestions" class="addr-suggestions" style="display:none"></div>
         </div>
         <div id="zone-result" class="zone-result" style="display:none"></div>
         <button class="btn-primary" id="btn-addr-next" style="display:none;margin-top:16px" onclick="goOrderStep(1)">Continue →</button>
@@ -785,6 +825,15 @@
         </div>
       </div>
 
+      <!-- My Addresses -->
+      <div class="section-divider"></div>
+      <div style="padding: 0 18px 16px;">
+        <div class="acct-section-header" style="padding: 16px 0 10px;"><span class="acct-section-label">My Addresses</span><div class="acct-section-line"></div></div>
+        <div id="account-addresses-container">
+          <div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">Loading addresses…</div>
+        </div>
+      </div>
+
       <!-- Payment Method -->
       <div id="payment-method-section"></div>
 
@@ -901,6 +950,8 @@ function clearUserCache(uid) {
 
 let draft = {
   address: '', lat: null, lng: null, zoneId: null,
+  addressId: null,          // saved address FK for pickup
+  deliveryAddressId: null,  // saved address FK for delivery (null = same as pickup)
   bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [],
   deliveryDate: null,
   recurring: '',
@@ -1361,7 +1412,7 @@ async function guestStart() {
 }
 
 function startNewOrder() {
-  draft = { address: '', lat: null, lng: null, zoneId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], deliveryDate: null, recurring: '', prefs: {} };
+  draft = { address: '', lat: null, lng: null, zoneId: null, addressId: null, deliveryAddressId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], deliveryDate: null, recurring: '', prefs: {} };
   orderStep = 0;
   calMonth  = new Date();
   // Reset address UI
@@ -1612,6 +1663,7 @@ function goOrderStep(step) {
   }
 
   if (step === 4) { buildConfirmSummary(); renderConfirmAuth(); }
+  if (step === 0) { initOrderStep0(); }
   orderStep = step;
   renderStep(step);
 }
@@ -2104,7 +2156,9 @@ async function placeOrder() {
     recurring_interval:   draft.recurring || null,
     line_items:           lineItems,
     special_instructions: draft.specialInstructions || null,
-    zone_id:              draft.zoneId || null
+    zone_id:              draft.zoneId || null,
+    pickup_address_id:    draft.addressId || null,
+    delivery_address_id:  draft.deliveryAddressId || draft.addressId || null  // default delivery = same as pickup
     // order_number is GENERATED ALWAYS AS IDENTITY — DB auto-assigns, do not supply
   }).select().single();
 
@@ -2307,7 +2361,7 @@ async function loadOrders() {
 /* ── ORDER DETAIL ── */
 async function openDetail(orderId) {
   showScreen('detail');
-  const { data: o } = await db.from('orders').select('*, services(name)').eq('id', orderId).single();
+  const { data: o } = await db.from('orders').select('*, services(name), pickup_address:addresses!pickup_address_id(*), delivery_address:addresses!delivery_address_id(*)').eq('id', orderId).single();
   if (!o) { toast('Order not found'); return; }
   window._currentDetailOrder = o; // cache for edit modal
 
@@ -2329,13 +2383,21 @@ async function openDetail(orderId) {
     estDelivery = fmtDate(nextDay);
   }
 
+  const pAddr = o.pickup_address;
+  const dAddr = o.delivery_address;
+  const sameAddr = pAddr && dAddr && pAddr.id === dAddr.id;
+  const pickupAddrLine  = pAddr ? fmtAddrOneLiner(pAddr) : '—';
+  const deliveryAddrLine = dAddr ? fmtAddrOneLiner(dAddr) : (pAddr ? fmtAddrOneLiner(pAddr) : '—');
+
   document.getElementById('d-rows').innerHTML = `
     <div class="d-row"><span class="d-key">Service</span><span class="d-val">${o.services?.name || '—'}</span></div>
     <div class="d-row"><span class="d-key">Bags</span><span class="d-val">${bags} bag${bags !== 1 ? 's' : ''}</span></div>
     <div class="d-row"><span class="d-key">Schedule</span><span class="d-val">${o.recurring_interval ? '🔁 ' + RLABELS[o.recurring_interval] : 'One-time'}</span></div>
-    <div class="d-row"><span class="d-key">Pickup</span><span class="d-val">${o.pickup_window_start ? fmtDate(o.pickup_window_start) + (o.pickup_window_end ? ' · ' + fmtSlot(o.pickup_window_start, o.pickup_window_end) : '') : '—'}</span></div>
+    <div class="d-row"><span class="d-key">Pickup date</span><span class="d-val">${o.pickup_window_start ? fmtDate(o.pickup_window_start) + (o.pickup_window_end ? ' · ' + fmtSlot(o.pickup_window_start, o.pickup_window_end) : '') : '—'}</span></div>
+    <div class="d-row"><span class="d-key">Pickup address</span><span class="d-val" style="font-size:12px">${escHtml(pickupAddrLine)}</span></div>
     <div class="d-row"><span class="d-key">Est. Delivery</span><span class="d-val">${estDelivery}</span></div>
-    ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${o.special_instructions}</span></div>` : ''}
+    ${!sameAddr ? `<div class="d-row"><span class="d-key">Delivery address</span><span class="d-val" style="font-size:12px">${escHtml(deliveryAddrLine)}</span></div>` : ''}
+    ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${escHtml(o.special_instructions)}</span></div>` : ''}
     <div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${o.total_amount ? $m(o.total_amount) : 'Confirmed at pickup'}</span></div>`;
 
   // Payment status
@@ -2387,6 +2449,278 @@ async function openDetail(orderId) {
   }
 }
 
+/* ── ADDRESS BOOK ── */
+let _savedAddresses = []; // module-level cache, refreshed on loadAccount + order step 0
+
+async function loadAddresses() {
+  if (!currentCustomer) return [];
+  const { data } = await db.from('addresses')
+    .select('*').eq('customer_id', currentCustomer.id).order('created_at');
+  _savedAddresses = data || [];
+  return _savedAddresses;
+}
+
+function addrIcon(label) {
+  if (!label) return '📍';
+  const l = label.toLowerCase();
+  if (l.includes('home')) return '🏠';
+  if (l.includes('work') || l.includes('office')) return '💼';
+  if (l.includes('apt') || l.includes('apartment')) return '🏢';
+  return '📍';
+}
+
+function fmtAddrOneLiner(a) {
+  const parts = [a.line1, a.line2, a.city, a.state].filter(Boolean);
+  return parts.join(', ');
+}
+
+function renderAddressList(addresses) {
+  const el = document.getElementById('account-addresses-container');
+  if (!el) return;
+  if (!addresses.length) {
+    el.innerHTML = `<div style="color:#94a3b8;font-size:14px;text-align:center;padding:16px 0">No saved addresses yet.</div>`;
+  } else {
+    el.innerHTML = addresses.map(a => `
+      <div class="addr-card ${a.is_default ? 'default-card' : ''}" id="acard-${a.id}">
+        <div class="addr-card-icon">${addrIcon(a.label)}</div>
+        <div class="addr-card-body">
+          <div class="addr-card-label">
+            ${escHtml(a.label || 'Address')}
+            ${a.is_default ? '<span class="addr-card-default-badge">Default</span>' : ''}
+          </div>
+          <div class="addr-card-line">${escHtml(a.line1)}${a.line2 ? ', ' + escHtml(a.line2) : ''}</div>
+          <div class="addr-card-line">${escHtml(a.city)}, ${escHtml(a.state)} ${escHtml(a.zip)}</div>
+          ${a.delivery_instructions ? `<div class="addr-card-note">${escHtml(a.delivery_instructions)}</div>` : ''}
+          <div class="addr-card-actions">
+            <button class="addr-action-btn" onclick="openAddressFormModal('${a.id}')">Edit</button>
+            ${!a.is_default ? `<button class="addr-action-btn" onclick="setDefaultAddress('${a.id}')">Set as default</button>` : ''}
+            <button class="addr-action-btn danger" onclick="deleteAddress('${a.id}')">Remove</button>
+          </div>
+        </div>
+      </div>`).join('');
+  }
+  el.innerHTML += `<button class="add-addr-btn" onclick="openAddressFormModal(null)">+ Add address</button>`;
+}
+
+async function openAddressFormModal(addrId) {
+  const existing = document.getElementById('addr-form-modal');
+  if (existing) existing.remove();
+  const addr = addrId ? _savedAddresses.find(a => a.id === addrId) : null;
+  const modal = document.createElement('div');
+  modal.id = 'addr-form-modal';
+  modal.innerHTML = `
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:flex-end"
+         onclick="if(event.target===this)document.getElementById('addr-form-modal').remove()">
+      <div style="background:#fff;border-radius:20px 20px 0 0;width:100%;padding:20px 20px 40px;max-height:90vh;overflow-y:auto;box-sizing:border-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <div style="font-size:17px;font-weight:800">${addr ? 'Edit Address' : 'Add Address'}</div>
+          <button onclick="document.getElementById('addr-form-modal').remove()"
+                  style="background:none;border:none;font-size:24px;color:var(--gray-400);cursor:pointer;line-height:1;padding:4px">×</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);display:block;margin-bottom:6px">Nickname (e.g. Home, Work)</label>
+            <input id="af-label" type="text" placeholder="Home" value="${escHtml(addr?.label || '')}"
+                   style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;box-sizing:border-box;outline:none">
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);display:block;margin-bottom:6px">Street Address</label>
+            <input id="af-line1" type="text" placeholder="123 Main St" value="${escHtml(addr?.line1 || '')}"
+                   style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;box-sizing:border-box;outline:none">
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);display:block;margin-bottom:6px">Apt / Unit (optional)</label>
+            <input id="af-line2" type="text" placeholder="Apt 2B" value="${escHtml(addr?.line2 || '')}"
+                   style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;box-sizing:border-box;outline:none">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 80px;gap:10px">
+            <div>
+              <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);display:block;margin-bottom:6px">City</label>
+              <input id="af-city" type="text" placeholder="Oakland" value="${escHtml(addr?.city || '')}"
+                     style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;box-sizing:border-box;outline:none">
+            </div>
+            <div>
+              <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);display:block;margin-bottom:6px">Zip</label>
+              <input id="af-zip" type="text" placeholder="94610" value="${escHtml(addr?.zip || '')}"
+                     style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;box-sizing:border-box;outline:none">
+            </div>
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);display:block;margin-bottom:6px">Delivery Instructions (optional)</label>
+            <textarea id="af-notes" rows="2" placeholder="e.g. Gate code 1234, leave at door…"
+                      style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;resize:none;box-sizing:border-box;outline:none;font-family:inherit">${escHtml(addr?.delivery_instructions || '')}</textarea>
+          </div>
+          ${!addr ? `<label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer">
+            <input type="checkbox" id="af-default" checked style="accent-color:var(--accent);width:16px;height:16px"> Set as default address</label>` : ''}
+        </div>
+        <button onclick="saveAddressForm('${addrId || ''}')"
+                style="margin-top:20px;width:100%;padding:14px;background:var(--accent);color:white;border:none;border-radius:var(--radius);font-size:16px;font-weight:700;cursor:pointer">
+          Save Address
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function saveAddressForm(existingId) {
+  const label  = document.getElementById('af-label')?.value.trim();
+  const line1  = document.getElementById('af-line1')?.value.trim();
+  const line2  = document.getElementById('af-line2')?.value.trim() || null;
+  const city   = document.getElementById('af-city')?.value.trim();
+  const zip    = document.getElementById('af-zip')?.value.trim();
+  const notes  = document.getElementById('af-notes')?.value.trim() || null;
+  const makeDefault = existingId ? false : (document.getElementById('af-default')?.checked ?? true);
+
+  if (!line1 || !city || !zip) { toast('Please fill in street, city, and zip'); return; }
+
+  const payload = {
+    customer_id: currentCustomer.id,
+    label: label || 'Home',
+    line1, line2, city, state: 'CA', zip,
+    delivery_instructions: notes,
+    is_default: makeDefault
+  };
+
+  let error;
+  if (existingId) {
+    ({ error } = await db.from('addresses').update(payload).eq('id', existingId));
+  } else {
+    if (makeDefault) {
+      // Clear any existing default first
+      await db.from('addresses').update({ is_default: false }).eq('customer_id', currentCustomer.id);
+    }
+    ({ error } = await db.from('addresses').insert(payload));
+  }
+
+  if (error) { toast('Could not save address: ' + error.message); return; }
+  toast('Address saved ✓');
+  document.getElementById('addr-form-modal')?.remove();
+  const fresh = await loadAddresses();
+  renderAddressList(fresh);
+}
+
+async function deleteAddress(id) {
+  if (!confirm('Remove this address?')) return;
+  const { error } = await db.from('addresses').delete().eq('id', id);
+  if (error) { toast('Could not remove address'); return; }
+  toast('Address removed');
+  const fresh = await loadAddresses();
+  renderAddressList(fresh);
+}
+
+async function setDefaultAddress(id) {
+  await db.from('addresses').update({ is_default: false }).eq('customer_id', currentCustomer.id);
+  await db.from('addresses').update({ is_default: true }).eq('id', id);
+  toast('Default address updated ✓');
+  const fresh = await loadAddresses();
+  renderAddressList(fresh);
+}
+
+/* ── SAVED ADDRESS PICKER (used in new order step 0 + edit modal) ── */
+function openAddressPicker(currentId, onSelect) {
+  const existing = document.getElementById('addr-picker-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'addr-picker-modal';
+  modal.className = 'addr-picker-overlay';
+  modal.innerHTML = `
+    <div class="addr-picker-sheet" onclick="event.stopPropagation()">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="font-size:17px;font-weight:800">Choose Address</div>
+        <button onclick="document.getElementById('addr-picker-modal').remove()"
+                style="background:none;border:none;font-size:24px;color:var(--gray-400);cursor:pointer;line-height:1;padding:4px">×</button>
+      </div>
+      ${_savedAddresses.map(a => `
+        <div class="addr-picker-card ${a.id === currentId ? 'selected' : ''}"
+             onclick="window._pickerSelect('${a.id}')">
+          <div class="addr-picker-card-icon">${addrIcon(a.label)}</div>
+          <div class="addr-picker-card-body">
+            <div class="addr-picker-card-label">${escHtml(a.label || 'Address')}${a.is_default ? ' <span style=\'font-size:11px;color:var(--accent)\'>· Default</span>' : ''}</div>
+            <div class="addr-picker-card-line">${escHtml(fmtAddrOneLiner(a))}</div>
+          </div>
+        </div>`).join('')}
+      <div class="addr-new-toggle" onclick="window._pickerAddNew()">+ Use a different address</div>
+    </div>`;
+  modal.onclick = () => modal.remove();
+  document.body.appendChild(modal);
+  window._pickerSelect = (id) => {
+    const addr = _savedAddresses.find(a => a.id === id);
+    modal.remove();
+    if (addr) onSelect(addr);
+  };
+  window._pickerAddNew = () => { modal.remove(); onSelect(null); };
+}
+
+/* ── STEP 0: load + render saved addresses ── */
+async function initOrderStep0() {
+  if (!currentCustomer) return; // guest — text input only
+  const addrs = await loadAddresses();
+  const savedSection = document.getElementById('saved-addr-section');
+  const savedCards   = document.getElementById('saved-addr-cards');
+  const newAddrSub   = document.getElementById('new-addr-sub');
+  if (!savedSection || !savedCards) return;
+
+  if (addrs.length > 0) {
+    savedSection.style.display = '';
+    newAddrSub.textContent = 'Or enter a different address:';
+
+    // Pre-select default (or first) address
+    const def = addrs.find(a => a.is_default) || addrs[0];
+    selectSavedAddress(def);
+
+    savedCards.innerHTML = addrs.map(a => `
+      <div class="addr-picker-card ${a.id === def.id ? 'selected' : ''}" id="sac-${a.id}"
+           onclick="selectSavedAddress(${JSON.stringify(a).replace(/"/g, '&quot;')})">
+        <div class="addr-picker-card-icon">${addrIcon(a.label)}</div>
+        <div class="addr-picker-card-body">
+          <div class="addr-picker-card-label">${escHtml(a.label || 'Address')}</div>
+          <div class="addr-picker-card-line">${escHtml(fmtAddrOneLiner(a))}</div>
+        </div>
+      </div>`).join('');
+  }
+}
+
+function selectSavedAddress(addr) {
+  // Highlight selected card
+  document.querySelectorAll('#saved-addr-cards .addr-picker-card').forEach(c => c.classList.remove('selected'));
+  const card = document.getElementById('sac-' + addr.id);
+  if (card) card.classList.add('selected');
+
+  // Store in draft
+  draft.addressId = addr.id;
+  draft.address   = fmtAddrOneLiner(addr);
+  draft.lat       = addr.lat ? parseFloat(addr.lat) : null;
+  draft.lng       = addr.lng ? parseFloat(addr.lng) : null;
+
+  // If we already have lat/lng, run zone check silently
+  if (draft.lat && draft.lng) {
+    checkAddressWithCoords(draft.lat, draft.lng, draft.address);
+  } else {
+    // Fall back to geocoding the address string
+    checkAddress(null, null, draft.address);
+  }
+}
+
+async function checkAddressWithCoords(lat, lng, displayAddr) {
+  const zr = document.getElementById('zone-result');
+  const nextBtn = document.getElementById('btn-addr-next');
+  zr.style.display = 'none';
+  nextBtn.style.display = 'none';
+
+  const { data: zones } = await db.from('service_zones').select('zone_id:id, name, polygon');
+  const zone = zones?.find(z => pointInPolygon(lat, lng, z.polygon));
+  if (!zone) {
+    zr.innerHTML = `❌ <strong>Sorry, we don't serve this area yet.</strong>`;
+    zr.style.display = '';
+    draft.zoneId = null;
+    return;
+  }
+  draft.zoneId  = zone.zone_id;
+  zr.innerHTML  = `✅ <strong>Great news — we serve your area!</strong><br><span style="font-size:13px;font-weight:400">${escHtml(displayAddr)}</span>`;
+  zr.style.display = '';
+  nextBtn.style.display = '';
+}
+
 /* ── ORDER EDITING ── */
 function openEditOrder() {
   const o = window._currentDetailOrder;
@@ -2394,16 +2728,33 @@ function openEditOrder() {
   const existing = document.getElementById('edit-order-modal');
   if (existing) existing.remove();
 
-  window._editOrderId   = o.id;
-  window._editBags      = Number(o.total_bags) || 1;
-  const currentInstructions = o.special_instructions || '';
+  window._editOrderId          = o.id;
+  window._editBags             = Number(o.total_bags) || 1;
+  window._editPickupAddressId  = o.pickup_address_id || null;
+  window._editDeliveryAddressId = o.delivery_address_id || o.pickup_address_id || null;
+
+  // Build address selector HTML
+  const pAddr = o.pickup_address;
+  const dAddr = o.delivery_address;
+  const sameAddr = !dAddr || (pAddr && dAddr.id === pAddr.id);
+
+  function addrPickerRow(purpose, addr) {
+    const label = addr ? `${addrIcon(addr.label)} ${escHtml(addr.label || 'Address')} — ${escHtml(addr.line1)}` : 'None selected';
+    return `
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px;margin-top:20px">${purpose} Address</div>
+      <div id="edit-${purpose.toLowerCase()}-addr-display" onclick="editPickAddress('${purpose.toLowerCase()}')"
+           style="padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:var(--radius);cursor:pointer;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:14px;color:var(--text)">${label}</span>
+        <span style="font-size:12px;color:var(--accent);font-weight:600">Change</span>
+      </div>`;
+  }
 
   const modal = document.createElement('div');
   modal.id = 'edit-order-modal';
   modal.innerHTML = `
     <div style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;display:flex;align-items:flex-end"
          onclick="if(event.target===this)this.remove()">
-      <div style="background:#fff;border-radius:20px 20px 0 0;width:100%;padding:20px 20px 40px;max-height:85vh;overflow-y:auto;box-sizing:border-box">
+      <div style="background:#fff;border-radius:20px 20px 0 0;width:100%;padding:20px 20px 40px;max-height:90vh;overflow-y:auto;box-sizing:border-box">
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
           <div style="font-size:17px;font-weight:800">Edit Order</div>
@@ -2411,8 +2762,9 @@ function openEditOrder() {
                   style="background:none;border:none;font-size:24px;color:var(--gray-400);cursor:pointer;line-height:1;padding:4px">×</button>
         </div>
 
+        <!-- Bags -->
         <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:10px">Number of Bags</div>
-        <div class="bags-counter" style="margin-bottom:24px">
+        <div class="bags-counter" style="margin-bottom:4px">
           <button class="bags-btn" onclick="editBagsDelta(-1)">−</button>
           <div>
             <div class="bags-num" id="edit-bags-display">${window._editBags}</div>
@@ -2421,13 +2773,25 @@ function openEditOrder() {
           <button class="bags-btn" onclick="editBagsDelta(1)">+</button>
         </div>
 
-        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px">Special Care Notes</div>
+        <!-- Special care notes -->
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px;margin-top:20px">Special Care Notes</div>
         <textarea id="edit-instructions" rows="3"
           placeholder="e.g. No fabric softener, hang dry delicates…"
           style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none"
-        >${escHtml(currentInstructions || '')}</textarea>
+        >${escHtml(o.special_instructions || '')}</textarea>
 
-        <div style="font-size:12px;color:var(--gray-400);margin-top:8px;margin-bottom:20px">
+        <!-- Pickup address -->
+        ${addrPickerRow('Pickup', pAddr)}
+
+        <!-- Delivery address -->
+        ${addrPickerRow('Delivery', sameAddr ? pAddr : dAddr)}
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--gray-600);margin-top:8px;cursor:pointer">
+          <input type="checkbox" id="edit-same-addr" ${sameAddr ? 'checked' : ''} style="accent-color:var(--accent);width:15px;height:15px"
+                 onchange="editToggleSameAddr(this.checked)">
+          Deliver to same address as pickup
+        </label>
+
+        <div style="font-size:12px;color:var(--gray-400);margin-top:16px;margin-bottom:20px">
           Changes are locked once your pickup route begins.
         </div>
 
@@ -2447,6 +2811,47 @@ function openEditOrder() {
   new MutationObserver((_, obs) => {
     if (!document.getElementById('edit-order-modal')) { document.removeEventListener('keydown', onEsc); obs.disconnect(); }
   }).observe(document.body, { childList: true });
+}
+
+function editPickAddress(purpose) {
+  // purpose = 'pickup' or 'delivery'
+  if (!_savedAddresses.length) {
+    toast('No saved addresses — add one in Profile first');
+    return;
+  }
+  const currentId = purpose === 'pickup' ? window._editPickupAddressId : window._editDeliveryAddressId;
+  openAddressPicker(currentId, (addr) => {
+    if (!addr) return; // user tapped "use different" but we're in edit modal — ignore
+    if (purpose === 'pickup') {
+      window._editPickupAddressId = addr.id;
+      const display = document.getElementById('edit-pickup-addr-display');
+      if (display) display.querySelector('span').textContent = `${addrIcon(addr.label)} ${addr.label || 'Address'} — ${addr.line1}`;
+      // If same-addr checkbox is checked, mirror to delivery
+      if (document.getElementById('edit-same-addr')?.checked) {
+        window._editDeliveryAddressId = addr.id;
+        const dd = document.getElementById('edit-delivery-addr-display');
+        if (dd) dd.querySelector('span').textContent = `${addrIcon(addr.label)} ${addr.label || 'Address'} — ${addr.line1}`;
+      }
+    } else {
+      window._editDeliveryAddressId = addr.id;
+      const display = document.getElementById('edit-delivery-addr-display');
+      if (display) display.querySelector('span').textContent = `${addrIcon(addr.label)} ${addr.label || 'Address'} — ${addr.line1}`;
+      // Uncheck "same addr" since they picked a different one
+      const cb = document.getElementById('edit-same-addr');
+      if (cb && addr.id !== window._editPickupAddressId) cb.checked = false;
+    }
+  });
+}
+
+function editToggleSameAddr(checked) {
+  if (checked) {
+    window._editDeliveryAddressId = window._editPickupAddressId;
+    const pickupDisplay = document.getElementById('edit-pickup-addr-display');
+    const deliveryDisplay = document.getElementById('edit-delivery-addr-display');
+    if (pickupDisplay && deliveryDisplay) {
+      deliveryDisplay.querySelector('span').textContent = pickupDisplay.querySelector('span').textContent;
+    }
+  }
 }
 
 function editBagsDelta(delta) {
@@ -2481,6 +2886,8 @@ async function saveEditOrder() {
     special_instructions: instructions,
     total_amount:         total,
     line_items:           lineItems,
+    pickup_address_id:    window._editPickupAddressId   || null,
+    delivery_address_id:  window._editDeliveryAddressId || window._editPickupAddressId || null,
     updated_at:           new Date().toISOString()
   }).eq('id', orderId);
 
@@ -2713,6 +3120,10 @@ async function loadAccount() {
 
   // Payment method card
   renderPaymentSection();
+
+  // Addresses
+  const addrs = await loadAddresses();
+  renderAddressList(addrs);
 }
 
 function renderPlanCards(activePlanId) {
@@ -2841,7 +3252,14 @@ window.selectPickupWindow     = selectPickupWindow;
 window.selectDeliveryDay      = selectDeliveryDay;
 window.openEditOrder          = openEditOrder;
 window.editBagsDelta          = editBagsDelta;
+window.editPickAddress        = editPickAddress;
+window.editToggleSameAddr     = editToggleSameAddr;
 window.saveEditOrder          = saveEditOrder;
+window.openAddressFormModal   = openAddressFormModal;
+window.saveAddressForm        = saveAddressForm;
+window.deleteAddress          = deleteAddress;
+window.setDefaultAddress      = setDefaultAddress;
+window.selectSavedAddress     = selectSavedAddress;
 window.placeOrder        = placeOrder;
 window.afterSuccess      = afterSuccess;
 window.openDetail        = openDetail;
