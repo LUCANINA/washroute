@@ -70,6 +70,8 @@
     .topbar { background: var(--navy); padding: 14px 20px 12px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
     .topbar-logo { height: 28px; object-fit: contain; }
     .topbar-title { color: white; font-size: 15px; font-weight: 600; }
+    .topbar-back-btn { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: none; background: rgba(255,255,255,.15); border-radius: 50%; cursor: pointer; padding: 0; flex-shrink: 0; }
+    .topbar-back-btn svg { width: 20px; height: 20px; stroke: white; stroke-width: 2.2; fill: none; }
 
     /* ── BOTTOM NAV ── */
     .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 430px; background: white; border-top: 1px solid var(--gray-200); display: flex; z-index: 100; padding-bottom: env(safe-area-inset-bottom, 0px); }
@@ -788,9 +790,9 @@
   <!-- ═══ ORDERS ═══ -->
   <div class="screen" id="screen-orders">
     <div class="topbar">
-      <img class="topbar-logo" src="../assets/logo.png" alt="Family Laundry" onerror="this.style.display='none'">
+      <button class="topbar-back-btn" onclick="goTo('account')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
       <span class="topbar-title">My Orders</span>
-      <div style="width:28px"></div>
+      <div style="width:36px"></div>
     </div>
     <div class="orders-tab-bar">
       <button class="otab active" id="otab-current" onclick="switchOrderTab('current')">Current</button>
