@@ -290,6 +290,16 @@
     .mi-chev svg { width: 16px; height: 16px; stroke: var(--gray-300); stroke-width: 2; fill: none; }
     .signout-btn { margin: 6px 18px 20px; width: calc(100% - 36px); padding: 13px; background: #fef2f2; color: #dc2626; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
     .signout-btn:hover { opacity: .8; }
+    .mi-value { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+
+    /* ── ACCOUNT SUB-PANELS ── */
+    .sub-panel { position: fixed; top: 0; bottom: 0; left: 50%; width: 100%; max-width: 430px; background: var(--gray-50); z-index: 200; display: flex; flex-direction: column; transform: translateX(-50%) translateX(100%); transition: transform .28s cubic-bezier(.4,0,.2,1); overflow: hidden; }
+    .sub-panel.open { transform: translateX(-50%); }
+    .sub-panel-header { background: white; display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; }
+    .sub-back-btn { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: none; background: var(--gray-100); border-radius: 50%; cursor: pointer; flex-shrink: 0; padding: 0; }
+    .sub-back-btn svg { width: 20px; height: 20px; stroke: var(--navy); stroke-width: 2.2; fill: none; }
+    .sub-panel-title { font-size: 17px; font-weight: 800; color: var(--text); }
+    .sub-panel-body { flex: 1; overflow-y: auto; padding: 20px 18px; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 28px); }
 
     /* Divider */
     .section-divider { height: 8px; background: var(--gray-50); border-top: 1px solid var(--gray-100); border-bottom: 1px solid var(--gray-100); margin: 4px 0; }
@@ -824,55 +834,105 @@
       </div>
       <div id="acct-plan-badge"></div>
     </div>
-    <div class="main-content">
-
-      <!-- Quick links -->
+    <div class="main-content" style="padding: 0 0 20px;">
       <div class="acct-menu">
-        <div class="acct-section-header"><span class="acct-section-label">Account</span><div class="acct-section-line"></div></div>
+        <!-- Order History -->
         <div class="menu-item" onclick="goTo('orders')">
           <div class="mi-left">
             <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><path d="M9 12h6M9 16h4"/></svg></div>
-            <span class="mi-label">Order History</span>
+            <div><div class="mi-label">Order History</div></div>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <!-- My Addresses -->
+        <div class="menu-item" onclick="openSubPanel('sub-addresses')">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
+            <div>
+              <div class="mi-label">My Addresses</div>
+              <div class="mi-value" id="acct-menu-addr-count"></div>
+            </div>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <!-- Payment Method -->
+        <div class="menu-item" onclick="openSubPanel('sub-payment')">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg></div>
+            <div>
+              <div class="mi-label">Payment Method</div>
+              <div class="mi-value" id="acct-menu-card-info"></div>
+            </div>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <!-- Laundry Preferences -->
+        <div class="menu-item" onclick="openSubPanel('sub-prefs')">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+            <div><div class="mi-label">Laundry Preferences</div></div>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <!-- My Plan -->
+        <div class="menu-item" onclick="openSubPanel('sub-plan')">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
+            <div>
+              <div class="mi-label">My Plan</div>
+              <div class="mi-value" id="acct-menu-plan-name"></div>
+            </div>
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
       </div>
-
-      <!-- My Addresses -->
-      <div class="section-divider"></div>
-      <div style="padding: 0 18px 16px;">
-        <div class="acct-section-header" style="padding: 16px 0 10px;"><span class="acct-section-label">My Addresses</span><div class="acct-section-line"></div></div>
-        <div id="account-addresses-container">
-          <div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">Loading addresses…</div>
-        </div>
-      </div>
-
-      <!-- Payment Method -->
-      <div id="payment-method-section"></div>
-
-      <div class="section-divider"></div>
-
-      <!-- Laundry Preferences -->
-      <div class="pref-section">
-        <div class="acct-section-header" style="padding:16px 0 10px"><span class="acct-section-label">Laundry Preferences</span><div class="acct-section-line"></div></div>
-        <div id="account-prefs-container">
-          <div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">Loading preferences…</div>
-        </div>
-        <button class="pref-save-btn" onclick="savePreferences()">Save Preferences</button>
-      </div>
-
-      <div class="section-divider"></div>
-
-      <!-- Subscription Plans -->
-      <div style="padding: 16px 18px 8px;">
-        <div class="acct-section-header" style="padding:0 0 10px"><span class="acct-section-label">My Plan</span><div class="acct-section-line"></div></div>
-      </div>
-      <div class="plan-cards" id="plan-cards">
-        <!-- Rendered by JS -->
-      </div>
-
-      <div class="section-divider"></div>
       <button class="signout-btn" onclick="handleSignOut()">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- ═══ ACCOUNT SUB-PANELS ═══ -->
+  <div class="sub-panel" id="sub-addresses">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-addresses')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">My Addresses</div>
+    </div>
+    <div class="sub-panel-body">
+      <div id="account-addresses-container">
+        <div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">Loading addresses…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sub-panel" id="sub-payment">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-payment')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">Payment Method</div>
+    </div>
+    <div class="sub-panel-body">
+      <div id="payment-method-section"></div>
+    </div>
+  </div>
+
+  <div class="sub-panel" id="sub-prefs">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-prefs')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">Laundry Preferences</div>
+    </div>
+    <div class="sub-panel-body">
+      <div id="account-prefs-container">
+        <div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">Loading preferences…</div>
+      </div>
+      <button class="pref-save-btn" onclick="savePreferences()" style="margin-top: 20px">Save Preferences</button>
+    </div>
+  </div>
+
+  <div class="sub-panel" id="sub-plan">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-plan')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">My Plan</div>
+    </div>
+    <div class="sub-panel-body" style="padding: 16px 0 28px;">
+      <div class="plan-cards" id="plan-cards"></div>
     </div>
   </div>
 
@@ -988,6 +1048,8 @@ function showScreen(id) {
 }
 
 function goTo(page) {
+  // Always close any open account sub-panels when navigating
+  document.querySelectorAll('.sub-panel.open').forEach(p => p.classList.remove('open'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   const navId = { home: 'nav-home', 'new-order': 'nav-new-order', orders: 'nav-orders', account: 'nav-account' }[page];
   if (navId) document.getElementById(navId)?.classList.add('active');
@@ -2599,6 +2661,13 @@ function renderAddressList(addresses) {
       </div>`).join('');
   }
   el.innerHTML += `<button class="add-addr-btn" onclick="openAddressFormModal(null)">+ Add address</button>`;
+
+  // Keep the menu count hint in sync whenever the list re-renders
+  const countEl = document.getElementById('acct-menu-addr-count');
+  if (countEl) {
+    const n = addresses.length;
+    countEl.textContent = n === 0 ? 'No saved addresses' : n === 1 ? '1 saved address' : `${n} saved addresses`;
+  }
 }
 
 async function openAddressFormModal(addrId) {
@@ -3315,6 +3384,12 @@ async function loadAccount() {
       ${activePlan?.name || 'Pay As You Go'} Plan
     </div>`;
 
+  // Update menu value hints
+  const planEl = document.getElementById('acct-menu-plan-name');
+  if (planEl) planEl.textContent = activePlan?.name || 'Pay As You Go';
+  const cardEl = document.getElementById('acct-menu-card-info');
+  if (cardEl) cardEl.textContent = currentCustomer?.card_last4 ? `•••• ${currentCustomer.card_last4}` : 'No card on file';
+
   renderAccountPrefs();
 
   // Plan cards
@@ -3326,6 +3401,13 @@ async function loadAccount() {
   // Addresses
   const addrs = await loadAddresses();
   renderAddressList(addrs);
+
+  // Update address count hint in menu
+  const addrEl = document.getElementById('acct-menu-addr-count');
+  if (addrEl) {
+    const n = addrs?.length || 0;
+    addrEl.textContent = n === 0 ? 'No saved addresses' : n === 1 ? '1 saved address' : `${n} saved addresses`;
+  }
 }
 
 function renderPlanCards(activePlanId) {
@@ -3428,6 +3510,17 @@ async function savePreferences() {
   toast('Preferences saved ✓');
 }
 
+/* ── ACCOUNT SUB-PANELS ── */
+function openSubPanel(id) {
+  const panel = document.getElementById(id);
+  if (panel) panel.classList.add('open');
+}
+
+function closeSubPanel(id) {
+  const panel = document.getElementById(id);
+  if (panel) panel.classList.remove('open');
+}
+
 /* ── EXPOSE EVENT HANDLERS TO GLOBAL SCOPE ── */
 // Belt-and-suspenders: explicitly attach all functions called from HTML attributes
 window.switchTab         = switchTab;
@@ -3476,6 +3569,8 @@ window.removeCard        = removeCard;
 window.selectPlan        = selectPlan;
 window.savePreferences   = savePreferences;
 window.renderAccountPrefs = renderAccountPrefs;
+window.openSubPanel      = openSubPanel;
+window.closeSubPanel     = closeSubPanel;
 </script>
 </body>
 </html>
