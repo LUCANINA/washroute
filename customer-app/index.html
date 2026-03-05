@@ -398,6 +398,8 @@
     .addr-sug-item:hover { background: var(--gray-50); }
     .addr-sug-main { font-weight: 500; color: var(--text); }
     .addr-sug-sub { font-size: 12px; color: var(--gray-600); margin-top: 2px; }
+    /* Address autocomplete inside the Add Address modal */
+    .af-suggestions { background: white; border: 1.5px solid var(--accent); border-top: none; border-radius: 0 0 10px 10px; margin-top: -2px; max-height: 200px; overflow-y: auto; box-shadow: 0 6px 18px rgba(0,0,0,.1); }
 
     /* ── SCHEDULE STEP (senior-friendly day + window pickers) ── */
     .sched-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--gray-600); margin: 0 0 10px; }
@@ -510,6 +512,14 @@
     .saved-addr-section .step-sub { margin-bottom: 12px; }
     .saved-addr-divider { text-align: center; font-size: 12px; color: var(--gray-400); font-weight: 600; margin: 12px 0; letter-spacing: .4px; text-transform: uppercase; }
   </style>
+  <!-- Google Maps (Places + Geocoder) — loaded async; callback initialises global services -->
+  <script>
+    function initGoogleMapsServices() {
+      window._googleAutocomplete = new google.maps.places.AutocompleteService();
+      window._googleGeocoder     = new google.maps.Geocoder();
+    }
+  </script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc&libraries=places&callback=initGoogleMapsServices" async defer></script>
 </head>
 <body>
 <div id="app">
@@ -624,11 +634,14 @@
       <div class="step-content" id="o-step-0">
         <!-- Saved addresses (shown when logged in with addresses on file) -->
         <div id="saved-addr-section" class="saved-addr-section" style="display:none">
-          <div class="step-sub">Choose a saved pickup address or enter a new one.</div>
+          <div class="step-sub">Choose your pickup address.</div>
           <div id="saved-addr-cards"></div>
-          <div class="saved-addr-divider">— or —</div>
+          <!-- "Use a different address" toggle — reveals the text entry below -->
+          <div id="diff-addr-toggle"
+               style="text-align:center;margin-top:4px;font-size:13px;color:var(--accent);font-weight:600;cursor:pointer;padding:8px 0"
+               onclick="showNewAddrEntry()">+ Use a different address</div>
         </div>
-        <!-- Text entry (always shown for guests; shown below saved cards for members) -->
+        <!-- Text entry: always shown for guests; hidden by default for members with saved addresses -->
         <div id="new-addr-entry">
           <div class="step-sub" id="new-addr-sub">Enter your pickup address to confirm we serve your area.</div>
           <div class="addr-outer">
@@ -955,12 +968,16 @@ let draft = {
   bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [],
   deliveryDate: null,
   recurring: '',
-  prefs: {} // { groupId: { optId, label, priceMod } }
+  prefs: {},                // { groupId: { optId, label, priceMod } }
+  _addrComponents: null     // { line1, city, state, zip, lat, lng } — captured from geocoder for auto-save
 };
 let orderStep = 0;
 let calMonth  = new Date();
 let ordersTab = 'current';
-let addrTimer = null; // debounce handle for address autocomplete
+let addrTimer   = null; // debounce handle for address autocomplete (order flow)
+let _addrSuggCache = []; // Google Places predictions for the current suggestion list (order flow)
+let _afSuggCache   = []; // Google Places predictions for the Add Address modal
+let _afGeo         = null; // { lat, lng } captured when a suggestion is chosen in the Add Address modal
 
 /* ── ROUTING ── */
 function showScreen(id) {
@@ -1412,7 +1429,7 @@ async function guestStart() {
 }
 
 function startNewOrder() {
-  draft = { address: '', lat: null, lng: null, zoneId: null, addressId: null, deliveryAddressId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], deliveryDate: null, recurring: '', prefs: {} };
+  draft = { address: '', lat: null, lng: null, zoneId: null, addressId: null, deliveryAddressId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], deliveryDate: null, recurring: '', prefs: {}, _addrComponents: null };
   orderStep = 0;
   calMonth  = new Date();
   // Reset address UI
@@ -1428,8 +1445,16 @@ function startNewOrder() {
   document.querySelectorAll('.freq-pill').forEach(p => {
     p.classList.toggle('selected', p.dataset.val === '');
   });
+  // Reset saved-address UI so it's clean before initOrderStep0 re-populates it
+  const savedSection = document.getElementById('saved-addr-section');
+  const newAddrEntry = document.getElementById('new-addr-entry');
+  const diffToggle   = document.getElementById('diff-addr-toggle');
+  if (savedSection) savedSection.style.display = 'none';
+  if (newAddrEntry) newAddrEntry.style.display = '';
+  if (diffToggle)   diffToggle.style.display = '';
   showScreen('new-order');
   renderStep(0);
+  initOrderStep0(); // load saved addresses (async — updates UI when ready)
 }
 
 /* ── ADDRESS AUTOCOMPLETE ── */
@@ -1450,27 +1475,29 @@ function addrInput() {
   addrTimer = setTimeout(() => fetchAddrSuggestions(q), 420);
 }
 
-async function fetchAddrSuggestions(q) {
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5&countrycodes=us&addressdetails=1`;
-    const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
-    const results = await res.json();
-    renderAddrSuggestions(results);
-  } catch(e) { /* silently fail — user can still type full address and hit Check */ }
+function fetchAddrSuggestions(q) {
+  if (!window._googleAutocomplete) return; // Google not loaded yet — user can still hit Check
+  window._googleAutocomplete.getPlacePredictions(
+    { input: q, componentRestrictions: { country: 'us' }, types: ['address'] },
+    (predictions, status) => {
+      if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions?.length) {
+        hideSuggestions(); return;
+      }
+      renderAddrSuggestions(predictions);
+    }
+  );
 }
 
-function renderAddrSuggestions(results) {
+function renderAddrSuggestions(predictions) {
   const box = document.getElementById('addr-suggestions');
-  if (!box || !results.length) { hideSuggestions(); return; }
-  box.innerHTML = results.map(r => {
-    const a    = r.address || {};
-    const main = [a.house_number, a.road].filter(Boolean).join(' ') || r.display_name.split(',')[0];
-    const sub  = [a.city || a.town || a.village || a.county, a.state].filter(Boolean).join(', ');
-    const lat  = r.lat, lon = r.lon;
-    const disp = escHtml(main + (sub ? ', ' + sub : ''));
+  if (!box || !predictions.length) { hideSuggestions(); return; }
+  _addrSuggCache = predictions;
+  box.innerHTML = predictions.map((p, i) => {
+    const main = p.structured_formatting?.main_text    || p.description.split(',')[0];
+    const sub  = p.structured_formatting?.secondary_text || '';
     return `<div class="addr-sug-item"
               onmousedown="event.preventDefault()"
-              onclick="selectAddrSuggestion('${disp}',${lat},${lon})">
+              onclick="selectAddrSuggestion(${i})">
               <div class="addr-sug-main">${escHtml(main)}</div>
               ${sub ? `<div class="addr-sug-sub">${escHtml(sub)}</div>` : ''}
             </div>`;
@@ -1483,13 +1510,36 @@ function hideSuggestions() {
   if (box) { box.style.display = 'none'; box.innerHTML = ''; }
 }
 
-function selectAddrSuggestion(display, lat, lng) {
-  const inp = document.getElementById('addr-input');
-  if (inp) inp.value = display;
+function selectAddrSuggestion(idx) {
+  const prediction = _addrSuggCache[idx];
+  if (!prediction) return;
+
   hideSuggestions();
   clearTimeout(addrTimer);
-  // Run zone check immediately with known coordinates (no re-geocoding needed)
-  checkAddress(parseFloat(lat), parseFloat(lng), display);
+
+  // Show the chosen address in the input immediately
+  const display = prediction.description.split(',').slice(0, 3).join(',');
+  const inp = document.getElementById('addr-input');
+  if (inp) inp.value = display;
+
+  // Geocode via Google to get lat/lng + structured address components
+  if (!window._googleGeocoder) { checkAddress(null, null, display); return; }
+  window._googleGeocoder.geocode({ placeId: prediction.place_id }, (results, status) => {
+    if (status !== 'OK' || !results?.[0]) { checkAddress(null, null, display); return; }
+    const r    = results[0];
+    const comp = r.address_components || [];
+    const get  = (type) => comp.find(c => c.types.includes(type))?.long_name  || '';
+    const getS = (type) => comp.find(c => c.types.includes(type))?.short_name || '';
+    const line1 = [[get('street_number'), get('route')].filter(Boolean).join(' ')].filter(Boolean)[0] || display.split(',')[0].trim();
+    const city  = get('locality') || get('sublocality_level_1') || get('administrative_area_level_2') || '';
+    const state = getS('administrative_area_level_1') || 'CA';
+    const zip   = get('postal_code') || '';
+    const lat   = r.geometry.location.lat();
+    const lng   = r.geometry.location.lng();
+
+    draft._addrComponents = { line1, city, state, zip, lat, lng };
+    checkAddress(lat, lng, display);
+  });
 }
 
 /* ── ADDRESS CHECK ── */
@@ -1508,20 +1558,42 @@ async function checkAddress(knownLat, knownLng, knownAddr) {
     let lat = knownLat, lng = knownLng;
 
     if (!lat || !lng) {
-      // Geocode via Nominatim (free, no key needed)
-      const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1&countrycodes=us`;
-      const geoRes  = await fetch(geoUrl, { headers: { 'Accept-Language': 'en' } });
-      const geoData = await geoRes.json();
+      // Geocode via Google Geocoder
+      if (!window._googleGeocoder) {
+        zr.className  = 'zone-result zone-err';
+        zr.textContent = 'Address lookup is still loading. Please wait a moment and try again.';
+        zr.style.display = '';
+        btn.disabled = false; btn.textContent = 'Check →';
+        return;
+      }
+      let geocodeResult;
+      try {
+        geocodeResult = await new Promise((resolve, reject) =>
+          window._googleGeocoder.geocode(
+            { address: addr, componentRestrictions: { country: 'us' } },
+            (results, status) => status === 'OK' && results?.[0] ? resolve(results[0]) : reject(status)
+          )
+        );
+      } catch(_) { geocodeResult = null; }
 
-      if (!geoData.length) {
+      if (!geocodeResult) {
         zr.className  = 'zone-result zone-err';
         zr.textContent = "We couldn't find that address. Try adding your city or zip code.";
         zr.style.display = '';
         document.getElementById('btn-addr-next').style.display = 'none';
         return;
       }
-      lat = parseFloat(geoData[0].lat);
-      lng = parseFloat(geoData[0].lon);
+      lat = geocodeResult.geometry.location.lat();
+      lng = geocodeResult.geometry.location.lng();
+      // Capture parsed components for auto-save
+      const comp = geocodeResult.address_components || [];
+      const get  = (type) => comp.find(c => c.types.includes(type))?.long_name  || '';
+      const getS = (type) => comp.find(c => c.types.includes(type))?.short_name || '';
+      const line1 = [[get('street_number'), get('route')].filter(Boolean).join(' ')].filter(Boolean)[0] || addr.split(',')[0].trim();
+      draft._addrComponents = {
+        line1, city: get('locality') || get('sublocality_level_1') || get('administrative_area_level_2') || '',
+        state: getS('administrative_area_level_1') || 'CA', zip: get('postal_code') || '', lat, lng
+      };
     }
 
     // Check zone via PostGIS RPC
@@ -2273,6 +2345,33 @@ async function placeOrder() {
     }).catch(() => {});
   }
 
+  // ── Auto-save address for logged-in customers who typed a new address ──
+  // (best-effort, runs in background so it never delays the success screen)
+  if (currentCustomer && !draft.addressId && draft._addrComponents) {
+    (async () => {
+      try {
+        const { line1, city, state, zip, lat, lng } = draft._addrComponents;
+        if (line1 && city && zip) {
+          const isFirstAddr = !_savedAddresses.length;
+          if (isFirstAddr) {
+            // Clear any stale defaults (shouldn't exist, but safety check)
+            await db.from('addresses').update({ is_default: false }).eq('customer_id', currentCustomer.id);
+          }
+          const { data: newAddr, error: addrErr } = await db.from('addresses').insert({
+            customer_id: currentCustomer.id,
+            label:       'Home',
+            line1, city, state: state || 'CA', zip,
+            lat: lat || null, lng: lng || null,
+            is_default: isFirstAddr
+          }).select().single();
+          if (!addrErr && newAddr) {
+            _savedAddresses = [..._savedAddresses, newAddr]; // update cache
+          }
+        }
+      } catch(_) { /* best-effort — never block the success screen */ }
+    })();
+  }
+
   // Success screen
   const longDate  = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
   const pickupFmt = longDate(pickupDate);
@@ -2525,8 +2624,12 @@ async function openAddressFormModal(addrId) {
           </div>
           <div>
             <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);display:block;margin-bottom:6px">Street Address</label>
-            <input id="af-line1" type="text" placeholder="123 Main St" value="${escHtml(addr?.line1 || '')}"
+            <input id="af-line1" type="text" placeholder="Start typing your address…" value="${escHtml(addr?.line1 || '')}"
+                   autocomplete="off"
+                   oninput="afAddrInput()"
+                   onkeydown="if(event.key==='Escape')afHideSugg()"
                    style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:14px;box-sizing:border-box;outline:none">
+            <div id="af-suggestions" class="af-suggestions" style="display:none"></div>
           </div>
           <div>
             <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);display:block;margin-bottom:6px">Apt / Unit (optional)</label>
@@ -2560,6 +2663,81 @@ async function openAddressFormModal(addrId) {
       </div>
     </div>`;
   document.body.appendChild(modal);
+  // Reset modal geo state each time modal opens
+  _afSuggCache = [];
+  _afGeo = addr ? { lat: addr.lat ? parseFloat(addr.lat) : null, lng: addr.lng ? parseFloat(addr.lng) : null } : null;
+}
+
+/* ── ADDRESS AUTOCOMPLETE — ADD/EDIT ADDRESS MODAL ── */
+let _afTimer = null;
+function afAddrInput() {
+  const q = document.getElementById('af-line1')?.value.trim();
+  clearTimeout(_afTimer);
+  afHideSugg();
+  if (q.length < 4) return;
+  _afTimer = setTimeout(() => afFetchSugg(q), 420);
+}
+
+function afFetchSugg(q) {
+  if (!window._googleAutocomplete) return; // Google not loaded yet
+  window._googleAutocomplete.getPlacePredictions(
+    { input: q, componentRestrictions: { country: 'us' }, types: ['address'] },
+    (predictions, status) => {
+      const box = document.getElementById('af-suggestions');
+      if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions?.length || !box) {
+        afHideSugg(); return;
+      }
+      _afSuggCache = predictions;
+      box.innerHTML = predictions.map((p, i) => {
+        const main = p.structured_formatting?.main_text    || p.description.split(',')[0];
+        const sub  = p.structured_formatting?.secondary_text || '';
+        return `<div class="addr-sug-item"
+                  onmousedown="event.preventDefault()"
+                  onclick="afSelectSugg(${i})">
+                  <div class="addr-sug-main">${escHtml(main)}</div>
+                  ${sub ? `<div class="addr-sug-sub">${escHtml(sub)}</div>` : ''}
+                </div>`;
+      }).join('');
+      box.style.display = '';
+    }
+  );
+}
+
+function afSelectSugg(idx) {
+  const prediction = _afSuggCache[idx];
+  if (!prediction) return;
+  afHideSugg();
+
+  if (!window._googleGeocoder) return;
+  window._googleGeocoder.geocode({ placeId: prediction.place_id }, (results, status) => {
+    if (status !== 'OK' || !results?.[0]) return;
+    const r    = results[0];
+    const comp = r.address_components || [];
+    const get  = (type) => comp.find(c => c.types.includes(type))?.long_name  || '';
+    const getS = (type) => comp.find(c => c.types.includes(type))?.short_name || '';
+    const line1 = [[get('street_number'), get('route')].filter(Boolean).join(' ')].filter(Boolean)[0]
+                  || prediction.description.split(',')[0].trim();
+    const city  = get('locality') || get('sublocality_level_1') || get('administrative_area_level_2') || '';
+    const zip   = get('postal_code') || '';
+
+    // Populate form fields
+    const f1 = document.getElementById('af-line1');
+    const fc = document.getElementById('af-city');
+    const fz = document.getElementById('af-zip');
+    if (f1) f1.value = line1;
+    if (fc) fc.value = city;  // always overwrite — suggestion implies new address
+    if (fz) fz.value = zip;
+
+    // Green border flash to confirm validated
+    if (f1) { f1.style.borderColor = 'var(--green)'; setTimeout(() => { if(f1) f1.style.borderColor = ''; }, 2000); }
+
+    _afGeo = { lat: r.geometry.location.lat(), lng: r.geometry.location.lng() };
+  });
+}
+
+function afHideSugg() {
+  const box = document.getElementById('af-suggestions');
+  if (box) { box.style.display = 'none'; box.innerHTML = ''; }
 }
 
 async function saveAddressForm(existingId) {
@@ -2578,7 +2756,9 @@ async function saveAddressForm(existingId) {
     label: label || 'Home',
     line1, line2, city, state: 'CA', zip,
     delivery_instructions: notes,
-    is_default: makeDefault
+    is_default: makeDefault,
+    lat: _afGeo?.lat || null,
+    lng: _afGeo?.lng || null
   };
 
   let error;
@@ -2653,18 +2833,22 @@ function openAddressPicker(currentId, onSelect) {
 
 /* ── STEP 0: load + render saved addresses ── */
 async function initOrderStep0() {
-  if (!currentCustomer) return; // guest — text input only
+  if (!currentCustomer) return; // guest — text input only, no saved addresses to show
+
   const addrs = await loadAddresses();
-  const savedSection = document.getElementById('saved-addr-section');
-  const savedCards   = document.getElementById('saved-addr-cards');
-  const newAddrSub   = document.getElementById('new-addr-sub');
+  const savedSection  = document.getElementById('saved-addr-section');
+  const savedCards    = document.getElementById('saved-addr-cards');
+  const newAddrEntry  = document.getElementById('new-addr-entry');
+  const newAddrSub    = document.getElementById('new-addr-sub');
   if (!savedSection || !savedCards) return;
 
   if (addrs.length > 0) {
+    // Show saved address cards; hide the text-entry input by default
     savedSection.style.display = '';
-    newAddrSub.textContent = 'Or enter a different address:';
+    if (newAddrEntry) newAddrEntry.style.display = 'none';
+    if (newAddrSub) newAddrSub.textContent = 'Or enter a different address:';
 
-    // Pre-select default (or first) address
+    // Pre-select the default (or first) address and auto-run zone check
     const def = addrs.find(a => a.is_default) || addrs[0];
     selectSavedAddress(def);
 
@@ -2678,6 +2862,24 @@ async function initOrderStep0() {
         </div>
       </div>`).join('');
   }
+  // If no addresses saved, the text-entry input is already visible (default in HTML)
+}
+
+/* Reveals the text-entry input when customer taps "Use a different address" */
+function showNewAddrEntry() {
+  const entry  = document.getElementById('new-addr-entry');
+  const toggle = document.getElementById('diff-addr-toggle');
+  const zr     = document.getElementById('zone-result');
+  const nextBtn = document.getElementById('btn-addr-next');
+  if (entry) entry.style.display = '';
+  if (toggle) toggle.style.display = 'none'; // hide toggle once expanded
+  // Clear any existing saved-address selection from draft
+  draft.addressId = null;
+  draft.zoneId    = null;
+  if (zr) { zr.style.display = 'none'; zr.className = 'zone-result'; }
+  if (nextBtn) nextBtn.style.display = 'none';
+  // Focus the text field
+  setTimeout(() => document.getElementById('addr-input')?.focus(), 50);
 }
 
 function selectSavedAddress(addr) {
@@ -3239,7 +3441,6 @@ window.startNewOrder          = startNewOrder;
 window.checkAddress           = checkAddress;
 window.addrInput              = addrInput;
 window.hideSuggestions        = hideSuggestions;
-window.selectAddrSuggestion   = selectAddrSuggestion;
 window.changeBags        = changeBags;
 window.selectFreq        = selectFreq;
 window.goOrderStep       = goOrderStep;
@@ -3260,6 +3461,11 @@ window.saveAddressForm        = saveAddressForm;
 window.deleteAddress          = deleteAddress;
 window.setDefaultAddress      = setDefaultAddress;
 window.selectSavedAddress     = selectSavedAddress;
+window.showNewAddrEntry       = showNewAddrEntry;
+window.afAddrInput            = afAddrInput;
+window.afSelectSugg           = afSelectSugg;
+window.afHideSugg             = afHideSugg;
+window.selectAddrSuggestion   = selectAddrSuggestion;
 window.placeOrder        = placeOrder;
 window.afterSuccess      = afterSuccess;
 window.openDetail        = openDetail;
