@@ -375,6 +375,17 @@
     .payment-success-banner { background: #d1fae5; border: 1.5px solid #6ee7b7; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: #065f46; font-weight: 600; }
 
     /* ── CARD ON FILE ── */
+    /* Credits block */
+    .credits-block { display: flex; align-items: center; justify-content: space-between; border-radius: 14px; padding: 16px; margin-bottom: 20px; border: 1.5px solid; }
+    .credits-active { background: #f0fdf4; border-color: #86efac; }
+    .credits-empty  { background: var(--gray-50); border-color: var(--gray-200); }
+    .credits-left { display: flex; align-items: center; gap: 12px; }
+    .credits-icon { font-size: 24px; flex-shrink: 0; }
+    .credits-label { font-size: 14px; font-weight: 700; color: var(--text); }
+    .credits-note  { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+    .credits-amount { font-size: 22px; font-weight: 800; color: #16a34a; }
+    .credits-empty .credits-amount { color: var(--gray-300); }
+
     .card-section { padding: 0 18px 18px; }
     .card-box { display: flex; align-items: center; justify-content: space-between; background: var(--gray-50); border: 1.5px solid var(--gray-200); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
     .card-left { display: flex; align-items: center; gap: 12px; }
@@ -3303,12 +3314,30 @@ function renderPaymentSection() {
   const el = document.getElementById('payment-method-section');
   if (!el) return;
   const c = currentCustomer;
+  const credits = parseFloat(c?.credits || 0);
+  const hasCredits = credits > 0;
+
+  // Credits block — always shown
+  const creditsHtml = `
+    <div class="credits-block ${hasCredits ? 'credits-active' : 'credits-empty'}">
+      <div class="credits-left">
+        <div class="credits-icon">${hasCredits ? '🎁' : '💳'}</div>
+        <div>
+          <div class="credits-label">Store Credits</div>
+          <div class="credits-note">${hasCredits ? 'Applied automatically before your card' : 'No credits on your account'}</div>
+        </div>
+      </div>
+      <div class="credits-amount">${$m(credits)}</div>
+    </div>`;
+
+  // Card block
+  let cardHtml;
   if (c?.card_last4) {
     const brand = (c.card_brand || 'card').charAt(0).toUpperCase() + (c.card_brand || 'card').slice(1);
     const exp   = `${String(c.card_exp_month).padStart(2,'0')}/${String(c.card_exp_year).slice(-2)}`;
-    el.innerHTML = `
+    cardHtml = `
       <div class="card-section">
-        <div class="pref-title" style="padding-top:18px">Payment Method</div>
+        <div class="pref-title">Payment Card</div>
         <div class="card-box">
           <div class="card-left">
             <div class="card-chip">${brand}</div>
@@ -3324,15 +3353,17 @@ function renderPaymentSection() {
         </div>
       </div>`;
   } else {
-    el.innerHTML = `
+    cardHtml = `
       <div class="card-section">
-        <div class="pref-title" style="padding-top:18px">Payment Method</div>
+        <div class="pref-title">Payment Card</div>
         <div class="no-card-box">
           <p>No card on file. Add one and we'll charge you automatically after each order.</p>
           <button class="card-btn" id="btn-add-card" onclick="startCardSetup()" style="background:var(--navy);color:white;border-color:var(--navy);margin-top:2px">+ Add Card</button>
         </div>
       </div>`;
   }
+
+  el.innerHTML = creditsHtml + cardHtml;
 }
 
 /* ── ACCOUNT ── */
@@ -3390,7 +3421,11 @@ async function loadAccount() {
   const planEl = document.getElementById('acct-menu-plan-name');
   if (planEl) planEl.textContent = activePlan?.name || 'Pay As You Go';
   const cardEl = document.getElementById('acct-menu-card-info');
-  if (cardEl) cardEl.textContent = currentCustomer?.card_last4 ? `•••• ${currentCustomer.card_last4}` : 'No card on file';
+  if (cardEl) {
+    const credits = parseFloat(currentCustomer?.credits || 0);
+    const cardPart = currentCustomer?.card_last4 ? `•••• ${currentCustomer.card_last4}` : 'No card on file';
+    cardEl.textContent = credits > 0 ? `${$m(credits)} credits · ${cardPart}` : cardPart;
+  }
 
   renderAccountPrefs();
 
