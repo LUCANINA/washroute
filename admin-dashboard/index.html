@@ -2525,6 +2525,7 @@
     </div>
     <div class="cp-field"><div class="cp-field-label">Phone</div><input class="cp-input" id="cpe-phone" type="tel" placeholder="Phone number"></div>
     <div class="cp-field"><div class="cp-field-label">Email</div><input class="cp-input" id="cpe-email" type="email" placeholder="Email address"></div>
+    <div id="cp-app-status" style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;margin-bottom:12px;font-size:13px;min-height:38px"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
       <div class="cp-field">
         <div class="cp-field-label">Price List</div>
@@ -4657,6 +4658,37 @@ window.onload=()=>{window.print();};
       showToast('Error: ' + e.message, 'error');
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = originalBtnText; }
+    }
+  }
+
+  async function sendAppInvite(customerId, email) {
+    if (!email) { showToast('No email on file for this customer.', 'error'); return; }
+    const btn = event?.target;
+    const originalText = btn?.textContent || '📧 Send App Invite';
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/send-magic-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ email }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Unknown error');
+      showToast(`App invite sent to ${email}`, 'success');
+      if (btn) {
+        btn.textContent = '✓ Sent!';
+        btn.style.color = '#16a34a';
+        btn.style.borderColor = '#86efac';
+        setTimeout(() => {
+          btn.textContent = originalText;
+          btn.style.color = '';
+          btn.style.borderColor = '';
+          btn.disabled = false;
+        }, 4000);
+      }
+    } catch (e) {
+      showToast('Failed to send invite: ' + e.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = originalText; }
     }
   }
 
@@ -7203,6 +7235,22 @@ window.onload=()=>{window.print();};
     document.getElementById('cpe-last').value   = ln;
     document.getElementById('cpe-phone').value  = phone;
     document.getElementById('cpe-email').value  = email;
+
+    // App link status row
+    const appStatusEl = document.getElementById('cp-app-status');
+    if (appStatusEl) {
+      if (c.profile_id) {
+        appStatusEl.innerHTML = `<span style="font-size:15px">✅</span><span style="color:#16a34a;font-weight:600">Linked to customer app</span>`;
+      } else {
+        const hasEmail = !!(c.email_cache && c.email_cache.trim());
+        if (hasEmail) {
+          appStatusEl.innerHTML = `<span style="font-size:15px">📱</span><span style="flex:1;color:var(--gray-500)">Not linked to customer app</span><button class="btn btn-ghost" style="font-size:12px;padding:4px 12px;white-space:nowrap" onclick="sendAppInvite('${c.id}','${(c.email_cache||'').replace(/'/g,"\\'")}')">📧 Send App Invite</button>`;
+        } else {
+          appStatusEl.innerHTML = `<span style="font-size:15px">⚠️</span><span style="color:var(--gray-400)">Not linked — add an email to send invite</span>`;
+        }
+      }
+    }
+
     // Populate price list from service categories — fetch if not yet loaded
     const typeEl = document.getElementById('cpe-type');
     if (!allCategories.length) await loadCategories();

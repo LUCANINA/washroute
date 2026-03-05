@@ -1192,16 +1192,45 @@ async function handleSignup(e) {
 }
 
 async function ensureProfile(user, first, last, email, phone, smsConsent = false) {
-  await db.from('profiles').upsert({ id: user.id, first_name: first || user.user_metadata?.first_name || '', last_name: last || user.user_metadata?.last_name || '', email: email || user.email, phone: phone || user.user_metadata?.phone || '' }, { onConflict: 'id' });
-  const { data: ec } = await db.from('customers').select('*').eq('profile_id', user.id).maybeSingle();
+  await db.from('profiles').upsert({
+    id: user.id,
+    first_name: first || user.user_metadata?.first_name || '',
+    last_name:  last  || user.user_metadata?.last_name  || '',
+    email:      email || user.email,
+    phone:      phone || user.user_metadata?.phone || ''
+  }, { onConflict: 'id' });
+
+  // 1. Look for a customer already linked to this auth account
+  let { data: ec } = await db.from('customers').select('*').eq('profile_id', user.id).maybeSingle();
+
+  // 2. Not found — check if admin pre-created a record for this email (profile_id IS NULL)
+  //    If so, link it rather than creating a duplicate.
+  if (!ec) {
+    const userEmail = email || user.email;
+    if (userEmail) {
+      const { data: orphan } = await db.from('customers')
+        .select('*')
+        .eq('email_cache', userEmail)
+        .is('profile_id', null)
+        .maybeSingle();
+      if (orphan) {
+        await db.from('customers')
+          .update({ profile_id: user.id })
+          .eq('id', orphan.id);
+        ec = { ...orphan, profile_id: user.id };
+      }
+    }
+  }
+
+  // 3. Still nothing — create a fresh customer record
   if (!ec) {
     await db.from('customers').insert({
-      profile_id: user.id,
+      profile_id:       user.id,
       first_name_cache: first || user.user_metadata?.first_name || '',
-      last_name_cache: last || user.user_metadata?.last_name || '',
-      email_cache: email || user.email || '',
-      phone_cache: phone || user.user_metadata?.phone || '',
-      sms_consent_at: smsConsent ? new Date().toISOString() : null
+      last_name_cache:  last  || user.user_metadata?.last_name  || '',
+      email_cache:      email || user.email || '',
+      phone_cache:      phone || user.user_metadata?.phone || '',
+      sms_consent_at:   smsConsent ? new Date().toISOString() : null
     });
     const { data: newCust } = await db.from('customers').select('*').eq('profile_id', user.id).maybeSingle();
     currentCustomer = newCust;
