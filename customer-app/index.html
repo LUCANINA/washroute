@@ -1214,10 +1214,17 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
         .is('profile_id', null)
         .maybeSingle();
       if (orphan) {
-        await db.from('customers')
-          .update({ profile_id: user.id })
-          .eq('id', orphan.id);
-        ec = { ...orphan, profile_id: user.id };
+        // Build update: always link profile_id; backfill name/phone only if
+        // the admin left them blank and the customer provided them at signup.
+        const updates = { profile_id: user.id };
+        const firstName = first || user.user_metadata?.first_name || '';
+        const lastName  = last  || user.user_metadata?.last_name  || '';
+        const userPhone = phone || user.user_metadata?.phone || '';
+        if (firstName && !orphan.first_name_cache) updates.first_name_cache = firstName;
+        if (lastName  && !orphan.last_name_cache)  updates.last_name_cache  = lastName;
+        if (userPhone && !orphan.phone_cache)       updates.phone_cache      = userPhone;
+        await db.from('customers').update(updates).eq('id', orphan.id);
+        ec = { ...orphan, ...updates };
       }
     }
   }
