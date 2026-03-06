@@ -3447,11 +3447,11 @@ function openEditOrder() {
   function addrPickerRow(purpose, addr) {
     const label = addr ? `${addrIcon(addr.label)} ${escHtml(addr.label || 'Address')} — ${escHtml(addr.line1)}` : 'None selected';
     return `
-      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px;margin-top:20px">${purpose} Address</div>
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px;margin-top:${purpose === 'Delivery' ? '12' : '0'}px">${purpose} Address</div>
       <div id="edit-${purpose.toLowerCase()}-addr-display" onclick="editPickAddress('${purpose.toLowerCase()}')"
            style="padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:var(--radius);cursor:pointer;display:flex;align-items:center;justify-content:space-between">
         <span style="font-size:14px;color:var(--text)">${label}</span>
-        <span style="font-size:12px;color:var(--accent);font-weight:600">Change</span>
+        <span style="font-size:12px;color:var(--navy);font-weight:600">Change</span>
       </div>`;
   }
 
@@ -3460,51 +3460,68 @@ function openEditOrder() {
   modal.innerHTML = `
     <div style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;display:flex;align-items:flex-end"
          onclick="if(event.target===this)this.remove()">
-      <div style="background:#fff;border-radius:20px 20px 0 0;width:100%;padding:20px 20px 40px;max-height:90vh;overflow-y:auto;box-sizing:border-box">
+      <div style="background:#fff;border-radius:20px 20px 0 0;width:100%;padding:0 0 40px;max-height:90vh;overflow-y:auto;box-sizing:border-box">
 
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <!-- Drag handle -->
+        <div style="display:flex;justify-content:center;padding:12px 0 4px">
+          <div style="width:36px;height:4px;background:var(--gray-200);border-radius:2px"></div>
+        </div>
+
+        <!-- Header -->
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 20px 16px;border-bottom:1px solid var(--gray-100)">
           <div style="font-size:17px;font-weight:800">Edit Order</div>
           <button onclick="document.getElementById('edit-order-modal').remove()"
-                  style="background:none;border:none;font-size:24px;color:var(--gray-400);cursor:pointer;line-height:1;padding:4px">×</button>
+                  style="background:none;border:none;width:28px;height:28px;border-radius:50%;background:var(--gray-100);color:var(--gray-500);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;line-height:1">×</button>
         </div>
 
-        <!-- Bags -->
-        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:10px">Number of Bags</div>
-        <div class="bags-counter" style="margin-bottom:4px">
-          <button class="bags-btn" onclick="editBagsDelta(-1)">−</button>
-          <div>
-            <div class="bags-num" id="edit-bags-display">${window._editBags}</div>
-            <div class="bags-label">bag(s)</div>
+        <div style="padding:0 20px">
+
+          <!-- Bags -->
+          <div style="padding:16px 0;border-bottom:1px solid var(--gray-100)">
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:12px">Number of Bags</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;background:var(--gray-50);border-radius:var(--radius);padding:10px 16px">
+              <button onclick="editBagsDelta(-1)"
+                style="width:36px;height:36px;border-radius:50%;border:2px solid var(--navy);background:white;color:var(--navy);font-size:20px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0">−</button>
+              <div style="text-align:center">
+                <span id="edit-bags-display" style="font-size:32px;font-weight:800;color:var(--navy)">${window._editBags}</span>
+                <span style="font-size:14px;color:var(--gray-500);margin-left:6px">bag(s)</span>
+              </div>
+              <button onclick="editBagsDelta(1)"
+                style="width:36px;height:36px;border-radius:50%;border:2px solid var(--navy);background:white;color:var(--navy);font-size:20px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0">+</button>
+            </div>
           </div>
-          <button class="bags-btn" onclick="editBagsDelta(1)">+</button>
+
+          <!-- Special care notes -->
+          <div style="padding:16px 0;border-bottom:1px solid var(--gray-100)">
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px">Special Care Notes</div>
+            <textarea id="edit-instructions" rows="3"
+              placeholder="e.g. No fabric softener, hang dry delicates…"
+              style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none"
+            >${escHtml(o.special_instructions || '')}</textarea>
+          </div>
+
+          <!-- Addresses -->
+          <div style="padding:16px 0">
+            ${addrPickerRow('Pickup', pAddr)}
+            ${addrPickerRow('Delivery', sameAddr ? pAddr : dAddr)}
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--gray-600);margin-top:10px;cursor:pointer">
+              <input type="checkbox" id="edit-same-addr" ${sameAddr ? 'checked' : ''} style="accent-color:var(--navy);width:15px;height:15px"
+                     onchange="editToggleSameAddr(this.checked)">
+              Deliver to same address as pickup
+            </label>
+          </div>
+
+          <!-- Footer note -->
+          <div style="display:flex;align-items:center;gap:6px;background:var(--gray-50);border-radius:var(--radius);padding:10px 12px;margin-bottom:20px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--gray-400)" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <span style="font-size:12px;color:var(--gray-500)">Changes are locked once your pickup route begins.</span>
+          </div>
+
+          <button id="edit-save-btn" onclick="saveEditOrder()" class="btn-primary">
+            Save Changes
+          </button>
+
         </div>
-
-        <!-- Special care notes -->
-        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px;margin-top:20px">Special Care Notes</div>
-        <textarea id="edit-instructions" rows="3"
-          placeholder="e.g. No fabric softener, hang dry delicates…"
-          style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none"
-        >${escHtml(o.special_instructions || '')}</textarea>
-
-        <!-- Pickup address -->
-        ${addrPickerRow('Pickup', pAddr)}
-
-        <!-- Delivery address -->
-        ${addrPickerRow('Delivery', sameAddr ? pAddr : dAddr)}
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--gray-600);margin-top:8px;cursor:pointer">
-          <input type="checkbox" id="edit-same-addr" ${sameAddr ? 'checked' : ''} style="accent-color:var(--accent);width:15px;height:15px"
-                 onchange="editToggleSameAddr(this.checked)">
-          Deliver to same address as pickup
-        </label>
-
-        <div style="font-size:12px;color:var(--gray-400);margin-top:16px;margin-bottom:20px">
-          Changes are locked once your pickup route begins.
-        </div>
-
-        <button id="edit-save-btn" onclick="saveEditOrder()"
-          style="width:100%;padding:14px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-size:16px;font-weight:700;cursor:pointer">
-          Save Changes
-        </button>
       </div>
     </div>`;
 
