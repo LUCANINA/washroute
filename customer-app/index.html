@@ -2251,20 +2251,45 @@ function _renderSchedPickupCal() {
   container.innerHTML = `<div class="sched-cal-wrap"><div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Choose a date (up to 14 days)</div><div class="mini-cal-grid">${grid}</div></div>`;
 }
 
-// Render the list of valid delivery dates inside expand-delivery-date
-// Dates are pre-computed by _updateSchedDelivery() and respect turnaround + route schedule days
+// Render mini-calendar for delivery date — same grid style as pickup calendar
+// Valid days (from draft._deliveryOptions) are clickable; others are grayed out
+// The first valid date is pre-selected as the default
 function _renderSchedDeliveryDateOpts() {
   const container = document.getElementById('expand-delivery-date');
   if (!container) return;
   const opts = draft._deliveryOptions;
   if (!opts || !opts.length) {
-    container.innerHTML = '<div class="sched-opts"><div style="font-size:13px;color:var(--gray-400);padding:10px 4px">No delivery dates available.</div></div>';
+    container.innerHTML = '<div class="sched-cal-wrap"><div style="font-size:13px;color:var(--gray-400)">No delivery dates available.</div></div>';
     return;
   }
-  container.innerHTML = '<div class="sched-opts">' + opts.map(iso => {
-    const sel = draft.deliveryDate === iso;
-    return `<button class="sched-opt${sel ? ' selected' : ''}" onclick="selectSchedDeliveryDate('${iso}')"><span>${_schedDateLabel(iso)}</span><span class="sched-opt-check">✓</span></button>`;
-  }).join('') + '</div>';
+
+  const validSet = new Set(opts);
+  const first    = new Date(opts[0] + 'T12:00:00');
+  const last     = new Date(opts[opts.length - 1] + 'T12:00:00');
+
+  // Expand to full weeks: start on Sunday before first option, end on Saturday after last
+  const startOfCal = new Date(first);
+  startOfCal.setDate(first.getDate() - first.getDay());
+  const endOfCal = new Date(last);
+  endOfCal.setDate(last.getDate() + (6 - last.getDay()));
+
+  const days = [];
+  const walk = new Date(startOfCal);
+  while (walk <= endOfCal) { days.push(new Date(walk)); walk.setDate(walk.getDate() + 1); }
+
+  let grid = '<div class="mini-cal-dow">Su</div><div class="mini-cal-dow">Mo</div><div class="mini-cal-dow">Tu</div><div class="mini-cal-dow">We</div><div class="mini-cal-dow">Th</div><div class="mini-cal-dow">Fr</div><div class="mini-cal-dow">Sa</div>';
+  days.forEach(d => {
+    const iso     = d.toISOString().split('T')[0];
+    const isValid = validSet.has(iso);
+    const sel     = draft.deliveryDate === iso;
+    if (isValid) {
+      grid += `<div class="mini-cal-day${sel ? ' selected' : ''}" onclick="selectSchedDeliveryDate('${iso}')">${d.getDate()}</div>`;
+    } else {
+      grid += `<div class="mini-cal-day" style="color:var(--gray-300);cursor:default;pointer-events:none">${d.getDate()}</div>`;
+    }
+  });
+
+  container.innerHTML = `<div class="sched-cal-wrap"><div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Choose a delivery date</div><div class="mini-cal-grid">${grid}</div></div>`;
 }
 
 // Called when a delivery date option is tapped
