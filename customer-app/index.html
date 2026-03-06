@@ -1818,7 +1818,9 @@ function updateEstimate() {
 
 /* ── STEP NAVIGATION ── */
 function goOrderStep(step) {
-  if (step === 1 && !draft.zoneId)         { toast('Please check your address first');  return; }
+  // For saved addresses, zoneId resolves in the background after selection —
+  // only block if no saved address is selected AND no zone has been confirmed.
+  if (step === 1 && !draft.zoneId && !draft.addressId) { toast('Please check your address first'); return; }
   if (step === 2 && !draft.pickupDate)     { toast('Please choose a pickup day');       return; }
   if (step === 2 && !draft.pickupWindow)   { toast('Please choose a pickup time');      return; }
 
