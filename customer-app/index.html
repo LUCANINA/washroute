@@ -772,11 +772,13 @@
             <div class="sched-section-sep"></div>
             <div class="sched-section-hdr">Delivery</div>
 
-            <!-- Delivery date — auto-set, read-only -->
-            <div class="sched-row sched-row-static">
+            <!-- Delivery date — tappable, constrained to valid route days after pickup -->
+            <div class="sched-row" onclick="toggleSchedExpand('delivery-date')">
               <div class="sched-row-label">When</div>
               <div class="sched-row-value" id="val-delivery-date">—</div>
+              <svg class="sched-chev" id="chev-delivery-date" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
             </div>
+            <div class="sched-expand" id="expand-delivery-date"></div>
 
             <div class="sched-row-sep"></div>
 
@@ -2222,6 +2224,7 @@ function toggleSchedExpand(key) {
     if (chevEl) chevEl.classList.add('open');
     if      (key === 'pickup-date')     _renderSchedPickupCal();
     else if (key === 'pickup-window')   _renderSchedWindowOpts('pickup');
+    else if (key === 'delivery-date')   _renderSchedDeliveryDateOpts();
     else if (key === 'delivery-window') _renderSchedWindowOpts('delivery');
   }
 }
@@ -2246,6 +2249,39 @@ function _renderSchedPickupCal() {
     grid += `<div class="mini-cal-day${sel ? ' selected' : ''}${isTod ? ' today-marker' : ''}" onclick="selectSchedPickupDate('${iso}')">${d.getDate()}</div>`;
   });
   container.innerHTML = `<div class="sched-cal-wrap"><div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Choose a date (up to 14 days)</div><div class="mini-cal-grid">${grid}</div></div>`;
+}
+
+// Render the list of valid delivery dates inside expand-delivery-date
+// Dates are pre-computed by _updateSchedDelivery() and respect turnaround + route schedule days
+function _renderSchedDeliveryDateOpts() {
+  const container = document.getElementById('expand-delivery-date');
+  if (!container) return;
+  const opts = draft._deliveryOptions;
+  if (!opts || !opts.length) {
+    container.innerHTML = '<div class="sched-opts"><div style="font-size:13px;color:var(--gray-400);padding:10px 4px">No delivery dates available.</div></div>';
+    return;
+  }
+  container.innerHTML = '<div class="sched-opts">' + opts.map(iso => {
+    const sel = draft.deliveryDate === iso;
+    return `<button class="sched-opt${sel ? ' selected' : ''}" onclick="selectSchedDeliveryDate('${iso}')"><span>${_schedDateLabel(iso)}</span><span class="sched-opt-check">✓</span></button>`;
+  }).join('') + '</div>';
+}
+
+// Called when a delivery date option is tapped
+function selectSchedDeliveryDate(iso) {
+  // Close picker
+  const expandEl = document.getElementById('expand-delivery-date');
+  const chevEl   = document.getElementById('chev-delivery-date');
+  if (expandEl) { expandEl.classList.remove('open'); expandEl.innerHTML = ''; }
+  if (chevEl)   chevEl.classList.remove('open');
+
+  draft.deliveryDate   = iso;
+  draft.deliveryWindow = null; // reset so it re-inherits pickup window default
+
+  const valDate = document.getElementById('val-delivery-date');
+  if (valDate) valDate.textContent = _schedDateLabel(iso);
+
+  _updateSchedWindowDisplay('delivery');
 }
 
 // Called when a calendar day is tapped
