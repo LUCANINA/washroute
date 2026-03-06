@@ -462,6 +462,36 @@
     .freq-pill.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
     .freq-pill-rec { margin-left: auto; font-size: 11px; font-weight: 700; background: var(--navy); color: white; padding: 2px 9px; border-radius: 999px; }
 
+    /* ── PICKUP DAY CHIPS ── */
+    .day-chip-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .day-chip { padding: 10px 18px; border: 2px solid var(--gray-200); border-radius: 999px; background: white; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 600; color: var(--text); transition: all .15s; -webkit-tap-highlight-color: transparent; white-space: nowrap; }
+    .day-chip:active { background: var(--gray-50); }
+    .day-chip.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); }
+
+    /* ── PICKUP MINI-CALENDAR (14-day inline expand) ── */
+    .pickup-mini-cal { background: var(--gray-50); border: 1.5px solid var(--gray-200); border-radius: 12px; padding: 14px; margin-bottom: 16px; }
+    .mini-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 8px; }
+    .mini-cal-dow { font-size: 10px; font-weight: 700; color: var(--gray-400); text-align: center; padding: 3px 0; text-transform: uppercase; }
+    .mini-cal-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .12s, color .12s; }
+    .mini-cal-day:hover { background: var(--gray-100); }
+    .mini-cal-day.selected { background: var(--navy); color: white; font-weight: 700; }
+    .mini-cal-day.today-marker { font-weight: 700; color: var(--accent); }
+
+    /* ── DELIVERY SUMMARY ROW ── */
+    .delivery-summary-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; background: var(--gray-50); border: 1.5px solid var(--gray-200); border-radius: 12px; margin-bottom: 10px; font-size: 14px; }
+    .delivery-summary-date { font-weight: 600; color: var(--text); }
+    .delivery-summary-change { font-size: 13px; color: var(--accent); font-weight: 600; cursor: pointer; padding: 4px 0; flex-shrink: 0; margin-left: 12px; }
+    .delivery-date-options { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 12px; }
+    .delivery-date-opt { padding: 12px 16px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 500; color: var(--text); text-align: left; display: flex; align-items: center; justify-content: space-between; transition: all .15s; }
+    .delivery-date-opt.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
+
+    /* ── CONFIRM PAGE INLINE EDITORS ── */
+    .confirm-inline-picker { background: var(--gray-50); border: 1.5px solid var(--gray-200); border-radius: 10px; margin: -2px 0 8px; overflow: hidden; }
+    .confirm-inline-opt { display: flex; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer; border-bottom: 1px solid var(--gray-200); font-size: 13.5px; font-weight: 500; transition: background .12s; }
+    .confirm-inline-opt:last-child { border-bottom: none; }
+    .confirm-inline-opt:hover { background: var(--gray-100); }
+    .confirm-inline-opt.selected { background: #eef3ff; color: var(--navy); font-weight: 600; }
+
     /* ── ORDER PREFERENCES ── */
     .order-pref-group { margin-bottom: 22px; }
     .order-pref-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 10px; }
@@ -688,24 +718,28 @@
       <div class="step-content" id="o-step-1" style="display:none">
         <div class="step-sub">Schedule your pickup &amp; delivery.</div>
 
-        <!-- Pickup Day (quick buttons — no calendar needed) -->
+        <!-- Pickup Day — 3 chips + expandable 14-day mini-calendar -->
         <div class="sched-label">📅 Pickup Day</div>
-        <div class="day-btn-list" id="day-btn-list">
-          <!-- Rendered by renderDayButtons() -->
+        <div class="day-chip-row" id="day-chip-row">
+          <button class="day-chip" id="chip-today" onclick="selectPickupChip('today')">Today</button>
+          <button class="day-chip" id="chip-tomorrow" onclick="selectPickupChip('tomorrow')">Tomorrow</button>
+          <button class="day-chip" id="chip-other" onclick="selectPickupChip('other')">📅 Another day</button>
         </div>
+        <!-- Inline mini-calendar (14 days), shown when "Another day" tapped -->
+        <div id="pickup-cal-expand" style="display:none"></div>
 
         <!-- Time Window -->
-        <div class="sched-label" id="window-section-label">🕐 What time works best?</div>
-        <div class="window-btn-list" id="window-btn-list">
+        <div class="sched-label" id="window-section-label" style="display:none">🕐 What time works best?</div>
+        <div class="window-btn-list" id="window-btn-list" style="display:none;margin-bottom:28px">
           <!-- Rendered by renderWindowButtons() -->
         </div>
 
-        <!-- Delivery Date — hidden until pickup day chosen -->
+        <!-- Delivery Date — shown after pickup day chosen -->
         <div id="delivery-section" style="display:none">
           <div class="sched-label">📦 Delivery Date</div>
-          <div id="delivery-day-list" class="day-btn-list">
-            <!-- Rendered by renderDeliveryButtons() after pickup day selected -->
-          </div>
+          <div id="delivery-summary-row" class="delivery-summary-row"></div>
+          <!-- Inline delivery date options, shown when "Change date" tapped -->
+          <div id="delivery-cal-expand" style="display:none"></div>
         </div>
 
         <!-- Frequency -->
@@ -1041,6 +1075,9 @@ let draft = {
   deliveryAddressId: null,  // saved address FK for delivery (null = same as pickup)
   bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [],
   deliveryDate: null,
+  deliveryWindow: null,     // custom delivery window (null = same as pickup window)
+  _deliveryOptions: [],     // computed eligible delivery dates, used by inline picker
+  _windowsForDate: null,    // tracks which pickup date the availableWindows were fetched for
   recurring: '',
   prefs: {},                // { groupId: { optId, label, priceMod } }
   _addrComponents: null     // { line1, city, state, zip, lat, lng } — captured from geocoder for auto-save
@@ -1541,7 +1578,7 @@ async function guestStart() {
 }
 
 function startNewOrder() {
-  draft = { address: '', lat: null, lng: null, zoneId: null, addressId: null, deliveryAddressId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], deliveryDate: null, recurring: '', prefs: {}, _addrComponents: null };
+  draft = { address: '', lat: null, lng: null, zoneId: null, addressId: null, deliveryAddressId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], deliveryDate: null, deliveryWindow: null, _deliveryOptions: [], _windowsForDate: null, recurring: '', prefs: {}, _addrComponents: null };
   orderStep = 0;
   calMonth  = new Date();
   // Reset address UI
@@ -1871,7 +1908,7 @@ async function renderStep(step) {
     if (dot) dot.classList.toggle('active', i <= step);
   });
   document.getElementById('order-title').textContent = STEP_TITLES[step];
-  if (step === 1) { await renderDayButtons(); updateWindowLabel(draft.pickupDate); renderWindowButtons(); renderDeliveryButtons(); }
+  if (step === 1) { await renderPickupChips(); }
   if (step === 3) {
     document.getElementById('bags-display').textContent = draft.bags;
     updateEstimate();
@@ -1954,7 +1991,7 @@ function computeSubWindows(runDate, tmpl, routeId, routeName) {
     const slotStart = new Date(`${runDate}T${pad2(Math.floor(from/60))}:${pad2(from%60)}:00`).toISOString();
     const slotEnd   = new Date(`${runDate}T${pad2(Math.floor(to/60))}:${pad2(to%60)}:00`).toISOString();
     const label     = `${fmtHourMin(from)} – ${fmtHourMin(to)}`;
-    windows.push({ routeId, routeName, slotStart, slotEnd, label, icon: slotIcon(from) });
+    windows.push({ routeId, routeName, slotStart, slotEnd, label, icon: slotIcon(from), startMins: from, endMins: to });
   }
   return windows;
 }
@@ -1984,6 +2021,7 @@ async function fetchWindowsForDate(iso) {
   // Reset immediately so stale selection can't pass validation during the fetch
   draft.pickupWindow     = null;
   draft.availableWindows = [];
+  draft._windowsForDate  = iso; // track which date these windows are for
   updateWindowLabel(iso);
   container.innerHTML = '<div style="padding:12px 4px;color:var(--gray-400);font-size:13px">Loading available times…</div>';
 
@@ -2017,78 +2055,147 @@ async function fetchWindowsForDate(iso) {
   renderWindowButtons();
 }
 
-async function renderDayButtons() {
-  const container = document.getElementById('day-btn-list');
-  if (!container) return;
+/* ── CHIP-BASED DAY PICKER ── */
 
-  // Fetch valid weekdays from active route templates for this zone
-  // (0=Mon … 6=Sun, matching the ISO weekday convention used in schedule_days)
-  let validDays = null; // null = show all days (fallback if query fails)
-  if (draft.zoneId) {
-    const { data: templates } = await db
-      .from('route_templates')
-      .select('schedule_days')
-      .eq('zone_id', draft.zoneId)
-      .eq('is_active', true);
-    if (templates?.length) {
-      validDays = new Set(templates.flatMap(t => t.schedule_days || []));
+// Called when step 1 loads — auto-selects today, shows windows + delivery summary
+async function renderPickupChips() {
+  const now          = new Date();
+  const todayIso     = now.toISOString().split('T')[0];
+  const tomorrowDate = new Date(now);
+  tomorrowDate.setDate(now.getDate() + 1);
+  const tomorrowIso  = tomorrowDate.toISOString().split('T')[0];
+
+  // Update chip labels with short dates for clarity
+  const chipToday    = document.getElementById('chip-today');
+  const chipTomorrow = document.getElementById('chip-tomorrow');
+  if (chipToday)    chipToday.textContent    = `Today · ${now.toLocaleDateString('en-US', { month:'short', day:'numeric' })}`;
+  if (chipTomorrow) chipTomorrow.textContent = `Tomorrow · ${tomorrowDate.toLocaleDateString('en-US', { month:'short', day:'numeric' })}`;
+
+  // Auto-select today if no date chosen yet
+  if (!draft.pickupDate) draft.pickupDate = todayIso;
+
+  // If returning to step 1 with an "other" date, restore chip label
+  if (draft.pickupDate !== todayIso && draft.pickupDate !== tomorrowIso && draft.pickupDate) {
+    const chipOther = document.getElementById('chip-other');
+    if (chipOther) {
+      const d = new Date(draft.pickupDate + 'T12:00:00');
+      chipOther.textContent = `📅 ${d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })}`;
     }
   }
 
-  const now       = new Date();
-  const cutoff    = 14; // show "Today" only before 2pm
-  const todayIso  = now.toISOString().split('T')[0];
-  const days      = [];
-  const maxShow   = 7; // number of valid days to display
-  const maxLook   = 30; // scan at most 30 calendar days ahead
+  _highlightPickupChip(draft.pickupDate, todayIso, tomorrowIso);
 
-  // Check today first (if before cutoff)
-  if (now.getHours() < cutoff) {
-    const isoDay = (now.getDay() + 6) % 7; // 0=Mon … 6=Sun
-    if (!validDays || validDays.has(isoDay)) {
-      days.push({ label: 'Today', date: new Date(now) });
-    }
+  // Show window section
+  const wLabel = document.getElementById('window-section-label');
+  const wList  = document.getElementById('window-btn-list');
+  if (wLabel) wLabel.style.display = '';
+  if (wList)  wList.style.display  = '';
+
+  // Only re-fetch if windows aren't already loaded for this date —
+  // avoids clearing draft.pickupWindow when user returns to step 1 via "Edit"
+  if (draft.availableWindows.length && draft._windowsForDate === draft.pickupDate) {
+    renderWindowButtons(); // preserve existing selection, just re-render
+  } else {
+    fetchWindowsForDate(draft.pickupDate);
   }
+  renderDeliverySummary();
+}
 
-  // Walk forward up to maxLook days and collect those that match valid weekdays
-  for (let i = 1; i <= maxLook && days.length < maxShow; i++) {
-    const d = new Date(now);
-    d.setDate(d.getDate() + i);
-    const isoDay = (d.getDay() + 6) % 7; // 0=Mon … 6=Sun
-    if (!validDays || validDays.has(isoDay)) {
-      const iso = d.toISOString().split('T')[0];
-      const isNext = iso === new Date(now.getTime() + 86400000).toISOString().split('T')[0];
-      days.push({ label: isNext ? 'Tomorrow' : null, date: d });
+function _highlightPickupChip(pickupIso, todayIso, tomorrowIso) {
+  document.querySelectorAll('.day-chip').forEach(c => c.classList.remove('selected'));
+  if      (pickupIso === todayIso)    document.getElementById('chip-today')?.classList.add('selected');
+  else if (pickupIso === tomorrowIso) document.getElementById('chip-tomorrow')?.classList.add('selected');
+  else if (pickupIso)                 document.getElementById('chip-other')?.classList.add('selected');
+}
+
+function selectPickupChip(which) {
+  const now          = new Date();
+  const todayIso     = now.toISOString().split('T')[0];
+  const tomorrowDate = new Date(now);
+  tomorrowDate.setDate(now.getDate() + 1);
+  const tomorrowIso  = tomorrowDate.toISOString().split('T')[0];
+  const calExpand    = document.getElementById('pickup-cal-expand');
+
+  if (which === 'other') {
+    // Toggle calendar open/close
+    const isOpen = calExpand && calExpand.style.display !== 'none';
+    if (isOpen) {
+      calExpand.style.display = 'none';
+    } else {
+      renderPickupMiniCal();
+      if (calExpand) calExpand.style.display = '';
     }
-  }
-
-  if (!days.length) {
-    container.innerHTML = '<div style="padding:12px 4px;color:var(--gray-400);font-size:13px">No pickup days available — please contact us.</div>';
     return;
   }
 
-  container.innerHTML = days.map(({ label, date }) => {
-    const iso     = date.toISOString().split('T')[0];
-    const dayName = label || date.toLocaleDateString('en-US', { weekday: 'long' });
-    const dateFmt = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const sel     = draft.pickupDate === iso;
-    return `<button class="day-btn${sel ? ' selected' : ''}" onclick="selectPickupDay('${iso}',this)">
-      <div class="day-btn-left">
-        <span class="day-btn-name">${dayName}</span>
-        <span class="day-btn-date">${dateFmt}</span>
-      </div>
-      <span class="day-btn-check">✓</span>
-    </button>`;
-  }).join('');
+  if (calExpand) calExpand.style.display = 'none';
+  const iso = (which === 'today') ? todayIso : tomorrowIso;
+  _applyPickupDate(iso, todayIso, tomorrowIso);
 }
 
-function selectPickupDay(iso, btn) {
-  draft.pickupDate = iso;
-  draft.deliveryDate = null; // reset so renderDeliveryButtons picks a fresh default
-  document.querySelectorAll('.day-btn').forEach(b => b.classList.remove('selected'));
-  btn?.classList.add('selected');
+function renderPickupMiniCal() {
+  const container = document.getElementById('pickup-cal-expand');
+  if (!container) return;
+  const now      = new Date();
+  const todayIso = now.toISOString().split('T')[0];
+
+  // Build 14 dates starting today
+  const days = [];
+  for (let i = 0; i <= 13; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    days.push(d);
+  }
+
+  const firstDOW = days[0].getDay(); // 0 = Sunday
+  let gridHtml = '<div class="mini-cal-dow">Su</div><div class="mini-cal-dow">Mo</div><div class="mini-cal-dow">Tu</div><div class="mini-cal-dow">We</div><div class="mini-cal-dow">Th</div><div class="mini-cal-dow">Fr</div><div class="mini-cal-dow">Sa</div>';
+  for (let i = 0; i < firstDOW; i++) gridHtml += '<div></div>';
+  days.forEach(d => {
+    const iso   = d.toISOString().split('T')[0];
+    const sel   = draft.pickupDate === iso;
+    const isTod = iso === todayIso && !sel;
+    gridHtml += `<div class="mini-cal-day${sel ? ' selected' : ''}${isTod ? ' today-marker' : ''}" onclick="selectPickupCalDay('${iso}')">${d.getDate()}</div>`;
+  });
+
+  container.innerHTML = `<div class="pickup-mini-cal"><div style="font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Choose a date (up to 14 days)</div><div class="mini-cal-grid">${gridHtml}</div></div>`;
+}
+
+function selectPickupCalDay(iso) {
+  const now          = new Date();
+  const todayIso     = now.toISOString().split('T')[0];
+  const tomorrowDate = new Date(now);
+  tomorrowDate.setDate(now.getDate() + 1);
+  const tomorrowIso  = tomorrowDate.toISOString().split('T')[0];
+
+  // Update "Another day" chip label to show the chosen date
+  if (iso !== todayIso && iso !== tomorrowIso) {
+    const chipOther = document.getElementById('chip-other');
+    if (chipOther) {
+      const d = new Date(iso + 'T12:00:00');
+      chipOther.textContent = `📅 ${d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })}`;
+    }
+  }
+
+  // Collapse calendar
+  const calExpand = document.getElementById('pickup-cal-expand');
+  if (calExpand) calExpand.style.display = 'none';
+
+  _applyPickupDate(iso, todayIso, tomorrowIso);
+}
+
+function _applyPickupDate(iso, todayIso, tomorrowIso) {
+  draft.pickupDate     = iso;
+  draft.deliveryDate   = null; // reset so delivery re-computes
+  draft.deliveryWindow = null; // reset delivery window override
+  _highlightPickupChip(iso, todayIso, tomorrowIso);
+
+  const wLabel = document.getElementById('window-section-label');
+  const wList  = document.getElementById('window-btn-list');
+  if (wLabel) wLabel.style.display = '';
+  if (wList)  wList.style.display  = '';
+
   fetchWindowsForDate(iso);
-  renderDeliveryButtons();
+  renderDeliverySummary();
 }
 
 function renderWindowButtons() {
@@ -2116,46 +2223,43 @@ function renderWindowButtons() {
 
 function selectPickupWindow(idx, btn) {
   draft.pickupWindow = draft.availableWindows[idx] || null;
+  // Default delivery window = same as pickup (null means "inherit pickup window")
+  draft.deliveryWindow = null;
   document.querySelectorAll('.window-btn').forEach(b => b.classList.remove('selected'));
   btn?.classList.add('selected');
 }
 
-// Render available delivery date buttons for step 1.
-// Queries route_templates to get turnaround_days + valid delivery days,
-// then shows the next 4 eligible dates after the selected pickup date.
-async function renderDeliveryButtons() {
-  const section   = document.getElementById('delivery-section');
-  const container = document.getElementById('delivery-day-list');
-  if (!container) return;
-  if (!draft.pickupDate) {
-    if (section) section.style.display = 'none';
-    return;
-  }
+// Render the delivery summary row (single compact row + inline date picker)
+async function renderDeliverySummary() {
+  const section = document.getElementById('delivery-section');
+  const row     = document.getElementById('delivery-summary-row');
+  if (!row) return;
+  if (!draft.pickupDate) { if (section) section.style.display = 'none'; return; }
   if (section) section.style.display = '';
-  container.innerHTML = '<div class="spinner" style="margin:12px auto;width:22px;height:22px;border-width:2px"></div>';
+  row.innerHTML = '<div style="font-size:13px;color:var(--gray-400)">Calculating…</div>';
 
-  // Fetch route template to get turnaround_days + delivery schedule_days
-  let turnaround = 2;
-  let deliveryDays = null; // null = any day
+  // Fetch turnaround days and valid delivery weekdays from route templates
+  let turnaround   = 2;
+  let deliveryDays = null;
   try {
     let q = db.from('route_templates').select('turnaround_days, schedule_days').eq('is_active', true);
     if (draft.zoneId) q = q.eq('zone_id', draft.zoneId);
     const { data: templates } = await q;
     if (templates?.length) {
-      const firstWithTurnaround = templates.find(t => t.turnaround_days > 0);
-      if (firstWithTurnaround) turnaround = firstWithTurnaround.turnaround_days;
-      const allDays = templates.flatMap(t => t.schedule_days || []);
+      const t = templates.find(r => r.turnaround_days > 0);
+      if (t) turnaround = t.turnaround_days;
+      const allDays = templates.flatMap(r => r.schedule_days || []);
       if (allDays.length) deliveryDays = new Set(allDays);
     }
-  } catch (_) { /* fall through */ }
+  } catch (_) {}
 
-  // Compute delivery candidates: start at pickup + turnaround, find next 4 valid route days
-  const base = new Date(draft.pickupDate + 'T12:00:00');
+  // Compute next 4 eligible delivery dates starting at pickup + turnaround
+  const base   = new Date(draft.pickupDate + 'T12:00:00');
   base.setDate(base.getDate() + turnaround);
-  const dates = [];
-  const walk = new Date(base);
-  let safety = 0;
-  while (dates.length < 4 && safety++ < 30) { // 30-day cap prevents infinite loop if schedule_days is empty
+  const dates  = [];
+  const walk   = new Date(base);
+  let safety   = 0;
+  while (dates.length < 4 && safety++ < 30) {
     const isoDay = (walk.getDay() + 6) % 7; // 0=Mon … 6=Sun
     if (!deliveryDays || deliveryDays.size === 0 || deliveryDays.has(isoDay)) {
       dates.push(walk.toISOString().split('T')[0]);
@@ -2163,31 +2267,61 @@ async function renderDeliveryButtons() {
     walk.setDate(walk.getDate() + 1);
   }
 
-  // Auto-select earliest valid date if nothing selected yet
+  draft._deliveryOptions = dates;
+
+  // Auto-select earliest if nothing valid chosen yet
   if (!draft.deliveryDate || !dates.includes(draft.deliveryDate)) {
-    draft.deliveryDate = dates[0];
+    draft.deliveryDate = dates[0] || null;
   }
 
-  container.innerHTML = dates.map(iso => {
-    const d = new Date(iso + 'T12:00:00');
-    const sel = draft.deliveryDate === iso;
-    const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-    const dateFmt = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const isFirst = iso === dates[0];
-    return `<button class="day-btn${sel ? ' selected' : ''}" onclick="selectDeliveryDay('${iso}',this)">
-      <div class="day-btn-left">
-        <span class="day-btn-name">${dayName}${isFirst ? ' <span style="font-size:10px;font-weight:700;background:var(--navy);color:white;padding:1px 7px;border-radius:999px;vertical-align:middle;margin-left:4px">Suggested</span>' : ''}</span>
-        <span class="day-btn-date">${dateFmt}</span>
-      </div>
-      <span class="day-btn-check">✓</span>
-    </button>`;
-  }).join('');
+  if (!draft.deliveryDate) {
+    row.innerHTML = '<div style="font-size:13px;color:var(--gray-400)">No delivery dates available — please contact us.</div>';
+    return;
+  }
+
+  const d       = new Date(draft.deliveryDate + 'T12:00:00');
+  const dateFmt = d.toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
+  row.innerHTML = `<span class="delivery-summary-date">📦 Delivers ${dateFmt}</span><span class="delivery-summary-change" onclick="toggleDeliveryCalExpand()">Change date</span>`;
 }
 
-function selectDeliveryDay(iso, btn) {
+function toggleDeliveryCalExpand() {
+  const calEl = document.getElementById('delivery-cal-expand');
+  if (!calEl) return;
+  if (calEl.style.display !== 'none') { calEl.style.display = 'none'; return; }
+  renderDeliveryOptions();
+  calEl.style.display = '';
+}
+
+function renderDeliveryOptions() {
+  const container = document.getElementById('delivery-cal-expand');
+  if (!container) return;
+  const dates = draft._deliveryOptions || [];
+  if (!dates.length) {
+    container.innerHTML = '<div style="font-size:13px;color:var(--gray-400);padding:8px 0">No other delivery dates available.</div>';
+    return;
+  }
+  container.innerHTML = '<div class="delivery-date-options">' + dates.map((iso, idx) => {
+    const d   = new Date(iso + 'T12:00:00');
+    const sel = draft.deliveryDate === iso;
+    const lbl = d.toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
+    const tag = idx === 0 ? ' <span style="font-size:10px;font-weight:700;background:var(--navy);color:white;padding:1px 7px;border-radius:999px;margin-left:6px">Suggested</span>' : '';
+    return `<button class="delivery-date-opt${sel ? ' selected' : ''}" onclick="selectDeliveryOption('${iso}')">
+      <span>${lbl}${tag}</span>${sel ? '<span style="color:var(--navy);font-size:18px">✓</span>' : ''}
+    </button>`;
+  }).join('') + '</div>';
+}
+
+function selectDeliveryOption(iso) {
   draft.deliveryDate = iso;
-  document.querySelectorAll('#delivery-day-list .day-btn').forEach(b => b.classList.remove('selected'));
-  btn?.classList.add('selected');
+  const calEl = document.getElementById('delivery-cal-expand');
+  if (calEl) calEl.style.display = 'none';
+  // Update just the summary row
+  const row = document.getElementById('delivery-summary-row');
+  if (row) {
+    const d       = new Date(iso + 'T12:00:00');
+    const dateFmt = d.toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
+    row.innerHTML = `<span class="delivery-summary-date">📦 Delivers ${dateFmt}</span><span class="delivery-summary-change" onclick="toggleDeliveryCalExpand()">Change date</span>`;
+  }
 }
 
 function buildConfirmSummary() {
@@ -2197,29 +2331,62 @@ function buildConfirmSummary() {
   const total       = Math.round(((svc?.base_price||0)*bags + addonsTotal)*100)/100;
 
   const pickup = new Date(draft.pickupDate + 'T12:00:00');
-  const fmt = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  const fmt    = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
 
   const freqLabels = { weekly:'Every week', biweekly:'Every 2 weeks', monthly:'Every month' };
   const freqLabel  = freqLabels[draft.recurring] || 'One-time pickup';
 
-  const pw       = draft.pickupWindow;
+  const pw        = draft.pickupWindow;
   const timeLabel = pw ? pw.label : '—';
 
-  // Preference summary: show "Group: Option" format (e.g., "Temp: Hot · Softener: Yes")
-  const prefValues  = Object.values(draft.prefs);
+  // Preference summary
   const prefSummary = globalPrefs
     .filter(g => draft.prefs[g.id])
     .map(g => `${g.name}: ${draft.prefs[g.id].label}`)
     .join(' · ') || 'None';
 
-  // Only show paid add-on rows (skip $0 items that add visual noise)
-  const addonRows = prefValues.filter(p => p.priceMod > 0).map(p =>
+  // Paid add-on rows
+  const prefValues = Object.values(draft.prefs);
+  const addonRows  = prefValues.filter(p => p.priceMod > 0).map(p =>
     `<div class="confirm-row">
       <span class="confirm-key">${p.label}</span>
       <span class="confirm-val">+${$m(p.priceMod)}</span>
       <span></span>
     </div>`
   ).join('');
+
+  // ── Delivery address ──
+  const delAddrRec  = draft.deliveryAddressId ? _savedAddresses.find(a => a.id === draft.deliveryAddressId) : null;
+  const delAddrText = delAddrRec
+    ? `${addrIcon(delAddrRec.label)} ${fmtAddrOneLiner(delAddrRec)}`
+    : 'Same as pickup';
+
+  const addrOptionsHtml = _savedAddresses.length
+    ? _savedAddresses.map(a => {
+        const isSameAsPickup = a.id === draft.addressId;
+        const sel = draft.deliveryAddressId ? (a.id === draft.deliveryAddressId) : isSameAsPickup;
+        return `<div class="confirm-inline-opt${sel ? ' selected' : ''}" onclick="selectConfirmDeliveryAddr('${a.id}')">
+          <span style="font-size:18px;flex-shrink:0">${addrIcon(a.label)}</span>
+          <span style="flex:1;font-size:13px">${a.label ? `<strong>${a.label}</strong> · ` : ''}${fmtAddrOneLiner(a)}${isSameAsPickup ? ' <span style="font-size:11px;color:var(--gray-400)">(pickup)</span>' : ''}</span>
+          ${sel ? '<span style="color:var(--navy);flex-shrink:0">✓</span>' : ''}
+        </div>`;
+      }).join('')
+    : '<div style="padding:11px 14px;font-size:13px;color:var(--gray-400)">No saved addresses.</div>';
+
+  // ── Delivery window ──
+  const delWin      = draft.deliveryWindow;
+  const delWinLabel = delWin ? delWin.label : (pw ? `Same as pickup (${pw.label})` : 'Same as pickup');
+
+  const winOptionsHtml = draft.availableWindows.length
+    ? draft.availableWindows.map((w, i) => {
+        const sel = delWin ? (delWin.slotStart === w.slotStart) : (pw && pw.slotStart === w.slotStart);
+        return `<div class="confirm-inline-opt${sel ? ' selected' : ''}" onclick="selectConfirmDeliveryWindow(${i})">
+          <span style="font-size:20px;flex-shrink:0">${w.icon}</span>
+          <span style="flex:1">${w.label}</span>
+          ${sel ? '<span style="color:var(--navy);flex-shrink:0">✓</span>' : ''}
+        </div>`;
+      }).join('')
+    : '<div style="padding:11px 14px;font-size:13px;color:var(--gray-400)">Window options not available.</div>';
 
   document.getElementById('confirm-summary').innerHTML = `
     <div class="confirm-row editable" onclick="goOrderStep(0)">
@@ -2237,6 +2404,18 @@ function buildConfirmSummary() {
       <span class="confirm-val">${draft.deliveryDate ? fmt(new Date(draft.deliveryDate + 'T12:00:00')) : '—'}</span>
       <span class="confirm-edit">Edit</span>
     </div>
+    <div class="confirm-row editable" onclick="toggleConfirmDeliveryAddr()">
+      <span class="confirm-key" style="color:var(--gray-500)">Delivering to</span>
+      <span class="confirm-val" style="font-size:12px" id="confirm-deliver-to-val">${delAddrText}</span>
+      <span class="confirm-edit">Edit</span>
+    </div>
+    <div id="confirm-delivery-addr-expand" class="confirm-inline-picker" style="display:none">${addrOptionsHtml}</div>
+    <div class="confirm-row editable" onclick="toggleConfirmDeliveryWindow()">
+      <span class="confirm-key" style="color:var(--gray-500)">Delivery window</span>
+      <span class="confirm-val" style="font-size:12px" id="confirm-delivery-win-val">${delWinLabel}</span>
+      <span class="confirm-edit">Edit</span>
+    </div>
+    <div id="confirm-delivery-win-expand" class="confirm-inline-picker" style="display:none">${winOptionsHtml}</div>
     <div class="confirm-row editable" onclick="goOrderStep(1)">
       <span class="confirm-key">Frequency</span>
       <span class="confirm-val">${freqLabel}</span>
@@ -2258,6 +2437,41 @@ function buildConfirmSummary() {
       <span class="confirm-val confirm-total">${$m(total)}</span>
       <span></span>
     </div>`;
+}
+
+function toggleConfirmDeliveryAddr() {
+  const el    = document.getElementById('confirm-delivery-addr-expand');
+  const winEl = document.getElementById('confirm-delivery-win-expand');
+  if (!el) return;
+  if (winEl) winEl.style.display = 'none'; // close window picker if open
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+function selectConfirmDeliveryAddr(addrId) {
+  // null deliveryAddressId means "same as pickup"
+  draft.deliveryAddressId = (addrId === draft.addressId) ? null : addrId;
+  buildConfirmSummary();
+  // Re-open the picker after rebuild so user can see the selection updated
+  const el = document.getElementById('confirm-delivery-addr-expand');
+  if (el) el.style.display = '';
+}
+
+function toggleConfirmDeliveryWindow() {
+  const el     = document.getElementById('confirm-delivery-win-expand');
+  const addrEl = document.getElementById('confirm-delivery-addr-expand');
+  if (!el) return;
+  if (addrEl) addrEl.style.display = 'none'; // close address picker if open
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+function selectConfirmDeliveryWindow(idx) {
+  const win            = draft.availableWindows[idx] || null;
+  const isSameAsPickup = win && draft.pickupWindow && win.slotStart === draft.pickupWindow.slotStart;
+  draft.deliveryWindow = isSameAsPickup ? null : win; // null = inherit pickup window
+  buildConfirmSummary();
+  // Re-open the picker after rebuild
+  const el = document.getElementById('confirm-delivery-win-expand');
+  if (el) el.style.display = '';
 }
 
 function renderConfirmAuth() {
@@ -2336,8 +2550,24 @@ async function placeOrder() {
     total_amount:         total,
     pickup_window_start:  pw?.slotStart || null,
     pickup_window_end:    pw?.slotEnd   || null,
-    delivery_window_start: deliveryDate ? new Date(deliveryDate + 'T08:00:00').toISOString() : null,
-    delivery_window_end:   deliveryDate ? new Date(deliveryDate + 'T18:00:00').toISOString() : null,
+    delivery_window_start: (() => {
+      if (!deliveryDate) return null;
+      const dw = draft.deliveryWindow || pw; // custom or same as pickup
+      if (dw?.startMins !== undefined) {
+        const pad2 = n => String(n).padStart(2,'0');
+        return new Date(`${deliveryDate}T${pad2(Math.floor(dw.startMins/60))}:${pad2(dw.startMins%60)}:00`).toISOString();
+      }
+      return new Date(deliveryDate + 'T08:00:00').toISOString();
+    })(),
+    delivery_window_end: (() => {
+      if (!deliveryDate) return null;
+      const dw = draft.deliveryWindow || pw;
+      if (dw?.endMins !== undefined) {
+        const pad2 = n => String(n).padStart(2,'0');
+        return new Date(`${deliveryDate}T${pad2(Math.floor(dw.endMins/60))}:${pad2(dw.endMins%60)}:00`).toISOString();
+      }
+      return new Date(deliveryDate + 'T18:00:00').toISOString();
+    })(),
     pickup_run_id:        null,                   // routes table FK — template IDs don't match; linked by admin later
     recurring_interval:   draft.recurring || null,
     line_items:           lineItems,
@@ -3666,11 +3896,17 @@ window.selectFreq        = selectFreq;
 window.goOrderStep       = goOrderStep;
 window.switchOrderTab    = switchOrderTab;
 window.handleOrderBack   = handleOrderBack;
-window.shiftMonth             = shiftMonth;
-window.selectDay              = selectDay;
-window.selectPickupDay        = selectPickupDay;
-window.selectPickupWindow     = selectPickupWindow;
-window.selectDeliveryDay      = selectDeliveryDay;
+window.shiftMonth                   = shiftMonth;
+window.selectDay                    = selectDay;
+window.selectPickupChip             = selectPickupChip;
+window.selectPickupCalDay           = selectPickupCalDay;
+window.selectPickupWindow           = selectPickupWindow;
+window.selectDeliveryOption         = selectDeliveryOption;
+window.toggleDeliveryCalExpand      = toggleDeliveryCalExpand;
+window.toggleConfirmDeliveryAddr    = toggleConfirmDeliveryAddr;
+window.selectConfirmDeliveryAddr    = selectConfirmDeliveryAddr;
+window.toggleConfirmDeliveryWindow  = toggleConfirmDeliveryWindow;
+window.selectConfirmDeliveryWindow  = selectConfirmDeliveryWindow;
 window.openEditOrder          = openEditOrder;
 window.editBagsDelta          = editBagsDelta;
 window.editPickAddress        = editPickAddress;
