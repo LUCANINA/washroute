@@ -5986,59 +5986,27 @@ window.onload=()=>{window.print();};
     }
 
     function feePriceStr(f) {
-      const val  = parseFloat(f.amount||0);
-      const base = f.fee_type === 'percent' ? `${val.toFixed(0)}%` : `$${val.toFixed(0)}`;
-      const unit = (f.unit_label||'').trim();
-      return unit ? `${base}/<span style="font-size:11px;color:var(--gray-400)">${svcEsc(unit)}</span>` : base;
+      const val = parseFloat(f.amount||0);
+      return f.fee_type === 'percent' ? `${val.toFixed(0)}%` : `$${val.toFixed(2)}`;
     }
 
-    function svcSection(title, icon, items) {
-      if (!items.length) return `
-        <div class="prices-section">
-          <div class="prices-section-header">${icon} ${title}</div>
-          <div class="prices-empty">None configured yet.</div>
-        </div>`;
+    function priceRow(name, priceHtml, toggleFn, id, showInApp, isActive) {
       return `
-        <div class="prices-section">
-          <div class="prices-section-header">${icon} ${title}</div>
-          ${items.map(s => `
-            <div class="prices-row${s.show_in_app === false || s.is_active === false ? ' prices-off' : ''}" id="prices-row-${s.id}">
-              <div class="prices-name">${svcEsc(s.name)}</div>
-              <div class="prices-amount">${svcPriceStr(s)}</div>
-              <label class="toggle-switch" style="transform:scale(.85);transform-origin:right center" title="${s.show_in_app !== false ? 'Shown in app' : 'Hidden from app'}">
-                <input type="checkbox" ${s.show_in_app !== false ? 'checked' : ''} onchange="toggleServiceShowInApp('${s.id}',this.checked)" />
-                <span class="toggle-slider"></span>
-              </label>
-            </div>`).join('')}
+        <div class="prices-row${showInApp === false || isActive === false ? ' prices-off' : ''}" id="prices-row-${id}">
+          <div class="prices-name">${svcEsc(name)}</div>
+          <div class="prices-amount">${priceHtml}</div>
+          <label class="toggle-switch" style="transform:scale(.85);transform-origin:right center">
+            <input type="checkbox" ${showInApp !== false ? 'checked' : ''} onchange="${toggleFn}('${id}',this.checked)" />
+            <span class="toggle-slider"></span>
+          </label>
         </div>`;
     }
 
-    function feeSection(title, icon, items) {
-      if (!items.length) return `
-        <div class="prices-section">
-          <div class="prices-section-header">${icon} ${title}</div>
-          <div class="prices-empty">None configured yet.</div>
-        </div>`;
+    function section(title, items, rowFn) {
       return `
         <div class="prices-section">
-          <div class="prices-section-header">${icon} ${title}</div>
-          ${items.map(f => `
-            <div class="prices-row${f.show_in_app === false || f.is_active === false ? ' prices-off' : ''}" id="prices-row-${f.id}">
-              <div class="prices-name">${svcEsc(f.name)}</div>
-              <div class="prices-amount" style="display:flex;align-items:center;gap:6px">
-                ${feePriceStr(f)}
-                <input type="text" value="${svcEsc(f.unit_label||'')}"
-                  placeholder="per order"
-                  title="Unit label shown in customer app"
-                  style="font-size:11px;width:86px;padding:2px 6px;border:1px solid var(--gray-200);border-radius:5px;color:var(--gray-500);background:var(--gray-50)"
-                  onchange="saveUnitLabel('${f.id}',this.value)"
-                  onclick="event.stopPropagation()" />
-              </div>
-              <label class="toggle-switch" style="transform:scale(.85);transform-origin:right center" title="${f.show_in_app !== false ? 'Shown in app' : 'Hidden from app'}">
-                <input type="checkbox" ${f.show_in_app !== false ? 'checked' : ''} onchange="toggleFeeShowInApp('${f.id}',this.checked)" />
-                <span class="toggle-slider"></span>
-              </label>
-            </div>`).join('')}
+          <div class="prices-section-header">${title}</div>
+          ${items.length ? items.map(rowFn).join('') : '<div class="prices-empty">None configured yet.</div>'}
         </div>`;
     }
 
@@ -6048,10 +6016,10 @@ window.onload=()=>{window.print();};
     const rewards = allFees.filter(f => f.category === 'Reward');
 
     body.innerHTML =
-      svcSection('Main Services',    '🧺', main)    +
-      svcSection('Add-ons',          '➕', addons)  +
-      feeSection('Fees & Surcharges','💳', fees)    +
-      feeSection('Rewards',          '🎁', rewards);
+      section('Main Services',    main,    s => priceRow(s.name, svcPriceStr(s),  'toggleServiceShowInApp', s.id, s.show_in_app, s.is_active)) +
+      section('Add-ons',          addons,  s => priceRow(s.name, svcPriceStr(s),  'toggleServiceShowInApp', s.id, s.show_in_app, s.is_active)) +
+      section('Fees & Surcharges',fees,    f => priceRow(f.name, feePriceStr(f),  'toggleFeeShowInApp',     f.id, f.show_in_app, f.is_active)) +
+      section('Rewards',          rewards, f => priceRow(f.name, feePriceStr(f),  'toggleFeeShowInApp',     f.id, f.show_in_app, f.is_active));
   }
 
   async function saveUnitLabel(id, value) {
