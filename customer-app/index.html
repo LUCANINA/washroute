@@ -3159,7 +3159,6 @@ async function openDetail(orderId) {
   const deliveryAddrLine = dAddr ? fmtAddrOneLiner(dAddr) : (pAddr ? fmtAddrOneLiner(pAddr) : '—');
 
   document.getElementById('d-rows').innerHTML = `
-    <div class="d-row"><span class="d-key">Service</span><span class="d-val">${o.services?.name || '—'}</span></div>
     <div class="d-row"><span class="d-key">Bags</span><span class="d-val">${bags} bag${bags !== 1 ? 's' : ''}</span></div>
     <div class="d-row"><span class="d-key">Schedule</span><span class="d-val">${o.recurring_interval ? RLABELS[o.recurring_interval] : 'One-time'}</span></div>
     <div class="d-row"><span class="d-key">Pickup address</span><span class="d-val">${escHtml(pickupAddrLine)}</span></div>
