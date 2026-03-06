@@ -2399,12 +2399,13 @@ async function _updateSchedDelivery() {
     }
   } catch (_) {}
 
-  const base  = new Date(draft.pickupDate + 'T12:00:00');
+  const base    = new Date(draft.pickupDate + 'T12:00:00');
   base.setDate(base.getDate() + turnaround);
-  const dates = [];
-  const walk  = new Date(base);
-  let safety  = 0;
-  while (dates.length < 4 && safety++ < 30) {
+  const cutoff  = new Date(draft.pickupDate + 'T12:00:00');
+  cutoff.setDate(cutoff.getDate() + 7); // delivery must be within 1 week of pickup
+  const dates   = [];
+  const walk    = new Date(base);
+  while (dates.length < 4 && walk <= cutoff) {
     const isoDay = (walk.getDay() + 6) % 7;
     if (!deliveryDays || deliveryDays.size === 0 || deliveryDays.has(isoDay)) {
       dates.push(walk.toISOString().split('T')[0]);
