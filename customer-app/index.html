@@ -195,12 +195,11 @@
     .slot-date { font-size: 10px; opacity: .65; margin-top: 2px; }
 
     /* Confirm summary */
-    .confirm-card { background: var(--gray-50); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
-    .confirm-row { display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 0 12px; padding: 9px 0; border-bottom: 1px solid var(--gray-200); }
-    .confirm-row:last-child { border-bottom: none; padding-bottom: 0; }
-    .confirm-row.editable { cursor: pointer; transition: background .12s; margin: 0 -16px; padding: 9px 16px; border-radius: 8px; }
-    .confirm-row.editable:hover { background: var(--gray-100); }
-    .confirm-row.editable:active { background: var(--gray-200); }
+    .confirm-card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 0 16px; margin-bottom: 8px; }
+    .confirm-card .d-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--gray-100); }
+    .confirm-card .d-row:last-child { border-bottom: none; }
+    .conf-expand-row { cursor: pointer; }
+    .conf-expand-row:active { background: var(--gray-50); margin: 0 -16px; padding-left: 16px; padding-right: 16px; border-radius: 8px; }
     .confirm-key { font-size: 13.5px; color: var(--gray-600); white-space: nowrap; padding-top: 2px; }
     .confirm-val { font-size: 13.5px; font-weight: 600; text-align: right; }
     .confirm-edit { font-size: 12px; color: var(--accent); font-weight: 600; white-space: nowrap; padding-top: 2px; }
@@ -841,8 +840,7 @@
 
       <!-- Step 4 — Confirm + Account -->
       <div class="step-content" id="o-step-4" style="display:none">
-        <div class="step-sub">Review your order and confirm.</div>
-        <div class="confirm-card" id="confirm-summary"></div>
+        <div id="confirm-summary"></div>
 
         <!-- Shown only when not logged in -->
         <div id="confirm-auth-section" style="display:none">
@@ -868,9 +866,10 @@
           </div>
         </div>
 
+        <div style="height:8px"></div>
         <button class="btn-primary" id="btn-place" onclick="placeOrder()">Place Order</button>
-        <div style="height:12px"></div>
-        <button class="btn-secondary" onclick="goOrderStep(3)">← Edit</button>
+        <div style="height:10px"></div>
+        <button class="btn-secondary" onclick="goOrderStep(1)" style="font-size:14px">← Edit Details</button>
         <div class="order-help">Need help? Call us: <a href="tel:5108423560">(510) 842-3560</a></div>
       </div>
 
@@ -2438,7 +2437,7 @@ function buildConfirmSummary() {
   const fmt    = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
 
   const freqLabels = { weekly:'Every week', biweekly:'Every 2 weeks', monthly:'Every month' };
-  const freqLabel  = freqLabels[draft.recurring] || 'One-time pickup';
+  const freqLabel  = freqLabels[draft.recurring] || 'One-time';
 
   const pw        = draft.pickupWindow;
   const timeLabel = pw ? pw.label : '—';
@@ -2447,15 +2446,14 @@ function buildConfirmSummary() {
   const prefSummary = globalPrefs
     .filter(g => draft.prefs[g.id])
     .map(g => `${g.name}: ${draft.prefs[g.id].label}`)
-    .join(' · ') || 'None';
+    .join(' · ') || 'Default';
 
   // Paid add-on rows
   const prefValues = Object.values(draft.prefs);
   const addonRows  = prefValues.filter(p => p.priceMod > 0).map(p =>
-    `<div class="confirm-row">
-      <span class="confirm-key">${p.label}</span>
-      <span class="confirm-val">+${$m(p.priceMod)}</span>
-      <span></span>
+    `<div class="d-row">
+      <span class="d-key">${p.label}</span>
+      <span class="d-val">+${$m(p.priceMod)}</span>
     </div>`
   ).join('');
 
@@ -2477,87 +2475,90 @@ function buildConfirmSummary() {
       }).join('')
     : '<div style="padding:11px 14px;font-size:13px;color:var(--gray-400)">No saved addresses.</div>';
 
-  // ── Delivery window ──
+  // ── Delivery date + window ──
   const delWin      = draft.deliveryWindow;
-  const delWinLabel = delWin ? delWin.label : (pw ? `Same as pickup (${pw.label})` : 'Same as pickup');
-
-  const winOptionsHtml = draft.availableWindows.length
-    ? draft.availableWindows.map((w, i) => {
-        const sel = delWin ? (delWin.slotStart === w.slotStart) : (pw && pw.slotStart === w.slotStart);
-        return `<div class="confirm-inline-opt${sel ? ' selected' : ''}" onclick="selectConfirmDeliveryWindow(${i})">
-          <span style="font-size:20px;flex-shrink:0">${w.icon}</span>
-          <span style="flex:1">${w.label}</span>
-          ${sel ? '<span style="color:var(--navy);flex-shrink:0">✓</span>' : ''}
-        </div>`;
-      }).join('')
-    : '<div style="padding:11px 14px;font-size:13px;color:var(--gray-400)">Window options not available.</div>';
+  const delDate     = draft.deliveryDate ? fmt(new Date(draft.deliveryDate + 'T12:00:00')) : '—';
+  const delWinLabel = delWin ? delWin.label : (pw ? pw.label : '—');
 
   document.getElementById('confirm-summary').innerHTML = `
-    <div class="confirm-row editable" onclick="goOrderStep(0)">
-      <span class="confirm-key">Address</span>
-      <span class="confirm-val" style="font-size:12px">${draft.address||'—'}</span>
-      <span class="confirm-edit">Edit</span>
+    <div class="d-section-title">Service details</div>
+    <div class="confirm-card">
+      <div class="d-row">
+        <span class="d-key">Service</span>
+        <span class="d-val">${svc?.name || '—'}</span>
+      </div>
+      <div class="d-row">
+        <span class="d-key">Frequency</span>
+        <span class="d-val">${freqLabel}</span>
+      </div>
+      <div class="d-row">
+        <span class="d-key">Bags</span>
+        <span class="d-val">${bags} bag${bags!==1?'s':''}</span>
+      </div>
+      <div class="d-row">
+        <span class="d-key">Preferences</span>
+        <span class="d-val" style="font-size:12px;line-height:1.5">${prefSummary}</span>
+      </div>
     </div>
-    <div class="confirm-row editable" onclick="goOrderStep(1)">
-      <span class="confirm-key">Pickup</span>
-      <span class="confirm-val">${fmt(pickup)}<br><span style="font-size:11px;color:var(--gray-400);font-weight:400">${timeLabel}</span></span>
-      <span class="confirm-edit">Edit</span>
+
+    <div class="d-section-title" style="margin-top:20px">Pickup</div>
+    <div class="confirm-card">
+      <div class="d-row">
+        <span class="d-key">Address</span>
+        <span class="d-val" style="font-size:13px">${draft.address||'—'}</span>
+      </div>
+      <div class="d-row">
+        <span class="d-key">When</span>
+        <span class="d-val">${fmt(pickup)}<br><span style="font-size:12px;font-weight:400;color:var(--gray-400)">${timeLabel}</span></span>
+      </div>
     </div>
-    <div class="confirm-row editable" onclick="goOrderStep(1)">
-      <span class="confirm-key">Delivery</span>
-      <span class="confirm-val">${draft.deliveryDate ? fmt(new Date(draft.deliveryDate + 'T12:00:00')) : '—'}</span>
-      <span class="confirm-edit">Edit</span>
+
+    <div class="d-section-title" style="margin-top:20px">Delivery</div>
+    <div class="confirm-card">
+      <div class="d-row">
+        <span class="d-key">When</span>
+        <span class="d-val">${delDate}<br><span style="font-size:12px;font-weight:400;color:var(--gray-400)">${delWinLabel}</span></span>
+      </div>
+      <div class="d-row conf-expand-row" onclick="toggleConfirmDeliveryAddr()">
+        <span class="d-key">Delivering to</span>
+        <span class="d-val" id="confirm-deliver-to-val" style="font-size:13px">${delAddrText}</span>
+        <svg id="chev-conf-addr" viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--gray-400);stroke-width:2.2;fill:none;flex-shrink:0;transition:transform .2s"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      <div id="confirm-delivery-addr-expand" class="confirm-inline-picker" style="display:none;padding:0 0 4px">${addrOptionsHtml}</div>
     </div>
-    <div class="confirm-row editable" onclick="toggleConfirmDeliveryAddr()">
-      <span class="confirm-key" style="color:var(--gray-500)">Delivering to</span>
-      <span class="confirm-val" style="font-size:12px" id="confirm-deliver-to-val">${delAddrText}</span>
-      <span class="confirm-edit">Edit</span>
-    </div>
-    <div id="confirm-delivery-addr-expand" class="confirm-inline-picker" style="display:none">${addrOptionsHtml}</div>
-    <div class="confirm-row editable" onclick="toggleConfirmDeliveryWindow()">
-      <span class="confirm-key" style="color:var(--gray-500)">Delivery window</span>
-      <span class="confirm-val" style="font-size:12px" id="confirm-delivery-win-val">${delWinLabel}</span>
-      <span class="confirm-edit">Edit</span>
-    </div>
-    <div id="confirm-delivery-win-expand" class="confirm-inline-picker" style="display:none">${winOptionsHtml}</div>
-    <div class="confirm-row editable" onclick="goOrderStep(1)">
-      <span class="confirm-key">Frequency</span>
-      <span class="confirm-val">${freqLabel}</span>
-      <span class="confirm-edit">Edit</span>
-    </div>
-    <div class="confirm-row editable" onclick="goOrderStep(2)">
-      <span class="confirm-key">Preferences</span>
-      <span class="confirm-val" style="font-size:12px">${prefSummary}</span>
-      <span class="confirm-edit">Edit</span>
-    </div>
-    <div class="confirm-row editable" onclick="goOrderStep(3)">
-      <span class="confirm-key">Bags</span>
-      <span class="confirm-val">${bags} bag${bags!==1?'s':''}</span>
-      <span class="confirm-edit">Edit</span>
-    </div>
-    ${addonRows}
-    <div class="confirm-row" style="border-top:1.5px solid var(--gray-200);margin-top:4px;padding-top:16px">
-      <span class="confirm-key" style="font-weight:700;font-size:15px">Estimated Total</span>
-      <span class="confirm-val confirm-total">${$m(total)}</span>
-      <span></span>
+
+    <div class="d-section-title" style="margin-top:20px">Pricing</div>
+    <div class="confirm-card">
+      <div class="d-row">
+        <span class="d-key">${svc?.name||'Service'} × ${bags} bag${bags!==1?'s':''}</span>
+        <span class="d-val">${$m((svc?.base_price||0)*bags)}</span>
+      </div>
+      ${addonRows}
+      <div class="d-row" style="border-top:1.5px solid var(--gray-200);margin-top:4px;padding-top:14px">
+        <span class="d-key" style="font-weight:700;font-size:15px">Estimated Total</span>
+        <span class="d-val" style="font-size:17px;font-weight:800;color:var(--navy)">${$m(total)}</span>
+      </div>
     </div>`;
 }
 
 function toggleConfirmDeliveryAddr() {
-  const el    = document.getElementById('confirm-delivery-addr-expand');
-  const winEl = document.getElementById('confirm-delivery-win-expand');
+  const el   = document.getElementById('confirm-delivery-addr-expand');
+  const chev = document.getElementById('chev-conf-addr');
   if (!el) return;
-  if (winEl) winEl.style.display = 'none'; // close window picker if open
-  el.style.display = el.style.display === 'none' ? '' : 'none';
+  const open = el.style.display === 'none';
+  el.style.display = open ? '' : 'none';
+  if (chev) chev.style.transform = open ? 'rotate(180deg)' : '';
 }
 
 function selectConfirmDeliveryAddr(addrId) {
   // null deliveryAddressId means "same as pickup"
   draft.deliveryAddressId = (addrId === draft.addressId) ? null : addrId;
   buildConfirmSummary();
-  // Re-open the picker after rebuild so user can see the selection updated
-  const el = document.getElementById('confirm-delivery-addr-expand');
-  if (el) el.style.display = '';
+  // Re-open the picker and rotate chevron after rebuild
+  const el   = document.getElementById('confirm-delivery-addr-expand');
+  const chev = document.getElementById('chev-conf-addr');
+  if (el)   el.style.display = '';
+  if (chev) chev.style.transform = 'rotate(180deg)';
 }
 
 function toggleConfirmDeliveryWindow() {
