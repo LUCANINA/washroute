@@ -809,14 +809,10 @@
       <div class="step-content" id="o-step-2" style="display:none">
         <div class="step-sub">Set your laundry preferences for this order.</div>
         <div id="order-pref-groups"></div>
-        <div style="margin-top:16px">
-          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);display:block;margin-bottom:8px">Special Care Notes</label>
-          <textarea id="o-instructions" rows="3" placeholder="e.g. No fabric softener, hang dry delicates…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none" oninput="draft.specialInstructions=this.value.trim()||null"></textarea>
-        </div>
         <button class="btn-primary" style="margin-top:16px" onclick="goOrderStep(3)">Looks good →</button>
       </div>
 
-      <!-- Step 3 — Bags + Estimate -->
+      <!-- Step 3 — Bags + Notes + Estimate -->
       <div class="step-content" id="o-step-3" style="display:none">
         <div class="step-sub">How many bags are you sending in?</div>
 
@@ -835,7 +831,12 @@
           <div class="estimate-note" id="estimate-note">Weight overages billed at pickup if bags exceed 25 lbs each</div>
         </div>
 
-        <button class="btn-primary" onclick="goOrderStep(4)">Continue →</button>
+        <div style="margin-top:4px;margin-bottom:4px">
+          <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);display:block;margin-bottom:8px">Special Care Notes</label>
+          <textarea id="o-instructions" rows="3" placeholder="e.g. No fabric softener, hang dry delicates…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none" oninput="draft.specialInstructions=this.value.trim()||null"></textarea>
+        </div>
+
+        <button class="btn-primary" style="margin-top:12px" onclick="goOrderStep(4)">Continue →</button>
       </div>
 
       <!-- Step 4 — Confirm + Account -->
@@ -3455,6 +3456,30 @@ function openEditOrder() {
       </div>`;
   }
 
+  // Initialise edit-schedule state from the order's stored timestamps
+  const _esPickupDate  = o.pickup_window_start  ? o.pickup_window_start.split('T')[0]  : null;
+  const _esDelivDate   = o.delivery_window_start ? o.delivery_window_start.split('T')[0] : null;
+  function _winFromOrder(startIso, endIso) {
+    if (!startIso) return null;
+    const d = new Date(startIso);
+    return { slotStart: startIso, slotEnd: endIso || null,
+             label: fmtSlot(startIso, endIso),
+             startMins: d.getHours() * 60 + d.getMinutes(),
+             endMins:   endIso ? (new Date(endIso).getHours() * 60 + new Date(endIso).getMinutes()) : undefined };
+  }
+  window._editSchedule = {
+    pickupDate:       _esPickupDate,
+    pickupWindow:     _winFromOrder(o.pickup_window_start,  o.pickup_window_end),
+    deliveryDate:     _esDelivDate,
+    deliveryWindow:   null,   // null = inherit pickup window on save
+    availableWindows: [],
+    deliveryOptions:  [],
+    zoneId:           o.zone_id || null,
+    _origDelivWindow: _winFromOrder(o.delivery_window_start, o.delivery_window_end)
+  };
+
+  const chevSvg = `<svg class="sched-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>`;
+
   const modal = document.createElement('div');
   modal.id = 'edit-order-modal';
   modal.innerHTML = `
@@ -3475,6 +3500,42 @@ function openEditOrder() {
         </div>
 
         <div style="padding:0 20px">
+
+          <!-- Schedule -->
+          <div style="padding:16px 0;border-bottom:1px solid var(--gray-100)">
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:10px">Schedule</div>
+            <div class="sched-card" style="margin-bottom:0">
+              <div class="sched-section-hdr">Pickup</div>
+              <div class="sched-row" id="edit-row-pickup-date" onclick="editSchedToggle('pickup-date')">
+                <div class="sched-row-label">When</div>
+                <div class="sched-row-value" id="edit-val-pickup-date">${_schedDateLabel(_esPickupDate)}</div>
+                <svg class="sched-chev" id="edit-chev-pickup-date" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+              <div class="sched-expand" id="edit-expand-pickup-date"></div>
+              <div class="sched-row-sep"></div>
+              <div class="sched-row" id="edit-row-pickup-window" onclick="editSchedToggle('pickup-window')">
+                <div class="sched-row-label">Pickup window</div>
+                <div class="sched-row-value" id="edit-val-pickup-window">${window._editSchedule.pickupWindow?.label || '—'}</div>
+                <svg class="sched-chev" id="edit-chev-pickup-window" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+              <div class="sched-expand" id="edit-expand-pickup-window"></div>
+              <div class="sched-section-sep"></div>
+              <div class="sched-section-hdr">Delivery</div>
+              <div class="sched-row" id="edit-row-delivery-date" onclick="editSchedToggle('delivery-date')">
+                <div class="sched-row-label">When</div>
+                <div class="sched-row-value" id="edit-val-delivery-date">${_schedDateLabel(_esDelivDate)}</div>
+                <svg class="sched-chev" id="edit-chev-delivery-date" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+              <div class="sched-expand" id="edit-expand-delivery-date"></div>
+              <div class="sched-row-sep"></div>
+              <div class="sched-row" id="edit-row-delivery-window" onclick="editSchedToggle('delivery-window')">
+                <div class="sched-row-label">Delivery window</div>
+                <div class="sched-row-value" id="edit-val-delivery-window">${window._editSchedule._origDelivWindow?.label || window._editSchedule.pickupWindow?.label || '—'}</div>
+                <svg class="sched-chev" id="edit-chev-delivery-window" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+              <div class="sched-expand" id="edit-expand-delivery-window"></div>
+            </div>
+          </div>
 
           <!-- Bags -->
           <div style="padding:16px 0;border-bottom:1px solid var(--gray-100)">
@@ -3501,7 +3562,7 @@ function openEditOrder() {
           </div>
 
           <!-- Addresses -->
-          <div style="padding:16px 0">
+          <div style="padding:16px 0;border-bottom:1px solid var(--gray-100)">
             ${addrPickerRow('Pickup', pAddr)}
             ${addrPickerRow('Delivery', sameAddr ? pAddr : dAddr)}
             <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--gray-600);margin-top:10px;cursor:pointer">
@@ -3512,14 +3573,12 @@ function openEditOrder() {
           </div>
 
           <!-- Footer note -->
-          <div style="display:flex;align-items:center;gap:6px;background:var(--gray-50);border-radius:var(--radius);padding:10px 12px;margin-bottom:20px">
+          <div style="display:flex;align-items:center;gap:6px;background:var(--gray-50);border-radius:var(--radius);padding:10px 12px;margin-top:16px;margin-bottom:20px">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--gray-400)" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             <span style="font-size:12px;color:var(--gray-500)">Changes are locked once your pickup route begins.</span>
           </div>
 
-          <button id="edit-save-btn" onclick="saveEditOrder()" class="btn-primary">
-            Save Changes
-          </button>
+          <button id="edit-save-btn" onclick="saveEditOrder()" class="btn-primary">Save Changes</button>
 
         </div>
       </div>
@@ -3527,10 +3586,15 @@ function openEditOrder() {
 
   document.body.appendChild(modal);
 
+  // Background-fetch windows for the current pickup date so the picker is ready
+  if (_esPickupDate && window._editSchedule.zoneId) {
+    fetchEditWindows(_esPickupDate);
+    _computeEditDeliveryOptions();
+  }
+
   // Close on Escape key
   function onEsc(e) { if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', onEsc); } }
   document.addEventListener('keydown', onEsc);
-  // Clean up listener if modal is removed by other means (backdrop click, × button)
   new MutationObserver((_, obs) => {
     if (!document.getElementById('edit-order-modal')) { document.removeEventListener('keydown', onEsc); obs.disconnect(); }
   }).observe(document.body, { childList: true });
@@ -3604,6 +3668,26 @@ async function saveEditOrder() {
     ...existingAddons
   ];
 
+  // Build schedule fields from _editSchedule
+  const es  = window._editSchedule;
+  const pad2 = n => String(n).padStart(2, '0');
+  function _minsToTime(date, mins) {
+    return new Date(`${date}T${pad2(Math.floor(mins/60))}:${pad2(mins%60)}:00`).toISOString();
+  }
+  const pw = es?.pickupWindow;
+  const dw = es?.deliveryWindow || es?._origDelivWindow || pw; // customer choice > original delivery win > pickup win
+  const schedFields = {};
+  if (es) {
+    if (pw?.slotStart) schedFields.pickup_window_start = pw.slotStart;
+    if (pw?.slotEnd)   schedFields.pickup_window_end   = pw.slotEnd;
+    if (es.deliveryDate && dw) {
+      schedFields.delivery_window_start = dw.startMins !== undefined
+        ? _minsToTime(es.deliveryDate, dw.startMins) : dw.slotStart;
+      schedFields.delivery_window_end   = dw.endMins !== undefined
+        ? _minsToTime(es.deliveryDate, dw.endMins)   : dw.slotEnd;
+    }
+  }
+
   const { error } = await db.from('orders').update({
     total_bags:           bags,
     special_instructions: instructions,
@@ -3611,6 +3695,7 @@ async function saveEditOrder() {
     line_items:           lineItems,
     pickup_address_id:    window._editPickupAddressId   || null,
     delivery_address_id:  window._editDeliveryAddressId || window._editPickupAddressId || null,
+    ...schedFields,
     updated_at:           new Date().toISOString()
   }).eq('id', orderId);
 
@@ -3622,11 +3707,10 @@ async function saveEditOrder() {
 
   document.getElementById('edit-order-modal')?.remove();
   toast('Order updated ✓');
-  // Keep orders list cache in sync so going back shows correct bag count + total
   window._cachedOrders = (window._cachedOrders || []).map(ord =>
     ord.id === orderId ? { ...ord, total_bags: bags, special_instructions: instructions, total_amount: total } : ord
   );
-  openDetail(orderId); // refresh the detail view
+  openDetail(orderId);
 }
 
 async function cancelOrder(orderId) {
@@ -3640,6 +3724,197 @@ async function cancelOrder(orderId) {
   );
   showScreen('orders');
   renderOrdersList(window._cachedOrders);
+}
+
+/* ── EDIT-MODAL SCHEDULE PICKERS ── */
+
+// Fetch available pickup windows for the edit modal (stores in _editSchedule, not draft)
+async function fetchEditWindows(iso) {
+  const es = window._editSchedule;
+  if (!es || !es.zoneId) return;
+  es.availableWindows = [];
+  const isoDay = (new Date(iso + 'T12:00:00').getDay() + 6) % 7;
+  const { data: templates } = await db.from('route_templates')
+    .select('id, name, window_start, window_end, arrival_window_hours')
+    .eq('zone_id', es.zoneId).eq('is_active', true).contains('schedule_days', [isoDay]);
+  if (!templates?.length) return;
+  const windows = [];
+  templates.forEach(tmpl => {
+    if (!tmpl.window_start || !tmpl.window_end) return;
+    computeSubWindows(iso, tmpl, tmpl.id, tmpl.name).forEach(w => windows.push(w));
+  });
+  windows.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
+  es.availableWindows = windows;
+}
+
+// Compute valid delivery dates for the edit modal
+async function _computeEditDeliveryOptions() {
+  const es = window._editSchedule;
+  if (!es?.pickupDate) return;
+  let turnaround = 2, deliveryDays = null;
+  try {
+    let q = db.from('route_templates').select('turnaround_days, schedule_days').eq('is_active', true);
+    if (es.zoneId) q = q.eq('zone_id', es.zoneId);
+    const { data: templates } = await q;
+    if (templates?.length) {
+      const t = templates.find(r => r.turnaround_days > 0);
+      if (t) turnaround = t.turnaround_days;
+      const allDays = templates.flatMap(r => r.schedule_days || []);
+      if (allDays.length) deliveryDays = new Set(allDays);
+    }
+  } catch (_) {}
+  const base   = new Date(es.pickupDate + 'T12:00:00'); base.setDate(base.getDate() + turnaround);
+  const cutoff = new Date(es.pickupDate + 'T12:00:00'); cutoff.setDate(cutoff.getDate() + 7);
+  const dates = [], walk = new Date(base);
+  while (dates.length < 4 && walk <= cutoff) {
+    const isoDay = (walk.getDay() + 6) % 7;
+    if (!deliveryDays || !deliveryDays.size || deliveryDays.has(isoDay))
+      dates.push(walk.toISOString().split('T')[0]);
+    walk.setDate(walk.getDate() + 1);
+  }
+  es.deliveryOptions = dates;
+  if (!es.deliveryDate || !dates.includes(es.deliveryDate)) es.deliveryDate = dates[0] || null;
+  const el = document.getElementById('edit-val-delivery-date');
+  if (el) el.textContent = _schedDateLabel(es.deliveryDate);
+  _editUpdateWindowDisplay('delivery');
+}
+
+// Toggle expand/collapse for an edit-modal schedule row
+function editSchedToggle(key) {
+  const expandEl = document.getElementById(`edit-expand-${key}`);
+  const chevEl   = document.getElementById(`edit-chev-${key}`);
+  if (!expandEl) return;
+  const isOpen = expandEl.classList.contains('open');
+  document.querySelectorAll('[id^="edit-expand-"]').forEach(el => { el.classList.remove('open'); el.innerHTML = ''; });
+  document.querySelectorAll('[id^="edit-chev-"]').forEach(el => el.classList.remove('open'));
+  if (!isOpen) {
+    expandEl.classList.add('open');
+    if (chevEl) chevEl.classList.add('open');
+    if      (key === 'pickup-date')     _editRenderPickupCal();
+    else if (key === 'pickup-window')   _editRenderWindowOpts('pickup');
+    else if (key === 'delivery-date')   _editRenderDeliveryDateOpts();
+    else if (key === 'delivery-window') _editRenderWindowOpts('delivery');
+  }
+}
+
+function _editRenderPickupCal() {
+  const container = document.getElementById('edit-expand-pickup-date');
+  if (!container) return;
+  const now = new Date(), todayIso = now.toISOString().split('T')[0];
+  const days = [];
+  for (let i = 0; i <= 13; i++) { const d = new Date(now); d.setDate(now.getDate() + i); days.push(d); }
+  const firstDOW = days[0].getDay();
+  let grid = '<div class="mini-cal-dow">Su</div><div class="mini-cal-dow">Mo</div><div class="mini-cal-dow">Tu</div><div class="mini-cal-dow">We</div><div class="mini-cal-dow">Th</div><div class="mini-cal-dow">Fr</div><div class="mini-cal-dow">Sa</div>';
+  for (let i = 0; i < firstDOW; i++) grid += '<div></div>';
+  days.forEach(d => {
+    const iso = d.toISOString().split('T')[0];
+    const sel = window._editSchedule?.pickupDate === iso;
+    const isTod = iso === todayIso && !sel;
+    grid += `<div class="mini-cal-day${sel?' selected':''}${isTod?' today-marker':''}" onclick="editSelectPickupDate('${iso}')">${d.getDate()}</div>`;
+  });
+  container.innerHTML = `<div class="sched-cal-wrap"><div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Choose a date (up to 14 days)</div><div class="mini-cal-grid">${grid}</div></div>`;
+}
+
+function _editRenderDeliveryDateOpts() {
+  const container = document.getElementById('edit-expand-delivery-date');
+  if (!container) return;
+  const opts = window._editSchedule?.deliveryOptions || [];
+  if (!opts.length) {
+    container.innerHTML = '<div class="sched-cal-wrap"><div style="font-size:13px;color:var(--gray-400)">No delivery dates available.</div></div>';
+    return;
+  }
+  const validSet = new Set(opts);
+  const first = new Date(opts[0] + 'T12:00:00'), last = new Date(opts[opts.length-1] + 'T12:00:00');
+  const startOfCal = new Date(first); startOfCal.setDate(first.getDate() - first.getDay());
+  const endOfCal   = new Date(last);  endOfCal.setDate(last.getDate() + (6 - last.getDay()));
+  const days = [], walk = new Date(startOfCal);
+  while (walk <= endOfCal) { days.push(new Date(walk)); walk.setDate(walk.getDate() + 1); }
+  let grid = '<div class="mini-cal-dow">Su</div><div class="mini-cal-dow">Mo</div><div class="mini-cal-dow">Tu</div><div class="mini-cal-dow">We</div><div class="mini-cal-dow">Th</div><div class="mini-cal-dow">Fr</div><div class="mini-cal-dow">Sa</div>';
+  days.forEach(d => {
+    const iso = d.toISOString().split('T')[0], isValid = validSet.has(iso);
+    const sel = window._editSchedule?.deliveryDate === iso;
+    grid += isValid
+      ? `<div class="mini-cal-day${sel?' selected':''}" onclick="editSelectDeliveryDate('${iso}')">${d.getDate()}</div>`
+      : `<div class="mini-cal-day" style="color:var(--gray-300);cursor:default;pointer-events:none">${d.getDate()}</div>`;
+  });
+  container.innerHTML = `<div class="sched-cal-wrap"><div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Choose a delivery date</div><div class="mini-cal-grid">${grid}</div></div>`;
+}
+
+function _editRenderWindowOpts(which) {
+  const container = document.getElementById(`edit-expand-${which}-window`);
+  if (!container) return;
+  const es = window._editSchedule;
+  const windows = es?.availableWindows || [];
+  if (!windows.length) {
+    container.innerHTML = '<div class="sched-opts"><div style="font-size:13px;color:var(--gray-400);padding:10px 4px">No windows available — try a different date.</div></div>';
+    return;
+  }
+  const cur = which === 'pickup' ? es.pickupWindow : (es.deliveryWindow || es._origDelivWindow || es.pickupWindow);
+  container.innerHTML = '<div class="sched-opts">' + windows.map((w, i) => {
+    const sel = cur?.slotStart === w.slotStart;
+    return `<button class="sched-opt${sel?' selected':''}" onclick="editSelectWindow('${which}',${i})"><span>${w.label}</span><span class="sched-opt-check">✓</span></button>`;
+  }).join('') + '</div>';
+}
+
+function _editUpdateWindowDisplay(which) {
+  const es  = window._editSchedule;
+  const el  = document.getElementById(`edit-val-${which}-window`);
+  if (!el || !es) return;
+  const win = which === 'pickup'
+    ? (es.pickupWindow || es.availableWindows[0])
+    : (es.deliveryWindow || es._origDelivWindow || es.pickupWindow);
+  el.textContent = win?.label || '—';
+}
+
+async function editSelectPickupDate(iso) {
+  const expandEl = document.getElementById('edit-expand-pickup-date');
+  const chevEl   = document.getElementById('edit-chev-pickup-date');
+  if (expandEl) { expandEl.classList.remove('open'); expandEl.innerHTML = ''; }
+  if (chevEl)   chevEl.classList.remove('open');
+  const es = window._editSchedule;
+  es.pickupDate = iso; es.pickupWindow = null; es.deliveryDate = null; es.deliveryWindow = null;
+  const valDate = document.getElementById('edit-val-pickup-date');
+  if (valDate) valDate.textContent = _schedDateLabel(iso);
+  await fetchEditWindows(iso);
+  if (es.availableWindows.length) {
+    es.pickupWindow = es.availableWindows[0];
+    _editUpdateWindowDisplay('pickup');
+    await _computeEditDeliveryOptions();
+  } else {
+    showToast('No pickup times available for that date — try another', 'error');
+  }
+}
+
+function editSelectDeliveryDate(iso) {
+  const expandEl = document.getElementById('edit-expand-delivery-date');
+  const chevEl   = document.getElementById('edit-chev-delivery-date');
+  if (expandEl) { expandEl.classList.remove('open'); expandEl.innerHTML = ''; }
+  if (chevEl)   chevEl.classList.remove('open');
+  const es = window._editSchedule;
+  es.deliveryDate = iso; es.deliveryWindow = null;
+  const valDate = document.getElementById('edit-val-delivery-date');
+  if (valDate) valDate.textContent = _schedDateLabel(iso);
+  _editUpdateWindowDisplay('delivery');
+}
+
+async function editSelectWindow(which, idx) {
+  const es  = window._editSchedule;
+  const win = es?.availableWindows[idx];
+  if (!win) return;
+  const expandEl = document.getElementById(`edit-expand-${which}-window`);
+  const chevEl   = document.getElementById(`edit-chev-${which}-window`);
+  if (expandEl) { expandEl.classList.remove('open'); expandEl.innerHTML = ''; }
+  if (chevEl)   chevEl.classList.remove('open');
+  if (which === 'pickup') {
+    es.pickupWindow = win; es.deliveryWindow = null;
+    const el = document.getElementById('edit-val-pickup-window');
+    if (el) el.textContent = win.label;
+    await _computeEditDeliveryOptions();
+  } else {
+    es.deliveryWindow = win;
+    const el = document.getElementById('edit-val-delivery-window');
+    if (el) el.textContent = win.label;
+  }
 }
 
 /* ── STRIPE PAYMENT ── */
