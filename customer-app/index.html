@@ -330,7 +330,7 @@
     textarea.field-input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 14px; font-family: inherit; resize: none; outline: none; min-height: 72px; transition: border-color .2s; }
     textarea.field-input:focus { border-color: var(--navy); }
     /* ── FREQUENCY DROPDOWN ── */
-    .freq-select { width: 100%; padding: 14px 16px; border: 2px solid var(--gray-200); border-radius: 10px; font-size: 15px; font-weight: 500; background: white; color: var(--text); outline: none; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%230f2744' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 16px center; margin-bottom: 20px; transition: border-color .15s; }
+    .freq-select { width: 100%; padding: 14px 40px 14px 16px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 15px; font-weight: 500; font-family: inherit; background: white; color: var(--text); outline: none; cursor: pointer; appearance: none; -webkit-appearance: none; -webkit-tap-highlight-color: transparent; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; margin-bottom: 20px; transition: border-color .15s; }
     .freq-select:focus { border-color: var(--navy); }
 
     /* ── ORDER HELP LINE ── */
@@ -455,12 +455,7 @@
     .window-btn-check { font-size: 20px; opacity: 0; flex-shrink: 0; }
     .window-btn.selected .window-btn-check { opacity: 1; }
 
-    /* ── FREQUENCY PILLS ── */
-    .freq-pills { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
-    .freq-pill { width: 100%; padding: 15px 18px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; font-family: inherit; font-size: 15px; font-weight: 500; color: var(--text); text-align: left; display: flex; align-items: center; gap: 10px; transition: all .15s; }
-    .freq-pill:hover { border-color: var(--navy); }
-    .freq-pill.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
-    .freq-pill-rec { margin-left: auto; font-size: 11px; font-weight: 700; background: var(--navy); color: white; padding: 2px 9px; border-radius: 999px; }
+    /* ── FREQUENCY DROPDOWN (style defined above in FREQUENCY DROPDOWN block) ── */
 
     /* ── PICKUP DAY CHIPS ── */
     .day-chip-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -798,20 +793,12 @@
 
         <!-- Frequency -->
         <div class="sched-label">How often?</div>
-        <div class="freq-pills" id="freq-pills">
-          <button class="freq-pill" data-val="weekly" onclick="selectFreq('weekly',this)">
-            Every week <span class="freq-pill-rec">Best value</span>
-          </button>
-          <button class="freq-pill" data-val="biweekly" onclick="selectFreq('biweekly',this)">
-            Every 2 weeks
-          </button>
-          <button class="freq-pill" data-val="monthly" onclick="selectFreq('monthly',this)">
-            Once a month
-          </button>
-          <button class="freq-pill selected" data-val="" onclick="selectFreq('',this)">
-            Just this once
-          </button>
-        </div>
+        <select class="freq-select" id="freq-select" onchange="selectFreq(this.value)">
+          <option value="">Just this once</option>
+          <option value="weekly">Every week</option>
+          <option value="biweekly">Every 2 weeks</option>
+          <option value="monthly">Once a month</option>
+        </select>
 
         <button class="btn-primary" onclick="goOrderStep(2)" style="margin-top:8px">Next →</button>
       </div>
@@ -1221,6 +1208,7 @@ let calMonth  = new Date();
 let ordersTab = 'current';
 let addrTimer   = null; // debounce handle for address autocomplete (order flow)
 let _addrSuggCache = []; // Google Places predictions for the current suggestion list (order flow)
+let _zoneReadyPromise = null; // resolves when draft.zoneId is confirmed (avoids race on step 1)
 let _afSuggCache   = []; // Google Places predictions for the Add Address modal
 let _afGeo         = null; // { lat, lng } captured when a suggestion is chosen in the Add Address modal
 
@@ -1724,10 +1712,10 @@ function startNewOrder() {
   if (zr) { zr.style.display = 'none'; zr.className = 'zone-result'; zr.textContent = ''; }
   const nextBtn = document.getElementById('btn-addr-next');
   if (nextBtn) nextBtn.style.display = 'none';
-  // Reset freq pills — default to one-time (empty val)
-  document.querySelectorAll('.freq-pill').forEach(p => {
-    p.classList.toggle('selected', p.dataset.val === '');
-  });
+  // Reset frequency dropdown — default to one-time
+  draft.recurring = '';
+  const freqSel = document.getElementById('freq-select');
+  if (freqSel) freqSel.value = '';
   // Reset saved-address UI so it's clean before initOrderStep0 re-populates it
   const savedSection = document.getElementById('saved-addr-section');
   const newAddrEntry = document.getElementById('new-addr-entry');
@@ -1908,10 +1896,10 @@ async function checkAddress(knownLat, knownLng, knownAddr) {
 }
 
 /* ── FREQUENCY ── */
-function selectFreq(val, btn) {
+function selectFreq(val) {
   draft.recurring = val;
-  document.querySelectorAll('.freq-pill').forEach(p => p.classList.remove('selected'));
-  btn?.classList.add('selected');
+  const sel = document.getElementById('freq-select');
+  if (sel) sel.value = val;
 }
 
 /* ── PREFERENCES (order flow) ── */
@@ -2135,6 +2123,12 @@ async function fetchWindowsForDate(iso) {
   draft.pickupWindow     = null;
   draft.availableWindows = [];
   draft._windowsForDate  = iso;
+
+  // If zone lookup is still in progress (background after saved address), wait for it
+  if (!draft.zoneId && _zoneReadyPromise) {
+    await _zoneReadyPromise;
+  }
+  if (!draft.zoneId) return; // zone lookup failed or address out of service area
 
   // Convert selected date to ISO weekday (0=Mon … 6=Sun)
   const isoDay = (new Date(iso + 'T12:00:00').getDay() + 6) % 7;
@@ -3307,11 +3301,12 @@ function selectSavedAddress(addr) {
   if (draft.lat && draft.lng) {
     // Coords on file — show Continue immediately, resolve zoneId in background
     if (nextBtn) { nextBtn.style.display = ''; nextBtn.disabled = false; nextBtn.textContent = 'Continue →'; }
-    _lookupZoneForSavedAddress(addr);
+    _zoneReadyPromise = _lookupZoneForSavedAddress(addr);
   } else {
     // No coords stored yet — briefly disable Continue while we geocode (~1 s)
     if (nextBtn) { nextBtn.style.display = ''; nextBtn.disabled = true; nextBtn.textContent = 'Checking…'; }
-    _lookupZoneForSavedAddress(addr).finally(() => {
+    _zoneReadyPromise = _lookupZoneForSavedAddress(addr);
+    _zoneReadyPromise.finally(() => {
       if (draft.addressId === addr.id && nextBtn) {
         nextBtn.disabled = false; nextBtn.textContent = 'Continue →';
       }
