@@ -2878,7 +2878,7 @@ async function openDetail(orderId) {
     <div class="d-row"><span class="d-key">Bags</span><span class="d-val">${bags} bag${bags !== 1 ? 's' : ''}</span></div>
     <div class="d-row"><span class="d-key">Schedule</span><span class="d-val">${o.recurring_interval ? RLABELS[o.recurring_interval] : 'One-time'}</span></div>
     <div class="d-row"><span class="d-key">Pickup address</span><span class="d-val">${escHtml(pickupAddrLine)}</span></div>
-    <div class="d-row"><span class="d-key">Pickup date</span><span class="d-val">${o.pickup_window_start ? fmtDate(o.pickup_window_start) + (o.pickup_window_end ? ' · ' + fmtSlot(o.pickup_window_start, o.pickup_window_end) : '') : '—'}</span></div>
+    <div class="d-row"><span class="d-key">Pickup</span><span class="d-val">${o.pickup_window_start ? fmtDate(o.pickup_window_start) + (o.pickup_window_end ? ' · ' + fmtSlot(o.pickup_window_start, o.pickup_window_end) : '') : '—'}</span></div>
     <div class="d-row"><span class="d-key">Delivery</span><span class="d-val">${deliveryDisplay}</span></div>
     ${!sameAddr ? `<div class="d-row"><span class="d-key">Delivery address</span><span class="d-val">${escHtml(deliveryAddrLine)}</span></div>` : ''}
     ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${escHtml(o.special_instructions)}</span></div>` : ''}
