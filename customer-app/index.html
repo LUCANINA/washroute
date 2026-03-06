@@ -1869,15 +1869,20 @@ async function loadHome() {
   if (cardPrompt) cardPrompt.style.display = (currentCustomer && !currentCustomer.card_last4) ? '' : 'none';
 
   if (!currentCustomer) { renderNoActive(); return; }
-  const { data: orders } = await db.from('orders')
-    .select('*, services(name)')
-    .eq('customer_id', currentCustomer.id)
-    .in('status', ['scheduled','ready_for_pickup','assembled','ready_for_delivery','out_for_delivery'])
-    .order('pickup_window_start', { ascending: true });
-
-  const active = orders || [];
-  if (!active.length) { renderNoActive(); return; }
-  document.getElementById('home-active').innerHTML = active.map(o => buildActiveCard(o)).join('');
+  try {
+    const { data: orders, error } = await db.from('orders')
+      .select('*, services(name)')
+      .eq('customer_id', currentCustomer.id)
+      .in('status', ['scheduled','ready_for_pickup','assembled','ready_for_delivery','out_for_delivery'])
+      .order('pickup_window_start', { ascending: true });
+    if (error) throw error;
+    const active = orders || [];
+    if (!active.length) { renderNoActive(); return; }
+    document.getElementById('home-active').innerHTML = active.map(o => buildActiveCard(o)).join('');
+  } catch (err) {
+    console.error('loadHome:', err);
+    renderNoActive();
+  }
 }
 
 function renderNoActive() {
@@ -1899,14 +1904,16 @@ function buildActiveCard(o) {
   let pickupLine = '';
   if (o.pickup_window_start) {
     const d = new Date(o.pickup_window_start);
-    const dateStr   = fmtDay(d);
-    const startMins = d.getHours() * 60 + d.getMinutes();
-    let timeStr = fmtHourMin(startMins);
-    if (o.pickup_window_end) {
-      const e = new Date(o.pickup_window_end);
-      timeStr += ' – ' + fmtHourMin(e.getHours() * 60 + e.getMinutes());
+    if (!isNaN(d.getTime())) {
+      const dateStr   = fmtDay(d);
+      const startMins = d.getHours() * 60 + d.getMinutes();
+      let timeStr = fmtHourMin(startMins);
+      if (o.pickup_window_end) {
+        const e = new Date(o.pickup_window_end);
+        if (!isNaN(e.getTime())) timeStr += ' – ' + fmtHourMin(e.getHours() * 60 + e.getMinutes());
+      }
+      pickupLine = `<div style="font-size:12px;color:var(--gray-600);margin-top:4px">📅 ${dateStr} · ${timeStr}</div>`;
     }
-    pickupLine = `<div style="font-size:12px;color:var(--gray-600);margin-top:4px">📅 ${dateStr} · ${timeStr}</div>`;
   } else if (o.pickup_date) {
     pickupLine = `<div style="font-size:12px;color:var(--gray-600);margin-top:4px">📅 ${fmtDate(o.pickup_date)}</div>`;
   }
@@ -4662,10 +4669,13 @@ async function openPricingPanel() {
   const body = document.getElementById('pricing-panel-body');
   body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--gray-400)">Loading…</div>';
 
+  try {
   const [svcRes, feeRes] = await Promise.all([
     db.from('services').select('id,name,base_price,pricing_type,is_addon,show_in_app').eq('show_in_app', true).order('sort_order'),
     db.from('service_fees').select('id,name,amount,fee_type,unit_label,category,show_in_app').eq('show_in_app', true).order('sort_order')
   ]);
+
+  if (svcRes.error || feeRes.error) throw svcRes.error || feeRes.error;
 
   const services = svcRes.data || [];
   const fees     = feeRes.data || [];
@@ -4701,12 +4711,17 @@ async function openPricingPanel() {
   const charges = fees.filter(f => f.category !== 'Reward');
   const rewards = fees.filter(f => f.category === 'Reward');
 
-  body.innerHTML =
+  const html =
     section('Services',          main,    fmtSvcPrice) +
     section('Add-ons',           addons,  fmtSvcPrice) +
     section('Fees & Surcharges', charges, fmtFeePrice) +
-    section('Rewards',           rewards, fmtFeePrice) ||
-    '<div style="padding:40px;text-align:center;color:var(--gray-400)">No pricing info available.</div>';
+    section('Rewards',           rewards, fmtFeePrice);
+  body.innerHTML = html || '<div style="padding:40px;text-align:center;color:var(--gray-400)">No pricing info available.</div>';
+  } catch (err) {
+    console.error('openPricingPanel:', err);
+    toast('Failed to load pricing — please try again');
+    closeSubPanel('sub-pricing');
+  }
 }
 
 /* ── EXPOSE EVENT HANDLERS TO GLOBAL SCOPE ── */
