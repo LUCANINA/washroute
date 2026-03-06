@@ -535,6 +535,15 @@
     .acct-section-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--gray-400); }
     .acct-section-line { flex: 1; height: 1px; background: var(--gray-100); }
 
+    /* ── ACCOUNT DETAILS / CONTACT INFO ── */
+    .cd-section { margin-bottom: 22px; }
+    .cd-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--gray-400); margin-bottom: 10px; }
+    .cd-save-btn { width: 100%; padding: 14px; background: var(--navy); color: white; border: none; border-radius: 10px; font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer; transition: opacity .15s; -webkit-tap-highlight-color: transparent; }
+    .cd-save-btn:active { opacity: .85; }
+    .cd-save-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .cd-email-note { font-size: 12px; color: var(--gray-400); margin-top: 7px; line-height: 1.55; }
+    .cd-divider { height: 1px; background: var(--gray-100); margin: 28px 0; }
+
     /* ── ADDRESS BOOK ── */
     .addr-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1.5px solid var(--gray-200); border-radius: var(--radius); margin-bottom: 10px; background: white; cursor: default; }
     .addr-card.default-card { border-color: var(--accent); background: #f5f4ff; }
@@ -884,6 +893,14 @@
     </div>
     <div class="main-content" style="padding: 0 0 20px;">
       <div class="acct-menu">
+        <!-- Account Details / Contact Info -->
+        <div class="menu-item" onclick="loadContactDetails();openSubPanel('sub-contact')">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+            <div><div class="mi-label">Account Details</div></div>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
         <!-- Order History -->
         <div class="menu-item" onclick="goTo('orders')">
           <div class="mi-left">
@@ -981,6 +998,78 @@
     </div>
     <div class="sub-panel-body" style="padding: 16px 0 28px;">
       <div class="plan-cards" id="plan-cards"></div>
+    </div>
+  </div>
+
+  <!-- Account Details / Contact Info -->
+  <div class="sub-panel" id="sub-contact">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-contact')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">Account Details</div>
+    </div>
+    <div class="sub-panel-body">
+
+      <!-- ── Name ── -->
+      <div class="cd-section">
+        <div class="cd-section-label">Your Name</div>
+        <div class="field-row">
+          <div class="field">
+            <label>First name</label>
+            <input type="text" id="cd-first" placeholder="First" autocomplete="given-name">
+          </div>
+          <div class="field">
+            <label>Last name</label>
+            <input type="text" id="cd-last" placeholder="Last" autocomplete="family-name">
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Phone ── -->
+      <div class="cd-section">
+        <div class="cd-section-label">Phone Number</div>
+        <div class="field" style="margin-bottom:0">
+          <label>Mobile number</label>
+          <input type="tel" id="cd-phone" placeholder="(555) 000-0000" autocomplete="tel">
+        </div>
+      </div>
+
+      <button class="cd-save-btn" id="cd-save-info-btn" onclick="saveContactInfo()">Save Changes</button>
+
+      <div class="cd-divider"></div>
+
+      <!-- ── Email ── -->
+      <div class="cd-section">
+        <div class="cd-section-label">Email Address</div>
+        <div class="field" style="margin-bottom:0">
+          <label>Email</label>
+          <input type="email" id="cd-email" placeholder="you@example.com" autocomplete="email">
+        </div>
+        <div class="cd-email-note">We'll send a confirmation link to your new address. Your email won't change until you click it.</div>
+      </div>
+
+      <button class="cd-save-btn" id="cd-save-email-btn" onclick="saveEmailChange()">Update Email</button>
+
+      <div class="cd-divider"></div>
+
+      <!-- ── Password ── -->
+      <div class="cd-section">
+        <div class="cd-section-label">Change Password</div>
+        <div class="field">
+          <label>Current password</label>
+          <input type="password" id="cd-cur-pw" placeholder="Your current password" autocomplete="current-password">
+        </div>
+        <div class="field">
+          <label>New password</label>
+          <input type="password" id="cd-new-pw" placeholder="At least 8 characters" autocomplete="new-password">
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>Confirm new password</label>
+          <input type="password" id="cd-confirm-pw" placeholder="Repeat new password" autocomplete="new-password">
+        </div>
+      </div>
+
+      <button class="cd-save-btn" id="cd-save-pw-btn" onclick="savePasswordChange()">Change Password</button>
+
     </div>
   </div>
 
@@ -3868,6 +3957,144 @@ async function savePreferences() {
 }
 
 /* ── ACCOUNT SUB-PANELS ── */
+/* ══════════════════════════════════════
+   ACCOUNT DETAILS / CONTACT INFO
+   ══════════════════════════════════════ */
+
+function loadContactDetails() {
+  // Populate name fields from profile
+  const first = currentProfile?.first_name || '';
+  const last  = currentProfile?.last_name  || '';
+  document.getElementById('cd-first').value = first;
+  document.getElementById('cd-last').value  = last;
+  // Phone from customer record
+  document.getElementById('cd-phone').value = currentCustomer?.phone_cache || '';
+  // Email from auth user — always the confirmed/active email
+  document.getElementById('cd-email').value = currentUser?.email || '';
+  // Clear any leftover password entries
+  document.getElementById('cd-cur-pw').value    = '';
+  document.getElementById('cd-new-pw').value    = '';
+  document.getElementById('cd-confirm-pw').value = '';
+}
+
+async function saveContactInfo() {
+  const btn   = document.getElementById('cd-save-info-btn');
+  const first = document.getElementById('cd-first').value.trim();
+  const last  = document.getElementById('cd-last').value.trim();
+  const phone = document.getElementById('cd-phone').value.trim();
+
+  if (!first && !last) { showToast('Please enter your name', 'error'); return; }
+
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  try {
+    // 1. Update profiles table (drives the hero display)
+    const { error: profErr } = await db.from('profiles')
+      .update({ first_name: first, last_name: last })
+      .eq('id', currentUser.id);
+    if (profErr) throw profErr;
+
+    // 2. Update customers cache columns (phone: empty string → NULL so number is clearable)
+    const custUpdates = {
+      first_name_cache: first,
+      last_name_cache:  last,
+      phone_cache:      phone || null,
+    };
+
+    const { error: custErr } = await db.from('customers')
+      .update(custUpdates)
+      .eq('profile_id', currentUser.id);
+    if (custErr) throw custErr;
+
+    // 3. Sync local objects so the rest of the session sees the change
+    if (currentProfile) {
+      currentProfile.first_name = first;
+      currentProfile.last_name  = last;
+    }
+    if (currentCustomer) {
+      currentCustomer.first_name_cache = first;
+      currentCustomer.last_name_cache  = last;
+      currentCustomer.phone_cache      = phone || null;
+    }
+
+    // 4. Refresh the account hero in-place (no full reload needed)
+    const initials = ((first[0] || '') + (last[0] || '') || '?').toUpperCase();
+    document.getElementById('acct-avatar').textContent = initials;
+    document.getElementById('acct-name').textContent   = `${first} ${last}`.trim() || 'You';
+
+    showToast('Details saved!', 'success');
+  } catch (e) {
+    console.error('saveContactInfo:', e);
+    showToast('Could not save — please try again', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Changes';
+  }
+}
+
+async function saveEmailChange() {
+  const btn   = document.getElementById('cd-save-email-btn');
+  const email = document.getElementById('cd-email').value.trim().toLowerCase();
+
+  if (!email)              { showToast('Please enter an email address', 'error'); return; }
+  if (!email.includes('@')) { showToast('Please enter a valid email', 'error'); return; }
+  if (email === (currentUser?.email || '').toLowerCase()) {
+    showToast("That's already your current email", ''); return;
+  }
+
+  btn.disabled = true; btn.textContent = 'Sending…';
+
+  try {
+    const { error } = await db.auth.updateUser({ email });
+    if (error) throw error;
+    showToast('Check your inbox — click the link to confirm your new email.', 'success');
+  } catch (e) {
+    console.error('saveEmailChange:', e);
+    showToast(e.message || 'Could not update email — please try again', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Update Email';
+  }
+}
+
+async function savePasswordChange() {
+  const btn       = document.getElementById('cd-save-pw-btn');
+  const curPw     = document.getElementById('cd-cur-pw').value;
+  const newPw     = document.getElementById('cd-new-pw').value;
+  const confirmPw = document.getElementById('cd-confirm-pw').value;
+
+  if (!curPw)                  { showToast('Please enter your current password', 'error'); return; }
+  if (newPw.length < 8)        { showToast('New password must be at least 8 characters', 'error'); return; }
+  if (newPw !== confirmPw)     { showToast("New passwords don't match", 'error'); return; }
+  if (newPw === curPw)         { showToast('New password must differ from your current one', 'error'); return; }
+
+  btn.disabled = true; btn.textContent = 'Verifying…';
+
+  try {
+    // Step 1 — re-authenticate to prove they know the current password
+    const { error: authErr } = await db.auth.signInWithPassword({
+      email:    currentUser.email,
+      password: curPw,
+    });
+    if (authErr) throw new Error('Current password is incorrect');
+
+    // Step 2 — set the new password
+    btn.textContent = 'Updating…';
+    const { error: pwErr } = await db.auth.updateUser({ password: newPw });
+    if (pwErr) throw pwErr;
+
+    // Clear fields so they don't linger
+    document.getElementById('cd-cur-pw').value    = '';
+    document.getElementById('cd-new-pw').value    = '';
+    document.getElementById('cd-confirm-pw').value = '';
+
+    showToast('Password changed successfully!', 'success');
+  } catch (e) {
+    console.error('savePasswordChange:', e);
+    showToast(e.message || 'Could not change password — please try again', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Change Password';
+  }
+}
+
 function openSubPanel(id) {
   const panel = document.getElementById(id);
   if (panel) panel.classList.add('open');
@@ -3934,6 +4161,10 @@ window.savePreferences   = savePreferences;
 window.renderAccountPrefs = renderAccountPrefs;
 window.openSubPanel      = openSubPanel;
 window.closeSubPanel     = closeSubPanel;
+window.loadContactDetails  = loadContactDetails;
+window.saveContactInfo     = saveContactInfo;
+window.saveEmailChange     = saveEmailChange;
+window.savePasswordChange  = savePasswordChange;
 </script>
 </body>
 </html>
