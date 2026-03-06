@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="format-detection" content="address=no,telephone=no,email=no">
   <title>Family Laundry</title>
   <style>
     :root {
@@ -2673,9 +2674,15 @@ async function loadAddresses() {
 function addrIcon(label) {
   if (!label) return '📍';
   const l = label.toLowerCase();
-  if (l.includes('home')) return '🏠';
-  if (l.includes('work') || l.includes('office')) return '💼';
-  if (l.includes('apt') || l.includes('apartment')) return '🏢';
+  if (l.includes('home'))                          return '🏠';
+  if (l.includes('work') || l.includes('office'))  return '💼';
+  if (l.includes('apt')  || l.includes('apartment') || l.includes('condo')) return '🏢';
+  if (l.includes('gym')  || l.includes('studio') || l.includes('yoga'))     return '🏋️';
+  if (l.includes('school') || l.includes('campus') || l.includes('university')) return '🎓';
+  if (l.includes('parent') || l.includes('mom') || l.includes('dad') || l.includes('family')) return '👨‍👩‍👧';
+  if (l.includes('hotel') || l.includes('airbnb') || l.includes('rental')) return '🏨';
+  if (l.includes('friend')) return '🏡';
+  if (l.includes('storage') || l.includes('unit')) return '📦';
   return '📍';
 }
 
@@ -3011,13 +3018,58 @@ function selectSavedAddress(addr) {
   draft.address   = fmtAddrOneLiner(addr);
   draft.lat       = addr.lat ? parseFloat(addr.lat) : null;
   draft.lng       = addr.lng ? parseFloat(addr.lng) : null;
+  draft.zoneId    = null; // confirmed by background lookup below
 
-  // If we already have lat/lng, run zone check silently
+  const zr      = document.getElementById('zone-result');
+  const nextBtn = document.getElementById('btn-addr-next');
+  if (zr) zr.style.display = 'none';
+
   if (draft.lat && draft.lng) {
-    checkAddressWithCoords(draft.lat, draft.lng, draft.address);
+    // Coords on file — show Continue immediately, resolve zoneId in background
+    if (nextBtn) { nextBtn.style.display = ''; nextBtn.disabled = false; nextBtn.textContent = 'Continue →'; }
+    _lookupZoneForSavedAddress(addr);
   } else {
-    // Fall back to geocoding the address string
-    checkAddress(null, null, draft.address);
+    // No coords stored yet — briefly disable Continue while we geocode (~1 s)
+    if (nextBtn) { nextBtn.style.display = ''; nextBtn.disabled = true; nextBtn.textContent = 'Checking…'; }
+    _lookupZoneForSavedAddress(addr).finally(() => {
+      if (draft.addressId === addr.id && nextBtn) {
+        nextBtn.disabled = false; nextBtn.textContent = 'Continue →';
+      }
+    });
+  }
+}
+
+async function _lookupZoneForSavedAddress(addr) {
+  try {
+    let lat = addr.lat ? parseFloat(addr.lat) : null;
+    let lng = addr.lng ? parseFloat(addr.lng) : null;
+
+    // If no coords stored, geocode first and cache them for next time
+    if (!lat || !lng) {
+      if (!window._googleGeocoder) return;
+      const result = await new Promise((resolve) =>
+        window._googleGeocoder.geocode(
+          { address: fmtAddrOneLiner(addr), componentRestrictions: { country: 'us' } },
+          (results, status) => resolve(status === 'OK' && results?.[0] ? results[0] : null)
+        )
+      );
+      if (!result) return;
+      lat = result.geometry.location.lat();
+      lng = result.geometry.location.lng();
+      // Persist coords so we skip geocoding next time
+      await db.from('addresses').update({ lat, lng }).eq('id', addr.id);
+    }
+
+    // Guard: user may have switched address while we were geocoding
+    if (draft.addressId !== addr.id) return;
+
+    draft.lat  = lat;
+    draft.lng  = lng;
+    const { data: zones } = await db.from('service_zones').select('zone_id:id, polygon');
+    const zone = zones?.find(z => pointInPolygon(lat, lng, z.polygon));
+    draft.zoneId = zone?.zone_id || null;
+  } catch (_) {
+    // Silent — if zoneId stays null, step guard at goOrderStep(1) will catch it
   }
 }
 
