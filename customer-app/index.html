@@ -781,7 +781,7 @@
       </div>
 
       <div class="section">
-        <div class="section-title">Active Order</div>
+        <div class="section-title">Active Orders</div>
         <div id="home-active"></div>
       </div>
       <div class="section" style="padding-top:14px;padding-bottom:24px">
@@ -1872,12 +1872,11 @@ async function loadHome() {
     .select('*, services(name)')
     .eq('customer_id', currentCustomer.id)
     .not('status', 'in', '(delivered,cancelled)')
-    .order('created_at', { ascending: false })
-    .limit(1);
+    .order('pickup_date', { ascending: true });
 
   const active = orders || [];
   if (!active.length) { renderNoActive(); return; }
-  document.getElementById('home-active').innerHTML = buildActiveCard(active[0]);
+  document.getElementById('home-active').innerHTML = active.map(o => buildActiveCard(o)).join('');
 }
 
 function renderNoActive() {
