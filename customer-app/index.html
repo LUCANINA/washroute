@@ -2854,7 +2854,7 @@ async function openDetail(orderId) {
   document.getElementById('d-svc').textContent  = o.services?.name || '—';
   document.getElementById('d-date').textContent = 'Placed ' + fmtDate(o.created_at);
   document.getElementById('d-badge').innerHTML  = buildStatusBadge(o.status);
-  document.getElementById('d-track').innerHTML  = (o.status === 'delivered' || o.status === 'cancelled') ? '' : buildProgressTrack(o.status);
+  document.getElementById('d-track').innerHTML  = ''; // progress bar hidden on detail view
 
   const bags = o.total_bags || 1;
   const RLABELS = { weekly:'Every Week', biweekly:'Every 2 Weeks', monthly:'Every Month' };
