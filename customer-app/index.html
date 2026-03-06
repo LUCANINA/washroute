@@ -4663,7 +4663,7 @@ async function openPricingPanel() {
   body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--gray-400)">Loading…</div>';
 
   const [svcRes, feeRes] = await Promise.all([
-    db.from('services').select('id,name,base_price,unit_label,is_addon,show_in_app').eq('show_in_app', true).order('sort_order'),
+    db.from('services').select('id,name,base_price,pricing_type,is_addon,show_in_app').eq('show_in_app', true).order('sort_order'),
     db.from('service_fees').select('id,name,amount,fee_type,unit_label,category,show_in_app').eq('show_in_app', true).order('sort_order')
   ]);
 
@@ -4673,7 +4673,13 @@ async function openPricingPanel() {
   function fmtPrice(item, isService) {
     const raw  = parseFloat(isService ? item.base_price : item.amount) || 0;
     const base = item.fee_type === 'percent' ? `${raw.toFixed(0)}%` : `$${raw.toFixed(0)}`;
-    const unit = (item.unit_label || '').trim();
+    let unit = '';
+    if (isService) {
+      if (item.pricing_type === 'per_bag')  unit = 'bag';
+      if (item.pricing_type === 'per_item') unit = 'item';
+    } else {
+      unit = (item.unit_label || '').trim();
+    }
     return unit ? `${base}<span style="font-size:11px;color:var(--gray-400)">/${unit}</span>` : base;
   }
 
