@@ -3202,7 +3202,7 @@ async function openDetail(orderId) {
   const cancellable = ['scheduled', 'ready_for_pickup'].includes(o.status);
   if (cancellable) {
     cancelEl.innerHTML = `
-      <div style="border-top:1px solid var(--gray-200);margin-top:24px;padding-top:16px">
+      <div style="border-top:1px solid var(--gray-200);margin-top:24px;padding-top:16px;padding-bottom:48px">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px">Need to cancel?</div>
         <button onclick="cancelOrder('${o.id}')" style="
           width:100%;padding:12px;border:1.5px solid var(--red);
