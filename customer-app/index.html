@@ -69,12 +69,7 @@
     .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .auth-error { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 10px 14px; border-radius: 8px; font-size: 13.5px; display: none; }
     .auth-error.show { display: block; }
-    .auth-guest-row { margin-top: 20px; }
-    .auth-guest-divider { text-align: center; position: relative; margin-bottom: 14px; }
-    .auth-guest-divider::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: var(--gray-200); }
-    .auth-guest-divider span { position: relative; background: white; padding: 0 12px; color: var(--gray-400); font-size: 12px; }
-    .auth-guest-btn { width: 100%; padding: 13px; background: transparent; color: var(--accent); border: 2px solid var(--accent); border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all .2s; }
-    .auth-guest-btn:hover { background: #f0f1ff; }
+
     /* OTP input */
     .otp-big-input { font-size: 32px; letter-spacing: 14px; text-align: center; font-weight: 700; border: 2px solid var(--gray-200); border-radius: var(--radius); padding: 16px 10px; width: 100%; color: var(--navy); background: white; }
     .otp-big-input:focus { outline: none; border-color: var(--navy); }
@@ -1938,7 +1933,6 @@ function buildActiveCard(o) {
 /* ── NEW ORDER ── */
 const STEP_TITLES = ['Your Address','Pickup Day & Time','Preferences','Bag Count','Confirm Order'];
 
-// Called when a non-logged-in user taps "Continue without an account"
 // ── Draft persistence (survives auth redirect from confirm screen) ──
 function saveDraftToSession() {
   try { sessionStorage.setItem('wr_draft_resume', JSON.stringify({ draft, orderStep })); } catch(_) {}
@@ -1958,11 +1952,6 @@ function restoreDraftFromSession() {
     }
   } catch(_) {}
   return false;
-}
-
-async function guestStart() {
-  if (!allServices.length) await loadServices();
-  startNewOrder();
 }
 
 function startNewOrder() {
