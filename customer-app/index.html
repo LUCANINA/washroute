@@ -3600,8 +3600,10 @@ function openEditOrder() {
   }).observe(document.body, { childList: true });
 }
 
-function editPickAddress(purpose) {
+async function editPickAddress(purpose) {
   // purpose = 'pickup' or 'delivery'
+  // Ensure address cache is loaded (may be empty if user never went through order flow)
+  if (!_savedAddresses.length) await loadAddresses();
   if (!_savedAddresses.length) {
     toast('No saved addresses — add one in Profile first');
     return;
