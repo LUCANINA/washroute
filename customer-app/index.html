@@ -3340,9 +3340,8 @@ async function _lookupZoneForSavedAddress(addr) {
 
     draft.lat  = lat;
     draft.lng  = lng;
-    const { data: zones } = await db.from('service_zones').select('zone_id:id, polygon');
-    const zone = zones?.find(z => pointInPolygon(lat, lng, z.polygon));
-    draft.zoneId = zone?.zone_id || null;
+    const { data: zoneId } = await db.rpc('get_zone_for_point', { lat, lng });
+    draft.zoneId = zoneId || null;
   } catch (_) {
     // Silent — if zoneId stays null, step guard at goOrderStep(1) will catch it
   }
@@ -3354,15 +3353,14 @@ async function checkAddressWithCoords(lat, lng, displayAddr) {
   zr.style.display = 'none';
   nextBtn.style.display = 'none';
 
-  const { data: zones } = await db.from('service_zones').select('zone_id:id, name, polygon');
-  const zone = zones?.find(z => pointInPolygon(lat, lng, z.polygon));
-  if (!zone) {
+  const { data: zoneId } = await db.rpc('get_zone_for_point', { lat, lng });
+  if (!zoneId) {
     zr.innerHTML = `❌ <strong>Sorry, we don't serve this area yet.</strong>`;
     zr.style.display = '';
     draft.zoneId = null;
     return;
   }
-  draft.zoneId  = zone.zone_id;
+  draft.zoneId  = zoneId;
   zr.innerHTML  = `✅ <strong>Great news — we serve your area!</strong><br><span style="font-size:13px;font-weight:400">${escHtml(displayAddr)}</span>`;
   zr.style.display = '';
   nextBtn.style.display = '';
