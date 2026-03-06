@@ -2859,31 +2859,31 @@ async function openDetail(orderId) {
   const bags = o.total_bags || 1;
   const RLABELS = { weekly:'Every Week', biweekly:'Every 2 Weeks', monthly:'Every Month' };
 
-  // Resolve delivery date using route schedule (zone-aware, async)
-  let estDelivery = '—';
+  // Resolve delivery display — match pickup format (date · time window)
+  let deliveryDisplay = '—';
   if (o.delivery_window_start) {
-    estDelivery = fmtDate(o.delivery_window_start);
+    deliveryDisplay = fmtDate(o.delivery_window_start) + (o.delivery_window_end ? ' · ' + fmtSlot(o.delivery_window_start, o.delivery_window_end) : '');
   } else if (o.pickup_window_start) {
     const nextDay = await getNextDeliveryDay(o.pickup_window_start, o.zone_id || null);
-    estDelivery = fmtDate(nextDay);
+    deliveryDisplay = fmtDate(nextDay);
   }
 
   const pAddr = o.pickup_address;
   const dAddr = o.delivery_address;
   const sameAddr = pAddr && dAddr && pAddr.id === dAddr.id;
-  const pickupAddrLine  = pAddr ? fmtAddrOneLiner(pAddr) : '—';
+  const pickupAddrLine   = pAddr ? fmtAddrOneLiner(pAddr) : '—';
   const deliveryAddrLine = dAddr ? fmtAddrOneLiner(dAddr) : (pAddr ? fmtAddrOneLiner(pAddr) : '—');
 
   document.getElementById('d-rows').innerHTML = `
     <div class="d-row"><span class="d-key">Service</span><span class="d-val">${o.services?.name || '—'}</span></div>
     <div class="d-row"><span class="d-key">Bags</span><span class="d-val">${bags} bag${bags !== 1 ? 's' : ''}</span></div>
-    <div class="d-row"><span class="d-key">Schedule</span><span class="d-val">${o.recurring_interval ? '🔁 ' + RLABELS[o.recurring_interval] : 'One-time'}</span></div>
+    <div class="d-row"><span class="d-key">Schedule</span><span class="d-val">${o.recurring_interval ? RLABELS[o.recurring_interval] : 'One-time'}</span></div>
+    <div class="d-row"><span class="d-key">Pickup address</span><span class="d-val">${escHtml(pickupAddrLine)}</span></div>
     <div class="d-row"><span class="d-key">Pickup date</span><span class="d-val">${o.pickup_window_start ? fmtDate(o.pickup_window_start) + (o.pickup_window_end ? ' · ' + fmtSlot(o.pickup_window_start, o.pickup_window_end) : '') : '—'}</span></div>
-    <div class="d-row"><span class="d-key">Pickup address</span><span class="d-val" style="font-size:12px">${escHtml(pickupAddrLine)}</span></div>
-    <div class="d-row"><span class="d-key">Est. Delivery</span><span class="d-val">${estDelivery}</span></div>
-    ${!sameAddr ? `<div class="d-row"><span class="d-key">Delivery address</span><span class="d-val" style="font-size:12px">${escHtml(deliveryAddrLine)}</span></div>` : ''}
+    <div class="d-row"><span class="d-key">Delivery</span><span class="d-val">${deliveryDisplay}</span></div>
+    ${!sameAddr ? `<div class="d-row"><span class="d-key">Delivery address</span><span class="d-val">${escHtml(deliveryAddrLine)}</span></div>` : ''}
     ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${escHtml(o.special_instructions)}</span></div>` : ''}
-    <div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${o.total_amount ? $m(o.total_amount) : 'Confirmed at pickup'}</span></div>`;
+    <div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total (estimate)</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${o.total_amount ? $m(o.total_amount) : 'Confirmed at pickup'}</span></div>`;
 
   // Payment status
   const payEl = document.getElementById('d-pay-section');
@@ -2892,7 +2892,7 @@ async function openDetail(orderId) {
   } else if (o.status === 'cancelled') {
     payEl.innerHTML = '';
   } else {
-    payEl.innerHTML = `<div class="charged-after">💳 Charged automatically after delivery</div>`;
+    payEl.innerHTML = `<div class="charged-after">💳 Charged automatically after order is processed</div>`;
   }
 
   // Edit button — show for any order not yet picked up
