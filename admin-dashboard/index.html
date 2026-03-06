@@ -5972,10 +5972,18 @@ window.onload=()=>{window.print();};
     const body = document.getElementById('prices-body');
     if (!body) return;
 
-    const fmt    = item => `$${parseFloat(item.base_price||0).toFixed(2)}`;
-    const fmtFee = item => item.fee_type === 'percent' ? `${parseFloat(item.amount||0).toFixed(2)}%` : `$${parseFloat(item.amount||0).toFixed(2)}`;
+    const rawAmt  = item => parseFloat(item.base_price||0);
+    const rawFee  = item => parseFloat(item.amount||0);
+    const fmtAmt  = (val, item) => item.fee_type === 'percent' ? `${val.toFixed(2)}%` : `$${val.toFixed(0)}`;
 
-    function priceSection(title, icon, items, toggleFn, amountFn) {
+    function priceLabel(item, valFn) {
+      const val   = valFn(item);
+      const unit  = (item.unit_label||'').trim();
+      const base  = item.fee_type === 'percent' ? `${val.toFixed(2)}%` : `$${val.toFixed(0)}`;
+      return unit ? `${base}/<span style="font-size:11px;color:var(--gray-400)">${svcEsc(unit)}</span>` : base;
+    }
+
+    function priceSection(title, icon, items, toggleFn, valFn, table) {
       if (!items.length) return `
         <div class="prices-section">
           <div class="prices-section-header">${icon} ${title}</div>
@@ -5987,7 +5995,15 @@ window.onload=()=>{window.print();};
           ${items.map(item => `
             <div class="prices-row${item.show_in_app === false || item.is_active === false ? ' prices-off' : ''}" id="prices-row-${item.id}">
               <div class="prices-name">${svcEsc(item.name)}</div>
-              <div class="prices-amount">${amountFn(item)}</div>
+              <div class="prices-amount" style="display:flex;align-items:center;gap:6px">
+                ${priceLabel(item, valFn)}
+                <input type="text" value="${svcEsc(item.unit_label||'')}"
+                  placeholder="per bag"
+                  title="Unit label (e.g. per bag, per item)"
+                  style="font-size:11px;width:80px;padding:2px 6px;border:1px solid var(--gray-200);border-radius:5px;color:var(--gray-500);background:var(--gray-50)"
+                  onchange="saveUnitLabel('${table}','${item.id}',this.value)"
+                  onclick="event.stopPropagation()" />
+              </div>
               <label class="toggle-switch" style="transform:scale(.85);transform-origin:right center" title="${item.show_in_app !== false ? 'Shown in app' : 'Hidden from app'}">
                 <input type="checkbox" ${item.show_in_app !== false ? 'checked' : ''} onchange="${toggleFn}('${item.id}',this.checked)" />
                 <span class="toggle-slider"></span>
@@ -5996,14 +6012,25 @@ window.onload=()=>{window.print();};
         </div>`;
     }
 
-    const main   = allServices.filter(s => !s.is_addon);
-    const addons = allServices.filter(s =>  s.is_addon);
-    const fees   = allFees;
+    const main    = allServices.filter(s => !s.is_addon);
+    const addons  = allServices.filter(s =>  s.is_addon);
+    const fees    = allFees.filter(f => f.category !== 'Reward');
+    const rewards = allFees.filter(f => f.category === 'Reward');
 
     body.innerHTML =
-      priceSection('Main Services', '🧺', main,   'toggleServiceShowInApp', fmt) +
-      priceSection('Add-ons',       '➕', addons, 'toggleServiceShowInApp', fmt) +
-      priceSection('Fees & Surcharges', '💳', fees, 'toggleFeeShowInApp', fmtFee);
+      priceSection('Main Services',    '🧺', main,    'toggleServiceShowInApp', rawAmt, 'services') +
+      priceSection('Add-ons',          '➕', addons,  'toggleServiceShowInApp', rawAmt, 'services') +
+      priceSection('Fees & Surcharges','💳', fees,    'toggleFeeShowInApp',     rawFee, 'service_fees') +
+      priceSection('Rewards',          '🎁', rewards, 'toggleFeeShowInApp',     rawFee, 'service_fees');
+  }
+
+  async function saveUnitLabel(table, id, value) {
+    const col = table === 'services' ? 'services' : 'service_fees';
+    const { error } = await db.from(col).update({ unit_label: value.trim() }).eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    if (table === 'services') allServices = allServices.map(s => s.id===id ? {...s, unit_label: value.trim()} : s);
+    else allFees = allFees.map(f => f.id===id ? {...f, unit_label: value.trim()} : f);
+    showToast('Label saved ✓');
   }
 
   async function toggleServiceShowInApp(id, show) {

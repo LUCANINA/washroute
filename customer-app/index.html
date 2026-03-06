@@ -1075,6 +1075,14 @@
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
+        <!-- Pricing -->
+        <div class="menu-item" onclick="openPricingPanel()">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+            <div><div class="mi-label">Pricing</div></div>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
         <!-- My Plan -->
         <div class="menu-item" onclick="openSubPanel('sub-plan')">
           <div class="mi-left">
@@ -1124,6 +1132,17 @@
         <div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">Loading preferences…</div>
       </div>
       <button class="pref-save-btn" onclick="savePreferences()" style="margin-top: 20px">Save Preferences</button>
+    </div>
+  </div>
+
+  <!-- ══ PRICING SUB-PANEL ══ -->
+  <div class="sub-panel" id="sub-pricing">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-pricing')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">Pricing</div>
+    </div>
+    <div class="main-content" style="padding:16px 0 32px">
+      <div id="pricing-panel-body"><div style="padding:40px;text-align:center;color:var(--gray-400)">Loading…</div></div>
     </div>
   </div>
 
@@ -4638,6 +4657,52 @@ function closeSubPanel(id) {
   if (panel) panel.classList.remove('open');
 }
 
+async function openPricingPanel() {
+  openSubPanel('sub-pricing');
+  const body = document.getElementById('pricing-panel-body');
+  body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--gray-400)">Loading…</div>';
+
+  const [svcRes, feeRes] = await Promise.all([
+    db.from('services').select('id,name,base_price,unit_label,is_addon,show_in_app').eq('show_in_app', true).order('sort_order'),
+    db.from('service_fees').select('id,name,amount,fee_type,unit_label,category,show_in_app').eq('show_in_app', true).order('sort_order')
+  ]);
+
+  const services = svcRes.data || [];
+  const fees     = feeRes.data || [];
+
+  function fmtPrice(item, isService) {
+    const raw  = parseFloat(isService ? item.base_price : item.amount) || 0;
+    const base = item.fee_type === 'percent' ? `${raw.toFixed(0)}%` : `$${raw.toFixed(0)}`;
+    const unit = (item.unit_label || '').trim();
+    return unit ? `${base}<span style="font-size:11px;color:var(--gray-400)">/${unit}</span>` : base;
+  }
+
+  function section(title, items, isService) {
+    if (!items.length) return '';
+    return `
+      <div class="d-section-title">${title}</div>
+      <div class="confirm-card" style="margin:0 16px 12px">
+        ${items.map(item => `
+          <div class="d-row">
+            <div class="d-key">${item.name}</div>
+            <div class="d-val" style="font-weight:600">${fmtPrice(item, isService)}</div>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  const main    = services.filter(s => !s.is_addon);
+  const addons  = services.filter(s =>  s.is_addon);
+  const charges = fees.filter(f => f.category !== 'Reward');
+  const rewards = fees.filter(f => f.category === 'Reward');
+
+  body.innerHTML =
+    section('Services',          main,    true)  +
+    section('Add-ons',           addons,  true)  +
+    section('Fees & Surcharges', charges, false) +
+    section('Rewards',           rewards, false) ||
+    '<div style="padding:40px;text-align:center;color:var(--gray-400)">No pricing info available.</div>';
+}
+
 /* ── EXPOSE EVENT HANDLERS TO GLOBAL SCOPE ── */
 // Belt-and-suspenders: explicitly attach all functions called from HTML attributes
 window.switchTab         = switchTab;
@@ -4698,6 +4763,7 @@ window.savePreferences   = savePreferences;
 window.renderAccountPrefs = renderAccountPrefs;
 window.openSubPanel      = openSubPanel;
 window.closeSubPanel     = closeSubPanel;
+window.openPricingPanel  = openPricingPanel;
 window.loadContactDetails  = loadContactDetails;
 window.saveContactInfo     = saveContactInfo;
 window.saveEmailChange     = saveEmailChange;
