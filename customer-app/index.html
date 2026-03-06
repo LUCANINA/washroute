@@ -1495,6 +1495,11 @@ async function handleNameSubmit() {
   try {
     const { data: { user } } = await db.auth.getUser();
     const phoneVal = _pendingPhone || user?.phone || '';
+    // Ensure profile row exists (trigger handles new users; this covers edge cases)
+    await db.from('profiles').upsert({
+      id:    user.id,
+      phone: phoneVal
+    }, { onConflict: 'id' });
     // Create customer record
     const { data: existing } = await db.from('customers').select('id').eq('profile_id', user.id).maybeSingle();
     if (existing) {
