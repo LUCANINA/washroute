@@ -1871,8 +1871,8 @@ async function loadHome() {
   const { data: orders } = await db.from('orders')
     .select('*, services(name)')
     .eq('customer_id', currentCustomer.id)
-    .not('status', 'in', '(delivered,cancelled)')
-    .order('pickup_date', { ascending: true });
+    .in('status', ['scheduled','ready_for_pickup','assembled','ready_for_delivery','out_for_delivery'])
+    .order('pickup_window_start', { ascending: true });
 
   const active = orders || [];
   if (!active.length) { renderNoActive(); return; }
@@ -1883,7 +1883,7 @@ function renderNoActive() {
   document.getElementById('home-active').innerHTML = `
     <div class="nudge-card" style="cursor:pointer" onclick="goTo('new-order')">
       <div style="font-size:36px;margin-bottom:10px">🧺</div>
-      <p style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px">Ready for pickup day?</p>
+      <p style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px">No active orders.</p>
       <p style="margin-bottom:16px;font-size:13.5px">Schedule your first bag — we'll handle the rest.</p>
       <span class="nudge-btn">Schedule a Pickup →</span>
     </div>`;
