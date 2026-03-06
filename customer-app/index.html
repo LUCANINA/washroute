@@ -4670,28 +4670,28 @@ async function openPricingPanel() {
   const services = svcRes.data || [];
   const fees     = feeRes.data || [];
 
-  function fmtPrice(item, isService) {
-    const raw  = parseFloat(isService ? item.base_price : item.amount) || 0;
-    const base = item.fee_type === 'percent' ? `${raw.toFixed(0)}%` : `$${raw.toFixed(0)}`;
-    let unit = '';
-    if (isService) {
-      if (item.pricing_type === 'per_bag')  unit = 'bag';
-      if (item.pricing_type === 'per_item') unit = 'item';
-    } else {
-      unit = (item.unit_label || '').trim();
-    }
+  function fmtSvcPrice(s) {
+    const raw  = parseFloat(s.base_price) || 0;
+    const base = `$${raw % 1 === 0 ? raw.toFixed(0) : raw.toFixed(2)}`;
+    const unit = s.pricing_type === 'per_bag' ? 'bag' : s.pricing_type === 'per_item' ? 'item' : '';
     return unit ? `${base}<span style="font-size:11px;color:var(--gray-400)">/${unit}</span>` : base;
   }
 
-  function section(title, items, isService) {
+  function fmtFeePrice(f) {
+    const raw = parseFloat(f.amount) || 0;
+    if (f.fee_type === 'percent') return `${raw % 1 === 0 ? raw.toFixed(0) : raw.toFixed(2)}%`;
+    return `$${raw % 1 === 0 ? raw.toFixed(0) : raw.toFixed(2)}`;
+  }
+
+  function section(title, items, fmtFn) {
     if (!items.length) return '';
     return `
-      <div class="d-section-title">${title}</div>
+      <div class="d-section-title" style="padding-left:16px">${title}</div>
       <div class="confirm-card" style="margin:0 16px 12px">
         ${items.map(item => `
           <div class="d-row">
             <div class="d-key">${item.name}</div>
-            <div class="d-val" style="font-weight:600">${fmtPrice(item, isService)}</div>
+            <div class="d-val" style="font-weight:600">${fmtFn(item)}</div>
           </div>`).join('')}
       </div>`;
   }
@@ -4702,10 +4702,10 @@ async function openPricingPanel() {
   const rewards = fees.filter(f => f.category === 'Reward');
 
   body.innerHTML =
-    section('Services',          main,    true)  +
-    section('Add-ons',           addons,  true)  +
-    section('Fees & Surcharges', charges, false) +
-    section('Rewards',           rewards, false) ||
+    section('Services',          main,    fmtSvcPrice) +
+    section('Add-ons',           addons,  fmtSvcPrice) +
+    section('Fees & Surcharges', charges, fmtFeePrice) +
+    section('Rewards',           rewards, fmtFeePrice) ||
     '<div style="padding:40px;text-align:center;color:var(--gray-400)">No pricing info available.</div>';
 }
 
