@@ -4599,23 +4599,69 @@ window.onload=()=>{window.print();};
     }
   }
 
-  async function adminRemoveCard(customerId) {
-    if (!confirm('Remove this customer\'s saved card? They will need to add a new one before their next order can be charged.')) return;
+  // Render the multi-card list in the customer panel billing section
+  function renderCustomerCards(customerId, email, cards) {
+    const payEl = document.getElementById('cp-payment-info');
+    const actEl = document.getElementById('cp-card-actions');
+    const now = new Date();
+
+    if (cards.length === 0) {
+      payEl.innerHTML = '<span style="color:var(--gray-400);font-style:italic;font-size:13px">No card on file</span>';
+    } else {
+      payEl.innerHTML = cards.map(card => {
+        const brand  = (card.card_brand||'Card').charAt(0).toUpperCase()+(card.card_brand||'').slice(1);
+        const exp    = (card.card_exp_month && card.card_exp_year) ? ` · exp ${card.card_exp_month}/${String(card.card_exp_year).slice(-2)}` : '';
+        const expYr  = card.card_exp_year, expMo = card.card_exp_month;
+        const expired = expYr && expMo && (expYr < now.getFullYear() || (expYr===now.getFullYear() && expMo < now.getMonth()+1));
+        const pmId   = card.stripe_payment_method_id;
+        return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:7px">
+          <span style="display:inline-flex;align-items:center;gap:7px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:7px;padding:6px 11px;font-size:13px">
+            💳 <span>${brand} ···· ${card.card_last4}${exp}</span>
+            ${card.is_default ? '<span style="background:#ede9ff;color:var(--accent);font-size:10.5px;font-weight:700;border-radius:4px;padding:2px 6px">DEFAULT</span>' : ''}
+            ${expired ? '<span style="color:var(--red);font-size:11px;font-weight:600">EXPIRED</span>' : ''}
+          </span>
+          ${!card.is_default ? `<button class="btn btn-ghost" style="font-size:11.5px;padding:3px 9px" onclick="adminSetDefaultCard('${customerId}','${pmId}')">Set Default</button>` : ''}
+          <button class="btn btn-ghost" style="font-size:11.5px;padding:3px 9px;color:var(--red);border-color:#fecaca" onclick="adminRemoveCard('${customerId}','${pmId}')">Remove</button>
+        </div>`;
+      }).join('');
+    }
+
+    actEl.innerHTML = `
+      <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${customerId}','${email}')">📧 ${cards.length ? 'Send Card Link' : 'Send Card Setup Link'}</button>
+      <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminInitCardForm('${customerId}')">💳 Add Card Manually</button>`;
+  }
+
+  async function adminSetDefaultCard(customerId, paymentMethodId) {
     try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/set-default-card`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ customer_id: customerId, payment_method_id: paymentMethodId }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Failed to update default');
+      showToast('Default card updated', 'success');
+      openCustomerPanel(customerId);
+    } catch (e) {
+      showToast('Error: ' + e.message, 'error');
+    }
+  }
+
+  async function adminRemoveCard(customerId, paymentMethodId) {
+    if (!confirm('Remove this card? If it\'s the default, the next card on file will become the new default.')) return;
+    try {
+      const body = paymentMethodId
+        ? { customer_id: customerId, payment_method_id: paymentMethodId }
+        : { customer_id: customerId };
       const res = await fetch(`${SUPA_URL}/functions/v1/remove-card`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
-        body: JSON.stringify({ customer_id: customerId }),
+        body: JSON.stringify(body),
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Failed to remove card');
-      showToast('Card removed successfully', 'success');
-      // Refresh customer panel
-      const cust = allCustomers?.find(c => c.id === customerId);
-      if (cust) {
-        cust.card_last4 = cust.card_brand = cust.card_exp_month = cust.card_exp_year = cust.stripe_default_payment_method_id = null;
-        openCustomerPanel(customerId);
-      }
+      showToast('Card removed', 'success');
+      openCustomerPanel(customerId);
     } catch (e) {
       showToast('Error: ' + e.message, 'error');
     }
@@ -7386,7 +7432,7 @@ window.onload=()=>{window.print();};
     document.getElementById('cp-add-addr-form').style.display = 'none';
 
     const { data: c } = await db.from('customers')
-      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, addresses(id, label, line1, line2, city, state, zip, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id')
+      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at)')
       .eq('id', customerId).single();
     if (!c) return;
 
@@ -7460,25 +7506,11 @@ window.onload=()=>{window.print();};
     // Reset credit adjust form
     hideCreditAdjust();
 
-    // Payment on file
-    const payEl = document.getElementById('cp-payment-info');
-    const actEl = document.getElementById('cp-card-actions');
-    if (c.card_last4) {
-      const brand = (c.card_brand||'Card').charAt(0).toUpperCase()+(c.card_brand||'').slice(1);
-      const exp = (c.card_exp_month && c.card_exp_year) ? ` · exp ${c.card_exp_month}/${String(c.card_exp_year).slice(-2)}` : '';
-      const now = new Date(); const expYr = c.card_exp_year; const expMo = c.card_exp_month;
-      const expired = expYr && expMo && (expYr < now.getFullYear() || (expYr===now.getFullYear() && expMo < now.getMonth()+1));
-      payEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:7px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:7px;padding:7px 12px;font-size:13px">💳 <span>${brand} ···· ${c.card_last4}${exp}</span>${expired?'<span style="color:var(--red);font-size:11px;font-weight:600">EXPIRED</span>':''}</span>`;
-      actEl.innerHTML = `
-        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${c.id}','${c.email_cache||''}')">📧 Send New Card Link</button>
-        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminInitCardForm('${c.id}')">💳 Replace Card Manually</button>
-        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px;color:var(--red);border-color:#fecaca" onclick="adminRemoveCard('${c.id}')">Remove</button>`;
-    } else {
-      payEl.innerHTML = '<span style="color:var(--gray-400);font-style:italic;font-size:13px">No card on file</span>';
-      actEl.innerHTML = `
-        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${c.id}','${c.email_cache||''}')">📧 Send Card Setup Link</button>
-        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminInitCardForm('${c.id}')">💳 Enter Card Manually</button>`;
-    }
+    // Payment on file — multi-card
+    const cards = Array.isArray(c.customer_payment_methods)
+      ? c.customer_payment_methods.slice().sort((a,b) => (b.is_default?1:0)-(a.is_default?1:0))
+      : [];
+    renderCustomerCards(c.id, c.email_cache||'', cards);
 
     // Addresses
     const addrs = Array.isArray(c.addresses) ? c.addresses : (c.addresses ? [c.addresses] : []);
