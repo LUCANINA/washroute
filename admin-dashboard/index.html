@@ -7916,29 +7916,50 @@ window.onload=()=>{window.print();};
 
   // Global discounts cache
   let allDiscounts = [];
+  let archivedDiscounts = [];
+
   async function loadDiscounts() {
-    const { data } = await db.from('discounts').select('*').eq('active', true).order('name');
-    allDiscounts = data || [];
+    const { data } = await db.from('discounts').select('*').order('name');
+    allDiscounts      = (data || []).filter(d => d.active && !d.deleted_at);
+    archivedDiscounts = (data || []).filter(d => !d.active || d.deleted_at);
     renderDiscounts();
   }
 
   function renderDiscounts() {
     const el = document.getElementById('discounts-list');
     if (!el) return;
-    if (!allDiscounts.length) {
-      el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:16px">No discounts yet. Create one above.</div>';
-      return;
-    }
-    el.innerHTML = allDiscounts.map(d => `
-      <div style="display:flex;align-items:center;padding:12px 16px;border-top:1px solid var(--gray-100);gap:12px">
-        <div style="flex:1">
-          <div style="font-weight:600;font-size:13.5px;color:var(--gray-900)">${esc(d.name)}</div>
-          <div style="font-size:12px;color:var(--gray-500);margin-top:2px">
-            ${d.type === 'percent' ? d.value + '% off' : fmtMoney(d.value) + ' off'} · ${d.type === 'percent' ? 'Percentage' : 'Fixed amount'}
-          </div>
-        </div>
-        <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;color:var(--red)" onclick="deleteDiscount('${d.id}')">Delete</button>
-      </div>`).join('');
+
+    const activeHtml = allDiscounts.length
+      ? allDiscounts.map(d => `
+          <div style="display:flex;align-items:center;padding:12px 16px;border-top:1px solid var(--gray-100);gap:12px">
+            <div style="flex:1">
+              <div style="font-weight:600;font-size:13.5px;color:var(--gray-900)">${esc(d.name)}</div>
+              <div style="font-size:12px;color:var(--gray-500);margin-top:2px">
+                ${d.type === 'percent' ? d.value + '% off' : fmtMoney(d.value) + ' off'} · ${d.type === 'percent' ? 'Percentage' : 'Fixed amount'}
+              </div>
+            </div>
+            <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;color:var(--red)" onclick="archiveDiscount('${d.id}')">Archive</button>
+          </div>`).join('')
+      : '<div style="color:var(--gray-400);font-size:13px;padding:16px">No discounts yet. Create one above.</div>';
+
+    const archivedHtml = archivedDiscounts.length
+      ? `<div style="border-top:2px solid var(--gray-100);margin-top:4px;padding:10px 16px 4px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:4px">Archived</div>
+          ${archivedDiscounts.map(d => `
+            <div style="display:flex;align-items:center;padding:10px 0;border-top:1px solid var(--gray-100);gap:12px;opacity:.65">
+              <div style="flex:1">
+                <div style="font-weight:600;font-size:13px;color:var(--gray-700)">${esc(d.name)}</div>
+                <div style="font-size:12px;color:var(--gray-400);margin-top:2px">
+                  ${d.type === 'percent' ? d.value + '% off' : fmtMoney(d.value) + ' off'}
+                  ${d.deleted_at ? ' · Archived ' + fmtDate(d.deleted_at) : ''}
+                </div>
+              </div>
+              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px" onclick="restoreDiscount('${d.id}')">Restore</button>
+            </div>`).join('')}
+        </div>`
+      : '';
+
+    el.innerHTML = activeHtml + archivedHtml;
   }
 
   function showAddDiscountForm() {
@@ -7967,13 +7988,27 @@ window.onload=()=>{window.print();};
     showToast('Discount created ✓', 'success');
   }
 
-  async function deleteDiscount(id) {
-    if (!confirm('Delete this discount? It will be removed from all customers using it.')) return;
-    const { error } = await db.from('discounts').delete().eq('id', id);
+  async function archiveDiscount(id) {
+    if (!confirm('Archive this discount? It will be hidden from new orders but can be restored anytime.')) return;
+    const { error } = await db.from('discounts').update({ active: false, deleted_at: new Date().toISOString() }).eq('id', id);
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
-    allDiscounts = allDiscounts.filter(d => d.id !== id);
+    const d = allDiscounts.find(x => x.id === id);
+    if (d) { d.active = false; d.deleted_at = new Date().toISOString(); archivedDiscounts.push(d); }
+    allDiscounts = allDiscounts.filter(x => x.id !== id);
+    archivedDiscounts.sort((a,b) => a.name.localeCompare(b.name));
     renderDiscounts();
-    showToast('Discount deleted', '');
+    showToast('Discount archived', '');
+  }
+
+  async function restoreDiscount(id) {
+    const { error } = await db.from('discounts').update({ active: true, deleted_at: null }).eq('id', id);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    const d = archivedDiscounts.find(x => x.id === id);
+    if (d) { d.active = true; d.deleted_at = null; allDiscounts.push(d); }
+    archivedDiscounts = archivedDiscounts.filter(x => x.id !== id);
+    allDiscounts.sort((a,b) => a.name.localeCompare(b.name));
+    renderDiscounts();
+    showToast('Discount restored ✓', 'success');
   }
 
   async function loadPanelOrders(customerId) {
