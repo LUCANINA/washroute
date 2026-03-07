@@ -2581,23 +2581,8 @@
   <!-- ── BILLING TAB ── -->
   <div class="cp-body" id="cptab-billing" style="display:none">
 
-    <div class="cp-section-head"><span>Payment on File</span></div>
-    <div id="cp-payment-info" style="margin-bottom:4px">—</div>
-    <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
-    <!-- Inline card entry form (shown when admin clicks "Enter Card Manually") -->
-    <div id="cp-card-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px;margin-bottom:8px">
-      <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">Enter Card Details</div>
-      <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:7px;margin-bottom:10px;font-size:14px"></div>
-      <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
-      <div style="display:flex;gap:8px">
-        <button id="cp-card-submit-btn" class="btn btn-primary" style="padding:7px 16px;font-size:13px" onclick="adminSubmitCard()">Save Card</button>
-        <button class="btn btn-ghost" style="padding:7px 13px;font-size:13px" onclick="adminCloseCardForm()">Cancel</button>
-      </div>
-    </div>
-
-    <div class="cp-section-head"><span>Billing Settings</span></div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+    <!-- Billing Type + Payment Method -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px;margin-top:4px">
       <div class="cp-field">
         <div class="cp-field-label">Billing Type</div>
         <select class="cp-input" id="cpb-billing-type">
@@ -2615,24 +2600,38 @@
       </div>
     </div>
 
+    <!-- Discount -->
+    <div class="cp-section-head"><span>Discount</span></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
       <div class="cp-field">
-        <div class="cp-field-label">Discount</div>
         <select class="cp-input" id="cpb-discount">
           <option value="">— None —</option>
         </select>
       </div>
       <div class="cp-field">
-        <div class="cp-field-label" style="display:flex;align-items:center;gap:6px">
-          <label style="display:flex;align-items:center;gap:5px;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);cursor:pointer">
-            <input type="checkbox" id="cpb-fee-exempt" style="width:14px;height:14px;accent-color:var(--accent)"> Fee/Min Exempt
-          </label>
-        </div>
+        <label style="display:flex;align-items:center;gap:5px;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);cursor:pointer;margin-top:6px">
+          <input type="checkbox" id="cpb-fee-exempt" style="width:14px;height:14px;accent-color:var(--accent)"> Fee/Min Exempt
+        </label>
         <div style="font-size:12px;color:var(--gray-400);margin-top:4px">Customer is not charged pickup fees</div>
       </div>
     </div>
 
-    <div class="cp-section-head" style="margin-top:8px"><span>Credits</span></div>
+    <!-- Payment on File -->
+    <div class="cp-section-head"><span>Payment on File</span></div>
+    <div id="cp-payment-info" style="margin-bottom:4px">—</div>
+    <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
+    <div id="cp-card-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px;margin-bottom:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">Enter Card Details</div>
+      <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:7px;margin-bottom:10px;font-size:14px"></div>
+      <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
+      <div style="display:flex;gap:8px">
+        <button id="cp-card-submit-btn" class="btn btn-primary" style="padding:7px 16px;font-size:13px" onclick="adminSubmitCard()">Save Card</button>
+        <button class="btn btn-ghost" style="padding:7px 13px;font-size:13px" onclick="adminCloseCardForm()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Credits -->
+    <div class="cp-section-head"><span>Credits</span></div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <div style="font-size:22px;font-weight:700;color:var(--gray-900)" id="cpb-credits-display">$0.00</div>
       <div style="display:flex;gap:6px;margin-left:4px">
@@ -2651,7 +2650,8 @@
       </div>
     </div>
 
-    <div class="cp-section-head" style="margin-top:4px"><span>Default Tip</span></div>
+    <!-- Default Tip -->
+    <div class="cp-section-head"><span>Default Tip</span></div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
       <input class="cp-input" id="cpb-tip-amount" type="number" min="0" step="0.01" placeholder="0" style="width:90px">
       <div class="filter-tabs" style="flex-shrink:0">
