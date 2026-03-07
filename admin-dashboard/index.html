@@ -4257,7 +4257,7 @@
     if (_opRoutes.length && _opTemplates.length) return;
     const [rRes, tRes] = await Promise.all([
       db.from('routes').select('id, name, run_date, status').neq('status','cancelled').gte('run_date', today()).order('run_date').limit(40),
-      db.from('route_templates').select('id, name, color, window_start, window_end, arrival_window_hours').eq('is_active', true)
+      db.from('route_templates').select('id, name, color, window_start, window_end, arrival_window_hours, zone_id').eq('is_active', true)
     ]);
     _opRoutes    = rRes.data  || [];
     _opTemplates = tRes.data  || [];
@@ -4328,20 +4328,55 @@
       listEl.innerHTML = '<span style="color:var(--gray-400);font-size:13px">No upcoming routes found.</span>';
       return;
     }
-    const o          = allOrders.find(x => x.id === opCurrentOrderId);
-    const currentId  = leg === 'pickup' ? o?.pickup_run_id : o?.delivery_run_id;
-    listEl.innerHTML = _opRoutes.map(r => {
+    const o         = allOrders.find(x => x.id === opCurrentOrderId);
+    const currentId = leg === 'pickup' ? o?.pickup_run_id : o?.delivery_run_id;
+
+    // ── Determine which zones the order's address belongs to ──
+    const cust   = allCustomers.find(c => c.id === opCurrentCustId);
+    const addrs  = Array.isArray(cust?.addresses) ? cust.addresses : [];
+    const addrId = leg === 'pickup' ? o?.pickup_address_id : o?.delivery_address_id;
+    const addr   = addrs.find(a => a.id === addrId) || addrs.find(a => a.is_default) || addrs[0];
+    let matchingZoneIds = new Set();
+    if (addr?.lat && addr?.lng) {
+      const { data: zones } = await db.rpc('get_zones_for_point', {
+        lat: addr.lat, lng: addr.lng, p_city: addr.city || null
+      });
+      (zones || []).forEach(z => matchingZoneIds.add(z.id));
+    }
+
+    // ── Split routes into address-match vs other ──
+    const matchRows = [], otherRows = [];
+    for (const r of _opRoutes) {
       const tmpl  = _opTemplates.find(t => t.name === r.name) || {};
       const color = tmpl.color || '#8b93a7';
+      const isMatch = matchingZoneIds.size > 0 && tmpl.zone_id && matchingZoneIds.has(tmpl.zone_id);
       const d     = new Date(r.run_date + 'T12:00:00');
       const label = d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
       const sel   = r.id === currentId ? ' selected' : '';
-      return `<div class="op-route-row${sel}" onclick="opSelectRoute('${leg}','${r.id}','${r.run_date}',this)">
+      const row   = `<div class="op-route-row${sel}" onclick="opSelectRoute('${leg}','${r.id}','${r.run_date}',this)">
         <div class="op-route-dot" style="background:${color}"></div>
         <span class="op-route-name">${r.name}</span>
         <span class="op-route-date">${label}</span>
       </div>`;
-    }).join('');
+      if (isMatch) matchRows.push(row);
+      else otherRows.push(row);
+    }
+
+    // ── Render with section headers when both groups exist ──
+    const sectionHdr = (label) =>
+      `<div style="font-size:10.5px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.06em;padding:3px 2px 5px">${label}</div>`;
+    const divider =
+      `<div style="border-top:1px solid var(--gray-100);margin:6px 0 4px"></div>`;
+
+    let html = '';
+    if (matchRows.length && otherRows.length) {
+      html = sectionHdr('Address Match') + matchRows.join('') + divider + sectionHdr('Other Zones') + otherRows.join('');
+    } else if (matchRows.length) {
+      html = matchRows.join(''); // all routes match — no headers needed
+    } else {
+      html = otherRows.join(''); // no zone info — plain list
+    }
+    listEl.innerHTML = html;
   }
 
   function opSelectRoute(leg, routeId, runDate, rowEl) {
@@ -7813,7 +7848,7 @@ window.onload=()=>{window.print();};
     document.getElementById('cp-add-addr-form').style.display = 'none';
 
     const { data: c } = await db.from('customers')
-      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at)')
+      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at)')
       .eq('id', customerId).single();
     if (!c) return;
 
@@ -7912,6 +7947,7 @@ window.onload=()=>{window.print();};
       return;
     }
     el.innerHTML = _cpAddrs.map(a => addrCardHTML(a)).join('');
+    loadAddrZoneTags(_cpAddrs); // async — populates zone pills after render
   }
 
   function addrCardHTML(a) {
@@ -7926,7 +7962,36 @@ window.onload=()=>{window.print();};
       <div style="font-size:13.5px;color:var(--gray-800);font-weight:500">${esc(a.line1||'')}${a.line2?', '+esc(a.line2):''}</div>
       <div style="font-size:12.5px;color:var(--gray-500)">${esc(a.city||'')}, ${esc(a.state||'')} ${esc(a.zip||'')}</div>
       ${a.delivery_instructions?`<div style="font-size:12px;color:var(--gray-500);margin-top:4px">📝 ${esc(a.delivery_instructions)}</div>`:''}
+      <div id="addr-zones-${a.id}" style="margin-top:7px;display:flex;flex-wrap:wrap;gap:4px;min-height:18px">
+        <span style="font-size:11px;color:var(--gray-300)">…</span>
+      </div>
     </div>`;
+  }
+
+  // Async: fetch zone matches for every address and inject coloured pills
+  async function loadAddrZoneTags(addrs) {
+    for (const a of addrs) {
+      const el = document.getElementById(`addr-zones-${a.id}`);
+      if (!el) continue;
+      if (!a.lat || !a.lng) {
+        el.innerHTML = `<span style="font-size:11px;color:var(--gray-300);font-style:italic">No coordinates on file</span>`;
+        continue;
+      }
+      const { data: zones, error } = await db.rpc('get_zones_for_point', {
+        lat: a.lat, lng: a.lng, p_city: a.city || null
+      });
+      if (error || !zones?.length) {
+        el.innerHTML = `<span style="font-size:11px;color:var(--gray-400);background:var(--gray-50);padding:2px 9px;border-radius:20px;border:1px solid var(--gray-100)">No service zone</span>`;
+      } else {
+        el.innerHTML = zones.map(z => {
+          const hex = z.color || '#635bff';
+          return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:${hex}18;color:${hex};border:1px solid ${hex}38">
+            <span style="width:6px;height:6px;border-radius:50%;background:${hex};flex-shrink:0"></span>
+            ${esc(z.name)}
+          </span>`;
+        }).join('');
+      }
+    }
   }
 
   function editAddress(id) {
@@ -7978,7 +8043,7 @@ window.onload=()=>{window.print();};
     const { error } = await db.from('addresses').update(patch).eq('id', id);
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     const { data: updated } = await db.from('customers')
-      .select('addresses(id,label,line1,line2,city,state,zip,delivery_instructions,is_default)')
+      .select('addresses(id,label,line1,line2,city,state,zip,lat,lng,delivery_instructions,is_default)')
       .eq('id', panelCustomerId).single();
     renderPanelAddresses(updated?.addresses || []);
     showToast('Address updated ✓', 'success');
@@ -8041,14 +8106,14 @@ window.onload=()=>{window.print();};
       is_default: false
     });
     toggleAddAddrForm();
-    const { data: updated } = await db.from('customers').select('addresses(id,label,line1,line2,city,state,zip,delivery_instructions,is_default)').eq('id',panelCustomerId).single();
+    const { data: updated } = await db.from('customers').select('addresses(id,label,line1,line2,city,state,zip,lat,lng,delivery_instructions,is_default)').eq('id',panelCustomerId).single();
     renderPanelAddresses(updated?.addresses||[]);
   }
 
   async function deleteAddress(addrId) {
     if (!confirm('Remove this address?')) return;
     await db.from('addresses').delete().eq('id', addrId);
-    const { data: updated } = await db.from('customers').select('addresses(id,label,line1,line2,city,state,zip,delivery_instructions,is_default)').eq('id',panelCustomerId).single();
+    const { data: updated } = await db.from('customers').select('addresses(id,label,line1,line2,city,state,zip,lat,lng,delivery_instructions,is_default)').eq('id',panelCustomerId).single();
     renderPanelAddresses(updated?.addresses||[]);
   }
 
