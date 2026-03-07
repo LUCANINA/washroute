@@ -3625,7 +3625,7 @@ async function _lookupZoneForSavedAddress(addr) {
 
     draft.lat  = lat;
     draft.lng  = lng;
-    const { data: zoneId } = await db.rpc('get_zone_for_point', { lat, lng });
+    const { data: zoneId } = await db.rpc('get_zone_for_point', { lat, lng, p_city: addr.city || null });
     draft.zoneId = zoneId || null;
   } catch (_) {
     // Silent — if zoneId stays null, step guard at goOrderStep(1) will catch it
@@ -3638,7 +3638,7 @@ async function checkAddressWithCoords(lat, lng, displayAddr) {
   zr.style.display = 'none';
   nextBtn.style.display = 'none';
 
-  const { data: zoneId } = await db.rpc('get_zone_for_point', { lat, lng });
+  const { data: zoneId } = await db.rpc('get_zone_for_point', { lat, lng, p_city: draft._addrComponents?.city || null });
   if (!zoneId) {
     zr.innerHTML = `❌ <strong>Sorry, we don't serve this area yet.</strong>`;
     zr.style.display = '';
