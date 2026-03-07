@@ -7732,13 +7732,23 @@ window.onload=()=>{window.print();};
 
   async function applyCreditAdjust() {
     if (!panelCustomerId) return;
-    const amt = parseFloat(document.getElementById('cpb-adjust-amount').value) || 0;
+    const amt  = parseFloat(document.getElementById('cpb-adjust-amount').value) || 0;
+    const note = document.getElementById('cpb-adjust-note').value.trim();
     if (amt <= 0) { showToast('Enter an amount greater than 0', 'error'); return; }
     const { data: cur } = await db.from('customers').select('credits').eq('id', panelCustomerId).single();
     const current = parseFloat(cur?.credits || 0);
     const newVal  = _cpCreditMode === 'add' ? current + amt : Math.max(0, current - amt);
     const { error } = await db.from('customers').update({ credits: newVal, updated_at: new Date().toISOString() }).eq('id', panelCustomerId);
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    // Log to customer_transactions
+    await db.from('customer_transactions').insert({
+      customer_id:    panelCustomerId,
+      type:           _cpCreditMode === 'add' ? 'credit_add' : 'credit_remove',
+      amount:         amt,
+      description:    _cpCreditMode === 'add' ? 'Credit added' : 'Credit removed',
+      payment_method: 'credit',
+      note:           note || null,
+    });
     document.getElementById('cpb-credits-display').textContent = fmtMoney(newVal);
     hideCreditAdjust();
     showToast((_cpCreditMode === 'add' ? 'Added' : 'Removed') + ' ' + fmtMoney(amt) + ' credits ✓', 'success');
@@ -7772,12 +7782,12 @@ window.onload=()=>{window.print();};
 
   async function loadCpTransactions(customerId) {
     const el = document.getElementById('cp-transactions-list');
-    if (el) el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
-    const { data, error } = await db.from('orders')
-      .select('id, order_number, status, created_at, total_amount, total_bags, weight_lbs, line_items')
+    if (el) el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">Loading…</div>';
+    const { data, error } = await db.from('customer_transactions')
+      .select('id, type, amount, description, payment_method, card_brand, card_last4, note, order_id, stripe_payment_intent_id, created_at')
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false });
-    if (error) { if (el) el.innerHTML = `<div style="color:var(--red);font-size:13px">${error.message}</div>`; return; }
+    if (error) { if (el) el.innerHTML = `<div style="color:var(--red);font-size:13px;padding:14px 16px">${error.message}</div>`; return; }
     _allCpTxns = data || [];
     renderCpTxns();
   }
@@ -7789,6 +7799,30 @@ window.onload=()=>{window.print();};
     renderCpTxns();
   }
 
+  function txnTypeBadge(type) {
+    const map = {
+      charge:       { label: '💳 Charge',       color: '#1d4ed8', bg: '#eff6ff' },
+      credit_add:   { label: '＋ Credit',        color: '#059669', bg: '#ecfdf5' },
+      credit_remove:{ label: '－ Credit',        color: '#dc2626', bg: '#fef2f2' },
+      refund:       { label: '↩ Refund',         color: '#7c3aed', bg: '#f5f3ff' },
+    };
+    const t = map[type] || { label: type, color: 'var(--gray-500)', bg: 'var(--gray-100)' };
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;color:${t.color};background:${t.bg}">${t.label}</span>`;
+  }
+
+  function txnPaymentLabel(txn) {
+    if (txn.type === 'credit_add' || txn.type === 'credit_remove') {
+      return txn.note ? `<span style="color:var(--gray-400);font-size:12px">${esc(txn.note)}</span>` : '';
+    }
+    if (txn.card_last4) {
+      const brand = txn.card_brand ? txn.card_brand.charAt(0).toUpperCase() + txn.card_brand.slice(1) : '';
+      return `<span style="color:var(--gray-500);font-size:12px">${brand} •••• ${txn.card_last4}</span>`;
+    }
+    if (txn.payment_method === 'ach')   return `<span style="color:var(--gray-500);font-size:12px">ACH</span>`;
+    if (txn.payment_method === 'check') return `<span style="color:var(--gray-500);font-size:12px">Check</span>`;
+    return '';
+  }
+
   function renderCpTxns() {
     const el = document.getElementById('cp-transactions-list');
     if (!el) return;
@@ -7796,29 +7830,38 @@ window.onload=()=>{window.print();};
     if (_cpTxnDays > 0) {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - _cpTxnDays);
-      rows = rows.filter(o => new Date(o.created_at) >= cutoff);
+      rows = rows.filter(t => new Date(t.created_at) >= cutoff);
     }
-    const total = rows.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+    const chargeTotal  = rows.filter(t => t.type === 'charge').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+    const creditTotal  = rows.filter(t => t.type === 'credit_add').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
     const sumEl = document.getElementById('cp-txn-summary');
-    if (sumEl) sumEl.textContent = `${rows.length} orders · ${fmtMoney(total)}`;
-    if (!rows.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">No transactions in this period</div>'; return; }
+    if (sumEl) {
+      const parts = [];
+      if (chargeTotal > 0) parts.push(`${fmtMoney(chargeTotal)} charged`);
+      if (creditTotal > 0) parts.push(`${fmtMoney(creditTotal)} credited`);
+      sumEl.textContent = parts.length ? parts.join(' · ') : `${rows.length} entries`;
+    }
+    if (!rows.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">No billing transactions in this period</div>'; return; }
     el.innerHTML = `
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
           <tr style="border-bottom:2px solid var(--gray-100)">
-            <th style="text-align:left;padding:10px 16px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Order</th>
-            <th style="text-align:left;padding:10px 8px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Date</th>
-            <th style="text-align:left;padding:10px 8px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Status</th>
+            <th style="text-align:left;padding:10px 16px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Date</th>
+            <th style="text-align:left;padding:10px 8px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Type</th>
+            <th style="text-align:left;padding:10px 8px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Description</th>
             <th style="text-align:right;padding:10px 16px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Amount</th>
           </tr>
         </thead>
         <tbody>
-          ${rows.map(o => `
+          ${rows.map(t => `
             <tr style="border-bottom:1px solid var(--gray-100)">
-              <td style="padding:9px 16px;font-weight:600;color:var(--accent)">#${o.order_number || '—'}</td>
-              <td style="padding:9px 8px;color:var(--gray-600)">${fmtDate(o.created_at)}</td>
-              <td style="padding:9px 8px">${statusBadge(o.status)}</td>
-              <td style="padding:9px 16px;text-align:right;font-weight:600">${fmtMoney(o.total_amount || 0)}</td>
+              <td style="padding:9px 16px;color:var(--gray-500);white-space:nowrap">${fmtDate(t.created_at)}</td>
+              <td style="padding:9px 8px">${txnTypeBadge(t.type)}</td>
+              <td style="padding:9px 8px">
+                <div style="font-weight:500;color:var(--gray-800)">${esc(t.description || '—')}</div>
+                <div>${txnPaymentLabel(t)}</div>
+              </td>
+              <td style="padding:9px 16px;text-align:right;font-weight:700;color:${t.type==='charge'?'var(--gray-900)':t.type==='credit_add'?'#059669':'#dc2626'}">${t.type === 'credit_add' ? '+' : t.type === 'refund' ? '+' : ''}${fmtMoney(t.amount || 0)}</td>
             </tr>`).join('')}
         </tbody>
       </table>`;
