@@ -375,17 +375,44 @@
     .cp-order-amt { font-weight: 600; color: var(--gray-900); min-width: 52px; text-align: right; }
 
     /* ── ORDER DETAIL PANEL ── */
-    .order-panel { position: fixed; top: 0; right: -500px; width: 460px; height: 100vh; background: white; box-shadow: -4px 0 40px rgba(0,0,0,.18); z-index: 301; display: flex; flex-direction: column; transition: right .3s cubic-bezier(.4,0,.2,1); overflow: hidden; }
+    .order-panel { position: fixed; top: 0; right: -520px; width: 500px; height: 100vh; background: #f5f5f7; box-shadow: -4px 0 40px rgba(0,0,0,.18); z-index: 301; display: flex; flex-direction: column; transition: right .3s cubic-bezier(.4,0,.2,1); overflow: hidden; }
     .order-panel.open { right: 0; }
-    .op-header { padding: 18px 22px 14px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; }
+    .op-header { padding: 16px 20px 12px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0; background: #fff; }
     .op-num { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); margin-bottom: 4px; }
+    .op-cust-strip { padding: 8px 20px 9px; background: #fff; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; }
+    .op-tab-bar { display: flex; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; background: #fff; }
+    .op-tab { flex: 1; padding: 9px 4px; font-size: 13px; font-weight: 600; color: var(--gray-500); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .op-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .op-tab-body { flex: 1; overflow-y: auto; padding: 12px 16px 32px; }
+    .op-sec-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--gray-400); margin: 16px 0 5px 4px; }
+    .op-sec-head:first-child { margin-top: 2px; }
+    .op-sched-card { background: #fff; border-radius: 12px; border: 1px solid rgba(0,0,0,.06); padding: 12px 14px; margin-bottom: 2px; }
+    .op-sched-row { display: flex; align-items: center; gap: 6px; min-height: 26px; }
+    .op-sched-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--gray-400); width: 54px; flex-shrink: 0; }
+    .op-sched-val { flex: 1; font-size: 13px; font-weight: 500; color: var(--gray-800); }
+    .op-sched-val.unset { color: var(--gray-400); font-style: italic; }
+    .op-edit-btn { font-size: 11.5px; font-weight: 600; color: var(--accent); background: none; border: none; cursor: pointer; padding: 3px 8px; border-radius: 6px; flex-shrink: 0; white-space: nowrap; }
+    .op-edit-btn:hover { background: rgba(99,91,255,.08); }
+    .op-edit-btn.cancel-btn { color: var(--gray-500); }
+    .op-picker-section { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--gray-100); }
+    .op-picker-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); margin-bottom: 7px; }
+    .op-route-list { display: flex; flex-direction: column; gap: 5px; max-height: 200px; overflow-y: auto; }
+    .op-route-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1.5px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; transition: all .12s; }
+    .op-route-row:hover { border-color: var(--accent); background: rgba(99,91,255,.05); }
+    .op-route-row.selected { border-color: var(--accent); background: rgba(99,91,255,.07); box-shadow: 0 0 0 2px rgba(99,91,255,.1); }
+    .op-route-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--gray-300); }
+    .op-route-name { font-size: 13px; font-weight: 600; color: var(--gray-800); flex: 1; }
+    .op-route-date { font-size: 11px; color: var(--gray-400); white-space: nowrap; }
+    .op-addr-pill { display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px; border: 1.5px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; transition: all .12s; margin-bottom: 5px; text-align: left; width: 100%; font-size: 13px; }
+    .op-addr-pill:hover { border-color: var(--accent); background: rgba(99,91,255,.05); }
+    .op-addr-pill.selected { border-color: var(--accent); background: rgba(99,91,255,.07); }
+    /* keep legacy fields for anything that still uses them */
     .op-body { flex: 1; overflow-y: auto; padding: 20px 22px 32px; display: flex; flex-direction: column; gap: 18px; }
-    .op-section { }
     .op-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--gray-400); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--gray-100); }
     .op-field { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; font-size: 13.5px; }
     .op-field-label { width: 100px; flex-shrink: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--gray-400); }
     .op-field-val { flex: 1; color: var(--gray-800); font-weight: 500; }
-    .op-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 22px; border-top: 1px solid var(--gray-100); flex-shrink: 0; }
+    .op-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid var(--gray-100); flex-shrink: 0; background: #fff; }
     /* Customer combobox in New Order modal */
     .cust-combo-wrap { position: relative; }
     .cust-combo-input { width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:var(--radius);font-size:14px;color:var(--gray-900);outline:none; }
@@ -2407,6 +2434,8 @@
 <!-- ─── ORDER DETAIL PANEL ─── -->
 <div class="panel-backdrop" id="order-panel-backdrop" onclick="closeOrderPanel()"></div>
 <div class="order-panel" id="order-panel">
+
+  <!-- Header -->
   <div class="op-header">
     <div style="flex:1;min-width:0">
       <div class="op-num" id="op-num">ORDER #—</div>
@@ -2416,79 +2445,151 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><path d="M18 6L6 18M6 6l12 12"/></svg>
     </button>
   </div>
-  <div class="op-body">
-    <!-- Customer -->
-    <div>
-      <div class="op-section-label">Customer</div>
-      <div class="op-field">
-        <span class="op-field-label">Name</span>
-        <span class="op-field-val"><a id="op-cust-name" href="#" onclick="event.preventDefault();closeOrderPanel();setTimeout(()=>openCustomerPanel(opCurrentCustId,'orders'),200)" style="color:var(--accent);text-decoration:none;font-weight:600">—</a></span>
-      </div>
-      <div class="op-field">
-        <span class="op-field-label">Phone</span>
-        <span class="op-field-val" id="op-cust-phone">—</span>
-      </div>
+
+  <!-- Customer strip -->
+  <div class="op-cust-strip">
+    <div style="font-size:14px;font-weight:700;color:var(--gray-900)">
+      <a id="op-cust-name" href="#" onclick="event.preventDefault();closeOrderPanel();setTimeout(()=>openCustomerPanel(opCurrentCustId,'orders'),200)" style="color:var(--gray-900);text-decoration:none">—</a>
     </div>
-    <!-- Pickup -->
-    <div>
-      <div class="op-section-label">Pickup</div>
-      <div class="op-field">
-        <span class="op-field-label">Route</span>
-        <span class="op-field-val" id="op-pickup-route">—</span>
-      </div>
-      <div class="op-field">
-        <span class="op-field-label">Window</span>
-        <span class="op-field-val" id="op-pickup-time">—</span>
-      </div>
-    </div>
-    <!-- Delivery -->
-    <div>
-      <div class="op-section-label">Delivery</div>
-      <div class="op-field">
-        <span class="op-field-label">Route</span>
-        <span class="op-field-val" id="op-delivery-route">—</span>
-      </div>
-      <div class="op-field">
-        <span class="op-field-label">Window</span>
-        <span class="op-field-val" id="op-delivery-time">—</span>
-      </div>
-    </div>
-    <!-- Order Details -->
-    <div>
-      <div class="op-section-label">Order Details</div>
-      <div class="op-field">
-        <span class="op-field-label">Bags</span>
-        <span class="op-field-val" id="op-bags">—</span>
-      </div>
-      <div class="op-field">
-        <span class="op-field-label">Total</span>
-        <span class="op-field-val" id="op-total">—</span>
-      </div>
-      <div class="op-field" id="op-notes-row" style="display:none">
-        <span class="op-field-label">Notes</span>
-        <span class="op-field-val" id="op-notes" style="white-space:pre-wrap;color:var(--gray-600)"></span>
-      </div>
-    </div>
+    <div style="font-size:12px;color:var(--gray-500);margin-top:1px" id="op-cust-phone">—</div>
   </div>
+
+  <!-- Tab bar -->
+  <div class="op-tab-bar">
+    <button class="op-tab active" id="op-tab-btn-schedule" onclick="opSwitchTab('schedule',this)">Schedule</button>
+    <button class="op-tab" id="op-tab-btn-details" onclick="opSwitchTab('details',this)">Details</button>
+    <button class="op-tab" id="op-tab-btn-billing" onclick="opSwitchTab('billing',this)">Billing</button>
+  </div>
+
+  <!-- ── SCHEDULE TAB ── -->
+  <div class="op-tab-body" id="op-tab-schedule">
+
+    <div class="op-sec-head">Pickup</div>
+    <div class="op-sched-card">
+      <div class="op-sched-row">
+        <span class="op-sched-lbl">Route</span>
+        <span class="op-sched-val unset" id="op-pickup-route-val">Not assigned</span>
+        <button class="op-edit-btn" id="op-pickup-edit-btn" onclick="opTogglePickupEdit()">Edit</button>
+      </div>
+      <div class="op-sched-row" style="margin-top:5px">
+        <span class="op-sched-lbl">Window</span>
+        <span class="op-sched-val unset" id="op-pickup-time-val">No window set</span>
+      </div>
+      <!-- Inline picker -->
+      <div id="op-pickup-picker" style="display:none">
+        <div class="op-picker-section">
+          <div class="op-picker-lbl">Select Route</div>
+          <div class="op-route-list" id="op-pickup-route-list"><span style="color:var(--gray-400);font-size:13px">Loading…</span></div>
+        </div>
+        <div id="op-pickup-slot-wrap" style="display:none">
+          <div class="op-picker-section">
+            <div class="op-picker-lbl" id="op-pickup-slot-label">Select Time Window</div>
+            <div class="sp-slot-grid" id="op-pickup-slots"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="op-sec-head">Pickup Address</div>
+    <div class="op-sched-card">
+      <div class="op-sched-row">
+        <span class="op-sched-val" id="op-pickup-addr-val" style="font-size:12.5px">—</span>
+        <button class="op-edit-btn" id="op-pickup-addr-btn" onclick="opToggleAddrPicker('pickup')">Change</button>
+      </div>
+      <div id="op-pickup-addr-picker" style="display:none;margin-top:10px"></div>
+    </div>
+
+    <div class="op-sec-head">Delivery</div>
+    <div class="op-sched-card">
+      <div class="op-sched-row">
+        <span class="op-sched-lbl">Route</span>
+        <span class="op-sched-val unset" id="op-delivery-route-val">Not assigned</span>
+        <button class="op-edit-btn" id="op-delivery-edit-btn" onclick="opToggleDeliveryEdit()">Edit</button>
+      </div>
+      <div class="op-sched-row" style="margin-top:5px">
+        <span class="op-sched-lbl">Window</span>
+        <span class="op-sched-val unset" id="op-delivery-time-val">No window set</span>
+      </div>
+      <!-- Inline picker -->
+      <div id="op-delivery-picker" style="display:none">
+        <div class="op-picker-section">
+          <div class="op-picker-lbl">Select Route</div>
+          <div class="op-route-list" id="op-delivery-route-list"><span style="color:var(--gray-400);font-size:13px">Loading…</span></div>
+        </div>
+        <div id="op-delivery-slot-wrap" style="display:none">
+          <div class="op-picker-section">
+            <div class="op-picker-lbl" id="op-delivery-slot-label">Select Time Window</div>
+            <div class="sp-slot-grid" id="op-delivery-slots"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="op-sec-head">Delivery Address</div>
+    <div class="op-sched-card">
+      <div class="op-sched-row">
+        <span class="op-sched-val" id="op-delivery-addr-val" style="font-size:12.5px">—</span>
+        <button class="op-edit-btn" id="op-delivery-addr-btn" onclick="opToggleAddrPicker('delivery')">Change</button>
+      </div>
+      <div id="op-delivery-addr-picker" style="display:none;margin-top:10px"></div>
+    </div>
+
+  </div><!-- /schedule tab -->
+
+  <!-- ── DETAILS TAB ── -->
+  <div class="op-tab-body" id="op-tab-details" style="display:none">
+
+    <div class="op-sec-head">Order Details</div>
+    <div class="op-sched-card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);width:80px;flex-shrink:0">Bags</span>
+        <input id="op-bags-input" type="number" min="0" step="1" style="flex:1;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;color:var(--gray-800)" placeholder="—">
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);width:80px;flex-shrink:0">Total</span>
+        <span id="op-total" style="font-size:13.5px;font-weight:600;color:var(--gray-800)">—</span>
+      </div>
+    </div>
+
+    <div class="op-sec-head" style="margin-top:14px">Special Instructions</div>
+    <div class="op-sched-card" style="padding:10px 14px">
+      <textarea id="op-notes-input" rows="4" style="width:100%;border:none;outline:none;font-size:13px;color:var(--gray-800);resize:vertical;font-family:inherit;background:transparent;line-height:1.5" placeholder="No special instructions…"></textarea>
+    </div>
+    <button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="opSaveDetails()">Save Details</button>
+    <div id="op-details-msg" style="font-size:12px;color:var(--green);margin-top:6px;text-align:center;display:none">✓ Saved</div>
+
+  </div><!-- /details tab -->
+
+  <!-- ── BILLING TAB ── -->
+  <div class="op-tab-body" id="op-tab-billing" style="display:none">
+
+    <div class="op-sec-head">Billing Summary</div>
+    <div class="op-sched-card">
+      <div class="op-sched-row" style="margin-bottom:6px">
+        <span class="op-sched-lbl">Total</span>
+        <span class="op-sched-val" id="op-bill-total" style="font-weight:700;font-size:16px">—</span>
+      </div>
+      <div class="op-sched-row" style="margin-bottom:6px">
+        <span class="op-sched-lbl">Card</span>
+        <span class="op-sched-val" id="op-bill-card" style="font-size:12.5px">—</span>
+      </div>
+      <div class="op-sched-row">
+        <span class="op-sched-lbl">Charged</span>
+        <span class="op-sched-val" id="op-bill-charged" style="font-size:12.5px">—</span>
+      </div>
+    </div>
+    <div id="op-bill-actions" style="margin-top:14px;display:flex;flex-direction:column;gap:8px"></div>
+
+  </div><!-- /billing tab -->
+
+  <!-- Footer (always visible) -->
   <div class="op-actions">
     <button class="btn btn-primary" id="op-advance-btn" onclick="opAdvanceStatus()" style="flex:1">Advance Status</button>
-    <button class="btn" onclick="opOpenReschedule()" style="color:var(--gray-700)">Reschedule</button>
     <button class="btn" onclick="printBagTag()" style="color:var(--gray-700)">🖨 Print</button>
-    <button class="btn" id="op-assign-route-btn" onclick="opAssignRoute()" style="color:var(--gray-700)" title="Assign pickup stop to a route">📍 Assign Route</button>
     <button class="btn" onclick="opViewCustomer()" style="color:var(--accent)">View Customer</button>
   </div>
-  <!-- Assign Route mini-modal (inline) -->
-  <div id="op-assign-route-modal" style="display:none;padding:14px 22px 16px;border-top:1px solid var(--gray-100);background:var(--gray-50)">
-    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px">Assign Pickup Stop to Route</div>
-    <select id="op-route-select" style="width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;margin-bottom:8px">
-      <option value="">Loading routes…</option>
-    </select>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn-primary" style="flex:1;font-size:13px" onclick="opConfirmAssignRoute()">Assign</button>
-      <button class="btn" style="font-size:13px" onclick="document.getElementById('op-assign-route-modal').style.display='none'">Cancel</button>
-    </div>
-  </div>
-</div>
+
+</div><!-- /order-panel -->
 
 <!-- ─── CUSTOMER SIDE PANEL ─── -->
 <div class="panel-backdrop" id="panel-backdrop" onclick="closeCustomerPanel()"></div>
@@ -2976,15 +3077,15 @@
   // ── PICKUP ROUTE cell: just the route name, with reassign link if applicable ──
   const pickupRouteCell = (o) => {
     if (o.actual_pickup_at) return `<span style="color:var(--gray-500);font-size:12px">Picked up</span>`;
-    const canReschedule = ['scheduled','ready_for_pickup'].includes(o.status);
+    const canEdit = ['scheduled','ready_for_pickup'].includes(o.status);
     const routeName = o.pickup_run?.name || '';
     if (routeName) {
-      return canReschedule
-        ? `<span style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;font-weight:600" onclick="event.stopPropagation();rescheduleRoute('${o.id}','${o.order_number}','pickup')" title="Reassign pickup route">${routeName}</span>`
+      return canEdit
+        ? `<span style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;font-weight:600" onclick="event.stopPropagation();openOrderPanelSchedule('${o.id}','pickup')" title="Edit pickup route">${routeName}</span>`
         : `<span style="font-weight:600">${routeName}</span>`;
     }
-    if (canReschedule)
-      return `<span style="cursor:pointer;color:var(--gray-400);font-size:11.5px;text-decoration:underline;text-underline-offset:2px" onclick="event.stopPropagation();rescheduleRoute('${o.id}','${o.order_number}','pickup')" title="Assign pickup route">+ Assign</span>`;
+    if (canEdit)
+      return `<span style="cursor:pointer;color:var(--accent);font-size:12px;font-weight:600" onclick="event.stopPropagation();openOrderPanelSchedule('${o.id}','pickup')" title="Assign pickup route">+ Assign</span>`;
     return '—';
   };
 
@@ -2992,30 +3093,29 @@
   const pickupTimeCell = (o) => {
     if (o.actual_pickup_at)
       return `<span style="font-size:12.5px">${fmtDate(o.actual_pickup_at)} · ${fmtTime(o.actual_pickup_at)}</span>`;
-    const custId = o.customers?.id || '';
     const canEditSlot = !o.actual_pickup_at && !['delivered','cancelled'].includes(o.status);
     const editLink = canEditSlot
-      ? ` <span style="cursor:pointer;color:var(--gray-400);font-size:10px" onclick="event.stopPropagation();openSlotPicker('${o.id}','${o.order_number}','${custId}')" title="Change slot">✎</span>`
+      ? ` <span style="cursor:pointer;color:var(--gray-400);font-size:10px" onclick="event.stopPropagation();openOrderPanelSchedule('${o.id}','pickup')" title="Change slot">✎</span>`
       : '';
     if (o.pickup_window_start)
       return `<span style="font-size:12.5px">${fmtDate(o.pickup_window_start)} · ${fmtSlot(o.pickup_window_start, o.pickup_window_end)}${editLink}</span>`;
     if (canEditSlot)
-      return `<span style="cursor:pointer;color:var(--gray-400);font-size:11.5px;text-decoration:underline;text-underline-offset:2px" onclick="event.stopPropagation();openSlotPicker('${o.id}','${o.order_number}','${custId}')" title="Set pickup slot">+ Set slot</span>`;
+      return `<span style="cursor:pointer;color:var(--accent);font-size:12px;font-weight:600" onclick="event.stopPropagation();openOrderPanelSchedule('${o.id}','pickup')" title="Set pickup slot">+ Set slot</span>`;
     return '—';
   };
 
   // ── DELIVERY ROUTE cell ──
   const deliveryRouteCell = (o) => {
     if (o.actual_delivery_at) return `<span style="color:var(--gray-500);font-size:12px">Delivered</span>`;
-    const canReschedule = ['assembled','ready_for_delivery','out_for_delivery'].includes(o.status);
+    const canEdit = ['assembled','ready_for_delivery','out_for_delivery'].includes(o.status);
     const routeName = o.delivery_run?.name || '';
     if (routeName) {
-      return canReschedule
-        ? `<span style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;font-weight:600" onclick="event.stopPropagation();rescheduleRoute('${o.id}','${o.order_number}','delivery')" title="Reassign delivery route">${routeName}</span>`
+      return canEdit
+        ? `<span style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;font-weight:600" onclick="event.stopPropagation();openOrderPanelSchedule('${o.id}','delivery')" title="Edit delivery route">${routeName}</span>`
         : `<span style="font-weight:600">${routeName}</span>`;
     }
-    if (canReschedule)
-      return `<span style="cursor:pointer;color:var(--gray-400);font-size:11.5px;text-decoration:underline;text-underline-offset:2px" onclick="event.stopPropagation();rescheduleRoute('${o.id}','${o.order_number}','delivery')" title="Assign delivery route">+ Assign</span>`;
+    if (canEdit)
+      return `<span style="cursor:pointer;color:var(--accent);font-size:12px;font-weight:600" onclick="event.stopPropagation();openOrderPanelSchedule('${o.id}','delivery')" title="Assign delivery route">+ Assign</span>`;
     return '—';
   };
 
@@ -3444,7 +3544,7 @@
 
   async function loadCustomers() {
     const { data, error } = await db.from('customers')
-      .select('id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, addresses(id,lat,lng,city,is_default)')
+      .select('id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -3785,6 +3885,7 @@
                delivery_window_start, delivery_window_end,
                actual_pickup_at, actual_delivery_at,
                pickup_run_id, delivery_run_id,
+               pickup_address_id, delivery_address_id,
                created_at,
                services(name),
                customers(id, first_name_cache, last_name_cache, phone_cache),
@@ -4025,68 +4126,156 @@
 
   // ── ORDER DETAIL PANEL ──
   let opCurrentOrderId = null;
-  let opCurrentCustId = null;
+  let opCurrentCustId  = null;
+  let _opRoutes        = [];   // upcoming route runs cache
+  let _opTemplates     = [];   // route_templates cache
 
   function openOrderPanel(orderId) {
     const o = allOrders.find(x => x.id === orderId);
     if (!o) return;
     opCurrentOrderId = orderId;
-    opCurrentCustId = o.customers?.id || null;
+    opCurrentCustId  = o.customers?.id || null;
 
     // Header
     document.getElementById('op-num').textContent = `ORDER #${o.order_number || '—'}`;
     document.getElementById('op-status-badge').innerHTML = statusBadge(o.status);
 
-    // Customer
-    const custName = orderCustomerName(o);
+    // Customer strip
     const custLink = document.getElementById('op-cust-name');
-    if (custLink) custLink.textContent = custName;
+    if (custLink) custLink.textContent = orderCustomerName(o);
     document.getElementById('op-cust-phone').textContent = o.customers?.phone_cache || '—';
 
-    // Pickup
-    document.getElementById('op-pickup-route').textContent = o.pickup_run?.name || '—';
-    document.getElementById('op-pickup-time').textContent = o.pickup_window_start
-      ? `${fmtDate(o.pickup_window_start)}${o.pickup_window_end ? ' · ' + fmtTime(o.pickup_window_start) + '–' + fmtTime(o.pickup_window_end) : ''}`
-      : '—';
+    // Default to Schedule tab
+    opSwitchTab('schedule', document.getElementById('op-tab-btn-schedule'));
 
-    // Delivery
-    document.getElementById('op-delivery-route').textContent = o.delivery_run?.name || '—';
-    document.getElementById('op-delivery-time').textContent = o.delivery_window_start
-      ? `${fmtDate(o.delivery_window_start)}${o.delivery_window_end ? ' · ' + fmtTime(o.delivery_window_start) + '–' + fmtTime(o.delivery_window_end) : ''}`
-      : '—';
+    // Schedule tab
+    opRefreshScheduleUI(o);
+    opRefreshAddresses(o);
 
-    // Details
-    document.getElementById('op-bags').textContent = o.total_bags != null ? o.total_bags : (o.weight_lbs != null ? Number(o.weight_lbs) : '—');
+    // Details tab
+    document.getElementById('op-bags-input').value = o.total_bags != null ? o.total_bags : (o.weight_lbs != null ? Number(o.weight_lbs) : '');
     document.getElementById('op-total').textContent = fmtMoney(o.total_amount);
-    const notesRow = document.getElementById('op-notes-row');
-    const notesEl = document.getElementById('op-notes');
-    if (o.special_instructions) {
-      notesEl.textContent = o.special_instructions;
-      notesRow.style.display = '';
-    } else {
-      notesRow.style.display = 'none';
-    }
+    document.getElementById('op-notes-input').value = o.special_instructions || '';
+    document.getElementById('op-details-msg').style.display = 'none';
+
+    // Billing tab
+    opPopulateBilling(o);
 
     // Advance button
-    const advBtn = document.getElementById('op-advance-btn');
-    const nextStatus = STATUS_FLOW[o.status];
-    advBtn.disabled = !nextStatus;
-    advBtn.style.opacity = nextStatus ? '1' : '0.45';
-    advBtn.style.cursor = nextStatus ? 'pointer' : 'not-allowed';
-    advBtn.textContent = nextStatus
-      ? `Advance to ${nextStatus.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}`
-      : 'Fully Delivered';
+    opRefreshAdvanceBtn(o);
+
+    // Reset any open pickers
+    ['pickup','delivery'].forEach(leg => {
+      const p = document.getElementById(`op-${leg}-picker`);
+      if (p) p.style.display = 'none';
+      const eb = document.getElementById(`op-${leg}-edit-btn`);
+      if (eb) { eb.textContent = 'Edit'; eb.classList.remove('cancel-btn'); }
+      const ap = document.getElementById(`op-${leg}-addr-picker`);
+      if (ap) ap.style.display = 'none';
+      const ab = document.getElementById(`op-${leg}-addr-btn`);
+      if (ab) { ab.textContent = 'Change'; ab.classList.remove('cancel-btn'); }
+    });
 
     // Open panel
     document.getElementById('order-panel').classList.add('open');
     document.getElementById('order-panel-backdrop').classList.add('open');
+
+    // Pre-fetch routes in background
+    opPrefetchRoutes();
+  }
+
+  // Open panel and immediately expand the schedule picker for a given leg
+  function openOrderPanelSchedule(orderId, leg) {
+    openOrderPanel(orderId);
+    setTimeout(async () => {
+      if (leg === 'pickup')   await opTogglePickupEdit();
+      else                    await opToggleDeliveryEdit();
+    }, 120);
+  }
+
+  function opRefreshScheduleUI(o) {
+    // Pickup
+    const puName = o.pickup_run?.name || null;
+    const puRouteEl = document.getElementById('op-pickup-route-val');
+    puRouteEl.textContent = puName || 'Not assigned';
+    puRouteEl.className = 'op-sched-val' + (puName ? '' : ' unset');
+
+    const puTimeEl = document.getElementById('op-pickup-time-val');
+    if (o.pickup_window_start) {
+      puTimeEl.textContent = `${fmtDate(o.pickup_window_start)} · ${fmtTime(o.pickup_window_start)}${o.pickup_window_end ? '–' + fmtTime(o.pickup_window_end) : ''}`;
+      puTimeEl.className = 'op-sched-val';
+    } else {
+      puTimeEl.textContent = 'No window set';
+      puTimeEl.className = 'op-sched-val unset';
+    }
+
+    // Delivery
+    const dlName = o.delivery_run?.name || null;
+    const dlRouteEl = document.getElementById('op-delivery-route-val');
+    dlRouteEl.textContent = dlName || 'Not assigned';
+    dlRouteEl.className = 'op-sched-val' + (dlName ? '' : ' unset');
+
+    const dlTimeEl = document.getElementById('op-delivery-time-val');
+    if (o.delivery_window_start) {
+      dlTimeEl.textContent = `${fmtDate(o.delivery_window_start)} · ${fmtTime(o.delivery_window_start)}${o.delivery_window_end ? '–' + fmtTime(o.delivery_window_end) : ''}`;
+      dlTimeEl.className = 'op-sched-val';
+    } else {
+      dlTimeEl.textContent = 'No window set';
+      dlTimeEl.className = 'op-sched-val unset';
+    }
+  }
+
+  function opRefreshAdvanceBtn(o) {
+    const advBtn = document.getElementById('op-advance-btn');
+    const next = STATUS_FLOW[o.status];
+    advBtn.disabled = !next;
+    advBtn.style.opacity = next ? '1' : '0.45';
+    advBtn.style.cursor  = next ? 'pointer' : 'not-allowed';
+    advBtn.textContent   = next
+      ? `Advance to ${next.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}`
+      : 'Fully Delivered';
+  }
+
+  function opRefreshAddresses(o) {
+    const cust  = allCustomers.find(c => c.id === opCurrentCustId);
+    const addrs = Array.isArray(cust?.addresses) ? cust.addresses : [];
+
+    const fmtAddr = (addr) => addr
+      ? [addr.line1, addr.city, addr.state].filter(Boolean).join(', ') || addr.city || '—'
+      : 'No address on file';
+
+    const puId   = o.pickup_address_id;
+    const puAddr = addrs.find(a => a.id === puId) || addrs.find(a => a.is_default) || addrs[0];
+    document.getElementById('op-pickup-addr-val').textContent = fmtAddr(puAddr);
+
+    const dlId   = o.delivery_address_id;
+    const dlAddr = addrs.find(a => a.id === dlId) || addrs.find(a => a.is_default) || addrs[0];
+    document.getElementById('op-delivery-addr-val').textContent = fmtAddr(dlAddr);
+  }
+
+  async function opPrefetchRoutes() {
+    if (_opRoutes.length && _opTemplates.length) return;
+    const [rRes, tRes] = await Promise.all([
+      db.from('routes').select('id, name, run_date, status').neq('status','cancelled').gte('run_date', today()).order('run_date').limit(40),
+      db.from('route_templates').select('id, name, color, window_start, window_end, arrival_window_hours').eq('is_active', true)
+    ]);
+    _opRoutes    = rRes.data  || [];
+    _opTemplates = tRes.data  || [];
+  }
+
+  function opSwitchTab(tab, btn) {
+    ['schedule','details','billing'].forEach(t => {
+      document.getElementById(`op-tab-${t}`).style.display = t === tab ? '' : 'none';
+      const b = document.getElementById(`op-tab-btn-${t}`);
+      if (b) b.classList.toggle('active', t === tab);
+    });
   }
 
   function closeOrderPanel() {
     document.getElementById('order-panel').classList.remove('open');
     document.getElementById('order-panel-backdrop').classList.remove('open');
     opCurrentOrderId = null;
-    opCurrentCustId = null;
+    opCurrentCustId  = null;
   }
 
   async function opAdvanceStatus() {
@@ -4098,18 +4287,9 @@
     const { error } = await db.from('orders').update({ status: next }).eq('id', opCurrentOrderId);
     if (error) { showToast('Failed to update status', 'error'); return; }
     o.status = next;
-    // Refresh panel
     openOrderPanel(opCurrentOrderId);
     renderOrders(allOrders);
     showToast('Status updated', 'success');
-  }
-
-  function opOpenReschedule() {
-    if (!opCurrentOrderId) return;
-    closeOrderPanel();
-    // Re-use existing reschedule flow: select the order checkbox first
-    const cb = document.querySelector(`.order-select-cb[data-id="${opCurrentOrderId}"]`);
-    if (cb) { cb.checked = true; updateOrderBatchBar(); batchReschedule(); }
   }
 
   function opViewCustomer() {
@@ -4118,76 +4298,260 @@
     setTimeout(() => openCustomerPanel(opCurrentCustId, 'orders'), 200);
   }
 
-  async function opAssignRoute() {
-    if (!opCurrentOrderId) return;
-    const o = allOrders.find(x => x.id === opCurrentOrderId);
-    if (!o) return;
-    const modal  = document.getElementById('op-assign-route-modal');
-    const select = document.getElementById('op-route-select');
-    modal.style.display = modal.style.display === 'none' ? '' : 'none';
-    if (modal.style.display === 'none') return;
-
-    // Load routes — prefer routes on the order's pickup date, fall back to all upcoming
-    const pickupDate = o.pickup_window_start
-      ? new Date(o.pickup_window_start).toISOString().split('T')[0]
-      : null;
-    let q = db.from('routes').select('id, name, run_date').neq('status','cancelled').order('run_date');
-    if (pickupDate) q = q.gte('run_date', pickupDate).lte('run_date', pickupDate);
-    const { data: routes } = await q;
-
-    // If no routes on that exact date, fetch next 14 days
-    const routeList = (routes?.length ? routes : null) ||
-      (await db.from('routes').select('id, name, run_date')
-        .neq('status','cancelled').gte('run_date', today())
-        .order('run_date').limit(20)).data || [];
-
-    select.innerHTML = routeList.length
-      ? `<option value="">— Choose a route —</option>` +
-        routeList.map(r => `<option value="${r.id}">${r.name} (${r.run_date})</option>`).join('')
-      : `<option value="">No routes available</option>`;
-    // Pre-select current route if already linked
-    if (o.pickup_run_id) select.value = o.pickup_run_id;
+  // ── PICKUP SCHEDULE EDIT ──
+  async function opTogglePickupEdit() {
+    const picker = document.getElementById('op-pickup-picker');
+    const btn    = document.getElementById('op-pickup-edit-btn');
+    const open   = picker.style.display === 'none';
+    picker.style.display = open ? '' : 'none';
+    btn.textContent = open ? 'Cancel' : 'Edit';
+    btn.classList.toggle('cancel-btn', open);
+    if (open) await opLoadRoutePicker('pickup');
   }
 
-  async function opConfirmAssignRoute() {
-    const o = allOrders.find(x => x.id === opCurrentOrderId);
-    if (!o) return;
-    const routeId = document.getElementById('op-route-select').value;
-    if (!routeId) { showToast('Please choose a route', 'error'); return; }
+  async function opToggleDeliveryEdit() {
+    const picker = document.getElementById('op-delivery-picker');
+    const btn    = document.getElementById('op-delivery-edit-btn');
+    const open   = picker.style.display === 'none';
+    picker.style.display = open ? '' : 'none';
+    btn.textContent = open ? 'Cancel' : 'Edit';
+    btn.classList.toggle('cancel-btn', open);
+    if (open) await opLoadRoutePicker('delivery');
+  }
 
-    // Find customer's address
-    const cust = allCustomers.find(c => c.id === o.customer_id);
-    const addr = cust?.addresses?.find(a => a.is_default) || cust?.addresses?.[0];
+  async function opLoadRoutePicker(leg) {
+    const listEl = document.getElementById(`op-${leg}-route-list`);
+    listEl.innerHTML = '<span style="color:var(--gray-400);font-size:13px">Loading…</span>';
+    document.getElementById(`op-${leg}-slot-wrap`).style.display = 'none';
+    if (!_opRoutes.length) await opPrefetchRoutes();
+    if (!_opRoutes.length) {
+      listEl.innerHTML = '<span style="color:var(--gray-400);font-size:13px">No upcoming routes found.</span>';
+      return;
+    }
+    const o          = allOrders.find(x => x.id === opCurrentOrderId);
+    const currentId  = leg === 'pickup' ? o?.pickup_run_id : o?.delivery_run_id;
+    listEl.innerHTML = _opRoutes.map(r => {
+      const tmpl  = _opTemplates.find(t => t.name === r.name) || {};
+      const color = tmpl.color || '#8b93a7';
+      const d     = new Date(r.run_date + 'T12:00:00');
+      const label = d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+      const sel   = r.id === currentId ? ' selected' : '';
+      return `<div class="op-route-row${sel}" onclick="opSelectRoute('${leg}','${r.id}','${r.run_date}',this)">
+        <div class="op-route-dot" style="background:${color}"></div>
+        <span class="op-route-name">${r.name}</span>
+        <span class="op-route-date">${label}</span>
+      </div>`;
+    }).join('');
+  }
 
-    // Upsert: update existing stop if one exists for this order, otherwise insert
-    const { data: existingStop } = await db.from('route_stops')
-      .select('id').eq('order_id', opCurrentOrderId).eq('stop_type','pickup').maybeSingle();
+  function opSelectRoute(leg, routeId, runDate, rowEl) {
+    rowEl.closest('.op-route-list').querySelectorAll('.op-route-row').forEach(r => r.classList.remove('selected'));
+    rowEl.classList.add('selected');
 
-    if (existingStop) {
-      await db.from('route_stops').update({ route_id: routeId }).eq('id', existingStop.id);
-    } else {
-      // Get next stop number for this route
-      const { data: stops } = await db.from('route_stops').select('stop_number').eq('route_id', routeId).order('stop_number', { ascending: false }).limit(1);
-      const nextNum = (stops?.[0]?.stop_number || 0) + 1;
-      await db.from('route_stops').insert({
-        route_id:    routeId,
-        order_id:    opCurrentOrderId,
-        stop_type:   'pickup',
-        stop_number: nextNum,
-        address_id:  addr?.id || null,
-        status:      'pending'
-      });
+    const route    = _opRoutes.find(r => r.id === routeId);
+    const tmpl     = _opTemplates.find(t => t.name === route?.name) || {};
+    const slotWrap = document.getElementById(`op-${leg}-slot-wrap`);
+    const slotLbl  = document.getElementById(`op-${leg}-slot-label`);
+    const slotsEl  = document.getElementById(`op-${leg}-slots`);
+
+    const [yr, mo, dy] = runDate.split('-').map(Number);
+    const dateFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric' });
+    slotLbl.textContent = `Time Window — ${dateFmt}`;
+    slotWrap.style.display = '';
+
+    if (!tmpl.window_start || !tmpl.window_end) {
+      slotsEl.innerHTML = `<div style="font-size:13px;color:var(--gray-600)">No time window set for this route.
+        <button class="op-edit-btn" style="margin-top:6px;display:block" onclick="opSaveRouteAndSlot('${leg}','${routeId}',null,null,null)">Assign route without window →</button>
+      </div>`;
+      return;
     }
 
-    // Also update order's pickup_run_id
-    const { error } = await db.from('orders').update({ pickup_run_id: routeId }).eq('id', opCurrentOrderId);
-    if (error) { showToast('Failed to assign route', 'error'); return; }
+    const toMins = t => { const [h,m] = (t||'').split(':'); return (+h)*60+(+(m||0)); };
+    const startM = toMins(tmpl.window_start);
+    const endM   = toMins(tmpl.window_end);
+    const slotSz = (tmpl.arrival_window_hours || 3) * 60;
+    const fmtHM  = m => {
+      const h = Math.floor(m/60), mn = m%60;
+      const p = h < 12 ? 'am' : 'pm';
+      const h12 = h===0?12:h>12?h-12:h;
+      return mn===0 ? `${h12}${p}` : `${h12}:${String(mn).padStart(2,'0')}${p}`;
+    };
+    const slots = [];
+    for (let m = startM; m + slotSz <= endM; m += slotSz) {
+      const sDate = new Date(yr, mo-1, dy, Math.floor(m/60), m%60, 0);
+      const eDate = new Date(yr, mo-1, dy, Math.floor((m+slotSz)/60), (m+slotSz)%60, 0);
+      slots.push({ start: sDate.toISOString(), end: eDate.toISOString(), label: `${fmtHM(m)} – ${fmtHM(m+slotSz)}` });
+    }
+    if (!slots.length) {
+      slotsEl.innerHTML = `<span style="font-size:13px;color:var(--gray-500)">No slots available in route window.</span>`;
+      return;
+    }
+    slotsEl.innerHTML = slots.map(s =>
+      `<button class="sp-slot-btn" onclick="opSaveRouteAndSlot('${leg}','${routeId}','${s.start}','${s.end}',this)">${s.label}</button>`
+    ).join('');
+  }
 
-    o.pickup_run_id = routeId;
-    const routeName = document.getElementById('op-route-select').selectedOptions[0]?.text || '—';
-    document.getElementById('op-pickup-route').textContent = routeName.split(' (')[0];
-    document.getElementById('op-assign-route-modal').style.display = 'none';
-    showToast('Pickup stop assigned ✓', 'success');
+  async function opSaveRouteAndSlot(leg, routeId, startIso, endIso, btn) {
+    if (btn) {
+      document.querySelectorAll(`#op-${leg}-slots .sp-slot-btn`).forEach(b => b.classList.add('saving'));
+      if (btn.classList) btn.textContent = 'Saving…';
+    }
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+
+    const update = {};
+    if (leg === 'pickup') {
+      update.pickup_run_id = routeId;
+      if (startIso) { update.pickup_window_start = startIso; update.pickup_window_end = endIso; }
+    } else {
+      update.delivery_run_id = routeId;
+      if (startIso) { update.delivery_window_start = startIso; update.delivery_window_end = endIso; }
+    }
+
+    const { error } = await db.from('orders').update(update).eq('id', opCurrentOrderId);
+    if (error) {
+      showToast('Failed to save: ' + error.message, 'error');
+      document.querySelectorAll(`#op-${leg}-slots .sp-slot-btn`).forEach(b => b.classList.remove('saving'));
+      return;
+    }
+    Object.assign(o, update);
+
+    // Keep local run object in sync
+    if (update.pickup_run_id) {
+      const r = _opRoutes.find(x => x.id === routeId);
+      o.pickup_run = { id: routeId, name: r?.name || '' };
+    }
+    if (update.delivery_run_id) {
+      const r = _opRoutes.find(x => x.id === routeId);
+      o.delivery_run = { id: routeId, name: r?.name || '' };
+    }
+
+    // Upsert route_stop for pickup leg
+    if (leg === 'pickup') {
+      const cust   = allCustomers.find(c => c.id === opCurrentCustId);
+      const addrs  = Array.isArray(cust?.addresses) ? cust.addresses : [];
+      const addrId = o.pickup_address_id || addrs.find(a => a.is_default)?.id || addrs[0]?.id || null;
+      const { data: existStop } = await db.from('route_stops').select('id').eq('order_id', opCurrentOrderId).eq('stop_type','pickup').maybeSingle();
+      if (existStop) {
+        await db.from('route_stops').update({ route_id: routeId }).eq('id', existStop.id);
+      } else {
+        const { data: maxS } = await db.from('route_stops').select('stop_number').eq('route_id', routeId).order('stop_number',{ascending:false}).limit(1);
+        await db.from('route_stops').insert({ route_id: routeId, order_id: opCurrentOrderId, stop_type:'pickup', stop_number:(maxS?.[0]?.stop_number||0)+1, address_id: addrId, status:'pending' });
+      }
+    }
+
+    // Close picker and refresh
+    const picker = document.getElementById(`op-${leg}-picker`);
+    picker.style.display = 'none';
+    const editBtn = document.getElementById(`op-${leg}-edit-btn`);
+    editBtn.textContent = 'Edit'; editBtn.classList.remove('cancel-btn');
+    opRefreshScheduleUI(o);
+    renderOrders(allOrders);
+    showToast(`✓ ${leg === 'pickup' ? 'Pickup' : 'Delivery'} scheduled`, 'success');
+  }
+
+  // ── ADDRESS PICKER ──
+  function opToggleAddrPicker(leg) {
+    const picker = document.getElementById(`op-${leg}-addr-picker`);
+    const btn    = document.getElementById(`op-${leg}-addr-btn`);
+    const open   = picker.style.display === 'none';
+    picker.style.display = open ? '' : 'none';
+    btn.textContent = open ? 'Cancel' : 'Change';
+    btn.classList.toggle('cancel-btn', open);
+    if (!open) return;
+
+    const cust    = allCustomers.find(c => c.id === opCurrentCustId);
+    const addrs   = Array.isArray(cust?.addresses) ? cust.addresses : [];
+    const o       = allOrders.find(x => x.id === opCurrentOrderId);
+    const curId   = leg === 'pickup' ? o?.pickup_address_id : o?.delivery_address_id;
+    const defId   = addrs.find(a => a.is_default)?.id;
+    const activeId = curId || defId;
+
+    if (!addrs.length) {
+      picker.innerHTML = '<span style="font-size:13px;color:var(--gray-400)">No saved addresses for this customer.</span>';
+      return;
+    }
+    picker.innerHTML = addrs.map(a => {
+      const line = [a.line1, a.city, a.state, a.zip].filter(Boolean).join(', ') || a.city || '—';
+      const lbl  = a.label ? `<span style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--accent);margin-left:6px">${a.label}</span>` : '';
+      const def  = a.is_default ? `<span style="font-size:11px;color:var(--gray-400);margin-left:4px">· default</span>` : '';
+      return `<button class="op-addr-pill${a.id === activeId ? ' selected' : ''}" onclick="opSaveAddress('${leg}','${a.id}',this)">
+        <span style="margin-top:1px;font-size:15px">📍</span>
+        <span>
+          <div style="font-size:13px;font-weight:600;color:var(--gray-800)">${line}${lbl}</div>
+          <div style="font-size:11.5px;color:var(--gray-400)">${a.delivery_instructions || ''}${def}</div>
+        </span>
+      </button>`;
+    }).join('');
+  }
+
+  async function opSaveAddress(leg, addressId, btn) {
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+    const col = leg === 'pickup' ? 'pickup_address_id' : 'delivery_address_id';
+    const { error } = await db.from('orders').update({ [col]: addressId }).eq('id', opCurrentOrderId);
+    if (error) { showToast('Failed to save address', 'error'); return; }
+    o[col] = addressId;
+
+    // Also update route_stop address if it exists
+    if (leg === 'pickup') {
+      const { data: stop } = await db.from('route_stops').select('id').eq('order_id', opCurrentOrderId).eq('stop_type','pickup').maybeSingle();
+      if (stop) await db.from('route_stops').update({ address_id: addressId }).eq('id', stop.id);
+    }
+
+    opRefreshAddresses(o);
+    document.getElementById(`op-${leg}-addr-picker`).style.display = 'none';
+    const ab = document.getElementById(`op-${leg}-addr-btn`);
+    ab.textContent = 'Change'; ab.classList.remove('cancel-btn');
+    showToast('Address updated ✓', 'success');
+  }
+
+  // ── DETAILS TAB ──
+  async function opSaveDetails() {
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+    const bags  = document.getElementById('op-bags-input').value;
+    const notes = document.getElementById('op-notes-input').value.trim();
+    const update = { special_instructions: notes || null };
+    if (bags !== '') update.total_bags = parseInt(bags) || null;
+    const { error } = await db.from('orders').update(update).eq('id', opCurrentOrderId);
+    if (error) { showToast('Failed to save', 'error'); return; }
+    Object.assign(o, update);
+    const msg = document.getElementById('op-details-msg');
+    msg.style.display = ''; setTimeout(() => msg.style.display = 'none', 2500);
+  }
+
+  // ── BILLING TAB ──
+  function opPopulateBilling(o) {
+    document.getElementById('op-bill-total').textContent = fmtMoney(o.total_amount);
+    // Card info: customer table may have card_last4/card_brand as legacy columns
+    const cust = allCustomers.find(c => c.id === opCurrentCustId);
+    const cardLast4 = cust?.card_last4;
+    const cardBrand = cust?.card_brand;
+    document.getElementById('op-bill-card').textContent = cardLast4
+      ? `${cardBrand || 'Card'} ····${cardLast4}`
+      : 'See customer profile';
+    document.getElementById('op-bill-charged').textContent = o.stripe_payment_intent_id ? 'Yes' : 'Not yet charged';
+    const actEl = document.getElementById('op-bill-actions');
+    actEl.innerHTML = '';
+    if (!o.stripe_payment_intent_id) {
+      actEl.innerHTML = `<button class="btn btn-primary" onclick="opChargeOrder()" style="width:100%">Charge ${fmtMoney(o.total_amount)}</button>`;
+    }
+  }
+
+  async function opChargeOrder() {
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+    if (!confirm(`Charge ${fmtMoney(o.total_amount)} for Order #${o.order_number}?`)) return;
+    const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${SUPA_ANON_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: o.id })
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error || 'Charge failed', 'error'); return; }
+    showToast('Payment charged ✓', 'success');
+    setTimeout(() => loadOrders(currentOrderFilter), 500);
   }
 
   function printBagTag() {
