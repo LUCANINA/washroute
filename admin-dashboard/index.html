@@ -2101,7 +2101,7 @@
       <!-- ── Stripe note ── -->
       <div style="display:flex;align-items:flex-start;gap:10px;padding:11px 14px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);margin-top:4px;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" style="flex-shrink:0;margin-top:1px;color:var(--gray-400)"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-        <div style="font-size:12px;color:var(--gray-500);line-height:1.5;"><strong style="color:var(--gray-700);">Payment via Stripe</strong> — no card data is stored here. After saving, send the customer a Stripe payment link to set up their billing.</div>
+        <div style="font-size:12px;color:var(--gray-500);line-height:1.5;"><strong style="color:var(--gray-700);">Payment via Stripe</strong> — card numbers are never stored here. Use <em>Add Card Now</em> to open Stripe's secure card page directly, or <em>Send Link</em> to email it to the customer.</div>
       </div>
 
       <div id="c-error" style="color:var(--red);font-size:13px;margin-top:12px;display:none;"></div>
@@ -4606,6 +4606,30 @@ window.onload=()=>{window.print();};
       }
     } catch (e) {
       showToast('Error: ' + e.message, 'error');
+    }
+  }
+
+  async function adminOpenCardPage(customerId) {
+    const btn = event?.target;
+    if (btn) { btn.disabled = true; btn.textContent = 'Opening…'; }
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({
+          type: 'setup',
+          customerId,
+          successUrl: 'https://washroute.vercel.app/customer-app/',
+          cancelUrl:  'https://washroute.vercel.app/customer-app/',
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Failed to create link');
+      window.open(result.url, '_blank');
+    } catch (e) {
+      showToast('Error: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = btn.textContent.includes('Replace') ? '💳 Replace Card' : '💳 Add Card Now'; }
     }
   }
 
@@ -7312,11 +7336,14 @@ window.onload=()=>{window.print();};
       const expired = expYr && expMo && (expYr < now.getFullYear() || (expYr===now.getFullYear() && expMo < now.getMonth()+1));
       payEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:7px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:7px;padding:7px 12px;font-size:13px">💳 <span>${brand} ···· ${c.card_last4}${exp}</span>${expired?'<span style="color:var(--red);font-size:11px;font-weight:600">EXPIRED</span>':''}</span>`;
       actEl.innerHTML = `
-        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${c.id}','${c.email_cache||''}')">📧 Send New Card Link</button>
-        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px;color:var(--red);border-color:#fecaca" onclick="adminRemoveCard('${c.id}')">Remove Card</button>`;
+        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminOpenCardPage('${c.id}')">💳 Replace Card</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${c.id}','${c.email_cache||''}')">📧 Send Link</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px;color:var(--red);border-color:#fecaca" onclick="adminRemoveCard('${c.id}')">Remove</button>`;
     } else {
       payEl.innerHTML = '<span style="color:var(--gray-400);font-style:italic;font-size:13px">No card on file</span>';
-      actEl.innerHTML = `<button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${c.id}','${c.email_cache||''}')">📧 Send Card Setup Link</button>`;
+      actEl.innerHTML = `
+        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminOpenCardPage('${c.id}')">💳 Add Card Now</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${c.id}','${c.email_cache||''}')">📧 Send Link</button>`;
     }
 
     // Addresses
