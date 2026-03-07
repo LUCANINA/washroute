@@ -1263,6 +1263,7 @@ try {
 let currentUser     = null;
 let currentProfile  = null;
 let currentCustomer = null;
+let currentCards    = [];   // customer_payment_methods rows for the logged-in customer
 let allServices     = [];
 let dbPlans         = [];
 let defaultService  = null; // the single W&F service
@@ -1740,6 +1741,7 @@ db.auth.onAuthStateChange(async (event, session) => {
     if (currentUser?.id) clearUserCache(currentUser.id); // wipe cache on sign-out
     appReady = false;
     currentUser = currentProfile = currentCustomer = null;
+    currentCards = [];
     document.getElementById('bottom-nav').style.display = 'none';
     // Show auth screen so existing customers can sign in.
     // New visitors click "Continue without an account" to start the order flow.
@@ -1842,7 +1844,7 @@ async function loadHome() {
 
   // Show card-on-file nudge if no card saved
   const cardPrompt = document.getElementById('home-card-prompt');
-  if (cardPrompt) cardPrompt.style.display = (currentCustomer && !currentCustomer.card_last4) ? '' : 'none';
+  if (cardPrompt) cardPrompt.style.display = (currentCustomer && currentCards.length === 0) ? '' : 'none';
 
   if (!currentCustomer) { renderNoActive(); return; }
   try {
@@ -4225,22 +4227,47 @@ async function startCardSetup() {
   }
 }
 
-async function removeCard() {
+async function removeCard(paymentMethodId) {
   if (!currentCustomer) return;
-  if (!confirm('Remove your saved card? You can add a new one any time.')) return;
+  if (!confirm('Remove this card? You can add a new one any time.')) return;
   try {
+    const body = paymentMethodId
+      ? { customer_id: currentCustomer.id, payment_method_id: paymentMethodId }
+      : { customer_id: currentCustomer.id };
     const res = await fetch(`${SUPA_URL}/functions/v1/remove-card`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
-      body: JSON.stringify({ customer_id: currentCustomer.id }),
+      body: JSON.stringify(body),
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'Failed to remove card');
-    currentCustomer.stripe_default_payment_method_id = null;
-    currentCustomer.card_last4 = currentCustomer.card_brand = currentCustomer.card_exp_month = currentCustomer.card_exp_year = null;
+
+    // Remove from local currentCards array
+    if (paymentMethodId) {
+      currentCards = currentCards.filter(c => c.stripe_payment_method_id !== paymentMethodId);
+      // If the removed card was the default, mark the next one as default locally
+      const hasDefault = currentCards.some(c => c.is_default);
+      if (!hasDefault && currentCards.length > 0) currentCards[0].is_default = true;
+    } else {
+      currentCards = [];
+    }
+
+    // Update flat columns on currentCustomer to match the new default
+    const newDefault = currentCards.find(c => c.is_default) || currentCards[0] || null;
+    if (newDefault) {
+      currentCustomer.card_last4     = newDefault.card_last4;
+      currentCustomer.card_brand     = newDefault.card_brand;
+      currentCustomer.card_exp_month = newDefault.card_exp_month;
+      currentCustomer.card_exp_year  = newDefault.card_exp_year;
+      currentCustomer.stripe_default_payment_method_id = newDefault.stripe_payment_method_id;
+    } else {
+      currentCustomer.stripe_default_payment_method_id = null;
+      currentCustomer.card_last4 = currentCustomer.card_brand = currentCustomer.card_exp_month = currentCustomer.card_exp_year = null;
+    }
+
     renderPaymentSection();
     const cardPrompt = document.getElementById('home-card-prompt');
-    if (cardPrompt) cardPrompt.style.display = '';
+    if (cardPrompt) cardPrompt.style.display = currentCards.length === 0 ? '' : 'none';
     toast('Card removed');
   } catch (e) {
     toast('Error removing card: ' + e.message, 'error');
@@ -4267,38 +4294,48 @@ function renderPaymentSection() {
       <div class="credits-amount">${$m(credits)}</div>
     </div>`;
 
-  // Card block
-  let cardHtml;
-  if (c?.card_last4) {
-    const brand = (c.card_brand || 'card').charAt(0).toUpperCase() + (c.card_brand || 'card').slice(1);
-    const exp   = `${String(c.card_exp_month).padStart(2,'0')}/${String(c.card_exp_year).slice(-2)}`;
-    cardHtml = `
-      <div class="card-section">
-        <div class="pref-title">Payment Card</div>
-        <div class="card-box">
+  // Card block — show all cards on file
+  const now = new Date();
+  let cardsListHtml = '';
+  if (currentCards.length === 0) {
+    cardsListHtml = `
+      <div class="no-card-box">
+        <p>No card on file. Add one and we'll charge you automatically after each order.</p>
+      </div>`;
+  } else {
+    cardsListHtml = currentCards.map(card => {
+      const brand   = (card.card_brand || 'card').charAt(0).toUpperCase() + (card.card_brand || 'card').slice(1);
+      const exp     = (card.card_exp_month && card.card_exp_year)
+        ? `${String(card.card_exp_month).padStart(2,'0')}/${String(card.card_exp_year).slice(-2)}` : '';
+      const expYr   = card.card_exp_year, expMo = card.card_exp_month;
+      const expired = expYr && expMo && (expYr < now.getFullYear() || (expYr === now.getFullYear() && expMo < now.getMonth() + 1));
+      const pmId    = card.stripe_payment_method_id;
+      return `
+        <div class="card-box" style="margin-bottom:10px">
           <div class="card-left">
             <div class="card-chip">${brand}</div>
             <div>
-              <div class="card-info">•••• •••• •••• ${c.card_last4}</div>
-              <div class="card-sub">Expires ${exp}</div>
+              <div class="card-info" style="display:flex;align-items:center;gap:6px">
+                •••• •••• •••• ${card.card_last4}
+                ${card.is_default ? '<span style="background:#ede9ff;color:#635bff;font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px;line-height:1.4">DEFAULT</span>' : ''}
+                ${expired ? '<span style="color:#dc2626;font-size:11px;font-weight:600">EXPIRED</span>' : ''}
+              </div>
+              ${exp ? `<div class="card-sub">Expires ${exp}</div>` : ''}
             </div>
           </div>
-        </div>
-        <div class="card-actions">
-          <button class="card-btn" id="btn-add-card" onclick="startCardSetup()">Replace Card</button>
-          <button class="card-btn danger" onclick="removeCard()">Remove</button>
-        </div>
-      </div>`;
-  } else {
-    cardHtml = `
-      <div class="card-section">
-        <div class="pref-title">Payment Card</div>
-        <div class="no-card-box">
-          <p>No card on file. Add one and we'll charge you automatically after each order.</p>
-          <button class="card-btn" id="btn-add-card" onclick="startCardSetup()" style="background:var(--navy);color:white;border-color:var(--navy);margin-top:2px">+ Add Card</button>
-        </div>
-      </div>`;
+          <button class="card-btn danger" style="padding:6px 12px;font-size:12px" onclick="removeCard('${pmId}')">Remove</button>
+        </div>`;
+    }).join('');
   }
+
+  const cardHtml = `
+    <div class="card-section">
+      <div class="pref-title">Payment Cards</div>
+      ${cardsListHtml}
+      <div class="card-actions" style="margin-top:4px">
+        <button class="card-btn" id="btn-add-card" onclick="startCardSetup()" style="background:var(--navy);color:white;border-color:var(--navy)">+ Add Card</button>
+      </div>
+    </div>`;
 
   el.innerHTML = creditsHtml + cardHtml;
 }
@@ -4333,6 +4370,19 @@ async function loadAccount() {
   if (freshCust) currentCustomer = freshCust;
   globalPrefs = gp || [];
 
+  // Load all saved cards for this customer (default first)
+  if (currentCustomer?.id) {
+    const { data: cards } = await db
+      .from('customer_payment_methods')
+      .select('id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at')
+      .eq('customer_id', currentCustomer.id)
+      .order('is_default', { ascending: false })
+      .order('created_at', { ascending: false });
+    currentCards = cards || [];
+  } else {
+    currentCards = [];
+  }
+
   const first = currentProfile.first_name || '';
   const last  = currentProfile.last_name  || '';
   document.getElementById('acct-avatar').textContent = ((first[0] || '') + (last[0] || '') || '?').toUpperCase();
@@ -4360,7 +4410,16 @@ async function loadAccount() {
   const cardEl = document.getElementById('acct-menu-card-info');
   if (cardEl) {
     const credits = parseFloat(currentCustomer?.credits || 0);
-    const cardPart = currentCustomer?.card_last4 ? `•••• ${currentCustomer.card_last4}` : 'No card on file';
+    let cardPart;
+    if (currentCards.length === 0) {
+      cardPart = 'No card on file';
+    } else if (currentCards.length === 1) {
+      const dc = currentCards[0];
+      cardPart = `•••• ${dc.card_last4}`;
+    } else {
+      const dc = currentCards.find(c => c.is_default) || currentCards[0];
+      cardPart = `•••• ${dc.card_last4} + ${currentCards.length - 1} more`;
+    }
     cardEl.textContent = credits > 0 ? `${$m(credits)} credits · ${cardPart}` : cardPart;
   }
 
