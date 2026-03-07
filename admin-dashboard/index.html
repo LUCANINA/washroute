@@ -368,7 +368,7 @@
     textarea.cp-input { resize: vertical; line-height: 1.55; }
     .cp-save-btn { width: 100%; padding: 10px; font-size: 14px; font-weight: 600; border-radius: 8px; margin-top: 4px; }
     .cp-save-msg { text-align: center; font-size: 12px; margin-top: 6px; color: #059669; display: none; }
-    .cp-order-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--gray-100); font-size: 13px; flex-wrap: wrap; }
+    .cp-order-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--gray-100); font-size: 13px; flex-wrap: wrap; }
     .cp-order-row:last-child { border-bottom: none; }
     .cp-order-num { font-family: monospace; font-weight: 700; color: var(--accent); font-size: 12px; min-width: 46px; }
     .cp-order-svc { flex: 1; color: var(--gray-700); min-width: 100px; }
@@ -2684,7 +2684,7 @@
 
   <!-- ── TRANSACTIONS TAB ── -->
   <div class="cp-body" id="cptab-transactions" style="display:none">
-    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
       <button class="filter-tab active" onclick="filterCpTxns(0,this)">All</button>
       <button class="filter-tab" onclick="filterCpTxns(7,this)">7 days</button>
       <button class="filter-tab" onclick="filterCpTxns(30,this)">30 days</button>
@@ -2692,7 +2692,9 @@
       <button class="filter-tab" onclick="filterCpTxns(120,this)">120 days</button>
       <span id="cp-txn-summary" style="margin-left:auto;font-size:12px;color:var(--gray-500);font-weight:600"></span>
     </div>
-    <div id="cp-transactions-list"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
+    <div class="cp-card" style="padding:0;overflow:hidden">
+      <div id="cp-transactions-list" style="padding:4px 0"><div style="color:var(--gray-400);font-size:13px;padding:12px 16px">Loading…</div></div>
+    </div>
   </div>
 
   <!-- ── ENGAGEMENT TAB ── -->
@@ -2707,19 +2709,22 @@
 
   <!-- ── ORDERS TAB ── -->
   <div class="cp-body" id="cptab-orders" style="display:none">
-    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
       <button class="filter-tab active" id="cpof-all" onclick="filterCpOrders('all',this)">All</button>
       <button class="filter-tab" id="cpof-active" onclick="filterCpOrders('active',this)">Active</button>
       <button class="filter-tab" id="cpof-done" onclick="filterCpOrders('done',this)">Completed</button>
     </div>
-    <div id="cp-orders-list"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
+    <div class="cp-card" style="padding:0;overflow:hidden">
+      <div id="cp-orders-list" style="padding:4px 0"><div style="color:var(--gray-400);font-size:13px;padding:12px 16px">Loading…</div></div>
+    </div>
   </div>
 
   <!-- ── PREFERENCES TAB ── -->
   <div class="cp-body" id="cptab-preferences" style="display:none">
-    <div class="cp-section-head"><span>Service Preferences</span></div>
-    <div id="cp-global-prefs-list"></div>
-    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--gray-100)">
+    <div class="cp-card" style="max-width:50%">
+      <div id="cp-global-prefs-list"></div>
+    </div>
+    <div style="margin-top:20px">
       <button class="btn btn-primary cp-save-btn" onclick="savePanelPreferences()">Save Preferences</button>
       <div class="cp-save-msg" id="cp-pref-msg">✓ Saved</div>
     </div>
@@ -7796,24 +7801,24 @@ window.onload=()=>{window.print();};
     const total = rows.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
     const sumEl = document.getElementById('cp-txn-summary');
     if (sumEl) sumEl.textContent = `${rows.length} orders · ${fmtMoney(total)}`;
-    if (!rows.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:12px 0">No transactions in this period</div>'; return; }
+    if (!rows.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">No transactions in this period</div>'; return; }
     el.innerHTML = `
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
-          <tr style="border-bottom:2px solid var(--gray-200)">
-            <th style="text-align:left;padding:6px 4px;color:var(--gray-500);font-weight:600;font-size:11.5px">Order</th>
-            <th style="text-align:left;padding:6px 4px;color:var(--gray-500);font-weight:600;font-size:11.5px">Date</th>
-            <th style="text-align:left;padding:6px 4px;color:var(--gray-500);font-weight:600;font-size:11.5px">Status</th>
-            <th style="text-align:right;padding:6px 4px;color:var(--gray-500);font-weight:600;font-size:11.5px">Amount</th>
+          <tr style="border-bottom:2px solid var(--gray-100)">
+            <th style="text-align:left;padding:10px 16px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Order</th>
+            <th style="text-align:left;padding:10px 8px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Date</th>
+            <th style="text-align:left;padding:10px 8px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Status</th>
+            <th style="text-align:right;padding:10px 16px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Amount</th>
           </tr>
         </thead>
         <tbody>
           ${rows.map(o => `
             <tr style="border-bottom:1px solid var(--gray-100)">
-              <td style="padding:8px 4px;font-weight:600;color:var(--accent)">#${o.order_number || '—'}</td>
-              <td style="padding:8px 4px;color:var(--gray-600)">${fmtDate(o.created_at)}</td>
-              <td style="padding:8px 4px">${statusBadge(o.status)}</td>
-              <td style="padding:8px 4px;text-align:right;font-weight:600">${fmtMoney(o.total_amount || 0)}</td>
+              <td style="padding:9px 16px;font-weight:600;color:var(--accent)">#${o.order_number || '—'}</td>
+              <td style="padding:9px 8px;color:var(--gray-600)">${fmtDate(o.created_at)}</td>
+              <td style="padding:9px 8px">${statusBadge(o.status)}</td>
+              <td style="padding:9px 16px;text-align:right;font-weight:600">${fmtMoney(o.total_amount || 0)}</td>
             </tr>`).join('')}
         </tbody>
       </table>`;
@@ -7964,7 +7969,7 @@ window.onload=()=>{window.print();};
     if (filter==='active') filtered = data.filter(o=>activeStatuses.includes(o.status));
     if (filter==='done')   filtered = data.filter(o=>doneStatuses.includes(o.status));
     const el = document.getElementById('cp-orders-list');
-    if (!filtered.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:16px 0">No orders in this filter.</div>'; return; }
+    if (!filtered.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">No orders in this filter.</div>'; return; }
     el.innerHTML = filtered.map(o=>{
       const chargeable  = Number(o.total_amount)>0 && !o.stripe_payment_intent_id && o.status==='assembled';
       const receiptable = !!o.stripe_payment_intent_id || o.status==='delivered';
@@ -8018,9 +8023,10 @@ window.onload=()=>{window.print();};
       byCategory[p.category].push(p);
     });
 
-    container.innerHTML = Object.entries(byCategory).map(([cat, catPrefs]) => `
+    const cats = Object.entries(byCategory);
+    container.innerHTML = cats.map(([cat, catPrefs], catIdx) => `
       <div>
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin:16px 0 8px">${cat}</div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin:${catIdx===0?'0':' 18px'} 0 8px">${cat}</div>
         ${catPrefs.map(p => {
           const selOpt = customerSel[p.id] || p.options.find(o => o.is_default)?.id || '';
           return `<div class="cp-field">
