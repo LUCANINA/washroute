@@ -2598,6 +2598,10 @@ function _renderSchedWindowOpts(which) {
   const windows = draft.availableWindows;
   if (!windows.length) {
     container.innerHTML = '<div class="sched-opts"><div style="font-size:13px;color:var(--gray-400)">No windows available for this date.</div></div>';
+    // Clear any stale window label in the header so it doesn't show a time that isn't available
+    draft.pickupWindow = null;
+    const valEl = document.getElementById(`val-${which}-window`);
+    if (valEl) valEl.textContent = '—';
     return;
   }
   const cur = which === 'pickup'
