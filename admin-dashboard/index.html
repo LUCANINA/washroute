@@ -353,13 +353,15 @@
     .cp-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; padding: 0 20px; overflow-x: auto; }
     .cp-tab { padding: 11px 14px; font-size: 13px; font-weight: 500; color: var(--gray-500); cursor: pointer; border: none; background: transparent; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; white-space: nowrap; }
     .cp-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
-    .cp-body { flex: 1; overflow-y: auto; padding: 20px 24px 32px; }
+    .cp-body { flex: 1; overflow-y: auto; padding: 16px 20px 32px; background: #f5f5f7; }
     .cp-field { margin-bottom: 14px; }
+    .cp-field:last-child { margin-bottom: 0; }
     .cp-field-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); margin-bottom: 4px; }
     .cp-field-value { font-size: 14px; color: var(--gray-800); }
     .cp-field-value.empty { color: var(--gray-300); font-style: italic; }
-    .cp-section-head { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--gray-400); margin: 22px 0 12px; padding-bottom: 7px; border-bottom: 1px solid var(--gray-100); display: flex; align-items: center; justify-content: space-between; }
-    .cp-section-head:first-child { margin-top: 0; }
+    .cp-section-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--gray-400); margin: 20px 0 6px 4px; display: flex; align-items: center; justify-content: space-between; padding-bottom: 0; border-bottom: none; }
+    .cp-section-head:first-child { margin-top: 4px; }
+    .cp-card { background: #fff; border-radius: 12px; border: 1px solid rgba(0,0,0,.06); padding: 14px 16px; margin-bottom: 2px; }
     .cp-input { display: block; width: 100%; padding: 8px 10px; font-size: 13.5px; border: 1px solid var(--gray-200); border-radius: 7px; background: white; color: var(--gray-900); outline: none; box-sizing: border-box; font-family: inherit; transition: border-color .12s; }
     .cp-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
     .cp-input::placeholder { color: var(--gray-300); }
@@ -2520,32 +2522,34 @@
   <!-- ── CONTACT TAB ── -->
   <div class="cp-body" id="cptab-contact">
     <div class="cp-section-head"><span>Name &amp; Contact</span></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-      <div class="cp-field"><div class="cp-field-label">First Name</div><input class="cp-input" id="cpe-first" type="text" placeholder="First name"></div>
-      <div class="cp-field"><div class="cp-field-label">Last Name</div><input class="cp-input" id="cpe-last" type="text" placeholder="Last name"></div>
-    </div>
-    <div class="cp-field"><div class="cp-field-label">Phone</div><input class="cp-input" id="cpe-phone" type="tel" placeholder="Phone number"></div>
-    <div class="cp-field"><div class="cp-field-label">Email</div><input class="cp-input" id="cpe-email" type="email" placeholder="Email address"></div>
-    <div id="cp-app-status" style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;margin-bottom:12px;font-size:13px;min-height:38px"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-      <div class="cp-field">
-        <div class="cp-field-label">Price List</div>
-        <select class="cp-input" id="cpe-type">
-          <option value="Delivery">Delivery</option>
-        </select>
+    <div class="cp-card">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+        <div class="cp-field"><div class="cp-field-label">First Name</div><input class="cp-input" id="cpe-first" type="text" placeholder="First name"></div>
+        <div class="cp-field"><div class="cp-field-label">Last Name</div><input class="cp-input" id="cpe-last" type="text" placeholder="Last name"></div>
       </div>
-      <div class="cp-field">
-        <div class="cp-field-label">How They Found Us</div>
-        <select class="cp-input" id="cpe-source">
-          <option value="">— Select —</option>
-          <option value="google">Google</option>
-          <option value="instagram">Instagram</option>
-          <option value="nextdoor">Nextdoor</option>
-          <option value="facebook">Facebook</option>
-          <option value="word_of_mouth">Word of Mouth</option>
-          <option value="referral">Referral</option>
-          <option value="other">Other</option>
-        </select>
+      <div class="cp-field"><div class="cp-field-label">Phone</div><input class="cp-input" id="cpe-phone" type="tel" placeholder="Phone number"></div>
+      <div class="cp-field"><div class="cp-field-label">Email</div><input class="cp-input" id="cpe-email" type="email" placeholder="Email address"></div>
+      <div id="cp-app-status" style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;margin-bottom:12px;font-size:13px;min-height:38px"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+        <div class="cp-field">
+          <div class="cp-field-label">Price List</div>
+          <select class="cp-input" id="cpe-type">
+            <option value="Delivery">Delivery</option>
+          </select>
+        </div>
+        <div class="cp-field">
+          <div class="cp-field-label">How They Found Us</div>
+          <select class="cp-input" id="cpe-source">
+            <option value="">— Select —</option>
+            <option value="google">Google</option>
+            <option value="instagram">Instagram</option>
+            <option value="nextdoor">Nextdoor</option>
+            <option value="facebook">Facebook</option>
+            <option value="word_of_mouth">Word of Mouth</option>
+            <option value="referral">Referral</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
       </div>
     </div>
 
@@ -2555,7 +2559,7 @@
     </div>
     <div id="cp-addresses"></div>
     <!-- Inline add-address form -->
-    <div id="cp-add-addr-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-bottom:12px">
+    <div id="cp-add-addr-form" style="display:none;background:#fff;border:1px solid rgba(0,0,0,.06);border-radius:12px;padding:14px 16px;margin-bottom:12px">
       <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">New Address</div>
       <div class="cp-field"><input class="cp-input" id="cpna-label" placeholder="Label (e.g. Home, Work)"></div>
       <div class="cp-field"><input class="cp-input" id="cpna-line1" placeholder="Street address"></div>
@@ -2582,86 +2586,97 @@
   <div class="cp-body" id="cptab-billing" style="display:none">
 
     <!-- Billing Type + Payment Method -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px;margin-top:4px">
-      <div class="cp-field">
-        <div class="cp-field-label">Billing Type</div>
-        <select class="cp-input" id="cpb-billing-type">
-          <option value="automatic">Automatic</option>
-          <option value="on_account">On Account</option>
-        </select>
-      </div>
-      <div class="cp-field">
-        <div class="cp-field-label">Payment Method</div>
-        <select class="cp-input" id="cpb-payment-method">
-          <option value="credit_card">Credit Card</option>
-          <option value="check">Check</option>
-          <option value="ach">ACH</option>
-        </select>
+    <div class="cp-section-head"><span>Billing</span></div>
+    <div class="cp-card">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+        <div class="cp-field">
+          <div class="cp-field-label">Billing Type</div>
+          <select class="cp-input" id="cpb-billing-type">
+            <option value="automatic">Automatic</option>
+            <option value="on_account">On Account</option>
+          </select>
+        </div>
+        <div class="cp-field">
+          <div class="cp-field-label">Payment Method</div>
+          <select class="cp-input" id="cpb-payment-method">
+            <option value="credit_card">Credit Card</option>
+            <option value="check">Check</option>
+            <option value="ach">ACH</option>
+          </select>
+        </div>
       </div>
     </div>
 
     <!-- Discount -->
     <div class="cp-section-head"><span>Discount</span></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-      <div class="cp-field">
-        <select class="cp-input" id="cpb-discount">
-          <option value="">— None —</option>
-        </select>
-      </div>
-      <div class="cp-field">
-        <label style="display:flex;align-items:center;gap:5px;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);cursor:pointer;margin-top:6px">
-          <input type="checkbox" id="cpb-fee-exempt" style="width:14px;height:14px;accent-color:var(--accent)"> Fee/Min Exempt
-        </label>
-        <div style="font-size:12px;color:var(--gray-400);margin-top:4px">Customer is not charged pickup fees</div>
+    <div class="cp-card">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+        <div class="cp-field">
+          <select class="cp-input" id="cpb-discount">
+            <option value="">— None —</option>
+          </select>
+        </div>
+        <div class="cp-field">
+          <label style="display:flex;align-items:center;gap:5px;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);cursor:pointer;margin-top:6px">
+            <input type="checkbox" id="cpb-fee-exempt" style="width:14px;height:14px;accent-color:var(--accent)"> Fee/Min Exempt
+          </label>
+          <div style="font-size:12px;color:var(--gray-400);margin-top:4px">Customer is not charged pickup fees</div>
+        </div>
       </div>
     </div>
 
     <!-- Payment on File -->
     <div class="cp-section-head"><span>Payment on File</span></div>
-    <div id="cp-payment-info" style="margin-bottom:4px">—</div>
-    <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
-    <div id="cp-card-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px;margin-bottom:8px">
-      <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">Enter Card Details</div>
-      <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:7px;margin-bottom:10px;font-size:14px"></div>
-      <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
-      <div style="display:flex;gap:8px">
-        <button id="cp-card-submit-btn" class="btn btn-primary" style="padding:7px 16px;font-size:13px" onclick="adminSubmitCard()">Save Card</button>
-        <button class="btn btn-ghost" style="padding:7px 13px;font-size:13px" onclick="adminCloseCardForm()">Cancel</button>
+    <div class="cp-card">
+      <div id="cp-payment-info" style="margin-bottom:4px">—</div>
+      <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
+      <div id="cp-card-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px">
+        <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">Enter Card Details</div>
+        <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:7px;margin-bottom:10px;font-size:14px"></div>
+        <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
+        <div style="display:flex;gap:8px">
+          <button id="cp-card-submit-btn" class="btn btn-primary" style="padding:7px 16px;font-size:13px" onclick="adminSubmitCard()">Save Card</button>
+          <button class="btn btn-ghost" style="padding:7px 13px;font-size:13px" onclick="adminCloseCardForm()">Cancel</button>
+        </div>
       </div>
     </div>
 
     <!-- Credits -->
     <div class="cp-section-head"><span>Credits</span></div>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-      <div style="font-size:22px;font-weight:700;color:var(--gray-900)" id="cpb-credits-display">$0.00</div>
-      <div style="display:flex;gap:6px;margin-left:4px">
-        <button class="btn btn-ghost" style="padding:5px 12px;font-size:12.5px" onclick="showCreditAdjust('add')">+ Add</button>
-        <button class="btn btn-ghost" style="padding:5px 12px;font-size:12.5px" onclick="showCreditAdjust('remove')">− Remove</button>
+    <div class="cp-card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+        <div style="font-size:22px;font-weight:700;color:var(--gray-900)" id="cpb-credits-display">$0.00</div>
+        <div style="display:flex;gap:6px;margin-left:4px">
+          <button class="btn btn-ghost" style="padding:5px 12px;font-size:12.5px" onclick="showCreditAdjust('add')">+ Add</button>
+          <button class="btn btn-ghost" style="padding:5px 12px;font-size:12.5px" onclick="showCreditAdjust('remove')">− Remove</button>
+        </div>
       </div>
-    </div>
-    <div id="cpb-credit-adjust-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:12px;margin-bottom:14px">
-      <div style="font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:8px" id="cpb-adjust-label">Add Credits</div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <span style="font-size:14px;color:var(--gray-500)">$</span>
-        <input class="cp-input" id="cpb-adjust-amount" type="number" min="0" step="0.01" placeholder="0.00" style="width:100px">
-        <input class="cp-input" id="cpb-adjust-note" type="text" placeholder="Reason (optional)" style="flex:1">
-        <button class="btn btn-primary" style="padding:6px 14px;font-size:12.5px" onclick="applyCreditAdjust()">Apply</button>
-        <button class="btn btn-ghost" style="padding:6px 10px;font-size:12.5px" onclick="hideCreditAdjust()">✕</button>
+      <div id="cpb-credit-adjust-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:12px;margin-top:10px">
+        <div style="font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:8px" id="cpb-adjust-label">Add Credits</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:14px;color:var(--gray-500)">$</span>
+          <input class="cp-input" id="cpb-adjust-amount" type="number" min="0" step="0.01" placeholder="0.00" style="width:100px">
+          <input class="cp-input" id="cpb-adjust-note" type="text" placeholder="Reason (optional)" style="flex:1">
+          <button class="btn btn-primary" style="padding:6px 14px;font-size:12.5px" onclick="applyCreditAdjust()">Apply</button>
+          <button class="btn btn-ghost" style="padding:6px 10px;font-size:12.5px" onclick="hideCreditAdjust()">✕</button>
+        </div>
       </div>
     </div>
 
     <!-- Default Tip -->
     <div class="cp-section-head"><span>Default Tip</span></div>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
-      <input class="cp-input" id="cpb-tip-amount" type="number" min="0" step="0.01" placeholder="0" style="width:90px">
-      <div class="filter-tabs" style="flex-shrink:0">
-        <button class="filter-tab active" id="cpb-tip-dollar" onclick="setCpTipType('$',this)">$</button>
-        <button class="filter-tab" id="cpb-tip-pct" onclick="setCpTipType('%',this)">%</button>
+    <div class="cp-card">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="cp-input" id="cpb-tip-amount" type="number" min="0" step="0.01" placeholder="0" style="width:90px">
+        <div class="filter-tabs" style="flex-shrink:0">
+          <button class="filter-tab active" id="cpb-tip-dollar" onclick="setCpTipType('$',this)">$</button>
+          <button class="filter-tab" id="cpb-tip-pct" onclick="setCpTipType('%',this)">%</button>
+        </div>
+        <span style="font-size:12px;color:var(--gray-400)">Set by customer in their app</span>
       </div>
-      <span style="font-size:12px;color:var(--gray-400)">Set by customer in their app</span>
     </div>
 
-    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--gray-100)">
+    <div style="margin-top:20px">
       <button class="btn btn-primary cp-save-btn" onclick="saveBilling()">Save Billing</button>
       <div class="cp-save-msg" id="cp-billing-msg">✓ Saved</div>
     </div>
@@ -7531,7 +7546,7 @@ window.onload=()=>{window.print();};
   }
 
   function addrCardHTML(a) {
-    return `<div id="addr-card-${a.id}" style="margin-bottom:8px;padding:10px 12px;background:var(--gray-50);border-radius:8px;border:1px solid var(--gray-200)">
+    return `<div id="addr-card-${a.id}" style="margin-bottom:8px;padding:12px 16px;background:#fff;border-radius:12px;border:1px solid rgba(0,0,0,.06)">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
         <span style="font-size:11px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em">${esc(a.label||'Address')}${a.is_default?' · <span style="color:var(--green);text-transform:none;font-weight:500">Default</span>':''}</span>
         <div style="display:flex;gap:8px;align-items:center">
