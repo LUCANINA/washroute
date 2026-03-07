@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
   <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://js.stripe.com/v3/"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -2550,7 +2551,17 @@
 
     <div class="cp-section-head"><span>Payment on File</span></div>
     <div id="cp-payment-info" style="margin-bottom:4px">—</div>
-    <div id="cp-card-actions" style="display:flex;gap:8px;margin-top:8px;margin-bottom:4px"></div>
+    <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
+    <!-- Inline card entry form (shown when admin clicks "Enter Card Manually") -->
+    <div id="cp-card-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px;margin-bottom:8px">
+      <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">Enter Card Details</div>
+      <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:7px;margin-bottom:10px;font-size:14px"></div>
+      <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
+      <div style="display:flex;gap:8px">
+        <button id="cp-card-submit-btn" class="btn btn-primary" style="padding:7px 16px;font-size:13px" onclick="adminSubmitCard()">Save Card</button>
+        <button class="btn btn-ghost" style="padding:7px 13px;font-size:13px" onclick="adminCloseCardForm()">Cancel</button>
+      </div>
+    </div>
 
     <div class="cp-section-head">
       <span>Addresses</span>
@@ -2882,6 +2893,7 @@
   // ── SUPABASE INIT ──
   const SUPA_URL      = 'https://umjpbuxrdydwejqtensq.supabase.co';
   const SUPA_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
+  const STRIPE_PK     = 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B';
   const { createClient } = supabase;
   const db = createClient(SUPA_URL, SUPA_ANON_KEY);
 
@@ -4660,6 +4672,152 @@ window.onload=()=>{window.print();};
       if (btn) { btn.disabled = false; btn.textContent = originalBtnText; }
     }
   }
+
+  // ── Embedded Stripe Card Entry ─────────────────────────────────────────────
+  let _stripeInstance = null;
+  let _cardElement    = null;
+  let _cardCustomerId = null;
+
+  async function adminInitCardForm(customerId) {
+    _cardCustomerId = customerId;
+
+    // Show the form, hide any previous errors
+    const formEl   = document.getElementById('cp-card-form');
+    const errEl    = document.getElementById('cp-card-errors');
+    const submitBtn = document.getElementById('cp-card-submit-btn');
+    errEl.style.display = 'none';
+    errEl.textContent   = '';
+    submitBtn.disabled  = false;
+    submitBtn.textContent = 'Save Card';
+    formEl.style.display = 'block';
+    formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    // Destroy any existing Stripe element first
+    if (_cardElement) { try { _cardElement.destroy(); } catch(e){} _cardElement = null; }
+
+    // Initialise Stripe + mount Card Element
+    if (!_stripeInstance) _stripeInstance = Stripe(STRIPE_PK);
+    const elements  = _stripeInstance.elements();
+    _cardElement = elements.create('card', {
+      style: {
+        base: {
+          fontSize: '14px',
+          fontFamily: 'inherit',
+          color: '#1e293b',
+          '::placeholder': { color: '#94a3b8' },
+        },
+        invalid: { color: '#ef4444' },
+      },
+    });
+    _cardElement.mount('#cp-card-element');
+
+    // Listen for validation errors inside the element
+    _cardElement.on('change', (event) => {
+      const errEl = document.getElementById('cp-card-errors');
+      if (event.error) {
+        errEl.textContent   = event.error.message;
+        errEl.style.display = 'block';
+      } else {
+        errEl.style.display = 'none';
+        errEl.textContent   = '';
+      }
+    });
+
+    // Get a SetupIntent client secret from the server
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/create-setup-intent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ customerId }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Could not start card setup');
+      // Store clientSecret on the form for use at submit time
+      formEl.dataset.clientSecret = result.clientSecret;
+    } catch (e) {
+      errEl.textContent   = 'Error: ' + e.message;
+      errEl.style.display = 'block';
+    }
+  }
+
+  function adminCloseCardForm() {
+    const formEl = document.getElementById('cp-card-form');
+    formEl.style.display = 'none';
+    if (_cardElement) { try { _cardElement.destroy(); } catch(e){} _cardElement = null; }
+    _cardCustomerId = null;
+  }
+
+  async function adminSubmitCard() {
+    const formEl    = document.getElementById('cp-card-form');
+    const errEl     = document.getElementById('cp-card-errors');
+    const submitBtn = document.getElementById('cp-card-submit-btn');
+    const clientSecret = formEl.dataset.clientSecret;
+
+    if (!clientSecret) {
+      errEl.textContent   = 'Card setup not ready yet — please wait a moment and try again.';
+      errEl.style.display = 'block';
+      return;
+    }
+    if (!_cardElement) {
+      errEl.textContent   = 'Card form is not ready. Please close and re-open.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    submitBtn.disabled    = true;
+    submitBtn.textContent = 'Saving…';
+    errEl.style.display   = 'none';
+
+    try {
+      // Confirm the SetupIntent with the card details
+      const { setupIntent, error } = await _stripeInstance.confirmCardSetup(clientSecret, {
+        payment_method: { card: _cardElement },
+      });
+
+      if (error) {
+        errEl.textContent   = error.message;
+        errEl.style.display = 'block';
+        submitBtn.disabled    = false;
+        submitBtn.textContent = 'Save Card';
+        return;
+      }
+
+      // SetupIntent confirmed — now persist the payment method in our DB
+      const pmId = typeof setupIntent.payment_method === 'string'
+        ? setupIntent.payment_method
+        : setupIntent.payment_method?.id;
+
+      const res = await fetch(`${SUPA_URL}/functions/v1/save-payment-method`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ customerId: _cardCustomerId, paymentMethodId: pmId }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Failed to save card');
+
+      // Update local cache
+      const cust = allCustomers?.find(c => c.id === _cardCustomerId);
+      if (cust) {
+        cust.card_last4     = result.card.last4;
+        cust.card_brand     = result.card.brand;
+        cust.card_exp_month = result.card.exp_month;
+        cust.card_exp_year  = result.card.exp_year;
+      }
+
+      const refreshId = _cardCustomerId;
+      showToast(`Card saved — ${result.card.brand} ···· ${result.card.last4}`, 'success');
+      adminCloseCardForm();
+      // Refresh billing section to show new card
+      openCustomerPanel(refreshId);
+
+    } catch (e) {
+      errEl.textContent   = 'Error: ' + e.message;
+      errEl.style.display = 'block';
+      submitBtn.disabled    = false;
+      submitBtn.textContent = 'Save Card';
+    }
+  }
+  // ── End Stripe Card Entry ──────────────────────────────────────────────────
 
   async function sendAppInvite(customerId, email) {
     if (!email) { showToast('No email on file for this customer.', 'error'); return; }
@@ -7313,11 +7471,13 @@ window.onload=()=>{window.print();};
       payEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:7px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:7px;padding:7px 12px;font-size:13px">💳 <span>${brand} ···· ${c.card_last4}${exp}</span>${expired?'<span style="color:var(--red);font-size:11px;font-weight:600">EXPIRED</span>':''}</span>`;
       actEl.innerHTML = `
         <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${c.id}','${c.email_cache||''}')">📧 Send New Card Link</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminInitCardForm('${c.id}')">💳 Replace Card Manually</button>
         <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px;color:var(--red);border-color:#fecaca" onclick="adminRemoveCard('${c.id}')">Remove</button>`;
     } else {
       payEl.innerHTML = '<span style="color:var(--gray-400);font-style:italic;font-size:13px">No card on file</span>';
       actEl.innerHTML = `
-        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${c.id}','${c.email_cache||''}')">📧 Send Card Setup Link</button>`;
+        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${c.id}','${c.email_cache||''}')">📧 Send Card Setup Link</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminInitCardForm('${c.id}')">💳 Enter Card Manually</button>`;
     }
 
     // Addresses
