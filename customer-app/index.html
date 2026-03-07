@@ -591,7 +591,8 @@
     .addr-picker-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 950; display: flex; align-items: flex-end; }
     .addr-picker-sheet { background: white; border-radius: 20px 20px 0 0; width: 100%; padding: 20px 20px 40px; max-height: 85vh; overflow-y: auto; box-sizing: border-box; }
     .addr-picker-card { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1.5px solid var(--gray-200); border-radius: var(--radius); margin-bottom: 10px; cursor: pointer; transition: all .15s; }
-    .addr-picker-card:hover, .addr-picker-card.selected { border-color: var(--accent); background: #f5f4ff; }
+    .addr-picker-card.selected { border-color: var(--accent); background: #f5f4ff; }
+    @media (hover: hover) { .addr-picker-card:hover { border-color: var(--accent); background: #f5f4ff; } }
     .addr-picker-card-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
     .addr-picker-card-body { flex: 1; }
     .addr-picker-card-label { font-size: 14px; font-weight: 700; color: var(--text); }
@@ -2572,6 +2573,10 @@ async function selectSchedPickupDate(iso) {
   draft.pickupWindow   = null;
   draft.deliveryDate   = null;
   draft.deliveryWindow = null;
+
+  // Immediately clear the window label so no stale time shows during the async fetch
+  const winValEl = document.getElementById('val-pickup-window');
+  if (winValEl) winValEl.textContent = '—';
 
   const valDate = document.getElementById('val-pickup-date');
   if (valDate) valDate.textContent = _schedDateLabel(iso);
