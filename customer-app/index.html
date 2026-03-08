@@ -1748,6 +1748,7 @@ db.auth.onAuthStateChange(async (event, session) => {
     // Show auth screen so existing customers can sign in.
     // New visitors click "Continue without an account" to start the order flow.
     showScreen('auth');
+    showAuthPanel('hero'); // always return to the main magic-link panel, not email
     loadServices(); // load in background so order flow is ready when they tap
   }
 });
@@ -2119,11 +2120,12 @@ async function checkAddress(knownLat, knownLng, knownAddr) {
       };
     }
 
-    // Check zone via PostGIS RPC
-    const { data: zones } = await db.rpc('check_point_in_zone', { lat, lng });
-    const zone = zones?.[0];
+    // Check zone — polygon first, city-name fallback for zones like Oakland with no polygon
+    const { data: zoneId } = await db.rpc('get_zone_for_point', {
+      lat, lng, p_city: draft._addrComponents?.city || null
+    });
 
-    if (!zone) {
+    if (!zoneId) {
       zr.className  = 'zone-result zone-err';
       zr.innerHTML  = "Sorry, we don't serve that area yet. <br><span style='font-size:13px;font-weight:400'>We're expanding — check back soon or call (510) 842-3560.</span>";
       zr.style.display = '';
@@ -2132,7 +2134,7 @@ async function checkAddress(knownLat, knownLng, knownAddr) {
       draft.address = addr.split(',').slice(0,3).join(',');
       draft.lat     = lat;
       draft.lng     = lng;
-      draft.zoneId  = zone.zone_id;
+      draft.zoneId  = zoneId;
       zr.className  = 'zone-result zone-ok';
       zr.innerHTML  = `✅ <strong>Great news — we serve your area!</strong><br><span style="font-size:13px;font-weight:400">${escHtml(draft.address)}</span>`;
       zr.style.display = '';
