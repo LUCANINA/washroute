@@ -37,6 +37,86 @@
     .main-content { flex: 1; overflow-y: auto; padding-bottom: 84px; -webkit-overflow-scrolling: touch; }
 
     /* ── AUTH ── */
+    /* ── AUTH — desktop split layout ── */
+    .auth-desktop-brand { display: none; } /* hidden on mobile */
+    .auth-panels-wrap   { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
+
+    @media (min-width: 800px) {
+      #screen-auth { flex-direction: row !important; min-height: 100vh; overflow: hidden; }
+
+      /* Left: brand/marketing panel */
+      .auth-desktop-brand {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        width: 44%;
+        min-width: 320px;
+        max-width: 520px;
+        position: relative;
+        overflow: hidden;
+        background: var(--navy);
+        flex-shrink: 0;
+      }
+      .auth-desktop-brand-img {
+        position: absolute; inset: 0;
+        width: 100%; height: 100%;
+        object-fit: cover; object-position: center 35%;
+        opacity: .18;
+      }
+      .auth-desktop-brand-content {
+        position: relative;
+        z-index: 1;
+        padding: 48px 40px;
+        color: white;
+      }
+      .auth-desktop-brand-logo {
+        height: 48px;
+        object-fit: contain;
+        margin-bottom: 40px;
+        display: block;
+      }
+      .auth-desktop-brand h2 {
+        font-size: 32px; font-weight: 900; line-height: 1.15;
+        margin: 0 0 14px; color: white;
+      }
+      .auth-desktop-brand p {
+        font-size: 15px; color: rgba(255,255,255,.65);
+        margin: 0 0 32px; line-height: 1.5;
+      }
+      .auth-desktop-perks { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 14px; }
+      .auth-desktop-perks li {
+        display: flex; align-items: flex-start; gap: 12px;
+        font-size: 14px; color: rgba(255,255,255,.85); line-height: 1.4;
+      }
+      .auth-desktop-perks li span.perk-icon {
+        font-size: 18px; flex-shrink: 0; margin-top: 1px;
+      }
+      .auth-desktop-brand-footer {
+        position: relative; z-index: 1;
+        padding: 20px 40px 32px;
+        font-size: 12px; color: rgba(255,255,255,.35);
+      }
+
+      /* Right: app panels */
+      .auth-panels-wrap {
+        flex: 1;
+        overflow-y: auto;
+        min-height: 100vh;
+        background: white;
+      }
+      .auth-panel { height: auto; min-height: 100vh; }
+
+      /* On desktop, hero panel hides its photo (marketing panel replaces it) */
+      .auth-hero-bg { display: none !important; }
+      .auth-bottom-sheet {
+        border-radius: 0 !important;
+        padding: 56px 48px 48px !important;
+        max-width: 440px;
+        margin: 0 auto;
+      }
+      .auth-headline { font-size: 26px !important; }
+    }
+
     /* ── AUTH — hero panel ── */
     .auth-panel { display: none; flex-direction: column; height: 100%; overflow-y: auto; }
     .auth-panel.active { display: flex; }
@@ -619,6 +699,26 @@
   <!-- ═══ AUTH ═══ -->
   <div class="screen active" id="screen-auth">
 
+    <!-- ══ DESKTOP MARKETING PANEL (hidden on mobile) ══ -->
+    <div class="auth-desktop-brand">
+      <img class="auth-desktop-brand-img" src="../assets/hero.png" alt="">
+      <div class="auth-desktop-brand-content">
+        <img class="auth-desktop-brand-logo" src="../assets/logo_white.png" alt="Family Laundry"
+             onerror="this.style.display='none'">
+        <h2>Premium Wash &amp; Fold for busy households.</h2>
+        <p>The Bay Area's favorite laundry service — we pick up, wash, fold, and deliver.</p>
+        <ul class="auth-desktop-perks">
+          <li><span class="perk-icon">🚐</span><div><strong>Free pickup &amp; delivery</strong><br>We come to you — no drop-off required.</div></li>
+          <li><span class="perk-icon">👕</span><div><strong>Washed, dried &amp; folded</strong><br>Returned clean and neatly folded within 24 hours.</div></li>
+          <li><span class="perk-icon">📱</span><div><strong>Easy online booking</strong><br>Schedule in minutes, track every step.</div></li>
+        </ul>
+      </div>
+      <div class="auth-desktop-brand-footer">© Family Laundry · Oakland, CA · (510) 588-4102</div>
+    </div>
+
+    <!-- ══ AUTH PANELS WRAPPER ══ -->
+    <div class="auth-panels-wrap">
+
     <!-- ══ PANEL 1: Hero + Phone entry ══ -->
     <div class="auth-panel active" id="auth-panel-hero">
       <div class="auth-hero-bg">
@@ -742,7 +842,8 @@
       </div>
     </div>
 
-  </div>
+    </div><!-- /auth-panels-wrap -->
+  </div><!-- /screen-auth -->
 
   <!-- ═══ HOME ═══ -->
   <div class="screen" id="screen-home">
