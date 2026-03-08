@@ -451,6 +451,8 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(16px); background: #1a1a2e; color: white; padding: 11px 20px; border-radius: 999px; font-size: 14px; font-weight: 500; opacity: 0; transition: all .28s; z-index: 999; white-space: nowrap; max-width: 340px; text-align: center; }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .toast.toast-error   { background: #c0392b; }
+    .toast.toast-success { background: #1a7a4a; }
     textarea.field-input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 14px; font-family: inherit; resize: none; outline: none; min-height: 72px; transition: border-color .2s; }
     textarea.field-input:focus { border-color: var(--navy); }
     /* ── FREQUENCY DROPDOWN ── */
@@ -1474,9 +1476,22 @@ let toastTimer;
 function toast(msg, dur = 3200) {
   const t = document.getElementById('toast');
   t.textContent = msg;
+  t.classList.remove('toast-error', 'toast-success');
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), dur);
+}
+// Typed variant: showToast(msg, 'error' | 'success' | '')
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.remove('toast-error', 'toast-success');
+  if (type === 'error')   t.classList.add('toast-error');
+  if (type === 'success') t.classList.add('toast-success');
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  const dur = type === 'error' ? 4000 : 3200;
+  toastTimer = setTimeout(() => { t.classList.remove('show'); }, dur);
 }
 
 function $m(n) { return '$' + (+(n || 0)).toFixed(2); }
