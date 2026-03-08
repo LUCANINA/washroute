@@ -991,44 +991,44 @@
 
         <!-- ── OVERVIEW ── -->
         <div class="page active" id="page-overview">
-          <div class="stats-grid">
-            <div class="stat-card stat-card-link" onclick="showPage('customers',document.getElementById('nav-customers'))" title="View customers">
-              <div class="stat-label">Total Customers</div>
-              <div class="stat-value" id="stat-customers">—</div>
-              <div class="stat-delta" id="stat-customers-sub">Loading…</div>
+          <!-- Today's snapshot — 3 stat cards -->
+          <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+            <div class="stat-card stat-card-link" onclick="showPage('orders',document.getElementById('nav-orders'))" title="View today's orders">
+              <div class="stat-label">Expected Orders Today</div>
+              <div class="stat-value" id="stat-today-orders">—</div>
+              <div class="stat-delta" id="stat-today-orders-sub">Loading…</div>
             </div>
-            <div class="stat-card stat-card-link" onclick="showPage('orders',document.getElementById('nav-orders'))" title="View orders">
-              <div class="stat-label">Active Orders</div>
-              <div class="stat-value" id="stat-orders">—</div>
-              <div class="stat-delta" id="stat-orders-sub">Loading…</div>
-            </div>
-            <div class="stat-card stat-card-link" onclick="showPage('routes',document.getElementById('nav-routes'))" title="View routes">
-              <div class="stat-label">Routes Today</div>
-              <div class="stat-value" id="stat-routes">—</div>
-              <div class="stat-delta" id="stat-routes-sub">Loading…</div>
+            <div class="stat-card stat-card-link" onclick="showPage('orders',document.getElementById('nav-orders'))" title="View today's orders">
+              <div class="stat-label">Expected Bags Today</div>
+              <div class="stat-value" id="stat-today-bags">—</div>
+              <div class="stat-delta" id="stat-today-bags-sub">Loading…</div>
             </div>
             <div class="stat-card stat-card-link" onclick="showPage('reports',document.getElementById('nav-reports'))" title="View reports">
-              <div class="stat-label">Revenue this month</div>
-              <div class="stat-value" id="stat-revenue">—</div>
-              <div class="stat-delta" id="stat-revenue-sub">Loading…</div>
+              <div class="stat-label">Expected Revenue Today</div>
+              <div class="stat-value" id="stat-today-revenue">—</div>
+              <div class="stat-delta" id="stat-today-revenue-sub">Loading…</div>
             </div>
           </div>
+
+          <!-- Main two-col: new customers + recent orders -->
           <div class="two-col">
             <div class="card">
               <div class="card-header">
-                <div><div class="card-title">Recent Orders</div><div class="card-sub">Last 10</div></div>
+                <div><div class="card-title">New Customers</div><div class="card-sub">Last 10 registered</div></div>
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('customers',document.getElementById('nav-customers'))">View all</button>
+              </div>
+              <div id="new-customers-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <div><div class="card-title">Recent Orders</div><div class="card-sub">Last 10 placed</div></div>
                 <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('orders',document.getElementById('nav-orders'))">View all</button>
               </div>
               <div id="recent-orders-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
-            <div class="card">
-              <div class="card-header">
-                <div><div class="card-title">Today's Routes</div><div class="card-sub" id="today-date"></div></div>
-                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('routes',document.getElementById('nav-routes'))">View all</button>
-              </div>
-              <div id="today-routes-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
-            </div>
           </div>
+
+          <!-- Open Issues -->
           <div class="card issues-panel">
             <div class="card-header">
               <div>
@@ -3213,7 +3213,7 @@
       const name = parts.map(p=>p[0].toUpperCase()+p.slice(1)).join(' ');
       document.getElementById('user-name').textContent = name;
       document.getElementById('user-avatar').textContent = (parts[0]||'?')[0].toUpperCase() + (parts[1]||'?')[0].toUpperCase();
-      document.getElementById('today-date').textContent = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+      // today-date element removed with overview redesign
       // routes-date-label and r-date removed — routes page uses run_date now
       loadAll();
       startNewOrderListener();
@@ -3345,39 +3345,44 @@
   // ── OVERVIEW ──
   async function loadOverview() {
     const todayStr = today();
+    const tomorrowStr = (() => { const d = new Date(todayStr + 'T12:00:00'); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); })();
     const monthStart = todayStr.slice(0,7) + '-01';
 
     const [
       { count: custCount },
       { data: activeOrders },
-      { data: todayRoutes },
-      { data: revenue }
+      { data: todayOrders }
     ] = await Promise.all([
       db.from('customers').select('*', { count: 'exact', head: true }),
       db.from('orders').select('id,status').not('status','in','("delivered","cancelled")'),
-      db.from('routes').select('id, name, status, total_stops, color').eq('run_date', todayStr),
-      db.from('orders').select('total_amount').eq('status','delivered').gte('created_at', monthStart)
+      db.from('orders')
+        .select('id, total_bags, total_amount, status')
+        .gte('pickup_window_start', todayStr + 'T00:00:00')
+        .lt('pickup_window_start',  tomorrowStr + 'T00:00:00')
+        .not('status','in','("cancelled")')
     ]);
 
-    document.getElementById('stat-customers').textContent = custCount ?? 0;
-    document.getElementById('stat-customers-sub').textContent = 'Total registered';
+    // Today's snapshot stats
+    const todayCount   = todayOrders?.length ?? 0;
+    const todayBags    = (todayOrders||[]).reduce((s,o)=>s+(o.total_bags||0),0);
+    const todayRevenue = (todayOrders||[]).reduce((s,o)=>s+parseFloat(o.total_amount||0),0);
+    const delivered    = (todayOrders||[]).filter(o=>o.status==='delivered').length;
 
-    document.getElementById('stat-orders').textContent = activeOrders?.length ?? 0;
-    document.getElementById('stat-orders-sub').textContent = `${(activeOrders||[]).filter(o=>o.status==='ready_for_pickup').length} ready for pickup`;
+    document.getElementById('stat-today-orders').textContent = todayCount;
+    document.getElementById('stat-today-orders-sub').textContent = delivered ? `${delivered} already delivered` : 'Scheduled for today';
 
-    document.getElementById('stat-routes').textContent = todayRoutes?.length ?? 0;
-    const inProg = (todayRoutes||[]).filter(r=>r.status==='in_progress').length;
-    document.getElementById('stat-routes-sub').textContent = inProg ? `${inProg} in progress` : 'No active routes';
+    document.getElementById('stat-today-bags').textContent = todayBags;
+    document.getElementById('stat-today-bags-sub').textContent = todayCount ? `across ${todayCount} order${todayCount!==1?'s':''}` : 'No pickups today';
 
-    const mtd = (revenue||[]).reduce((s,o)=>s+parseFloat(o.total_amount||0),0);
-    document.getElementById('stat-revenue').textContent = fmtMoney(mtd);
-    document.getElementById('stat-revenue-sub').textContent = `${(revenue||[]).length} orders this month`;
+    document.getElementById('stat-today-revenue').textContent = fmtMoney(todayRevenue);
+    document.getElementById('stat-today-revenue-sub').textContent = todayCount ? `avg ${fmtMoney(todayRevenue/(todayCount||1))} per order` : 'No pickups today';
 
+    // Keep nav badges up to date
     document.getElementById('badge-customers').textContent = custCount ?? 0;
-    document.getElementById('badge-orders').textContent = activeOrders?.length ?? 0;
+    document.getElementById('badge-orders').textContent    = activeOrders?.length ?? 0;
 
+    loadNewCustomers();
     loadRecentOrders();
-    loadTodayRoutesWidget();
     loadOverviewIssues();
     loadRecurringOverview();
   }
@@ -3386,7 +3391,7 @@
     const { data } = await db.from('orders')
       .select(`id, order_number, status, total_amount, created_at, customers(id, first_name_cache, last_name_cache)`)
       .order('created_at', { ascending: false })
-      .limit(8);
+      .limit(10);
 
     const el = document.getElementById('recent-orders-body');
     if (!data || data.length === 0) {
@@ -3398,7 +3403,6 @@
         const cust = o.customers;
         const fn = cust?.first_name_cache || '';
         const ln = cust?.last_name_cache  || '';
-        const custId = cust?.id || '';
         // Open order detail panel when clicking a recent order row
         const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
         return `<tr ${clickable}>
@@ -3406,6 +3410,33 @@
           <td class="td-name">${(fn+' '+ln).trim() || 'Unknown'}</td>
           <td>${statusBadge(o.status)}</td>
           <td>${fmtMoney(o.total_amount)}</td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>`;
+  }
+
+  async function loadNewCustomers() {
+    const { data: custs } = await db.from('customers')
+      .select('id, first_name_cache, last_name_cache, email_cache, created_at, total_orders')
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    const el = document.getElementById('new-customers-body');
+    if (!custs || custs.length === 0) {
+      el.innerHTML = `<div class="empty"><div class="empty-title">No customers yet</div><div class="empty-sub">New sign-ups will appear here.</div></div>`;
+      return;
+    }
+    el.innerHTML = `<table><thead><tr><th>Customer</th><th>Email</th><th style="text-align:center">Ordered</th><th>Joined</th></tr></thead><tbody>
+      ${custs.map(c => {
+        const name = `${c.first_name_cache||''} ${c.last_name_cache||''}`.trim() || 'Unknown';
+        const hasOrder = (c.total_orders || 0) > 0;
+        const joined = c.created_at ? new Date(c.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—';
+        const clickable = `style="cursor:pointer" onclick="showPage('customers',document.getElementById('nav-customers'))"`;
+        return `<tr ${clickable}>
+          <td class="td-name">${esc(name)}</td>
+          <td style="font-size:12px;color:var(--gray-500)">${esc(c.email_cache||'—')}</td>
+          <td style="text-align:center;font-size:16px">${hasOrder ? '<span title="Has placed an order" style="color:var(--green)">✓</span>' : '<span style="color:var(--gray-300)">—</span>'}</td>
+          <td style="font-size:12px;color:var(--gray-500);white-space:nowrap">${joined}</td>
         </tr>`;
       }).join('')}
     </tbody></table>`;
