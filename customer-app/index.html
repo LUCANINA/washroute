@@ -2915,7 +2915,7 @@ function buildConfirmSummary() {
     <div class="confirm-card">
       <div class="d-row">
         <span class="d-key">Address</span>
-        <span class="d-val" style="font-size:13px">${draft.address||'—'}</span>
+        <span class="d-val" style="font-size:13px">${escHtml(draft.address||'—')}</span>
       </div>
       <div class="d-row">
         <span class="d-key">When</span>
