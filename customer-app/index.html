@@ -41,6 +41,15 @@
     .auth-desktop-brand { display: none; } /* hidden on mobile */
     .auth-panels-wrap   { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
 
+    /* On desktop, auth screen breaks out of the 430px phone container */
+    @media (min-width: 800px) {
+      body.on-auth-screen #app {
+        max-width: 100%;
+        box-shadow: none;
+      }
+      body.on-auth-screen { background: var(--navy); }
+    }
+
     @media (min-width: 800px) {
       #screen-auth { flex-direction: row !important; min-height: 100vh; overflow: hidden; }
 
@@ -693,7 +702,7 @@
   </script>
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc&libraries=places&callback=initGoogleMapsServices" async defer></script>
 </head>
-<body>
+<body class="on-auth-screen">
 <div id="app">
 
   <!-- ═══ AUTH ═══ -->
@@ -1419,6 +1428,8 @@ function showScreen(id) {
   const el = document.getElementById('screen-' + id);
   if (el) el.classList.add('active');
   el?.querySelector('.main-content')?.scrollTo(0, 0);
+  // On desktop, the auth screen needs full-width for the split layout
+  document.body.classList.toggle('on-auth-screen', id === 'auth');
 }
 
 function goTo(page) {
