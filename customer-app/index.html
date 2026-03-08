@@ -1354,6 +1354,9 @@ function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('en-US', {
 function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase() : ''; }
 function fmtSlot(start, end) { const s = fmtTime(start); if (!end) return s; const e = fmtTime(end); return s.replace(/\s*(am|pm)\s*$/i,'') + ' – ' + e; }
 function daysFromNow(n) { const d = new Date(); d.setDate(d.getDate() + n); return d; }
+// Return YYYY-MM-DD in the user's LOCAL timezone — never use toISOString() for calendar
+// dates because that returns UTC, which can be a different day in the evenings.
+function localIso(d) { d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 function fmtDay(d) { return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
 // Returns the next business day (Mon–Fri) after a given date string or Date.
 // Pickup on Friday → delivery Monday. Pickup on Thursday → delivery Friday.
@@ -2299,7 +2302,7 @@ function buildCalendar() {
 
   // Earliest selectable date = tomorrow
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-  const minStr = tomorrow.toISOString().split('T')[0];
+  const minStr = localIso(tomorrow);
 
   const firstDayOfWeek = new Date(year, month, 1).getDay(); // 0=Sun
   const daysInMonth    = new Date(year, month + 1, 0).getDate();
@@ -2410,8 +2413,8 @@ async function fetchWindowsForDate(iso) {
 // Returns a human-friendly date label: "Today, Mar 6" / "Tomorrow, Mar 7" / "Fri, Mar 8"
 function _schedDateLabel(iso) {
   if (!iso) return '—';
-  const todayIso    = new Date().toISOString().split('T')[0];
-  const tomorrowIso = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+  const todayIso    = localIso();
+  const tomorrowIso = localIso(new Date(Date.now() + 86400000));
   const d   = new Date(iso + 'T12:00:00');
   const mon = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   if (iso === todayIso)    return `Today, ${mon}`;
@@ -2421,7 +2424,7 @@ function _schedDateLabel(iso) {
 
 // Entry point: called by renderStep(1)
 async function renderSchedCard() {
-  const todayIso = new Date().toISOString().split('T')[0];
+  const todayIso = localIso();
   if (!draft.pickupDate) draft.pickupDate = todayIso;
 
   // Display current pickup date immediately
@@ -2487,7 +2490,7 @@ function _renderSchedPickupCal() {
   const container = document.getElementById('expand-pickup-date');
   if (!container) return;
   const now      = new Date();
-  const todayIso = now.toISOString().split('T')[0];
+  const todayIso = localIso(now);
   const days     = [];
   for (let i = 0; i <= 13; i++) {
     const d = new Date(now); d.setDate(now.getDate() + i); days.push(d);
@@ -2496,7 +2499,7 @@ function _renderSchedPickupCal() {
   let grid = '<div class="mini-cal-dow">Su</div><div class="mini-cal-dow">Mo</div><div class="mini-cal-dow">Tu</div><div class="mini-cal-dow">We</div><div class="mini-cal-dow">Th</div><div class="mini-cal-dow">Fr</div><div class="mini-cal-dow">Sa</div>';
   for (let i = 0; i < firstDOW; i++) grid += '<div></div>';
   days.forEach(d => {
-    const iso   = d.toISOString().split('T')[0];
+    const iso   = localIso(d);
     const sel   = draft.pickupDate === iso;
     const isTod = iso === todayIso && !sel;
     grid += `<div class="mini-cal-day${sel ? ' selected' : ''}${isTod ? ' today-marker' : ''}" onclick="selectSchedPickupDate('${iso}')">${d.getDate()}</div>`;
@@ -4049,14 +4052,14 @@ function editSchedToggle(key) {
 function _editRenderPickupCal() {
   const container = document.getElementById('edit-expand-pickup-date');
   if (!container) return;
-  const now = new Date(), todayIso = now.toISOString().split('T')[0];
+  const now = new Date(), todayIso = localIso(now);
   const days = [];
   for (let i = 0; i <= 13; i++) { const d = new Date(now); d.setDate(now.getDate() + i); days.push(d); }
   const firstDOW = days[0].getDay();
   let grid = '<div class="mini-cal-dow">Su</div><div class="mini-cal-dow">Mo</div><div class="mini-cal-dow">Tu</div><div class="mini-cal-dow">We</div><div class="mini-cal-dow">Th</div><div class="mini-cal-dow">Fr</div><div class="mini-cal-dow">Sa</div>';
   for (let i = 0; i < firstDOW; i++) grid += '<div></div>';
   days.forEach(d => {
-    const iso = d.toISOString().split('T')[0];
+    const iso = localIso(d);
     const sel = window._editSchedule?.pickupDate === iso;
     const isTod = iso === todayIso && !sel;
     grid += `<div class="mini-cal-day${sel?' selected':''}${isTod?' today-marker':''}" onclick="editSelectPickupDate('${iso}')">${d.getDate()}</div>`;
