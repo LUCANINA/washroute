@@ -1408,6 +1408,12 @@ function showAuthPanel(name) {
   document.querySelectorAll('.auth-panel').forEach(p => p.classList.remove('active'));
   const el = document.getElementById('auth-panel-' + name);
   if (el) { el.classList.add('active'); el.scrollTop = 0; }
+  // Always reset the email sign-in button — it can get stuck in "Signing in…" state
+  // after a successful login (the button is never reset on success, only on error)
+  const loginBtn = document.getElementById('btn-login');
+  if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = 'Sign In'; }
+  const loginErr = document.getElementById('login-err');
+  if (loginErr) { loginErr.classList.remove('show'); loginErr.textContent = ''; }
 }
 
 function _normalizePhone(raw) {
