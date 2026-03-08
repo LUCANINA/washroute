@@ -1424,6 +1424,8 @@ let _afGeo         = null; // { lat, lng } captured when a suggestion is chosen 
 
 /* ── ROUTING ── */
 function showScreen(id) {
+  // Close any open sub-panels (e.g. Account Details) before switching screens
+  document.querySelectorAll('.sub-panel.open').forEach(p => p.classList.remove('open'));
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const el = document.getElementById('screen-' + id);
   if (el) el.classList.add('active');
