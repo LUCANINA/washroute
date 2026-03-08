@@ -405,8 +405,22 @@
 
     /* ── Desktop: fix sub-panel anchoring ── */
     @media (min-width: 800px) {
-      /* Auth screen: sub-panels belong to the account area — never show them here */
+      /* Auth screen: never show sub-panels here */
       body.on-auth-screen .sub-panel { display: none !important; }
+
+      /* Logged-in: switch to position:absolute so the panel is positioned
+         relative to #app (position:relative) rather than the viewport.
+         This guarantees perfect alignment regardless of viewport width. */
+      body:not(.on-auth-screen) .sub-panel {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: auto;
+        min-height: 100vh;
+        width: 100%; max-width: none;
+        transform: translateX(100%);
+      }
+      body:not(.on-auth-screen) .sub-panel.open {
+        transform: translateX(0);
+      }
     }
     .sub-panel-header { background: white; display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; }
     .sub-back-btn { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: none; background: var(--gray-100); border-radius: 50%; cursor: pointer; flex-shrink: 0; padding: 0; }
