@@ -3284,7 +3284,7 @@
     if (id === 'services') loadServices();
     if (id === 'notifications') loadNotifications();
     if (id === 'reports') loadReports();
-    if (id === 'processing') loadProcessing();
+    if (id === 'processing') { loadProcessing(); startProcPoll(); } else { stopProcPoll(); }
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
     if (id === 'discounts') renderDiscounts();
@@ -10742,7 +10742,10 @@ window.onload=()=>{window.print();};
           <span>${o.services?.name||'—'}</span>
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
-        <button class="proc-card-btn" style="background:#059669;cursor:pointer" onclick="openRackPanel('${o.id}')">🗂️ Assign Rack</button>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button class="proc-card-btn" style="background:var(--gray-100);color:var(--gray-600);border:1px solid var(--gray-200);font-size:12px;padding:7px 10px;flex:0 0 auto" onclick="event.stopPropagation();moveOrderBack('${o.id}','processing')">← Cleaning</button>
+          <button class="proc-card-btn" style="background:#059669;cursor:pointer;flex:1" onclick="openRackPanel('${o.id}')">🗂️ Assign Rack</button>
+        </div>
       </div>`;
     }).join('');
   }
@@ -10866,15 +10869,16 @@ window.onload=()=>{window.print();};
       const name = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.trim() || '—';
       const rack = allRacksCache.find(r => r.id === o.rack_id);
       const rackLabel = rack ? rack.name : '—';
-      return `<div class="proc-card" id="racked-card-${o.id}" onclick="openRackPanel('${o.id}')" style="cursor:pointer">
-        <div>
+      return `<div class="proc-card" id="racked-card-${o.id}">
+        <div onclick="openRackPanel('${o.id}')" style="cursor:pointer">
           <div class="proc-card-order">#${o.order_number||'—'}</div>
           <div class="proc-card-name">${name}</div>
         </div>
-        <div class="proc-card-meta">
+        <div class="proc-card-meta" onclick="openRackPanel('${o.id}')" style="cursor:pointer">
           <span>📦 ${o.total_bags||1} bag${(o.total_bags||1)!==1?'s':''}</span>
-          <span style="color:#7c3aed;font-weight:600;text-decoration:underline;text-decoration-style:dotted;cursor:pointer">🗂️ ${rackLabel}</span>
+          <span style="color:#7c3aed;font-weight:600;text-decoration:underline;text-decoration-style:dotted">🗂️ ${rackLabel}</span>
         </div>
+        <button class="proc-card-btn" style="background:var(--gray-100);color:var(--gray-600);border:1px solid var(--gray-200);font-size:12px;padding:7px 10px;margin-top:4px" onclick="moveOrderBack('${o.id}','folding')">← Back to Folding</button>
       </div>`;
     }).join('');
   }
@@ -10970,6 +10974,14 @@ window.onload=()=>{window.print();};
 
   // ── PROCESSING ──
   let allProcOrders = [];
+  let _procPollTimer = null;
+  function startProcPoll() {
+    stopProcPoll();
+    _procPollTimer = setInterval(() => loadProcessing(), 30000); // refresh every 30 s
+  }
+  function stopProcPoll() {
+    if (_procPollTimer) { clearInterval(_procPollTimer); _procPollTimer = null; }
+  }
   let procActiveOrder = null, procSvc = null;
   let procBags = 1, procWeight = '', procAddons = {}, procNotes = '';
   let procAddonServices = {}; // { [serviceId]: { selected: bool, service: {...} } }
@@ -11060,7 +11072,10 @@ window.onload=()=>{window.print();};
           <span>${o.services?.name||'—'}</span>
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
-        <div style="font-size:11px;color:var(--gray-400);text-align:center;margin-top:4px">Drag → to assign folder</div>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button class="proc-card-btn" style="background:var(--gray-100);color:var(--gray-600);border:1px solid var(--gray-200);font-size:12px;padding:7px 10px;flex:0 0 auto" onclick="event.stopPropagation();moveOrderBack('${o.id}','picked_up')">← Intake</button>
+          <div style="flex:1;font-size:11px;color:var(--gray-400);text-align:center;padding-top:8px">Drag → to fold</div>
+        </div>
       </div>`;
     }).join('');
   }
@@ -11447,6 +11462,21 @@ window.onload=()=>{window.print();};
     document.getElementById('intake-panel').classList.remove('open');
     procActiveOrder = null; procSvc = null;
     procFeeExempt = false; procIsSameDay = false;
+  }
+
+  // ── MOVE ORDER BACK ──
+  async function moveOrderBack(orderId, targetStatus) {
+    const labels = { picked_up: 'Intake', processing: 'Cleaning', folding: 'Folding' };
+    const label  = labels[targetStatus] || targetStatus;
+    if (!confirm(`Move this order back to ${label}?`)) return;
+    const patch = { status: targetStatus, updated_at: new Date().toISOString() };
+    // Moving back from Rack → Folding: clear rack assignment so the slot is freed
+    if (targetStatus === 'folding') { patch.rack_id = null; patch.racked_at = null; }
+    // Moving back from Cleaning → Intake: keep weight/bags so intake opens pre-filled
+    const { error } = await db.from('orders').update(patch).eq('id', orderId);
+    if (error) { showToast(error.message, 'error'); return; }
+    showToast(`Order moved back to ${label}`, 'success');
+    loadProcessing();
   }
 
   async function saveIntake() {
