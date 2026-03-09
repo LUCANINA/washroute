@@ -838,9 +838,11 @@
     .proc-stepper-btn:hover { background:var(--gray-100); }
     .proc-stepper-val { width:64px;text-align:center;font-size:24px;font-weight:700;color:var(--gray-900);font-variant-numeric:tabular-nums; }
     /* Weight input */
-    .proc-weight-input { font-size:28px;font-weight:700;color:var(--gray-900);border:2px solid var(--gray-200);border-radius:12px;padding:10px 16px;width:140px;text-align:center;font-family:inherit;outline:none; }
-    .proc-weight-input:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light); }
-    .proc-weight-unit { font-size:20px;color:var(--gray-400);font-weight:500; }
+    .proc-weight-wrap { display:flex;align-items:center;background:var(--gray-50);border:2.5px solid var(--gray-200);border-radius:16px;padding:6px 20px 6px 8px;gap:0;transition:border-color .15s,box-shadow .15s;cursor:text; }
+    .proc-weight-wrap:focus-within { border-color:var(--accent);box-shadow:0 0 0 4px rgba(99,91,255,.12);background:#fff; }
+    .proc-weight-input { font-size:52px;font-weight:800;color:var(--gray-900);border:none;background:transparent;width:100%;text-align:right;font-family:inherit;outline:none;line-height:1;padding:8px 0; }
+    .proc-weight-input::placeholder { color:var(--gray-300); }
+    .proc-weight-unit { font-size:26px;font-weight:600;color:var(--gray-400);padding-left:10px;flex-shrink:0; }
     /* Overage */
     .proc-overage { padding:10px 14px;border-radius:8px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;margin-top:10px; }
     /* Add-on buttons */
@@ -11171,14 +11173,14 @@ window.onload=()=>{window.print();};
         <div style="font-size:12px;color:var(--gray-400);margin-top:8px">Up to ${lbsPerBag} lbs/bag — overage billed at ${fmtMoney(ovgRate)}/lb</div>
       </div>
       <div class="intake-section">
-        <div class="intake-section-label">Total Weight</div>
-        <div style="display:flex;align-items:center;gap:12px">
+        <div class="intake-section-label" style="font-size:13px;margin-bottom:12px">Total Weight</div>
+        <div class="proc-weight-wrap" onclick="document.getElementById('proc-weight-inp').focus()">
           <input class="proc-weight-input" id="proc-weight-inp" type="number" step="0.1" min="0"
-                 inputmode="decimal" value="${procWeight}" placeholder="0.0"
+                 inputmode="decimal" value="${procWeight}" placeholder="0"
                  oninput="updateProcWeight(this.value)" onchange="updateProcWeight(this.value)" />
           <span class="proc-weight-unit">lbs</span>
         </div>
-        <div id="proc-overage-wrap" style="display:${bd.overage_lbs>0?'':'none'}">
+        <div id="proc-overage-wrap" style="display:${bd.overage_lbs>0?'':'none'};margin-top:10px">
           <div class="proc-overage">⚠️ <span id="proc-overage-text">${bd.overage_lbs.toFixed(1)} lbs over limit · +${fmtMoney(bd.overage_charge)}</span></div>
         </div>
       </div>
