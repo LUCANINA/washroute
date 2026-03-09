@@ -1823,8 +1823,6 @@
             <div class="laun-add-row" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center">
               <input class="svc-input" id="rack-new-name" placeholder="Rack name (e.g. Rack A)…"
                      onkeydown="if(event.key==='Enter')addRack()" />
-              <input class="svc-input" id="rack-new-route" placeholder="Route label (e.g. Monday North)…"
-                     onkeydown="if(event.key==='Enter')addRack()" />
               <button class="btn btn-primary" onclick="addRack()" style="font-size:12.5px;padding:7px 14px">+ Add</button>
             </div>
           </div>
@@ -10431,11 +10429,9 @@ window.onload=()=>{window.print();};
       return;
     }
     el.innerHTML = allRacksCache.map(r => `
-      <div class="laun-row" style="display:grid;grid-template-columns:1fr 1fr auto auto;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
+      <div class="laun-row" style="display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
         <input class="svc-input" value="${(r.name||'').replace(/"/g,'&quot;')}" placeholder="Rack name"
           onchange="updateRack('${r.id}','name',this.value)" style="font-weight:600" />
-        <input class="svc-input" value="${(r.route_label||'').replace(/"/g,'&quot;')}" placeholder="Route label…"
-          onchange="updateRack('${r.id}','route_label',this.value)" />
         <label class="toggle-switch" title="${r.is_active?'Active':'Inactive'}">
           <input type="checkbox" ${r.is_active?'checked':''} onchange="updateRack('${r.id}','is_active',this.checked)" />
           <span class="toggle-slider"></span>
@@ -10453,11 +10449,10 @@ window.onload=()=>{window.print();};
   }
 
   async function addRack() {
-    const name  = document.getElementById('rack-new-name')?.value.trim();
-    const route = document.getElementById('rack-new-route')?.value.trim();
+    const name = document.getElementById('rack-new-name')?.value.trim();
     if (!name) { showToast('Enter a rack name first', 'error'); return; }
     const { data, error } = await db.from('racks').insert({
-      name, route_label: route || null,
+      name,
       sort_order: allRacksCache.length
     }).select().single();
     if (error) { showToast(error.message, 'error'); return; }
@@ -10963,7 +10958,6 @@ window.onload=()=>{window.print();};
       ? `<div class="rack-grid">${activeRacks.map(r =>
           `<button class="rack-btn${selectedRackId===r.id?' selected':''}" onclick="selectRack('${r.id}')">
             <span>${r.name}</span>
-            ${r.route_label ? `<span class="rack-route-label">${r.route_label}</span>` : ''}
           </button>`).join('')}</div>`
       : `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No racks set up yet — add them in Settings → Racks.</div>`;
     document.getElementById('rack-body').innerHTML = `
