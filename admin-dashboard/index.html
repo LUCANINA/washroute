@@ -13,12 +13,12 @@
   <script src="https://js.stripe.com/v3/"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html { overflow-x: hidden; }
-    /* Slim scrollbar — removes the chunky gray track Chrome shows by default */
+    html { overflow-x: hidden; overflow-y: overlay; }
+    /* Overlay scrollbar — floats on top of content, takes up no space */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--gray-300); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--gray-400); }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,.2); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,.35); }
     :root {
       --sidebar-bg: #0f2744;
       --sidebar-w: 220px;
