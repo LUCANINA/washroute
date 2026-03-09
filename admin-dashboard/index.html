@@ -11068,30 +11068,20 @@ window.onload=()=>{window.print();};
     // Normalize customer_type: legacy 'individual' value → treat as 'Delivery'
     const pricelist = (customerType === 'Commercial') ? 'Commercial' : 'Delivery';
 
-    // Resolve service-embedded preference chips (e.g. Wash Temp) using customer's saved prefs.
-    // Match each embedded group to the global preferences table by name, then match the saved
-    // option by label so the customer's choice (e.g. "Hot") overrides the service default ("Cold").
+    // Build procAddons from the global preferences table so any preference added in
+    // the Preferences section automatically shows up in the intake form — no extra steps.
+    // Use the customer's saved choice; fall back to the global default.
     procAddons = {};
-    (procSvc?.preferences || []).forEach(g => {
-      // Try to match this embedded group to a global preference by name
-      const globalMatch = allPreferencesCache.find(
-        p => p.name.trim().toLowerCase() === g.name.trim().toLowerCase()
-      );
-      if (globalMatch && customerPrefs[globalMatch.id]) {
-        const savedGlobalOptId = customerPrefs[globalMatch.id];
-        const savedGlobalOpt   = (globalMatch.options || []).find(o => o.id === savedGlobalOptId);
-        if (savedGlobalOpt) {
-          // Find the matching option in the service-embedded group by label
-          const matchingServiceOpt = (g.options || []).find(
-            o => o.label.trim().toLowerCase() === savedGlobalOpt.label.trim().toLowerCase()
-          );
-          if (matchingServiceOpt) {
-            procAddons[g.id] = { id: matchingServiceOpt.id, label: matchingServiceOpt.label, price_mod: parseFloat(matchingServiceOpt.price_mod) || 0 };
-            return; // customer pref applied — skip service default
-          }
+    allPreferencesCache.forEach(g => {
+      if (!(g.options || []).length) return;
+      if (customerPrefs[g.id]) {
+        const savedOpt = (g.options || []).find(o => o.id === customerPrefs[g.id]);
+        if (savedOpt) {
+          procAddons[g.id] = { id: savedOpt.id, label: savedOpt.label, price_mod: parseFloat(savedOpt.price_mod) || 0 };
+          return;
         }
       }
-      // Fallback: use the service's own default option
+      // Fallback: use the preference's default option
       const def = (g.options || []).find(opt => opt.is_default);
       if (def) procAddons[g.id] = { id: def.id, label: def.label, price_mod: parseFloat(def.price_mod) || 0 };
     });
@@ -11128,14 +11118,15 @@ window.onload=()=>{window.print();};
     const pricePerBag = parseFloat(svc.base_price || 0);
     const lbsPerBag   = parseFloat(svc.lbs_per_bag || 25);
     const ovgRate     = parseFloat(svc.overage_rate_per_lb || 3);
-    const prefs       = svc.preferences || [];
     const bd          = calcProcTotal();
 
     let prefsHTML = '';
     const addonEntries = Object.values(procAddonServices);
-    const hasPrefs     = prefs.filter(g => (g.options||[]).length).length > 0;
+    // Use the global preferences table directly — any preference added there appears here automatically
+    const globalPrefs  = allPreferencesCache.filter(g => (g.options||[]).length);
+    const hasPrefs     = globalPrefs.length > 0;
     if (hasPrefs || addonEntries.length) {
-      const prefChips = prefs.filter(g=>(g.options||[]).length).map(g => `
+      const prefChips = globalPrefs.map(g => `
         <div class="proc-addon-group">
           <div class="proc-addon-group-label">${g.name}</div>
           <div class="proc-addon-options">
