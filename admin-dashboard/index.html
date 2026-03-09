@@ -217,15 +217,17 @@
     /* ── SERVICES PAGE ── */
     .svc-category-group { margin-bottom: 0; }
     .svc-cat-header { padding: 6px 20px 5px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--gray-400); background: var(--gray-50); border-top: 1px solid var(--gray-100); border-bottom: 1px solid var(--gray-100); }
-    .svc-row { display: grid; grid-template-columns: 22px 1fr 96px 116px 52px 94px; gap: 10px; padding: 9px 20px; align-items: center; border-bottom: 1px solid var(--gray-100); transition: background .1s; cursor: default; }
+    .svc-row { display: grid; grid-template-columns: 1fr 96px 116px 52px 136px; gap: 10px; padding: 9px 20px; align-items: center; border-bottom: 1px solid var(--gray-100); transition: background .1s; cursor: default; }
     .svc-row:hover { background: var(--gray-50); }
     .svc-row:last-child { border-bottom: none; }
-    .svc-row.dragging { opacity: .35; }
-    .svc-drag-handle { color: var(--gray-300); cursor: grab; font-size: 15px; line-height: 1; user-select: none; display: flex; align-items: center; justify-content: center; }
-    .svc-drag-handle:hover { color: var(--gray-500); }
+    .svc-move-btn { padding: 3px 5px; background: none; border: none; cursor: pointer; color: var(--gray-300); border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all .12s; line-height: 1; }
+    .svc-move-btn:hover:not(:disabled) { color: var(--accent); background: #ede9ff; }
+    .svc-move-btn:disabled { opacity: 0.25; cursor: default; }
+    .svc-section-btn { padding: 3px 7px; background: none; border: 1.5px solid var(--gray-200); cursor: pointer; color: var(--gray-500); border-radius: 5px; font-size: 11px; font-weight: 600; font-family: inherit; transition: all .12s; white-space: nowrap; }
+    .svc-section-btn:hover { border-color: var(--accent); color: var(--accent); background: #ede9ff; }
     .svc-drop-zone { transition: background .15s; }
     .svc-drop-zone.drag-over { background: rgba(99,91,255,.05); outline: 2px dashed var(--accent); outline-offset: -3px; }
-    .svc-input { width: 100%; border: 1.5px solid transparent; border-radius: 6px; padding: 5px 8px; font-size: 13.5px; color: var(--gray-800); background: transparent; transition: all .12s; font-family: inherit; }
+    .svc-input { width: 100%; border: 1.5px solid transparent; border-radius: 6px; padding: 5px 8px; font-size: 14px; font-weight: 500; color: var(--gray-800); background: transparent; transition: all .12s; font-family: inherit; }
     .svc-input:hover { border-color: var(--gray-200); background: white; }
     .svc-input:focus { border-color: var(--accent); background: white; outline: none; box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
     .svc-select { width: 100%; border: 1.5px solid transparent; border-radius: 6px; padding: 5px 8px; font-size: 13px; color: var(--gray-700); background: transparent; cursor: pointer; transition: all .12s; font-family: inherit; }
@@ -6285,45 +6287,42 @@ window.onload=()=>{window.print();};
     function renderCategoryGroups(items) {
       const cats = [...new Set(items.map(s => s.category || 'Uncategorized'))].sort();
       return cats.map(cat => {
-        const rows = items.filter(s => (s.category||'Uncategorized') === cat);
+        const rows = items
+          .filter(s => (s.category||'Uncategorized') === cat)
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
         return `<div class="svc-category-group">
           <div class="svc-cat-header">
             ${cat}
           </div>
-          ${rows.map(s => svcRow(s)).join('')}
+          ${rows.map((s, i) => svcRow(s, i, rows.length)).join('')}
         </div>`;
       }).join('');
     }
     const main   = data.filter(s => !s.is_addon);
     const addons = data.filter(s =>  s.is_addon);
     el.innerHTML =
-      `<div class="svc-drop-zone" id="drop-main"
-        ondragover="event.preventDefault();this.classList.add('drag-over')"
-        ondragleave="event.target===this&&this.classList.remove('drag-over')"
-        ondrop="dropToSection(event,false)">
+      `<div class="svc-drop-zone" id="drop-main">
         <div class="svc-section-divider">
           <span class="svc-section-title">🧺 Main Services</span>
           <span class="svc-section-pill svc-section-pill-main">${main.length}</span>
-          <span style="font-size:11px;color:var(--gray-400);margin-left:6px">Drag rows between sections to reorganize</span>
         </div>
-        ${main.length ? renderCategoryGroups(main) : `<div style="padding:12px 20px 28px;font-size:13px;color:var(--gray-400)">No main services yet. Drag an add-on here to promote it.</div>`}
+        ${main.length ? renderCategoryGroups(main) : `<div style="padding:12px 20px 28px;font-size:13px;color:var(--gray-400)">No main services yet. Use the ➕ Add-on button on a service to promote it.</div>`}
       </div>` +
-      `<div class="svc-drop-zone" id="drop-addon"
-        ondragover="event.preventDefault();this.classList.add('drag-over')"
-        ondragleave="event.target===this&&this.classList.remove('drag-over')"
-        ondrop="dropToSection(event,true)">
+      `<div class="svc-drop-zone" id="drop-addon">
         <div class="svc-section-divider">
           <span class="svc-section-title">➕ Add-ons</span>
           <span class="svc-section-pill svc-section-pill-addon">${addons.length}</span>
         </div>
-        ${addons.length ? renderCategoryGroups(addons) : `<div style="padding:12px 20px 28px;font-size:13px;color:var(--gray-400)">No add-ons yet. Drag a service here to make it an add-on.</div>`}
+        ${addons.length ? renderCategoryGroups(addons) : `<div style="padding:12px 20px 28px;font-size:13px;color:var(--gray-400)">No add-ons yet. Use the ⬆ Main button on a service to make it an add-on.</div>`}
       </div>`;
   }
 
-  function svcRow(s) {
+  function svcRow(s, idx, total) {
     const esc = v => (v||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-    return `<div class="svc-row" id="svc-row-${s.id}" draggable="true" ondragstart="dragStartService(event,'${s.id}')" ondragend="document.getElementById('svc-row-${s.id}')?.classList.remove('dragging')">
-      <div class="svc-drag-handle" title="Drag to move between sections">⠿</div>
+    const isFirst = idx === 0;
+    const isLast  = idx === total - 1;
+    const sectionLabel = s.is_addon ? '⬆ Main' : '➕ Add-on';
+    return `<div class="svc-row" id="svc-row-${s.id}">
       <div style="display:flex;align-items:center;gap:8px;min-width:0">
         <input class="svc-input" id="svc-name-${s.id}" value="${esc(s.name)}" placeholder="Service name" oninput="markSvcDirty('${s.id}')" style="flex:1;min-width:0" />
         <!-- hidden category: preserved for saves, editable when adding, shown as badge -->
@@ -6350,6 +6349,15 @@ window.onload=()=>{window.print();};
       </div>
       <div class="svc-actions-cell">
         <button class="svc-save-btn" id="svc-save-${s.id}" onclick="saveServiceEdit('${s.id}')">Save</button>
+        <button class="svc-section-btn" onclick="toggleIsAddon('${s.id}',${!s.is_addon})" title="Move to ${s.is_addon ? 'Main Services' : 'Add-ons'}">${sectionLabel}</button>
+        <div style="display:flex;flex-direction:column;gap:0">
+          <button class="svc-move-btn" onclick="moveSvc('${s.id}',-1)" title="Move up" ${isFirst?'disabled':''}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><polyline points="18 15 12 9 6 15"/></svg>
+          </button>
+          <button class="svc-move-btn" onclick="moveSvc('${s.id}',1)" title="Move down" ${isLast?'disabled':''}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>
         <button class="svc-del-btn" onclick="confirmDeleteService('${s.id}','${esc(s.name)}')" title="Delete">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
         </button>
@@ -6450,12 +6458,7 @@ window.onload=()=>{window.print();};
     const { error } = await db.from('services').update({ has_weight_overage: enabled }).eq('id', id);
     if (error) { showToast(error.message, 'error'); return; }
     allServices = allServices.map(s => s.id===id ? {...s, has_weight_overage: enabled} : s);
-    // Re-render just this service row so the overage section switches states
-    const svc = allServices.find(s => s.id === id);
-    if (svc) {
-      const row = document.getElementById('svc-row-'+id);
-      if (row) row.outerHTML = svcRow(svc);
-    }
+    filterServices(); // re-render so overage section and ▲▼ button states are both correct
   }
 
   // Show or hide the weight-overage sub-row when the pricing-type dropdown changes
@@ -6610,23 +6613,32 @@ window.onload=()=>{window.print();};
     showToast(isAddon ? 'Moved to Add-ons' : 'Moved to Main Services');
   }
 
-  function dragStartService(event, id) {
-    event.dataTransfer.setData('text/plain', id);
-    event.dataTransfer.effectAllowed = 'move';
-    // Small delay so the drag image renders before we fade the row
-    setTimeout(() => document.getElementById('svc-row-'+id)?.classList.add('dragging'), 0);
-  }
-
-  async function dropToSection(event, isAddon) {
-    event.preventDefault();
-    // Remove drag-over highlight from both zones
-    document.getElementById('drop-main')?.classList.remove('drag-over');
-    document.getElementById('drop-addon')?.classList.remove('drag-over');
-    const id  = event.dataTransfer.getData('text/plain');
+  async function moveSvc(id, direction) {
     const svc = allServices.find(s => s.id === id);
     if (!svc) return;
-    if (svc.is_addon === isAddon) return; // already in this section — no-op
-    await toggleIsAddon(id, isAddon);
+    // Get all services in the same section+category, sorted by sort_order
+    const siblings = allServices
+      .filter(s => s.is_addon === svc.is_addon && (s.category||'Uncategorized') === (svc.category||'Uncategorized'))
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const idx     = siblings.findIndex(s => s.id === id);
+    const swapIdx = idx + direction;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= siblings.length) return;
+    const sA = siblings[idx];
+    const sB = siblings[swapIdx];
+    let sortA = sA.sort_order ?? idx;
+    let sortB = sB.sort_order ?? swapIdx;
+    if (sortA === sortB) { sortA = idx; sortB = swapIdx; }
+    const [r1, r2] = await Promise.all([
+      db.from('services').update({ sort_order: sortB }).eq('id', sA.id),
+      db.from('services').update({ sort_order: sortA }).eq('id', sB.id),
+    ]);
+    if (r1.error || r2.error) { showToast((r1.error||r2.error).message, 'error'); return; }
+    allServices = allServices.map(s => {
+      if (s.id === sA.id) return { ...s, sort_order: sortB };
+      if (s.id === sB.id) return { ...s, sort_order: sortA };
+      return s;
+    });
+    filterServices();
   }
 
   // ── PRICES TAB ──
@@ -7031,10 +7043,7 @@ window.onload=()=>{window.print();};
   }
 
   function refreshGlobalPrefCard(prefId) {
-    const pref = allGlobalPrefs.find(p => p.id === prefId);
-    const card = document.getElementById('gpref-'+prefId);
-    if (!pref || !card) return;
-    card.outerHTML = renderGlobalPrefCard(pref);
+    renderGlobalPrefs(); // full re-render to keep ▲▼ button states correct
   }
 
   async function addGlobalPref() {
