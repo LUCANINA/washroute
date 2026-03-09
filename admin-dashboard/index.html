@@ -11086,26 +11086,19 @@ window.onload=()=>{window.print();};
       if (def) procAddons[g.id] = { id: def.id, label: def.label, price_mod: parseFloat(def.price_mod) || 0 };
     });
 
-    // All pricelist-relevant services excluding the main service on this order
+    // All pricelist-relevant services excluding the main service and preference-linked services.
+    // Preference-linked services (Vinegar, Oxi) are billed automatically via the preference chips —
+    // they don't need a separate button.
     const mainServiceId = order.service_id || procSvc?.id;
     const relevantAddons = allAddonServicesCache.filter(s =>
       s.id !== mainServiceId &&
+      !s.linked_preference_id &&
       (!s.pricelist || s.pricelist === pricelist || s.pricelist === 'Both')
     );
     procAddonServices = {};
     relevantAddons.forEach(svc => {
-      // Pre-check services that have a saved "Yes" preference; all others start unchecked
-      let preSelected = false;
-      if (svc.linked_preference_id && customerPrefs[svc.linked_preference_id]) {
-        const globalPref = allPreferencesCache.find(p => p.id === svc.linked_preference_id);
-        if (globalPref) {
-          const savedOptId = customerPrefs[svc.linked_preference_id];
-          const savedOpt   = (globalPref.options || []).find(o => o.id === savedOptId);
-          preSelected = !!(savedOpt && !savedOpt.is_default);
-        }
-      }
       // qty only applies to per_item services (e.g. Shirt Service)
-      procAddonServices[svc.id] = { selected: preSelected, service: svc, qty: 1 };
+      procAddonServices[svc.id] = { selected: false, service: svc, qty: 1 };
     });
 
     // Re-render now that add-ons are resolved
@@ -11214,7 +11207,20 @@ window.onload=()=>{window.print();};
     Object.values(procAddons).forEach(a => {
       if (a.price_mod > 0) rows.push(`<div class="proc-breakdown-row"><span>${a.label}</span><span class="amount">+${fmtMoney(a.price_mod)}</span></div>`);
     });
-    // Additional services
+    // Preference-linked services (Vinegar, Oxi) — auto-billed when chip = non-default (Yes)
+    allPreferencesCache.forEach(g => {
+      const selId  = procAddons[g.id]?.id;
+      if (!selId) return;
+      const selOpt = (g.options || []).find(o => o.id === selId);
+      if (!selOpt || selOpt.is_default) return;
+      const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
+      if (linkedSvc) {
+        const price   = parseFloat(linkedSvc.base_price) || 0;
+        const lineAmt = price * bd.bags;
+        rows.push(`<div class="proc-breakdown-row"><span>${linkedSvc.name} × ${bd.bags} bag${bd.bags!==1?'s':''}</span><span class="amount">+${fmtMoney(lineAmt)}</span></div>`);
+      }
+    });
+    // Additional services (Shirt Service, Air Dry, etc.)
     Object.values(procAddonServices).filter(a => a.selected).forEach(a => {
       const price  = parseFloat(a.service.base_price) || 0;
       const isItem = a.service.pricing_type === 'per_item';
@@ -11247,8 +11253,18 @@ window.onload=()=>{window.print();};
         const units = a.service.pricing_type === 'per_item' ? (a.qty || 1) : bags;
         return s + price * units;
       }, 0);
-    return { bags, weight, base, overage_lbs, overage_charge, addons_total, addonSvc_total,
-             total: base + overage_charge + addons_total + addonSvc_total };
+    // Preference-linked services (Vinegar, Oxi): auto-charged when chip = non-default (Yes)
+    const prefLinkedSvc_total = allPreferencesCache.reduce((sum, g) => {
+      const selId  = procAddons[g.id]?.id;
+      if (!selId) return sum;
+      const selOpt = (g.options || []).find(o => o.id === selId);
+      if (!selOpt || selOpt.is_default) return sum;
+      const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
+      if (!linkedSvc) return sum;
+      return sum + (parseFloat(linkedSvc.base_price) || 0) * bags;
+    }, 0);
+    return { bags, weight, base, overage_lbs, overage_charge, addons_total, addonSvc_total, prefLinkedSvc_total,
+             total: base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total };
   }
 
   function setProcBags(delta) {
@@ -11337,7 +11353,21 @@ window.onload=()=>{window.print();};
     Object.values(procAddons).forEach(a =>
       lineItems.push({ type:'addon', label: a.label, amount: a.price_mod||0 })
     );
-    // Additional services (Vinegar, Oxi, Shirt Service, etc.)
+    // Preference-linked services (Vinegar, Oxi) — auto-billed when chip = non-default (Yes)
+    allPreferencesCache.forEach(g => {
+      const selId  = procAddons[g.id]?.id;
+      if (!selId) return;
+      const selOpt = (g.options || []).find(o => o.id === selId);
+      if (!selOpt || selOpt.is_default) return;
+      const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
+      if (linkedSvc) {
+        const price   = parseFloat(linkedSvc.base_price) || 0;
+        const lineAmt = price * bd.bags;
+        lineItems.push({ type:'addon_service', service_id: linkedSvc.id,
+          label: `${linkedSvc.name} × ${bd.bags} bag${bd.bags!==1?'s':''}`, amount: lineAmt });
+      }
+    });
+    // Additional services (Shirt Service, Air Dry, etc.)
     Object.values(procAddonServices).filter(a => a.selected).forEach(a => {
       const price   = parseFloat(a.service.base_price) || 0;
       const isItem  = a.service.pricing_type === 'per_item';
