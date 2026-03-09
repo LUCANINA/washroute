@@ -1820,7 +1820,7 @@
             <div class="laun-list" id="rack-list">
               <div style="padding:32px;text-align:center"><div class="spinner"></div></div>
             </div>
-            <div class="laun-add-row" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center">
+            <div class="laun-add-row" style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center">
               <input class="svc-input" id="rack-new-name" placeholder="Rack name (e.g. Rack A)…"
                      onkeydown="if(event.key==='Enter')addRack()" />
               <button class="btn btn-primary" onclick="addRack()" style="font-size:12.5px;padding:7px 14px">+ Add</button>
@@ -10457,8 +10457,7 @@ window.onload=()=>{window.print();};
     }).select().single();
     if (error) { showToast(error.message, 'error'); return; }
     allRacksCache.push(data);
-    document.getElementById('rack-new-name').value  = '';
-    document.getElementById('rack-new-route').value = '';
+    document.getElementById('rack-new-name').value = '';
     renderRackList();
     showToast(`Rack "${name}" added`, 'success');
   }
