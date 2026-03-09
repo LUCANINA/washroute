@@ -3334,6 +3334,13 @@
 
   // ── LOAD ALL DATA ──
   async function loadAll() {
+    // Pre-load add-on services and global preferences for the intake form
+    const [{ data: addonSvcs }, { data: globalPrefs }] = await Promise.all([
+      db.from('services').select('id, name, base_price, pricing_type, lbs_per_bag, pricelist, linked_preference_id').eq('is_addon', true).eq('is_active', true),
+      db.from('preferences').select('*').order('sort_order')
+    ]);
+    allAddonServicesCache = addonSvcs || [];
+    allPreferencesCache   = globalPrefs || [];
     const results = await Promise.allSettled([loadSettings(), loadOverview(), loadCustomers(), loadOrders(), loadRoutes(), loadDiscounts()]);
     const failed = results.filter(r => r.status === 'rejected');
     if (failed.length) {
@@ -10885,14 +10892,17 @@ window.onload=()=>{window.print();};
   let allProcOrders = [];
   let procActiveOrder = null, procSvc = null;
   let procBags = 1, procWeight = '', procAddons = {}, procNotes = '';
+  let procAddonServices = {}; // { [serviceId]: { selected: bool, service: {...} } }
+  let allAddonServicesCache = []; // active is_addon services with pricelist + linked_preference_id
+  let allPreferencesCache  = []; // global preferences table (for pre-fill logic)
 
   async function loadProcessing() {
     // Kick off all 4 columns in parallel
     const [{ data: pickedUp }] = await Promise.all([
       db.from('orders')
         .select(`id, order_number, status, total_bags, special_instructions, service_id,
-                 customers(id, first_name_cache, last_name_cache),
-                 services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences)`)
+                 customers(id, first_name_cache, last_name_cache, customer_type, preferences),
+                 services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
         .eq('status', 'picked_up')
         .order('actual_pickup_at', { ascending: true }),
     ]);
@@ -11030,6 +11040,27 @@ window.onload=()=>{window.print();};
       const def = (g.options||[]).find(opt => opt.is_default);
       if (def) procAddons[g.id] = { id: def.id, label: def.label, price_mod: parseFloat(def.price_mod)||0 };
     });
+
+    // Build add-on services state: filter by customer's pricelist, pre-check from saved preferences
+    const customerType  = order.customers?.customer_type || 'Delivery';
+    const customerPrefs = order.customers?.preferences   || {};
+    const relevantAddons = allAddonServicesCache.filter(s =>
+      !s.pricelist || s.pricelist === customerType || s.pricelist === 'Both'
+    );
+    procAddonServices = {};
+    relevantAddons.forEach(svc => {
+      let preSelected = false;
+      if (svc.linked_preference_id && customerPrefs[svc.linked_preference_id]) {
+        // Find the saved option and check if it's a non-default (i.e. "Yes")
+        const globalPref = allPreferencesCache.find(p => p.id === svc.linked_preference_id);
+        if (globalPref) {
+          const savedOptId  = customerPrefs[svc.linked_preference_id];
+          const savedOpt    = (globalPref.options || []).find(o => o.id === savedOptId);
+          preSelected = !!(savedOpt && !savedOpt.is_default);
+        }
+      }
+      procAddonServices[svc.id] = { selected: preSelected, service: svc };
+    });
     const fn = order.customers?.first_name_cache || '';
     const ln = order.customers?.last_name_cache  || '';
     document.getElementById('intake-title').textContent    = `${fn} ${ln}`.trim() || 'Process Order';
@@ -11050,10 +11081,11 @@ window.onload=()=>{window.print();};
     const bd          = calcProcTotal();
 
     let prefsHTML = '';
-    if (prefs.length) {
-      prefsHTML = `<div class="intake-section">
-        <div class="intake-section-label">Add-ons &amp; Preferences</div>
-        ${prefs.filter(g=>(g.options||[]).length).map(g => `<div class="proc-addon-group">
+    const addonEntries = Object.values(procAddonServices);
+    const hasPrefs     = prefs.filter(g => (g.options||[]).length).length > 0;
+    if (hasPrefs || addonEntries.length) {
+      const prefChips = prefs.filter(g=>(g.options||[]).length).map(g => `
+        <div class="proc-addon-group">
           <div class="proc-addon-group-label">${g.name}</div>
           <div class="proc-addon-options">
             ${(g.options||[]).map(opt => {
@@ -11066,7 +11098,26 @@ window.onload=()=>{window.print();};
               </button>`;
             }).join('')}
           </div>
-        </div>`).join('')}
+        </div>`).join('');
+
+      const addonChips = addonEntries.length ? `
+        <div class="proc-addon-group">
+          <div class="proc-addon-group-label">Add-ons</div>
+          <div class="proc-addon-options">
+            ${addonEntries.map(({ selected, service }) => {
+              const priceLabel = `+${fmtMoney(service.base_price)}/bag`;
+              return `<button class="proc-addon-btn${selected ? ' selected' : ''}"
+                onclick="toggleAddonService('${service.id}')">
+                <span class="proc-addon-btn-name">${service.name}</span>
+                <span class="proc-addon-btn-price">${priceLabel}</span>
+              </button>`;
+            }).join('')}
+          </div>
+        </div>` : '';
+
+      prefsHTML = `<div class="intake-section">
+        <div class="intake-section-label">Add-ons &amp; Preferences</div>
+        ${prefChips}${addonChips}
       </div>`;
     }
 
@@ -11113,6 +11164,11 @@ window.onload=()=>{window.print();};
     Object.values(procAddons).forEach(a => {
       if (a.price_mod > 0) rows.push(`<div class="proc-breakdown-row"><span>${a.label}</span><span class="amount">+${fmtMoney(a.price_mod)}</span></div>`);
     });
+    // Add-on services (billed per bag)
+    Object.values(procAddonServices).filter(a => a.selected).forEach(a => {
+      const lineAmt = (parseFloat(a.service.base_price) || 0) * bd.bags;
+      rows.push(`<div class="proc-breakdown-row"><span>${a.service.name} × ${bd.bags} bag${bd.bags!==1?'s':''}</span><span class="amount">+${fmtMoney(lineAmt)}</span></div>`);
+    });
     const totalLabel = bd.weight > 0 ? 'Total' : 'Total (pending weight)';
     rows.push(`<div class="proc-breakdown-row total-row"><span>${totalLabel}</span><span class="amount">${fmtMoney(bd.total)}</span></div>`);
     return rows.join('');
@@ -11129,7 +11185,12 @@ window.onload=()=>{window.print();};
     const overage_lbs    = Math.max(0, weight - bags * lbsPerBag);
     const overage_charge = overage_lbs * ovgRate;
     const addons_total   = Object.values(procAddons).reduce((s,a) => s + (a.price_mod||0), 0);
-    return { bags, weight, base, overage_lbs, overage_charge, addons_total, total: base + overage_charge + addons_total };
+    // Add-on services (e.g. Vinegar, Oxi) are priced per bag
+    const addonSvc_total = Object.values(procAddonServices)
+      .filter(a => a.selected)
+      .reduce((s, a) => s + (parseFloat(a.service.base_price) || 0) * bags, 0);
+    return { bags, weight, base, overage_lbs, overage_charge, addons_total, addonSvc_total,
+             total: base + overage_charge + addons_total + addonSvc_total };
   }
 
   function setProcBags(delta) {
@@ -11152,6 +11213,15 @@ window.onload=()=>{window.print();};
       procAddons[groupId] = { id: optId, label, price_mod: parseFloat(priceMod)||0 };
     }
     // Re-render full panel to update button states + breakdown
+    const savedWeight = document.getElementById('proc-weight-inp')?.value || procWeight;
+    procWeight = savedWeight;
+    renderIntakePanel();
+  }
+
+  function toggleAddonService(serviceId) {
+    if (procAddonServices[serviceId]) {
+      procAddonServices[serviceId].selected = !procAddonServices[serviceId].selected;
+    }
     const savedWeight = document.getElementById('proc-weight-inp')?.value || procWeight;
     procWeight = savedWeight;
     renderIntakePanel();
@@ -11200,6 +11270,11 @@ window.onload=()=>{window.print();};
     Object.values(procAddons).forEach(a =>
       lineItems.push({ type:'addon', label: a.label, amount: a.price_mod||0 })
     );
+    // Add-on services (Vinegar, Oxi, etc.) — per bag
+    Object.values(procAddonServices).filter(a => a.selected).forEach(a => {
+      const lineAmt = (parseFloat(a.service.base_price) || 0) * bd.bags;
+      lineItems.push({ type:'addon_service', service_id: a.service.id, label:`${a.service.name} × ${bd.bags} bag${bd.bags!==1?'s':''}`, amount: lineAmt });
+    });
 
     const { error } = await db.from('orders').update({
       status: 'processing', weight_lbs: weight, total_bags: bd.bags,
