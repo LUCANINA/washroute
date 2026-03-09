@@ -823,14 +823,20 @@
     .kbadge-rack    { background:#ede9fe;color:#5b21b6; }
     .proc-tab-badge { font-size:11px;font-weight:700;border-radius:20px;padding:2px 7px; }
     .kanban-drop-zone { transition:background .15s,outline .1s; }
-    .kcol-folding.drag-over { background:rgba(16,185,129,.07) !important;outline:3px dashed #10b981;outline-offset:-4px; }
-    .kcol-rack.drag-over    { background:rgba(139,92,246,.07) !important;outline:3px dashed #8b5cf6;outline-offset:-4px; }
+    .kcol-intake.drag-over  { background:rgba(147,197,253,.12) !important;outline:3px dashed #93c5fd;outline-offset:-4px; }
+    .kcol-clean.drag-over   { background:rgba(253,224,71,.1)  !important;outline:3px dashed #fde047;outline-offset:-4px; }
+    .kcol-folding.drag-over { background:rgba(16,185,129,.07)  !important;outline:3px dashed #10b981;outline-offset:-4px; }
+    .kcol-rack.drag-over    { background:rgba(139,92,246,.07)  !important;outline:3px dashed #8b5cf6;outline-offset:-4px; }
     .kanban-col-hint { font-size:10px;color:var(--gray-400);margin-left:auto;font-weight:400; }
     .kanban-drop-label { font-size:10px;font-weight:700;margin-left:auto;opacity:0;transition:opacity .15s; }
+    .kcol-intake  .kanban-drop-label { color:#3b82f6; }
+    .kcol-clean   .kanban-drop-label { color:#ca8a04; }
     .kcol-folding .kanban-drop-label { color:#10b981; }
     .kcol-rack    .kanban-drop-label { color:#8b5cf6; }
+    .kcol-intake.drag-over  .kanban-drop-label,
+    .kcol-clean.drag-over   .kanban-drop-label,
     .kcol-folding.drag-over .kanban-drop-label,
-    .kcol-rack.drag-over .kanban-drop-label { opacity:1; }
+    .kcol-rack.drag-over    .kanban-drop-label { opacity:1; }
     /* Rack picker */
     .rack-grid { display:flex;flex-direction:column;gap:8px; }
     .rack-btn { padding:11px 16px;border-radius:10px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600; }
@@ -1184,22 +1190,28 @@
             </div>
             <div class="kanban-board">
               <!-- 1. INTAKE -->
-              <div class="kanban-col">
+              <div class="kanban-col" id="kanban-intake-col"
+                ondragover="event.preventDefault();this.classList.add('drag-over')"
+                ondragleave="onKanbanColLeave(event,'kanban-intake-col')"
+                ondrop="dropToIntake(event)">
                 <div class="kanban-col-header kcol-intake">
                   ⚖️ Intake
                   <span class="proc-tab-badge kbadge-intake" id="ptab-badge-intake">0</span>
-                  <span class="kanban-col-hint">click to process</span>
+                  <span class="kanban-drop-label">← drop here</span>
                 </div>
                 <div class="kanban-col-body" id="proc-queue-wrap">
                   <div class="loading"><div class="spinner"></div> Loading…</div>
                 </div>
               </div>
-              <!-- 2. CLEANING (passive — auto-populated after intake) -->
-              <div class="kanban-col">
+              <!-- 2. CLEANING -->
+              <div class="kanban-col" id="kanban-clean-col"
+                ondragover="event.preventDefault();this.classList.add('drag-over')"
+                ondragleave="onKanbanColLeave(event,'kanban-clean-col')"
+                ondrop="dropToCleaning(event)">
                 <div class="kanban-col-header kcol-clean">
                   🫧 Cleaning
                   <span class="proc-tab-badge kbadge-clean" id="ptab-badge-clean">0</span>
-                  <span class="kanban-col-hint">drag → to fold</span>
+                  <span class="kanban-drop-label">← drop here</span>
                 </div>
                 <div class="kanban-col-body" id="clean-queue-wrap">
                   <div class="loading"><div class="spinner"></div> Loading…</div>
@@ -10599,6 +10611,22 @@ window.onload=()=>{window.print();};
     if (col && !col.contains(event.relatedTarget)) col.classList.remove('drag-over');
   }
 
+  function dropToIntake(event) {
+    event.preventDefault();
+    document.getElementById('kanban-intake-col')?.classList.remove('drag-over');
+    const id = event.dataTransfer.getData('text/plain');
+    if (!id || allProcOrders.some(o => o.id === id)) return; // already in intake
+    moveOrderBack(id, 'picked_up');
+  }
+
+  function dropToCleaning(event) {
+    event.preventDefault();
+    document.getElementById('kanban-clean-col')?.classList.remove('drag-over');
+    const id = event.dataTransfer.getData('text/plain');
+    if (!id || allCleanOrders.some(o => o.id === id)) return; // already in cleaning
+    moveOrderBack(id, 'processing');
+  }
+
   function dropToFolding(event) {
     event.preventDefault();
     document.getElementById('kanban-fold-col')?.classList.remove('drag-over');
@@ -10619,7 +10647,7 @@ window.onload=()=>{window.print();};
   let _tdId = null, _tdClone = null, _tdOff = {x:0,y:0}, _tdDropZones = [];
 
   function _buildDropZones() {
-    _tdDropZones = ['kanban-fold-col','kanban-rack-col']
+    _tdDropZones = ['kanban-intake-col','kanban-clean-col','kanban-fold-col','kanban-rack-col']
       .map(id => ({ id, el: document.getElementById(id) }))
       .filter(z => z.el);
   }
@@ -10685,8 +10713,11 @@ window.onload=()=>{window.print();};
       if (touch.clientX >= r.left && touch.clientX <= r.right &&
           touch.clientY >= r.top  && touch.clientY <= r.bottom) {
         handled = true;
-        if (z.id === 'kanban-fold-col') openFoldPanel(_tdId);
-        if (z.id === 'kanban-rack-col') openRackPanel(_tdId);
+        const id = _tdId;
+        if (z.id === 'kanban-intake-col' && !allProcOrders.some(o=>o.id===id))  moveOrderBack(id,'picked_up');
+        if (z.id === 'kanban-clean-col'  && !allCleanOrders.some(o=>o.id===id)) moveOrderBack(id,'processing');
+        if (z.id === 'kanban-fold-col'   && !allFoldOrders.some(o=>o.id===id))  openFoldPanel(id);
+        if (z.id === 'kanban-rack-col'   && !allRackOrders.some(o=>o.id===id))  openRackPanel(id);
       }
     });
     _tdId = null;
@@ -10838,7 +10869,7 @@ window.onload=()=>{window.print();};
     allCleanOrders = allCleanOrders.filter(o => o.id !== movedId);
     allProcOrders  = allProcOrders.filter(o => o.id !== movedId);
     showToast(`Order #${foldActiveOrder.order_number} assigned to ${launName} for folding`, 'success');
-    loadProcessing();
+    reloadColumns('cleaning', 'folding');
   }
 
   // ── RACK QUEUE (status: assembled — recently racked, awaiting driver) ──
@@ -10987,7 +11018,7 @@ window.onload=()=>{window.print();};
     allFoldOrders  = allFoldOrders.filter(o => o.id !== movedId);
     allCleanOrders = allCleanOrders.filter(o => o.id !== movedId);
     showToast(`Order #${rackActiveOrder.order_number} racked on ${rackName}! Ready for delivery.`, 'success');
-    loadProcessing();
+    reloadColumns('folding', 'rack');
   }
 
   // ── PROCESSING ──
@@ -11037,6 +11068,37 @@ window.onload=()=>{window.print();};
                 + (allRackOrders?.length||0);
     const badge = document.getElementById('badge-processing');
     if (badge) badge.textContent = total || '0';
+  }
+
+  // ── TARGETED COLUMN RELOAD (fast — only refresh affected columns) ──
+  function updateProcNavBadge() {
+    const total = (allProcOrders?.length||0) + (allCleanOrders?.length||0)
+                + (allFoldOrders?.length||0) + (allRackOrders?.length||0);
+    const badge = document.getElementById('badge-processing');
+    if (badge) badge.textContent = total || '0';
+  }
+
+  async function reloadColumns(...cols) {
+    const tasks = [];
+    if (cols.includes('intake'))   tasks.push(loadIntakeCol());
+    if (cols.includes('cleaning')) tasks.push(loadCleaning());
+    if (cols.includes('folding'))  tasks.push(loadFolding());
+    if (cols.includes('rack'))     tasks.push(loadRacking());
+    await Promise.all(tasks);
+    updateProcNavBadge();
+  }
+
+  async function loadIntakeCol() {
+    const { data } = await db.from('orders')
+      .select(`id, order_number, status, total_bags, special_instructions, service_id,
+               customers(id, first_name_cache, last_name_cache, customer_type, preferences),
+               services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
+      .eq('status', 'picked_up')
+      .order('actual_pickup_at', { ascending: true });
+    allProcOrders = data || [];
+    const b = document.getElementById('ptab-badge-intake');
+    if (b) b.textContent = allProcOrders.length;
+    renderProcQueue();
   }
 
   // ── CLEANING QUEUE (status: processing) ──
@@ -11498,9 +11560,11 @@ window.onload=()=>{window.print();};
     const patch = { status: targetStatus, updated_at: new Date().toISOString() };
     if (targetStatus === 'folding') { patch.rack_id = null; patch.racked_at = null; }
     const { error } = await db.from('orders').update(patch).eq('id', orderId);
-    if (error) { showToast(error.message, 'error'); loadProcessing(); return; }
+    if (error) { showToast(error.message, 'error'); reloadColumns('intake','cleaning','folding','rack'); return; }
     showToast(`Order moved back to ${label}`, 'success');
-    loadProcessing(); // full reload to place card in the correct column
+    // Only reload the two columns involved in this back-move
+    const colMap = { picked_up: ['cleaning','intake'], processing: ['folding','cleaning'], folding: ['rack','folding'] };
+    reloadColumns(...(colMap[targetStatus] || ['intake','cleaning','folding','rack']));
   }
 
   async function saveIntake() {
@@ -11576,7 +11640,7 @@ window.onload=()=>{window.print();};
     document.getElementById('proc-card-' + movedId)?.remove();
     allProcOrders = allProcOrders.filter(o => o.id !== movedId);
     showToast(`Order #${movedNum} → Processing!`, 'success');
-    loadProcessing();
+    reloadColumns('intake', 'cleaning');
   }
 
   // ── REPORTS ──
