@@ -6612,9 +6612,12 @@ window.onload=()=>{window.print();};
     showToast(isAddon ? 'Moved to Add-ons' : 'Moved to Main Services');
   }
 
+  let _svcMoving = false;
   async function moveSvc(id, direction) {
+    if (_svcMoving) return;
+    _svcMoving = true;
     const svc = allServices.find(s => s.id === id);
-    if (!svc) return;
+    if (!svc) { _svcMoving = false; return; }
     // Get all services in the same section+category, sorted by sort_order
     const siblings = allServices
       .filter(s => s.is_addon === svc.is_addon && (s.category||'Uncategorized') === (svc.category||'Uncategorized'))
@@ -6632,12 +6635,13 @@ window.onload=()=>{window.print();};
       db.rpc('update_service_sort_order', { p_id: sA.id, p_sort_order: sortB }),
       db.rpc('update_service_sort_order', { p_id: sB.id, p_sort_order: sortA }),
     ]);
-    if (r1.error || r2.error) { showToast((r1.error||r2.error).message, 'error'); return; }
+    if (r1.error || r2.error) { showToast((r1.error||r2.error).message, 'error'); _svcMoving = false; return; }
     allServices = allServices.map(s => {
       if (s.id === sA.id) return { ...s, sort_order: sortB };
       if (s.id === sB.id) return { ...s, sort_order: sortA };
       return s;
     });
+    _svcMoving = false;
     filterServices();
   }
 
@@ -6950,13 +6954,16 @@ window.onload=()=>{window.print();};
     </div>`;
   }
 
+  let _prefMoving = false;
   async function moveGlobalPref(id, direction) {
+    if (_prefMoving) return;
+    _prefMoving = true;
     const catPrefs = allGlobalPrefs
       .filter(p => p.category === prefActiveCat)
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     const idx = catPrefs.findIndex(p => p.id === id);
     const swapIdx = idx + direction;
-    if (idx < 0 || swapIdx < 0 || swapIdx >= catPrefs.length) return;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= catPrefs.length) { _prefMoving = false; return; }
 
     const pA = catPrefs[idx];
     const pB = catPrefs[swapIdx];
@@ -6970,7 +6977,7 @@ window.onload=()=>{window.print();};
       db.rpc('update_preference_sort_order', { p_id: pA.id, p_sort_order: sortB }),
       db.rpc('update_preference_sort_order', { p_id: pB.id, p_sort_order: sortA }),
     ]);
-    if (r1.error || r2.error) { showToast((r1.error||r2.error).message, 'error'); return; }
+    if (r1.error || r2.error) { showToast((r1.error||r2.error).message, 'error'); _prefMoving = false; return; }
     allGlobalPrefs = allGlobalPrefs.map(p => {
       if (p.id === pA.id) return { ...p, sort_order: sortB };
       if (p.id === pB.id) return { ...p, sort_order: sortA };
@@ -6982,6 +6989,7 @@ window.onload=()=>{window.print();};
       if (p.id === pB.id) return { ...p, sort_order: sortA };
       return p;
     });
+    _prefMoving = false;
     renderGlobalPrefs();
   }
 
