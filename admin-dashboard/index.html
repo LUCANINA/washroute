@@ -6628,9 +6628,10 @@ window.onload=()=>{window.print();};
     let sortA = sA.sort_order ?? idx;
     let sortB = sB.sort_order ?? swapIdx;
     if (sortA === sortB) { sortA = idx; sortB = swapIdx; }
+    // Use SECURITY DEFINER RPCs — these bypass RLS and are guaranteed to write
     const [r1, r2] = await Promise.all([
-      db.from('services').update({ sort_order: sortB }).eq('id', sA.id),
-      db.from('services').update({ sort_order: sortA }).eq('id', sB.id),
+      db.rpc('update_service_sort_order', { p_id: sA.id, p_sort_order: sortB }),
+      db.rpc('update_service_sort_order', { p_id: sB.id, p_sort_order: sortA }),
     ]);
     if (r1.error || r2.error) { showToast((r1.error||r2.error).message, 'error'); return; }
     allServices = allServices.map(s => {
@@ -6965,10 +6966,12 @@ window.onload=()=>{window.print();};
     // If sort_orders are equal (edge case), force them apart using array indices
     if (sortA === sortB) { sortA = idx; sortB = swapIdx; }
 
-    await Promise.all([
-      db.from('preferences').update({ sort_order: sortB }).eq('id', pA.id),
-      db.from('preferences').update({ sort_order: sortA }).eq('id', pB.id),
+    // Use SECURITY DEFINER RPCs — these bypass RLS and are guaranteed to write
+    const [r1, r2] = await Promise.all([
+      db.rpc('update_preference_sort_order', { p_id: pA.id, p_sort_order: sortB }),
+      db.rpc('update_preference_sort_order', { p_id: pB.id, p_sort_order: sortA }),
     ]);
+    if (r1.error || r2.error) { showToast((r1.error||r2.error).message, 'error'); return; }
     allGlobalPrefs = allGlobalPrefs.map(p => {
       if (p.id === pA.id) return { ...p, sort_order: sortB };
       if (p.id === pB.id) return { ...p, sort_order: sortA };
