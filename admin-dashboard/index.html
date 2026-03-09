@@ -2975,7 +2975,7 @@
   </div>
   <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
     <div id="fold-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
-    <button class="proc-save-btn" id="fold-save-btn" onclick="saveFolding()" disabled>👕 Send to Folding</button>
+    <button class="proc-save-btn" id="fold-save-btn" onclick="saveFolding()" disabled style="display:none">👕 Send to Folding</button>
   </div>
 </div>
 
@@ -10838,8 +10838,7 @@ window.onload=()=>{window.print();};
 
   function selectFoldLaun(launId) {
     foldSelectedLaunId = launId;
-    renderFoldPanel();
-    document.getElementById('fold-save-btn').disabled = false;
+    saveFolding(); // single-tap: selecting a launderer immediately saves and moves the order
   }
 
   function closeFoldPanel() {
@@ -11152,8 +11151,8 @@ window.onload=()=>{window.print();};
           <span>${o.services?.name||'—'}</span>
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
-          <div style="font-size:11px;color:var(--gray-400)">Drag → to fold</div>
+        <button class="proc-card-btn" onclick="event.stopPropagation();openFoldPanel('${o.id}')">👕 Assign to Folder</button>
+        <div style="text-align:right;margin-top:4px">
           <span style="font-size:11px;color:var(--gray-300);cursor:pointer;user-select:none" onclick="event.stopPropagation();moveOrderBack('${o.id}','picked_up')">← undo</span>
         </div>
       </div>`;
