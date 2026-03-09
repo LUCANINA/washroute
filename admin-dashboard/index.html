@@ -11006,12 +11006,13 @@ window.onload=()=>{window.print();};
     }
     const rackName = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
     const movedId  = rackActiveOrder.id;
+    const orderNum = rackActiveOrder.order_number; // capture before closeRackPanel() nulls rackActiveOrder
     closeRackPanel();
     // Instant removal from source column
     ['fold-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
     allFoldOrders  = allFoldOrders.filter(o => o.id !== movedId);
     allCleanOrders = allCleanOrders.filter(o => o.id !== movedId);
-    showToast(`Order #${rackActiveOrder.order_number} racked on ${rackName}! Ready for delivery.`, 'success');
+    showToast(`Order #${orderNum} racked on ${rackName}! Ready for delivery.`, 'success');
     reloadColumns('folding', 'rack');
   }
 
