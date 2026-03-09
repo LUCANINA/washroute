@@ -315,7 +315,10 @@
     .fee-add-row { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-top: 2px dashed var(--gray-200); background: var(--gray-50); border-radius: 0 0 var(--radius) var(--radius); flex-wrap: wrap; }
     /* Preferences builder */
     .pref-empty { padding: 40px; text-align: center; color: var(--gray-400); font-size: 13.5px; }
-    .pref-row { display: grid; grid-template-columns: 210px 1fr 80px; align-items: flex-start; gap: 14px; padding: 11px 20px; border-bottom: 1px solid var(--gray-100); transition: background .1s; }
+    .pref-row { display: grid; grid-template-columns: 210px 1fr 110px; align-items: flex-start; gap: 14px; padding: 11px 20px; border-bottom: 1px solid var(--gray-100); transition: background .1s; }
+    .pref-move-btn { padding: 4px 5px; background: none; border: none; cursor: pointer; color: var(--gray-300); border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all .12s; line-height: 1; }
+    .pref-move-btn:hover:not(:disabled) { color: var(--accent); background: #ede9ff; }
+    .pref-move-btn:disabled { opacity: 0.25; cursor: default; }
     .pref-row:hover { background: var(--gray-50); }
     .pref-row:last-child { border-bottom: none; }
     .pref-name-input { border: none; background: transparent; font-size: 14px; font-weight: 600; color: var(--gray-800); font-family: inherit; width: 100%; outline: none; padding: 4px 6px; border-radius: 5px; margin-top: 2px; }
@@ -6875,9 +6878,10 @@ window.onload=()=>{window.print();};
     const catTabs = `<div class="filter-tabs" style="margin:14px 20px 12px">
       ${cats.map(c => `<button class="filter-tab${c===prefActiveCat?' active':''}" onclick="setPrefCat('${svcEsc(c)}')">${svcEsc(c)}</button>`).join('')}
     </div>`;
-    const catPrefs = allGlobalPrefs.filter(p => p.category === prefActiveCat);
+    const catPrefs = allGlobalPrefs.filter(p => p.category === prefActiveCat)
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     const prefsHtml = catPrefs.length
-      ? `<div>${catPrefs.map(p => renderGlobalPrefCard(p)).join('')}</div>`
+      ? `<div>${catPrefs.map((p, i) => renderGlobalPrefCard(p, i, catPrefs.length)).join('')}</div>`
       : `<div class="pref-empty" style="padding:24px 20px">No preferences for ${svcEsc(prefActiveCat)} yet.<br><span style="font-size:12px">Click "+ Add Preference" below to create one.</span></div>`;
     const addBtn = `<div class="fee-add-row" style="border-radius:0 0 var(--radius) var(--radius)">
       <button class="btn btn-secondary" onclick="addGlobalPref()" style="font-size:13px">
@@ -6893,9 +6897,11 @@ window.onload=()=>{window.print();};
     renderGlobalPrefs();
   }
 
-  function renderGlobalPrefCard(pref) {
+  function renderGlobalPrefCard(pref, idx, total) {
     const state = globalPrefsLocalState[pref.id] || { name: pref.name, options: [] };
     const opts = state.options || [];
+    const isFirst = idx === 0;
+    const isLast  = idx === total - 1;
     return `<div class="pref-row" id="gpref-${pref.id}">
       <input class="pref-name-input" value="${svcEsc(state.name)}" placeholder="Preference name…"
              oninput="updateGlobalPrefName('${pref.id}',this.value)"
@@ -6916,12 +6922,53 @@ window.onload=()=>{window.print();};
         </div>
       </div>
       <div class="pref-row-actions">
+        <div style="display:flex;flex-direction:column;gap:0">
+          <button class="pref-move-btn" onclick="moveGlobalPref('${pref.id}',-1)" title="Move up" ${isFirst?'disabled':''}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><polyline points="18 15 12 9 6 15"/></svg>
+          </button>
+          <button class="pref-move-btn" onclick="moveGlobalPref('${pref.id}',1)" title="Move down" ${isLast?'disabled':''}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>
         <span style="font-size:11px;color:#059669;white-space:nowrap" id="gpref-msg-${pref.id}"></span>
         <button class="fee-del-btn" onclick="deleteGlobalPref('${pref.id}')" title="Delete preference">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
         </button>
       </div>
     </div>`;
+  }
+
+  async function moveGlobalPref(id, direction) {
+    const catPrefs = allGlobalPrefs
+      .filter(p => p.category === prefActiveCat)
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const idx = catPrefs.findIndex(p => p.id === id);
+    const swapIdx = idx + direction;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= catPrefs.length) return;
+
+    const pA = catPrefs[idx];
+    const pB = catPrefs[swapIdx];
+    let sortA = pA.sort_order ?? idx;
+    let sortB = pB.sort_order ?? swapIdx;
+    // If sort_orders are equal (edge case), force them apart using array indices
+    if (sortA === sortB) { sortA = idx; sortB = swapIdx; }
+
+    await Promise.all([
+      db.from('preferences').update({ sort_order: sortB }).eq('id', pA.id),
+      db.from('preferences').update({ sort_order: sortA }).eq('id', pB.id),
+    ]);
+    allGlobalPrefs = allGlobalPrefs.map(p => {
+      if (p.id === pA.id) return { ...p, sort_order: sortB };
+      if (p.id === pB.id) return { ...p, sort_order: sortA };
+      return p;
+    });
+    // Also keep allPreferencesCache in sync so intake form reflects the new order immediately
+    allPreferencesCache = allPreferencesCache.map(p => {
+      if (p.id === pA.id) return { ...p, sort_order: sortB };
+      if (p.id === pB.id) return { ...p, sort_order: sortA };
+      return p;
+    });
+    renderGlobalPrefs();
   }
 
   function renderGlobalOptionChip(prefId, opt) {
