@@ -3336,7 +3336,7 @@
   async function loadAll() {
     // Pre-load add-on services and global preferences for the intake form
     const [{ data: addonSvcs }, { data: globalPrefs }] = await Promise.all([
-      db.from('services').select('id, name, base_price, pricing_type, lbs_per_bag, pricelist, linked_preference_id').eq('is_addon', true).eq('is_active', true),
+      db.from('services').select('id, name, base_price, pricing_type, lbs_per_bag, pricelist, linked_preference_id, is_addon').eq('is_active', true),
       db.from('preferences').select('*').order('sort_order')
     ]);
     allAddonServicesCache = addonSvcs || [];
@@ -11071,15 +11071,17 @@ window.onload=()=>{window.print();};
     // Normalize customer_type: legacy 'individual' value → treat as 'Delivery'
     const pricelist = (customerType === 'Commercial') ? 'Commercial' : 'Delivery';
 
-    // Filter add-on services by pricelist, then pre-check from saved customer preferences
+    // All pricelist-relevant services excluding the main service on this order
+    const mainServiceId = order.service_id || procSvc?.id;
     const relevantAddons = allAddonServicesCache.filter(s =>
-      !s.pricelist || s.pricelist === pricelist || s.pricelist === 'Both'
+      s.id !== mainServiceId &&
+      (!s.pricelist || s.pricelist === pricelist || s.pricelist === 'Both')
     );
     procAddonServices = {};
     relevantAddons.forEach(svc => {
+      // Pre-check services that have a saved "Yes" preference; all others start unchecked
       let preSelected = false;
       if (svc.linked_preference_id && customerPrefs[svc.linked_preference_id]) {
-        // Check if the saved option is non-default (i.e. "Yes")
         const globalPref = allPreferencesCache.find(p => p.id === svc.linked_preference_id);
         if (globalPref) {
           const savedOptId = customerPrefs[svc.linked_preference_id];
@@ -11087,7 +11089,8 @@ window.onload=()=>{window.print();};
           preSelected = !!(savedOpt && !savedOpt.is_default);
         }
       }
-      procAddonServices[svc.id] = { selected: preSelected, service: svc };
+      // qty only applies to per_item services (e.g. Shirt Service)
+      procAddonServices[svc.id] = { selected: preSelected, service: svc, qty: 1 };
     });
 
     // Re-render now that add-ons are resolved
@@ -11125,15 +11128,28 @@ window.onload=()=>{window.print();};
 
       const addonChips = addonEntries.length ? `
         <div class="proc-addon-group">
-          <div class="proc-addon-group-label">Add-ons</div>
+          <div class="proc-addon-group-label">Services &amp; Add-ons</div>
           <div class="proc-addon-options">
-            ${addonEntries.map(({ selected, service }) => {
-              const priceLabel = `+${fmtMoney(service.base_price)}/bag`;
-              return `<button class="proc-addon-btn${selected ? ' selected' : ''}"
-                onclick="toggleAddonService('${service.id}')">
-                <span class="proc-addon-btn-name">${service.name}</span>
-                <span class="proc-addon-btn-price">${priceLabel}</span>
-              </button>`;
+            ${addonEntries.map(({ selected, service, qty }) => {
+              const isPerItem = service.pricing_type === 'per_item';
+              const priceLabel = isPerItem
+                ? `+${fmtMoney(service.base_price)}/item`
+                : `+${fmtMoney(service.base_price)}/bag`;
+              const qtyRow = (selected && isPerItem) ? `
+                <div style="display:flex;align-items:center;gap:8px;margin-top:6px;margin-left:2px">
+                  <span style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em">Qty</span>
+                  <button class="proc-stepper-btn" style="width:26px;height:26px;font-size:14px" onclick="setAddonServiceQty('${service.id}',-1)">−</button>
+                  <span style="font-size:14px;font-weight:700;min-width:20px;text-align:center">${qty}</span>
+                  <button class="proc-stepper-btn" style="width:26px;height:26px;font-size:14px" onclick="setAddonServiceQty('${service.id}',1)">+</button>
+                </div>` : '';
+              return `<div>
+                <button class="proc-addon-btn${selected ? ' selected' : ''}"
+                  onclick="toggleAddonService('${service.id}')">
+                  <span class="proc-addon-btn-name">${service.name}</span>
+                  <span class="proc-addon-btn-price">${priceLabel}</span>
+                </button>
+                ${qtyRow}
+              </div>`;
             }).join('')}
           </div>
         </div>` : '';
@@ -11182,10 +11198,14 @@ window.onload=()=>{window.print();};
     Object.values(procAddons).forEach(a => {
       if (a.price_mod > 0) rows.push(`<div class="proc-breakdown-row"><span>${a.label}</span><span class="amount">+${fmtMoney(a.price_mod)}</span></div>`);
     });
-    // Add-on services (billed per bag)
+    // Additional services
     Object.values(procAddonServices).filter(a => a.selected).forEach(a => {
-      const lineAmt = (parseFloat(a.service.base_price) || 0) * bd.bags;
-      rows.push(`<div class="proc-breakdown-row"><span>${a.service.name} × ${bd.bags} bag${bd.bags!==1?'s':''}</span><span class="amount">+${fmtMoney(lineAmt)}</span></div>`);
+      const price  = parseFloat(a.service.base_price) || 0;
+      const isItem = a.service.pricing_type === 'per_item';
+      const units  = isItem ? (a.qty || 1) : bd.bags;
+      const unit   = isItem ? 'item' : 'bag';
+      const lineAmt = price * units;
+      rows.push(`<div class="proc-breakdown-row"><span>${a.service.name} × ${units} ${unit}${units!==1?'s':''}</span><span class="amount">+${fmtMoney(lineAmt)}</span></div>`);
     });
     const totalLabel = bd.weight > 0 ? 'Total' : 'Total (pending weight)';
     rows.push(`<div class="proc-breakdown-row total-row"><span>${totalLabel}</span><span class="amount">${fmtMoney(bd.total)}</span></div>`);
@@ -11203,10 +11223,14 @@ window.onload=()=>{window.print();};
     const overage_lbs    = Math.max(0, weight - bags * lbsPerBag);
     const overage_charge = overage_lbs * ovgRate;
     const addons_total   = Object.values(procAddons).reduce((s,a) => s + (a.price_mod||0), 0);
-    // Add-on services (e.g. Vinegar, Oxi) are priced per bag
+    // Additional services: per_item uses qty, everything else uses bags
     const addonSvc_total = Object.values(procAddonServices)
       .filter(a => a.selected)
-      .reduce((s, a) => s + (parseFloat(a.service.base_price) || 0) * bags, 0);
+      .reduce((s, a) => {
+        const price = parseFloat(a.service.base_price) || 0;
+        const units = a.service.pricing_type === 'per_item' ? (a.qty || 1) : bags;
+        return s + price * units;
+      }, 0);
     return { bags, weight, base, overage_lbs, overage_charge, addons_total, addonSvc_total,
              total: base + overage_charge + addons_total + addonSvc_total };
   }
@@ -11240,6 +11264,15 @@ window.onload=()=>{window.print();};
     if (procAddonServices[serviceId]) {
       procAddonServices[serviceId].selected = !procAddonServices[serviceId].selected;
     }
+    const savedWeight = document.getElementById('proc-weight-inp')?.value || procWeight;
+    procWeight = savedWeight;
+    renderIntakePanel();
+  }
+
+  function setAddonServiceQty(serviceId, delta) {
+    const entry = procAddonServices[serviceId];
+    if (!entry) return;
+    entry.qty = Math.max(1, (entry.qty || 1) + delta);
     const savedWeight = document.getElementById('proc-weight-inp')?.value || procWeight;
     procWeight = savedWeight;
     renderIntakePanel();
@@ -11288,10 +11321,15 @@ window.onload=()=>{window.print();};
     Object.values(procAddons).forEach(a =>
       lineItems.push({ type:'addon', label: a.label, amount: a.price_mod||0 })
     );
-    // Add-on services (Vinegar, Oxi, etc.) — per bag
+    // Additional services (Vinegar, Oxi, Shirt Service, etc.)
     Object.values(procAddonServices).filter(a => a.selected).forEach(a => {
-      const lineAmt = (parseFloat(a.service.base_price) || 0) * bd.bags;
-      lineItems.push({ type:'addon_service', service_id: a.service.id, label:`${a.service.name} × ${bd.bags} bag${bd.bags!==1?'s':''}`, amount: lineAmt });
+      const price   = parseFloat(a.service.base_price) || 0;
+      const isItem  = a.service.pricing_type === 'per_item';
+      const units   = isItem ? (a.qty || 1) : bd.bags;
+      const unit    = isItem ? 'item' : 'bag';
+      const lineAmt = price * units;
+      lineItems.push({ type:'addon_service', service_id: a.service.id,
+        label: `${a.service.name} × ${units} ${unit}${units!==1?'s':''}`, amount: lineAmt });
     });
 
     const { error } = await db.from('orders').update({
