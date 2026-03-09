@@ -226,7 +226,6 @@
     .svc-section-btn { padding: 3px 7px; background: none; border: 1.5px solid var(--gray-200); cursor: pointer; color: var(--gray-500); border-radius: 5px; font-size: 11px; font-weight: 600; font-family: inherit; transition: all .12s; white-space: nowrap; }
     .svc-section-btn:hover { border-color: var(--accent); color: var(--accent); background: #ede9ff; }
     .svc-drop-zone { transition: background .15s; }
-    .svc-drop-zone.drag-over { background: rgba(99,91,255,.05); outline: 2px dashed var(--accent); outline-offset: -3px; }
     .svc-input { width: 100%; border: 1.5px solid transparent; border-radius: 6px; padding: 5px 8px; font-size: 14px; font-weight: 500; color: var(--gray-800); background: transparent; transition: all .12s; font-family: inherit; }
     .svc-input:hover { border-color: var(--gray-200); background: white; }
     .svc-input:focus { border-color: var(--accent); background: white; outline: none; box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
@@ -7060,6 +7059,7 @@ window.onload=()=>{window.print();};
     const newPref = Array.isArray(data) ? data[0] : data;
     if (!newPref) { showToast('Failed to create preference', 'error'); return; }
     allGlobalPrefs.push(newPref);
+    allPreferencesCache.push(newPref); // keep intake form cache in sync
     globalPrefsLocalState[newPref.id] = { name: '', options: [] };
     renderGlobalPrefs();
     setTimeout(() => document.getElementById('gpref-'+newPref.id)?.querySelector('.pref-name-input')?.focus(), 50);
@@ -7079,6 +7079,7 @@ window.onload=()=>{window.print();};
     });
     if (error) { if (msgEl) msgEl.textContent = ''; showToast(error.message, 'error'); return; }
     allGlobalPrefs = allGlobalPrefs.map(p => p.id===prefId ? {...p, name: state.name.trim(), options: JSON.parse(JSON.stringify(state.options))} : p);
+    allPreferencesCache = allPreferencesCache.map(p => p.id===prefId ? {...p, name: state.name.trim(), options: JSON.parse(JSON.stringify(state.options))} : p); // keep intake in sync
     if (msgEl) { msgEl.textContent = '✓'; setTimeout(()=>{ if(msgEl) msgEl.textContent=''; }, 1500); }
   }
 
@@ -7087,6 +7088,7 @@ window.onload=()=>{window.print();};
     const { error } = await db.rpc('delete_preference', { p_id: prefId });
     if (error) { showToast(error.message, 'error'); return; }
     allGlobalPrefs = allGlobalPrefs.filter(p => p.id !== prefId);
+    allPreferencesCache = allPreferencesCache.filter(p => p.id !== prefId); // keep intake in sync
     delete globalPrefsLocalState[prefId];
     renderGlobalPrefs();
     showToast('Preference deleted.', 'success');
