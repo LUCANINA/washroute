@@ -11203,11 +11203,11 @@ window.onload=()=>{window.print();};
           <div class="proc-addon-options">
             ${(g.options||[]).map(opt => {
               const sel = procAddons[g.id]?.id === opt.id;
-              const priceLabel = opt.price_mod > 0 ? `+${fmtMoney(opt.price_mod)}` : 'Included';
+              const priceLabel = opt.price_mod > 0 ? `+${fmtMoney(opt.price_mod)}` : '';
               return `<button class="proc-addon-btn${sel?' selected':''}"
                 onclick="selectProcAddon('${g.id}','${opt.id}','${(opt.label||'').replace(/'/g,"\\'")}',${opt.price_mod||0})">
                 <span class="proc-addon-btn-name">${opt.label}</span>
-                <span class="proc-addon-btn-price">${priceLabel}</span>
+                ${priceLabel ? `<span class="proc-addon-btn-price">${priceLabel}</span>` : ''}
               </button>`;
             }).join('')}
           </div>
