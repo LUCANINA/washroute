@@ -10742,9 +10742,9 @@ window.onload=()=>{window.print();};
           <span>${o.services?.name||'—'}</span>
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
-        <div style="display:flex;gap:6px;margin-top:4px">
-          <button class="proc-card-btn" style="background:var(--gray-100);color:var(--gray-600);border:1px solid var(--gray-200);font-size:12px;padding:7px 10px;flex:0 0 auto" onclick="event.stopPropagation();moveOrderBack('${o.id}','processing')">← Cleaning</button>
-          <button class="proc-card-btn" style="background:#059669;cursor:pointer;flex:1" onclick="openRackPanel('${o.id}')">🗂️ Assign Rack</button>
+        <button class="proc-card-btn" style="background:#059669;cursor:pointer;margin-top:4px" onclick="openRackPanel('${o.id}')">🗂️ Assign Rack</button>
+        <div style="text-align:right;margin-top:4px">
+          <span style="font-size:11px;color:var(--gray-300);cursor:pointer;user-select:none" onclick="event.stopPropagation();moveOrderBack('${o.id}','processing')">← undo</span>
         </div>
       </div>`;
     }).join('');
@@ -10825,7 +10825,12 @@ window.onload=()=>{window.print();};
       return;
     }
     const launName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
+    const movedId  = foldActiveOrder.id;
     closeFoldPanel();
+    // Instant removal from source column
+    ['proc-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
+    allCleanOrders = allCleanOrders.filter(o => o.id !== movedId);
+    allProcOrders  = allProcOrders.filter(o => o.id !== movedId);
     showToast(`Order #${foldActiveOrder.order_number} assigned to ${launName} for folding`, 'success');
     loadProcessing();
   }
@@ -10878,7 +10883,9 @@ window.onload=()=>{window.print();};
           <span>📦 ${o.total_bags||1} bag${(o.total_bags||1)!==1?'s':''}</span>
           <span style="color:#7c3aed;font-weight:600;text-decoration:underline;text-decoration-style:dotted">🗂️ ${rackLabel}</span>
         </div>
-        <button class="proc-card-btn" style="background:var(--gray-100);color:var(--gray-600);border:1px solid var(--gray-200);font-size:12px;padding:7px 10px;margin-top:4px" onclick="moveOrderBack('${o.id}','folding')">← Back to Folding</button>
+        <div style="text-align:right;margin-top:6px">
+          <span style="font-size:11px;color:var(--gray-300);cursor:pointer;user-select:none" onclick="moveOrderBack('${o.id}','folding')">← undo</span>
+        </div>
       </div>`;
     }).join('');
   }
@@ -10967,7 +10974,12 @@ window.onload=()=>{window.print();};
       return;
     }
     const rackName = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
+    const movedId  = rackActiveOrder.id;
     closeRackPanel();
+    // Instant removal from source column
+    ['fold-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
+    allFoldOrders  = allFoldOrders.filter(o => o.id !== movedId);
+    allCleanOrders = allCleanOrders.filter(o => o.id !== movedId);
     showToast(`Order #${rackActiveOrder.order_number} racked on ${rackName}! Ready for delivery.`, 'success');
     loadProcessing();
   }
@@ -11072,9 +11084,9 @@ window.onload=()=>{window.print();};
           <span>${o.services?.name||'—'}</span>
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
-        <div style="display:flex;gap:6px;margin-top:4px">
-          <button class="proc-card-btn" style="background:var(--gray-100);color:var(--gray-600);border:1px solid var(--gray-200);font-size:12px;padding:7px 10px;flex:0 0 auto" onclick="event.stopPropagation();moveOrderBack('${o.id}','picked_up')">← Intake</button>
-          <div style="flex:1;font-size:11px;color:var(--gray-400);text-align:center;padding-top:8px">Drag → to fold</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+          <div style="font-size:11px;color:var(--gray-400)">Drag → to fold</div>
+          <span style="font-size:11px;color:var(--gray-300);cursor:pointer;user-select:none" onclick="event.stopPropagation();moveOrderBack('${o.id}','picked_up')">← undo</span>
         </div>
       </div>`;
     }).join('');
@@ -11469,14 +11481,20 @@ window.onload=()=>{window.print();};
     const labels = { picked_up: 'Intake', processing: 'Cleaning', folding: 'Folding' };
     const label  = labels[targetStatus] || targetStatus;
     if (!confirm(`Move this order back to ${label}?`)) return;
+    // Instant visual feedback — remove card from DOM and local cache immediately
+    ['proc-card-','clean-card-','fold-card-','racked-card-'].forEach(pfx => {
+      document.getElementById(pfx + orderId)?.remove();
+    });
+    allProcOrders   = allProcOrders.filter(o => o.id !== orderId);
+    allCleanOrders  = allCleanOrders.filter(o => o.id !== orderId);
+    allFoldOrders   = allFoldOrders.filter(o => o.id !== orderId);
+    allRackOrders   = allRackOrders.filter(o => o.id !== orderId);
     const patch = { status: targetStatus, updated_at: new Date().toISOString() };
-    // Moving back from Rack → Folding: clear rack assignment so the slot is freed
     if (targetStatus === 'folding') { patch.rack_id = null; patch.racked_at = null; }
-    // Moving back from Cleaning → Intake: keep weight/bags so intake opens pre-filled
     const { error } = await db.from('orders').update(patch).eq('id', orderId);
-    if (error) { showToast(error.message, 'error'); return; }
+    if (error) { showToast(error.message, 'error'); loadProcessing(); return; }
     showToast(`Order moved back to ${label}`, 'success');
-    loadProcessing();
+    loadProcessing(); // full reload to place card in the correct column
   }
 
   async function saveIntake() {
@@ -11545,8 +11563,13 @@ window.onload=()=>{window.print();};
       btn.disabled = false; btn.textContent = 'Save & Start Processing';
       return;
     }
+    const movedId  = procActiveOrder.id;
+    const movedNum = procActiveOrder.order_number;
     closeIntakePanel();
-    showToast(`Order #${procActiveOrder.order_number} → Processing!`, 'success');
+    // Instant removal from Intake column
+    document.getElementById('proc-card-' + movedId)?.remove();
+    allProcOrders = allProcOrders.filter(o => o.id !== movedId);
+    showToast(`Order #${movedNum} → Processing!`, 'success');
     loadProcessing();
   }
 
