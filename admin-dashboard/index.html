@@ -11041,34 +11041,57 @@ window.onload=()=>{window.print();};
       if (def) procAddons[g.id] = { id: def.id, label: def.label, price_mod: parseFloat(def.price_mod)||0 };
     });
 
-    // Build add-on services state: filter by customer's pricelist, pre-check from saved preferences
-    const customerType  = order.customers?.customer_type || 'Delivery';
-    const customerPrefs = order.customers?.preferences   || {};
-    const relevantAddons = allAddonServicesCache.filter(s =>
-      !s.pricelist || s.pricelist === customerType || s.pricelist === 'Both'
-    );
-    procAddonServices = {};
-    relevantAddons.forEach(svc => {
-      let preSelected = false;
-      if (svc.linked_preference_id && customerPrefs[svc.linked_preference_id]) {
-        // Find the saved option and check if it's a non-default (i.e. "Yes")
-        const globalPref = allPreferencesCache.find(p => p.id === svc.linked_preference_id);
-        if (globalPref) {
-          const savedOptId  = customerPrefs[svc.linked_preference_id];
-          const savedOpt    = (globalPref.options || []).find(o => o.id === savedOptId);
-          preSelected = !!(savedOpt && !savedOpt.is_default);
-        }
-      }
-      procAddonServices[svc.id] = { selected: preSelected, service: svc };
-    });
+    // Show panel immediately so there's no delay
     const fn = order.customers?.first_name_cache || '';
     const ln = order.customers?.last_name_cache  || '';
     document.getElementById('intake-title').textContent    = `${fn} ${ln}`.trim() || 'Process Order';
     document.getElementById('intake-subtitle').textContent = `Order #${order.order_number||'—'} · ${procSvc?.name||''}`;
     document.getElementById('intake-save-btn').disabled    = true;
     document.getElementById('intake-error').style.display  = 'none';
+    procAddonServices = {};
     renderIntakePanel();
     document.getElementById('intake-panel').classList.add('open');
+
+    // Fresh fetch of customer preferences so changes made in the customer panel
+    // are always reflected — even if preferences were updated after page load
+    const custId = order.customers?.id || order.customer_id;
+    let customerType  = order.customers?.customer_type || 'Delivery';
+    let customerPrefs = order.customers?.preferences   || {};
+    if (custId) {
+      const { data: fresh } = await db.from('customers')
+        .select('customer_type, preferences')
+        .eq('id', custId)
+        .single();
+      if (fresh) {
+        customerType  = fresh.customer_type  || customerType;
+        customerPrefs = fresh.preferences    || {};
+      }
+    }
+
+    // Normalize customer_type: legacy 'individual' value → treat as 'Delivery'
+    const pricelist = (customerType === 'Commercial') ? 'Commercial' : 'Delivery';
+
+    // Filter add-on services by pricelist, then pre-check from saved customer preferences
+    const relevantAddons = allAddonServicesCache.filter(s =>
+      !s.pricelist || s.pricelist === pricelist || s.pricelist === 'Both'
+    );
+    procAddonServices = {};
+    relevantAddons.forEach(svc => {
+      let preSelected = false;
+      if (svc.linked_preference_id && customerPrefs[svc.linked_preference_id]) {
+        // Check if the saved option is non-default (i.e. "Yes")
+        const globalPref = allPreferencesCache.find(p => p.id === svc.linked_preference_id);
+        if (globalPref) {
+          const savedOptId = customerPrefs[svc.linked_preference_id];
+          const savedOpt   = (globalPref.options || []).find(o => o.id === savedOptId);
+          preSelected = !!(savedOpt && !savedOpt.is_default);
+        }
+      }
+      procAddonServices[svc.id] = { selected: preSelected, service: svc };
+    });
+
+    // Re-render now that add-ons are resolved
+    renderIntakePanel();
     setTimeout(() => document.getElementById('proc-weight-inp')?.focus(), 280);
   }
 
