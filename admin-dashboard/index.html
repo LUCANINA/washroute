@@ -842,8 +842,6 @@
     .rack-btn { padding:11px 16px;border-radius:10px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600; }
     .rack-btn:hover { border-color:var(--accent);background:#f5f3ff; }
     .rack-btn.selected { border-color:var(--accent);background:#ede9ff;color:var(--accent); }
-    .rack-route-label { font-size:11px;color:var(--gray-400);font-weight:400; }
-    .rack-btn.selected .rack-route-label { color:var(--accent);opacity:.75; }
     /* Intake panel */
     .intake-over { position:fixed;top:0;right:0;bottom:0;width:560px;background:white;box-shadow:-6px 0 40px rgba(0,0,0,.18);z-index:900;transform:translateX(calc(100% + 60px));transition:transform .22s ease;display:flex;flex-direction:column;overflow:hidden; }
     .intake-over.open { transform:translateX(0); }
@@ -2973,7 +2971,6 @@
   </div>
   <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
     <div id="fold-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
-    <button class="proc-save-btn" id="fold-save-btn" onclick="saveFolding()" disabled style="display:none">👕 Send to Folding</button>
   </div>
 </div>
 
@@ -10793,8 +10790,7 @@ window.onload=()=>{window.print();};
     const ln = order.customers?.last_name_cache  || '';
     document.getElementById('fold-title').textContent    = `${`${fn} ${ln}`.trim()||'Order'} — Fold & Pack`;
     document.getElementById('fold-subtitle').textContent = `Order #${order.order_number||'—'} · ${order.services?.name||''}`;
-    document.getElementById('fold-save-btn').disabled    = true;
-    document.getElementById('fold-error').style.display  = 'none';
+    document.getElementById('fold-error').style.display = 'none';
     renderFoldPanel();
     document.getElementById('fold-panel').classList.add('open');
   }
@@ -10842,8 +10838,6 @@ window.onload=()=>{window.print();};
 
   async function saveFolding() {
     if (!foldActiveOrder || !foldSelectedLaunId) return;
-    const btn = document.getElementById('fold-save-btn');
-    btn.disabled = true; btn.textContent = 'Saving…';
     const { error } = await db.from('orders').update({
       status: 'folding', folded_by_id: foldSelectedLaunId,
       folded_at: new Date().toISOString(), updated_at: new Date().toISOString()
@@ -10851,7 +10845,6 @@ window.onload=()=>{window.print();};
     if (error) {
       const errEl = document.getElementById('fold-error');
       errEl.textContent = error.message; errEl.style.display = '';
-      btn.disabled = false; btn.textContent = '👕 Send to Folding';
       return;
     }
     const launName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
