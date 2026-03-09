@@ -849,11 +849,11 @@
     .proc-addon-group { margin-bottom:14px; }
     .proc-addon-group-label { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px; }
     .proc-addon-options { display:flex;flex-wrap:wrap;gap:8px; }
-    .proc-addon-btn { padding:10px 16px;border-radius:10px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;flex-direction:column;gap:2px; }
+    .proc-addon-btn { padding:20px 32px;border-radius:14px;border:2.5px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;flex-direction:column;gap:4px; }
     .proc-addon-btn.selected { border-color:var(--accent);background:#ede9ff; }
-    .proc-addon-btn-name { font-size:13.5px;font-weight:600;color:var(--gray-800); }
+    .proc-addon-btn-name { font-size:17px;font-weight:600;color:var(--gray-800); }
     .proc-addon-btn.selected .proc-addon-btn-name { color:var(--accent); }
-    .proc-addon-btn-price { font-size:12px;color:var(--gray-400); }
+    .proc-addon-btn-price { font-size:14px;color:var(--gray-400); }
     .proc-addon-btn.selected .proc-addon-btn-price { color:var(--accent); }
     /* Breakdown */
     .proc-breakdown { background:var(--gray-50);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:7px; }
@@ -11036,20 +11036,15 @@ window.onload=()=>{window.print();};
     procBags        = order.total_bags || 1;
     procWeight      = '';
     procNotes       = order.special_instructions || '';
-    // Pre-select default option for each preference group
-    procAddons = {};
-    (procSvc?.preferences || []).forEach(g => {
-      const def = (g.options||[]).find(opt => opt.is_default);
-      if (def) procAddons[g.id] = { id: def.id, label: def.label, price_mod: parseFloat(def.price_mod)||0 };
-    });
 
-    // Show panel immediately so there's no delay
+    // Show panel immediately so there's no delay (add-ons resolved after fresh fetch below)
     const fn = order.customers?.first_name_cache || '';
     const ln = order.customers?.last_name_cache  || '';
     document.getElementById('intake-title').textContent    = `${fn} ${ln}`.trim() || 'Process Order';
     document.getElementById('intake-subtitle').textContent = `Order #${order.order_number||'—'} · ${procSvc?.name||''}`;
     document.getElementById('intake-save-btn').disabled    = true;
     document.getElementById('intake-error').style.display  = 'none';
+    procAddons = {};
     procAddonServices = {};
     renderIntakePanel();
     document.getElementById('intake-panel').classList.add('open');
@@ -11072,6 +11067,34 @@ window.onload=()=>{window.print();};
 
     // Normalize customer_type: legacy 'individual' value → treat as 'Delivery'
     const pricelist = (customerType === 'Commercial') ? 'Commercial' : 'Delivery';
+
+    // Resolve service-embedded preference chips (e.g. Wash Temp) using customer's saved prefs.
+    // Match each embedded group to the global preferences table by name, then match the saved
+    // option by label so the customer's choice (e.g. "Hot") overrides the service default ("Cold").
+    procAddons = {};
+    (procSvc?.preferences || []).forEach(g => {
+      // Try to match this embedded group to a global preference by name
+      const globalMatch = allPreferencesCache.find(
+        p => p.name.trim().toLowerCase() === g.name.trim().toLowerCase()
+      );
+      if (globalMatch && customerPrefs[globalMatch.id]) {
+        const savedGlobalOptId = customerPrefs[globalMatch.id];
+        const savedGlobalOpt   = (globalMatch.options || []).find(o => o.id === savedGlobalOptId);
+        if (savedGlobalOpt) {
+          // Find the matching option in the service-embedded group by label
+          const matchingServiceOpt = (g.options || []).find(
+            o => o.label.trim().toLowerCase() === savedGlobalOpt.label.trim().toLowerCase()
+          );
+          if (matchingServiceOpt) {
+            procAddons[g.id] = { id: matchingServiceOpt.id, label: matchingServiceOpt.label, price_mod: parseFloat(matchingServiceOpt.price_mod) || 0 };
+            return; // customer pref applied — skip service default
+          }
+        }
+      }
+      // Fallback: use the service's own default option
+      const def = (g.options || []).find(opt => opt.is_default);
+      if (def) procAddons[g.id] = { id: def.id, label: def.label, price_mod: parseFloat(def.price_mod) || 0 };
+    });
 
     // All pricelist-relevant services excluding the main service on this order
     const mainServiceId = order.service_id || procSvc?.id;
