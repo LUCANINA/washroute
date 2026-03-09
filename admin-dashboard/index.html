@@ -10862,12 +10862,13 @@ window.onload=()=>{window.print();};
     }
     const launName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
     const movedId  = foldActiveOrder.id;
+    const orderNum = foldActiveOrder.order_number; // capture before closeFoldPanel() nulls foldActiveOrder
     closeFoldPanel();
     // Instant removal from source column
     ['proc-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
     allCleanOrders = allCleanOrders.filter(o => o.id !== movedId);
     allProcOrders  = allProcOrders.filter(o => o.id !== movedId);
-    showToast(`Order #${foldActiveOrder.order_number} assigned to ${launName} for folding`, 'success');
+    showToast(`Order #${orderNum} assigned to ${launName} for folding`, 'success');
     reloadColumns('cleaning', 'folding');
   }
 
