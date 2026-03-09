@@ -10899,6 +10899,12 @@ window.onload=()=>{window.print();};
   let allPreferencesCache  = []; // global preferences table (for pre-fill logic)
 
   async function loadProcessing() {
+    // Refresh services cache so pricing changes (type, base_price) are always current
+    const { data: freshSvcs } = await db.from('services')
+      .select('id, name, base_price, pricing_type, lbs_per_bag, pricelist, linked_preference_id, is_addon')
+      .eq('is_active', true);
+    if (freshSvcs) allAddonServicesCache = freshSvcs;
+
     // Kick off all 4 columns in parallel
     const [{ data: pickedUp }] = await Promise.all([
       db.from('orders')
