@@ -10973,6 +10973,8 @@ window.onload=()=>{window.print();};
   let procActiveOrder = null, procSvc = null;
   let procBags = 1, procWeight = '', procAddons = {}, procNotes = '';
   let procAddonServices = {}; // { [serviceId]: { selected: bool, service: {...} } }
+  let procFeeExempt = false;  // true when customer has fee_exempt checked
+  let procIsSameDay = false;  // true when pickup date === delivery date
   let allAddonServicesCache = []; // active is_addon services with pricelist + linked_preference_id
   let allPreferencesCache  = []; // global preferences table (for pre-fill logic)
 
@@ -11140,14 +11142,20 @@ window.onload=()=>{window.print();};
     let customerPrefs = order.customers?.preferences   || {};
     if (custId) {
       const { data: fresh } = await db.from('customers')
-        .select('customer_type, preferences')
+        .select('customer_type, preferences, fee_exempt')
         .eq('id', custId)
         .single();
       if (fresh) {
         customerType  = fresh.customer_type  || customerType;
         customerPrefs = fresh.preferences    || {};
+        procFeeExempt = !!fresh.fee_exempt;
       }
     }
+
+    // Detect same-day: pickup date === delivery date (compare YYYY-MM-DD portion)
+    const pickupDate   = (order.pickup_window_start   || '').slice(0, 10);
+    const deliveryDate = (order.delivery_window_start || '').slice(0, 10);
+    procIsSameDay = !!(pickupDate && deliveryDate && pickupDate === deliveryDate);
 
     // Normalize customer_type: legacy 'individual' value → treat as 'Delivery'
     const pricelist = (customerType === 'Commercial') ? 'Commercial' : 'Delivery';
@@ -11316,9 +11324,27 @@ window.onload=()=>{window.print();};
       const lineAmt = price * units;
       rows.push(`<div class="proc-breakdown-row"><span>${a.service.name} × ${units} ${unit}${units!==1?'s':''}</span><span class="amount">+${fmtMoney(lineAmt)}</span></div>`);
     });
+    // Delivery fee rows
+    if (procFeeExempt) {
+      rows.push(`<div class="proc-breakdown-row" style="color:var(--green)"><span>✓ Delivery fee exempt</span><span class="amount">—</span></div>`);
+    } else {
+      if (bd.deliveryFee > 0)
+        rows.push(`<div class="proc-breakdown-row"><span>Delivery fee</span><span class="amount">+${fmtMoney(bd.deliveryFee)}</span></div>`);
+      if (bd.sameDaySurcharge > 0)
+        rows.push(`<div class="proc-breakdown-row"><span>Same-day surcharge</span><span class="amount">+${fmtMoney(bd.sameDaySurcharge)}</span></div>`);
+    }
     const totalLabel = bd.weight > 0 ? 'Total' : 'Total (pending weight)';
     rows.push(`<div class="proc-breakdown-row total-row"><span>${totalLabel}</span><span class="amount">${fmtMoney(bd.total)}</span></div>`);
     return rows.join('');
+  }
+
+  function getDeliveryFees() {
+    if (procFeeExempt) return { deliveryFee: 0, sameDaySurcharge: 0, deliveryTotal: 0 };
+    const deliveryFeeRec  = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
+    const sameDayRec      = allFees.find(f => f.name === 'Same-Day Surcharge' && f.is_active);
+    const deliveryFee     = parseFloat(deliveryFeeRec?.amount || 0);
+    const sameDaySurcharge = procIsSameDay ? parseFloat(sameDayRec?.amount || 0) : 0;
+    return { deliveryFee, sameDaySurcharge, deliveryTotal: deliveryFee + sameDaySurcharge };
   }
 
   function calcProcTotal() {
@@ -11350,8 +11376,10 @@ window.onload=()=>{window.print();};
       if (!linkedSvc) return sum;
       return sum + (parseFloat(linkedSvc.base_price) || 0) * bags;
     }, 0);
+    const { deliveryFee, sameDaySurcharge, deliveryTotal } = getDeliveryFees();
     return { bags, weight, base, overage_lbs, overage_charge, addons_total, addonSvc_total, prefLinkedSvc_total,
-             total: base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total };
+             deliveryFee, sameDaySurcharge, deliveryTotal,
+             total: base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total + deliveryTotal };
   }
 
   function setProcBags(delta) {
@@ -11418,6 +11446,7 @@ window.onload=()=>{window.print();};
   function closeIntakePanel() {
     document.getElementById('intake-panel').classList.remove('open');
     procActiveOrder = null; procSvc = null;
+    procFeeExempt = false; procIsSameDay = false;
   }
 
   async function saveIntake() {
@@ -11464,10 +11493,18 @@ window.onload=()=>{window.print();};
       lineItems.push({ type:'addon_service', service_id: a.service.id,
         label: `${a.service.name} × ${units} ${unit}${units!==1?'s':''}`, amount: lineAmt });
     });
+    // Delivery fees
+    if (!procFeeExempt) {
+      if (bd.deliveryFee > 0)
+        lineItems.push({ type: 'delivery_fee', label: 'Delivery fee', amount: bd.deliveryFee });
+      if (bd.sameDaySurcharge > 0)
+        lineItems.push({ type: 'same_day_surcharge', label: 'Same-day surcharge', amount: bd.sameDaySurcharge });
+    }
 
     const { error } = await db.from('orders').update({
       status: 'processing', weight_lbs: weight, total_bags: bd.bags,
       total_amount: bd.total, line_items: lineItems,
+      is_same_day: procIsSameDay,
       special_instructions: procNotes || null,
       updated_at: new Date().toISOString()
     }).eq('id', procActiveOrder.id);
