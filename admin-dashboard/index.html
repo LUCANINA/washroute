@@ -796,9 +796,10 @@
 
     /* ── PROCESSING QUEUE ── */
     .proc-queue-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px; }
-    .proc-card { background:white;border:1px solid var(--gray-200);border-radius:var(--radius);padding:18px 20px;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s,border-color .15s;cursor:grab; }
+    .proc-card { background:white;border:1px solid var(--gray-200);border-radius:var(--radius);padding:18px 20px;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s,border-color .15s;cursor:grab;touch-action:none;user-select:none; }
     .proc-card:hover { box-shadow:0 4px 18px rgba(0,0,0,.1);border-color:var(--accent); }
     .proc-card:active { cursor:grabbing; }
+    .kanban-col-body.drag-lock { overflow-y:hidden; } /* freeze column scroll while finger-dragging */
     .proc-card.dragging { opacity:.2;box-shadow:none; }
     .proc-card-order { font-size:11.5px;color:var(--gray-400);font-family:monospace;letter-spacing:.03em; }
     .proc-card-name { font-size:16px;font-weight:700;color:var(--gray-900);line-height:1.2; }
@@ -10629,7 +10630,10 @@ window.onload=()=>{window.print();};
               || document.getElementById('clean-card-'+id)
               || document.getElementById('fold-card-'+id);
     if (!card) return;
+    event.preventDefault(); // block scroll from the very first touch
     _buildDropZones();
+    // Lock all kanban column bodies so they don't scroll under the finger
+    document.querySelectorAll('.kanban-col-body').forEach(c => c.classList.add('drag-lock'));
     const touch = event.touches[0];
     const rect  = card.getBoundingClientRect();
     _tdOff = { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
@@ -10637,10 +10641,11 @@ window.onload=()=>{window.print();};
     _tdClone.removeAttribute('id');
     Object.assign(_tdClone.style, {
       position:'fixed', pointerEvents:'none', zIndex:'9999',
-      width: rect.width+'px', opacity:'0.85',
-      boxShadow:'0 12px 40px rgba(0,0,0,.22)',
-      transform:'rotate(1.5deg)',
+      width: rect.width+'px', opacity:'0.9',
+      boxShadow:'0 16px 48px rgba(0,0,0,.28)',
+      transform:'rotate(1.5deg) scale(1.03)',
       border:'2px solid var(--accent)',
+      transition:'none',
       left: (touch.clientX - _tdOff.x)+'px',
       top:  (touch.clientY - _tdOff.y)+'px'
     });
@@ -10663,10 +10668,11 @@ window.onload=()=>{window.print();};
   }
 
   function touchEndOrder(event) {
-    if (!_tdClone || !_tdId) return;
+    if (!_tdId) return;
     const touch = event.changedTouches[0];
-    document.body.removeChild(_tdClone);
-    _tdClone = null;
+    if (_tdClone) { document.body.removeChild(_tdClone); _tdClone = null; }
+    // Unlock column scroll
+    document.querySelectorAll('.kanban-col-body').forEach(c => c.classList.remove('drag-lock'));
     ['proc-card-','clean-card-','fold-card-'].forEach(pfx => {
       const el = document.getElementById(pfx+_tdId);
       if (el) el.style.opacity = '';
