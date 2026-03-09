@@ -11167,11 +11167,6 @@ window.onload=()=>{window.print();};
         </div>
       </div>
       ${prefsHTML}
-      <div class="intake-section">
-        <div class="intake-section-label">Notes <span style="font-weight:400;color:var(--gray-300)">(optional)</span></div>
-        <textarea class="notif-textarea" rows="2" placeholder="Anything unusual about this order…"
-                  oninput="procNotes=this.value">${procNotes}</textarea>
-      </div>
       <div class="intake-section" style="margin-bottom:0">
         <div class="intake-section-label">Price Breakdown</div>
         <div class="proc-breakdown" id="proc-breakdown">${renderBreakdownRows(bd, pricePerBag)}</div>
