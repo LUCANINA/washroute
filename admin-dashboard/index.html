@@ -3008,6 +3008,43 @@
   </div>
 </div>
 
+<!-- ── REFUND MODAL ── -->
+<div id="refund-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1200;align-items:center;justify-content:center" onclick="if(event.target===this)closeRefundModal()">
+  <div style="background:white;border-radius:16px;padding:28px;width:420px;max-width:92vw;box-shadow:0 24px 64px rgba(0,0,0,.2)">
+    <h3 style="margin:0 0 4px;font-size:17px;font-weight:700">Issue Refund</h3>
+    <p id="refund-modal-desc" style="margin:0 0 20px;font-size:13px;color:var(--gray-500)"></p>
+
+    <div style="margin-bottom:16px">
+      <div style="font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:6px">Refund Amount</div>
+      <div style="position:relative">
+        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--gray-500);font-size:14px">$</span>
+        <input type="number" id="refund-amount-input" min="0.01" step="0.01"
+          style="width:100%;box-sizing:border-box;padding:9px 12px 9px 24px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;font-weight:600;outline:none;font-family:inherit"
+          onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--gray-200)'">
+      </div>
+      <div id="refund-max-hint" style="font-size:11px;color:var(--gray-400);margin-top:4px"></div>
+    </div>
+
+    <div style="margin-bottom:22px">
+      <div style="font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:6px">Reason <span style="font-weight:400;color:var(--gray-400)">(optional — sent to customer)</span></div>
+      <input type="text" id="refund-reason-input" maxlength="120" placeholder="e.g. Damaged items, billing error…"
+        style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:inherit;outline:none"
+        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--gray-200)'">
+    </div>
+
+    <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px;margin-bottom:22px;font-size:12px;color:var(--gray-500);line-height:1.5">
+      ⚠️ Refunds are processed immediately via Stripe and <strong>cannot be undone</strong>. The customer will receive an SMS notification.
+    </div>
+
+    <div id="refund-modal-error" style="display:none;color:var(--red);font-size:13px;margin-bottom:14px;padding:8px 12px;background:#fef2f2;border-radius:8px"></div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn" onclick="closeRefundModal()">Cancel</button>
+      <button class="btn btn-primary" id="refund-confirm-btn" onclick="submitRefund()" style="background:#7c3aed;border-color:#7c3aed">Issue Refund</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── DRIVER EDITOR SLIDE-OVER ── -->
 <div class="slide-backdrop" id="driver-slideover-backdrop" onclick="closeDriverEditor()"></div>
 <div class="slide-over" id="slideover-driver">
@@ -8315,6 +8352,7 @@ window.onload=()=>{window.print();};
   // ── ESCAPE KEY: CLOSE ANY OPEN MODAL OR SIDE PANEL ──
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    if (document.getElementById('refund-modal')?.style.display === 'flex') { closeRefundModal(); return; }
     if (document.getElementById('bill-modal')?.style.display === 'flex') { closeBillModal(); return; }
     const openModal = document.querySelector('.modal-overlay.open');
     if (openModal) { openModal.classList.remove('open'); return; }
@@ -8809,6 +8847,12 @@ window.onload=()=>{window.print();};
       sumEl.textContent = parts.length ? parts.join(' · ') : `${rows.length} entries`;
     }
     if (!rows.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">No billing transactions in this period</div>'; return; }
+    // Build a map of how much has already been refunded per payment_intent
+    const refundedByPI = {};
+    rows.filter(t => t.type === 'refund' && t.stripe_payment_intent_id).forEach(t => {
+      refundedByPI[t.stripe_payment_intent_id] = (refundedByPI[t.stripe_payment_intent_id] || 0) + parseFloat(t.amount || 0);
+    });
+
     el.innerHTML = `
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
@@ -8817,21 +8861,110 @@ window.onload=()=>{window.print();};
             <th style="text-align:left;padding:10px 8px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Type</th>
             <th style="text-align:left;padding:10px 8px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Description</th>
             <th style="text-align:right;padding:10px 16px 8px;color:var(--gray-400);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Amount</th>
+            <th style="padding:10px 8px 8px"></th>
           </tr>
         </thead>
         <tbody>
-          ${rows.map(t => `
+          ${rows.map(t => {
+            const alreadyRefunded = t.stripe_payment_intent_id ? (refundedByPI[t.stripe_payment_intent_id] || 0) : 0;
+            const refundable = t.type === 'charge' && t.stripe_payment_intent_id && alreadyRefunded < parseFloat(t.amount || 0);
+            const maxRefund = parseFloat(t.amount || 0) - alreadyRefunded;
+            const amountColor = t.type === 'charge' ? 'var(--gray-900)' : t.type === 'credit_add' ? '#059669' : '#7c3aed';
+            const amountPrefix = (t.type === 'credit_add' || t.type === 'refund') ? '+' : '';
+            return `
             <tr style="border-bottom:1px solid var(--gray-100)">
               <td style="padding:9px 16px;color:var(--gray-500);white-space:nowrap">${fmtDate(t.created_at)}</td>
               <td style="padding:9px 8px">${txnTypeBadge(t.type)}</td>
               <td style="padding:9px 8px">
                 <div style="font-weight:500;color:var(--gray-800)">${esc(t.description || '—')}</div>
                 <div>${txnPaymentLabel(t)}</div>
+                ${alreadyRefunded > 0 && t.type === 'charge' ? `<div style="font-size:11px;color:#7c3aed;margin-top:2px">↩ ${fmtMoney(alreadyRefunded)} refunded</div>` : ''}
               </td>
-              <td style="padding:9px 16px;text-align:right;font-weight:700;color:${t.type==='charge'?'var(--gray-900)':t.type==='credit_add'?'#059669':'#dc2626'}">${t.type === 'credit_add' ? '+' : t.type === 'refund' ? '+' : ''}${fmtMoney(t.amount || 0)}</td>
-            </tr>`).join('')}
+              <td style="padding:9px 16px;text-align:right;font-weight:700;color:${amountColor}">${amountPrefix}${fmtMoney(t.amount || 0)}</td>
+              <td style="padding:9px 8px;text-align:right">
+                ${refundable ? `<button onclick="openRefundModal('${t.id}','${t.description ? esc(t.description) : ''}',${parseFloat(t.amount||0)},${maxRefund},'${t.card_brand||''}','${t.card_last4||''}')"
+                  style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #ddd6fe;background:#f5f3ff;color:#7c3aed;cursor:pointer;white-space:nowrap;font-weight:600"
+                  title="Issue a refund for this charge">↩ Refund</button>` : ''}
+              </td>
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>`;
+  }
+
+  // ── REFUND MODAL ─────────────────────────────────────────────────
+  let _refundTxnId   = null;
+  let _refundMaxAmt  = 0;
+
+  function openRefundModal(txnId, description, originalAmount, maxRefund, cardBrand, cardLast4) {
+    _refundTxnId  = txnId;
+    _refundMaxAmt = maxRefund;
+
+    const cardLabel = cardLast4 ? ` · ${cardBrand ? cardBrand.charAt(0).toUpperCase()+cardBrand.slice(1) : ''} ••••${cardLast4}` : '';
+    document.getElementById('refund-modal-desc').innerHTML =
+      `<strong>${esc(description || 'Charge')}</strong>${cardLabel}<br>Original charge: <strong>${fmtMoney(originalAmount)}</strong>` +
+      (maxRefund < originalAmount ? ` · <span style="color:#7c3aed">${fmtMoney(maxRefund)} remaining refundable</span>` : '');
+
+    const amtInput = document.getElementById('refund-amount-input');
+    amtInput.value = maxRefund.toFixed(2);
+    amtInput.max   = maxRefund.toFixed(2);
+
+    document.getElementById('refund-max-hint').textContent = `Max refundable: ${fmtMoney(maxRefund)}`;
+    document.getElementById('refund-reason-input').value = '';
+    document.getElementById('refund-modal-error').style.display = 'none';
+
+    const btn = document.getElementById('refund-confirm-btn');
+    btn.disabled = false; btn.textContent = 'Issue Refund';
+
+    document.getElementById('refund-modal').style.display = 'flex';
+  }
+
+  function closeRefundModal() {
+    document.getElementById('refund-modal').style.display = 'none';
+    _refundTxnId  = null;
+    _refundMaxAmt = 0;
+  }
+
+  async function submitRefund() {
+    const amtRaw = parseFloat(document.getElementById('refund-amount-input').value);
+    const reason = document.getElementById('refund-reason-input').value.trim();
+    const errEl  = document.getElementById('refund-modal-error');
+    const btn    = document.getElementById('refund-confirm-btn');
+
+    errEl.style.display = 'none';
+
+    if (!amtRaw || amtRaw <= 0) {
+      errEl.textContent = 'Please enter a valid refund amount.';
+      errEl.style.display = 'block'; return;
+    }
+    if (amtRaw > _refundMaxAmt + 0.005) {
+      errEl.textContent = `Amount exceeds the refundable balance (${fmtMoney(_refundMaxAmt)}).`;
+      errEl.style.display = 'block'; return;
+    }
+
+    btn.disabled = true; btn.textContent = 'Processing…';
+
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      if (!session) throw new Error('Not authenticated — please log in again.');
+
+      const res = await fetch(`${SUPA_URL}/functions/v1/refund-charge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ transactionId: _refundTxnId, amount: amtRaw, reason: reason || undefined }),
+      });
+      const result = await res.json();
+      if (!res.ok || result.error) throw new Error(result.error || 'Refund failed');
+
+      closeRefundModal();
+      showToast(`↩ Refund of ${fmtMoney(amtRaw)} issued successfully`, 'success');
+      // Reload transactions to reflect the new refund row
+      await loadCpTransactions(panelCustomerId);
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Issue Refund';
+    }
   }
 
   // ── ENGAGEMENT TAB ───────────────────────────────────────────────
