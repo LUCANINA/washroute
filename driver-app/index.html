@@ -105,7 +105,8 @@
       padding-top: max(40px, env(safe-area-inset-top));
     }
     .auth-top { text-align: center; margin-bottom: 40px; }
-    .auth-logo { font-size: 52px; display: block; margin-bottom: 10px; }
+    .auth-logo { width: 52px; height: 52px; display: block; margin: 0 auto 14px; color: var(--white); }
+    .auth-logo svg { width: 100%; height: 100%; }
     .auth-brand { font-size: 30px; font-weight: 800; color: var(--white); letter-spacing: -0.5px; }
     .auth-sub { font-size: 14px; color: rgba(255,255,255,0.4); margin-top: 4px; font-weight: 500; }
     .auth-card {
@@ -154,7 +155,8 @@
       display: none;
     }
     .magic-sent.show { display: block; }
-    .magic-sent-icon { font-size: 44px; margin-bottom: 12px; }
+    .magic-sent-icon { width: 44px; height: 44px; margin: 0 auto 12px; color: var(--white); }
+    .magic-sent-icon svg { width: 100%; height: 100%; }
     .magic-sent-title { font-size: 18px; font-weight: 800; color: var(--white); margin-bottom: 6px; }
     .magic-sent-sub { font-size: 13px; color: rgba(255,255,255,0.45); line-height: 1.6; margin-bottom: 18px; }
     .btn-auth-ghost {
@@ -258,7 +260,8 @@
     .dsection-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-bottom: 10px; }
     .drow { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
     .drow:last-child { margin-bottom: 0; }
-    .dicon { font-size: 16px; margin-top: 1px; flex-shrink: 0; width: 22px; text-align: center; }
+    .dicon { width: 18px; height: 18px; margin-top: 2px; flex-shrink: 0; color: var(--muted); }
+    .dicon svg { width: 100%; height: 100%; display: block; }
     .dtext { font-size: 15px; font-weight: 500; flex: 1; }
     .dtext a { color: var(--accent); text-decoration: none; }
     .dsub { font-size: 13px; color: var(--muted); margin-top: 2px; }
@@ -298,10 +301,10 @@
     .photo-thumb.show { display: block; }
     .btn-camera {
       flex: 1; background: var(--bg); border: 2px dashed var(--border);
-      border-radius: 12px; padding: 14px; cursor: pointer;
-      display: flex; align-items: center; justify-content: center; gap: 8px;
+      border-radius: 12px; padding: 16px 14px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
       font-size: 14px; font-weight: 700; color: var(--muted);
-      transition: all .2s;
+      transition: all .2s; letter-spacing: 0.01em;
     }
     .btn-camera:active { border-color: var(--accent); color: var(--accent); }
     .btn-camera.has-photo { border-style: solid; border-color: var(--deliver); color: var(--deliver); background: #f0fdf4; }
@@ -342,11 +345,11 @@
     }
 
     .next-stop-nudge {
-      background: #fff7ed; border: 1px solid #fed7aa; border-radius: 14px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
       padding: 14px 16px; display: flex; align-items: center; gap: 12px;
     }
     .nsn-info { flex: 1; }
-    .nsn-label { font-size: 12px; font-weight: 700; color: #c2410c; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+    .nsn-label { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
     .nsn-title { font-size: 15px; font-weight: 700; color: var(--dark); }
     .nsn-addr { font-size: 13px; color: var(--muted); }
     .btn-nsn {
@@ -375,7 +378,8 @@
     .info-card { background: var(--white); border-radius: var(--radius); overflow: hidden; margin-bottom: 16px; }
     .info-row { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
     .info-row:last-child { border-bottom: none; }
-    .info-icon { font-size: 18px; width: 26px; text-align: center; }
+    .info-icon { width: 18px; height: 18px; flex-shrink: 0; color: var(--muted); }
+    .info-icon svg { width: 100%; height: 100%; display: block; }
     .info-lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
     .info-val { font-size: 15px; font-weight: 600; color: var(--dark); margin-top: 2px; }
 
@@ -388,7 +392,8 @@
        EMPTY STATE
     ══════════════════════════════ */
     .empty { text-align: center; padding: 56px 32px; }
-    .empty-icon { font-size: 56px; margin-bottom: 14px; }
+    .empty-icon { width: 52px; height: 52px; margin: 0 auto 14px; color: var(--border); }
+    .empty-icon svg { width: 100%; height: 100%; }
     .empty-title { font-size: 19px; font-weight: 800; margin-bottom: 7px; }
     .empty-sub { font-size: 14px; color: var(--muted); line-height: 1.6; }
 
@@ -497,7 +502,8 @@
     }
 
     .msg-empty { text-align: center; padding: 64px 32px; }
-    .msg-empty-icon { font-size: 52px; margin-bottom: 14px; }
+    .msg-empty-icon { width: 48px; height: 48px; margin: 0 auto 14px; color: var(--border); }
+    .msg-empty-icon svg { width: 100%; height: 100%; }
 
     .msg-compose {
       padding: 10px 14px;
@@ -533,12 +539,17 @@
     }
     .stop-section-hdr:first-child { margin-top: 4px; }
     .stop-section-pill {
-      display: flex; align-items: center; gap: 7px;
-      font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
-      padding: 6px 14px; border-radius: 20px;
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+      padding: 5px 12px; border-radius: 8px;
     }
-    .ssp-pickup   { background: #dbeafe; color: #1d4ed8; }
+    .ssp-pickup   { background: #dbeafe; color: #1e40af; }
     .ssp-delivery { background: #d1fae5; color: #065f46; }
+    .ssp-dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    }
+    .ssp-pickup .ssp-dot   { background: var(--pickup); }
+    .ssp-delivery .ssp-dot { background: var(--deliver); }
     .stop-section-count { font-size: 12px; color: var(--muted); font-weight: 600; }
 
     /* ══════════════════════════════
@@ -548,14 +559,14 @@
       padding: 20px 20px 8px;
     }
     .btn-notify-big {
-      width: 100%; background: var(--info); color: var(--white); border: none;
-      border-radius: 14px; font-size: 18px; font-weight: 800; padding: 18px;
+      width: 100%; background: var(--dark); color: var(--white); border: none;
+      border-radius: 14px; font-size: 17px; font-weight: 800; padding: 18px;
       cursor: pointer; display: flex; align-items: center; justify-content: center;
-      gap: 10px; box-shadow: 0 4px 16px rgba(29,78,216,0.25); transition: all .2s;
+      gap: 10px; transition: all .2s;
     }
-    .btn-notify-big:active { transform: scale(0.97); }
-    .btn-notify-big:disabled { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none; }
-    .btn-notify-big.sent { background: var(--deliver); box-shadow: none; }
+    .btn-notify-big:active { transform: scale(0.97); opacity: 0.88; }
+    .btn-notify-big:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+    .btn-notify-big.sent { background: #374151; }
     .phase1-hint {
       font-size: 13px; text-align: center; margin: 8px 0 4px; color: var(--muted);
     }
@@ -575,8 +586,8 @@
       font-size: 14px; font-weight: 700; text-align: center;
       margin: 14px 20px 4px;
     }
-    .arrival-chip.notified  { background: #dbeafe; color: #1d4ed8; }
-    .arrival-chip.arrived   { background: #f3f4f6; color: var(--muted); }
+    .arrival-chip.notified  { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+    .arrival-chip.arrived   { background: #f9fafb; color: var(--muted); border: 1px solid var(--border); }
 
     .bag-stepper-wrap { display: flex; flex-direction: column; align-items: center; padding: 6px 0 10px; }
     .bag-stepper {
@@ -653,7 +664,7 @@
 ════════════════════════════ -->
 <div class="screen active" id="screen-auth">
   <div class="auth-top">
-    <span class="auth-logo">🚐</span>
+    <span class="auth-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="10" width="22" height="10" rx="2"/><path d="M5 10V7a3 3 0 013-3h8a3 3 0 013 3v3"/><circle cx="7.5" cy="20" r="1.5" fill="currentColor" stroke="none"/><circle cx="16.5" cy="20" r="1.5" fill="currentColor" stroke="none"/><path d="M5 15h14"/></svg></span>
     <div class="auth-brand">WashRoute</div>
     <div class="auth-sub">Driver App</div>
   </div>
@@ -686,11 +697,11 @@
         <input class="auth-input" type="email" id="magic-email" placeholder="you@example.com"
           onkeydown="if(event.key==='Enter') doMagicLink()">
         <div class="auth-err" id="magic-err"></div>
-        <button class="btn-auth info" id="btn-magic" onclick="doMagicLink()">✉️ Send Sign-In Link</button>
+        <button class="btn-auth info" id="btn-magic" onclick="doMagicLink()">Send Sign-In Link</button>
       </div>
       <!-- Sent state -->
       <div class="magic-sent" id="magic-sent">
-        <div class="magic-sent-icon">✉️</div>
+        <div class="magic-sent-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
         <div class="magic-sent-title">Check your email</div>
         <div class="magic-sent-sub">We sent a sign-in link to <strong id="magic-sent-email" style="color:var(--white)"></strong>.<br>Tap the link in the email to sign in.</div>
         <button class="btn-auth-ghost" onclick="resetMagicLink()">Use a different email</button>
@@ -756,7 +767,7 @@
 ════════════════════════════ -->
 <div class="screen" id="screen-messages">
   <div class="msg-hdr">
-    <div class="msg-hdr-title">💬 Messages</div>
+    <div class="msg-hdr-title">Messages</div>
     <div class="msg-hdr-sub">From the WashRoute team</div>
   </div>
   <div class="msg-thread" id="msg-thread"></div>
@@ -963,7 +974,7 @@ async function doMagicLink() {
 
   if (error) {
     err.textContent = error.message; err.classList.add('show');
-    btn.textContent = '✉️ Send Sign-In Link'; btn.disabled = false;
+    btn.textContent = 'Send Sign-In Link'; btn.disabled = false;
     return;
   }
 
@@ -976,7 +987,7 @@ async function doMagicLink() {
 function resetMagicLink() {
   document.getElementById('magic-sent').classList.remove('show');
   document.getElementById('magic-form').style.display = 'block';
-  document.getElementById('btn-magic').textContent = '✉️ Send Sign-In Link';
+  document.getElementById('btn-magic').textContent = 'Send Sign-In Link';
   document.getElementById('btn-magic').disabled = false;
   document.getElementById('magic-email').value = '';
 }
@@ -1089,17 +1100,17 @@ function renderHome() {
   const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
 
   let h = `<div class="home-hero">
-    <div class="hero-greeting">${greet()}, ${name}! 👋</div>
+    <div class="hero-greeting">${greet()}, ${name}.</div>
     <div class="hero-date">${dateStr}</div>`;
 
   if (allStops.length > 0) {
     const route = todayRoutes[0];
-    const statusLabel = route?.status === 'in_progress' ? '🟢 In Progress'
-                      : route?.status === 'complete'    ? '✅ Complete' : '⏳ Scheduled';
+    const statusLabel = route?.status === 'in_progress' ? 'In Progress'
+                      : route?.status === 'complete'    ? 'Complete' : 'Scheduled';
     const btnLabel = route?.status === 'complete' ? 'View Completed Route'
-                   : route?.status === 'in_progress' ? '▶️ Continue Route' : '🚀 Start Route';
+                   : route?.status === 'in_progress' ? 'Continue Route' : 'Start Route';
     h += `<div class="route-summary-card">
-      <div class="route-name">📋 ${route?.name || "Today's Stops"} &nbsp;<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.45)">${statusLabel}</span></div>
+      <div class="route-name">${route?.name || "Today's Stops"} &nbsp;<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.45)">${statusLabel}</span></div>
       <div class="route-stats">
         <div class="rstat"><div class="rstat-num">${total}</div><div class="rstat-label">Stops</div></div>
         <div class="rstat"><div class="rstat-num">${done}</div><div class="rstat-label">Done</div></div>
@@ -1126,20 +1137,20 @@ function renderHome() {
       const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
       const isEnRoute = next.status === 'en_route';
       h += `<div class="home-section">
-        <div class="section-label">${isEnRoute ? '🔵 En Route To' : 'Next Stop'}</div>
+        <div class="section-label">${isEnRoute ? 'En Route To' : 'Next Stop'}</div>
         <div class="stop-card${isEnRoute ? ' en-route' : ''}" onclick="openStop('${next.id}')">
           <div class="stop-num ${isEnRoute ? 'sn-enroute' : 'sn-' + next.stop_type}">${isEnRoute ? '↑' : next.stop_number}</div>
           <div class="stop-body">
             <div><span class="stop-badge ${isEnRoute ? 'sb-enroute' : 'sb-' + next.stop_type}">${isEnRoute ? 'EN ROUTE' : next.stop_type.toUpperCase()}</span></div>
             <div class="stop-name">${custName}</div>
             <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
-            <div class="stop-meta">📦 ${next.orders?.total_bags||1} bag(s) · ${next.orders?.services?.name||'Service'}</div>
+            <div class="stop-meta">${next.orders?.total_bags||1} bag${(next.orders?.total_bags||1)!==1?'s':''} · ${next.orders?.services?.name||'Service'}</div>
           </div>
           <span class="stop-chevron">›</span>
         </div>
       </div>`;
     } else if (done === total && total > 0) {
-      h += `<div class="home-section"><div class="completed-banner">🎉 All stops done — great work today!</div></div>`;
+      h += `<div class="home-section"><div class="completed-banner">All stops done — great work today!</div></div>`;
     }
   }
 
@@ -1156,7 +1167,7 @@ function renderRoute() {
     document.getElementById('rh-title').textContent = "Today's Stops";
     document.getElementById('rh-sub').textContent = 'No stops assigned yet';
     document.getElementById('rh-bar').style.width = '0%';
-    body.innerHTML = `<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">No Stops Today</div><div class="empty-sub">Check back later — stops will appear here once they're assigned to you.</div><button class="btn-big" style="max-width:200px;margin:20px auto 0;font-size:15px;padding:12px" onclick="refreshRoute()">↻ Refresh</button></div>`;
+    body.innerHTML = `<div class="empty"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></div><div class="empty-title">No Stops Today</div><div class="empty-sub">Check back later — stops will appear here once they're assigned to you.</div><button class="btn-big" style="max-width:200px;margin:20px auto 0;font-size:15px;padding:12px" onclick="refreshRoute()">↻ Refresh</button></div>`;
     return;
   }
 
@@ -1168,7 +1179,7 @@ function renderRoute() {
   document.getElementById('rh-bar').style.width   = pct + '%';
 
   if (total === 0) {
-    body.innerHTML = `<div class="empty"><div class="empty-icon">🗺️</div><div class="empty-title">No Stops Yet</div><div class="empty-sub">Your route has been assigned but no stops have been added yet.</div><button class="btn-big" style="max-width:200px;margin:20px auto 0;font-size:15px;padding:12px" onclick="refreshRoute()">↻ Refresh</button></div>`;
+    body.innerHTML = `<div class="empty"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg></div><div class="empty-title">No Stops Yet</div><div class="empty-sub">Your route has been assigned but no stops have been added yet.</div><button class="btn-big" style="max-width:200px;margin:20px auto 0;font-size:15px;padding:12px" onclick="refreshRoute()">↻ Refresh</button></div>`;
     return;
   }
 
@@ -1193,7 +1204,7 @@ function renderRoute() {
         <div><span class="stop-badge ${badgeClass}">${badgeText}</span>${reassignedTag}</div>
         <div class="stop-name">${custName}</div>
         <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
-        <div class="stop-meta">📦 ${stop.orders?.total_bags||1} bag(s) · ${stop.orders?.services?.name||'Service'}${isDone && stop.completed_at ? ' · ' + fmtTime(stop.completed_at) : ''}</div>
+        <div class="stop-meta">${stop.orders?.total_bags||1} bag${(stop.orders?.total_bags||1)!==1?'s':''} · ${stop.orders?.services?.name||'Service'}${isDone && stop.completed_at ? ' · ' + fmtTime(stop.completed_at) : ''}</div>
       </div>
       <span class="stop-chevron">›</span>
     </div>`;
@@ -1204,8 +1215,8 @@ function renderRoute() {
     if (!stops.length) return '';
     const doneCount = stops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
     const pill = type === 'pickup'
-      ? `<span class="stop-section-pill ssp-pickup">🔵 Pickups</span>`
-      : `<span class="stop-section-pill ssp-delivery">🟢 Deliveries</span>`;
+      ? `<span class="stop-section-pill ssp-pickup"><span class="ssp-dot"></span>Pickups</span>`
+      : `<span class="stop-section-pill ssp-delivery"><span class="ssp-dot"></span>Deliveries</span>`;
     let h = `<div class="stop-section-hdr">${pill}<span class="stop-section-count">${doneCount} of ${stops.length} done</span></div>`;
     stops.forEach(stop => { h += renderStopCard(stop); });
     return h;
@@ -1222,6 +1233,29 @@ function renderRoute() {
   h += '</div>';
   body.innerHTML = h;
 }
+
+/* ──────────────────────────────
+   ICON HELPERS (inline SVG)
+────────────────────────────── */
+const ICONS = {
+  person:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.58-7 8-7s8 3 8 7"/></svg>`,
+  phone:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 014.77 9.19a19.79 19.79 0 01-3.07-8.67A2 2 0 013.69 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L7.91 9.91a16 16 0 006.29 6.29l1.08-1.08a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>`,
+  pin:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>`,
+  lock:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>`,
+  receipt:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>`,
+  bag:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>`,
+  shirt:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.57a1 1 0 00.99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.57a2 2 0 00-1.34-2.23z"/></svg>`,
+  note:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+  star:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  mail:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`,
+  van:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="10" width="22" height="10" rx="2"/><path d="M5 10V7a3 3 0 013-3h8a3 3 0 013 3v3"/><circle cx="7.5" cy="20" r="1.5" fill="currentColor" stroke="none"/><circle cx="16.5" cy="20" r="1.5" fill="currentColor" stroke="none"/></svg>`,
+  chart:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+  card:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>`,
+  msg:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`,
+  camera:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>`,
+  check:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+};
+function icon(name) { return `<span class="dicon">${ICONS[name]||''}</span>`; }
 
 /* ──────────────────────────────
    STOP DETAIL
@@ -1266,33 +1300,33 @@ function renderStopDetail(stop) {
       : '';
     h += `<div style="padding:14px 20px 4px">
       <div class="completed-banner" style="flex-direction:column;align-items:center">
-        <div>✅ ${isPickup ? 'Picked Up' : 'Delivered'}${stop.completed_at ? ' at ' + fmtTime(stop.completed_at) : ''}</div>
+        <div>${isPickup ? 'Picked Up' : 'Delivered'}${stop.completed_at ? ' at ' + fmtTime(stop.completed_at) : ''}</div>
         ${photoHtml}
       </div>
     </div>`;
   }
   if (isSkip) {
     h += `<div style="padding:14px 20px 4px">
-      <div class="completed-banner" style="background:#fef3c7;color:#92400e">⤷ Skipped</div>
+      <div class="completed-banner" style="background:#fef3c7;color:#92400e">Skipped</div>
     </div>`;
   }
 
   // ── Customer info (always visible) ──
   h += `<div class="dsection">
     <div class="dsection-title">Customer</div>
-    <div class="drow"><span class="dicon">👤</span><div class="dtext">${custName || '—'}</div></div>
-    ${hasPhone ? `<div class="drow"><span class="dicon">📞</span><div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a></div></div>` : ''}
-    <div class="drow"><span class="dicon">📍</span><div class="dtext">${fmtAddr(addr)}</div></div>
-    ${addr?.delivery_instructions ? `<div class="drow"><span class="dicon">🔑</span><div><div class="dtext" style="font-size:13px;color:var(--muted)">${addr.delivery_instructions}</div></div></div>` : ''}
+    <div class="drow">${icon('person')}<div class="dtext">${custName || '—'}</div></div>
+    ${hasPhone ? `<div class="drow">${icon('phone')}<div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a></div></div>` : ''}
+    <div class="drow">${icon('pin')}<div class="dtext">${fmtAddr(addr)}</div></div>
+    ${addr?.delivery_instructions ? `<div class="drow">${icon('lock')}<div><div class="dtext" style="font-size:13px;color:var(--muted)">${addr.delivery_instructions}</div></div></div>` : ''}
   </div>`;
 
   // ── Order info (always visible) ──
   h += `<div class="dsection">
     <div class="dsection-title">Order Details</div>
-    <div class="drow"><span class="dicon">🧾</span><div class="dtext">Order #${order?.order_number || '—'}</div></div>
-    <div class="drow"><span class="dicon">📦</span><div class="dtext">${order?.total_bags||1} bag(s) expected</div></div>
-    <div class="drow"><span class="dicon">👕</span><div class="dtext">${svc?.name || 'Service'}</div></div>
-    ${order?.special_instructions ? `<div class="drow"><span class="dicon">📝</span><div><div class="dtext" style="font-size:13px;color:var(--muted)">${order.special_instructions}</div></div></div>` : ''}
+    <div class="drow">${icon('receipt')}<div class="dtext">Order #${order?.order_number || '—'}</div></div>
+    <div class="drow">${icon('bag')}<div class="dtext">${order?.total_bags||1} bag${(order?.total_bags||1)!==1?'s':''} expected</div></div>
+    <div class="drow">${icon('shirt')}<div class="dtext">${svc?.name || 'Service'}</div></div>
+    ${order?.special_instructions ? `<div class="drow">${icon('note')}<div><div class="dtext" style="font-size:13px;color:var(--muted)">${order.special_instructions}</div></div></div>` : ''}
     ${renderPrefTags(cust?.preferences)}
   </div>`;
 
@@ -1305,13 +1339,13 @@ function renderStopDetail(stop) {
       h += `<div class="phase1-actions">`;
       if (!alreadySent) {
         h += `<button class="btn-notify-big" id="btn-notify-cust" onclick="sendOnMyWay('${stop.id}')">
-          📲 Notify Customer
+          Notify Customer
         </button>
         <div class="phase1-hint">Sends a text to the customer + opens navigation</div>
         <button class="btn-arrive-text" onclick="arrivedAtStop('${stop.id}')">Skip notification — I'm Already Here →</button>`;
       } else {
         // Already notified but somehow back at phase 1
-        h += `<button class="btn-notify-big sent" disabled>✓ Customer Notified</button>
+        h += `<button class="btn-notify-big sent" disabled>Customer Notified</button>
         <div class="phase1-hint">Customer has been informed you're on the way.</div>
         <button class="btn-arrive-text" onclick="arrivedAtStop('${stop.id}')">I'm Here Now →</button>`;
       }
@@ -1326,7 +1360,7 @@ function renderStopDetail(stop) {
 
       // Arrival chip
       h += `<div class="arrival-chip ${notified ? 'notified' : 'arrived'}">
-        ${notified ? '✓ Customer notified · Safe travels!' : '📍 Arrived at stop'}
+        ${notified ? 'Customer notified · Safe travels!' : 'Arrived at stop'}
       </div>`;
 
       // Bag count stepper
@@ -1351,10 +1385,10 @@ function renderStopDetail(stop) {
         <div class="photo-row">
           ${hasPhoto ? `<img class="photo-thumb show" id="photo-thumb" src="${stop.proof_photo_url}" alt="Proof photo">` : `<img class="photo-thumb" id="photo-thumb" src="" alt="Proof photo">`}
           <button class="btn-camera ${hasPhoto ? 'has-photo' : ''}" id="btn-camera" onclick="document.getElementById('photo-input').click()">
-            ${hasPhoto ? '✓ Photo Taken' : '📷 Take Photo'}
+            ${hasPhoto ? 'Photo Taken' : 'Take Photo'}
           </button>
         </div>
-        <div class="photo-uploading" id="photo-uploading">⏳ Uploading photo…</div>
+        <div class="photo-uploading" id="photo-uploading">Uploading photo…</div>
         <input class="photo-input" type="file" accept="image/*" capture="environment" id="photo-input" onchange="handlePhoto(this, '${stop.id}')">
       </div>`;
 
@@ -1366,7 +1400,7 @@ function renderStopDetail(stop) {
 
       // Complete + Skip
       const cls   = isPickup ? '' : 'delivery';
-      const label = isPickup ? '📦 Mark Picked Up' : '✅ Mark Delivered';
+      const label = isPickup ? 'Mark Picked Up' : 'Mark Delivered';
       h += `<div class="detail-actions">
         <button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')">${label}</button>
         <button class="btn-skip-stop" onclick="skipStop('${stop.id}')">Skip This Stop</button>
@@ -1401,7 +1435,7 @@ function renderStopDetail(stop) {
         </div>
       </div>`;
     } else {
-      h += `<div style="padding:0 20px 16px"><div class="completed-banner">🎉 All stops complete — great work!</div></div>`;
+      h += `<div style="padding:0 20px 16px"><div class="completed-banner">All stops complete — great work!</div></div>`;
     }
   }
 
@@ -1412,13 +1446,13 @@ function renderStopDetail(stop) {
 function renderPrefTags(prefs) {
   if (!prefs || !Object.keys(prefs).length) return '';
   const tags = [];
-  if (prefs.no_bleach)          tags.push('🚫 No Bleach');
-  if (prefs.hang_dry)           tags.push('🪢 Hang Dry');
+  if (prefs.no_bleach)          tags.push('No Bleach');
+  if (prefs.hang_dry)           tags.push('Hang Dry');
   if (prefs.softener === false) tags.push('No Softener');
-  if (prefs.detergent)          tags.push(`🧴 ${prefs.detergent}`);
-  if (prefs.water_temp)         tags.push(`💧 ${prefs.water_temp}`);
+  if (prefs.detergent)          tags.push(prefs.detergent);
+  if (prefs.water_temp)         tags.push(prefs.water_temp);
   if (!tags.length) return '';
-  return `<div class="drow"><span class="dicon">✨</span><div class="pref-tags">${tags.map(t=>`<span class="pref-tag">${t}</span>`).join('')}</div></div>`;
+  return `<div class="drow">${icon('star')}<div class="pref-tags">${tags.map(t=>`<span class="pref-tag">${t}</span>`).join('')}</div></div>`;
 }
 
 /* ──────────────────────────────
@@ -1463,13 +1497,13 @@ async function sendOnMyWay(stopId) {
 
     const smsOk = result.sms?.ok;
     if (smsOk) {
-      toast('📲 Customer notified! Navigation opened.');
+      toast('Customer notified. Navigation opened.');
     } else if (result.sms?.reason === 'twilio_not_configured') {
-      toast('📍 Status updated · Navigation opened');
+      toast('Status updated · Navigation opened');
     } else if (result.sms?.reason === 'no_phone') {
-      toast('📍 No phone on file · Navigation opened');
+      toast('No phone on file · Navigation opened');
     } else {
-      toast('📍 En route · Navigation opened');
+      toast('En route · Navigation opened');
     }
 
     if (stop) renderStopDetail(stop);
@@ -1477,7 +1511,7 @@ async function sendOnMyWay(stopId) {
   } catch (e) {
     console.error('sendOnMyWay error:', e);
     toast('Could not update status — check connection');
-    if (btn) { btn.disabled = false; btn.textContent = '📲 Notify Customer'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Notify Customer'; }
   }
 }
 
@@ -1523,7 +1557,7 @@ async function handlePhoto(input, stopId) {
   const thumb     = document.getElementById('photo-thumb');
   const camBtn    = document.getElementById('btn-camera');
   if (uploading) uploading.classList.add('show');
-  if (camBtn)    camBtn.textContent = '⏳ Uploading…';
+  if (camBtn)    camBtn.textContent = 'Uploading…';
 
   // Show local preview immediately
   const reader = new FileReader();
@@ -1555,12 +1589,12 @@ async function handlePhoto(input, stopId) {
     if (idx >= 0) allStops[idx].proof_photo_url = photoUrl;
 
     if (uploading) uploading.classList.remove('show');
-    if (camBtn) { camBtn.textContent = '✓ Photo Saved'; camBtn.classList.add('has-photo'); }
-    toast('📷 Photo saved!');
+    if (camBtn) { camBtn.textContent = 'Photo Saved'; camBtn.classList.add('has-photo'); }
+    toast('Photo saved.');
   } catch (e) {
     console.error('Photo upload error:', e);
     if (uploading) uploading.classList.remove('show');
-    if (camBtn) { camBtn.textContent = '📷 Retry Photo'; }
+    if (camBtn) { camBtn.textContent = 'Retry Photo'; }
     toast('Photo upload failed — tap to retry');
   }
 }
@@ -1648,7 +1682,7 @@ async function triggerUndo() {
       route.status = 'in_progress';
     }
 
-    toast('↩️ Action undone');
+    toast('Action undone');
     const updated = allStops.find(s => s.id === stopId);
     if (updated) renderStopDetail(updated);
     renderHome();
@@ -1678,7 +1712,7 @@ async function completeStop(stopId, stopType) {
 
   if (stopErr) {
     toast('Error: ' + stopErr.message);
-    if (btn) { btn.disabled = false; btn.textContent = stopType === 'pickup' ? '📦 Mark Picked Up' : '✅ Mark Delivered'; }
+    if (btn) { btn.disabled = false; btn.textContent = stopType === 'pickup' ? 'Mark Picked Up' : 'Mark Delivered'; }
     return;
   }
 
@@ -1747,7 +1781,7 @@ async function completeStop(stopId, stopType) {
   renderHome();
 
   // Show undo bar
-  const undoMsg = stopType === 'pickup' ? '📦 Pickup confirmed' : '✅ Delivery confirmed';
+  const undoMsg = stopType === 'pickup' ? 'Pickup confirmed' : 'Delivery confirmed';
   showUndoBar(undoMsg, {
     type: 'complete',
     stopId,
@@ -1795,7 +1829,7 @@ async function skipStop(stopId) {
 
   goTo('route');
 
-  showUndoBar('⤷ Stop skipped', {
+  showUndoBar('Stop skipped', {
     type: 'skip',
     stopId,
     prevStopStatus: 'pending',
@@ -1818,11 +1852,11 @@ function renderProfile() {
   const skipped = allStops.filter(s => s.status === 'skipped').length;
 
   document.getElementById('prof-info').innerHTML = `
-    <div class="info-row"><span class="info-icon">📧</span><div><div class="info-lbl">Email</div><div class="info-val">${currentProfile.email||currentUser?.email||'—'}</div></div></div>
-    <div class="info-row"><span class="info-icon">📞</span><div><div class="info-lbl">Phone</div><div class="info-val">${currentProfile.phone||'—'}</div></div></div>
-    <div class="info-row"><span class="info-icon">🚐</span><div><div class="info-lbl">Vehicle</div><div class="info-val">${currentDriver?.vehicle_type||'—'} ${currentDriver?.vehicle_plate||''}</div></div></div>
-    <div class="info-row"><span class="info-icon">📊</span><div><div class="info-lbl">Today's Progress</div><div class="info-val">${done} of ${total} complete${skipped ? ` · ${skipped} skipped` : ''}</div></div></div>
-    <div class="info-row"><span class="info-icon">🪪</span><div><div class="info-lbl">License</div><div class="info-val">${currentDriver?.license_number||'—'}</div></div></div>
+    <div class="info-row"><span class="info-icon">${ICONS.mail}</span><div><div class="info-lbl">Email</div><div class="info-val">${currentProfile.email||currentUser?.email||'—'}</div></div></div>
+    <div class="info-row"><span class="info-icon">${ICONS.phone}</span><div><div class="info-lbl">Phone</div><div class="info-val">${currentProfile.phone||'—'}</div></div></div>
+    <div class="info-row"><span class="info-icon">${ICONS.van}</span><div><div class="info-lbl">Vehicle</div><div class="info-val">${currentDriver?.vehicle_type||'—'} ${currentDriver?.vehicle_plate||''}</div></div></div>
+    <div class="info-row"><span class="info-icon">${ICONS.chart}</span><div><div class="info-lbl">Today's Progress</div><div class="info-val">${done} of ${total} complete${skipped ? ` · ${skipped} skipped` : ''}</div></div></div>
+    <div class="info-row"><span class="info-icon">${ICONS.card}</span><div><div class="info-lbl">License</div><div class="info-val">${currentDriver?.license_number||'—'}</div></div></div>
   `;
 }
 
@@ -1868,7 +1902,7 @@ function renderMessages() {
 
   if (!allMessages.length) {
     thread.innerHTML = `<div class="msg-empty">
-      <div class="msg-empty-icon">💬</div>
+      <div class="msg-empty-icon">${ICONS.msg}</div>
       <div style="font-size:18px;font-weight:800;margin-bottom:8px">No Messages Yet</div>
       <div style="font-size:14px;color:var(--muted);line-height:1.6">The team will send important updates here. You can reply directly from this screen.</div>
     </div>`;
@@ -1960,7 +1994,7 @@ function subscribeToDriverMessages() {
         markMessagesRead();
       } else if (payload.new.sender_type === 'admin') {
         updateMsgBadge();
-        toast('💬 New message from the team', 3500);
+        toast('New message from the team', 3500);
       }
     })
     .subscribe(status => {
