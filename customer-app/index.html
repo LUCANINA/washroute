@@ -213,14 +213,17 @@
     .s-picked_up .status-dot            { background: #3b82f6; }
     .s-processing           { background: #e0f2fe; color: #0369a1; }
     .s-processing .status-dot           { background: #0ea5e9; }
-    .s-assembled            { background: #fdf4ff; color: #6b21a8; }
-    .s-assembled .status-dot            { background: #a855f7; }
     .s-ready_for_delivery   { background: #d1fae5; color: #065f46; }
     .s-ready_for_delivery .status-dot   { background: #10b981; }
     .s-out_for_delivery     { background: #ede9fe; color: #4c1d95; }
     .s-out_for_delivery .status-dot     { background: #7c3aed; }
     .s-delivered            { background: #d1fae5; color: #065f46; }
     .s-delivered .status-dot            { background: #22c55e; }
+    .s-skipped              { background: #fef2f2; color: #991b1b; }
+    .s-skipped .status-dot              { background: #ef4444; }
+    /* Legacy retired statuses — kept so old records render correctly */
+    .s-assembled            { background: #fdf4ff; color: #6b21a8; }
+    .s-assembled .status-dot            { background: #a855f7; }
     .s-pickup_missed        { background: #fef2f2; color: #991b1b; }
     .s-pickup_missed .status-dot        { background: #ef4444; }
     .s-delivery_missed      { background: #fef2f2; color: #991b1b; }
@@ -1974,14 +1977,16 @@ const STATUS_LABELS = {
   ready_for_pickup:   'Ready for Pickup',
   picked_up:          'Picked Up',
   processing:         'Processing',
-  assembled:          'Assembled',
   ready_for_delivery: 'Ready for Delivery',
   out_for_delivery:   'Out for Delivery',
   delivered:          'Delivered',
-  pickup_missed:      'Pickup Missed',
-  delivery_missed:    'Delivery Missed',
+  skipped:            'Skipped',
   on_hold:            'On Hold',
   cancelled:          'Cancelled',
+  // Legacy retired statuses
+  assembled:          'Assembled',
+  pickup_missed:      'Pickup Missed',
+  delivery_missed:    'Delivery Missed',
 };
 
 // Customer-facing progress steps (5 clean steps, collapsing internal statuses)
@@ -1991,7 +1996,6 @@ const STATUS_TO_VISUAL = {
   ready_for_pickup:   0,
   picked_up:          1,
   processing:         2,
-  assembled:          2,
   ready_for_delivery: 3,
   out_for_delivery:   3,
   delivered:          4,
@@ -2027,7 +2031,7 @@ async function loadHome() {
     const { data: orders, error } = await db.from('orders')
       .select('*, services(name)')
       .eq('customer_id', currentCustomer.id)
-      .in('status', ['scheduled','ready_for_pickup','assembled','ready_for_delivery','out_for_delivery'])
+      .in('status', ['scheduled','ready_for_pickup','picked_up','processing','ready_for_delivery','out_for_delivery'])
       .order('pickup_window_start', { ascending: true });
     if (error) throw error;
     const active = orders || [];

@@ -1864,9 +1864,8 @@ async function skipStop(stopId) {
   if (idx >= 0) {
     allStops[idx].status = 'skipped';
     if (stop?.orders?.id) {
-      const missedStatus = stop.stop_type === 'pickup' ? 'pickup_missed' : 'delivery_missed';
-      await db.from('orders').update({ status: missedStatus }).eq('id', stop.orders.id);
-      allStops[idx].orders.status = missedStatus;
+      await db.from('orders').update({ status: 'skipped' }).eq('id', stop.orders.id);
+      allStops[idx].orders.status = 'skipped';
     }
   }
 
