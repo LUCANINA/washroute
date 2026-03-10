@@ -3812,6 +3812,19 @@ async function _lookupZoneForSavedAddress(addr) {
     draft.lng  = lng;
     const { data: zoneId } = await db.rpc('get_zone_for_point', { lat, lng, p_city: addr.city || null });
     draft.zoneId = zoneId || null;
+
+    // If the address is outside our service area, block the Continue button and show an error
+    if (!draft.zoneId && draft.addressId === addr.id) {
+      const zr      = document.getElementById('zone-result');
+      const nextBtn = document.getElementById('btn-addr-next');
+      if (zr) {
+        zr.className  = 'zone-result zone-err';
+        zr.innerHTML  = "Sorry, we don't serve that address yet. <br><span style='font-size:13px;font-weight:400'>We're expanding — check back soon or call (510) 842-3560.</span>";
+        zr.style.display = '';
+      }
+      if (nextBtn) { nextBtn.style.display = 'none'; }
+      draft.addressId = null; // unset so the step guard catches it too
+    }
   } catch (_) {
     // Silent — if zoneId stays null, step guard at goOrderStep(1) will catch it
   }
