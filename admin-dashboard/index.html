@@ -10726,7 +10726,7 @@ window.onload=()=>{window.print();};
       allLaunCache = data || [];
     }
     const { data: orders } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, special_instructions,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, special_instructions, source,
                customers(first_name_cache, last_name_cache), services(name)`)
       .eq('status', 'folding')
       .order('updated_at', { ascending: true });
@@ -10760,14 +10760,17 @@ window.onload=()=>{window.print();};
         ontouchstart="touchStartOrder(event,'${o.id}')"
         ontouchmove="touchMoveOrder(event)"
         ontouchend="touchEndOrder(event)">
-        <div>
-          <div class="proc-card-order">#${o.order_number||'—'}</div>
-          <div class="proc-card-name">${name}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+          <div>
+            <div class="proc-card-order">#${o.order_number||'—'}</div>
+            <div class="proc-card-name">${name}</div>
+          </div>
+          ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Walk-in</span>`:''}
         </div>
         <div class="proc-card-meta">
           <span>📦 ${bags} bag${bags!==1?'s':''}</span>
           <span>⚖️ ${lbs}</span>
-          <span>${o.services?.name||'—'}</span>
+          <span>${o.services?.name||'Walk-in'}</span>
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
         <button class="proc-card-btn" style="background:#059669;cursor:pointer;margin-top:4px" onclick="openRackPanel('${o.id}')">🗂️ Assign Rack</button>
@@ -10872,8 +10875,8 @@ window.onload=()=>{window.print();};
       allRacksCache = data || [];
     }
     const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, rack_id,
-               customers(first_name_cache, last_name_cache), services(name)`)
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, rack_id, source,
+               customers(id, first_name_cache, last_name_cache, phone), services(name)`)
       .eq('status', 'assembled')
       .order('racked_at', { ascending: false })
       .limit(20); // only show recently racked
@@ -10996,9 +10999,13 @@ window.onload=()=>{window.print();};
       btn.disabled = false; btn.textContent = rackActiveOrder?.rack_id ? '🗂️ Move to Rack' : '🗂️ Rack & Mark Assembled';
       return;
     }
-    const rackName = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
-    const movedId  = rackActiveOrder.id;
-    const orderNum = rackActiveOrder.order_number; // capture before closeRackPanel() nulls rackActiveOrder
+    const rackName   = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
+    const movedId    = rackActiveOrder.id;
+    const orderNum   = rackActiveOrder.order_number; // capture before closeRackPanel() nulls rackActiveOrder
+    const isWalkIn   = rackActiveOrder.source === 'walk_in';
+    const custPhone  = rackActiveOrder.customers?.phone || null;
+    const custFirst  = rackActiveOrder.customers?.first_name_cache || 'there';
+    const custId     = rackActiveOrder.customers?.id || null;
     closeRackPanel();
     // Instant removal from source column
     ['fold-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
@@ -11006,6 +11013,18 @@ window.onload=()=>{window.print();};
     allCleanOrders = allCleanOrders.filter(o => o.id !== movedId);
     showToast(`Order #${orderNum} racked on ${rackName}! Ready for delivery.`, 'success');
     reloadColumns('folding', 'rack');
+    // Auto-SMS for walk-in orders: notify customer their laundry is ready for pickup
+    if (isWalkIn && custPhone) {
+      const smsBody = `Hi ${custFirst}! Your laundry is ready for pickup. See you soon! — WashRoute`;
+      fetch(`${SUPA_URL}/functions/v1/send-sms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ to: custPhone, body: smsBody, customer_id: custId }),
+      }).then(r => r.json()).then(res => {
+        if (res.success) showToast(`📱 Pickup text sent to ${custFirst}`, 'success');
+        else console.warn('SMS failed:', res.error);
+      }).catch(err => console.warn('SMS error:', err));
+    }
   }
 
   // ── PROCESSING ──
@@ -11095,7 +11114,7 @@ window.onload=()=>{window.print();};
     const wrap = document.getElementById('clean-queue-wrap');
     if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
     const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, special_instructions,
+      .select(`id, order_number, total_bags, weight_lbs, special_instructions, source,
                customers(first_name_cache, last_name_cache), services(name)`)
       .eq('status', 'processing')
       .order('updated_at', { ascending: true });
@@ -11129,14 +11148,17 @@ window.onload=()=>{window.print();};
         ontouchstart="touchStartOrder(event,'${o.id}')"
         ontouchmove="touchMoveOrder(event)"
         ontouchend="touchEndOrder(event)">
-        <div>
-          <div class="proc-card-order">#${o.order_number||'—'}</div>
-          <div class="proc-card-name">${name}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+          <div>
+            <div class="proc-card-order">#${o.order_number||'—'}</div>
+            <div class="proc-card-name">${name}</div>
+          </div>
+          ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Walk-in</span>`:''}
         </div>
         <div class="proc-card-meta">
           <span>📦 ${bags} bag${bags!==1?'s':''}</span>
           <span>⚖️ ${lbs}</span>
-          <span>${o.services?.name||'—'}</span>
+          <span>${o.services?.name||'Walk-in'}</span>
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
         <button class="proc-card-btn" onclick="event.stopPropagation();openFoldPanel('${o.id}')">👕 Assign to Folder</button>
