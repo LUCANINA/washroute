@@ -2269,7 +2269,7 @@
         </div>
         <div class="form-group" style="margin:0">
           <label class="form-label">Address</label>
-          <select class="form-select" id="o-address"><option value="">Loading…</option></select>
+          <select class="form-select" id="o-address" onchange="onOrderAddressChange()"><option value="">Loading…</option></select>
         </div>
       </div>
 
@@ -7605,6 +7605,7 @@ window.onload=()=>{window.print();};
   let _noDayLimit     = 28;   // how many days the pickup day picker shows
   let _noDelivStart   = null;
   let _noDelivEnd     = null;
+  let _noAddressCity  = '';   // city of selected address — used to filter routes by zone
 
   // ── CUSTOMER COMBOBOX (New Order modal) ──
   let _custComboHighlight = -1;
@@ -7684,6 +7685,7 @@ window.onload=()=>{window.print();};
     _noDelivEnd     = null;
     _noDayLimit     = 28;
     _noTipType      = 'dollar';
+    _noAddressCity  = '';
     document.getElementById('no-route-expanded').style.display   = '';
     document.getElementById('no-route-bar').style.display        = 'none';
     document.getElementById('no-day-section').style.display      = 'none';
@@ -7722,7 +7724,7 @@ window.onload=()=>{window.print();};
 
     // Route templates for inline slot picker
     const { data: tmpls, error: tmplErr } = await db.from('route_templates')
-      .select('id, name, color, schedule_days, window_start, window_end, arrival_window_hours, zone_id, service_zones(name)')
+      .select('id, name, color, schedule_days, window_start, window_end, arrival_window_hours, zone_id, service_zones(id, name, cities)')
       .eq('is_active', true).order('name');
     if (tmplErr) console.error('populateOrderModal route_templates error:', tmplErr);
     _noTemplates = tmpls || [];
@@ -7747,9 +7749,17 @@ window.onload=()=>{window.print();};
       .select('id, label, line1, city, is_default')
       .eq('customer_id', customerId)
       .order('is_default', { ascending: false });
-    addrSel.innerHTML = addrs?.length
-      ? addrs.map(a => `<option value="${a.id}"${a.is_default?' selected':''}>${a.label ? a.label+' — ' : ''}${a.line1}${a.city ? ', '+a.city : ''}</option>`).join('')
-      : '<option value="">No addresses on file</option>';
+    if (addrs?.length) {
+      addrSel.innerHTML = addrs.map(a =>
+        `<option value="${a.id}" data-city="${esc(a.city||'')}"${a.is_default?' selected':''}>${a.label ? a.label+' — ' : ''}${a.line1}${a.city ? ', '+a.city : ''}</option>`
+      ).join('');
+      // Set city for route filtering — use default address (first after sort)
+      const def = addrs.find(a => a.is_default) || addrs[0];
+      _noAddressCity = def?.city || '';
+    } else {
+      addrSel.innerHTML = '<option value="">No addresses on file</option>';
+      _noAddressCity = '';
+    }
 
     // Pre-fill tip from customer defaults
     const cust = allCustomers.find(c => c.id === customerId);
@@ -7770,13 +7780,38 @@ window.onload=()=>{window.print();};
     pBtn.style.color      = type === 'pct'    ? 'white' : 'var(--gray-500)';
   }
 
+  // Called when the user picks a different address — re-filter routes by zone
+  function onOrderAddressChange() {
+    const sel = document.getElementById('o-address');
+    const opt = sel.options[sel.selectedIndex];
+    _noAddressCity = opt?.dataset.city || '';
+    _noSelectedTmpl = null; // clear any prior route selection
+    document.getElementById('no-route-expanded').style.display = '';
+    document.getElementById('no-route-bar').style.display      = 'none';
+    document.getElementById('no-day-section').style.display    = 'none';
+    renderNoRoutes();
+  }
+
   function renderNoRoutes() {
     const el = document.getElementById('no-routes');
-    if (!_noTemplates.length) {
+
+    // Filter templates to only routes whose service zone covers the selected city
+    let templates = _noTemplates;
+    if (_noAddressCity) {
+      const city = _noAddressCity.toLowerCase().trim();
+      const zoneMatches = templates.filter(t => {
+        const cities = Array.isArray(t.service_zones?.cities) ? t.service_zones.cities : [];
+        return cities.some(c => c.toLowerCase().trim() === city);
+      });
+      // Only apply the filter if at least one route matches; otherwise show all with a note
+      if (zoneMatches.length) templates = zoneMatches;
+    }
+
+    if (!templates.length) {
       el.innerHTML = '<span style="color:var(--gray-400);font-size:13px">No active routes — add one under Routes first.</span>';
       return;
     }
-    el.innerHTML = _noTemplates.map(t => {
+    el.innerHTML = templates.map(t => {
       const dot = `<span style="width:8px;height:8px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>`;
       return `<button class="sp-route-pill" style="padding:6px 12px;font-size:12.5px" onclick="selectNoTemplate('${t.id}')" data-no-tmpl="${t.id}">
         ${dot}<span style="font-weight:600;color:var(--gray-900)">${t.name}</span>
