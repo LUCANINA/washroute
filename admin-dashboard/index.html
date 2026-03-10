@@ -1973,7 +1973,7 @@
               </select>
               <div style="display:flex;gap:10px;justify-content:flex-end">
                 <button class="btn" onclick="closeRoleModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="saveRoleChange()">Save</button>
+                <button id="role-save-btn" class="btn btn-primary" onclick="saveRoleChange()">Save</button>
               </div>
             </div>
           </div>
@@ -3522,9 +3522,11 @@
     btn.disabled = true;
     btn.textContent = 'Sending…';
     try {
+      const { data: { session: invSession } } = await db.auth.getSession();
+      if (!invSession) { errEl.textContent = 'Not authenticated — please log in again.'; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Send Invite'; return; }
       const res = await fetch(`${SUPA_URL}/functions/v1/invite-staff`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${invSession.access_token}` },
         body: JSON.stringify({ email, role })
       });
       const json = await res.json();
@@ -3552,8 +3554,14 @@
 
   async function saveRoleChange() {
     const newRole = document.getElementById('role-modal-select').value;
+    const saveBtn = document.getElementById('role-save-btn');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
     const { error } = await db.from('profiles').update({ role: newRole }).eq('id', _roleModalProfileId);
-    if (error) { showToast('Failed to update role', 'error'); return; }
+    if (error) {
+      showToast('Failed to update role', 'error');
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+      return;
+    }
     closeRoleModal();
     showToast('Role updated', 'success');
     loadTeamPage();
