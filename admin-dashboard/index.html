@@ -293,12 +293,6 @@
     /* Fees tab */
     .fee-group-header { display: flex; align-items: center; gap: 8px; padding: 10px 20px 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); border-top: 1px solid var(--gray-100); }
     .fee-group-header:first-child { border-top: none; }
-    .fee-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-    .fee-badge-delivery  { background: #dbeafe; color: #1d4ed8; }
-    .fee-badge-surcharge { background: #fef3c7; color: #92400e; }
-    .fee-badge-penalty   { background: #fee2e2; color: #991b1b; }
-    .fee-badge-reward    { background: #dcfce7; color: #166534; }
-    .fee-badge-other     { background: var(--gray-100); color: var(--gray-500); }
     .fee-row { display: grid; grid-template-columns: 40px 1fr 130px 110px 52px 36px; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--gray-100); transition: background .1s; }
     .fee-row:hover { background: var(--gray-50); }
     .fee-row.inactive { opacity: .5; }
@@ -6745,8 +6739,6 @@ window.onload=()=>{window.print();};
   }
 
   const FEE_CATEGORY_ORDER = ['Delivery','Surcharge','Penalty','Reward','Other'];
-  const FEE_BADGE_CLASS    = { Delivery:'fee-badge-delivery', Surcharge:'fee-badge-surcharge', Penalty:'fee-badge-penalty', Reward:'fee-badge-reward', Other:'fee-badge-other' };
-  const FEE_CATEGORY_ICON  = { Delivery:'🚗', Surcharge:'⚡', Penalty:'⚠️', Reward:'🎁', Other:'📌' };
 
   function renderFees() {
     const body = document.getElementById('fees-body');
@@ -6760,8 +6752,7 @@ window.onload=()=>{window.print();};
       const rows = allFees.filter(f => f.category === cat);
       return `
         <div class="fee-group-header">
-          ${FEE_CATEGORY_ICON[cat]} ${cat}
-          <span class="fee-badge ${FEE_BADGE_CLASS[cat]}">${rows.length}</span>
+          ${cat}
         </div>
         ${rows.map(f => feeRow(f)).join('')}`;
     }).join('');
