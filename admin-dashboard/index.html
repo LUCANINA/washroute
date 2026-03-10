@@ -2838,9 +2838,10 @@
       </div>
     </div>
 
-    <!-- Credits -->
+    <!-- Credits & Balance -->
     <div class="cp-section-head"><span>Credits</span></div>
     <div class="cp-card">
+      <!-- Credits row -->
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
         <div style="font-size:22px;font-weight:700;color:var(--gray-900)" id="cpb-credits-display">$0.00</div>
         <div style="display:flex;gap:6px;margin-left:4px">
@@ -2857,6 +2858,16 @@
           <button class="btn btn-primary" style="padding:6px 14px;font-size:12.5px" onclick="applyCreditAdjust()">Apply</button>
           <button class="btn btn-ghost" style="padding:6px 10px;font-size:12.5px" onclick="hideCreditAdjust()">✕</button>
         </div>
+      </div>
+
+      <!-- Balance row (on-demand unpaid orders) -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:12px;padding-top:12px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:6px">Balance</div>
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <div style="font-size:22px;font-weight:700" id="cpb-balance-display">$0.00</div>
+          <div style="font-size:12px;color:var(--gray-400)" id="cpb-balance-label">outstanding</div>
+        </div>
+        <div style="font-size:11.5px;color:var(--gray-400);margin-top:3px" id="cpb-balance-detail"></div>
       </div>
     </div>
 
@@ -5388,14 +5399,14 @@ window.onload=()=>{window.print();};
         const expYr  = card.card_exp_year, expMo = card.card_exp_month;
         const expired = expYr && expMo && (expYr < now.getFullYear() || (expYr===now.getFullYear() && expMo < now.getMonth()+1));
         const pmId   = card.stripe_payment_method_id;
-        return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:7px">
-          <span style="display:inline-flex;align-items:center;gap:7px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:7px;padding:6px 11px;font-size:13px">
-            💳 <span>${brand} ···· ${card.card_last4}${exp}</span>
-            ${card.is_default ? '<span style="background:#ede9ff;color:var(--accent);font-size:10.5px;font-weight:700;border-radius:4px;padding:2px 6px">DEFAULT</span>' : ''}
-            ${expired ? '<span style="color:var(--red);font-size:11px;font-weight:600">EXPIRED</span>' : ''}
+        return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+          <span style="flex:1;display:inline-flex;align-items:center;gap:7px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:7px;padding:6px 11px;font-size:13px;min-width:0">
+            💳 <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${brand} ···· ${card.card_last4}${exp}</span>
+            ${card.is_default ? '<span style="background:#ede9ff;color:var(--accent);font-size:10.5px;font-weight:700;border-radius:4px;padding:2px 6px;flex-shrink:0">DEFAULT</span>' : ''}
+            ${expired ? '<span style="color:var(--red);font-size:11px;font-weight:600;flex-shrink:0">EXPIRED</span>' : ''}
           </span>
-          ${!card.is_default ? `<button class="btn btn-ghost" style="font-size:11.5px;padding:3px 9px" onclick="adminSetDefaultCard('${customerId}','${pmId}')">Set Default</button>` : ''}
-          <button class="btn btn-ghost" style="font-size:11.5px;padding:3px 9px;color:var(--red);border-color:#fecaca" onclick="adminRemoveCard('${customerId}','${pmId}')">Remove</button>
+          <button class="btn btn-ghost" style="font-size:11.5px;padding:3px 9px;flex-shrink:0;visibility:${card.is_default ? 'hidden' : 'visible'}" onclick="adminSetDefaultCard('${customerId}','${pmId}')">Set Default</button>
+          <button class="btn btn-ghost" style="font-size:11.5px;padding:3px 9px;flex-shrink:0;color:var(--red);border-color:#fecaca" onclick="adminRemoveCard('${customerId}','${pmId}')">Remove</button>
         </div>`;
       }).join('');
     }
@@ -8395,6 +8406,26 @@ window.onload=()=>{window.print();};
     discEl.value = c.discount_id || '';
     // Reset credit adjust form
     hideCreditAdjust();
+
+    // Balance — unpaid on-demand orders at ready_for_delivery or later
+    const { data: balOrders } = await db
+      .from('orders')
+      .select('total_amount')
+      .eq('customer_id', customerId)
+      .is('recurring_interval', null)
+      .in('status', ['ready_for_delivery', 'out_for_delivery', 'delivered'])
+      .or('billing_status.is.null,billing_status.neq.paid');
+    const balance = (balOrders || []).reduce((s, o) => s + (Number(o.total_amount) || 0), 0);
+    const balDisplay = document.getElementById('cpb-balance-display');
+    const balDetail  = document.getElementById('cpb-balance-detail');
+    balDisplay.textContent = fmtMoney(balance);
+    balDisplay.style.color = balance > 0 ? 'var(--red)' : 'var(--gray-400)';
+    if (balDetail) {
+      const count = (balOrders || []).length;
+      balDetail.textContent = balance > 0
+        ? `${count} unpaid order${count !== 1 ? 's' : ''} · ready for delivery or delivered`
+        : 'No outstanding balance';
+    }
 
     // Payment on file — multi-card
     const cards = Array.isArray(c.customer_payment_methods)
