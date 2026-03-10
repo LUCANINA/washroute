@@ -1401,7 +1401,7 @@ function renderStopDetail(stop) {
         const hasPhoto = !!stop.proof_photo_url;
         const photoLabel = isPickup ? 'Pickup Photo' : 'Delivery Photo';
         h += `<div class="dsection">
-          <div class="dsection-title">${photoLabel} <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:10px">(optional)</span></div>
+          <div class="dsection-title">${photoLabel}</div>
           <div class="photo-row">
             ${hasPhoto ? `<img class="photo-thumb show" id="photo-thumb" src="${stop.proof_photo_url}" alt="Proof photo">` : `<img class="photo-thumb" id="photo-thumb" src="" alt="Proof photo">`}
             <button class="btn-camera ${hasPhoto ? 'has-photo' : ''}" id="btn-camera" onclick="document.getElementById('photo-input').click()">
@@ -1412,11 +1412,12 @@ function renderStopDetail(stop) {
           <input class="photo-input" type="file" accept="image/*" capture="environment" id="photo-input" onchange="handlePhoto(this, '${stop.id}')">
         </div>`;
 
-        // Complete + Skip
+        // Complete + Skip (complete is locked until photo is taken)
         const cls   = isPickup ? '' : 'delivery';
         const label = isPickup ? 'Mark Picked Up' : 'Mark Delivered';
         h += `<div class="detail-actions">
-          <button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')">${label}</button>
+          <button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')" ${!hasPhoto ? 'disabled' : ''}>${label}</button>
+          ${!hasPhoto ? `<div style="text-align:center;font-size:13px;color:var(--muted);margin-top:8px">Photo required to continue</div>` : ''}
           <button class="btn-skip-stop" onclick="skipStop('${stop.id}')">Skip This Stop</button>
         </div>`;
       }
@@ -1622,6 +1623,13 @@ async function handlePhoto(input, stopId) {
 
     if (uploading) uploading.classList.remove('show');
     if (camBtn) { camBtn.textContent = 'Photo Saved'; camBtn.classList.add('has-photo'); }
+    // Unlock the complete button now that a photo exists
+    const completeBtn = document.getElementById('btn-do-complete');
+    if (completeBtn) {
+      completeBtn.disabled = false;
+      const hint = completeBtn.nextElementSibling;
+      if (hint && hint.style.textAlign === 'center') hint.remove();
+    }
     toast('Photo saved.');
   } catch (e) {
     console.error('Photo upload error:', e);
