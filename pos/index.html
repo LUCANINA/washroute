@@ -226,6 +226,30 @@
   .success-sub   { font-size: 15px; color: var(--gray-400); text-align: center; margin-top: 8px; }
   .success-order { font-size: 13px; color: var(--gray-400); text-align: center; margin-top: 4px; }
 
+  /* ── SERVICE CARDS ── */
+  .svc-card {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-radius: 12px; border: 1.5px solid var(--gray-200);
+    background: white; margin-bottom: 10px; transition: border-color .12s, background .12s;
+  }
+  .svc-card.selected { border-color: var(--accent); background: var(--accent-light); }
+  .svc-info { flex: 1; }
+  .svc-name  { font-size: 15px; font-weight: 600; color: var(--gray-900); }
+  .svc-price { font-size: 13px; color: var(--gray-500); margin-top: 2px; }
+  .svc-qty   { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .qty-btn {
+    width: 34px; height: 34px; border-radius: 8px; border: 1.5px solid var(--gray-300);
+    background: white; font-size: 20px; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--gray-700); line-height: 1; transition: all .1s;
+  }
+  .qty-btn:active { background: var(--gray-100); }
+  .qty-val { font-size: 17px; font-weight: 700; min-width: 22px; text-align: center; color: var(--gray-900); }
+  .svc-empty {
+    text-align: center; padding: 28px 16px; color: var(--gray-400);
+    font-size: 14px; border: 1.5px dashed var(--gray-200); border-radius: 12px;
+  }
+
   /* ── PAYMENT METHOD CHIPS ── */
   .pay-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
   .pay-chip {
@@ -262,7 +286,7 @@
     </div>
     <div>
       <div class="pos-header-title">WashRoute POS</div>
-      <div class="pos-header-sub" id="home-rate-label">Loading rate…</div>
+      <div class="pos-header-sub">Retail drop-off</div>
     </div>
   </div>
 
@@ -390,21 +414,27 @@
   </div>
 
   <div class="pos-card">
-    <div class="pos-card-title">⚖️ Weigh the Order</div>
-
-    <div class="pos-input-group">
-      <label class="pos-label">Weight (lbs)</label>
-      <input class="pos-input large" id="order-weight" type="number" step="0.1" min="0"
-             placeholder="0.0" oninput="calcPrice()" />
+    <div class="pos-card-title">🧺 Select Services</div>
+    <div id="service-cards">
+      <div class="svc-empty">Loading services…</div>
     </div>
 
-    <div class="price-display" id="price-display" style="display:none">
+    <div class="price-display" id="price-display" style="display:none;margin-top:8px">
       <div class="price-display-label">Total Due</div>
       <div class="price-display-amount" id="price-amount">$0.00</div>
       <div class="price-display-breakdown" id="price-breakdown"></div>
     </div>
+  </div>
 
-    <div class="pos-input-group" style="margin-top:4px">
+  <div class="pos-card" style="margin-top:12px">
+    <div class="pos-card-title" style="margin-bottom:16px">📋 Order Details</div>
+
+    <div class="pos-input-group">
+      <label class="pos-label">Weight (lbs) — optional, for records</label>
+      <input class="pos-input" id="order-weight" type="number" step="0.1" min="0" placeholder="0.0" />
+    </div>
+
+    <div class="pos-input-group">
       <label class="pos-label">Special Instructions (optional)</label>
       <textarea class="pos-input" id="order-notes" rows="3" placeholder="E.g. delicate items, separate colours…"
                 style="resize:none;font-size:15px"></textarea>
@@ -454,14 +484,11 @@
       <span class="summary-row-label">Customer</span>
       <span class="summary-row-value" id="pay-cust-name">—</span>
     </div>
-    <div class="summary-row">
+    <div class="summary-row" id="pay-weight-row">
       <span class="summary-row-label">Weight</span>
       <span class="summary-row-value" id="pay-weight">—</span>
     </div>
-    <div class="summary-row">
-      <span class="summary-row-label">Rate</span>
-      <span class="summary-row-value" id="pay-rate">—</span>
-    </div>
+    <div id="pay-services-list"><!-- service line items injected here --></div>
     <div class="summary-row summary-total" style="margin-top:8px;padding-top:16px;border-top:2px solid var(--gray-200);border-bottom:none">
       <span class="summary-row-label">Total</span>
       <span class="summary-row-value" id="pay-total">—</span>
@@ -518,12 +545,12 @@
   );
 
   // ── STATE ──
-  let posRate       = 0;   // price per lb (walk-in rate)
-  let posRateName   = '';
-  let currentCust   = null; // { id, first_name_cache, last_name_cache, phone_cache, is_new }
-  let currentWeight = 0;
-  let currentTotal  = 0;
-  let payMethod     = 'cash';
+  let currentCust      = null;  // { id, first_name_cache, last_name_cache, phone_cache, is_new }
+  let currentWeight    = 0;
+  let currentTotal     = 0;
+  let payMethod        = 'cash';
+  let retailServices   = [];    // loaded from DB once on init
+  let selectedServices = {};    // { fee_id: { fee, qty } }
 
   // ── TOAST ──
   let _toastTimer;
@@ -560,6 +587,8 @@
     document.getElementById('cust-new-form').style.display = 'none';
     document.getElementById('cust-next-btn').disabled      = true;
     // Reset order screen
+    selectedServices = {};
+    renderServiceCards();   // resets all qty counters + selected styles
     document.getElementById('order-weight').value = '';
     document.getElementById('order-notes').value  = '';
     document.getElementById('price-display').style.display = 'none';
@@ -572,18 +601,57 @@
 
   // ── INIT ──
   async function init() {
-    // Load walk-in rate
-    const { data: fees } = await db.from('service_fees')
-      .select('name, amount').eq('is_pos_rate', true).eq('is_active', true).limit(1).single();
-    if (fees) {
-      posRate     = parseFloat(fees.amount);
-      posRateName = fees.name;
-      document.getElementById('home-rate-label').textContent =
-        `Walk-in rate: ${fmtMoney(posRate)} / lb`;
-    } else {
-      document.getElementById('home-rate-label').textContent = 'Walk-in rate not configured';
-    }
+    await loadRetailServices();
     await loadRecent();
+  }
+
+  // ── RETAIL SERVICES ──
+  async function loadRetailServices() {
+    const { data, error } = await db.from('service_fees')
+      .select('id, name, amount, unit_label, fee_type')
+      .eq('category', 'Retail')
+      .eq('is_active', true)
+      .order('sort_order');
+    if (error) { console.warn('Failed to load retail services:', error.message); }
+    retailServices = data || [];
+    renderServiceCards();
+  }
+
+  function renderServiceCards() {
+    const container = document.getElementById('service-cards');
+    if (!retailServices.length) {
+      container.innerHTML = `<div class="svc-empty">No Retail services configured yet.<br>Go to Admin → Services & Pricing to add them.</div>`;
+      return;
+    }
+    container.innerHTML = retailServices.map(s => `
+      <div class="svc-card" id="svc-card-${s.id}">
+        <div class="svc-info">
+          <div class="svc-name">${s.name}</div>
+          <div class="svc-price">${fmtMoney(s.amount)} / ${s.unit_label || 'each'}</div>
+        </div>
+        <div class="svc-qty">
+          <button class="qty-btn" onclick="adjustQty('${s.id}', -1)">−</button>
+          <span class="qty-val" id="qty-${s.id}">0</span>
+          <button class="qty-btn" onclick="adjustQty('${s.id}', 1)">+</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function adjustQty(feeId, delta) {
+    const fee = retailServices.find(s => s.id === feeId);
+    if (!fee) return;
+    const current = selectedServices[feeId]?.qty || 0;
+    const newQty  = Math.max(0, current + delta);
+    if (newQty === 0) {
+      delete selectedServices[feeId];
+      document.getElementById(`svc-card-${feeId}`)?.classList.remove('selected');
+    } else {
+      selectedServices[feeId] = { fee, qty: newQty };
+      document.getElementById(`svc-card-${feeId}`)?.classList.add('selected');
+    }
+    document.getElementById(`qty-${feeId}`).textContent = newQty;
+    calcPrice();
   }
 
   async function loadRecent() {
@@ -693,15 +761,22 @@
 
   // ── PRICE CALC ──
   function calcPrice() {
-    const w = parseFloat(document.getElementById('order-weight').value) || 0;
-    currentWeight = w;
-    currentTotal  = Math.round(w * posRate * 100) / 100;
+    // Sum selected services
+    currentTotal = 0;
+    Object.values(selectedServices).forEach(({ fee, qty }) => {
+      currentTotal += parseFloat(fee.amount) * qty;
+    });
+    currentTotal = Math.round(currentTotal * 100) / 100;
+
     const display = document.getElementById('price-display');
     const nextBtn = document.getElementById('order-next-btn');
-    if (w > 0 && posRate > 0) {
-      document.getElementById('price-amount').textContent = fmtMoney(currentTotal);
-      document.getElementById('price-breakdown').textContent =
-        `${w.toFixed(1)} lbs × ${fmtMoney(posRate)}/lb`;
+
+    if (currentTotal > 0) {
+      const lines = Object.values(selectedServices)
+        .map(({ fee, qty }) => `${qty}× ${fee.name}`)
+        .join(' · ');
+      document.getElementById('price-amount').textContent     = fmtMoney(currentTotal);
+      document.getElementById('price-breakdown').textContent  = lines;
       display.style.display = 'block';
       nextBtn.disabled = false;
     } else {
@@ -711,12 +786,30 @@
   }
 
   function goToPayment() {
-    if (!currentWeight || !currentTotal) return;
+    if (!currentTotal) return;
+    currentWeight = parseFloat(document.getElementById('order-weight').value) || 0;
     const name = `${currentCust.first_name_cache || ''} ${currentCust.last_name_cache || ''}`.trim();
     document.getElementById('pay-cust-name').textContent = name || '—';
-    document.getElementById('pay-weight').textContent    = `${currentWeight.toFixed(1)} lbs`;
-    document.getElementById('pay-rate').textContent      = `${fmtMoney(posRate)}/lb`;
-    document.getElementById('pay-total').textContent     = fmtMoney(currentTotal);
+
+    // Weight row — hide if not entered
+    const weightRow = document.getElementById('pay-weight-row');
+    if (currentWeight > 0) {
+      document.getElementById('pay-weight').textContent = `${currentWeight.toFixed(1)} lbs`;
+      weightRow.style.display = '';
+    } else {
+      weightRow.style.display = 'none';
+    }
+
+    // Service line items
+    const serviceLines = Object.values(selectedServices).map(({ fee, qty }) => `
+      <div class="summary-row">
+        <span class="summary-row-label">${fee.name} ×${qty}</span>
+        <span class="summary-row-value">${fmtMoney(parseFloat(fee.amount) * qty)}</span>
+      </div>
+    `).join('');
+    document.getElementById('pay-services-list').innerHTML = serviceLines;
+
+    document.getElementById('pay-total').textContent = fmtMoney(currentTotal);
     showScreen('screen-payment');
   }
 
