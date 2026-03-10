@@ -872,6 +872,16 @@
     .proc-save-btn { width:100%;padding:16px;font-size:15px;font-weight:700;background:var(--accent);color:white;border:none;border-radius:10px;cursor:pointer;font-family:inherit;transition:background .12s; }
     .proc-save-btn:hover:not(:disabled) { background:#5049e8; }
     .proc-save-btn:disabled { background:var(--gray-300);cursor:not-allowed; }
+    /* Team page */
+    .team-card { background:white;border:1.5px solid var(--gray-100);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px; }
+    .team-avatar { width:40px;height:40px;border-radius:50%;background:var(--accent);color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0; }
+    .team-info { flex:1;min-width:0; }
+    .team-name { font-size:14px;font-weight:600;color:var(--gray-900); }
+    .team-email { font-size:12px;color:var(--gray-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .team-role-badge { font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em; }
+    .team-role-badge.admin { background:#ede9fe;color:#6d28d9; }
+    .team-role-badge.staff { background:#f0f9ff;color:#0369a1; }
+    .team-actions { display:flex;gap:8px; }
   </style>
 </head>
 <body>
@@ -925,7 +935,7 @@
         Processing
         <span class="nav-badge" id="badge-processing">0</span>
       </div>
-      <div id="nav-routes" class="nav-item" onclick="showPage('routes',this)">
+      <div id="nav-routes" class="nav-item" data-min-role="admin" onclick="showPage('routes',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/></svg>
         Routes
       </div>
@@ -934,25 +944,25 @@
         Inbox
         <span class="nav-badge" id="badge-inbox" style="background:var(--red)">0</span>
       </div>
-      <div class="sidebar-section-label">Analytics</div>
-      <div id="nav-reports" class="nav-item" onclick="showPage('reports',this)">
+      <div class="sidebar-section-label" data-min-role="admin">Analytics</div>
+      <div id="nav-reports" class="nav-item" data-min-role="admin" onclick="showPage('reports',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         Reports
       </div>
       <div class="sidebar-section-label">Settings</div>
-      <div class="nav-item" onclick="showPage('services',this)">
+      <div class="nav-item" data-min-role="admin" onclick="showPage('services',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
         Services
       </div>
-      <div class="nav-item" onclick="showPage('notifications',this)">
+      <div class="nav-item" data-min-role="admin" onclick="showPage('notifications',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
         Notifications
       </div>
-      <div class="nav-item" onclick="showPage('maps',this)">
+      <div class="nav-item" data-min-role="admin" onclick="showPage('maps',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
         Delivery Zones
       </div>
-      <div class="nav-item" onclick="showPage('drivers',this)">
+      <div class="nav-item" data-min-role="admin" onclick="showPage('drivers',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M17 11l1.5 1.5L21 10"/></svg>
         Drivers
       </div>
@@ -964,16 +974,20 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><rect x="2" y="10" width="20" height="5" rx="1"/><rect x="2" y="17" width="20" height="5" rx="1"/></svg>
         Racks
       </div>
-      <div class="nav-item" onclick="showPage('discounts',this)">
+      <div class="nav-item" data-min-role="admin" onclick="showPage('discounts',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
         Discounts
       </div>
-      <div class="nav-item" onclick="showPage('driver-messages',this)">
+      <div class="nav-item" data-min-role="admin" onclick="showPage('driver-messages',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
         Driver Messages
         <span id="admin-msg-badge" style="display:none;background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:auto">0</span>
       </div>
-      <div id="nav-settings" class="nav-item" onclick="showPage('settings',this)">
+      <div class="nav-item" data-min-role="admin" onclick="showPage('team',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        Team
+      </div>
+      <div id="nav-settings" class="nav-item" data-min-role="admin" onclick="showPage('settings',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         Timezone
       </div>
@@ -981,7 +995,7 @@
         <div class="avatar" id="user-avatar">?</div>
         <div class="sidebar-user">
           <div class="sidebar-user-name" id="user-name">Loading…</div>
-          <div class="sidebar-user-role">Admin</div>
+          <div class="sidebar-user-role" id="user-role-label">Admin</div>
         </div>
         <svg viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="2" width="14" height="14"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
       </div>
@@ -1895,6 +1909,62 @@
 
         <!-- ── SETTINGS ── -->
         <div class="page" id="page-settings"></div>
+
+        <!-- ── TEAM ── -->
+        <div class="page" id="page-team">
+          <div style="max-width:720px;margin:0 auto">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+              <h2 style="font-size:18px;font-weight:700;color:var(--gray-900);margin:0">Team Members</h2>
+              <button class="btn btn-primary" onclick="openInviteModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Invite Staff
+              </button>
+            </div>
+            <div id="team-list" style="display:flex;flex-direction:column;gap:8px">
+              <div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>
+            </div>
+          </div>
+
+          <!-- Invite Modal -->
+          <div id="invite-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:none;align-items:center;justify-content:center">
+            <div style="background:white;border-radius:14px;padding:28px;width:380px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.25)">
+              <h3 style="margin:0 0 18px;font-size:16px;font-weight:700">Invite Staff Member</h3>
+              <div style="margin-bottom:14px">
+                <label style="font-size:12px;font-weight:600;color:var(--gray-600);display:block;margin-bottom:5px">Email address</label>
+                <input id="invite-email" type="email" placeholder="colleague@email.com" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;outline:none" oninput="this.style.borderColor='var(--gray-200)'" />
+              </div>
+              <div style="margin-bottom:22px">
+                <label style="font-size:12px;font-weight:600;color:var(--gray-600);display:block;margin-bottom:5px">Role</label>
+                <select id="invite-role" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none">
+                  <option value="staff">Staff (Operations only)</option>
+                  <option value="admin">Admin (Full access)</option>
+                </select>
+              </div>
+              <p style="font-size:12px;color:var(--gray-500);margin:0 0 20px">They'll receive an email with a link to set their password. After setup they can log into this dashboard.</p>
+              <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button class="btn" onclick="closeInviteModal()">Cancel</button>
+                <button class="btn btn-primary" id="invite-submit-btn" onclick="submitInvite()">Send Invite</button>
+              </div>
+              <div id="invite-error" style="display:none;margin-top:12px;color:var(--red);font-size:13px;text-align:center"></div>
+            </div>
+          </div>
+
+          <!-- Change Role Modal -->
+          <div id="role-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+            <div style="background:white;border-radius:14px;padding:28px;width:340px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.25)">
+              <h3 style="margin:0 0 6px;font-size:16px;font-weight:700">Change Role</h3>
+              <p id="role-modal-name" style="margin:0 0 18px;font-size:14px;color:var(--gray-600)"></p>
+              <select id="role-modal-select" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none;margin-bottom:22px">
+                <option value="staff">Staff (Operations only)</option>
+                <option value="admin">Admin (Full access)</option>
+              </select>
+              <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button class="btn" onclick="closeRoleModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveRoleChange()">Save</button>
+              </div>
+            </div>
+          </div>
+        </div><!-- /page-team -->
 
       </div><!-- /content -->
     </div><!-- /main -->
@@ -3026,6 +3096,7 @@
   const STRIPE_PK     = 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B';
   const { createClient } = supabase;
   const db = createClient(SUPA_URL, SUPA_ANON_KEY);
+  let currentUserRole = null; // 'admin' | 'staff' — set after login
 
   // ── STATE ──
   let BIZ_TZ = 'America/Los_Angeles'; // loaded from settings table at startup
@@ -3216,21 +3287,161 @@
     document.getElementById('login-screen').style.display = 'flex';
   }
 
-  db.auth.onAuthStateChange((event, session) => {
+  db.auth.onAuthStateChange(async (event, session) => {
     if (session) {
+      // Fetch the user's profile to check their role
+      const { data: profile } = await db
+        .from('profiles')
+        .select('role, first_name, last_name')
+        .eq('id', session.user.id)
+        .single();
+
+      const role = profile?.role || 'staff';
+
+      // Block customers and drivers — this is the admin dashboard only
+      if (role === 'customer' || role === 'driver') {
+        await db.auth.signOut();
+        const err = document.getElementById('login-error');
+        err.textContent = 'Access denied. This dashboard is for staff only.';
+        err.style.display = 'block';
+        return;
+      }
+
+      currentUserRole = role;
+
+      // Show the app
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('app').style.display = 'block';
-      const email = session.user.email || '';
-      const parts = email.split('@')[0].split('.');
-      const name = parts.map(p=>p[0].toUpperCase()+p.slice(1)).join(' ');
-      document.getElementById('user-name').textContent = name;
-      document.getElementById('user-avatar').textContent = (parts[0]||'?')[0].toUpperCase() + (parts[1]||'?')[0].toUpperCase();
-      // today-date element removed with overview redesign
-      // routes-date-label and r-date removed — routes page uses run_date now
+
+      // Sidebar: name and role badge
+      const displayName = profile?.first_name
+        ? `${profile.first_name} ${profile.last_name || ''}`.trim()
+        : session.user.email.split('@')[0];
+      const initials = displayName.split(' ').map(w => w[0]?.toUpperCase() || '').join('').slice(0, 2) || '?';
+      document.getElementById('user-name').textContent = displayName;
+      document.getElementById('user-avatar').textContent = initials;
+      document.getElementById('user-role-label').textContent = role === 'admin' ? 'Admin' : 'Staff';
+
+      // Show/hide nav items based on role
+      applyRoleToNav(role);
+
       loadAll();
       startNewOrderListener();
     }
   });
+
+  // ── ROLE-BASED NAV ──
+  const ADMIN_ONLY_PAGES = ['routes','reports','services','notifications','maps',
+                            'drivers','discounts','driver-messages','settings','team'];
+
+  function applyRoleToNav(role) {
+    document.querySelectorAll('[data-min-role="admin"]').forEach(el => {
+      el.style.display = (role !== 'admin') ? 'none' : '';
+    });
+  }
+
+  // ── TEAM PAGE ──
+  let _roleModalProfileId = null;
+
+  async function loadTeamPage() {
+    const container = document.getElementById('team-list');
+    container.innerHTML = '<div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>';
+    const { data, error } = await db
+      .from('profiles')
+      .select('id, first_name, last_name, role')
+      .in('role', ['admin', 'staff'])
+      .order('role').order('first_name');
+    if (error || !data) {
+      container.innerHTML = '<div style="color:var(--red);text-align:center;padding:40px 0">Failed to load team.</div>';
+      return;
+    }
+    if (!data.length) {
+      container.innerHTML = '<div style="text-align:center;color:var(--gray-400);padding:40px 0">No team members yet.</div>';
+      return;
+    }
+    container.innerHTML = data.map(p => {
+      const name = [p.first_name, p.last_name].filter(Boolean).join(' ') || '(No name)';
+      const initials = name.split(' ').map(w=>w[0]?.toUpperCase()||'').join('').slice(0,2);
+      return `
+        <div class="team-card">
+          <div class="team-avatar">${initials}</div>
+          <div class="team-info">
+            <div class="team-name">${name}</div>
+            <div class="team-email" id="team-email-${p.id}" style="font-style:italic;color:var(--gray-400)">—</div>
+          </div>
+          <span class="team-role-badge ${p.role}">${p.role === 'admin' ? 'Admin' : 'Staff'}</span>
+          <div class="team-actions">
+            <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px"
+              data-pid="${p.id}" data-pname="${name.replace(/"/g,'&quot;')}" data-prole="${p.role}"
+              onclick="openRoleModal(this.dataset.pid, this.dataset.pname, this.dataset.prole)">Change Role</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function openInviteModal() {
+    document.getElementById('invite-email').value = '';
+    document.getElementById('invite-role').value = 'staff';
+    document.getElementById('invite-error').style.display = 'none';
+    document.getElementById('invite-submit-btn').disabled = false;
+    document.getElementById('invite-submit-btn').textContent = 'Send Invite';
+    const modal = document.getElementById('invite-modal');
+    modal.style.display = 'flex';
+  }
+  function closeInviteModal() {
+    document.getElementById('invite-modal').style.display = 'none';
+  }
+
+  async function submitInvite() {
+    const email = document.getElementById('invite-email').value.trim();
+    const role  = document.getElementById('invite-role').value;
+    const errEl = document.getElementById('invite-error');
+    const btn   = document.getElementById('invite-submit-btn');
+    errEl.style.display = 'none';
+    if (!email || !email.includes('@')) {
+      errEl.textContent = 'Please enter a valid email address.';
+      errEl.style.display = 'block';
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/invite-staff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+        body: JSON.stringify({ email, role })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Invite failed');
+      closeInviteModal();
+      showToast(`Invite sent to ${email}`, 'success');
+      loadTeamPage();
+    } catch(e) {
+      errEl.textContent = e.message;
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Send Invite';
+    }
+  }
+
+  function openRoleModal(profileId, name, currentRole) {
+    _roleModalProfileId = profileId;
+    document.getElementById('role-modal-name').textContent = name;
+    document.getElementById('role-modal-select').value = currentRole;
+    document.getElementById('role-modal').style.display = 'flex';
+  }
+  function closeRoleModal() {
+    document.getElementById('role-modal').style.display = 'none';
+  }
+
+  async function saveRoleChange() {
+    const newRole = document.getElementById('role-modal-select').value;
+    const { error } = await db.from('profiles').update({ role: newRole }).eq('id', _roleModalProfileId);
+    if (error) { showToast('Failed to update role', 'error'); return; }
+    closeRoleModal();
+    showToast('Role updated', 'success');
+    loadTeamPage();
+  }
 
   // ── REALTIME: New order notification ──
   let _newOrderSub = null;
@@ -3258,10 +3469,19 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', 'driver-messages':'Driver Messages', settings:'Timezone' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', 'driver-messages':'', settings:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', 'driver-messages':'Driver Messages', settings:'Timezone', team:'Team' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', 'driver-messages':'', settings:'', team:'' };
 
   function showPage(id, navEl) {
+    // Role guard — staff cannot navigate to admin-only pages
+    const ADMIN_ONLY_PAGES = ['routes','reports','services','notifications','maps',
+                              'drivers','discounts','driver-messages','settings','team'];
+    if (ADMIN_ONLY_PAGES.includes(id) && currentUserRole !== 'admin') {
+      showToast("You don't have permission to view that page.", 'error');
+      showPage('overview', document.getElementById('nav-overview'));
+      return;
+    }
+
     // If leaving orders page, clear any active batch selection
     if (currentPage === 'orders' && id !== 'orders') clearOrderSelection();
 
@@ -3287,6 +3507,7 @@
     if (id === 'discounts') renderDiscounts();
     if (id === 'driver-messages') loadAdminDriverMessages();
     if (id === 'settings') renderSettingsTab();
+    if (id === 'team') loadTeamPage();
   }
 
   function handleCTA() {
