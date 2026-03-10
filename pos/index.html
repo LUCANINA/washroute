@@ -520,7 +520,7 @@
   // ── STATE ──
   let posRate       = 0;   // price per lb (walk-in rate)
   let posRateName   = '';
-  let currentCust   = null; // { id, first_name_cache, last_name_cache, phone, is_new }
+  let currentCust   = null; // { id, first_name_cache, last_name_cache, phone_cache, is_new }
   let currentWeight = 0;
   let currentTotal  = 0;
   let payMethod     = 'cash';
@@ -629,10 +629,9 @@
     currentCust = null;
   }
 
-  function rawPhone(val) {
-    // Convert to E.164 assuming US numbers
-    const digits = val.replace(/\D/g, '');
-    return digits.length === 10 ? `+1${digits}` : `+${digits}`;
+  // Normalize phone to plain 10-digit string (how the DB stores it)
+  function normalizePhone(val) {
+    return val.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1'); // strip leading country code if present
   }
 
   // ── CUSTOMER LOOKUP ──
@@ -642,10 +641,10 @@
     const btn = document.getElementById('lookup-btn');
     btn.disabled = true; btn.textContent = '…';
 
-    const e164 = rawPhone(phoneRaw);
+    const digits = normalizePhone(phoneRaw); // plain 10-digit string matching DB format
     const { data } = await db.from('customers')
-      .select('id, first_name_cache, last_name_cache, phone, email')
-      .or(`phone.eq.${e164},phone.eq.${phoneRaw}`)
+      .select('id, first_name_cache, last_name_cache, phone_cache, email_cache')
+      .eq('phone_cache', digits)
       .limit(1).maybeSingle();
 
     btn.disabled = false; btn.textContent = 'Search';
@@ -656,13 +655,13 @@
       const name = `${data.first_name_cache || ''} ${data.last_name_cache || ''}`.trim();
       document.getElementById('cust-found-name').textContent = name || 'Customer';
       document.getElementById('cust-found-meta').textContent =
-        [data.email, data.phone].filter(Boolean).join(' · ');
+        [data.email_cache, data.phone_cache].filter(Boolean).join(' · ');
       document.getElementById('cust-found').style.display    = 'flex';
       document.getElementById('cust-new-form').style.display = 'none';
       document.getElementById('cust-next-btn').disabled      = false;
     } else {
       // New customer — show create form
-      currentCust = { phone: e164, is_new: true };
+      currentCust = { phone_cache: digits, is_new: true };
       document.getElementById('cust-found').style.display    = 'none';
       document.getElementById('cust-new-form').style.display = 'block';
       document.getElementById('cust-next-btn').disabled      = false;
@@ -680,7 +679,7 @@
       const { data, error } = await db.from('customers').insert({
         first_name_cache: first,
         last_name_cache:  last || null,
-        phone:            currentCust.phone,
+        phone_cache:      currentCust.phone_cache,
         customer_type:    'retail',
       }).select().single();
       if (error) { showToast(error.message, 'error'); return; }

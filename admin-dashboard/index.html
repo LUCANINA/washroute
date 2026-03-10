@@ -10876,7 +10876,7 @@ window.onload=()=>{window.print();};
     }
     const { data } = await db.from('orders')
       .select(`id, order_number, total_bags, weight_lbs, total_amount, rack_id, source,
-               customers(id, first_name_cache, last_name_cache, phone), services(name)`)
+               customers(id, first_name_cache, last_name_cache, phone_cache), services(name)`)
       .eq('status', 'assembled')
       .order('racked_at', { ascending: false })
       .limit(20); // only show recently racked
@@ -11003,7 +11003,7 @@ window.onload=()=>{window.print();};
     const movedId    = rackActiveOrder.id;
     const orderNum   = rackActiveOrder.order_number; // capture before closeRackPanel() nulls rackActiveOrder
     const isWalkIn   = rackActiveOrder.source === 'walk_in';
-    const custPhone  = rackActiveOrder.customers?.phone || null;
+    const custPhone  = rackActiveOrder.customers?.phone_cache || null;
     const custFirst  = rackActiveOrder.customers?.first_name_cache || 'there';
     const custId     = rackActiveOrder.customers?.id || null;
     closeRackPanel();
@@ -11015,11 +11015,13 @@ window.onload=()=>{window.print();};
     reloadColumns('folding', 'rack');
     // Auto-SMS for walk-in orders: notify customer their laundry is ready for pickup
     if (isWalkIn && custPhone) {
+      // Normalize to E.164 — DB stores plain digits (e.g. 4156085446), Twilio needs +14156085446
+      const toE164  = custPhone.startsWith('+') ? custPhone : `+1${custPhone.replace(/\D/g,'')}`;
       const smsBody = `Hi ${custFirst}! Your laundry is ready for pickup. See you soon! — WashRoute`;
       fetch(`${SUPA_URL}/functions/v1/send-sms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
-        body: JSON.stringify({ to: custPhone, body: smsBody, customer_id: custId }),
+        body: JSON.stringify({ to: toE164, body: smsBody, customer_id: custId }),
       }).then(r => r.json()).then(res => {
         if (res.success) showToast(`📱 Pickup text sent to ${custFirst}`, 'success');
         else console.warn('SMS failed:', res.error);
