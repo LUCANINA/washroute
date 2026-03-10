@@ -524,6 +524,76 @@
     .btn-msg-send:disabled { background: var(--border); cursor: not-allowed; }
     .btn-msg-send:not(:disabled):active { background: #ea6c0a; transform: scale(0.95); }
 
+    /* ══════════════════════════════
+       STOP TYPE SECTION HEADERS
+    ══════════════════════════════ */
+    .stop-section-hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      margin: 20px 0 10px;
+    }
+    .stop-section-hdr:first-child { margin-top: 4px; }
+    .stop-section-pill {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+      padding: 6px 14px; border-radius: 20px;
+    }
+    .ssp-pickup   { background: #dbeafe; color: #1d4ed8; }
+    .ssp-delivery { background: #d1fae5; color: #065f46; }
+    .stop-section-count { font-size: 12px; color: var(--muted); font-weight: 600; }
+
+    /* ══════════════════════════════
+       PHASE 1 — PRE-ARRIVAL
+    ══════════════════════════════ */
+    .phase1-actions {
+      padding: 20px 20px 8px;
+    }
+    .btn-notify-big {
+      width: 100%; background: var(--info); color: var(--white); border: none;
+      border-radius: 14px; font-size: 18px; font-weight: 800; padding: 18px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      gap: 10px; box-shadow: 0 4px 16px rgba(29,78,216,0.25); transition: all .2s;
+    }
+    .btn-notify-big:active { transform: scale(0.97); }
+    .btn-notify-big:disabled { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-notify-big.sent { background: var(--deliver); box-shadow: none; }
+    .phase1-hint {
+      font-size: 13px; text-align: center; margin: 8px 0 4px; color: var(--muted);
+    }
+    .btn-arrive-text {
+      width: 100%; background: none; border: none;
+      color: var(--muted); font-size: 14px; font-weight: 600;
+      padding: 14px 12px; cursor: pointer; text-align: center;
+      transition: color .15s;
+    }
+    .btn-arrive-text:hover { color: var(--dark); }
+
+    /* ══════════════════════════════
+       PHASE 2 — AT STOP / BAG STEPPER
+    ══════════════════════════════ */
+    .arrival-chip {
+      border-radius: 10px; padding: 11px 14px;
+      font-size: 14px; font-weight: 700; text-align: center;
+      margin: 14px 20px 4px;
+    }
+    .arrival-chip.notified  { background: #dbeafe; color: #1d4ed8; }
+    .arrival-chip.arrived   { background: #f3f4f6; color: var(--muted); }
+
+    .bag-stepper-wrap { display: flex; flex-direction: column; align-items: center; padding: 6px 0 10px; }
+    .bag-stepper {
+      display: flex; align-items: center; justify-content: center; gap: 24px;
+      margin-bottom: 6px;
+    }
+    .bag-stepper-count { font-size: 48px; font-weight: 900; color: var(--dark); min-width: 64px; text-align: center; line-height: 1; }
+    .bag-stepper-btn {
+      width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--border);
+      background: var(--white); font-size: 26px; font-weight: 700; color: var(--dark);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: all .15s; flex-shrink: 0;
+    }
+    .bag-stepper-btn:active { background: var(--bg); transform: scale(0.9); }
+    .bag-stepper-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .bag-expected { font-size: 12px; color: var(--muted); text-align: center; margin-top: 2px; }
+
     /* ── Skip confirmation sheet ── */
     #skip-confirm-overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -733,6 +803,8 @@ const db = supabase.createClient(SUPA_URL, SUPA_KEY);
 let currentUser = null, currentProfile = null, currentDriver = null;
 let todayRoutes = [], allStops = [], pendingOrders = [];
 let currentStopId = null;
+let currentStopPhase = 1;  // 1 = pre-arrival, 2 = at-stop
+let adjustedBagCount = null;
 let appReady = false, loadingTimer = null;
 
 // Undo state
@@ -1100,23 +1172,7 @@ function renderRoute() {
     return;
   }
 
-  // Group stops by their time window
-  const windowGroups = new Map();
-  allStops.forEach(stop => {
-    const { start, end, key } = stopWindow(stop);
-    if (!windowGroups.has(key)) {
-      windowGroups.set(key, { start, end, label: start ? fmtSlot(start, end) : null, stops: [] });
-    }
-    windowGroups.get(key).stops.push(stop);
-  });
-  // Sort groups chronologically; stops without a window go last
-  const sortedGroups = [...windowGroups.values()].sort((a, b) => {
-    if (!a.start) return 1;
-    if (!b.start) return -1;
-    return a.start < b.start ? -1 : 1;
-  });
-  const multiGroup = sortedGroups.length > 1;
-
+  // Render a single stop card
   const renderStopCard = (stop) => {
     const addr = stop.addresses;
     const cust = stop.orders?.customers;
@@ -1143,18 +1199,26 @@ function renderRoute() {
     </div>`;
   };
 
+  // Render a section (PICKUPS or DELIVERIES)
+  const renderSection = (stops, type) => {
+    if (!stops.length) return '';
+    const doneCount = stops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+    const pill = type === 'pickup'
+      ? `<span class="stop-section-pill ssp-pickup">🔵 Pickups</span>`
+      : `<span class="stop-section-pill ssp-delivery">🟢 Deliveries</span>`;
+    let h = `<div class="stop-section-hdr">${pill}<span class="stop-section-count">${doneCount} of ${stops.length} done</span></div>`;
+    stops.forEach(stop => { h += renderStopCard(stop); });
+    return h;
+  };
+
+  // Split and sort by stop_number within each type
+  const pickups    = allStops.filter(s => s.stop_type === 'pickup').sort((a,b) => a.stop_number - b.stop_number);
+  const deliveries = allStops.filter(s => s.stop_type === 'delivery').sort((a,b) => a.stop_number - b.stop_number);
+
   let h = '<div style="padding:12px 14px">';
-  sortedGroups.forEach(group => {
-    if (group.label) {
-      const doneInGroup  = group.stops.filter(s => s.status === 'complete').length;
-      const totalInGroup = group.stops.length;
-      h += `<div style="display:flex;align-items:center;justify-content:space-between;margin:${h.length > 40 ? '20px' : '4px'} 0 8px">
-        <span style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--gray)">${group.label}</span>
-        ${multiGroup ? `<span style="font-size:12px;color:var(--muted)">${doneInGroup}/${totalInGroup}</span>` : ''}
-      </div>`;
-    }
-    group.stops.forEach(stop => { h += renderStopCard(stop); });
-  });
+  h += renderSection(pickups, 'pickup');
+  if (pickups.length && deliveries.length) h += '<div style="height:4px"></div>';
+  h += renderSection(deliveries, 'delivery');
   h += '</div>';
   body.innerHTML = h;
 }
@@ -1166,6 +1230,9 @@ function openStop(stopId) {
   currentStopId = stopId;
   const stop = allStops.find(s => s.id === stopId);
   if (!stop) return;
+  // Auto-advance to Phase 2 if already en_route or already notified
+  currentStopPhase = (stop.status === 'en_route' || stop.on_my_way_sent_at) ? 2 : 1;
+  adjustedBagCount = null; // reset per-stop
   renderStopDetail(stop);
   showScreen('stop');
 }
@@ -1182,19 +1249,23 @@ function renderStopDetail(stop) {
   const custName  = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
   const hasPhone  = !!cust?.phone_cache;
 
-  document.getElementById('stop-eyebrow').textContent = `${stop.stop_type.toUpperCase()} · STOP ${stop.stop_number}`;
-  document.getElementById('stop-title').textContent   = custName || 'Customer';
+  // Update header with type-colored eyebrow
+  const eyebrowEl = document.getElementById('stop-eyebrow');
+  eyebrowEl.textContent = `${stop.stop_type.toUpperCase()} · STOP ${stop.stop_number}`;
+  eyebrowEl.style.color = isPickup ? '#93c5fd' : '#6ee7b7';
+  eyebrowEl.style.opacity = '1';
+  document.getElementById('stop-title').textContent = custName || 'Customer';
 
   const body = document.getElementById('stop-body');
   let h = '';
 
-  // ── Completion banner ──
+  // ── DONE banner ──
   if (isDone) {
     const photoHtml = stop.proof_photo_url
-      ? `<img src="${stop.proof_photo_url}" style="width:80px;height:80px;border-radius:8px;object-fit:cover;border:2px solid #6ee7b7" alt="Proof photo">`
+      ? `<img src="${stop.proof_photo_url}" style="width:80px;height:80px;border-radius:8px;object-fit:cover;border:2px solid #6ee7b7;margin-top:8px" alt="Proof photo">`
       : '';
     h += `<div style="padding:14px 20px 4px">
-      <div class="completed-banner">
+      <div class="completed-banner" style="flex-direction:column;align-items:center">
         <div>✅ ${isPickup ? 'Picked Up' : 'Delivered'}${stop.completed_at ? ' at ' + fmtTime(stop.completed_at) : ''}</div>
         ${photoHtml}
       </div>
@@ -1206,7 +1277,7 @@ function renderStopDetail(stop) {
     </div>`;
   }
 
-  // ── Customer info ──
+  // ── Customer info (always visible) ──
   h += `<div class="dsection">
     <div class="dsection-title">Customer</div>
     <div class="drow"><span class="dicon">👤</span><div class="dtext">${custName || '—'}</div></div>
@@ -1215,76 +1286,104 @@ function renderStopDetail(stop) {
     ${addr?.delivery_instructions ? `<div class="drow"><span class="dicon">🔑</span><div><div class="dtext" style="font-size:13px;color:var(--muted)">${addr.delivery_instructions}</div></div></div>` : ''}
   </div>`;
 
-  // ── Order info ──
+  // ── Order info (always visible) ──
   h += `<div class="dsection">
     <div class="dsection-title">Order Details</div>
     <div class="drow"><span class="dicon">🧾</span><div class="dtext">Order #${order?.order_number || '—'}</div></div>
-    <div class="drow"><span class="dicon">📦</span><div class="dtext">${order?.total_bags||1} bag(s)</div></div>
+    <div class="drow"><span class="dicon">📦</span><div class="dtext">${order?.total_bags||1} bag(s) expected</div></div>
     <div class="drow"><span class="dicon">👕</span><div class="dtext">${svc?.name || 'Service'}</div></div>
     ${order?.special_instructions ? `<div class="drow"><span class="dicon">📝</span><div><div class="dtext" style="font-size:13px;color:var(--muted)">${order.special_instructions}</div></div></div>` : ''}
     ${renderPrefTags(cust?.preferences)}
   </div>`;
 
-  // ── Actions ──
-  h += `<div class="detail-actions">`;
-
-  // Directions button (smart — detects iOS vs Android)
-  if (addr) {
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-    const mapsUrl = mapsLink(addr);
-    const mapsLabel = isIOS ? '🗺️ Open in Apple Maps' : '🗺️ Open in Google Maps';
-    h += `<a class="btn-maps" href="${mapsUrl}" target="_blank">${mapsLabel}</a>`;
-  }
-
+  // ── Active stop phases ──
   if (!isDone && !isSkip) {
-    // "On My Way" button — sends SMS to customer
-    const alreadySent = !!stop.on_my_way_sent_at;
-    const onWayClass  = alreadySent || isEnRoute ? 'sent' : '';
-    const onWayLabel  = alreadySent || isEnRoute ? '✓ Customer Notified' : '📲 On My Way';
-    const onWayDisabled = alreadySent || isEnRoute ? 'disabled' : '';
-    if (hasPhone || true) { // always show, works even without phone (marks en_route)
-      h += `<button class="btn-on-way ${onWayClass}" id="btn-on-way" onclick="sendOnMyWay('${stop.id}')" ${onWayDisabled}>${onWayLabel}</button>`;
+
+    if (currentStopPhase === 1) {
+      // ════ PHASE 1: Pre-arrival ════
+      const alreadySent = !!stop.on_my_way_sent_at || isEnRoute;
+      h += `<div class="phase1-actions">`;
+      if (!alreadySent) {
+        h += `<button class="btn-notify-big" id="btn-notify-cust" onclick="sendOnMyWay('${stop.id}')">
+          📲 Notify Customer
+        </button>
+        <div class="phase1-hint">Sends a text to the customer + opens navigation</div>
+        <button class="btn-arrive-text" onclick="arrivedAtStop('${stop.id}')">Skip notification — I'm Already Here →</button>`;
+      } else {
+        // Already notified but somehow back at phase 1
+        h += `<button class="btn-notify-big sent" disabled>✓ Customer Notified</button>
+        <div class="phase1-hint">Customer has been informed you're on the way.</div>
+        <button class="btn-arrive-text" onclick="arrivedAtStop('${stop.id}')">I'm Here Now →</button>`;
+      }
+      h += `</div>`;
+
+    } else {
+      // ════ PHASE 2: At-stop ════
+      const notified = !!stop.on_my_way_sent_at || isEnRoute;
+      const bagCount = adjustedBagCount ?? (order?.total_bags || 1);
+      if (adjustedBagCount === null) adjustedBagCount = order?.total_bags || 1;
+      const expectedBags = order?.total_bags || 1;
+
+      // Arrival chip
+      h += `<div class="arrival-chip ${notified ? 'notified' : 'arrived'}">
+        ${notified ? '✓ Customer notified · Safe travels!' : '📍 Arrived at stop'}
+      </div>`;
+
+      // Bag count stepper
+      const bagLabel = isPickup ? 'Bags to pick up' : 'Bags to deliver';
+      h += `<div class="dsection">
+        <div class="dsection-title">${bagLabel}</div>
+        <div class="bag-stepper-wrap">
+          <div class="bag-stepper">
+            <button class="bag-stepper-btn" id="bag-minus-btn" onclick="adjustBags(-1)" ${bagCount <= 0 ? 'disabled' : ''}>−</button>
+            <div class="bag-stepper-count" id="bag-count-val">${bagCount}</div>
+            <button class="bag-stepper-btn" onclick="adjustBags(1)">+</button>
+          </div>
+          <div class="bag-expected">Expected: ${expectedBags} bag${expectedBags !== 1 ? 's' : ''}</div>
+        </div>
+      </div>`;
+
+      // Photo capture
+      const hasPhoto = !!stop.proof_photo_url;
+      const photoLabel = isPickup ? 'Pickup Photo' : 'Delivery Photo';
+      h += `<div class="dsection">
+        <div class="dsection-title">${photoLabel} <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:10px">(optional)</span></div>
+        <div class="photo-row">
+          ${hasPhoto ? `<img class="photo-thumb show" id="photo-thumb" src="${stop.proof_photo_url}" alt="Proof photo">` : `<img class="photo-thumb" id="photo-thumb" src="" alt="Proof photo">`}
+          <button class="btn-camera ${hasPhoto ? 'has-photo' : ''}" id="btn-camera" onclick="document.getElementById('photo-input').click()">
+            ${hasPhoto ? '✓ Photo Taken' : '📷 Take Photo'}
+          </button>
+        </div>
+        <div class="photo-uploading" id="photo-uploading">⏳ Uploading photo…</div>
+        <input class="photo-input" type="file" accept="image/*" capture="environment" id="photo-input" onchange="handlePhoto(this, '${stop.id}')">
+      </div>`;
+
+      // Driver notes
+      h += `<div class="dsection">
+        <div class="dsection-title">Driver Notes</div>
+        <textarea class="notes-box" id="stop-notes" placeholder="Add notes for this stop…">${stop.driver_notes || ''}</textarea>
+      </div>`;
+
+      // Complete + Skip
+      const cls   = isPickup ? '' : 'delivery';
+      const label = isPickup ? '📦 Mark Picked Up' : '✅ Mark Delivered';
+      h += `<div class="detail-actions">
+        <button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')">${label}</button>
+        <button class="btn-skip-stop" onclick="skipStop('${stop.id}')">Skip This Stop</button>
+      </div>`;
     }
 
-    // Photo capture
-    const hasPhoto = !!stop.proof_photo_url;
-    const photoLabel = isPickup ? 'Pickup Photo' : 'Delivery Photo';
-    h += `<div class="photo-section">
-      <div class="photo-label">${photoLabel} <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:10px">(optional)</span></div>
-      <div class="photo-row">
-        ${hasPhoto ? `<img class="photo-thumb show" id="photo-thumb" src="${stop.proof_photo_url}" alt="Proof photo">` : `<img class="photo-thumb" id="photo-thumb" src="" alt="Proof photo">`}
-        <button class="btn-camera ${hasPhoto ? 'has-photo' : ''}" id="btn-camera" onclick="document.getElementById('photo-input').click()">
-          ${hasPhoto ? '✓ Photo Taken' : '📷 Take Photo'}
-        </button>
-      </div>
-      <div class="photo-uploading" id="photo-uploading">⏳ Uploading photo…</div>
-      <input class="photo-input" type="file" accept="image/*" capture="environment" id="photo-input" onchange="handlePhoto(this, '${stop.id}')">
-    </div>`;
-
-    // Driver notes
-    h += `<div style="margin-bottom:10px">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-bottom:6px">Driver Notes</div>
-      <textarea class="notes-box" id="stop-notes" placeholder="Add notes for this stop…">${stop.driver_notes || ''}</textarea>
-    </div>`;
-
-    // Complete + Skip
-    const cls   = isPickup ? '' : 'delivery';
-    const label = isPickup ? '📦 Mark Picked Up' : '✅ Mark Delivered';
-    h += `<button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')">${label}</button>
-          <button class="btn-skip-stop" onclick="skipStop('${stop.id}')">Skip This Stop</button>`;
   } else if (isDone || isSkip) {
-    // Show notes read-only if there are any
+    // Read-only notes if any
     if (stop.driver_notes) {
-      h += `<div style="margin-bottom:10px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-bottom:6px">Driver Notes</div>
+      h += `<div class="dsection">
+        <div class="dsection-title">Driver Notes</div>
         <div style="font-size:14px;color:var(--gray);padding:10px 14px;background:var(--bg);border-radius:10px">${stop.driver_notes}</div>
       </div>`;
     }
   }
 
-  h += `</div>`;
-
-  // ── Next stop nudge ──
+  // ── Next stop nudge (after done) ──
   if (isDone) {
     const next = allStops.find(s => s.id !== stop.id && (s.status === 'pending' || s.status === 'en_route'));
     if (next) {
@@ -1326,7 +1425,7 @@ function renderPrefTags(prefs) {
    ON MY WAY
 ────────────────────────────── */
 async function sendOnMyWay(stopId) {
-  const btn = document.getElementById('btn-on-way');
+  const btn = document.getElementById('btn-notify-cust');
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
 
   const driverName = currentProfile
@@ -1345,11 +1444,6 @@ async function sendOnMyWay(stopId) {
     });
     const result = await res.json();
 
-    if (btn) {
-      btn.textContent = '✓ Customer Notified';
-      btn.classList.add('sent');
-    }
-
     // Update local stop state
     const idx = allStops.findIndex(s => s.id === stopId);
     if (idx >= 0) {
@@ -1357,23 +1451,65 @@ async function sendOnMyWay(stopId) {
       allStops[idx].status = 'en_route';
     }
 
-    const smsOk = result.sms?.ok;
-    if (smsOk) {
-      toast('📲 Text sent to customer!');
-    } else if (result.sms?.reason === 'twilio_not_configured') {
-      toast('📍 Status updated · SMS not configured yet');
-    } else if (result.sms?.reason === 'no_phone') {
-      toast('📍 Status updated · No phone on file');
-    } else {
-      toast('📍 En route status updated');
+    // Auto-open navigation
+    const stop = allStops.find(s => s.id === stopId);
+    if (stop?.addresses) {
+      window.open(mapsLink(stop.addresses), '_blank');
     }
 
-    renderRoute(); // refresh list to show en_route indicator
+    // Transition to Phase 2
+    currentStopPhase = 2;
+    if (adjustedBagCount === null) adjustedBagCount = stop?.orders?.total_bags || 1;
+
+    const smsOk = result.sms?.ok;
+    if (smsOk) {
+      toast('📲 Customer notified! Navigation opened.');
+    } else if (result.sms?.reason === 'twilio_not_configured') {
+      toast('📍 Status updated · Navigation opened');
+    } else if (result.sms?.reason === 'no_phone') {
+      toast('📍 No phone on file · Navigation opened');
+    } else {
+      toast('📍 En route · Navigation opened');
+    }
+
+    if (stop) renderStopDetail(stop);
+    renderRoute();
   } catch (e) {
     console.error('sendOnMyWay error:', e);
     toast('Could not update status — check connection');
-    if (btn) { btn.disabled = false; btn.textContent = '📲 On My Way'; }
+    if (btn) { btn.disabled = false; btn.textContent = '📲 Notify Customer'; }
   }
+}
+
+/* ──────────────────────────────
+   ARRIVED AT STOP (skip notification)
+────────────────────────────── */
+async function arrivedAtStop(stopId) {
+  currentStopPhase = 2;
+  const idx = allStops.findIndex(s => s.id === stopId);
+  if (idx >= 0) {
+    const prevStatus = allStops[idx].status;
+    allStops[idx].status = 'en_route';
+    if (prevStatus !== 'en_route') {
+      // Best-effort DB update — non-blocking
+      db.from('route_stops').update({ status: 'en_route' }).eq('id', stopId).catch(() => {});
+    }
+    if (adjustedBagCount === null) adjustedBagCount = allStops[idx]?.orders?.total_bags || 1;
+  }
+  const stop = allStops.find(s => s.id === stopId);
+  if (stop) renderStopDetail(stop);
+  renderRoute();
+}
+
+/* ──────────────────────────────
+   BAG COUNT STEPPER
+────────────────────────────── */
+function adjustBags(delta) {
+  adjustedBagCount = Math.max(0, (adjustedBagCount ?? 1) + delta);
+  const el = document.getElementById('bag-count-val');
+  if (el) el.textContent = adjustedBagCount;
+  const minusBtn = document.getElementById('bag-minus-btn');
+  if (minusBtn) minusBtn.disabled = adjustedBagCount <= 0;
 }
 
 /* ──────────────────────────────
@@ -1490,7 +1626,14 @@ async function triggerUndo() {
 
     // Update route progress
     const idx = allStops.findIndex(s => s.id === stopId);
-    if (idx >= 0) allStops[idx] = { ...allStops[idx], status: prevStopStatus, completed_at: null };
+    if (idx >= 0) {
+      allStops[idx] = { ...allStops[idx], status: prevStopStatus, completed_at: null, on_my_way_sent_at: null };
+      // Reset phase so stop detail re-renders from Phase 1
+      if (stopId === currentStopId) {
+        currentStopPhase = 1;
+        adjustedBagCount = null;
+      }
+    }
 
     const routeId = stop?.route_id;
     const route   = todayRoutes.find(r => r.id === routeId);
@@ -1546,13 +1689,21 @@ async function completeStop(stopId, stopType) {
   // Build parallel DB update promises
   const updatePromises = [];
 
-  // Order status update
+  // Order status update (includes adjusted bag count if changed)
   let newStatus = null;
   if (stop?.orders?.id) {
     newStatus = stopType === 'pickup' ? 'picked_up' : 'delivered';
     const timeField = stopType === 'pickup' ? 'actual_pickup_at' : 'actual_delivery_at';
+    const orderUpdate = { status: newStatus, [timeField]: now };
+    const actualBags = adjustedBagCount !== null ? adjustedBagCount : (stop.orders.total_bags || 1);
+    if (actualBags !== stop.orders.total_bags) {
+      orderUpdate.total_bags = actualBags;
+      // Update local cache too
+      const si = allStops.findIndex(s => s.id === stopId);
+      if (si >= 0 && allStops[si].orders) allStops[si].orders.total_bags = actualBags;
+    }
     updatePromises.push(
-      db.from('orders').update({ status: newStatus, [timeField]: now }).eq('id', stop.orders.id)
+      db.from('orders').update(orderUpdate).eq('id', stop.orders.id)
     );
     stop.orders.status = newStatus;
   }
