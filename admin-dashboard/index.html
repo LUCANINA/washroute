@@ -9050,8 +9050,10 @@ window.onload=()=>{window.print();};
 
     const orderBlocks = orders.map(o => {
       const items = Array.isArray(o.line_items) ? o.line_items : [];
-      const lineRows = items.length
-        ? items.map(li => `
+      // Only show line items that have an actual charge (filter out $0 preference flags like "Hot", "Yes", etc.)
+      const chargeableItems = items.filter(li => parseFloat(li.amount || 0) > 0);
+      const lineRows = chargeableItems.length
+        ? chargeableItems.map(li => `
             <tr>
               <td style="padding:2px 0 2px 24px;font-size:12px;color:#333">${li.label||li.description||'Service'}</td>
               <td style="text-align:right;padding:2px 0;font-size:12px">${fmtInvMoney(li.amount)}</td>
@@ -9090,16 +9092,21 @@ window.onload=()=>{window.print();};
     * { box-sizing: border-box; }
     body { font-family: Helvetica, Arial, sans-serif; font-size: 13px; color: #111; margin: 0; line-height: 1.5; }
     table { border-collapse: collapse; width: 100%; }
-    @media print { .no-print { display:none; } }
+    @media screen { body { padding: 0; background: #f4f4f5; } .invoice-page { max-width: 760px; margin: 0 auto; background: white; padding: 40px 48px; box-shadow: 0 2px 16px rgba(0,0,0,.1); } }
+    @media print { .no-print { display:none; } body { background: white; } .invoice-page { padding: 0; box-shadow: none; } }
   </style>
 </head>
 <body>
 
-  <!-- Print button (screen only) -->
-  <div class="no-print" style="background:#f5f3ff;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;border-radius:8px">
-    <span style="font-size:13px;color:#635bff;font-weight:600">Invoice preview</span>
-    <button onclick="window.print()" style="background:#635bff;color:white;border:none;padding:7px 16px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600">🖨️ Print / Save as PDF</button>
+  <!-- Print toolbar (screen only) -->
+  <div class="no-print" style="background:#635bff;padding:10px 24px;display:flex;align-items:center;justify-content:flex-end;position:sticky;top:0;z-index:10">
+    <button onclick="window.print()" style="background:white;color:#635bff;border:none;padding:7px 18px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:700;display:flex;align-items:center;gap:6px">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      Print / Save as PDF
+    </button>
   </div>
+
+  <div class="invoice-page">
 
   <!-- Letterhead -->
   <table style="margin-bottom:24px">
@@ -9161,6 +9168,8 @@ window.onload=()=>{window.print();};
   <div style="text-align:center;margin-top:40px;font-size:13px;color:#777;border-top:1px solid #eee;padding-top:20px">
     Thank you for your business!
   </div>
+
+  </div><!-- /.invoice-page -->
 </body></html>`;
 
     const win = window.open('', '_blank', 'width=800,height=1000');
