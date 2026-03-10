@@ -7675,6 +7675,7 @@ window.onload=()=>{window.print();};
   }
 
   async function populateOrderModal() {
+    try {
     // Reset all state
     _noSelectedTmpl = null;
     _noPickupStart  = null;
@@ -7696,7 +7697,13 @@ window.onload=()=>{window.print();};
     document.getElementById('o-tip').value   = '';
     document.getElementById('o-error').style.display = 'none';
 
-    // Customers — init combobox
+    // Customers — if loadAll() hasn't finished yet, wait up to 3 s then reload
+    if (!allCustomers.length) {
+      await new Promise(r => setTimeout(r, 800));
+      if (!allCustomers.length) await loadCustomers();
+    }
+
+    // Init combobox with first customer
     if (allCustomers.length) {
       const first = allCustomers[0];
       const p  = custProfile(first);
@@ -7705,17 +7712,19 @@ window.onload=()=>{window.print();};
       const label = (fn + ' ' + ln).trim() || 'Unknown';
       document.getElementById('o-customer').value = first.id;
       document.getElementById('o-customer-input').value = label;
-      onOrderCustomerChange(first.id);
+      await onOrderCustomerChange(first.id);
     } else {
       document.getElementById('o-customer').value = '';
       document.getElementById('o-customer-input').value = '';
       document.getElementById('o-customer-input').placeholder = 'No customers yet';
+      document.getElementById('o-address').innerHTML = '<option value="">No customers yet</option>';
     }
 
     // Route templates for inline slot picker
-    const { data: tmpls } = await db.from('route_templates')
+    const { data: tmpls, error: tmplErr } = await db.from('route_templates')
       .select('id, name, color, schedule_days, window_start, window_end, arrival_window_hours, zone_id, service_zones(name)')
       .eq('is_active', true).order('name');
+    if (tmplErr) console.error('populateOrderModal route_templates error:', tmplErr);
     _noTemplates = tmpls || [];
     renderNoRoutes();
 
@@ -7724,6 +7733,10 @@ window.onload=()=>{window.print();};
     const couponSel = document.getElementById('o-coupon');
     couponSel.innerHTML = '<option value="">No discount</option>' +
       (discs||[]).map(d => `<option value="${d.id}">${d.name} (${d.type==='percent'? d.value+'%' : '$'+d.value})</option>`).join('');
+    } catch(e) {
+      console.error('populateOrderModal error:', e);
+      showToast('Error loading order form — please try again.', 'error');
+    }
   }
 
   async function onOrderCustomerChange(customerId) {
