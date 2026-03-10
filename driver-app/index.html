@@ -1326,7 +1326,6 @@ function renderStopDetail(stop) {
     <div class="drow">${icon('receipt')}<div class="dtext">Order #${order?.order_number || '—'}</div></div>
     <div class="drow">${icon('bag')}<div class="dtext">${order?.total_bags||1} bag${(order?.total_bags||1)!==1?'s':''} expected</div></div>
     <div class="drow">${icon('shirt')}<div class="dtext">${svc?.name || 'Service'}</div></div>
-    ${order?.special_instructions ? `<div class="drow">${icon('note')}<div><div class="dtext" style="font-size:13px;color:var(--muted)">${order.special_instructions}</div></div></div>` : ''}
     ${renderPrefTags(cust?.preferences)}
   </div>`;
 
