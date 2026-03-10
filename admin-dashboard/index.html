@@ -1185,6 +1185,7 @@
                   <button class="filter-tab" data-filter="active" onclick="filterOrders('active',this)">Active</button>
                   <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
                   <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
+                  <button class="filter-tab" data-filter="cancelled" onclick="filterOrders('cancelled',this)" style="color:var(--gray-400)">Cancelled</button>
                 </div>
               </div>
             </div>
@@ -2922,6 +2923,7 @@
         <button class="filter-tab active" id="cpof-all" onclick="filterCpOrders('all',this)">All</button>
         <button class="filter-tab" id="cpof-active" onclick="filterCpOrders('active',this)">Active</button>
         <button class="filter-tab" id="cpof-done" onclick="filterCpOrders('done',this)">Completed</button>
+        <button class="filter-tab" id="cpof-cancelled" onclick="filterCpOrders('cancelled',this)" style="color:var(--gray-400)">Cancelled</button>
         <button class="filter-tab" id="cpof-billing" onclick="filterCpOrders('billing',this)" style="border-color:var(--accent);color:var(--accent)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;display:inline;margin-right:3px"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Billing
         </button>
@@ -4302,7 +4304,8 @@
   const ORDER_FILTER_GROUPS = {
     upcoming:  ['scheduled','ready_for_pickup'],
     active:    ['picked_up','processing','assembled','ready_for_delivery','out_for_delivery'],
-    issues:    ['pickup_missed','delivery_missed','on_hold','cancelled'],
+    issues:    ['pickup_missed','delivery_missed','on_hold'],
+    cancelled: ['cancelled'],
   };
 
   async function loadOrders(statusFilter) {
@@ -4361,6 +4364,9 @@
       } else {
         data = data.filter(o => o.status === currentOrderFilter);
       }
+    } else {
+      // "All" tab hides cancelled orders to keep the list clean — use the Cancelled tab to find them
+      data = data.filter(o => o.status !== 'cancelled');
     }
     if (orderSearchTerm) {
       data = data.filter(o => {
@@ -4376,11 +4382,12 @@
   // Updates each pill button to show its count badge
   function updateOrderFilterCounts() {
     const counts = {
-      all:       allOrders.length,
+      all:       allOrders.filter(o => o.status !== 'cancelled').length,
       upcoming:  allOrders.filter(o => (ORDER_FILTER_GROUPS.upcoming||[]).includes(o.status)).length,
       active:    allOrders.filter(o => (ORDER_FILTER_GROUPS.active||[]).includes(o.status)).length,
       delivered: allOrders.filter(o => o.status === 'delivered').length,
       issues:    allOrders.filter(o => (ORDER_FILTER_GROUPS.issues||[]).includes(o.status)).length,
+      cancelled: allOrders.filter(o => o.status === 'cancelled').length,
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
       const key = btn.dataset.filter;
@@ -9158,16 +9165,18 @@ window.onload=()=>{window.print();};
 
   function renderCpOrders(data, filter) {
     const activeStatuses = ['pending_pickup','picked_up','in_transit','washing','drying','folding','assembled','ready_for_delivery'];
-    const doneStatuses   = ['delivered','cancelled'];
+    const doneStatuses   = ['delivered'];
     let filtered = data;
-    if (filter==='active')  filtered = data.filter(o=>activeStatuses.includes(o.status));
-    if (filter==='done')    filtered = data.filter(o=>doneStatuses.includes(o.status));
-    if (filter==='billing') filtered = data.filter(o=>o.status==='delivered' || o.billing_status);
+    if (filter==='all')       filtered = data.filter(o=>o.status !== 'cancelled');
+    if (filter==='active')    filtered = data.filter(o=>activeStatuses.includes(o.status));
+    if (filter==='done')      filtered = data.filter(o=>doneStatuses.includes(o.status));
+    if (filter==='cancelled') filtered = data.filter(o=>o.status === 'cancelled');
+    if (filter==='billing')   filtered = data.filter(o=>o.status==='delivered' || o.billing_status);
     const el = document.getElementById('cp-orders-list');
     if (!filtered.length) {
-      const msg = filter==='billing'
-        ? 'No delivered orders to bill yet.'
-        : 'No orders in this filter.';
+      const msg = filter==='billing'   ? 'No delivered orders to bill yet.'
+                : filter==='cancelled' ? 'No cancelled orders.'
+                : 'No orders in this filter.';
       el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">${msg}</div>`;
       return;
     }
