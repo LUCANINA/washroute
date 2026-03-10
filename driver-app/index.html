@@ -814,8 +814,10 @@ const db = supabase.createClient(SUPA_URL, SUPA_KEY);
 let currentUser = null, currentProfile = null, currentDriver = null;
 let todayRoutes = [], allStops = [], pendingOrders = [];
 let currentStopId = null;
-let currentStopPhase = 1;  // 1 = pre-arrival, 2 = at-stop
+let currentStopPhase = 1;    // 1 = pre-arrival, 2 = at-stop
+let currentStopSubPhase = 1; // within phase 2: 1 = bags+notes, 2 = photo+complete
 let adjustedBagCount = null;
+let draftNotes = null;       // notes saved when advancing from sub-phase 1 → 2
 let appReady = false, loadingTimer = null;
 
 // Undo state
@@ -1266,7 +1268,9 @@ function openStop(stopId) {
   if (!stop) return;
   // Auto-advance to Phase 2 if already en_route or already notified
   currentStopPhase = (stop.status === 'en_route' || stop.on_my_way_sent_at) ? 2 : 1;
-  adjustedBagCount = null; // reset per-stop
+  currentStopSubPhase = 1;
+  adjustedBagCount = null;
+  draftNotes = null;
   renderStopDetail(stop);
   showScreen('stop');
 }
@@ -1357,53 +1361,65 @@ function renderStopDetail(stop) {
       if (adjustedBagCount === null) adjustedBagCount = order?.total_bags || 1;
       const expectedBags = order?.total_bags || 1;
 
-      // Arrival chip
+      // Arrival chip (shown on both sub-phases)
       h += `<div class="arrival-chip ${notified ? 'notified' : 'arrived'}">
         ${notified ? 'Customer notified · Safe travels!' : 'Arrived at stop'}
       </div>`;
 
-      // Bag count stepper
-      const bagLabel = isPickup ? 'Bags to pick up' : 'Bags to deliver';
-      h += `<div class="dsection">
-        <div class="dsection-title">${bagLabel}</div>
-        <div class="bag-stepper-wrap">
-          <div class="bag-stepper">
-            <button class="bag-stepper-btn" id="bag-minus-btn" onclick="adjustBags(-1)" ${bagCount <= 0 ? 'disabled' : ''}>−</button>
-            <div class="bag-stepper-count" id="bag-count-val">${bagCount}</div>
-            <button class="bag-stepper-btn" onclick="adjustBags(1)">+</button>
+      if (currentStopSubPhase === 1) {
+        // ── SUB-PHASE 1: Confirm bags + notes ──
+
+        // Bag count stepper
+        const bagLabel = isPickup ? 'Bags to pick up' : 'Bags to deliver';
+        h += `<div class="dsection">
+          <div class="dsection-title">${bagLabel}</div>
+          <div class="bag-stepper-wrap">
+            <div class="bag-stepper">
+              <button class="bag-stepper-btn" id="bag-minus-btn" onclick="adjustBags(-1)" ${bagCount <= 0 ? 'disabled' : ''}>−</button>
+              <div class="bag-stepper-count" id="bag-count-val">${bagCount}</div>
+              <button class="bag-stepper-btn" onclick="adjustBags(1)">+</button>
+            </div>
+            <div class="bag-expected">Expected: ${expectedBags} bag${expectedBags !== 1 ? 's' : ''}</div>
           </div>
-          <div class="bag-expected">Expected: ${expectedBags} bag${expectedBags !== 1 ? 's' : ''}</div>
-        </div>
-      </div>`;
+        </div>`;
 
-      // Photo capture
-      const hasPhoto = !!stop.proof_photo_url;
-      const photoLabel = isPickup ? 'Pickup Photo' : 'Delivery Photo';
-      h += `<div class="dsection">
-        <div class="dsection-title">${photoLabel} <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:10px">(optional)</span></div>
-        <div class="photo-row">
-          ${hasPhoto ? `<img class="photo-thumb show" id="photo-thumb" src="${stop.proof_photo_url}" alt="Proof photo">` : `<img class="photo-thumb" id="photo-thumb" src="" alt="Proof photo">`}
-          <button class="btn-camera ${hasPhoto ? 'has-photo' : ''}" id="btn-camera" onclick="document.getElementById('photo-input').click()">
-            ${hasPhoto ? 'Photo Taken' : 'Take Photo'}
-          </button>
-        </div>
-        <div class="photo-uploading" id="photo-uploading">Uploading photo…</div>
-        <input class="photo-input" type="file" accept="image/*" capture="environment" id="photo-input" onchange="handlePhoto(this, '${stop.id}')">
-      </div>`;
+        // Driver notes
+        h += `<div class="dsection">
+          <div class="dsection-title">Driver Notes</div>
+          <textarea class="notes-box" id="stop-notes" placeholder="Add notes for this stop…">${draftNotes !== null ? draftNotes : (stop.driver_notes || '')}</textarea>
+        </div>`;
 
-      // Driver notes
-      h += `<div class="dsection">
-        <div class="dsection-title">Driver Notes</div>
-        <textarea class="notes-box" id="stop-notes" placeholder="Add notes for this stop…">${stop.driver_notes || ''}</textarea>
-      </div>`;
+        // NEXT button
+        h += `<div class="detail-actions">
+          <button class="btn-complete" id="btn-next-subphase" onclick="nextSubPhase('${stop.id}')">Next →</button>
+        </div>`;
 
-      // Complete + Skip
-      const cls   = isPickup ? '' : 'delivery';
-      const label = isPickup ? 'Mark Picked Up' : 'Mark Delivered';
-      h += `<div class="detail-actions">
-        <button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')">${label}</button>
-        <button class="btn-skip-stop" onclick="skipStop('${stop.id}')">Skip This Stop</button>
-      </div>`;
+      } else {
+        // ── SUB-PHASE 2: Photo + complete ──
+
+        // Photo capture
+        const hasPhoto = !!stop.proof_photo_url;
+        const photoLabel = isPickup ? 'Pickup Photo' : 'Delivery Photo';
+        h += `<div class="dsection">
+          <div class="dsection-title">${photoLabel} <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:10px">(optional)</span></div>
+          <div class="photo-row">
+            ${hasPhoto ? `<img class="photo-thumb show" id="photo-thumb" src="${stop.proof_photo_url}" alt="Proof photo">` : `<img class="photo-thumb" id="photo-thumb" src="" alt="Proof photo">`}
+            <button class="btn-camera ${hasPhoto ? 'has-photo' : ''}" id="btn-camera" onclick="document.getElementById('photo-input').click()">
+              ${hasPhoto ? 'Photo Taken' : 'Take Photo'}
+            </button>
+          </div>
+          <div class="photo-uploading" id="photo-uploading">Uploading photo…</div>
+          <input class="photo-input" type="file" accept="image/*" capture="environment" id="photo-input" onchange="handlePhoto(this, '${stop.id}')">
+        </div>`;
+
+        // Complete + Skip
+        const cls   = isPickup ? '' : 'delivery';
+        const label = isPickup ? 'Mark Picked Up' : 'Mark Delivered';
+        h += `<div class="detail-actions">
+          <button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')">${label}</button>
+          <button class="btn-skip-stop" onclick="skipStop('${stop.id}')">Skip This Stop</button>
+        </div>`;
+      }
     }
 
   } else if (isDone || isSkip) {
@@ -1490,8 +1506,10 @@ async function sendOnMyWay(stopId) {
       window.open(mapsLink(stop.addresses), '_blank');
     }
 
-    // Transition to Phase 2
+    // Transition to Phase 2, sub-phase 1
     currentStopPhase = 2;
+    currentStopSubPhase = 1;
+    draftNotes = null;
     if (adjustedBagCount === null) adjustedBagCount = stop?.orders?.total_bags || 1;
 
     const smsOk = result.sms?.ok;
@@ -1519,6 +1537,8 @@ async function sendOnMyWay(stopId) {
 ────────────────────────────── */
 async function arrivedAtStop(stopId) {
   currentStopPhase = 2;
+  currentStopSubPhase = 1;
+  draftNotes = null;
   const idx = allStops.findIndex(s => s.id === stopId);
   if (idx >= 0) {
     const prevStatus = allStops[idx].status;
@@ -1532,6 +1552,19 @@ async function arrivedAtStop(stopId) {
   const stop = allStops.find(s => s.id === stopId);
   if (stop) renderStopDetail(stop);
   renderRoute();
+}
+
+/* ──────────────────────────────
+   SUB-PHASE ADVANCE (bags+notes → photo+complete)
+────────────────────────────── */
+function nextSubPhase(stopId) {
+  // Capture notes before the textarea disappears on re-render
+  const notesEl = document.getElementById('stop-notes');
+  if (notesEl) draftNotes = notesEl.value.trim() || null;
+  currentStopSubPhase = 2;
+  const stop = allStops.find(s => s.id === stopId);
+  if (stop) renderStopDetail(stop);
+  document.getElementById('stop-body').scrollTop = 0;
 }
 
 /* ──────────────────────────────
@@ -1664,7 +1697,9 @@ async function triggerUndo() {
       // Reset phase so stop detail re-renders from Phase 1
       if (stopId === currentStopId) {
         currentStopPhase = 1;
+        currentStopSubPhase = 1;
         adjustedBagCount = null;
+        draftNotes = null;
       }
     }
 
@@ -1700,7 +1735,8 @@ async function completeStop(stopId, stopType) {
   const btn = document.getElementById('btn-do-complete');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
-  const notes = document.getElementById('stop-notes')?.value?.trim() || null;
+  // Notes are captured into draftNotes when driver taps Next; textarea is gone by this point
+  const notes = draftNotes !== null ? draftNotes : (document.getElementById('stop-notes')?.value?.trim() || null);
   const now   = new Date().toISOString();
   const stop  = allStops.find(s => s.id === stopId);
   const prevOrderStatus = stop?.orders?.status || null;
