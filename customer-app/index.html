@@ -1694,14 +1694,21 @@ async function handleLogin(e) {
   errEl.classList.remove('show');
   btn.disabled = true; btn.textContent = 'Signing in…';
   showLoading(true); // Show spinner immediately — don't wait for auth round-trip
-  const { error } = await db.auth.signInWithPassword({
-    email: document.getElementById('l-email').value.trim(),
-    password: document.getElementById('l-pass').value
-  });
-  if (error) {
-    showLoading(false); // Only hide on error; success lets onAuthStateChange handle it
+  try {
+    const { error } = await db.auth.signInWithPassword({
+      email: document.getElementById('l-email').value.trim(),
+      password: document.getElementById('l-pass').value
+    });
+    if (error) {
+      showLoading(false); // Only hide on error; success lets onAuthStateChange handle it
+      btn.disabled = false; btn.textContent = 'Sign In';
+      errEl.textContent = error.message; errEl.classList.add('show');
+    }
+  } catch (e) {
+    showLoading(false);
     btn.disabled = false; btn.textContent = 'Sign In';
-    errEl.textContent = error.message; errEl.classList.add('show');
+    errEl.textContent = 'Connection error — please check your internet and try again.';
+    errEl.classList.add('show');
   }
 }
 

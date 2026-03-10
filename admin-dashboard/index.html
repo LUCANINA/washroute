@@ -3353,9 +3353,15 @@
     const err   = document.getElementById('login-error');
     err.style.display = 'none';
     btn.disabled = true; btn.textContent = 'Signing in…';
-    const { error } = await db.auth.signInWithPassword({ email, password: pw });
-    if (error) {
-      err.textContent = error.message; err.style.display = 'block';
+    try {
+      const { error } = await db.auth.signInWithPassword({ email, password: pw });
+      if (error) {
+        err.textContent = error.message; err.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Sign in';
+      }
+    } catch (e) {
+      err.textContent = 'Connection error — please check your internet and try again.';
+      err.style.display = 'block';
       btn.disabled = false; btn.textContent = 'Sign in';
     }
   }
