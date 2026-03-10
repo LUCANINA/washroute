@@ -3371,7 +3371,13 @@
   }
 
   db.auth.onAuthStateChange(async (event, session) => {
+    // TOKEN_REFRESHED fires every ~55 min — session is still valid, nothing to do
+    if (event === 'TOKEN_REFRESHED') return;
+
     if (session) {
+      // Already showing the app (e.g. a second SIGNED_IN fired) — don't re-init
+      if (document.getElementById('app').style.display === 'block') return;
+
       try {
         // Fetch the user's profile to check their role
         const { data: profile, error: profileError } = await db
@@ -3416,15 +3422,24 @@
         loadAll();
         startNewOrderListener();
       } catch (e) {
-        // Something went wrong after sign-in — surface the error and reset the button
-        console.error('Auth error:', e);
-        const err = document.getElementById('login-error');
-        err.textContent = 'Sign-in failed: ' + (e.message || 'unexpected error. Please try again.');
-        err.style.display = 'block';
-        const btn = document.getElementById('login-btn');
-        btn.disabled = false; btn.textContent = 'Sign in';
-        await db.auth.signOut();
+        // Profile query failed (network blip, etc.) — show a toast but keep the user logged in
+        // Do NOT call signOut() here — a transient error shouldn't end the session
+        console.error('Auth profile error:', e);
+        if (document.getElementById('app').style.display === 'block') {
+          showToast('Could not refresh your profile — please reload if something looks wrong.', '');
+        } else {
+          // Still on login screen — surface the error so they can try again
+          const err = document.getElementById('login-error');
+          err.textContent = 'Sign-in failed: ' + (e.message || 'unexpected error. Please try again.');
+          err.style.display = 'block';
+          const btn = document.getElementById('login-btn');
+          btn.disabled = false; btn.textContent = 'Sign in';
+        }
       }
+    } else {
+      // Session ended (explicit sign-out or expired) — show login screen
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('login-screen').style.display = 'flex';
     }
   });
 
