@@ -3361,44 +3361,59 @@
 
   db.auth.onAuthStateChange(async (event, session) => {
     if (session) {
-      // Fetch the user's profile to check their role
-      const { data: profile } = await db
-        .from('profiles')
-        .select('role, first_name, last_name')
-        .eq('id', session.user.id)
-        .single();
+      try {
+        // Fetch the user's profile to check their role
+        const { data: profile, error: profileError } = await db
+          .from('profiles')
+          .select('role, first_name, last_name')
+          .eq('id', session.user.id)
+          .single();
 
-      const role = profile?.role || 'staff';
+        if (profileError) throw profileError;
 
-      // Block customers and drivers — this is the admin dashboard only
-      if (role === 'customer' || role === 'driver') {
-        await db.auth.signOut();
+        const role = profile?.role || 'staff';
+
+        // Block customers and drivers — this is the admin dashboard only
+        if (role === 'customer' || role === 'driver') {
+          await db.auth.signOut();
+          const err = document.getElementById('login-error');
+          err.textContent = 'Access denied. This dashboard is for staff only.';
+          err.style.display = 'block';
+          const btn = document.getElementById('login-btn');
+          btn.disabled = false; btn.textContent = 'Sign in';
+          return;
+        }
+
+        currentUserRole = role;
+
+        // Show the app
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('app').style.display = 'block';
+
+        // Sidebar: name and role badge
+        const displayName = profile?.first_name
+          ? `${profile.first_name} ${profile.last_name || ''}`.trim()
+          : session.user.email.split('@')[0];
+        const initials = displayName.split(' ').map(w => w[0]?.toUpperCase() || '').join('').slice(0, 2) || '?';
+        document.getElementById('user-name').textContent = displayName;
+        document.getElementById('user-avatar').textContent = initials;
+        document.getElementById('user-role-label').textContent = role === 'admin' ? 'Admin' : 'Staff';
+
+        // Show/hide nav items based on role
+        applyRoleToNav(role);
+
+        loadAll();
+        startNewOrderListener();
+      } catch (e) {
+        // Something went wrong after sign-in — surface the error and reset the button
+        console.error('Auth error:', e);
         const err = document.getElementById('login-error');
-        err.textContent = 'Access denied. This dashboard is for staff only.';
+        err.textContent = 'Sign-in failed: ' + (e.message || 'unexpected error. Please try again.');
         err.style.display = 'block';
-        return;
+        const btn = document.getElementById('login-btn');
+        btn.disabled = false; btn.textContent = 'Sign in';
+        await db.auth.signOut();
       }
-
-      currentUserRole = role;
-
-      // Show the app
-      document.getElementById('login-screen').style.display = 'none';
-      document.getElementById('app').style.display = 'block';
-
-      // Sidebar: name and role badge
-      const displayName = profile?.first_name
-        ? `${profile.first_name} ${profile.last_name || ''}`.trim()
-        : session.user.email.split('@')[0];
-      const initials = displayName.split(' ').map(w => w[0]?.toUpperCase() || '').join('').slice(0, 2) || '?';
-      document.getElementById('user-name').textContent = displayName;
-      document.getElementById('user-avatar').textContent = initials;
-      document.getElementById('user-role-label').textContent = role === 'admin' ? 'Admin' : 'Staff';
-
-      // Show/hide nav items based on role
-      applyRoleToNav(role);
-
-      loadAll();
-      startNewOrderListener();
     }
   });
 
