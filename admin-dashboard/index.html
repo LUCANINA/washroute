@@ -882,6 +882,19 @@
     .team-role-badge.admin { background:#ede9fe;color:#6d28d9; }
     .team-role-badge.staff { background:#f0f9ff;color:#0369a1; }
     .team-actions { display:flex;gap:8px; }
+    /* Billing feature */
+    .bill-badge { display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap; }
+    .bill-badge-invoiced { background:#fef9c3;color:#854d0e; }
+    .bill-badge-paid { background:#dcfce7;color:#166534; }
+    .billing-bar { display:none;align-items:center;justify-content:space-between;gap:12px;background:var(--gray-50);border-top:1.5px solid var(--gray-100);padding:10px 14px;position:sticky;bottom:0; }
+    .billing-bar.visible { display:flex; }
+    .cp-order-row.billing-selected { background:#f5f3ff; }
+    .cp-order-row.billing-row { cursor:pointer; }
+    .cp-order-row.billing-row:hover { background:var(--gray-50); }
+    input[type=checkbox].bill-cb { width:15px;height:15px;cursor:pointer;accent-color:var(--accent);flex-shrink:0;margin:0; }
+    .bill-method-opt { display:flex;align-items:center;gap:8px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:border-color .12s,background .12s; }
+    .bill-method-opt:has(input:checked) { border-color:var(--accent);background:#f5f3ff; }
+    .bill-method-opt:hover { border-color:var(--gray-300); }
   </style>
 </head>
 <body>
@@ -2893,13 +2906,32 @@
 
   <!-- ── ORDERS TAB ── -->
   <div class="cp-body" id="cptab-orders" style="display:none">
-    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
-      <button class="filter-tab active" id="cpof-all" onclick="filterCpOrders('all',this)">All</button>
-      <button class="filter-tab" id="cpof-active" onclick="filterCpOrders('active',this)">Active</button>
-      <button class="filter-tab" id="cpof-done" onclick="filterCpOrders('done',this)">Completed</button>
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="filter-tab active" id="cpof-all" onclick="filterCpOrders('all',this)">All</button>
+        <button class="filter-tab" id="cpof-active" onclick="filterCpOrders('active',this)">Active</button>
+        <button class="filter-tab" id="cpof-done" onclick="filterCpOrders('done',this)">Completed</button>
+        <button class="filter-tab" id="cpof-billing" onclick="filterCpOrders('billing',this)" style="border-color:var(--accent);color:var(--accent)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;display:inline;margin-right:3px"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Billing
+        </button>
+      </div>
     </div>
     <div class="cp-card" style="padding:0;overflow:hidden">
       <div id="cp-orders-list" style="padding:4px 0"><div style="color:var(--gray-400);font-size:13px;padding:12px 16px">Loading…</div></div>
+      <!-- Billing action bar — shown when Billing tab active + items selected -->
+      <div class="billing-bar" id="billing-bar">
+        <div style="font-size:13px;font-weight:600;color:var(--gray-700)">
+          <span id="billing-bar-count">0</span> order<span id="billing-bar-plural">s</span> selected &nbsp;·&nbsp; <span id="billing-bar-total" style="color:var(--accent)">$0.00</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" style="font-size:12px;padding:5px 12px" onclick="printInvoice()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;display:inline;margin-right:4px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Print Invoice
+          </button>
+          <button class="btn btn-primary" style="font-size:12px;padding:5px 12px" onclick="openBillModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;display:inline;margin-right:4px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Bill Orders
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -2921,6 +2953,46 @@
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--gray-100)">
       <button class="btn btn-primary cp-save-btn" onclick="savePanelNotes()">Save Notes</button>
       <div class="cp-save-msg" id="cp-notes-msg">✓ Saved</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── BILL ORDERS MODAL ── -->
+<div id="bill-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1100;align-items:center;justify-content:center" onclick="if(event.target===this)closeBillModal()">
+  <div style="background:white;border-radius:16px;padding:28px;width:420px;max-width:92vw;box-shadow:0 24px 64px rgba(0,0,0,.2)">
+    <h3 style="margin:0 0 4px;font-size:17px;font-weight:700">Confirm Billing</h3>
+    <p style="margin:0 0 20px;font-size:13px;color:var(--gray-500)"><span id="bill-modal-count">0</span> order<span id="bill-modal-plural">s</span> · Total: <strong id="bill-modal-amount">$0.00</strong></p>
+
+    <div style="margin-bottom:16px">
+      <div style="font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:6px">Payment Method</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="bill-method-btns">
+        <label class="bill-method-opt" data-val="check">
+          <input type="radio" name="bill-method" value="check" checked style="accent-color:var(--accent)">
+          <span>Check</span>
+        </label>
+        <label class="bill-method-opt" data-val="cash">
+          <input type="radio" name="bill-method" value="cash" style="accent-color:var(--accent)">
+          <span>Cash</span>
+        </label>
+        <label class="bill-method-opt" data-val="external">
+          <input type="radio" name="bill-method" value="external" style="accent-color:var(--accent)">
+          <span>External / ACH</span>
+        </label>
+        <label class="bill-method-opt" data-val="invoice">
+          <input type="radio" name="bill-method" value="invoice" style="accent-color:var(--accent)">
+          <span>Send Invoice</span>
+        </label>
+      </div>
+    </div>
+
+    <div style="margin-bottom:22px">
+      <div style="font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:6px">Notes (optional)</div>
+      <textarea id="bill-modal-notes" rows="2" placeholder="e.g. Check #1042, received 3/10/26" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;outline:none"></textarea>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn" onclick="closeBillModal()">Cancel</button>
+      <button class="btn btn-primary" id="bill-modal-confirm-btn" onclick="confirmBilling()">Confirm &amp; Mark Paid</button>
     </div>
   </div>
 </div>
@@ -8136,6 +8208,7 @@ window.onload=()=>{window.print();};
   // ── ESCAPE KEY: CLOSE ANY OPEN MODAL OR SIDE PANEL ──
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    if (document.getElementById('bill-modal')?.style.display === 'flex') { closeBillModal(); return; }
     const openModal = document.querySelector('.modal-overlay.open');
     if (openModal) { openModal.classList.remove('open'); return; }
     const panel = document.getElementById('customer-panel');
@@ -8145,7 +8218,10 @@ window.onload=()=>{window.print();};
   // ── CUSTOMER SIDE PANEL ──
   let panelCustomerId = null;
   let _panelPhone = null;
+  let _panelCustomerData = null;  // full customer object, used for invoice generation
   let cpAllOrders = [];
+  let cpBillingMode = false;
+  let cpBillingSelection = new Set();
 
   function cpTab(name, btn) {
     document.querySelectorAll('.cp-tab').forEach(t=>t.classList.remove('active'));
@@ -8165,6 +8241,9 @@ window.onload=()=>{window.print();};
     panelCustomerId = customerId;
     _panelPhone = null;
     cpAllOrders = [];
+    cpBillingMode = false;
+    cpBillingSelection.clear();
+    updateBillingBar();
     const tabs = ['contact','billing','orders','transactions','engagement','preferences','notes'];
     const activeIdx = startTab ? Math.max(0, tabs.indexOf(startTab)) : 0;
     document.querySelectorAll('.cp-tab').forEach((t,i)=>{ t.classList.toggle('active', i===activeIdx); });
@@ -8182,6 +8261,7 @@ window.onload=()=>{window.print();};
       .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at)')
       .eq('id', customerId).single();
     if (!c) return;
+    _panelCustomerData = c;  // save for invoice generation
 
     const fn = c.first_name_cache || '';
     const ln = c.last_name_cache  || '';
@@ -8775,19 +8855,28 @@ window.onload=()=>{window.print();};
     const el = document.getElementById('cp-orders-list');
     el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
     const { data } = await db.from('orders')
-      .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, pickup_window_start, pickup_window_end, created_at, services(name), pickup_run:pickup_run_id(id, name)')
+      .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, total_bags, tip_amount, line_items, billing_status, billing_payment_method, billed_at, pickup_window_start, pickup_window_end, created_at, services:service_id(name), pickup_run:pickup_run_id(id, name)')
       .eq('customer_id', customerId).order('created_at', { ascending: false });
     cpAllOrders = data || [];
     if (!cpAllOrders.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>'; return; }
     // Sync last_order date if stale
     const latest = cpAllOrders.reduce((best,o)=>o.created_at&&(!best||o.created_at>best)?o.created_at:best, null);
     if (latest) { const el2=document.getElementById('cp-last-order'); if(el2&&el2.textContent==='—') { el2.textContent=fmtDate(latest); db.from('customers').update({last_order_at:latest}).eq('id',customerId).then(()=>{}); } }
+    // Reset filter tab UI and billing state to default 'all'
+    document.querySelectorAll('#cptab-orders .filter-tab').forEach(t => t.classList.remove('active'));
+    const allTab = document.getElementById('cpof-all'); if (allTab) allTab.classList.add('active');
+    cpBillingMode = false;
+    cpBillingSelection.clear();
+    updateBillingBar();
     renderCpOrders(cpAllOrders, 'all');
   }
 
   function filterCpOrders(filter, btn) {
     document.querySelectorAll('#cptab-orders .filter-tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
+    cpBillingMode = (filter === 'billing');
+    cpBillingSelection.clear();
+    updateBillingBar();
     renderCpOrders(cpAllOrders, filter);
   }
 
@@ -8800,18 +8889,53 @@ window.onload=()=>{window.print();};
     return (rn ? rn + ' · ' : '') + dt + (sl ? ' · ' + sl : '') + wt;
   }
 
+  function billingBadge(bs) {
+    if (!bs) return '';
+    if (bs === 'invoiced') return `<span class="bill-badge bill-badge-invoiced">Invoiced</span>`;
+    if (bs === 'paid')     return `<span class="bill-badge bill-badge-paid">Paid</span>`;
+    return '';
+  }
+
   function renderCpOrders(data, filter) {
     const activeStatuses = ['pending_pickup','picked_up','in_transit','washing','drying','folding','assembled','ready_for_delivery'];
     const doneStatuses   = ['delivered','cancelled'];
     let filtered = data;
-    if (filter==='active') filtered = data.filter(o=>activeStatuses.includes(o.status));
-    if (filter==='done')   filtered = data.filter(o=>doneStatuses.includes(o.status));
+    if (filter==='active')  filtered = data.filter(o=>activeStatuses.includes(o.status));
+    if (filter==='done')    filtered = data.filter(o=>doneStatuses.includes(o.status));
+    if (filter==='billing') filtered = data.filter(o=>o.status==='delivered' || o.billing_status);
     const el = document.getElementById('cp-orders-list');
-    if (!filtered.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">No orders in this filter.</div>'; return; }
+    if (!filtered.length) {
+      const msg = filter==='billing'
+        ? 'No delivered orders to bill yet.'
+        : 'No orders in this filter.';
+      el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">${msg}</div>`;
+      return;
+    }
+
+    if (filter === 'billing') {
+      // Billing mode: checkboxes, billing badge, click to select
+      el.innerHTML = filtered.map(o=>{
+        const checked = cpBillingSelection.has(o.id);
+        const amt = parseFloat(o.total_amount||0);
+        const dateStr = fmtDate(o.pickup_window_start || o.created_at);
+        return `<div class="cp-order-row billing-row${checked?' billing-selected':''}" id="brow-${o.id}" onclick="toggleBillingOrder('${o.id}')">
+          <input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} onclick="event.stopPropagation();toggleBillingOrder('${o.id}')">
+          <span class="cp-order-num">#${o.order_number}</span>
+          <div class="cp-order-svc">
+            <div style="font-weight:500">${o.services?.name||'—'}</div>
+            <div style="font-size:11.5px;color:var(--gray-400)">${dateStr}${o.weight_lbs?' · '+o.weight_lbs+' lbs':''}</div>
+          </div>
+          ${billingBadge(o.billing_status)}
+          <span class="cp-order-amt" style="margin-left:auto">${fmtMoney(amt)}</span>
+        </div>`;
+      }).join('');
+      return;
+    }
+
+    // Normal mode (All / Active / Completed)
     el.innerHTML = filtered.map(o=>{
       const chargeable  = Number(o.total_amount)>0 && !o.stripe_payment_intent_id && o.status==='assembled';
       const receiptable = !!o.stripe_payment_intent_id || o.status==='delivered';
-      // Receipt button replaces "✓ Paid" — a receipt implies payment, keeps the row tidy
       const actionBtn = receiptable
         ? `<button class="btn" style="padding:3px 8px;font-size:11.5px;border:1px solid var(--gray-200)" onclick="sendReceipt('${o.id}','${o.order_number}',this)" title="Email receipt to customer">📧 Receipt</button>`
         : chargeable
@@ -8832,6 +8956,217 @@ window.onload=()=>{window.print();};
         ${actionBtn}
       </div>`;
     }).join('');
+  }
+
+  // ── BILLING FUNCTIONS ──
+
+  function toggleBillingOrder(orderId) {
+    if (cpBillingSelection.has(orderId)) cpBillingSelection.delete(orderId);
+    else cpBillingSelection.add(orderId);
+    const cb  = document.getElementById('bcb-'+orderId);
+    const row = document.getElementById('brow-'+orderId);
+    if (cb)  cb.checked = cpBillingSelection.has(orderId);
+    if (row) row.classList.toggle('billing-selected', cpBillingSelection.has(orderId));
+    updateBillingBar();
+  }
+
+  function updateBillingBar() {
+    const bar = document.getElementById('billing-bar');
+    if (!bar) return;
+    if (!cpBillingMode || cpBillingSelection.size === 0) {
+      bar.classList.remove('visible'); return;
+    }
+    bar.classList.add('visible');
+    const total = cpAllOrders
+      .filter(o => cpBillingSelection.has(o.id))
+      .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
+    document.getElementById('billing-bar-count').textContent = cpBillingSelection.size;
+    document.getElementById('billing-bar-plural').textContent = cpBillingSelection.size === 1 ? '' : 's';
+    document.getElementById('billing-bar-total').textContent = fmtMoney(total);
+  }
+
+  function openBillModal() {
+    if (!cpBillingSelection.size) return;
+    const total = cpAllOrders
+      .filter(o => cpBillingSelection.has(o.id))
+      .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
+    const count = cpBillingSelection.size;
+    document.getElementById('bill-modal-count').textContent = count;
+    document.getElementById('bill-modal-plural').textContent = count === 1 ? '' : 's';
+    document.getElementById('bill-modal-amount').textContent = fmtMoney(total);
+    document.getElementById('bill-modal-notes').value = '';
+    // Reset radio to check
+    const radios = document.querySelectorAll('#bill-method-btns input[type=radio]');
+    radios.forEach(r => r.checked = r.value === 'check');
+    const btn = document.getElementById('bill-modal-confirm-btn');
+    btn.disabled = false; btn.textContent = 'Confirm & Mark Paid';
+    document.getElementById('bill-modal').style.display = 'flex';
+  }
+
+  function closeBillModal() {
+    document.getElementById('bill-modal').style.display = 'none';
+  }
+
+  async function confirmBilling() {
+    const method = document.querySelector('#bill-method-btns input[type=radio]:checked')?.value || 'check';
+    const notes  = document.getElementById('bill-modal-notes').value.trim();
+    const btn    = document.getElementById('bill-modal-confirm-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    const ids = [...cpBillingSelection];
+    const { error } = await db.from('orders').update({
+      billing_status: 'paid',
+      billing_payment_method: method,
+      billing_notes: notes || null,
+      billed_at: new Date().toISOString()
+    }).in('id', ids);
+    if (error) {
+      showToast('Failed to save billing', 'error');
+      btn.disabled = false; btn.textContent = 'Confirm & Mark Paid';
+      return;
+    }
+    closeBillModal();
+    cpBillingSelection.clear();
+    showToast(`${ids.length} order${ids.length > 1 ? 's' : ''} marked as paid ✓`, 'success');
+    await loadPanelOrders(panelCustomerId);
+    filterCpOrders('billing', document.getElementById('cpof-billing'));
+  }
+
+  function printInvoice() {
+    if (!cpBillingSelection.size) return;
+    const orders = cpAllOrders
+      .filter(o => cpBillingSelection.has(o.id))
+      .sort((a, b) => (a.pickup_window_start || a.created_at) < (b.pickup_window_start || b.created_at) ? -1 : 1);
+    const c = _panelCustomerData;
+    const customerName = [c?.first_name_cache, c?.last_name_cache].filter(Boolean).join(' ') || 'Customer';
+    const defaultAddr  = c?.addresses?.find(a => a.is_default) || c?.addresses?.[0];
+    const addrLines    = defaultAddr
+      ? [defaultAddr.line1, defaultAddr.line2, `${defaultAddr.city}, ${defaultAddr.state} ${defaultAddr.zip}`].filter(Boolean)
+      : [];
+    const today    = new Date().toLocaleDateString('en-US', { weekday:'short', month:'numeric', day:'numeric', year:'2-digit' });
+    const totalDue = orders.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+
+    function fmtInvMoney(n) { return '$' + parseFloat(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+    function fmtInvDate(d)  { return d ? new Date(d).toLocaleDateString('en-US',{weekday:'short',month:'numeric',day:'numeric',year:'2-digit'}) : '—'; }
+
+    const orderBlocks = orders.map(o => {
+      const items = Array.isArray(o.line_items) ? o.line_items : [];
+      const lineRows = items.length
+        ? items.map(li => `
+            <tr>
+              <td style="padding:2px 0 2px 24px;font-size:12px;color:#333">${li.label||li.description||'Service'}</td>
+              <td style="text-align:right;padding:2px 0;font-size:12px">${fmtInvMoney(li.amount)}</td>
+            </tr>`).join('')
+        : `<tr>
+            <td style="padding:2px 0 2px 24px;font-size:12px;color:#333">
+              ${o.services?.name||'Laundry Service'}${o.weight_lbs?' — '+o.weight_lbs+' lbs':o.total_bags?' — '+o.total_bags+' bag'+(o.total_bags>1?'s':''):''}
+            </td>
+            <td style="text-align:right;padding:2px 0;font-size:12px">${fmtInvMoney(o.total_amount)}</td>
+          </tr>`;
+      return `
+        <div style="margin-bottom:22px;page-break-inside:avoid">
+          <div style="font-weight:700;font-size:13px;border-bottom:1px solid #ddd;padding-bottom:5px;margin-bottom:6px">
+            Order #${o.order_number} &nbsp;&nbsp; INVOICE &nbsp;&nbsp; ${customerName} &nbsp;&nbsp; ${fmtInvDate(o.pickup_window_start||o.created_at)}
+          </div>
+          <table style="width:100%;border-collapse:collapse">
+            ${lineRows}
+            <tr>
+              <td colspan="2" style="padding:5px 0 0"><hr style="border:none;border-top:1px solid #eee;margin:0"></td>
+            </tr>
+            <tr>
+              <td style="padding:4px 0 0 24px;font-size:12px;font-weight:600">Grand Total</td>
+              <td style="text-align:right;font-size:12px;font-weight:600;padding:4px 0 0">${fmtInvMoney(o.total_amount)}</td>
+            </tr>
+          </table>
+        </div>`;
+    }).join('');
+
+    const logoUrl = `${SUPA_URL}/storage/v1/object/public/assets/logo.png`;
+    const html = `<!DOCTYPE html>
+<html><head>
+  <meta charset="utf-8">
+  <title>Invoice — Family Laundry</title>
+  <style>
+    @page { margin: 0.75in; size: letter; }
+    * { box-sizing: border-box; }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 13px; color: #111; margin: 0; line-height: 1.5; }
+    table { border-collapse: collapse; width: 100%; }
+    @media print { .no-print { display:none; } }
+  </style>
+</head>
+<body>
+
+  <!-- Print button (screen only) -->
+  <div class="no-print" style="background:#f5f3ff;padding:10px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;border-radius:8px">
+    <span style="font-size:13px;color:#635bff;font-weight:600">Invoice preview</span>
+    <button onclick="window.print()" style="background:#635bff;color:white;border:none;padding:7px 16px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600">🖨️ Print / Save as PDF</button>
+  </div>
+
+  <!-- Letterhead -->
+  <table style="margin-bottom:24px">
+    <tr>
+      <td style="vertical-align:top">
+        <div style="font-size:17px;font-weight:700;margin-bottom:3px">Family Laundry</div>
+        <div style="font-size:12px;color:#444;line-height:1.7">
+          5215 Genoa St<br>
+          Oakland, CA 94608<br>
+          (510) 842-3560
+        </div>
+      </td>
+      <td style="text-align:right;vertical-align:top">
+        <img src="${logoUrl}" style="max-height:68px;max-width:130px" onerror="this.style.display='none'">
+      </td>
+    </tr>
+  </table>
+
+  <hr style="border:none;border-top:1px solid #ddd;margin:0 0 20px">
+
+  <!-- TO / Statement info -->
+  <table style="margin-bottom:20px">
+    <tr>
+      <td style="vertical-align:top;width:55%">
+        <div style="font-size:12px;line-height:1.8">
+          <strong>TO: ${customerName}</strong><br>
+          ${addrLines.join('<br>')}${addrLines.length?'<br>':''}
+          ${c?.email_cache ? c.email_cache + '<br>' : ''}
+          ${c?.phone_cache || ''}
+        </div>
+      </td>
+      <td style="vertical-align:top;text-align:right">
+        <div style="font-size:12px;line-height:2.0">
+          Statement Date: <strong>${today}</strong><br>
+          Amount Due: <strong>${fmtInvMoney(totalDue)}</strong><br>
+          Amount Enclosed: $__________
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <div style="font-size:11px;color:#777;margin-bottom:24px;font-style:italic">Please remit top of invoice with payment.</div>
+
+  <!-- Order blocks -->
+  ${orderBlocks}
+
+  <!-- Grand summary -->
+  <table style="margin-top:16px;border-top:2px solid #111;padding-top:0">
+    <tr>
+      <td></td>
+      <td style="text-align:right;padding-top:12px;min-width:200px">
+        <div style="display:flex;justify-content:space-between;gap:32px;font-size:14px;font-weight:700">
+          <span>Total Due</span><span>${fmtInvMoney(totalDue)}</span>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <div style="text-align:center;margin-top:40px;font-size:13px;color:#777;border-top:1px solid #eee;padding-top:20px">
+    Thank you for your business!
+  </div>
+</body></html>`;
+
+    const win = window.open('', '_blank', 'width=800,height=1000');
+    if (!win) { showToast('Pop-up blocked — please allow pop-ups for this page', 'error'); return; }
+    win.document.write(html);
+    win.document.close();
   }
 
   async function loadPanelPreferences(customerId) {
@@ -8908,6 +9243,9 @@ window.onload=()=>{window.print();};
     document.getElementById('panel-backdrop').classList.remove('open');
     panelCustomerId = null;
     cpAllOrders = [];
+    cpBillingMode = false;
+    cpBillingSelection.clear();
+    updateBillingBar();
   }
 
   // ── SLOT PICKER ──
