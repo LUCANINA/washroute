@@ -2978,20 +2978,20 @@
       <div style="font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:6px">Payment Method</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="bill-method-btns">
         <label class="bill-method-opt" data-val="check">
-          <input type="radio" name="bill-method" value="check" checked style="accent-color:var(--accent)">
+          <input type="radio" name="bill-method" value="check" checked style="accent-color:var(--accent)" onchange="onBillMethodChange()">
           <span>Check</span>
         </label>
         <label class="bill-method-opt" data-val="cash">
-          <input type="radio" name="bill-method" value="cash" style="accent-color:var(--accent)">
+          <input type="radio" name="bill-method" value="cash" style="accent-color:var(--accent)" onchange="onBillMethodChange()">
           <span>Cash</span>
         </label>
         <label class="bill-method-opt" data-val="external">
-          <input type="radio" name="bill-method" value="external" style="accent-color:var(--accent)">
+          <input type="radio" name="bill-method" value="external" style="accent-color:var(--accent)" onchange="onBillMethodChange()">
           <span>External / ACH</span>
         </label>
-        <label class="bill-method-opt" data-val="invoice">
-          <input type="radio" name="bill-method" value="invoice" style="accent-color:var(--accent)">
-          <span>Send Invoice</span>
+        <label class="bill-method-opt" data-val="credit_card">
+          <input type="radio" name="bill-method" value="credit_card" style="accent-color:var(--accent)" onchange="onBillMethodChange()">
+          <span>Credit Card</span>
         </label>
       </div>
     </div>
@@ -4947,10 +4947,11 @@
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
     if (!confirm(`Charge ${fmtMoney(o.total_amount)} for Order #${o.order_number}?`)) return;
+    const { data: { session } } = await db.auth.getSession();
     const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${SUPA_ANON_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: o.id })
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || SUPA_ANON_KEY}` },
+      body: JSON.stringify({ orderId: o.id })
     });
     const data = await res.json();
     if (!res.ok) { showToast(data.error || 'Charge failed', 'error'); return; }
@@ -9079,6 +9080,28 @@ window.onload=()=>{window.print();};
     document.getElementById('billing-bar-total').textContent = fmtMoney(total);
   }
 
+  function onBillMethodChange() {
+    const method = document.querySelector('#bill-method-btns input:checked')?.value;
+    const btn    = document.getElementById('bill-modal-confirm-btn');
+    if (!btn) return;
+    btn.textContent = method === 'credit_card' ? 'Confirm & Charge Card' : 'Confirm & Mark Paid';
+    // Show/hide a helper tip when credit card is selected
+    let tip = document.getElementById('bill-cc-tip');
+    if (method === 'credit_card') {
+      if (!tip) {
+        tip = document.createElement('div');
+        tip.id = 'bill-cc-tip';
+        tip.style.cssText = 'font-size:12px;color:var(--gray-500);background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:8px 10px;margin-top:-8px;margin-bottom:16px;line-height:1.4';
+        tip.innerHTML = '💳 The customer\'s card on file will be charged immediately.';
+        const notesDiv = document.getElementById('bill-modal-notes').closest('div');
+        notesDiv.parentElement.insertBefore(tip, notesDiv);
+      }
+      tip.style.display = '';
+    } else if (tip) {
+      tip.style.display = 'none';
+    }
+  }
+
   function openBillModal() {
     if (!cpBillingSelection.size) return;
     const total = cpAllOrders
@@ -9094,6 +9117,9 @@ window.onload=()=>{window.print();};
     radios.forEach(r => r.checked = r.value === 'check');
     const btn = document.getElementById('bill-modal-confirm-btn');
     btn.disabled = false; btn.textContent = 'Confirm & Mark Paid';
+    // Hide the credit card tip if visible
+    const tip = document.getElementById('bill-cc-tip');
+    if (tip) tip.style.display = 'none';
     document.getElementById('bill-modal').style.display = 'flex';
   }
 
@@ -9105,8 +9131,76 @@ window.onload=()=>{window.print();};
     const method = document.querySelector('#bill-method-btns input[type=radio]:checked')?.value || 'check';
     const notes  = document.getElementById('bill-modal-notes').value.trim();
     const btn    = document.getElementById('bill-modal-confirm-btn');
+    const ids    = [...cpBillingSelection];
+
+    // ── CREDIT CARD: confirm intent then charge via Stripe ──
+    if (method === 'credit_card') {
+      const c = _panelCustomerData;
+      const customerName = [c?.first_name_cache, c?.last_name_cache].filter(Boolean).join(' ') || 'Customer';
+      const amountText   = document.getElementById('bill-modal-amount').textContent;
+      const ok = confirm(`Charge ${customerName} ${amountText} to their card on file?\n\nThis will process ${ids.length} order${ids.length > 1 ? 's' : ''} immediately.`);
+      if (!ok) return;
+
+      btn.disabled = true; btn.textContent = 'Charging…';
+      const { data: { session } } = await db.auth.getSession();
+      if (!session) {
+        showToast('Not authenticated — please log in again.', 'error');
+        btn.disabled = false; btn.textContent = 'Confirm & Charge Card';
+        return;
+      }
+
+      const failedOrders = [];
+      for (const orderId of ids) {
+        try {
+          const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+            body: JSON.stringify({ orderId }),
+          });
+          const result = await res.json();
+          if (!res.ok || result.error) failedOrders.push({ orderId, error: result.error || 'Unknown error' });
+        } catch (e) {
+          failedOrders.push({ orderId, error: e.message });
+        }
+      }
+
+      const successIds = ids.filter(id => !failedOrders.find(f => f.orderId === id));
+
+      // Mark successfully charged orders as paid in DB
+      if (successIds.length > 0) {
+        await db.from('orders').update({
+          billing_status: 'paid',
+          billing_payment_method: 'credit_card',
+          billing_notes: notes || null,
+          billed_at: new Date().toISOString()
+        }).in('id', successIds);
+      }
+
+      if (failedOrders.length > 0) {
+        btn.disabled = false; btn.textContent = 'Confirm & Charge Card';
+        const errMsg = failedOrders.length === ids.length
+          ? `Charge failed: ${failedOrders[0].error}`
+          : `${successIds.length} of ${ids.length} orders charged. ${failedOrders.length} failed: ${failedOrders[0].error}`;
+        showToast(errMsg, 'error');
+        if (successIds.length > 0) {
+          cpBillingSelection.clear();
+          await loadPanelOrders(panelCustomerId);
+          filterCpOrders('billing', document.getElementById('cpof-billing'));
+          closeBillModal();
+        }
+        return;
+      }
+
+      closeBillModal();
+      cpBillingSelection.clear();
+      showToast(`${ids.length} order${ids.length > 1 ? 's' : ''} charged & marked paid ✓`, 'success');
+      await loadPanelOrders(panelCustomerId);
+      filterCpOrders('billing', document.getElementById('cpof-billing'));
+      return;
+    }
+
+    // ── ALL OTHER METHODS: just record payment ──
     btn.disabled = true; btn.textContent = 'Saving…';
-    const ids = [...cpBillingSelection];
     const { error } = await db.from('orders').update({
       billing_status: 'paid',
       billing_payment_method: method,
