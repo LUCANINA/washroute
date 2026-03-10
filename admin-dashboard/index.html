@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Family Laundry — Admin</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
@@ -3371,11 +3371,8 @@
   }
 
   db.auth.onAuthStateChange(async (event, session) => {
-    // TOKEN_REFRESHED fires every ~55 min — session is still valid, nothing to do
-    if (event === 'TOKEN_REFRESHED') return;
-
     if (session) {
-      // Already showing the app (e.g. a second SIGNED_IN fired) — don't re-init
+      // App already visible — token refresh or duplicate event, nothing to re-init
       if (document.getElementById('app').style.display === 'block') return;
 
       try {
