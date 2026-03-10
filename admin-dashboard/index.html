@@ -3364,10 +3364,17 @@
     if (e.key === 'Enter') handleLogin();
   });
 
-  async function handleSignOut() {
-    await db.auth.signOut();
+  function showLoginScreen() {
     document.getElementById('app').style.display = 'none';
     document.getElementById('login-screen').style.display = 'flex';
+    const btn = document.getElementById('login-btn');
+    btn.disabled = false; btn.textContent = 'Sign in';
+    document.getElementById('login-error').style.display = 'none';
+  }
+
+  async function handleSignOut() {
+    await db.auth.signOut();
+    showLoginScreen();
   }
 
   db.auth.onAuthStateChange(async (event, session) => {
@@ -3435,8 +3442,7 @@
       }
     } else {
       // Session ended (explicit sign-out or expired) — show login screen
-      document.getElementById('app').style.display = 'none';
-      document.getElementById('login-screen').style.display = 'flex';
+      showLoginScreen();
     }
   });
 
