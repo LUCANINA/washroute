@@ -3226,14 +3226,15 @@
   const SUPA_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
   const STRIPE_PK     = 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B';
   const { createClient } = supabase;
-  // persistSession: false — don't save the session to localStorage.
-  // This prevents Supabase firing INITIAL_SESSION + TOKEN_REFRESHED on every
-  // page load, which was racing against manual sign-in and causing 30s timeouts.
-  // Staff always log in explicitly so "stay logged in" is not needed.
-  const db = createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { storageKey: 'wr-admin-auth', autoRefreshToken: true, persistSession: false } });
-
-  // Wipe any session persisted before this fix was deployed.
-  try { localStorage.removeItem('wr-admin-auth'); } catch(_) {}
+  // On a FRESH visit (new tab or window), clear any stored session before
+  // initialising Supabase. This prevents INITIAL_SESSION + TOKEN_REFRESHED from
+  // racing against the user's manual sign-in and causing 30s timeouts.
+  // sessionStorage survives page refreshes within the same tab, so an active
+  // session is preserved across refreshes — it's only wiped on a truly fresh load.
+  if (!sessionStorage.getItem('wr-admin-tab')) {
+    try { localStorage.removeItem('wr-admin-auth'); } catch(_) {}
+  }
+  const db = createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { storageKey: 'wr-admin-auth', autoRefreshToken: true, persistSession: true } });
   let currentUserRole = null; // 'admin' | 'staff' — set after login
 
   // ── STATE ──
@@ -3441,6 +3442,7 @@
 
   function showLoginScreen(msg) {
     _loginInProgress = false;
+    try { sessionStorage.removeItem('wr-admin-tab'); } catch(_) {}
     document.getElementById('app').style.display = 'none';
     document.getElementById('login-screen').style.display = 'flex';
     const btn = document.getElementById('login-btn');
@@ -3514,6 +3516,9 @@
 
         currentUserRole = role;
         _loginInProgress = false;
+
+        // Mark this tab as having an active session so page refreshes keep it.
+        try { sessionStorage.setItem('wr-admin-tab', '1'); } catch(_) {}
 
         // Show the app
         document.getElementById('login-screen').style.display = 'none';
