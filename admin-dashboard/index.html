@@ -3681,7 +3681,11 @@
         if (idx >= 0) {
           // Patch cached record in-place (preserve joined customer/service fields)
           Object.assign(allOrders[idx], updated);
-          if (currentPage === 'orders')   renderOrders(allOrders);
+          if (currentPage === 'orders') {
+            // Refresh tab badge counts first, then re-render the currently active tab filter
+            updateOrderFilterCounts();
+            renderOrders(getFilteredOrders());
+          }
           if (currentPage === 'overview') loadOverview();
           // If this order's detail panel is open, refresh its status badge + advance btn
           if (opCurrentOrderId === updated.id) {
@@ -4523,7 +4527,7 @@
       orderSortCol = col;
       orderSortDir = 'asc';
     }
-    renderOrders(allOrders);
+    renderOrders(getFilteredOrders());
   }
 
   function renderOrders(data) {
@@ -4844,7 +4848,8 @@
     if (error) { showToast('Failed to update status', 'error'); return; }
     o.status = next;
     openOrderPanel(opCurrentOrderId);
-    renderOrders(allOrders);
+    updateOrderFilterCounts();
+    renderOrders(getFilteredOrders());
     showToast('Status updated', 'success');
   }
 
@@ -5038,7 +5043,8 @@
     const editBtn = document.getElementById(`op-${leg}-edit-btn`);
     editBtn.textContent = 'Edit'; editBtn.classList.remove('cancel-btn');
     opRefreshScheduleUI(o);
-    renderOrders(allOrders);
+    updateOrderFilterCounts();
+    renderOrders(getFilteredOrders());
     showToast(`✓ ${leg === 'pickup' ? 'Pickup' : 'Delivery'} scheduled`, 'success');
   }
 
