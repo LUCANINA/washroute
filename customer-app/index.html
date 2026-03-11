@@ -2055,11 +2055,9 @@ async function loadHome() {
 
 function renderNoActive() {
   document.getElementById('home-active').innerHTML = `
-    <div class="nudge-card" style="cursor:pointer" onclick="goTo('new-order')">
+    <div class="nudge-card">
       <div style="font-size:36px;margin-bottom:10px">🧺</div>
-      <p style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px">No active orders.</p>
-      <p style="margin-bottom:16px;font-size:13.5px">Schedule your first bag — we'll handle the rest.</p>
-      <span class="nudge-btn">Schedule a Pickup →</span>
+      <p style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:0">No active orders.</p>
     </div>`;
 }
 
