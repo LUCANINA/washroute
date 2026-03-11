@@ -4712,7 +4712,7 @@
     if (_opRoutes.length && _opTemplates.length) return;
     const [rRes, tRes] = await Promise.all([
       db.from('routes').select('id, name, run_date, status').neq('status','cancelled').gte('run_date', today()).order('run_date').limit(40),
-      db.from('route_templates').select('id, name, color, window_start, window_end, arrival_window_hours, zone_id').eq('is_active', true)
+      db.from('route_templates').select('id, name, color, window_start, window_end, arrival_window_hours, zone_id, service_zones(name, cities)').eq('is_active', true)
     ]);
     _opRoutes    = rRes.data  || [];
     _opTemplates = tRes.data  || [];
@@ -4792,6 +4792,8 @@
     const addrId = leg === 'pickup' ? o?.pickup_address_id : o?.delivery_address_id;
     const addr   = addrs.find(a => a.id === addrId) || addrs.find(a => a.is_default) || addrs[0];
     let matchingZoneIds = new Set();
+
+    // Primary: geo lookup when lat/lng available
     if (addr?.lat && addr?.lng) {
       const { data: zones } = await db.rpc('get_zones_for_point', {
         lat: addr.lat, lng: addr.lng, p_city: addr.city || null
@@ -4799,7 +4801,19 @@
       (zones || []).forEach(z => matchingZoneIds.add(z.id));
     }
 
-    // ── Split routes into address-match vs other ──
+    // Fallback: match by city name against zone name / cities array
+    if (!matchingZoneIds.size && addr?.city) {
+      const city = addr.city.trim().toLowerCase();
+      _opTemplates.forEach(tmpl => {
+        const zone = tmpl.service_zones;
+        if (!zone || !tmpl.zone_id) return;
+        const nameMatch   = (zone.name || '').toLowerCase() === city;
+        const citiesMatch = Array.isArray(zone.cities) && zone.cities.some(c => c.toLowerCase() === city);
+        if (nameMatch || citiesMatch) matchingZoneIds.add(tmpl.zone_id);
+      });
+    }
+
+    // ── Build route rows, filtering to matched zones only (fallback: show all) ──
     const matchRows = [], otherRows = [];
     for (const r of _opRoutes) {
       const tmpl  = _opTemplates.find(t => t.name === r.name) || {};
@@ -4817,21 +4831,8 @@
       else otherRows.push(row);
     }
 
-    // ── Render with section headers when both groups exist ──
-    const sectionHdr = (label) =>
-      `<div style="font-size:10.5px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.06em;padding:3px 2px 5px">${label}</div>`;
-    const divider =
-      `<div style="border-top:1px solid var(--gray-100);margin:6px 0 4px"></div>`;
-
-    let html = '';
-    if (matchRows.length && otherRows.length) {
-      html = sectionHdr('Address Match') + matchRows.join('') + divider + sectionHdr('Other Zones') + otherRows.join('');
-    } else if (matchRows.length) {
-      html = matchRows.join(''); // all routes match — no headers needed
-    } else {
-      html = otherRows.join(''); // no zone info — plain list
-    }
-    listEl.innerHTML = html;
+    // Show only matched routes; fall back to all when no zone data is available
+    listEl.innerHTML = matchRows.length ? matchRows.join('') : otherRows.join('');
   }
 
   function opSelectRoute(leg, routeId, runDate, rowEl) {
