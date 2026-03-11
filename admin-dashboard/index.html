@@ -3384,23 +3384,28 @@
   // Any in-flight handler from a previous session checks this before touching the UI,
   // so a stale session can never overwrite a successful fresh login.
   let _authGen = 0;
-  // Optional message to show when showLoginScreen is called after a forced sign-out.
-  let _loginScreenMsg = '';
+  // Prevents handleLogin from being called concurrently (e.g. Enter key + button click).
+  let _loginInProgress = false;
+  // Message to surface after a role-denied signOut resolves via the null-session branch.
+  let _pendingAccessDeniedMsg = '';
 
   async function handleLogin() {
+    if (_loginInProgress) return; // debounce concurrent calls
+    _loginInProgress = true;
     const email = document.getElementById('login-email').value.trim();
     const pw    = document.getElementById('login-password').value;
     const btn   = document.getElementById('login-btn');
     const err   = document.getElementById('login-error');
     err.style.display = 'none';
     btn.disabled = true; btn.textContent = 'Signing in…';
-    // Safety net: if something silently hangs for 30s and we're still on the
-    // login screen, reset the button so the user is never permanently stuck
+    // Safety net: if something silently hangs for 30s and the app still isn't visible,
+    // reset the button so the user is never permanently stuck.
     const safetyTimer = setTimeout(() => {
-      if (document.getElementById('login-screen').style.display !== 'none') {
+      if (document.getElementById('app').style.display !== 'block') {
         btn.disabled = false; btn.textContent = 'Sign in';
         err.textContent = 'Connection timed out — please try again.';
         err.style.display = 'block';
+        _loginInProgress = false;
       }
     }, 30000);
     try {
@@ -3409,13 +3414,16 @@
       if (error) {
         err.textContent = error.message; err.style.display = 'block';
         btn.disabled = false; btn.textContent = 'Sign in';
+        _loginInProgress = false;
       }
-      // On success: onAuthStateChange will show the app — button hides with the login screen
+      // On success: onAuthStateChange will show the app — button hides with the login screen.
+      // _loginInProgress is reset by showLoginScreen() if something goes wrong.
     } catch (e) {
       clearTimeout(safetyTimer);
       err.textContent = 'Connection error — please check your internet and try again.';
       err.style.display = 'block';
       btn.disabled = false; btn.textContent = 'Sign in';
+      _loginInProgress = false;
     }
   }
 
@@ -3423,16 +3431,16 @@
     if (e.key === 'Enter') handleLogin();
   });
 
-  function showLoginScreen() {
+  function showLoginScreen(msg) {
+    _loginInProgress = false;
     document.getElementById('app').style.display = 'none';
     document.getElementById('login-screen').style.display = 'flex';
     const btn = document.getElementById('login-btn');
     btn.disabled = false; btn.textContent = 'Sign in';
     const errEl = document.getElementById('login-error');
-    if (_loginScreenMsg) {
-      errEl.textContent = _loginScreenMsg;
+    if (msg) {
+      errEl.textContent = msg;
       errEl.style.display = 'block';
-      _loginScreenMsg = '';
     } else {
       errEl.style.display = 'none';
     }
@@ -3457,14 +3465,18 @@
       const btn = document.getElementById('login-btn');
       const err = document.getElementById('login-error');
 
-      // Safety net: if the profile fetch hangs for 15 s, sign out the stale session
-      // so the next login attempt starts clean. (Previously we just showed an error
-      // but left the bad session in localStorage, which caused the repeat failure.)
-      const profileTimer = setTimeout(async () => {
+      // Safety net: if the profile fetch hangs for 15 s and the app still hasn't shown,
+      // reset the button so the user can try again. We do NOT call signOut() here —
+      // that would cascade into a signOut→showLoginScreen→signIn loop. The session
+      // itself may still be valid; a transient fetch hang shouldn't invalidate it.
+      const profileTimer = setTimeout(() => {
         if (myGen !== _authGen) return; // superseded by a newer auth event
-        if (document.getElementById('login-screen').style.display !== 'none') {
-          _loginScreenMsg = 'Connection timed out — please try again.';
-          await db.auth.signOut(); // fires onAuthStateChange(null) → showLoginScreen()
+        if (document.getElementById('app').style.display !== 'block') {
+          // App still not visible — profile fetch timed out. Reset the UI.
+          btn.disabled = false; btn.textContent = 'Sign in';
+          err.textContent = 'Connection timed out — please try again.';
+          err.style.display = 'block';
+          _loginInProgress = false;
         }
       }, 15000);
 
@@ -3487,14 +3499,13 @@
 
         // Block customers and drivers — this is the admin dashboard only
         if (role === 'customer' || role === 'driver') {
-          await db.auth.signOut();
-          err.textContent = 'Access denied. This dashboard is for staff only.';
-          err.style.display = 'block';
-          btn.disabled = false; btn.textContent = 'Sign in';
+          _pendingAccessDeniedMsg = 'Access denied. This dashboard is for staff only.';
+          await db.auth.signOut(); // triggers onAuthStateChange(null) which calls showLoginScreen(msg)
           return;
         }
 
         currentUserRole = role;
+        _loginInProgress = false;
 
         // Show the app
         document.getElementById('login-screen').style.display = 'none';
@@ -3518,21 +3529,25 @@
       } catch (e) {
         clearTimeout(profileTimer);
         if (myGen !== _authGen) return; // superseded — don't touch UI
-        // Profile query failed (network blip, etc.) — show a toast but keep the user logged in
-        // Do NOT call signOut() here — a transient error shouldn't end the session
+        // Profile query failed (network blip, etc.) — do NOT call signOut().
+        // A transient error shouldn't end the session.
         console.error('Auth profile error:', e);
         if (document.getElementById('app').style.display === 'block') {
           showToast('Could not refresh your profile — please reload if something looks wrong.', '');
         } else {
           // Still on login screen — surface the error so they can try again
+          _loginInProgress = false;
           err.textContent = 'Sign-in failed: ' + (e.message || 'unexpected error. Please try again.');
           err.style.display = 'block';
           btn.disabled = false; btn.textContent = 'Sign in';
         }
       }
     } else {
-      // Session ended (explicit sign-out or expired) — show login screen
-      showLoginScreen();
+      // Session ended (explicit sign-out, expired, or role denied) — show login screen.
+      // If the sign-out was due to role mismatch, show the access-denied message.
+      const msg = (event === 'SIGNED_OUT' && _pendingAccessDeniedMsg) ? _pendingAccessDeniedMsg : '';
+      _pendingAccessDeniedMsg = '';
+      showLoginScreen(msg);
     }
   });
 
