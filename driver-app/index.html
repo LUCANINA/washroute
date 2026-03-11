@@ -786,7 +786,7 @@
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg></span>
       Home
     </button>
-    <button class="nav-btn" id="nav-route" onclick="goTo('route')">
+    <button class="nav-btn" id="nav-route" onclick="activeRouteFilter=null;goTo('route')">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg></span>
       Route
     </button>
@@ -813,6 +813,7 @@ const db = supabase.createClient(SUPA_URL, SUPA_KEY);
 
 let currentUser = null, currentProfile = null, currentDriver = null;
 let todayRoutes = [], allStops = [], pendingOrders = [];
+let activeRouteFilter = null;  // null = all | routeId = one route | 'extra' = reassigned stops
 let currentStopId = null;
 let currentStopPhase = 1;    // 1 = pre-arrival, 2 = at-stop
 let currentStopSubPhase = 1; // within phase 2: 1 = bags+notes, 2 = photo+complete
@@ -878,6 +879,13 @@ function goTo(id) {
   if (id === 'route')    renderRoute();
   if (id === 'profile')  renderProfile();
   if (id === 'messages') { renderMessages(); markMessagesRead(); }
+}
+
+// Navigate to Route tab filtered to a specific route (or 'extra' for reassigned stops).
+// Tapping the Route nav-bar icon directly clears the filter (shows all).
+function setRouteFilter(filterId) {
+  activeRouteFilter = filterId;
+  goTo('route');
 }
 
 function today() { return new Date().toISOString().split('T')[0]; }
@@ -1022,7 +1030,7 @@ async function doSignOut() {
   await db.auth.signOut();
   appReady = false;
   currentUser = currentProfile = currentDriver = null;
-  todayRoutes = []; allStops = []; pendingOrders = [];
+  todayRoutes = []; allStops = []; pendingOrders = []; activeRouteFilter = null;
   allMessages = []; unreadCount = 0;
   document.getElementById('bottom-nav').style.display = 'none';
   showScreen('auth');
@@ -1089,15 +1097,9 @@ async function loadDriverData() {
     routeStops = rs || [];
   }
 
-  // Merge — mark override stops so we can show "↗ from Route X" badge
+  // Merge — mark override stops so they appear in the "Extra Stops" card, not a phantom route card
   const tagged = (overrideStops || []).map(s => ({ ...s, _reassigned: true }));
   allStops = [...routeStops, ...tagged];
-
-  // Rebuild todayRoutes to include any routes referenced by override stops
-  const extraRoutes = (overrideStops || [])
-    .map(s => s.routes)
-    .filter(r => r && !todayRoutes.find(tr => tr.id === r.id));
-  todayRoutes = [...todayRoutes, ...extraRoutes];
 
   // Persist to localStorage so next app open is instant
   saveDriverCache(currentUser.id, currentProfile, currentDriver, todayRoutes, allStops);
@@ -1125,9 +1127,22 @@ function renderHome() {
     <div class="hero-greeting">${greet()}, ${name}.</div>
     <div class="hero-date">${dateStr}</div>`;
 
+  // Helper to build a tappable route summary card
+  const routeCard = (name, statusLabel, total, done, pct, onclickFn, extraStyle = '') => `
+    <div class="route-summary-card" style="margin-bottom:10px;cursor:pointer;${extraStyle}" onclick="${onclickFn}">
+      <div class="route-name">${name} &nbsp;<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.45)">${statusLabel}</span></div>
+      <div class="route-stats">
+        <div class="rstat"><div class="rstat-num">${total}</div><div class="rstat-label">Stops</div></div>
+        <div class="rstat"><div class="rstat-num">${done}</div><div class="rstat-label">Done</div></div>
+        <div class="rstat"><div class="rstat-num">${total - done}</div><div class="rstat-label">Left</div></div>
+        <div class="rstat"><div class="rstat-num">${pct}%</div><div class="rstat-label">Progress</div></div>
+      </div>
+      <div class="route-progress"><div class="route-progress-fill" style="width:${pct}%"></div></div>
+    </div>`;
+
   if (totalAll > 0) {
-    if (multiRoute) {
-      // One compact card per route, each showing that route's own stats
+    // Primary route cards (one per assigned route)
+    if (todayRoutes.length > 1) {
       todayRoutes.forEach(route => {
         const rStops = allStops.filter(s => s.route_id === route.id);
         const rDone  = rStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
@@ -1135,27 +1150,18 @@ function renderHome() {
         const rPct   = rTotal > 0 ? Math.round((rDone / rTotal) * 100) : 0;
         const statusLabel = route.status === 'in_progress' ? 'In Progress'
                           : route.status === 'complete'    ? 'Complete' : 'Scheduled';
-        h += `<div class="route-summary-card" style="margin-bottom:10px">
-          <div class="route-name">${route.name} &nbsp;<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.45)">${statusLabel}</span></div>
-          <div class="route-stats">
-            <div class="rstat"><div class="rstat-num">${rTotal}</div><div class="rstat-label">Stops</div></div>
-            <div class="rstat"><div class="rstat-num">${rDone}</div><div class="rstat-label">Done</div></div>
-            <div class="rstat"><div class="rstat-num">${rTotal - rDone}</div><div class="rstat-label">Left</div></div>
-            <div class="rstat"><div class="rstat-num">${rPct}%</div><div class="rstat-label">Progress</div></div>
-          </div>
-          <div class="route-progress"><div class="route-progress-fill" style="width:${rPct}%"></div></div>
-        </div>`;
+        h += routeCard(route.name, statusLabel, rTotal, rDone, rPct, `setRouteFilter('${route.id}')`);
       });
-      h += `<button class="btn-big" style="margin:4px 0 0" onclick="goTo('route')">View All Stops</button>`;
-    } else {
+    } else if (todayRoutes.length === 1) {
+      // Single primary route — card is tappable, with an action button inside
       const route = todayRoutes[0];
       const pct   = totalAll > 0 ? Math.round((doneAll / totalAll) * 100) : 0;
-      const statusLabel = route?.status === 'in_progress' ? 'In Progress'
-                        : route?.status === 'complete'    ? 'Complete' : 'Scheduled';
-      const btnLabel = route?.status === 'complete' ? 'View Completed Route'
-                     : route?.status === 'in_progress' ? 'Continue Route' : 'Start Route';
-      h += `<div class="route-summary-card">
-        <div class="route-name">${route?.name || "Today's Stops"} &nbsp;<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.45)">${statusLabel}</span></div>
+      const statusLabel = route.status === 'in_progress' ? 'In Progress'
+                        : route.status === 'complete'    ? 'Complete' : 'Scheduled';
+      const btnLabel = route.status === 'complete' ? 'View Completed Route'
+                     : route.status === 'in_progress' ? 'Continue Route' : 'Start Route';
+      h += `<div class="route-summary-card" style="cursor:pointer" onclick="setRouteFilter('${route.id}')">
+        <div class="route-name">${route.name} &nbsp;<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.45)">${statusLabel}</span></div>
         <div class="route-stats">
           <div class="rstat"><div class="rstat-num">${totalAll}</div><div class="rstat-label">Stops</div></div>
           <div class="rstat"><div class="rstat-num">${doneAll}</div><div class="rstat-label">Done</div></div>
@@ -1163,8 +1169,17 @@ function renderHome() {
           <div class="rstat"><div class="rstat-num">${pct}%</div><div class="rstat-label">Progress</div></div>
         </div>
         <div class="route-progress"><div class="route-progress-fill" style="width:${pct}%"></div></div>
-        <button class="btn-big" onclick="goTo('route')">${btnLabel}</button>
+        <button class="btn-big" onclick="event.stopPropagation();setRouteFilter('${route.id}')">${btnLabel}</button>
       </div>`;
+    }
+    // Extra Stops card — always shown when reassigned stops exist (regardless of primary route count)
+    const extraStops = allStops.filter(s => s._reassigned);
+    if (extraStops.length > 0) {
+      const eDone  = extraStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+      const eTotal = extraStops.length;
+      const ePct   = eTotal > 0 ? Math.round((eDone / eTotal) * 100) : 0;
+      h += routeCard('Extra Stops', 'Reassigned', eTotal, eDone, ePct, `setRouteFilter('extra')`,
+        'border-color:rgba(124,58,237,0.35)');
     }
   } else {
     h += `<div class="route-summary-card">
@@ -1174,10 +1189,23 @@ function renderHome() {
   }
   h += '</div>';
 
-  // Next stop section — for multi-route, walk routes in order and take the first pending stop
-  // in the first unfinished route (stop_number only has meaning within a single route).
+  // Next stop section — respects activeRouteFilter when set.
+  // If a driver has tapped into a specific route, only suggest stops from that route.
   if (totalAll > 0) {
     const next = (() => {
+      if (activeRouteFilter === 'extra') {
+        // Filtered to reassigned stops only
+        return allStops
+          .filter(s => s._reassigned && (s.status === 'pending' || s.status === 'en_route'))
+          .sort((a, b) => a.stop_number - b.stop_number)[0] || null;
+      }
+      if (activeRouteFilter) {
+        // Filtered to one specific primary route
+        return allStops
+          .filter(s => s.route_id === activeRouteFilter && (s.status === 'pending' || s.status === 'en_route'))
+          .sort((a, b) => a.stop_number - b.stop_number)[0] || null;
+      }
+      // No filter — walk primary routes in order, first pending stop wins
       for (const route of todayRoutes) {
         const pending = allStops
           .filter(s => s.route_id === route.id && (s.status === 'pending' || s.status === 'en_route'))
@@ -1230,12 +1258,27 @@ function renderRoute() {
     return;
   }
 
-  const done  = allStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
-  const total = allStops.length;
+  // Determine which stops to show based on activeRouteFilter
+  let visibleStops, viewTitle, isFiltered = false;
+  if (activeRouteFilter === 'extra') {
+    visibleStops = allStops.filter(s => s._reassigned);
+    viewTitle    = 'Extra Stops';
+    isFiltered   = true;
+  } else if (activeRouteFilter) {
+    visibleStops = allStops.filter(s => s.route_id === activeRouteFilter);
+    viewTitle    = todayRoutes.find(r => r.id === activeRouteFilter)?.name || 'Route';
+    isFiltered   = true;
+  } else {
+    visibleStops = allStops;
+    viewTitle    = todayRoutes.length > 1 ? "Today's Routes" : (todayRoutes[0]?.name || "Today's Route");
+  }
+
+  const done  = visibleStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+  const total = visibleStops.length;
   const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
-  const multiRoute = todayRoutes.length > 1;
-  document.getElementById('rh-title').textContent = multiRoute ? "Today's Routes" : (todayRoutes[0]?.name || "Today's Route");
-  document.getElementById('rh-sub').textContent   = `${done} of ${total} stops complete`;
+
+  document.getElementById('rh-title').textContent = viewTitle;
+  document.getElementById('rh-sub').textContent   = `${done} of ${total} stop${total !== 1 ? 's' : ''} complete`;
   document.getElementById('rh-bar').style.width   = pct + '%';
 
   // Render a single stop card
@@ -1267,8 +1310,26 @@ function renderRoute() {
 
   let h = '<div style="padding:12px 14px">';
 
-  if (multiRoute) {
-    // Group stops by route, each group sorted by stop_number
+  // Back link shown when filtering to a specific route
+  if (isFiltered) {
+    h += `<div style="margin-bottom:12px">
+      <button onclick="activeRouteFilter=null;renderRoute();renderHome()" style="background:none;border:none;color:var(--accent);font-size:14px;font-weight:600;padding:4px 0;cursor:pointer;display:flex;align-items:center;gap:4px">
+        <span style="font-size:17px;line-height:1">‹</span> All Routes
+      </button>
+    </div>`;
+    // Show all stops for this filter in stop_number order
+    const sorted = [...visibleStops].sort((a, b) => a.stop_number - b.stop_number);
+    if (sorted.length === 0) {
+      h += `<div style="text-align:center;padding:32px 0;color:var(--gray-400);font-size:14px">No stops in this route.</div>`;
+    } else {
+      sorted.forEach(stop => { h += renderStopCard(stop); });
+    }
+    // "Route complete" banner when all done
+    if (total > 0 && done === total) {
+      h += `<div class="completed-banner" style="margin-top:16px">All stops done — great work!</div>`;
+    }
+  } else if (todayRoutes.length > 1) {
+    // Unfiltered multi-route: group by route with section headers
     let firstSection = true;
     todayRoutes.forEach((route) => {
       const rStops = allStops
@@ -1284,8 +1345,19 @@ function renderRoute() {
       </div>`;
       rStops.forEach(stop => { h += renderStopCard(stop); });
     });
+    // Extra Stops section (reassigned) at the bottom
+    const extraStops = allStops.filter(s => s._reassigned).sort((a, b) => a.stop_number - b.stop_number);
+    if (extraStops.length > 0) {
+      const eDone = extraStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+      h += `<div style="height:10px"></div>
+        <div class="stop-section-hdr">
+          <span class="stop-section-pill" style="background:#f5f3ff;color:#7c3aed"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#7c3aed;margin-right:5px;vertical-align:middle"></span>Extra Stops</span>
+          <span class="stop-section-count">${eDone} of ${extraStops.length} done</span>
+        </div>`;
+      extraStops.forEach(stop => { h += renderStopCard(stop); });
+    }
   } else {
-    // Single route: all stops sorted by stop_number, no section header needed
+    // Single route: all stops sorted by stop_number, no section header
     const sorted = [...allStops].sort((a, b) => a.stop_number - b.stop_number);
     sorted.forEach(stop => { h += renderStopCard(stop); });
   }
@@ -1491,9 +1563,14 @@ function renderStopDetail(stop) {
     }
   }
 
-  // ── Next stop nudge (after done) ──
+  // ── Next stop nudge (after done) — respects activeRouteFilter ──
   if (isDone) {
-    const next = allStops.find(s => s.id !== stop.id && (s.status === 'pending' || s.status === 'en_route'));
+    const candidates = allStops.filter(s => s.id !== stop.id && (s.status === 'pending' || s.status === 'en_route'));
+    const next = (() => {
+      if (activeRouteFilter === 'extra') return candidates.filter(s => s._reassigned).sort((a,b) => a.stop_number - b.stop_number)[0] || null;
+      if (activeRouteFilter) return candidates.filter(s => s.route_id === activeRouteFilter).sort((a,b) => a.stop_number - b.stop_number)[0] || null;
+      return candidates.sort((a,b) => a.stop_number - b.stop_number)[0] || null;
+    })();
     if (next) {
       const na = next.addresses;
       const nc = next.orders?.customers;
