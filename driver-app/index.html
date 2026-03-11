@@ -949,11 +949,28 @@ async function doLogin() {
   err.classList.remove('show');
   if (!email || !pass) { err.textContent = 'Please enter email and password.'; err.classList.add('show'); return; }
   btn.textContent = 'Signing in…'; btn.disabled = true;
-  showLoading(true); // show spinner immediately — don't wait for auth round-trip
-  const { error } = await db.auth.signInWithPassword({ email, password: pass });
-  if (error) {
+  showLoading(true);
+  // Safety net: if signInWithPassword hangs silently, reset the button after 30s
+  const safetyTimer = setTimeout(() => {
+    if (document.getElementById('screen-auth')?.classList.contains('active')) {
+      showLoading(false);
+      btn.textContent = 'Sign In →'; btn.disabled = false;
+      err.textContent = 'Connection timed out — please try again.'; err.classList.add('show');
+    }
+  }, 30000);
+  try {
+    const { error } = await db.auth.signInWithPassword({ email, password: pass });
+    clearTimeout(safetyTimer);
+    if (error) {
+      showLoading(false);
+      err.textContent = error.message; err.classList.add('show');
+      btn.textContent = 'Sign In →'; btn.disabled = false;
+    }
+    // On success: onAuthStateChange handles navigation
+  } catch (e) {
+    clearTimeout(safetyTimer);
     showLoading(false);
-    err.textContent = error.message; err.classList.add('show');
+    err.textContent = 'Connection error — please try again.'; err.classList.add('show');
     btn.textContent = 'Sign In →'; btn.disabled = false;
   }
 }
@@ -2101,9 +2118,23 @@ db.auth.onAuthStateChange(async (event, session) => {
       allStops       = cached.stops  || [];
       showLoading(false); // dismiss any spinner doLogin may have shown
     } else {
-      // First login or cache expired — show spinner while fetching
+      // First login or cache expired — show spinner while fetching.
+      // Safety net: if loadDriverData hangs, reset the login button after 15s so
+      // the user is never permanently stuck on the auth screen.
+      const btn = document.getElementById('btn-login');
+      const err = document.getElementById('auth-err');
+      const loadTimer = setTimeout(() => {
+        if (document.getElementById('screen-auth')?.classList.contains('active')) {
+          showLoading(false);
+          if (btn) { btn.textContent = 'Sign In →'; btn.disabled = false; }
+          err.textContent = 'Connection timed out — please try again.'; err.classList.add('show');
+        }
+      }, 15000);
       showLoading(true);
-      try { await loadDriverData(); } catch(e) { console.error('loadDriverData:', e); } finally { showLoading(false); }
+      try { await loadDriverData(); } catch(e) { console.error('loadDriverData:', e); } finally {
+        clearTimeout(loadTimer);
+        showLoading(false);
+      }
     }
     appReady = true;
     document.getElementById('bottom-nav').style.display = 'flex';
