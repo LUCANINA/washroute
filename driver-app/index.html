@@ -812,7 +812,7 @@
 ────────────────────────────── */
 const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
-const db = supabase.createClient(SUPA_URL, SUPA_KEY);
+const db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'wr-driver-auth', autoRefreshToken: true, persistSession: true } });
 
 let currentUser = null, currentProfile = null, currentDriver = null;
 let todayRoutes = [], allStops = [], pendingOrders = [];

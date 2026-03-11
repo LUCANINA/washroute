@@ -3222,7 +3222,7 @@
   const SUPA_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
   const STRIPE_PK     = 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B';
   const { createClient } = supabase;
-  const db = createClient(SUPA_URL, SUPA_ANON_KEY);
+  const db = createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { storageKey: 'wr-admin-auth', autoRefreshToken: true, persistSession: true } });
   let currentUserRole = null; // 'admin' | 'staff' — set after login
 
   // ── STATE ──
