@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 1, 2026*
+*Last updated: Mar 10, 2026*
 
 ---
 
@@ -214,10 +214,38 @@ The function is idempotent — running it multiple times won't create duplicates
 
 **Why `Promise.race` does NOT fix this:** The Supabase auth client doesn't behave as a plain Promise in a `Promise.race` — the timeout leg fires immediately, causing instant "Connection timed out" errors on every login.
 
-**Current fix (in both `admin-dashboard/index.html` and `customer-app/index.html`):**
-A `setTimeout` safety net (30 seconds) that re-enables the button and shows a timeout message. A `clearTimeout` cancels the timer if login resolves normally. The safety timer only fires if the user is still on the login screen.
+**Current fix — two-stage safety net (all three apps):**
 
-**If it recurs:** Look for the `safetyTimer` variable in `handleLogin()` in both apps. Make sure `clearTimeout(safetyTimer)` is called in both the success path and the `catch` block.
+There are actually **two separate hang points** that must both be covered:
+
+1. **`signInWithPassword` itself hangs** → `safetyTimer` (30s) in `handleLogin()` / `doLogin()` covers this. `clearTimeout(safetyTimer)` is called in all resolution paths.
+
+2. **Post-auth DB fetch hangs** → After `signInWithPassword` resolves, `onAuthStateChange` fires and immediately does a DB query (profile fetch in admin, `loadDriverData()` in driver app). If that fetch hangs, the first safety timer is already cleared and nothing resets the button. Fixed with a second `profileTimer` / `loadTimer` (15s) scoped inside `onAuthStateChange`.
+
+**Customer app is safe** — `showLoading()` has a built-in 20s self-dismiss timer, and the login button is explicitly re-enabled on `signInWithPassword` success before `onAuthStateChange` fires.
+
+**If it recurs:** Check both `handleLogin()` (for the 30s `safetyTimer`) **and** `onAuthStateChange` (for the 15s `profileTimer`/`loadTimer`) in whichever app is stuck.
+
+---
+
+## 📋 Working Convention
+
+**Update PROJECT-NOTES.md at the end of every session.** This is the only memory that persists between days — Claude starts fresh each session, so anything not written here is lost. At end of day, log what was built, any decisions made, and anything pending.
+
+---
+
+## Session Log
+
+### Mar 10, 2026
+- **Order status pipeline rework:** New flow is `scheduled → ready_for_pickup → picked_up → processing → ready_for_delivery → out_for_delivery → delivered`. Retired `assembled`; replaced `pickup_missed`/`delivery_missed` with unified `skipped` (sits in Issues tab until manually resolved).
+- **Filter tabs rework:** Removed "All" tab from Orders page and customer profile. "Upcoming" renamed to "Scheduled". Default tab is now Scheduled.
+- **Cancelled orders:** Hidden from All/Scheduled/Active views. Dedicated greyed-out Cancelled tab added in admin and customer profile.
+- **Login stuck bug fixed:** `signInWithPassword` can silently hang on flaky networks. Fixed with `setTimeout` safety net (30s) in both admin and customer app. `Promise.race` does NOT work — don't use it (fires immediately with Supabase auth client).
+- **Customer app home:** Removed duplicate "Schedule a Pickup" nudge from empty active orders card.
+- **Driver app multi-route support:** Driver can now be assigned multiple routes in a day. Home screen shows one card per route with per-route stats. Stop list groups stops by route under route name headers. Stops render in `stop_number` order (geographic) — the old pickup/delivery section split was removed since stops are prioritized by location, not category.
+- **Dummy test data:** 8 customers created (4 Berkeley, 4 Oakland), each with a scheduled order for Wed Mar 11 · 7–9 AM pickup, assigned to Berkeley AM / Oakland AM routes. Delivery routes (also named Berkeley AM / Oakland AM) set for Thu Mar 13 · 12–2 PM. Customer IDs start with `a1000001-`, address IDs with `b1000001-`, route IDs with `c1000000-0000-0000-0001-`.
+- **Login hang fix extended:** Diagnosed a second hang point — after `signInWithPassword` resolves, `onAuthStateChange` fires and does a DB fetch that can also silently hang. Added a second 15s safety timer (`profileTimer`) in admin `onAuthStateChange` and a `loadTimer` in driver app `onAuthStateChange` covering `loadDriverData()`. Customer app confirmed safe (built-in 20s self-dismiss). All three apps now fully covered.
+- **Driver app `doLogin()` hardened:** Was missing `try/catch` and any safety timer. Added both (30s timer + try/catch), consistent with admin `handleLogin()`.
 
 ---
 
@@ -235,13 +263,14 @@ A `setTimeout` safety net (30 seconds) that re-enables the button and shows a ti
 
 ## Git Log (recent)
 ```
+9118546  Fix: cover both hang points in driver app login (signInWithPassword + loadDriverData)
+36a256e  Fix: cover profile-fetch hang in onAuthStateChange (admin)
+5cf47c3  Driver app: support multiple routes per day; fix stop ordering
+ed97a34  Fix: replace Promise.race with setTimeout safety net for login timeout
+431551c  Remove duplicate Schedule a Pickup nudge from empty active orders card
 174bcc1  ux: driver app polish pass
 ce44eed  ux: admin dashboard polish pass
 6026ff8  ux: customer app polish pass
-de39bea  Add full SMS feature: Inbox, batch send, On My Way driver button
-1f51670  Orders: show '+ Assign' instead of '—' for unassigned routes
-ea44434  Orders page: 6 UX improvements
-6316a10  Remove This Week's Workload section
 ```
 
 ---
