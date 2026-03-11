@@ -2654,6 +2654,12 @@
     <button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="opSaveDetails()">Save Details</button>
     <div id="op-details-msg" style="font-size:12px;color:var(--green);margin-top:6px;text-align:center;display:none">✓ Saved</div>
 
+    <!-- Proof photos from driver app (populated dynamically) -->
+    <div id="op-proof-section" style="display:none;margin-top:18px">
+      <div class="op-sec-head">Proof Photos</div>
+      <div id="op-proof-photos" class="op-sched-card" style="padding:12px 14px;display:flex;flex-direction:column;gap:12px"></div>
+    </div>
+
   </div><!-- /details tab -->
 
   <!-- ── BILLING TAB ── -->
@@ -3508,6 +3514,7 @@
 
         loadAll();
         startNewOrderListener();
+        startRouteStopListener();
       } catch (e) {
         clearTimeout(profileTimer);
         if (myGen !== _authGen) return; // superseded — don't touch UI
@@ -3655,17 +3662,49 @@
   let _newOrderCount = 0;
   function startNewOrderListener() {
     if (_newOrderSub) return; // Already listening
-    _newOrderSub = db.channel('admin-new-orders')
+    _newOrderSub = db.channel('admin-orders-live')
+
+      // ── New order from customer app ──
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, payload => {
         _newOrderCount++;
         const badge = document.getElementById('badge-orders');
         if (badge) { badge.textContent = _newOrderCount; badge.style.display = ''; }
-        // Flash a toast
-        const cust = payload.new;
-        showToast(`🛍 New order placed — #${cust.order_number || '…'}`, 'success');
-        // Reload overview + orders if we're on those pages
+        showToast(`🛍 New order placed — #${payload.new.order_number || '…'}`, 'success');
         if (currentPage === 'overview') loadOverview();
         if (currentPage === 'orders')   loadOrders(currentOrderFilter);
+      })
+
+      // ── Order updated (driver pickup/delivery, status advance, etc.) ──
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, payload => {
+        const updated = payload.new;
+        const idx = allOrders.findIndex(o => o.id === updated.id);
+        if (idx >= 0) {
+          // Patch cached record in-place (preserve joined customer/service fields)
+          Object.assign(allOrders[idx], updated);
+          if (currentPage === 'orders')   renderOrders(allOrders);
+          if (currentPage === 'overview') loadOverview();
+          // If this order's detail panel is open, refresh its status badge + advance btn
+          if (opCurrentOrderId === updated.id) {
+            document.getElementById('op-status-badge').innerHTML = statusBadge(updated.status);
+            opRefreshAdvanceBtn(allOrders[idx]);
+          }
+        }
+      })
+
+      .subscribe();
+  }
+
+  // ── Route-stop realtime: proof photos + stop status changes ──
+  let _routeStopSub = null;
+  function startRouteStopListener() {
+    if (_routeStopSub) return;
+    _routeStopSub = db.channel('admin-route-stops-live')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'route_stops' }, payload => {
+        const stop = payload.new;
+        // If the order detail panel is open and this stop belongs to that order, refresh photos
+        if (opCurrentOrderId && stop.order_id === opCurrentOrderId) {
+          opRefreshProofPhotos(opCurrentOrderId);
+        }
       })
       .subscribe();
   }
@@ -4662,6 +4701,9 @@
 
     // Pre-fetch routes in background
     opPrefetchRoutes();
+
+    // Load proof photos from driver app (non-blocking — populates Details tab)
+    opRefreshProofPhotos(orderId);
   }
 
   // Open panel and immediately expand the schedule picker for a given leg
@@ -4714,6 +4756,40 @@
     advBtn.textContent   = next
       ? `Advance to ${next.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}`
       : 'Fully Delivered';
+  }
+
+  // Fetch proof photos from route_stops and render them in the Details tab
+  async function opRefreshProofPhotos(orderId) {
+    const section   = document.getElementById('op-proof-section');
+    const container = document.getElementById('op-proof-photos');
+    if (!section || !container) return;
+
+    const { data: stops } = await db
+      .from('route_stops')
+      .select('stop_type, status, completed_at, proof_photo_url')
+      .eq('order_id', orderId)
+      .order('stop_type'); // pickup before delivery alphabetically
+
+    const withPhoto = (stops || []).filter(s => s.proof_photo_url);
+
+    if (!withPhoto.length) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    container.innerHTML = withPhoto.map(s => `
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);margin-bottom:6px">
+          ${s.stop_type === 'pickup' ? '📦 Pickup' : '🏠 Delivery'}
+          ${s.completed_at ? ' · ' + fmtDate(s.completed_at) + ' at ' + fmtTime(s.completed_at) : ''}
+        </div>
+        <img src="${s.proof_photo_url}"
+             style="width:100%;max-width:280px;border-radius:8px;object-fit:cover;border:1.5px solid var(--gray-200);cursor:pointer"
+             onclick="window.open('${s.proof_photo_url}','_blank')"
+             alt="${s.stop_type} proof photo"
+             title="Click to open full-size">
+      </div>`).join('');
   }
 
   function opRefreshAddresses(o) {

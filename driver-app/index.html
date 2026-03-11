@@ -1016,6 +1016,7 @@ async function doSignOut() {
   if (currentUser?.id) clearDriverCache(currentUser.id); // wipe cache on sign-out
   // Unsubscribe from realtime
   if (msgSubscription) { db.removeChannel(msgSubscription); msgSubscription = null; }
+  if (_stopSub)        { db.removeChannel(_stopSub);        _stopSub = null; }
   await db.auth.signOut();
   appReady = false;
   currentUser = currentProfile = currentDriver = null;
@@ -2100,6 +2101,49 @@ function subscribeToDriverMessages() {
 }
 
 /* ──────────────────────────────
+   REALTIME: ROUTE STOP + ORDER UPDATES
+   Catches admin reassignments, cancellations, and any order
+   status changes so the driver always sees current data.
+────────────────────────────── */
+let _stopSub = null;
+function subscribeToRouteStopUpdates() {
+  if (_stopSub || !currentDriver) return;
+  _stopSub = db.channel('driver-stop-updates')
+
+    // Route stop changed by admin (reassignment, address edit, cancellation)
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'route_stops' }, payload => {
+      const updated = payload.new;
+      const idx = allStops.findIndex(s => s.id === updated.id);
+      if (idx < 0) return; // Not our stop — ignore
+      Object.assign(allStops[idx], updated);
+      renderHome();
+      renderRoute();
+      if (currentStopId === updated.id) renderStopDetail(updated.id);
+    })
+
+    // Order updated by admin (status change, bag count, special instructions, etc.)
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, payload => {
+      const updated = payload.new;
+      let affected = false;
+      allStops.forEach(s => {
+        if (s.orders?.id === updated.id) {
+          Object.assign(s.orders, updated);
+          affected = true;
+        }
+      });
+      if (!affected) return;
+      renderHome();
+      renderRoute();
+      if (currentStopId) {
+        const stop = allStops.find(s => s.id === currentStopId);
+        if (stop?.orders?.id === updated.id) renderStopDetail(currentStopId);
+      }
+    })
+
+    .subscribe();
+}
+
+/* ──────────────────────────────
    AUTH STATE CHANGE
 ────────────────────────────── */
 db.auth.onAuthStateChange(async (event, session) => {
@@ -2139,6 +2183,7 @@ db.auth.onAuthStateChange(async (event, session) => {
     appReady = true;
     document.getElementById('bottom-nav').style.display = 'flex';
     subscribeToDriverMessages();
+    subscribeToRouteStopUpdates();
     goTo('home');
     // If we rendered from cache, silently refresh route data in background
     if (cached) loadDriverData().then(() => renderRoute()).catch(console.error);

@@ -1436,7 +1436,8 @@ let draft = {
 };
 let orderStep = 0;
 let calMonth  = new Date();
-let ordersTab = 'current';
+let ordersTab  = 'current';
+let _orderSub  = null; // realtime subscription for order status updates
 let addrTimer   = null; // debounce handle for address autocomplete (order flow)
 let _addrSuggCache = []; // Google Places predictions for the current suggestion list (order flow)
 let _zoneReadyPromise = null; // resolves when draft.zoneId is confirmed (avoids race on step 1)
@@ -1822,7 +1823,10 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
   }
 }
 
-async function handleSignOut() { await db.auth.signOut(); }
+async function handleSignOut() {
+  if (_orderSub) { db.removeChannel(_orderSub); _orderSub = null; }
+  await db.auth.signOut();
+}
 
 function showMagicLink() {
   const sec = document.getElementById('magic-section');
@@ -3334,6 +3338,31 @@ async function loadOrders() {
   document.getElementById('otab-current').classList.add('active');
   document.getElementById('otab-past').classList.remove('active');
   renderOrdersList(window._cachedOrders);
+
+  // Subscribe to realtime order updates (driver pickup, delivery, status changes)
+  // Only subscribe once — unsubscribe on sign-out
+  if (!_orderSub && currentCustomer) {
+    _orderSub = db.channel(`customer-orders-${currentCustomer.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'orders',
+        filter: `customer_id=eq.${currentCustomer.id}`
+      }, payload => {
+        const updated = payload.new;
+        if (window._cachedOrders) {
+          const idx = window._cachedOrders.findIndex(o => o.id === updated.id);
+          if (idx >= 0) {
+            Object.assign(window._cachedOrders[idx], updated);
+          } else {
+            // New order appeared (e.g. rescheduled from cancelled)
+            window._cachedOrders.unshift(updated);
+          }
+          renderOrdersList(window._cachedOrders);
+        }
+        // If home screen is active, refresh the active-order banner
+        if (document.getElementById('screen-home')?.style.display !== 'none') loadHome();
+      })
+      .subscribe();
+  }
 }
 
 /* ── ORDER DETAIL ── */
