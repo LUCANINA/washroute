@@ -1696,21 +1696,31 @@ async function handleLogin(e) {
   const errEl = document.getElementById('login-err');
   errEl.classList.remove('show');
   btn.disabled = true; btn.textContent = 'Signing in…';
-  showLoading(true); // Show spinner immediately — don't wait for auth round-trip
+  showLoading(true);
   try {
-    const { error } = await db.auth.signInWithPassword({
-      email: document.getElementById('l-email').value.trim(),
-      password: document.getElementById('l-pass').value
-    });
+    // Race against a 15-second timeout — if the network hangs without throwing,
+    // the promise would never settle and the button would be stuck forever
+    const { error } = await Promise.race([
+      db.auth.signInWithPassword({
+        email: document.getElementById('l-email').value.trim(),
+        password: document.getElementById('l-pass').value
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Connection timed out — please check your internet and try again.')), 15000)
+      ),
+    ]);
     if (error) {
-      showLoading(false); // Only hide on error; success lets onAuthStateChange handle it
+      showLoading(false);
       btn.disabled = false; btn.textContent = 'Sign In';
       errEl.textContent = error.message; errEl.classList.add('show');
+    } else {
+      // Auth succeeded — onAuthStateChange will finish loading the app
+      btn.textContent = 'Loading…'; // keep disabled until app appears
     }
   } catch (e) {
     showLoading(false);
     btn.disabled = false; btn.textContent = 'Sign In';
-    errEl.textContent = 'Connection error — please check your internet and try again.';
+    errEl.textContent = e.message || 'Connection error — please check your internet and try again.';
     errEl.classList.add('show');
   }
 }
