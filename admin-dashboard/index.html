@@ -3345,6 +3345,7 @@
       out_for_delivery:   ['badge-blue',   'Out for Delivery'],
       delivered:          ['badge-green',  'Delivered'],
       skipped:            ['badge-red',    'Skipped'],
+      pickup_failed:      ['badge-red',    'Pickup Failed'],
       on_hold:            ['badge-amber',  'On Hold'],
       cancelled:          ['badge-red',    'Cancelled'],
       // Legacy (retired statuses — kept so old records display correctly)
@@ -12889,8 +12890,8 @@ window.onload=()=>{window.print();};
   }
 
   function renderOrderStatusBreakdown(orders) {
-    const STATUS_LABELS = { scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up', processing:'Processing', folding:'Folding', ready_for_delivery:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', skipped:'Skipped', on_hold:'On Hold', cancelled:'Cancelled', pending_pickup:'Pending Pickup', ready:'Ready', assembled:'Assembled', pickup_missed:'Pickup Missed', delivery_missed:'Delivery Missed' };
-    const STATUS_COLORS = { delivered:'#dcfce7', picked_up:'#dbeafe', out_for_delivery:'#ede9fe', processing:'#fef9c3', folding:'#d1fae5', ready_for_delivery:'#d1fae5', skipped:'#fee2e2', cancelled:'#fee2e2', on_hold:'#fef3c7', scheduled:'#f1f5f9', ready_for_pickup:'#fef3c7', pending_pickup:'#fef3c7', ready:'#d1fae5', assembled:'#f3e8ff', pickup_missed:'#fee2e2', delivery_missed:'#fee2e2' };
+    const STATUS_LABELS = { scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up', processing:'Processing', folding:'Folding', ready_for_delivery:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', skipped:'Skipped', pickup_failed:'Pickup Failed', on_hold:'On Hold', cancelled:'Cancelled', pending_pickup:'Pending Pickup', ready:'Ready', assembled:'Assembled', pickup_missed:'Pickup Missed', delivery_missed:'Delivery Missed' };
+    const STATUS_COLORS = { delivered:'#dcfce7', picked_up:'#dbeafe', out_for_delivery:'#ede9fe', processing:'#fef9c3', folding:'#d1fae5', ready_for_delivery:'#d1fae5', skipped:'#fee2e2', pickup_failed:'#fee2e2', cancelled:'#fee2e2', on_hold:'#fef3c7', scheduled:'#f1f5f9', ready_for_pickup:'#fef3c7', pending_pickup:'#fef3c7', ready:'#d1fae5', assembled:'#f3e8ff', pickup_missed:'#fee2e2', delivery_missed:'#fee2e2' };
     const el = document.getElementById('rpt-status-breakdown');
     if (!el) return;
     const counts = {};

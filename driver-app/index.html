@@ -225,6 +225,7 @@
     .sn-delivery { background: #d1fae5; color: var(--deliver); }
     .sn-done     { background: #f3f4f6; color: var(--muted); }
     .sn-skip     { background: #fef3c7; color: #92400e; }
+    .sn-fail     { background: #fee2e2; color: #991b1b; }
     .sn-enroute  { background: #dbeafe; color: var(--info); }
 
     .stop-body { flex: 1; min-width: 0; }
@@ -237,6 +238,7 @@
     .sb-delivery { background: #d1fae5; color: var(--deliver); }
     .sb-done     { background: #f3f4f6; color: var(--muted); }
     .sb-skipped  { background: #fef3c7; color: #92400e; }
+    .sb-failed   { background: #fee2e2; color: #991b1b; }
     .sb-enroute  { background: #eff6ff; color: var(--info); }
     .stop-name { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .stop-addr { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
@@ -329,6 +331,11 @@
       width: 100%; background: none; border: 1px solid var(--border);
       color: var(--muted); border-radius: 12px; font-size: 14px; font-weight: 600;
       padding: 12px; cursor: pointer; margin-top: 9px;
+    }
+    .btn-fail-stop {
+      width: 100%; background: none; border: 1px solid rgba(239,68,68,0.35);
+      color: var(--danger); border-radius: 12px; font-size: 14px; font-weight: 600;
+      padding: 12px; cursor: pointer; margin-top: 6px;
     }
 
     .notes-box {
@@ -615,6 +622,12 @@
       padding: 0; animation: fadeIn .15s;
     }
     #skip-confirm-overlay.show { display: flex; }
+    #fail-confirm-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+      z-index: 9995; display: none; align-items: flex-end;
+      padding: 0; animation: fadeIn .15s;
+    }
+    #fail-confirm-overlay.show { display: flex; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .skip-confirm-sheet {
       width: 100%; background: var(--navy-mid); border-radius: 20px 20px 0 0;
@@ -658,6 +671,18 @@
     <div class="skip-confirm-btns">
       <button class="btn-skip-confirm danger" onclick="resolveSkipConfirm(true)">Yes, Skip Stop</button>
       <button class="btn-skip-confirm cancel" onclick="resolveSkipConfirm(false)">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Fail confirm sheet -->
+<div id="fail-confirm-overlay" onclick="if(event.target===this)resolveFailConfirm(false)">
+  <div class="skip-confirm-sheet">
+    <div class="skip-confirm-title">Mark pickup as failed?</div>
+    <div class="skip-confirm-sub">The customer will be notified. Admin will need to reschedule.</div>
+    <div class="skip-confirm-btns">
+      <button class="btn-skip-confirm danger" onclick="resolveFailConfirm(true)">Yes, Mark Failed</button>
+      <button class="btn-skip-confirm cancel" onclick="resolveFailConfirm(false)">Cancel</button>
     </div>
   </div>
 </div>
@@ -1291,16 +1316,17 @@ function renderRoute() {
     const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
     const isDone    = stop.status === 'complete';
     const isSkip    = stop.status === 'skipped';
+    const isFailed  = stop.status === 'failed';
     const isEnRoute = stop.status === 'en_route';
-    const numClass   = isDone ? 'sn-done' : isSkip ? 'sn-skip' : isEnRoute ? 'sn-enroute' : `sn-${stop.stop_type}`;
-    const badgeClass = isDone ? 'sb-done' : isSkip ? 'sb-skipped' : isEnRoute ? 'sb-enroute' : `sb-${stop.stop_type}`;
-    const badgeText  = isDone ? 'DONE' : isSkip ? 'SKIPPED' : isEnRoute ? 'EN ROUTE' : stop.stop_type.toUpperCase();
-    const cardClass  = isDone || isSkip ? ' done' : isEnRoute ? ' en-route' : '';
+    const numClass   = isDone ? 'sn-done' : isSkip ? 'sn-skip' : isFailed ? 'sn-fail' : isEnRoute ? 'sn-enroute' : `sn-${stop.stop_type}`;
+    const badgeClass = isDone ? 'sb-done' : isSkip ? 'sb-skipped' : isFailed ? 'sb-failed' : isEnRoute ? 'sb-enroute' : `sb-${stop.stop_type}`;
+    const badgeText  = isDone ? 'DONE' : isSkip ? 'SKIPPED' : isFailed ? 'FAILED' : isEnRoute ? 'EN ROUTE' : stop.stop_type.toUpperCase();
+    const cardClass  = isDone || isSkip || isFailed ? ' done' : isEnRoute ? ' en-route' : '';
     const reassignedTag = stop._reassigned
       ? `<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:2px 7px;border-radius:5px;margin-left:5px">↗ reassigned</span>`
       : '';
     return `<div class="stop-card${cardClass}" onclick="openStop('${stop.id}')">
-      <div class="stop-num ${numClass}">${isDone ? '✓' : isSkip ? '⤷' : isEnRoute ? '↑' : stop.stop_number}</div>
+      <div class="stop-num ${numClass}">${isDone ? '✓' : isSkip ? '⤷' : isFailed ? '✕' : isEnRoute ? '↑' : stop.stop_number}</div>
       <div class="stop-body">
         <div><span class="stop-badge ${badgeClass}">${badgeText}</span>${reassignedTag}</div>
         <div class="stop-name">${custName}</div>
@@ -1422,6 +1448,7 @@ function renderStopDetail(stop) {
   const svc   = order?.services;
   const isDone    = stop.status === 'complete';
   const isSkip    = stop.status === 'skipped';
+  const isFailed  = stop.status === 'failed';
   const isEnRoute = stop.status === 'en_route';
   const isPickup  = stop.stop_type === 'pickup';
   const custName  = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
@@ -1454,6 +1481,11 @@ function renderStopDetail(stop) {
       <div class="completed-banner" style="background:#fef3c7;color:#92400e">Skipped</div>
     </div>`;
   }
+  if (isFailed) {
+    h += `<div style="padding:14px 20px 4px">
+      <div class="completed-banner" style="background:#fee2e2;color:#991b1b">Pickup Failed — Admin will reschedule</div>
+    </div>`;
+  }
 
   // ── Customer info (always visible) ──
   h += `<div class="dsection">
@@ -1474,7 +1506,7 @@ function renderStopDetail(stop) {
   </div>`;
 
   // ── Active stop phases ──
-  if (!isDone && !isSkip) {
+  if (!isDone && !isSkip && !isFailed) {
 
     if (currentStopPhase === 1) {
       // ════ PHASE 1: Pre-arrival ════
@@ -1569,11 +1601,12 @@ function renderStopDetail(stop) {
           <button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')" ${!hasPhoto ? 'disabled' : ''}>${label}</button>
           ${!hasPhoto ? `<div style="text-align:center;font-size:13px;color:var(--muted);margin-top:8px">Photo required to continue</div>` : ''}
           <button class="btn-skip-stop" onclick="skipStop('${stop.id}')">Skip This Stop</button>
+          ${isPickup ? `<button class="btn-fail-stop" onclick="failStop('${stop.id}')">Failed Pickup</button>` : ''}
         </div>`;
       }
     }
 
-  } else if (isDone || isSkip) {
+  } else if (isDone || isSkip || isFailed) {
     // Read-only notes if any
     if (stop.driver_notes) {
       h += `<div class="dsection">
@@ -1996,6 +2029,52 @@ function showSkipConfirm() {
 function resolveSkipConfirm(confirmed) {
   document.getElementById('skip-confirm-overlay').classList.remove('show');
   if (_skipConfirmResolve) { _skipConfirmResolve(confirmed); _skipConfirmResolve = null; }
+}
+
+/* ──────────────────────────────
+   FAIL STOP
+────────────────────────────── */
+let _failConfirmResolve = null;
+function showFailConfirm() {
+  return new Promise(resolve => {
+    _failConfirmResolve = resolve;
+    document.getElementById('fail-confirm-overlay').classList.add('show');
+  });
+}
+function resolveFailConfirm(confirmed) {
+  document.getElementById('fail-confirm-overlay').classList.remove('show');
+  if (_failConfirmResolve) { _failConfirmResolve(confirmed); _failConfirmResolve = null; }
+}
+async function failStop(stopId) {
+  const really = await showFailConfirm();
+  if (!really) return;
+
+  const stop = allStops.find(s => s.id === stopId);
+
+  // Mark route stop as failed
+  await db.from('route_stops').update({ status: 'failed' }).eq('id', stopId);
+
+  // Mark order as pickup_failed and update local cache
+  const idx = allStops.findIndex(s => s.id === stopId);
+  if (idx >= 0) {
+    allStops[idx].status = 'failed';
+    if (stop?.orders?.id) {
+      await db.from('orders').update({ status: 'pickup_failed' }).eq('id', stop.orders.id);
+      allStops[idx].orders.status = 'pickup_failed';
+
+      // Notify customer via SMS template
+      try {
+        await fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+          body: JSON.stringify({ order_id: stop.orders.id, event: 'pickup_failed' })
+        });
+      } catch(e) { console.warn('Notification failed:', e); }
+    }
+  }
+
+  goTo('route');
+  showToast('Stop marked as failed', 'error');
 }
 
 /* ──────────────────────────────
