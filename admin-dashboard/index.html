@@ -3392,13 +3392,24 @@
     err.style.display = 'none';
     btn.disabled = true; btn.textContent = 'Signing in…';
     try {
-      const { error } = await db.auth.signInWithPassword({ email, password: pw });
+      // Race against a 15-second timeout — if the network hangs without throwing,
+      // the promise would never settle and the button would be stuck forever
+      const { error } = await Promise.race([
+        db.auth.signInWithPassword({ email, password: pw }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Connection timed out — please check your internet and try again.')), 15000)
+        ),
+      ]);
       if (error) {
         err.textContent = error.message; err.style.display = 'block';
         btn.disabled = false; btn.textContent = 'Sign in';
+      } else {
+        // Auth succeeded — onAuthStateChange will now fetch the profile and show the app.
+        // Keep the button disabled but update text so the state is unambiguous.
+        btn.textContent = 'Loading…';
       }
     } catch (e) {
-      err.textContent = 'Connection error — please check your internet and try again.';
+      err.textContent = e.message || 'Connection error — please check your internet and try again.';
       err.style.display = 'block';
       btn.disabled = false; btn.textContent = 'Sign in';
     }
