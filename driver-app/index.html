@@ -6,13 +6,15 @@
   <title>WashRoute Driver</title>
   <style>
     :root {
-      --dark:    #111827;
+      --navy:    #0f2744;
+      --navy-mid:#1a3a5c;
+      --dark:    #0f2744;
       --gray:    #374151;
       --muted:   #6b7280;
       --border:  #e5e7eb;
       --bg:      #f3f4f6;
       --white:   #ffffff;
-      --accent:  #f97316;
+      --accent:  #2a6fc9;
       --pickup:  #3b82f6;
       --deliver: #10b981;
       --danger:  #ef4444;
@@ -53,7 +55,7 @@
     #undo-bar {
       position: fixed; bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom));
       left: 14px; right: 14px;
-      background: #1f2937; color: var(--white);
+      background: var(--navy-mid); color: var(--white);
       border-radius: 14px; padding: 13px 16px;
       display: flex; align-items: center; justify-content: space-between;
       z-index: 9998; opacity: 0; transform: translateY(20px);
@@ -86,7 +88,7 @@
       cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 600;
       transition: color .15s; border-radius: 10px;
     }
-    .nav-btn.active { color: var(--accent); background: rgba(249,115,22,0.08); }
+    .nav-btn.active { color: var(--accent); background: rgba(42,111,201,0.10); }
     .nav-icon { width: 24px; height: 24px; display: block; }
     .nav-icon svg { width: 100%; height: 100%; }
 
@@ -100,7 +102,7 @@
        AUTH SCREEN
     ══════════════════════════════ */
     #screen-auth {
-      background: var(--dark);
+      background: linear-gradient(160deg, var(--navy) 0%, var(--navy-mid) 100%);
       align-items: center; justify-content: center; padding: 40px 28px;
       padding-top: max(40px, env(safe-area-inset-top));
     }
@@ -135,7 +137,7 @@
       outline: none; margin-bottom: 14px; font-family: inherit;
     }
     .auth-input::placeholder { color: rgba(255,255,255,0.25); }
-    .auth-input:focus { border-color: var(--accent); background: rgba(249,115,22,0.07); }
+    .auth-input:focus { border-color: var(--accent); background: rgba(42,111,201,0.07); }
     .auth-err { font-size: 13px; color: #f87171; margin-bottom: 12px; display: none; }
     .auth-err.show { display: block; }
     .btn-auth {
@@ -143,7 +145,7 @@
       border-radius: 12px; font-size: 16px; font-weight: 700; padding: 15px;
       cursor: pointer; transition: background .15s;
     }
-    .btn-auth:hover { background: #ea6c0a; }
+    .btn-auth:hover { background: #1d5fa8; }
     .btn-auth:active { transform: scale(0.98); }
     .btn-auth:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
     .btn-auth.info { background: var(--info); }
@@ -169,7 +171,8 @@
        HOME SCREEN
     ══════════════════════════════ */
     .home-hero {
-      background: var(--dark); color: var(--white);
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%);
+      color: var(--white);
       padding: 22px 20px 28px; padding-top: calc(22px + env(safe-area-inset-top));
     }
     .hero-greeting { font-size: 22px; font-weight: 800; }
@@ -244,7 +247,7 @@
        STOP DETAIL SCREEN
     ══════════════════════════════ */
     .detail-hdr {
-      background: var(--dark); color: var(--white);
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); color: var(--white);
       padding: 14px 20px 20px; padding-top: calc(14px + env(safe-area-inset-top));
     }
     .back-btn {
@@ -362,7 +365,7 @@
        PROFILE SCREEN
     ══════════════════════════════ */
     .profile-hero {
-      background: var(--dark); color: var(--white);
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); color: var(--white);
       padding: 28px 20px 32px; padding-top: calc(28px + env(safe-area-inset-top));
       text-align: center;
     }
@@ -401,7 +404,7 @@
        ROUTE HEADER
     ══════════════════════════════ */
     .route-hdr {
-      background: var(--dark); color: var(--white);
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); color: var(--white);
       padding: 18px 20px 16px; padding-top: calc(18px + env(safe-area-inset-top));
     }
     .rh-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -440,7 +443,7 @@
        MESSAGES SCREEN
     ══════════════════════════════ */
     .msg-hdr {
-      background: var(--dark); color: var(--white);
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); color: var(--white);
       padding: 18px 20px 18px;
       padding-top: calc(18px + env(safe-area-inset-top));
       flex-shrink: 0;
@@ -528,7 +531,7 @@
       flex-shrink: 0; transition: background .15s;
     }
     .btn-msg-send:disabled { background: var(--border); cursor: not-allowed; }
-    .btn-msg-send:not(:disabled):active { background: #ea6c0a; transform: scale(0.95); }
+    .btn-msg-send:not(:disabled):active { background: #1d5fa8; transform: scale(0.95); }
 
     /* ══════════════════════════════
        STOP TYPE SECTION HEADERS
@@ -614,7 +617,7 @@
     #skip-confirm-overlay.show { display: flex; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .skip-confirm-sheet {
-      width: 100%; background: #1f2937; border-radius: 20px 20px 0 0;
+      width: 100%; background: var(--navy-mid); border-radius: 20px 20px 0 0;
       padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
       animation: slideUp .2s ease-out;
     }
