@@ -1097,31 +1097,55 @@ function renderHome() {
   const body = document.getElementById('home-body');
   const name = currentProfile?.first_name || 'Driver';
   const dateStr = new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
-  const done  = allStops.filter(s => s.status === 'complete').length;
-  const total = allStops.length;
-  const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
+  const doneAll  = allStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+  const totalAll = allStops.length;
+  const multiRoute = todayRoutes.length > 1;
 
   let h = `<div class="home-hero">
     <div class="hero-greeting">${greet()}, ${name}.</div>
     <div class="hero-date">${dateStr}</div>`;
 
-  if (allStops.length > 0) {
-    const route = todayRoutes[0];
-    const statusLabel = route?.status === 'in_progress' ? 'In Progress'
-                      : route?.status === 'complete'    ? 'Complete' : 'Scheduled';
-    const btnLabel = route?.status === 'complete' ? 'View Completed Route'
-                   : route?.status === 'in_progress' ? 'Continue Route' : 'Start Route';
-    h += `<div class="route-summary-card">
-      <div class="route-name">${route?.name || "Today's Stops"} &nbsp;<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.45)">${statusLabel}</span></div>
-      <div class="route-stats">
-        <div class="rstat"><div class="rstat-num">${total}</div><div class="rstat-label">Stops</div></div>
-        <div class="rstat"><div class="rstat-num">${done}</div><div class="rstat-label">Done</div></div>
-        <div class="rstat"><div class="rstat-num">${total - done}</div><div class="rstat-label">Left</div></div>
-        <div class="rstat"><div class="rstat-num">${pct}%</div><div class="rstat-label">Progress</div></div>
-      </div>
-      <div class="route-progress"><div class="route-progress-fill" style="width:${pct}%"></div></div>
-      <button class="btn-big" onclick="goTo('route')">${btnLabel}</button>
-    </div>`;
+  if (totalAll > 0) {
+    if (multiRoute) {
+      // One compact card per route, each showing that route's own stats
+      todayRoutes.forEach(route => {
+        const rStops = allStops.filter(s => s.route_id === route.id);
+        const rDone  = rStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+        const rTotal = rStops.length;
+        const rPct   = rTotal > 0 ? Math.round((rDone / rTotal) * 100) : 0;
+        const statusLabel = route.status === 'in_progress' ? 'In Progress'
+                          : route.status === 'complete'    ? 'Complete' : 'Scheduled';
+        h += `<div class="route-summary-card" style="margin-bottom:10px">
+          <div class="route-name">${route.name} &nbsp;<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.45)">${statusLabel}</span></div>
+          <div class="route-stats">
+            <div class="rstat"><div class="rstat-num">${rTotal}</div><div class="rstat-label">Stops</div></div>
+            <div class="rstat"><div class="rstat-num">${rDone}</div><div class="rstat-label">Done</div></div>
+            <div class="rstat"><div class="rstat-num">${rTotal - rDone}</div><div class="rstat-label">Left</div></div>
+            <div class="rstat"><div class="rstat-num">${rPct}%</div><div class="rstat-label">Progress</div></div>
+          </div>
+          <div class="route-progress"><div class="route-progress-fill" style="width:${rPct}%"></div></div>
+        </div>`;
+      });
+      h += `<button class="btn-big" style="margin:4px 0 0" onclick="goTo('route')">View All Stops</button>`;
+    } else {
+      const route = todayRoutes[0];
+      const pct   = totalAll > 0 ? Math.round((doneAll / totalAll) * 100) : 0;
+      const statusLabel = route?.status === 'in_progress' ? 'In Progress'
+                        : route?.status === 'complete'    ? 'Complete' : 'Scheduled';
+      const btnLabel = route?.status === 'complete' ? 'View Completed Route'
+                     : route?.status === 'in_progress' ? 'Continue Route' : 'Start Route';
+      h += `<div class="route-summary-card">
+        <div class="route-name">${route?.name || "Today's Stops"} &nbsp;<span style="font-size:12px;font-weight:500;color:rgba(255,255,255,0.45)">${statusLabel}</span></div>
+        <div class="route-stats">
+          <div class="rstat"><div class="rstat-num">${totalAll}</div><div class="rstat-label">Stops</div></div>
+          <div class="rstat"><div class="rstat-num">${doneAll}</div><div class="rstat-label">Done</div></div>
+          <div class="rstat"><div class="rstat-num">${totalAll - doneAll}</div><div class="rstat-label">Left</div></div>
+          <div class="rstat"><div class="rstat-num">${pct}%</div><div class="rstat-label">Progress</div></div>
+        </div>
+        <div class="route-progress"><div class="route-progress-fill" style="width:${pct}%"></div></div>
+        <button class="btn-big" onclick="goTo('route')">${btnLabel}</button>
+      </div>`;
+    }
   } else {
     h += `<div class="route-summary-card">
       <div class="route-name">No Stops Today</div>
@@ -1130,20 +1154,33 @@ function renderHome() {
   }
   h += '</div>';
 
-  // Next stop section
-  if (todayRoutes.length > 0) {
-    const next = allStops.find(s => s.status === 'pending' || s.status === 'en_route');
+  // Next stop section — for multi-route, walk routes in order and take the first pending stop
+  // in the first unfinished route (stop_number only has meaning within a single route).
+  if (totalAll > 0) {
+    const next = (() => {
+      for (const route of todayRoutes) {
+        const pending = allStops
+          .filter(s => s.route_id === route.id && (s.status === 'pending' || s.status === 'en_route'))
+          .sort((a, b) => a.stop_number - b.stop_number)[0];
+        if (pending) return pending;
+      }
+      return null;
+    })();
     if (next) {
       const addr = next.addresses;
       const cust = next.orders?.customers;
       const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
       const isEnRoute = next.status === 'en_route';
+      const routeName = todayRoutes.find(r => r.id === next.route_id)?.name;
+      const routeTag  = multiRoute && routeName
+        ? `<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:2px 7px;border-radius:5px;margin-left:5px">${routeName}</span>`
+        : '';
       h += `<div class="home-section">
         <div class="section-label">${isEnRoute ? 'En Route To' : 'Next Stop'}</div>
         <div class="stop-card${isEnRoute ? ' en-route' : ''}" onclick="openStop('${next.id}')">
           <div class="stop-num ${isEnRoute ? 'sn-enroute' : 'sn-' + next.stop_type}">${isEnRoute ? '↑' : next.stop_number}</div>
           <div class="stop-body">
-            <div><span class="stop-badge ${isEnRoute ? 'sb-enroute' : 'sb-' + next.stop_type}">${isEnRoute ? 'EN ROUTE' : next.stop_type.toUpperCase()}</span></div>
+            <div><span class="stop-badge ${isEnRoute ? 'sb-enroute' : 'sb-' + next.stop_type}">${isEnRoute ? 'EN ROUTE' : next.stop_type.toUpperCase()}</span>${routeTag}</div>
             <div class="stop-name">${custName}</div>
             <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
             <div class="stop-meta">${next.orders?.total_bags||1} bag${(next.orders?.total_bags||1)!==1?'s':''} · ${next.orders?.services?.name||'Service'}</div>
@@ -1151,7 +1188,7 @@ function renderHome() {
           <span class="stop-chevron">›</span>
         </div>
       </div>`;
-    } else if (done === total && total > 0) {
+    } else if (doneAll === totalAll) {
       h += `<div class="home-section"><div class="completed-banner">All stops done — great work today!</div></div>`;
     }
   }
@@ -1173,17 +1210,13 @@ function renderRoute() {
     return;
   }
 
-  const done  = allStops.filter(s => s.status === 'complete').length;
+  const done  = allStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
   const total = allStops.length;
   const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
-  document.getElementById('rh-title').textContent = todayRoutes[0]?.name || "Today's Route";
+  const multiRoute = todayRoutes.length > 1;
+  document.getElementById('rh-title').textContent = multiRoute ? "Today's Routes" : (todayRoutes[0]?.name || "Today's Route");
   document.getElementById('rh-sub').textContent   = `${done} of ${total} stops complete`;
   document.getElementById('rh-bar').style.width   = pct + '%';
-
-  if (total === 0) {
-    body.innerHTML = `<div class="empty"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg></div><div class="empty-title">No Stops Yet</div><div class="empty-sub">Your route has been assigned but no stops have been added yet.</div><button class="btn-big" style="max-width:200px;margin:20px auto 0;font-size:15px;padding:12px" onclick="refreshRoute()">↻ Refresh</button></div>`;
-    return;
-  }
 
   // Render a single stop card
   const renderStopCard = (stop) => {
@@ -1212,26 +1245,31 @@ function renderRoute() {
     </div>`;
   };
 
-  // Render a section (PICKUPS or DELIVERIES)
-  const renderSection = (stops, type) => {
-    if (!stops.length) return '';
-    const doneCount = stops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
-    const pill = type === 'pickup'
-      ? `<span class="stop-section-pill ssp-pickup"><span class="ssp-dot"></span>Pickups</span>`
-      : `<span class="stop-section-pill ssp-delivery"><span class="ssp-dot"></span>Deliveries</span>`;
-    let h = `<div class="stop-section-hdr">${pill}<span class="stop-section-count">${doneCount} of ${stops.length} done</span></div>`;
-    stops.forEach(stop => { h += renderStopCard(stop); });
-    return h;
-  };
-
-  // Split and sort by stop_number within each type
-  const pickups    = allStops.filter(s => s.stop_type === 'pickup').sort((a,b) => a.stop_number - b.stop_number);
-  const deliveries = allStops.filter(s => s.stop_type === 'delivery').sort((a,b) => a.stop_number - b.stop_number);
-
   let h = '<div style="padding:12px 14px">';
-  h += renderSection(pickups, 'pickup');
-  if (pickups.length && deliveries.length) h += '<div style="height:4px"></div>';
-  h += renderSection(deliveries, 'delivery');
+
+  if (multiRoute) {
+    // Group stops by route, each group sorted by stop_number
+    let firstSection = true;
+    todayRoutes.forEach((route) => {
+      const rStops = allStops
+        .filter(s => s.route_id === route.id)
+        .sort((a, b) => a.stop_number - b.stop_number);
+      if (!rStops.length) return;
+      const rDone = rStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+      if (!firstSection) h += '<div style="height:10px"></div>';
+      firstSection = false;
+      h += `<div class="stop-section-hdr">
+        <span class="stop-section-pill" style="background:#f3f0ff;color:#7c3aed"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#7c3aed;margin-right:5px;vertical-align:middle"></span>${route.name}</span>
+        <span class="stop-section-count">${rDone} of ${rStops.length} done</span>
+      </div>`;
+      rStops.forEach(stop => { h += renderStopCard(stop); });
+    });
+  } else {
+    // Single route: all stops sorted by stop_number, no section header needed
+    const sorted = [...allStops].sort((a, b) => a.stop_number - b.stop_number);
+    sorted.forEach(stop => { h += renderStopCard(stop); });
+  }
+
   h += '</div>';
   body.innerHTML = h;
 }

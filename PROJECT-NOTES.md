@@ -205,6 +205,22 @@ The function is idempotent — running it multiple times won't create duplicates
 
 ---
 
+## Known Recurring Issues
+
+### 🔄 Login button gets permanently stuck ("Signing in…")
+**Symptom:** After tapping Sign In, the button stays disabled and says "Signing in…" forever. Sometimes called a "cache issue" but it's actually a network hang.
+
+**Root cause:** `db.auth.signInWithPassword()` can silently hang on flaky/mobile networks — the Promise never settles, so `try/catch` can't save you and the button stays stuck.
+
+**Why `Promise.race` does NOT fix this:** The Supabase auth client doesn't behave as a plain Promise in a `Promise.race` — the timeout leg fires immediately, causing instant "Connection timed out" errors on every login.
+
+**Current fix (in both `admin-dashboard/index.html` and `customer-app/index.html`):**
+A `setTimeout` safety net (30 seconds) that re-enables the button and shows a timeout message. A `clearTimeout` cancels the timer if login resolves normally. The safety timer only fires if the user is still on the login screen.
+
+**If it recurs:** Look for the `safetyTimer` variable in `handleLogin()` in both apps. Make sure `clearTimeout(safetyTimer)` is called in both the success path and the `catch` block.
+
+---
+
 ## Pending / Next Up
 - ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix)
 - Receipt printing: print button on order detail (thermal 80mm bag tag) — mockup exists at `receipt-mockup.html`
