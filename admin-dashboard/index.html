@@ -3391,25 +3391,26 @@
     const err   = document.getElementById('login-error');
     err.style.display = 'none';
     btn.disabled = true; btn.textContent = 'Signing in…';
+    // Safety net: if something silently hangs for 30s and we're still on the
+    // login screen, reset the button so the user is never permanently stuck
+    const safetyTimer = setTimeout(() => {
+      if (document.getElementById('login-screen').style.display !== 'none') {
+        btn.disabled = false; btn.textContent = 'Sign in';
+        err.textContent = 'Connection timed out — please try again.';
+        err.style.display = 'block';
+      }
+    }, 30000);
     try {
-      // Race against a 15-second timeout — if the network hangs without throwing,
-      // the promise would never settle and the button would be stuck forever
-      const { error } = await Promise.race([
-        db.auth.signInWithPassword({ email, password: pw }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Connection timed out — please check your internet and try again.')), 15000)
-        ),
-      ]);
+      const { error } = await db.auth.signInWithPassword({ email, password: pw });
+      clearTimeout(safetyTimer);
       if (error) {
         err.textContent = error.message; err.style.display = 'block';
         btn.disabled = false; btn.textContent = 'Sign in';
-      } else {
-        // Auth succeeded — onAuthStateChange will now fetch the profile and show the app.
-        // Keep the button disabled but update text so the state is unambiguous.
-        btn.textContent = 'Loading…';
       }
+      // On success: onAuthStateChange will show the app — button hides with the login screen
     } catch (e) {
-      err.textContent = e.message || 'Connection error — please check your internet and try again.';
+      clearTimeout(safetyTimer);
+      err.textContent = 'Connection error — please check your internet and try again.';
       err.style.display = 'block';
       btn.disabled = false; btn.textContent = 'Sign in';
     }
