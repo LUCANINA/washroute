@@ -3227,6 +3227,12 @@
   const STRIPE_PK     = 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B';
   const { createClient } = supabase;
   const db = createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { storageKey: 'wr-admin-auth', autoRefreshToken: true, persistSession: true } });
+
+  // Clear any stale session from a previous visit before initialising auth.
+  // Without this, Supabase fires INITIAL_SESSION + TOKEN_REFRESHED on page load,
+  // which can race against the user's manual sign-in and cause a 30s timeout.
+  // Staff always log in explicitly — we don't need "stay logged in" behaviour.
+  (async () => { try { await db.auth.signOut(); } catch(_) {} })();
   let currentUserRole = null; // 'admin' | 'staff' — set after login
 
   // ── STATE ──
