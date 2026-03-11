@@ -838,6 +838,8 @@ function loadDriverCache(uid) {
     if (!raw) return null;
     const { profile, driver, routes, stops, ts } = JSON.parse(raw);
     if (Date.now() - ts > 86400000) return null; // expire after 24 h
+    // Invalidate if cached routes belong to a different day
+    if (routes?.length && routes[0].run_date !== today()) return null;
     return { profile, driver, routes, stops };
   } catch (_) { return null; }
 }
