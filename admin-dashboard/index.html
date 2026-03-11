@@ -3226,13 +3226,14 @@
   const SUPA_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
   const STRIPE_PK     = 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B';
   const { createClient } = supabase;
-  const db = createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { storageKey: 'wr-admin-auth', autoRefreshToken: true, persistSession: true } });
+  // persistSession: false — don't save the session to localStorage.
+  // This prevents Supabase firing INITIAL_SESSION + TOKEN_REFRESHED on every
+  // page load, which was racing against manual sign-in and causing 30s timeouts.
+  // Staff always log in explicitly so "stay logged in" is not needed.
+  const db = createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { storageKey: 'wr-admin-auth', autoRefreshToken: true, persistSession: false } });
 
-  // Clear any stale session from a previous visit before initialising auth.
-  // Without this, Supabase fires INITIAL_SESSION + TOKEN_REFRESHED on page load,
-  // which can race against the user's manual sign-in and cause a 30s timeout.
-  // Staff always log in explicitly — we don't need "stay logged in" behaviour.
-  (async () => { try { await db.auth.signOut(); } catch(_) {} })();
+  // Wipe any session persisted before this fix was deployed.
+  try { localStorage.removeItem('wr-admin-auth'); } catch(_) {}
   let currentUserRole = null; // 'admin' | 'staff' — set after login
 
   // ── STATE ──
