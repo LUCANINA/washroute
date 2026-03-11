@@ -3374,6 +3374,13 @@
   };
 
   // ── AUTH ──
+  // Generation counter: each new onAuthStateChange invocation gets a unique ID.
+  // Any in-flight handler from a previous session checks this before touching the UI,
+  // so a stale session can never overwrite a successful fresh login.
+  let _authGen = 0;
+  // Optional message to show when showLoginScreen is called after a forced sign-out.
+  let _loginScreenMsg = '';
+
   async function handleLogin() {
     const email = document.getElementById('login-email').value.trim();
     const pw    = document.getElementById('login-password').value;
@@ -3415,7 +3422,14 @@
     document.getElementById('login-screen').style.display = 'flex';
     const btn = document.getElementById('login-btn');
     btn.disabled = false; btn.textContent = 'Sign in';
-    document.getElementById('login-error').style.display = 'none';
+    const errEl = document.getElementById('login-error');
+    if (_loginScreenMsg) {
+      errEl.textContent = _loginScreenMsg;
+      errEl.style.display = 'block';
+      _loginScreenMsg = '';
+    } else {
+      errEl.style.display = 'none';
+    }
   }
 
   async function handleSignOut() {
@@ -3424,20 +3438,27 @@
   }
 
   db.auth.onAuthStateChange(async (event, session) => {
+    // Each invocation claims a generation ID. If a newer auth event fires while
+    // this one is still awaiting the profile fetch, the stale handler bails out
+    // before it can overwrite the UI — preventing the "login timed out" bug caused
+    // by an old session racing against a fresh sign-in.
+    const myGen = ++_authGen;
+
     if (session) {
       // App already visible — token refresh or duplicate event, nothing to re-init
       if (document.getElementById('app').style.display === 'block') return;
 
-      // Safety net: signInWithPassword succeeded but the profile fetch below can also
-      // hang silently on flaky networks. If we're still on the login screen after 15s,
-      // reset the button so the user is never permanently stuck.
       const btn = document.getElementById('login-btn');
       const err = document.getElementById('login-error');
-      const profileTimer = setTimeout(() => {
+
+      // Safety net: if the profile fetch hangs for 15 s, sign out the stale session
+      // so the next login attempt starts clean. (Previously we just showed an error
+      // but left the bad session in localStorage, which caused the repeat failure.)
+      const profileTimer = setTimeout(async () => {
+        if (myGen !== _authGen) return; // superseded by a newer auth event
         if (document.getElementById('login-screen').style.display !== 'none') {
-          btn.disabled = false; btn.textContent = 'Sign in';
-          err.textContent = 'Connection timed out — please try again.';
-          err.style.display = 'block';
+          _loginScreenMsg = 'Connection timed out — please try again.';
+          await db.auth.signOut(); // fires onAuthStateChange(null) → showLoginScreen()
         }
       }, 15000);
 
@@ -3450,6 +3471,9 @@
           .single();
 
         clearTimeout(profileTimer);
+
+        // If a newer session came in while we were waiting, do nothing — let it win
+        if (myGen !== _authGen) return;
 
         if (profileError) throw profileError;
 
@@ -3486,6 +3510,7 @@
         startNewOrderListener();
       } catch (e) {
         clearTimeout(profileTimer);
+        if (myGen !== _authGen) return; // superseded — don't touch UI
         // Profile query failed (network blip, etc.) — show a toast but keep the user logged in
         // Do NOT call signOut() here — a transient error shouldn't end the session
         console.error('Auth profile error:', e);
