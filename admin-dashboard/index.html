@@ -3438,6 +3438,19 @@
       // App already visible — token refresh or duplicate event, nothing to re-init
       if (document.getElementById('app').style.display === 'block') return;
 
+      // Safety net: signInWithPassword succeeded but the profile fetch below can also
+      // hang silently on flaky networks. If we're still on the login screen after 15s,
+      // reset the button so the user is never permanently stuck.
+      const btn = document.getElementById('login-btn');
+      const err = document.getElementById('login-error');
+      const profileTimer = setTimeout(() => {
+        if (document.getElementById('login-screen').style.display !== 'none') {
+          btn.disabled = false; btn.textContent = 'Sign in';
+          err.textContent = 'Connection timed out — please try again.';
+          err.style.display = 'block';
+        }
+      }, 15000);
+
       try {
         // Fetch the user's profile to check their role
         const { data: profile, error: profileError } = await db
@@ -3446,6 +3459,8 @@
           .eq('id', session.user.id)
           .single();
 
+        clearTimeout(profileTimer);
+
         if (profileError) throw profileError;
 
         const role = profile?.role || 'staff';
@@ -3453,10 +3468,8 @@
         // Block customers and drivers — this is the admin dashboard only
         if (role === 'customer' || role === 'driver') {
           await db.auth.signOut();
-          const err = document.getElementById('login-error');
           err.textContent = 'Access denied. This dashboard is for staff only.';
           err.style.display = 'block';
-          const btn = document.getElementById('login-btn');
           btn.disabled = false; btn.textContent = 'Sign in';
           return;
         }
@@ -3482,6 +3495,7 @@
         loadAll();
         startNewOrderListener();
       } catch (e) {
+        clearTimeout(profileTimer);
         // Profile query failed (network blip, etc.) — show a toast but keep the user logged in
         // Do NOT call signOut() here — a transient error shouldn't end the session
         console.error('Auth profile error:', e);
@@ -3489,10 +3503,8 @@
           showToast('Could not refresh your profile — please reload if something looks wrong.', '');
         } else {
           // Still on login screen — surface the error so they can try again
-          const err = document.getElementById('login-error');
           err.textContent = 'Sign-in failed: ' + (e.message || 'unexpected error. Please try again.');
           err.style.display = 'block';
-          const btn = document.getElementById('login-btn');
           btn.disabled = false; btn.textContent = 'Sign in';
         }
       }
