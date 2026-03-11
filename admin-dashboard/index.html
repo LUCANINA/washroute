@@ -7637,19 +7637,24 @@ window.onload=()=>{window.print();};
   let activeNotifCh     = 'sms';
 
   const NOTIF_TAGS = [
-    { tag:'{{first_name}}',    label:'First Name' },
-    { tag:'{{last_name}}',     label:'Last Name' },
-    { tag:'{{order_number}}',  label:'Order #' },
-    { tag:'{{bag_count}}',     label:'Bags' },
-    { tag:'{{driver_name}}',   label:'Driver' },
-    { tag:'{{eta}}',           label:'ETA' },
-    { tag:'{{pickup_date}}',   label:'Pickup Date' },
-    { tag:'{{delivery_date}}', label:'Delivery Date' },
-    { tag:'{{amount}}',        label:'Amount ($)' },
-    { tag:'{{review_link}}',   label:'Review Link' },
+    { tag:'{{first_name}}',      label:'First Name' },
+    { tag:'{{last_name}}',       label:'Last Name' },
+    { tag:'{{order_number}}',    label:'Order #' },
+    { tag:'{{bag_count}}',       label:'Bags' },
+    { tag:'{{driver_name}}',     label:'Driver' },
+    { tag:'{{eta}}',             label:'ETA' },
+    { tag:'{{address}}',         label:'Address' },
+    { tag:'{{time_window}}',     label:'Time Window' },
+    { tag:'{{pickup_date}}',     label:'Pickup Date' },
+    { tag:'{{delivery_date}}',   label:'Delivery Date' },
+    { tag:'{{pickup_picture}}',  label:'Pickup Photo' },
+    { tag:'{{dropoff_picture}}', label:'Delivery Photo' },
+    { tag:'{{order_link}}',      label:'Order Link' },
+    { tag:'{{amount}}',          label:'Amount ($)' },
+    { tag:'{{review_link}}',     label:'Review Link' },
   ];
 
-  const NOTIF_CAT_LABELS = { order:'Order Events', payment:'Payment', marketing:'Marketing' };
+  const NOTIF_CAT_LABELS = { account:'Account', order:'Order Events', reminders:'Reminders', payment:'Payment', marketing:'Marketing' };
 
   async function loadNotifications() {
     const { data, error } = await db.from('message_templates').select('*').order('sort_order');
@@ -7692,14 +7697,21 @@ window.onload=()=>{window.print();};
     const tmpl = allNotifTemplates.find(t => t.trigger_key === triggerKey);
     if (!tmpl) return;
     const descriptions = {
-      order_confirmed:       'Sent as soon as a new order is created.',
-      driver_on_way_pickup:  'Sent when the driver starts heading to the customer for pickup.',
-      order_picked_up:       'Sent after the driver marks all bags as collected.',
-      driver_on_way_delivery:'Sent when the driver sets off with the cleaned laundry.',
-      order_delivered:       'Sent after the driver marks the order as delivered.',
-      payment_received:      'Sent when a payment is successfully processed.',
-      payment_failed:        'Sent when a payment attempt fails.',
-      review_request:        'Sent a day after delivery to request a review.',
+      customer_registered:        'Sent when a new customer account is created.',
+      order_confirmed:            'Sent as soon as a new order is created.',
+      pickup_reminder_recurring:  'Sent the afternoon/evening before pickup for recurring customers. Includes SKIP option.',
+      pickup_reminder_one_time:   'Sent the afternoon/evening before pickup for one-time orders.',
+      skip_confirmation:          'Sent when a customer replies SKIP to skip their upcoming pickup. ⚠️ Requires inbound SKIP handling in the Twilio webhook.',
+      pickup_day_reminder:        'Sent on the morning of the pickup day. ⚠️ Requires a scheduled job (pg_cron or cron Edge Function).',
+      driver_on_way_pickup:       'Sent when the driver starts heading to the customer for pickup.',
+      order_picked_up:            'Sent after the driver marks all bags as collected.',
+      pickup_failed:              'Sent when the driver marks a pickup as failed. ⚠️ Requires a "Failed" action in the driver app.',
+      driver_on_way_delivery:     'Sent when the driver sets off with the cleaned laundry.',
+      order_delivered:            'Sent after the driver marks the order as delivered.',
+      payment_received:           'Sent when a payment is successfully processed.',
+      payment_failed:             'Sent when a payment attempt fails.',
+      review_request:             'Sent a day after delivery to request a review.',
+      reorder_reminder:           'Sent 10–14 days after delivery if no new order has been placed. ⚠️ Requires a scheduled job.',
     };
     const tagsHtml = NOTIF_TAGS.map(t =>
       `<span class="notif-tag" onclick="insertNotifTag('${t.tag}')" title="${t.tag}">${t.label}</span>`
