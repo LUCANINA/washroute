@@ -1180,8 +1180,7 @@
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <input type="search" id="order-search" placeholder="Search orders…" class="form-input" style="width:190px;padding:6px 10px;font-size:13px" oninput="filterOrdersBySearch(this.value)">
                 <div class="filter-tabs" id="order-filter-tabs">
-                  <button class="filter-tab active" data-filter="all" onclick="filterOrders(null,this)">All</button>
-                  <button class="filter-tab" data-filter="upcoming" onclick="filterOrders('upcoming',this)">Upcoming</button>
+                  <button class="filter-tab active" data-filter="scheduled" onclick="filterOrders('scheduled',this)">Scheduled</button>
                   <button class="filter-tab" data-filter="active" onclick="filterOrders('active',this)">Active</button>
                   <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
                   <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
@@ -2920,7 +2919,7 @@
   <div class="cp-body" id="cptab-orders" style="display:none">
     <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="filter-tab active" id="cpof-all" onclick="filterCpOrders('all',this)">All</button>
+        <button class="filter-tab active" id="cpof-scheduled" onclick="filterCpOrders('scheduled',this)">Scheduled</button>
         <button class="filter-tab" id="cpof-active" onclick="filterCpOrders('active',this)">Active</button>
         <button class="filter-tab" id="cpof-done" onclick="filterCpOrders('done',this)">Completed</button>
         <button class="filter-tab" id="cpof-cancelled" onclick="filterCpOrders('cancelled',this)" style="color:var(--gray-400)">Cancelled</button>
@@ -4302,15 +4301,15 @@
 
   // Group filter → actual statuses mapping
   const ORDER_FILTER_GROUPS = {
-    upcoming:  ['scheduled','ready_for_pickup'],
+    scheduled: ['scheduled','ready_for_pickup'],
     active:    ['picked_up','processing','ready_for_delivery','out_for_delivery'],
     issues:    ['skipped','on_hold'],
     cancelled: ['cancelled'],
   };
 
   async function loadOrders(statusFilter) {
-    currentOrderFilter = statusFilter || null;
-    // Default sort when changing tabs: upcoming by pickup ASC, delivered by pickup DESC, else pickup ASC
+    currentOrderFilter = statusFilter || 'scheduled';
+    // Default sort when changing tabs: scheduled by pickup ASC, delivered by pickup DESC, else pickup ASC
     if (statusFilter !== undefined) {
       orderSortCol = 'pickup_window_start';
       orderSortDir = statusFilter === 'delivered' ? 'desc' : 'asc';
@@ -4358,15 +4357,12 @@
   // Returns allOrders filtered by currentOrderFilter + orderSearchTerm
   function getFilteredOrders() {
     let data = allOrders;
-    if (currentOrderFilter && currentOrderFilter !== 'all') {
+    if (currentOrderFilter) {
       if (ORDER_FILTER_GROUPS[currentOrderFilter]) {
         data = data.filter(o => ORDER_FILTER_GROUPS[currentOrderFilter].includes(o.status));
       } else {
         data = data.filter(o => o.status === currentOrderFilter);
       }
-    } else {
-      // "All" tab hides cancelled orders to keep the list clean — use the Cancelled tab to find them
-      data = data.filter(o => o.status !== 'cancelled');
     }
     if (orderSearchTerm) {
       data = data.filter(o => {
@@ -4381,9 +4377,9 @@
 
   // Updates each pill button to show its count badge
   function updateOrderFilterCounts() {
+    const TAB_LABELS = { scheduled:'Scheduled', active:'Active', delivered:'Delivered', issues:'Issues', cancelled:'Cancelled' };
     const counts = {
-      all:       allOrders.filter(o => o.status !== 'cancelled').length,
-      upcoming:  allOrders.filter(o => (ORDER_FILTER_GROUPS.upcoming||[]).includes(o.status)).length,
+      scheduled: allOrders.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
       active:    allOrders.filter(o => (ORDER_FILTER_GROUPS.active||[]).includes(o.status)).length,
       delivered: allOrders.filter(o => o.status === 'delivered').length,
       issues:    allOrders.filter(o => (ORDER_FILTER_GROUPS.issues||[]).includes(o.status)).length,
@@ -4391,7 +4387,7 @@
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
       const key = btn.dataset.filter;
-      const label = key.charAt(0).toUpperCase() + key.slice(1);
+      const label = TAB_LABELS[key] || key;
       const n = counts[key] ?? 0;
       btn.innerHTML = n > 0
         ? `${label} <span class="tab-count">${n}</span>`
@@ -4555,7 +4551,7 @@
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
     clearOrderSelection();
-    currentOrderFilter = status || null;
+    currentOrderFilter = status || 'scheduled';
     // Reset sort direction for this filter (mirrors loadOrders behaviour)
     orderSortCol = 'pickup_window_start';
     orderSortDir = currentOrderFilter === 'delivered' ? 'desc' : 'asc';
@@ -9128,13 +9124,13 @@ window.onload=()=>{window.print();};
     // Sync last_order date if stale
     const latest = cpAllOrders.reduce((best,o)=>o.created_at&&(!best||o.created_at>best)?o.created_at:best, null);
     if (latest) { const el2=document.getElementById('cp-last-order'); if(el2&&el2.textContent==='—') { el2.textContent=fmtDate(latest); db.from('customers').update({last_order_at:latest}).eq('id',customerId).then(()=>{}); } }
-    // Reset filter tab UI and billing state to default 'all'
+    // Reset filter tab UI and billing state to default 'scheduled'
     document.querySelectorAll('#cptab-orders .filter-tab').forEach(t => t.classList.remove('active'));
-    const allTab = document.getElementById('cpof-all'); if (allTab) allTab.classList.add('active');
+    const schedTab = document.getElementById('cpof-scheduled'); if (schedTab) schedTab.classList.add('active');
     cpBillingMode = false;
     cpBillingSelection.clear();
     updateBillingBar();
-    renderCpOrders(cpAllOrders, 'all');
+    renderCpOrders(cpAllOrders, 'scheduled');
   }
 
   function filterCpOrders(filter, btn) {
@@ -9165,15 +9161,17 @@ window.onload=()=>{window.print();};
   function renderCpOrders(data, filter) {
     const activeStatuses = ['pending_pickup','picked_up','in_transit','washing','drying','folding','processing','ready_for_delivery'];
     const doneStatuses   = ['delivered'];
+    const scheduledStatuses = ['scheduled','ready_for_pickup'];
     let filtered = data;
-    if (filter==='all')       filtered = data.filter(o=>o.status !== 'cancelled');
+    if (filter==='scheduled') filtered = data.filter(o=>scheduledStatuses.includes(o.status));
     if (filter==='active')    filtered = data.filter(o=>activeStatuses.includes(o.status));
     if (filter==='done')      filtered = data.filter(o=>doneStatuses.includes(o.status));
     if (filter==='cancelled') filtered = data.filter(o=>o.status === 'cancelled');
     if (filter==='billing')   filtered = data.filter(o=>o.status==='delivered' || o.billing_status);
     const el = document.getElementById('cp-orders-list');
     if (!filtered.length) {
-      const msg = filter==='billing'   ? 'No delivered orders to bill yet.'
+      const msg = filter==='scheduled'  ? 'No scheduled orders.'
+                : filter==='billing'   ? 'No delivered orders to bill yet.'
                 : filter==='cancelled' ? 'No cancelled orders.'
                 : 'No orders in this filter.';
       el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">${msg}</div>`;
