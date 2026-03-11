@@ -3278,18 +3278,13 @@
     const sPart = s.replace(/\s*(am|pm)\s*$/i, '');
     return `${sPart} – ${e}`;
   };
-  // ── PICKUP ROUTE cell: just the route name, with reassign link if applicable ──
+  // ── PICKUP ROUTE cell: plain text only — row click opens order panel ──
   const pickupRouteCell = (o) => {
     if (o.actual_pickup_at) return `<span style="color:var(--gray-500);font-size:12px">Picked up</span>`;
-    const canEdit = ['scheduled','ready_for_pickup'].includes(o.status);
+    const canAssign = ['scheduled','ready_for_pickup'].includes(o.status);
     const routeName = o.pickup_run?.name || '';
-    if (routeName) {
-      return canEdit
-        ? `<span style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;font-weight:600" onclick="event.stopPropagation();openOrderPanelSchedule('${o.id}','pickup')" title="Edit pickup route">${routeName}</span>`
-        : `<span style="font-weight:600">${routeName}</span>`;
-    }
-    if (canEdit)
-      return `<span style="cursor:pointer;color:var(--accent);font-size:12px;font-weight:600" onclick="event.stopPropagation();openOrderPanelSchedule('${o.id}','pickup')" title="Assign pickup route">+ Assign</span>`;
+    if (routeName) return `<span style="font-weight:600">${routeName}</span>`;
+    if (canAssign) return `<span style="color:var(--gray-400);font-size:12px">+ Assign</span>`;
     return '—';
   };
 
@@ -3308,18 +3303,13 @@
     return '—';
   };
 
-  // ── DELIVERY ROUTE cell ──
+  // ── DELIVERY ROUTE cell: plain text only — row click opens order panel ──
   const deliveryRouteCell = (o) => {
     if (o.actual_delivery_at) return `<span style="color:var(--gray-500);font-size:12px">Delivered</span>`;
-    const canEdit = ['processing','ready_for_delivery','out_for_delivery'].includes(o.status);
+    const canAssign = ['processing','ready_for_delivery','out_for_delivery'].includes(o.status);
     const routeName = o.delivery_run?.name || '';
-    if (routeName) {
-      return canEdit
-        ? `<span style="cursor:pointer;text-decoration:underline;text-underline-offset:2px;font-weight:600" onclick="event.stopPropagation();openOrderPanelSchedule('${o.id}','delivery')" title="Edit delivery route">${routeName}</span>`
-        : `<span style="font-weight:600">${routeName}</span>`;
-    }
-    if (canEdit)
-      return `<span style="cursor:pointer;color:var(--accent);font-size:12px;font-weight:600" onclick="event.stopPropagation();openOrderPanelSchedule('${o.id}','delivery')" title="Assign delivery route">+ Assign</span>`;
+    if (routeName) return `<span style="font-weight:600">${routeName}</span>`;
+    if (canAssign) return `<span style="color:var(--gray-400);font-size:12px">+ Assign</span>`;
     return '—';
   };
 
