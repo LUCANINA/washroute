@@ -1179,10 +1179,9 @@
           <!-- Orders List View -->
           <div id="orders-list-view">
             <div class="stats-grid">
-              <div class="stat-card"><div class="stat-label">Active Orders</div><div class="stat-value" id="ostat-active">—</div></div>
-              <div class="stat-card"><div class="stat-label">Pending Pickup</div><div class="stat-value" id="ostat-pending">—</div></div>
-              <div class="stat-card"><div class="stat-label">Out for Delivery</div><div class="stat-value" id="ostat-out">—</div></div>
-              <div class="stat-card"><div class="stat-label">Delivered Today</div><div class="stat-value" id="ostat-done">—</div></div>
+              <div class="stat-card"><div class="stat-label">Pickups Today</div><div class="stat-value" id="ostat-pickups">—</div></div>
+              <div class="stat-card"><div class="stat-label">Orders Processing</div><div class="stat-value" id="ostat-processing">—</div></div>
+              <div class="stat-card"><div class="stat-label">Expected Revenue Today</div><div class="stat-value" id="ostat-revenue">—</div></div>
             </div>
             <div class="card">
               <div class="card-header" style="flex-wrap:wrap;gap:10px;">
@@ -4548,14 +4547,13 @@
 
     // Stat cards — always reflect full dataset
     const todayStr = today();
-    const active = allOrders.filter(o=>!['delivered','cancelled'].includes(o.status)).length;
-    const pending = allOrders.filter(o=>['scheduled','ready_for_pickup'].includes(o.status)).length;
-    const outDel  = allOrders.filter(o=>o.status==='out_for_delivery').length;
-    const doneTdy = allOrders.filter(o=>o.status==='delivered' && (o.created_at||'').startsWith(todayStr)).length;
-    document.getElementById('ostat-active').textContent  = active;
-    document.getElementById('ostat-pending').textContent = pending;
-    document.getElementById('ostat-out').textContent     = outDel;
-    document.getElementById('ostat-done').textContent    = doneTdy;
+    const pickupsToday = allOrders.filter(o => (o.pickup_window_start||'').startsWith(todayStr) && !['cancelled'].includes(o.status)).length;
+    const processing = allOrders.filter(o => ['picked_up','processing','folding','ready_for_delivery'].includes(o.status)).length;
+    const revenueToday = allOrders.filter(o => (o.pickup_window_start||'').startsWith(todayStr) && !['cancelled'].includes(o.status))
+      .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
+    document.getElementById('ostat-pickups').textContent = pickupsToday;
+    document.getElementById('ostat-processing').textContent = processing;
+    document.getElementById('ostat-revenue').textContent = fmtMoney(revenueToday);
 
     // Update pill badge counts, then render filtered view
     updateOrderFilterCounts();
