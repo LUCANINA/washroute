@@ -249,6 +249,12 @@ There are actually **two separate hang points** that must both be covered:
 - **Admin login timeout fix (root cause solved):** When a cached session existed in localStorage, Supabase fired `INITIAL_SESSION` + `TOKEN_REFRESHED` on page load. These background operations raced against the user's manual `signInWithPassword` call and caused the 30s safety timer to fire ("Connection timed out"). Fix: on a fresh tab/window load, clear localStorage before initialising Supabase so there's no cached session to trigger the race. `sessionStorage` is used to distinguish a fresh load (clear localStorage) from a page refresh within the same tab (keep the session). Outcome: no timeout on fresh visits, no logout on refresh. sessionStorage flag set on successful login, cleared on logout.
 - **Admin logout-on-refresh fix (round 2):** Supabase v2 can fire `INITIAL_SESSION` with `session = null` when the access token is expired but the refresh token is still valid (e.g. once per hour). The previous code called `showLoginScreen()` immediately on any null session, removing the `sessionStorage` key and flashing the login screen before `TOKEN_REFRESHED` arrived with a fresh token. Fix: `SIGNED_OUT` is the only event that definitively ends a session — show login immediately only for that event. For any other null-session event (`INITIAL_SESSION` null, etc.), start a 2-second fallback timer; if `TOKEN_REFRESHED` arrives with a valid session first, the timer is cancelled and the app shows normally. Result: no login-screen flash on token refresh, and users stay logged in across refreshes.
 
+### Mar 11, 2026
+- **QA sweep (all three apps):** Full code review pass. Found two issues fixed below.
+- **Customer app safetyTimer wrong element ID:** `document.getElementById('home-screen')` was wrong — correct ID is `screen-home`. Bug caused the login button to always show "Connection timed out" after 30 seconds even when the user was already authenticated. Fixed by correcting the ID.
+- **`pickup_failed` missing from admin Issues tab:** `ORDER_FILTER_GROUPS.issues` only had `['skipped','on_hold']`. Orders with `pickup_failed` status were invisible in the dashboard. Fixed by adding `'pickup_failed'` to the array.
+- **Admin logout-on-refresh — TRUE root cause (Web Locks deadlock):** Confirmed via live browser testing. Supabase JS v2 acquires a Web Lock named `lock:wr-admin-auth` during auth initialisation and token refresh. On hard refresh (Cmd+R / F5), the new page tries to acquire the same lock before the browser fully releases it from the unloaded page. This causes a **permanent deadlock** — `getSession()` and all subsequent auth calls hang forever (never resolve, never reject). Symptoms: the app loads but never shows any content and never transitions to login screen either. `navigator.locks.query()` confirmed: lock held with 9 pending requests. The previous `sessionStorage` and `INITIAL_SESSION` fixes did not address this at all — the storage was intact, the auth event pipeline just never started. **Fix:** Pass a no-op lock function to `createClient` to bypass Web Locks entirely: `const _noopLock = (name, acquireTimeout, fn) => fn();` used as `auth: { lock: _noopLock }`. Safe for this app — single admin, single tab, no concurrent refresh race conditions to worry about.
+
 ---
 
 ## Pending / Next Up
@@ -265,6 +271,7 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Git Log (recent)
 ```
+(pending) Fix: bypass Web Locks deadlock in admin auth; fix pickup_failed Issues tab; fix customer safetyTimer ID
 9118546  Fix: cover both hang points in driver app login (signInWithPassword + loadDriverData)
 36a256e  Fix: cover profile-fetch hang in onAuthStateChange (admin)
 5cf47c3  Driver app: support multiple routes per day; fix stop ordering

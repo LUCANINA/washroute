@@ -3234,7 +3234,14 @@
   if (!sessionStorage.getItem('wr-admin-tab')) {
     try { localStorage.removeItem('wr-admin-auth'); } catch(_) {}
   }
-  const db = createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { storageKey: 'wr-admin-auth', autoRefreshToken: true, persistSession: true } });
+  // Supabase v2 acquires a Web Lock (named `lock:${storageKey}`) during auth init.
+  // On hard refresh (Cmd+R), the new page can try to acquire the same lock before
+  // the browser fully releases it, causing a permanent deadlock where every auth
+  // call — including getSession() and profile fetches — waits forever.
+  // Fix: provide a no-op lock function that bypasses the Web Locks API entirely.
+  // Single-admin single-tab usage makes concurrent refresh races negligible.
+  const _noopLock = (name, acquireTimeout, fn) => fn();
+  const db = createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { storageKey: 'wr-admin-auth', autoRefreshToken: true, persistSession: true, lock: _noopLock } });
   let currentUserRole = null; // 'admin' | 'staff' — set after login
 
   // ── STATE ──
