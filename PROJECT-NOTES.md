@@ -130,6 +130,7 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 | `auto_route_order(p_order_id)` | Function | Matches order to template by zone+day+time, finds/creates the dated route, assigns driver, creates stops |
 | `trg_auto_route_new_order` | Trigger (AFTER INSERT on orders) | Fires for new scheduled orders with zone but no route assigned |
 | `trg_create_recurring_order` | Trigger (AFTER UPDATE on orders) | On status → delivered with recurring_interval, creates next order (which then auto-routes) |
+| `auto_fail_expired_orders()` | Function (pg_cron every 30min) | Fails orders 2h past their window, sends SMS to customer |
 | `find_customer_by_phone(digits)` | Function | Matches phone by last 10 digits |
 
 ---
@@ -273,6 +274,11 @@ There are actually **two separate hang points** that must both be covered:
   4. `trg_create_recurring_order()` trigger — AFTER UPDATE on orders, fires when status transitions to `delivered` and `recurring_interval` is set. Creates next order (shifted by weekly/biweekly/monthly), skips Sundays (bumps to Monday). New order INSERT fires the auto-route trigger automatically.
 - **Updated `orders_source_check`** — expanded from `('scheduled','walk_in')` to include `'customer_app'` and `'recurring'`.
 - **Booking cutoff feature:** Added `booking_cutoff_minutes` column to `route_templates` (default 30). Customer app now hides time slots when current time is within the cutoff of the slot's end time (e.g. a 9–11 AM slot with 30min cutoff disappears at 10:30 AM). Configurable per route in admin Routes editor. Previously, slots vanished the moment their start time passed — a 9–11 AM slot disappeared at 9:01 AM.
+- **Auto-fail expired orders:** New `auto_fail_expired_orders()` Postgres function runs every 30 minutes via pg_cron. Orders still in pre-pickup status (`scheduled`, `ready_for_pickup`) 2 hours after their pickup window closes → `pickup_failed`. Orders in delivery status (`ready_for_delivery`, `out_for_delivery`) 2 hours after delivery window closes → `delivery_failed`. Both land in admin Issues tab. Sends SMS to customer via pg_net → send-sms edge function inviting them to reschedule.
+- **Driver app time-window filtering:** Stops now appear 2 hours before a route's window starts and hide once the auto-fail cron marks them. Incomplete stops from earlier routes carry forward with an "OVERDUE" badge so nothing gets lost. Evening stops no longer clutter the morning view.
+- **Updated `orders_status_check`** — added `pickup_failed`, `delivery_failed`, `skipped` to allowed statuses.
+- **Updated `route_stops_status_check`** — added `failed` to allowed statuses.
+- **Admin Issues tab** — added `delivery_failed` to the filter group (was already showing `pickup_failed`).
 - **Removed JS auto-assign from customer app** — the 80-line IIFE with `tmplsForDay()`, `runForDate()`, `nextStopNum()` helpers is gone. Replaced with a comment noting DB trigger handles it.
 - **Admin dashboard JS route_stop code retained** — `saveOrder()` route_stop creation stays (needed when admin explicitly picks routes, since trigger only fires when `pickup_run_id IS NULL`). `opSaveRouteAndSlot()` stays (manual route reassignment from order panel).
 - **Tested end-to-end:** Inserted a test order for Oakland AM March 12 → trigger auto-created the dated route, assigned driver, created pickup + delivery stops. Then set `recurring_interval='weekly'` and marked delivered → recurring trigger created next order for March 19, which in turn auto-routed to Oakland AM March 19/20. Full chain works.
@@ -380,6 +386,7 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
+XXXXXXX  feat: auto-fail expired orders + driver app time-window filtering
 b277677  feat: configurable booking cutoff per route template
 dfc203e  docs: standardize on "Route" terminology, retire "run" from notes
 6c7ccbd  docs: add test order SQL template to PROJECT-NOTES

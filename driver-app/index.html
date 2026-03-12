@@ -1101,7 +1101,7 @@ async function loadDriverData() {
   // All three only need currentDriver.id and are independent of each other
   const [{ data: routes }, { data: overrideStops }] = await Promise.all([
     db.from('routes')
-      .select('id, name, status, run_date')
+      .select('id, name, status, run_date, template_id, route_templates(window_start, window_end)')
       .or(`pickup_driver_id.eq.${currentDriver.id},delivery_driver_id.eq.${currentDriver.id}`)
       .eq('run_date', today())
       .neq('status', 'cancelled'),
@@ -1111,7 +1111,28 @@ async function loadDriverData() {
       .order('stop_number', { ascending: true }),
     loadDriverMessages()
   ]);
-  todayRoutes = routes || [];
+  const allRoutesForToday = routes || [];
+
+  // ── Time-window filter: only show routes that are relevant right now ──
+  // A route is visible if:
+  //   (a) now is within (window_start − 2h) to (window_end + 2h), OR
+  //   (b) it has no template (show it, can't filter), OR
+  //   (c) it'll be revealed later (kept in allRoutesForToday for stop-carry-forward check below)
+  const PRE_WINDOW_HOURS = 2;
+  const _now = new Date();
+  const _todayStr = today(); // YYYY-MM-DD
+
+  function isRouteVisible(r) {
+    const tmpl = r.route_templates;
+    if (!tmpl || !tmpl.window_start || !tmpl.window_end) return true; // no template → always show
+    const winStart = new Date(`${_todayStr}T${tmpl.window_start}`);
+    const winEnd   = new Date(`${_todayStr}T${tmpl.window_end}`);
+    const showFrom = new Date(winStart.getTime() - PRE_WINDOW_HOURS * 60 * 60 * 1000);
+    const hideAt   = new Date(winEnd.getTime()   + PRE_WINDOW_HOURS * 60 * 60 * 1000);
+    return _now >= showFrom && _now <= hideAt;
+  }
+
+  todayRoutes = allRoutesForToday.filter(isRouteVisible);
 
   // ── Group 3: route stops (needs routeIds from group 2) ──
   let routeStops = [];
@@ -1123,6 +1144,29 @@ async function loadDriverData() {
       .is('driver_id', null)          // only stops not individually reassigned elsewhere
       .order('stop_number', { ascending: true });
     routeStops = rs || [];
+  }
+
+  // ── Carry forward: check hidden (past-window) routes for incomplete stops ──
+  // If a morning route has un-done stops, show those stops even if the window passed
+  const hiddenRoutes = allRoutesForToday.filter(r => !isRouteVisible(r));
+  if (hiddenRoutes.length > 0) {
+    const hiddenIds = hiddenRoutes.map(r => r.id);
+    const { data: carryStops } = await db.from('route_stops')
+      .select(stopFields)
+      .in('route_id', hiddenIds)
+      .is('driver_id', null)
+      .in('status', ['pending', 'en_route'])   // only incomplete stops
+      .order('stop_number', { ascending: true });
+    if (carryStops?.length) {
+      // Add those routes back to todayRoutes so they render with a section header
+      carryStops.forEach(s => {
+        if (!todayRoutes.find(r => r.id === s.route_id)) {
+          const parentRoute = allRoutesForToday.find(r => r.id === s.route_id);
+          if (parentRoute) todayRoutes.push({ ...parentRoute, _carryForward: true });
+        }
+      });
+      routeStops = [...routeStops, ...carryStops];
+    }
   }
 
   // Merge — mark override stops so they appear in the "Extra Stops" card, not a phantom route card
@@ -1375,8 +1419,9 @@ function renderRoute() {
       const rDone = rStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
       if (!firstSection) h += '<div style="height:10px"></div>';
       firstSection = false;
+      const carryTag = route._carryForward ? ' <span style="font-size:10px;font-weight:700;color:#dc2626;background:#fef2f2;padding:2px 6px;border-radius:4px;margin-left:4px">OVERDUE</span>' : '';
       h += `<div class="stop-section-hdr">
-        <span class="stop-section-pill" style="background:#f3f0ff;color:#7c3aed"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#7c3aed;margin-right:5px;vertical-align:middle"></span>${route.name}</span>
+        <span class="stop-section-pill" style="background:#f3f0ff;color:#7c3aed"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#7c3aed;margin-right:5px;vertical-align:middle"></span>${route.name}${carryTag}</span>
         <span class="stop-section-count">${rDone} of ${rStops.length} done</span>
       </div>`;
       rStops.forEach(stop => { h += renderStopCard(stop); });
