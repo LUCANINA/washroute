@@ -9890,17 +9890,23 @@ window.onload=()=>{window.print();};
       ? [defaultAddr.line1, defaultAddr.line2, `${defaultAddr.city}, ${defaultAddr.state} ${defaultAddr.zip}`].filter(Boolean)
       : [];
     const today    = new Date().toLocaleDateString('en-US', { weekday:'short', month:'numeric', day:'numeric', year:'2-digit' });
-    const totalDue = orders.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+    const totalAmount = orders.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+    const totalPaid   = orders.filter(o => !!o.stripe_payment_intent_id).reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+    const totalDue    = totalAmount - totalPaid;
 
     function fmtInvMoney(n) { return '$' + parseFloat(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
     function fmtInvDate(d)  { return d ? new Date(d).toLocaleDateString('en-US',{weekday:'short',month:'numeric',day:'numeric',year:'2-digit'}) : '—'; }
 
     const orderBlocks = orders.map(o => {
       const items = Array.isArray(o.line_items) ? o.line_items : [];
-      // Only show line items that have an actual charge (filter out $0 preference flags like "Hot", "Yes", etc.)
-      const chargeableItems = items.filter(li => parseFloat(li.amount || 0) > 0);
-      const lineRows = chargeableItems.length
-        ? chargeableItems.map(li => `
+      const isPaid = !!o.stripe_payment_intent_id;
+      const docType = isPaid ? 'RECEIPT' : 'INVOICE';
+      // Show charge items (>0) and credit items (<0), skip $0 preference flags
+      const displayItems = items.filter(li => parseFloat(li.amount || 0) !== 0);
+      const creditItems = displayItems.filter(li => parseFloat(li.amount || 0) < 0);
+      const chargeItems = displayItems.filter(li => parseFloat(li.amount || 0) > 0);
+      const lineRows = chargeItems.length
+        ? chargeItems.map(li => `
             <tr>
               <td style="padding:2px 0 2px 24px;font-size:12px;color:#333">${li.label||li.description||'Service'}</td>
               <td style="text-align:right;padding:2px 0;font-size:12px">${fmtInvMoney(li.amount)}</td>
@@ -9911,13 +9917,30 @@ window.onload=()=>{window.print();};
             </td>
             <td style="text-align:right;padding:2px 0;font-size:12px">${fmtInvMoney(o.total_amount)}</td>
           </tr>`;
+      // Credit line items (negative amounts, shown in green)
+      const creditRows = creditItems.map(li => `
+            <tr>
+              <td style="padding:2px 0 2px 24px;font-size:12px;color:#059669">${li.label||'Credit applied'}</td>
+              <td style="text-align:right;padding:2px 0;font-size:12px;color:#059669">−${fmtInvMoney(Math.abs(li.amount))}</td>
+            </tr>`).join('');
+      // Payment status row
+      const paidRow = isPaid ? `
+            <tr>
+              <td style="padding:4px 0 0 24px;font-size:12px;font-weight:600;color:#059669">✓ PAID</td>
+              <td style="text-align:right;font-size:12px;font-weight:600;color:#059669;padding:4px 0 0">−${fmtInvMoney(o.total_amount)}</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 0 0 24px;font-size:12px;font-weight:700">Balance</td>
+              <td style="text-align:right;font-size:12px;font-weight:700;padding:4px 0 0">$0.00</td>
+            </tr>` : '';
       return `
         <div style="margin-bottom:22px;page-break-inside:avoid">
           <div style="font-weight:700;font-size:13px;border-bottom:1px solid #ddd;padding-bottom:5px;margin-bottom:6px">
-            Order #${o.order_number} &nbsp;&nbsp; INVOICE &nbsp;&nbsp; ${customerName} &nbsp;&nbsp; ${fmtInvDate(o.pickup_window_start||o.created_at)}
+            Order #${o.order_number} &nbsp;&nbsp; ${docType} &nbsp;&nbsp; ${customerName} &nbsp;&nbsp; ${fmtInvDate(o.pickup_window_start||o.created_at)}
           </div>
           <table style="width:100%;border-collapse:collapse">
             ${lineRows}
+            ${creditRows}
             ${o.weight_lbs ? `<tr><td style="padding:2px 0 2px 24px;font-size:12px;color:#777">Weight</td><td style="text-align:right;padding:2px 0;font-size:12px;color:#777">${o.weight_lbs} lbs</td></tr>` : ''}
             <tr>
               <td colspan="2" style="padding:5px 0 0"><hr style="border:none;border-top:1px solid #eee;margin:0"></td>
@@ -9926,6 +9949,7 @@ window.onload=()=>{window.print();};
               <td style="padding:4px 0 0 24px;font-size:12px;font-weight:600">Grand Total</td>
               <td style="text-align:right;font-size:12px;font-weight:600;padding:4px 0 0">${fmtInvMoney(o.total_amount)}</td>
             </tr>
+            ${paidRow}
           </table>
         </div>`;
     }).join('');
@@ -9934,7 +9958,7 @@ window.onload=()=>{window.print();};
     const html = `<!DOCTYPE html>
 <html><head>
   <meta charset="utf-8">
-  <title>Invoice — Family Laundry</title>
+  <title>${totalDue > 0 ? 'Invoice' : 'Receipt'} — Family Laundry</title>
   <style>
     @page { margin: 0.75in; size: letter; }
     * { box-sizing: border-box; }
@@ -9989,14 +10013,19 @@ window.onload=()=>{window.print();};
       <td style="vertical-align:top;text-align:right">
         <div style="font-size:12px;line-height:2.0">
           Statement Date: <strong>${today}</strong><br>
-          Amount Due: <strong>${fmtInvMoney(totalDue)}</strong><br>
-          Amount Enclosed: $__________
+          ${totalDue > 0
+            ? `Amount Due: <strong>${fmtInvMoney(totalDue)}</strong><br>Amount Enclosed: $__________`
+            : `Total: <strong>${fmtInvMoney(totalAmount)}</strong><br><span style="color:#059669;font-weight:700">✓ Paid in Full</span>`
+          }
         </div>
       </td>
     </tr>
   </table>
 
-  <div style="font-size:11px;color:#777;margin-bottom:24px;font-style:italic">Please remit payment to Family Laundry at the address listed above.</div>
+  ${totalDue > 0
+    ? `<div style="font-size:11px;color:#777;margin-bottom:24px;font-style:italic">Please remit payment to Family Laundry at the address listed above.</div>`
+    : `<div style="font-size:11px;color:#059669;margin-bottom:24px;font-style:italic">All charges have been paid. Thank you!</div>`
+  }
 
   <!-- Order blocks -->
   ${orderBlocks}
@@ -10005,10 +10034,29 @@ window.onload=()=>{window.print();};
   <table style="margin-top:16px;border-top:2px solid #111;padding-top:0">
     <tr>
       <td></td>
-      <td style="text-align:right;padding-top:12px;min-width:200px">
+      <td style="text-align:right;padding-top:12px;min-width:240px">
+        ${totalPaid > 0 && totalDue > 0 ? `
+        <div style="display:flex;justify-content:space-between;gap:32px;font-size:13px;color:#333;margin-bottom:4px">
+          <span>Subtotal</span><span>${fmtInvMoney(totalAmount)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:32px;font-size:13px;color:#059669;margin-bottom:4px">
+          <span>Paid</span><span>−${fmtInvMoney(totalPaid)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:32px;font-size:14px;font-weight:700">
+          <span>Balance Due</span><span>${fmtInvMoney(totalDue)}</span>
+        </div>` : totalDue <= 0 ? `
+        <div style="display:flex;justify-content:space-between;gap:32px;font-size:13px;color:#333;margin-bottom:4px">
+          <span>Total</span><span>${fmtInvMoney(totalAmount)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:32px;font-size:13px;color:#059669;margin-bottom:4px">
+          <span>Paid</span><span>−${fmtInvMoney(totalPaid)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:32px;font-size:14px;font-weight:700;color:#059669">
+          <span>Balance Due</span><span>$0.00</span>
+        </div>` : `
         <div style="display:flex;justify-content:space-between;gap:32px;font-size:14px;font-weight:700">
           <span>Total Due</span><span>${fmtInvMoney(totalDue)}</span>
-        </div>
+        </div>`}
       </td>
     </tr>
   </table>
