@@ -3366,6 +3366,7 @@
       delivered:          ['badge-green',  'Delivered'],
       skipped:            ['badge-red',    'Skipped'],
       pickup_failed:      ['badge-red',    'Pickup Failed'],
+      delivery_failed:    ['badge-red',    'Delivery Failed'],
       on_hold:            ['badge-amber',  'On Hold'],
       cancelled:          ['badge-red',    'Cancelled'],
       // Legacy (retired statuses — kept so old records display correctly)
@@ -10438,7 +10439,7 @@ window.onload=()=>{window.print();};
       arrival_window_hours: parseInt(document.getElementById('so-arrival-window').value) || 3,
       turnaround_days: parseInt(document.getElementById('so-turnaround-days').value) || 1,
       stop_limit: document.getElementById('so-stop-limit').value ? parseInt(document.getElementById('so-stop-limit').value) : null,
-      booking_cutoff_minutes: parseInt(document.getElementById('so-booking-cutoff').value) || 30,
+      booking_cutoff_minutes: (() => { const v = parseInt(document.getElementById('so-booking-cutoff').value); return isNaN(v) ? 30 : v; })(),
       service_type: document.getElementById('so-service-type').value,
       default_pickup_driver_id: document.getElementById('so-pickup-driver').value || null,
       is_active: document.getElementById('so-active').checked,
@@ -12977,8 +12978,8 @@ window.onload=()=>{window.print();};
   }
 
   function renderOrderStatusBreakdown(orders) {
-    const STATUS_LABELS = { scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up', processing:'Processing', folding:'Folding', ready_for_delivery:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', skipped:'Skipped', pickup_failed:'Pickup Failed', on_hold:'On Hold', cancelled:'Cancelled', pending_pickup:'Pending Pickup', ready:'Ready', assembled:'Assembled', pickup_missed:'Pickup Missed', delivery_missed:'Delivery Missed' };
-    const STATUS_COLORS = { delivered:'#dcfce7', picked_up:'#dbeafe', out_for_delivery:'#ede9fe', processing:'#fef9c3', folding:'#d1fae5', ready_for_delivery:'#d1fae5', skipped:'#fee2e2', pickup_failed:'#fee2e2', cancelled:'#fee2e2', on_hold:'#fef3c7', scheduled:'#f1f5f9', ready_for_pickup:'#fef3c7', pending_pickup:'#fef3c7', ready:'#d1fae5', assembled:'#f3e8ff', pickup_missed:'#fee2e2', delivery_missed:'#fee2e2' };
+    const STATUS_LABELS = { scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up', processing:'Processing', folding:'Folding', ready_for_delivery:'Ready for Delivery', out_for_delivery:'Out for Delivery', delivered:'Delivered', skipped:'Skipped', pickup_failed:'Pickup Failed', delivery_failed:'Delivery Failed', on_hold:'On Hold', cancelled:'Cancelled', pending_pickup:'Pending Pickup', ready:'Ready', assembled:'Assembled', pickup_missed:'Pickup Missed', delivery_missed:'Delivery Missed' };
+    const STATUS_COLORS = { delivered:'#dcfce7', picked_up:'#dbeafe', out_for_delivery:'#ede9fe', processing:'#fef9c3', folding:'#d1fae5', ready_for_delivery:'#d1fae5', skipped:'#fee2e2', pickup_failed:'#fee2e2', delivery_failed:'#fee2e2', cancelled:'#fee2e2', on_hold:'#fef3c7', scheduled:'#f1f5f9', ready_for_pickup:'#fef3c7', pending_pickup:'#fef3c7', ready:'#d1fae5', assembled:'#f3e8ff', pickup_missed:'#fee2e2', delivery_missed:'#fee2e2' };
     const el = document.getElementById('rpt-status-breakdown');
     if (!el) return;
     const counts = {};

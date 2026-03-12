@@ -2589,7 +2589,7 @@ async function fetchWindowsForDate(iso) {
   if (iso === localIso()) {
     const now = new Date();
     draft.availableWindows = windows.filter(w => {
-      const cutoffMs = (w.cutoffMins || 30) * 60 * 1000;
+      const cutoffMs = (w.cutoffMins ?? 30) * 60 * 1000;
       return (new Date(w.slotEnd).getTime() - cutoffMs) > now.getTime();
     });
   } else {
@@ -4189,7 +4189,7 @@ async function fetchEditWindows(iso) {
   if (iso === localIso()) {
     const now = new Date();
     es.availableWindows = windows.filter(w => {
-      const cutoffMs = (w.cutoffMins || 30) * 60 * 1000;
+      const cutoffMs = (w.cutoffMins ?? 30) * 60 * 1000;
       return (new Date(w.slotEnd).getTime() - cutoffMs) > now.getTime();
     });
   } else {
