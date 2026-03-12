@@ -5149,6 +5149,20 @@
     document.getElementById(`op-${leg}-slot-wrap`).style.display = 'none';
     if (!dateStr) { listEl.innerHTML = '<span style="color:var(--gray-400);font-size:13px">Pick a date above</span>'; return; }
 
+    // Convert dateStr to 0=Mon..6=Sun to match template schedule_days
+    const [yr, mo, dy] = dateStr.split('-').map(Number);
+    const jsDay = new Date(yr, mo - 1, dy).getDay(); // 0=Sun..6=Sat
+    const schedDay = jsDay === 0 ? 6 : jsDay - 1;     // 0=Mon..6=Sun
+    const dayName = new Date(yr, mo - 1, dy).toLocaleDateString('en-US', { weekday: 'long' });
+
+    // Check if ANY template runs on this day — if not, block the entire day
+    const anyTemplateRunsToday = _opTemplates.some(t =>
+      !Array.isArray(t.schedule_days) || t.schedule_days.includes(schedDay));
+    if (!anyTemplateRunsToday) {
+      listEl.innerHTML = `<span style="color:var(--gray-400);font-size:13px">No routes run on ${dayName}s.</span>`;
+      return;
+    }
+
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     const currentId = leg === 'pickup' ? o?.pickup_run_id : o?.delivery_run_id;
 
@@ -5157,18 +5171,12 @@
 
     if (!dayRoutes.length) {
       // No pre-generated routes for this date — show templates so admin can create one
-      // Convert dateStr to 0=Mon..6=Sun to match schedule_days
-      const [yr, mo, dy] = dateStr.split('-').map(Number);
-      const jsDay = new Date(yr, mo - 1, dy).getDay(); // 0=Sun..6=Sat
-      const schedDay = jsDay === 0 ? 6 : jsDay - 1;     // 0=Mon..6=Sun
       const matchTemplates = _opTemplates.filter(t => {
-        // Only show templates that run on this day of week
         if (Array.isArray(t.schedule_days) && !t.schedule_days.includes(schedDay)) return false;
         if (!_opPickerZoneIds.size) return true;
         return t.zone_id && _opPickerZoneIds.has(t.zone_id);
       });
       if (!matchTemplates.length) {
-        const dayName = new Date(yr, mo - 1, dy).toLocaleDateString('en-US', { weekday: 'long' });
         listEl.innerHTML = `<span style="color:var(--gray-400);font-size:13px">No routes run on ${dayName}s.</span>`;
         return;
       }
