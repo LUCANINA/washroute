@@ -895,6 +895,7 @@
     .bill-method-opt { display:flex;align-items:center;gap:8px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:border-color .12s,background .12s; }
     .bill-method-opt:has(input:checked) { border-color:var(--accent);background:#f5f3ff; }
     .bill-method-opt:hover { border-color:var(--gray-300); }
+    .recur-tip-wrap:hover .recur-tip { display:block !important; }
   </style>
 </head>
 <body>
@@ -4441,10 +4442,14 @@
     if (!p) return { _name_cache: cust.first_name_cache, _lname_cache: cust.last_name_cache };
     return Array.isArray(p) ? (p[0]||{}) : p;
   }
-  const _recurLabel = { weekly: 'Repeats every week', biweekly: 'Repeats every 2 weeks', monthly: 'Repeats every month' };
+  const _recurLabel = { weekly: 'Every week', biweekly: 'Every 2 weeks', monthly: 'Every month' };
   function _recurSvg(interval) {
     if (!interval) return '';
-    return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="cursor:help" title="' + (_recurLabel[interval] || ('Repeats: ' + interval)) + '"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2.5 11.5a10 10 0 0 1 18.3-4.4l.7.9"/><path d="M21.5 12.5a10 10 0 0 1-18.3 4.4l-.7-.9"/></svg>';
+    const label = _recurLabel[interval] || ('Every ' + interval);
+    return '<span style="position:relative;display:inline-flex;align-items:center" class="recur-tip-wrap">'
+      + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="cursor:pointer"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2.5 11.5a10 10 0 0 1 18.3-4.4l.7.9"/><path d="M21.5 12.5a10 10 0 0 1-18.3 4.4l-.7-.9"/></svg>'
+      + '<span class="recur-tip" style="display:none;position:absolute;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);background:#374151;color:#fff;font-size:11px;font-weight:600;padding:4px 10px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:999">' + label + '</span>'
+      + '</span>';
   }
   function orderCustomerName(o) {
     const p = orderProfile(o);
@@ -4748,7 +4753,8 @@
     const recurBadge = document.getElementById('op-recur-badge');
     if (o.recurring_interval) {
       recurBadge.style.display = 'inline-flex';
-      recurBadge.innerHTML = _recurSvg(o.recurring_interval) + ' ' + (_recurLabel[o.recurring_interval] || ('Repeats: ' + o.recurring_interval));
+      const _panelRecurLabel = { weekly: 'Repeats every week', biweekly: 'Repeats every 2 weeks', monthly: 'Repeats every month' };
+      recurBadge.innerHTML = _recurSvg(o.recurring_interval) + ' ' + (_panelRecurLabel[o.recurring_interval] || ('Repeats: ' + o.recurring_interval));
     } else {
       recurBadge.style.display = 'none';
       recurBadge.innerHTML = '';
