@@ -3401,6 +3401,10 @@
   let _loginInProgress = false;
   // Message to surface after a role-denied signOut resolves via the null-session branch.
   let _pendingAccessDeniedMsg = '';
+  // Fallback timer: when INITIAL_SESSION fires with null, we don't immediately show the
+  // login screen — Supabase may be mid-refresh and TOKEN_REFRESHED is about to arrive.
+  // This timer fires 2 seconds later if no valid session has appeared.
+  let _sessionNullTimer = null;
 
   async function handleLogin() {
     if (_loginInProgress) return; // debounce concurrent calls
@@ -3469,6 +3473,9 @@
     const myGen = ++_authGen;
 
     if (session) {
+      // A valid session arrived — cancel any pending "show login screen" fallback timer.
+      clearTimeout(_sessionNullTimer);
+      _sessionNullTimer = null;
       // App already visible — token refresh or duplicate event, nothing to re-init
       if (document.getElementById('app').style.display === 'block') return;
 
@@ -3556,11 +3563,31 @@
         }
       }
     } else {
-      // Session ended (explicit sign-out, expired, or role denied) — show login screen.
-      // If the sign-out was due to role mismatch, show the access-denied message.
-      const msg = (event === 'SIGNED_OUT' && _pendingAccessDeniedMsg) ? _pendingAccessDeniedMsg : '';
-      _pendingAccessDeniedMsg = '';
-      showLoginScreen(msg);
+      // ── NULL SESSION ──
+      // SIGNED_OUT is Supabase's definitive "session is over" signal — show login immediately.
+      // For any other null event (most commonly INITIAL_SESSION null when the access token
+      // just expired), do NOT immediately show the login screen: TOKEN_REFRESHED may be
+      // arriving within milliseconds with a fresh token. Use a short fallback timer instead.
+      // The login-screen div is already visible via CSS on a fresh page load, so there is
+      // no visible flash during the wait period.
+      if (event === 'SIGNED_OUT') {
+        clearTimeout(_sessionNullTimer);
+        _sessionNullTimer = null;
+        const msg = _pendingAccessDeniedMsg || '';
+        _pendingAccessDeniedMsg = '';
+        showLoginScreen(msg);
+      } else {
+        // INITIAL_SESSION null, TOKEN_REFRESH_FAILED, or similar: wait briefly.
+        // If TOKEN_REFRESHED arrives with a valid session, the if(session) branch above
+        // will cancel this timer and show the app instead.
+        clearTimeout(_sessionNullTimer);
+        _sessionNullTimer = setTimeout(() => {
+          _sessionNullTimer = null;
+          if (document.getElementById('app').style.display !== 'block') {
+            showLoginScreen();
+          }
+        }, 2000);
+      }
     }
   });
 
