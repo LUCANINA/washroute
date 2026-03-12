@@ -377,6 +377,11 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
+dfc203e  docs: standardize on "Route" terminology, retire "run" from notes
+6c7ccbd  docs: add test order SQL template to PROJECT-NOTES
+957d1c5  feat: move order routing from client JS to DB triggers
+791cc6f  fix: complete route assignment for customer-placed and admin-created orders
+b34909d  notes: update session log for Mar 12 — logout-on-refresh final fix
 57cfcb0  fix: remove Safari/Chrome-breaking sessionStorage guard that wiped auth on every refresh
 afe7436  debug: add auth event logging + extend null-session timer to 10s
 (before these) Fix: bypass Web Locks deadlock in admin auth; fix pickup_failed Issues tab; fix customer safetyTimer ID
