@@ -9437,15 +9437,12 @@ window.onload=()=>{window.print();};
     btn.disabled = true; btn.textContent = 'Processing…';
 
     try {
-      const { data: { session } } = await db.auth.getSession();
-      if (!session) throw new Error('Not authenticated — please log in again.');
-
       const res = await fetch(`${SUPA_URL}/functions/v1/refund-charge`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
         body: JSON.stringify({ transactionId: _refundTxnId, amount: amtRaw, reason: reason || undefined }),
       });
-      const result = await res.json();
+      const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
       if (!res.ok || result.error) throw new Error(result.error || 'Refund failed');
 
       closeRefundModal();
@@ -12502,6 +12499,8 @@ window.onload=()=>{window.print();};
   let allPreferencesCache  = []; // global preferences table (for pre-fill logic)
 
   async function loadProcessing() {
+    // Ensure fees are loaded (delivery fee, same-day surcharge, etc.)
+    if (!allFees.length) await loadFees();
     // Refresh services cache so pricing changes (type, base_price) are always current
     const { data: freshSvcs } = await db.from('services')
       .select('id, name, base_price, pricing_type, lbs_per_bag, pricelist, linked_preference_id, is_addon')
