@@ -1701,7 +1701,7 @@ async function handleLogin(e) {
   // Safety net: if something silently hangs for 30s and we're still on the
   // login screen, reset the button so the user is never permanently stuck
   const safetyTimer = setTimeout(() => {
-    if (!document.getElementById('home-screen')) {
+    if (!document.getElementById('screen-home')) {
       showLoading(false);
       btn.disabled = false; btn.textContent = 'Sign In';
       errEl.textContent = 'Connection timed out — please try again.';
