@@ -265,7 +265,7 @@ There are actually **two separate hang points** that must both be covered:
 ## Pending / Next Up
 - ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix)
 - Receipt printing: print button on order detail (thermal 80mm bag tag) — mockup exists at `receipt-mockup.html`
-- ~~Customer email receipt (SendGrid)~~ ✅
+- ~~Customer email receipt (SendGrid)~~ ✅ — SendGrid confirmed working and sending
 - SMS/email automation — Phase 1: status check auto-replies (see section above)
 - Live driver tracking (Google Maps)
 - Xero accounting sync

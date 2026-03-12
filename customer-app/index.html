@@ -3107,61 +3107,96 @@ async function placeOrder() {
       }
       return new Date(deliveryDate + 'T18:00:00').toISOString();
     })(),
-    pickup_run_id:        null,                   // routes table FK — template IDs don't match; linked by admin later
+    pickup_run_id:        null,                   // auto-assigned below if a matching route run exists
     recurring_interval:   draft.recurring || null,
     line_items:           lineItems,
     special_instructions: draft.specialInstructions || null,
     zone_id:              draft.zoneId || null,
     pickup_address_id:    draft.addressId || null,
-    delivery_address_id:  draft.deliveryAddressId || draft.addressId || null  // default delivery = same as pickup
+    delivery_address_id:  draft.deliveryAddressId || draft.addressId || null,  // default delivery = same as pickup
+    source:               'customer_app'
     // order_number is GENERATED ALWAYS AS IDENTITY — DB auto-assigns, do not supply
   }).select().single();
 
   btn.disabled = false; btn.textContent = currentCustomer ? 'Place Order' : 'Create Account & Place Order';
   if (error) { toast('Error: ' + error.message); return; }
 
-  // ── Auto-assign to route stop (best-effort, don't block success screen) ──
+  // ── Auto-assign to route stops (best-effort, don't block success screen) ──
+  // Handles both pickup and delivery. Requires admin to have created route runs
+  // for those dates. If no run exists yet, admin assigns manually via order panel.
   (async () => {
     try {
-      const pickupIso = draft.pickupDate;
-      // Find route templates for this zone + day of week
-      const selDate = new Date(pickupIso + 'T12:00:00');
-      const isoDay  = (selDate.getDay() + 6) % 7; // 0=Mon … 6=Sun
-      const { data: tmplIds } = await db.from('route_templates')
-        .select('id').eq('zone_id', draft.zoneId).eq('is_active', true)
-        .contains('schedule_days', [isoDay]);
-      if (!tmplIds?.length) return;
+      if (!draft.zoneId) return;
 
-      // Find an actual route on that date for one of those templates
-      const { data: routes } = await db.from('routes')
-        .select('id').in('template_id', tmplIds.map(t => t.id))
-        .eq('run_date', pickupIso).neq('status','cancelled').limit(1);
-      const route = routes?.[0];
-      if (!route) return; // No route created by admin yet — admin can assign manually
+      // Helper: template IDs for a given zone + day-of-week
+      const tmplsForDay = async (dateIso) => {
+        const day = (new Date(dateIso + 'T12:00:00').getDay() + 6) % 7; // 0=Mon…6=Sun
+        const { data } = await db.from('route_templates')
+          .select('id').eq('zone_id', draft.zoneId).eq('is_active', true)
+          .contains('schedule_days', [day]);
+        return (data || []).map(t => t.id);
+      };
 
-      // Get customer's default address
+      // Helper: find a route run on a specific date for a set of template IDs
+      const runForDate = async (dateIso, tmplIds) => {
+        if (!tmplIds.length) return null;
+        const { data } = await db.from('routes')
+          .select('id').in('template_id', tmplIds)
+          .eq('run_date', dateIso).neq('status', 'cancelled').limit(1);
+        return data?.[0] || null;
+      };
+
+      // Helper: next available stop_number on a route
+      const nextStopNum = async (routeId) => {
+        const { data } = await db.from('route_stops')
+          .select('stop_number').eq('route_id', routeId)
+          .order('stop_number', { ascending: false }).limit(1);
+        return (data?.[0]?.stop_number || 0) + 1;
+      };
+
+      // Find pickup and delivery route runs
+      const pickupTmplIds = await tmplsForDay(pickupDate);
+      const pickupRoute   = await runForDate(pickupDate, pickupTmplIds);
+
+      let delivRoute = null;
+      if (deliveryDate) {
+        const delivTmplIds = await tmplsForDay(deliveryDate);
+        delivRoute = await runForDate(deliveryDate, delivTmplIds);
+      }
+
+      if (!pickupRoute && !delivRoute) return; // No runs found — admin assigns manually
+
+      // Get customer's default address (used for both stops)
       const { data: addrs } = await db.from('addresses')
         .select('id').eq('customer_id', currentCustomer.id).eq('is_default', true).limit(1);
       const addressId = addrs?.[0]?.id || null;
 
-      // Get next stop number for this route
-      const { data: stops } = await db.from('route_stops')
-        .select('stop_number').eq('route_id', route.id)
-        .order('stop_number', { ascending: false }).limit(1);
-      const nextNum = (stops?.[0]?.stop_number || 0) + 1;
+      // Create pickup stop
+      if (pickupRoute) {
+        const pNum = await nextStopNum(pickupRoute.id);
+        await db.from('route_stops').insert({
+          route_id: pickupRoute.id, order_id: order.id,
+          stop_type: 'pickup', stop_number: pNum,
+          address_id: addressId, status: 'pending'
+        });
+      }
 
-      // Create the pickup stop
-      await db.from('route_stops').insert({
-        route_id:    route.id,
-        order_id:    order.id,
-        stop_type:   'pickup',
-        stop_number: nextNum,
-        address_id:  addressId,
-        status:      'pending'
-      });
+      // Create delivery stop
+      if (delivRoute) {
+        const dNum = await nextStopNum(delivRoute.id);
+        await db.from('route_stops').insert({
+          route_id: delivRoute.id, order_id: order.id,
+          stop_type: 'delivery', stop_number: dNum,
+          address_id: addressId, status: 'pending'
+        });
+      }
 
-      // Link the route back to the order
-      await db.from('orders').update({ pickup_run_id: route.id }).eq('id', order.id);
+      // Update order with both run IDs in a single write
+      const runUpdate = {};
+      if (pickupRoute) runUpdate.pickup_run_id  = pickupRoute.id;
+      if (delivRoute)  runUpdate.delivery_run_id = delivRoute.id;
+      await db.from('orders').update(runUpdate).eq('id', order.id);
+
     } catch(_) { /* best-effort — don't block the success screen */ }
   })();
 

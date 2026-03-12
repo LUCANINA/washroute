@@ -5102,6 +5102,20 @@
       }
     }
 
+    // Upsert route_stop for delivery leg
+    if (leg === 'delivery') {
+      const cust   = allCustomers.find(c => c.id === opCurrentCustId);
+      const addrs  = Array.isArray(cust?.addresses) ? cust.addresses : [];
+      const addrId = o.delivery_address_id || o.pickup_address_id || addrs.find(a => a.is_default)?.id || addrs[0]?.id || null;
+      const { data: existStop } = await db.from('route_stops').select('id').eq('order_id', opCurrentOrderId).eq('stop_type','delivery').maybeSingle();
+      if (existStop) {
+        await db.from('route_stops').update({ route_id: routeId }).eq('id', existStop.id);
+      } else {
+        const { data: maxS } = await db.from('route_stops').select('stop_number').eq('route_id', routeId).order('stop_number',{ascending:false}).limit(1);
+        await db.from('route_stops').insert({ route_id: routeId, order_id: opCurrentOrderId, stop_type:'delivery', stop_number:(maxS?.[0]?.stop_number||0)+1, address_id: addrId, status:'pending' });
+      }
+    }
+
     // Close picker and refresh
     const picker = document.getElementById(`op-${leg}-picker`);
     picker.style.display = 'none';
@@ -8470,7 +8484,7 @@ window.onload=()=>{window.print();};
       if (dr) delivRunId = dr.id;
     }
 
-    const { error } = await db.from('orders').insert({
+    const { data: newOrder, error } = await db.from('orders').insert({
       customer_id:           customerId,
       status:                'scheduled',
       pickup_address_id:     addressId,
@@ -8486,10 +8500,24 @@ window.onload=()=>{window.print();};
       tip_type:              _noTipType,
       discount_id:           discountId,
       total_amount:          0,             // set properly when weighed / charged
-    });
+    }).select('id').single();
 
     if (btn) { btn.disabled = false; btn.textContent = 'Create Order'; }
     if (error) { err.textContent = error.message; err.style.display='block'; return; }
+
+    // Create route_stop rows for any auto-linked routes so the driver app sees them
+    const newOrderId = newOrder?.id;
+    if (newOrderId) {
+      if (pickupRunId) {
+        const { data: maxS } = await db.from('route_stops').select('stop_number').eq('route_id', pickupRunId).order('stop_number',{ascending:false}).limit(1);
+        await db.from('route_stops').insert({ route_id: pickupRunId, order_id: newOrderId, stop_type:'pickup', stop_number:(maxS?.[0]?.stop_number||0)+1, address_id: addressId, status:'pending' });
+      }
+      if (delivRunId) {
+        const { data: maxD } = await db.from('route_stops').select('stop_number').eq('route_id', delivRunId).order('stop_number',{ascending:false}).limit(1);
+        await db.from('route_stops').insert({ route_id: delivRunId, order_id: newOrderId, stop_type:'delivery', stop_number:(maxD?.[0]?.stop_number||0)+1, address_id: addressId, status:'pending' });
+      }
+    }
+
     showToast('Order created!', 'success');
     closeModal('add-order');
     loadOrders();
