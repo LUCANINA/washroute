@@ -3384,7 +3384,7 @@
       ready_for_pickup:   ['badge-amber',  'Ready for Pickup'],
       picked_up:          ['badge-blue',   'Picked Up'],
       processing:         ['badge-amber',  'Processing'],
-      folding:            ['badge-green',  'Folding'],
+      folding:            ['badge-amber',  'Processing'],
       ready_for_delivery: ['badge-green',  'Ready for Delivery'],
       out_for_delivery:   ['badge-blue',   'Out for Delivery'],
       delivered:          ['badge-green',  'Delivered'],
@@ -4986,14 +4986,14 @@
 
   // ── STATUS DROPDOWN ──
   const _opStatusChoices = [
-    'scheduled','ready_for_pickup','picked_up','processing','folding',
+    'scheduled','ready_for_pickup','picked_up','processing',
     'ready_for_delivery','out_for_delivery','delivered',
     null, // separator
     'on_hold','skipped','pickup_failed','delivery_failed','cancelled'
   ];
   const _OP_STATUS_LABELS = {
     scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up',
-    processing:'Processing', folding:'Folding', ready_for_delivery:'Ready for Delivery',
+    processing:'Processing', ready_for_delivery:'Ready for Delivery',
     out_for_delivery:'Out for Delivery', delivered:'Delivered',
     on_hold:'On Hold', skipped:'Skipped', pickup_failed:'Pickup Failed',
     delivery_failed:'Delivery Failed', cancelled:'Cancelled'
