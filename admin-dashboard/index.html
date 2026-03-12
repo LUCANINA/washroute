@@ -2558,6 +2558,7 @@
       <a id="op-cust-name" href="#" onclick="event.preventDefault();closeOrderPanel();setTimeout(()=>openCustomerPanel(opCurrentCustId,'orders'),200)" style="color:var(--gray-900);text-decoration:none">—</a>
     </div>
     <div style="font-size:12px;color:var(--gray-500);margin-top:1px" id="op-cust-phone">—</div>
+    <div id="op-recur-badge" style="display:none;margin-top:4px;font-size:11px;font-weight:600;color:#10b981;align-items:center;gap:4px"></div>
   </div>
 
   <!-- Tab bar -->
@@ -4440,16 +4441,20 @@
     if (!p) return { _name_cache: cust.first_name_cache, _lname_cache: cust.last_name_cache };
     return Array.isArray(p) ? (p[0]||{}) : p;
   }
+  const _recurLabel = { weekly: 'Repeats every week', biweekly: 'Repeats every 2 weeks', monthly: 'Repeats every month' };
+  function _recurSvg(interval) {
+    if (!interval) return '';
+    return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="cursor:help" title="' + (_recurLabel[interval] || ('Repeats: ' + interval)) + '"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2.5 11.5a10 10 0 0 1 18.3-4.4l.7.9"/><path d="M21.5 12.5a10 10 0 0 1-18.3 4.4l-.7-.9"/></svg>';
+  }
   function orderCustomerName(o) {
     const p = orderProfile(o);
     const fn = p.first_name || p._name_cache || '';
     const ln = p.last_name  || p._lname_cache || '';
-    const name = `${fn} ${ln}`.trim() || 'Unknown';
-    const recurLabel = { weekly: 'Repeats every week', biweekly: 'Repeats every 2 weeks', monthly: 'Repeats every month' };
-    const recurIcon = o.recurring_interval
-      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="cursor:help" title="' + (recurLabel[o.recurring_interval] || ('Repeats: ' + o.recurring_interval)) + '"><path d="M21.5 2v6h-6"/><path d="M2.5 22v-6h6"/><path d="M2.5 11.5a10 10 0 0 1 18.3-4.4l.7.9"/><path d="M21.5 12.5a10 10 0 0 1-18.3 4.4l-.7-.9"/></svg>'
-      : '';
-    return `<span style="display:flex;align-items:center;gap:6px">${recurIcon}<span>${name}</span></span>`;
+    return `${fn} ${ln}`.trim() || 'Unknown';
+  }
+  function orderCustomerCell(o) {
+    const icon = _recurSvg(o.recurring_interval);
+    return `<span style="display:flex;align-items:center;gap:6px">${icon}<span>${orderCustomerName(o)}</span></span>`;
   }
 
   // Group filter → actual statuses mapping
@@ -4633,7 +4638,7 @@
         const bags = o.weight_lbs != null ? Number(o.weight_lbs) : '—';
         return `<tr style="cursor:pointer" onclick="openOrderPanel('${o.id}')">
           <td style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${o.customers?.phone_cache||''}" data-cust-name="${(o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||'')}" onchange="updateOrderBatchBar()"></td>
-          <td class="td-name">${orderCustomerName(o)}</td>
+          <td class="td-name">${orderCustomerCell(o)}</td>
           <td>${statusBadge(o.status)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${pickupRouteCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${pickupTimeCell(o)}</td>
@@ -4738,6 +4743,16 @@
     const custLink = document.getElementById('op-cust-name');
     if (custLink) custLink.textContent = orderCustomerName(o);
     document.getElementById('op-cust-phone').textContent = o.customers?.phone_cache || '—';
+
+    // Recurring badge
+    const recurBadge = document.getElementById('op-recur-badge');
+    if (o.recurring_interval) {
+      recurBadge.style.display = 'inline-flex';
+      recurBadge.innerHTML = _recurSvg(o.recurring_interval) + ' ' + (_recurLabel[o.recurring_interval] || ('Repeats: ' + o.recurring_interval));
+    } else {
+      recurBadge.style.display = 'none';
+      recurBadge.innerHTML = '';
+    }
 
     // Default to Schedule tab
     opSwitchTab('schedule', document.getElementById('op-tab-btn-schedule'));
