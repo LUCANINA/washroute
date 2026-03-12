@@ -12147,8 +12147,8 @@ window.onload=()=>{window.print();};
       allLaunCache = data || [];
     }
     const { data: orders } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, special_instructions, source,
-               customers(first_name_cache, last_name_cache), services(name)`)
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, special_instructions, source, rack_id,
+               customers(id, first_name_cache, last_name_cache, phone_cache), services(name)`)
       .eq('status', 'folding')
       .order('updated_at', { ascending: true });
     allFoldOrders = orders || [];
@@ -12409,14 +12409,43 @@ window.onload=()=>{window.print();};
   async function saveRacking() {
     if (!rackActiveOrder || !selectedRackId) return;
     const btn = document.getElementById('rack-save-btn');
-    btn.disabled = true; btn.textContent = 'Saving…';
+    const errEl = document.getElementById('rack-error');
+    btn.disabled = true; btn.textContent = 'Charging…';
+
+    const isRerack = !!rackActiveOrder.rack_id; // re-racking = just moving racks, no charge
+    const alreadyCharged = !!rackActiveOrder.stripe_payment_intent_id;
+    const hasAmount = Number(rackActiveOrder.total_amount) > 0;
+
+    // ── Charge the order (unless it's a re-rack, already charged, or $0) ──
+    if (!isRerack && !alreadyCharged && hasAmount) {
+      try {
+        const { data: { session } } = await db.auth.getSession();
+        if (!session) throw new Error('Not authenticated');
+        const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${session.access_token}` },
+          body: JSON.stringify({ orderId: rackActiveOrder.id }),
+        });
+        const result = await res.json();
+        if (result.error) throw new Error(result.error);
+        showToast(`💳 Order #${rackActiveOrder.order_number} charged — ${result.card || ''}`, 'success');
+      } catch (e) {
+        // Payment declined — keep order in Folding
+        errEl.textContent = '⚠️ Payment declined: ' + e.message + ' — order stays in Folding.';
+        errEl.style.display = '';
+        btn.disabled = false; btn.textContent = '🗂️ Rack & Mark Ready for Delivery';
+        return; // do NOT advance to ready_for_delivery
+      }
+    }
+
+    btn.textContent = 'Saving…';
     const { error } = await db.from('orders').update({
       status: 'ready_for_delivery', rack_id: selectedRackId,
       racked_at: new Date().toISOString(), updated_at: new Date().toISOString()
     }).eq('id', rackActiveOrder.id);
     if (error) {
-      document.getElementById('rack-error').textContent = error.message;
-      document.getElementById('rack-error').style.display = '';
+      errEl.textContent = error.message;
+      errEl.style.display = '';
       btn.disabled = false; btn.textContent = rackActiveOrder?.rack_id ? '🗂️ Move to Rack' : '🗂️ Rack & Mark Ready for Delivery';
       return;
     }
@@ -12537,8 +12566,8 @@ window.onload=()=>{window.print();};
     const wrap = document.getElementById('clean-queue-wrap');
     if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
     const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, special_instructions, source,
-               customers(first_name_cache, last_name_cache), services(name)`)
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, special_instructions, source, rack_id,
+               customers(id, first_name_cache, last_name_cache, phone_cache), services(name)`)
       .eq('status', 'processing')
       .order('updated_at', { ascending: true });
     allCleanOrders = data || [];
