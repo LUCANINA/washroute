@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 10, 2026*
+*Last updated: Mar 12, 2026*
 
 ---
 
@@ -249,6 +249,11 @@ There are actually **two separate hang points** that must both be covered:
 - **Admin login timeout fix (root cause solved):** When a cached session existed in localStorage, Supabase fired `INITIAL_SESSION` + `TOKEN_REFRESHED` on page load. These background operations raced against the user's manual `signInWithPassword` call and caused the 30s safety timer to fire ("Connection timed out"). Fix: on a fresh tab/window load, clear localStorage before initialising Supabase so there's no cached session to trigger the race. `sessionStorage` is used to distinguish a fresh load (clear localStorage) from a page refresh within the same tab (keep the session). Outcome: no timeout on fresh visits, no logout on refresh. sessionStorage flag set on successful login, cleared on logout.
 - **Admin logout-on-refresh fix (round 2):** Supabase v2 can fire `INITIAL_SESSION` with `session = null` when the access token is expired but the refresh token is still valid (e.g. once per hour). The previous code called `showLoginScreen()` immediately on any null session, removing the `sessionStorage` key and flashing the login screen before `TOKEN_REFRESHED` arrived with a fresh token. Fix: `SIGNED_OUT` is the only event that definitively ends a session — show login immediately only for that event. For any other null-session event (`INITIAL_SESSION` null, etc.), start a 2-second fallback timer; if `TOKEN_REFRESHED` arrives with a valid session first, the timer is cancelled and the app shows normally. Result: no login-screen flash on token refresh, and users stay logged in across refreshes.
 
+### Mar 12, 2026
+- **Admin logout-on-refresh — FINAL root cause and fix:** Despite the `_noopLock` Web Locks fix being confirmed deployed and working, the logout-on-refresh bug persisted on every single refresh. Diagnosed using `[WR Auth]` console logging added to `onAuthStateChange`. Root cause: there was a `localStorage.removeItem('wr-admin-auth')` call guarded by `sessionStorage.getItem('wr-admin-tab')`. The intent was to clear stale sessions on fresh tab opens. The guard was supposed to pass on page refreshes (same tab, sessionStorage preserved). BUT: in Chrome, when the profile fetch fails for any reason, `sessionStorage.setItem('wr-admin-tab', '1')` never runs — so the flag is never set — so the guard fires on the next refresh — so localStorage gets wiped — perpetual logout cycle. Additionally the `_noopLock` fix already eliminated the Web Locks race that this guard was defending against, making the guard pure overhead. **Fix:** Removed the entire `localStorage.removeItem` guard block. Supabase now manages the session lifecycle on its own. Invalid/expired sessions result in `SIGNED_OUT` which correctly shows the login screen. **Commit:** `57cfcb0`. **⚠️ NOT DEPLOYED YET — David needs to run `vercel --prod` from terminal to go live.**
+- **Auth diagnostics added (will remove in a future cleanup):** Added `[WR Auth]` console.log lines at every key auth decision point (onAuthStateChange entry, profile fetch success/error, showLoginScreen, null-session timer). Useful for debugging. Commit `afe7436`.
+- **`_sessionNullTimer` extended from 2s → 10s:** Commit `afe7436`. Also not yet deployed but bundled with the above.
+
 ### Mar 11, 2026
 - **QA sweep (all three apps):** Full code review pass. Found two issues fixed below.
 - **Customer app safetyTimer wrong element ID:** `document.getElementById('home-screen')` was wrong — correct ID is `screen-home`. Bug caused the login button to always show "Connection timed out" after 30 seconds even when the user was already authenticated. Fixed by correcting the ID.
@@ -271,7 +276,9 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Git Log (recent)
 ```
-(pending) Fix: bypass Web Locks deadlock in admin auth; fix pickup_failed Issues tab; fix customer safetyTimer ID
+57cfcb0  fix: remove Safari/Chrome-breaking sessionStorage guard that wiped auth on every refresh
+afe7436  debug: add auth event logging + extend null-session timer to 10s
+(before these) Fix: bypass Web Locks deadlock in admin auth; fix pickup_failed Issues tab; fix customer safetyTimer ID
 9118546  Fix: cover both hang points in driver app login (signInWithPassword + loadDriverData)
 36a256e  Fix: cover profile-fetch hang in onAuthStateChange (admin)
 5cf47c3  Driver app: support multiple routes per day; fix stop ordering
