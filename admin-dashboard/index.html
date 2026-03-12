@@ -4950,7 +4950,7 @@
     if (_opRoutes.length && _opTemplates.length) return;
     const [rRes, tRes] = await Promise.all([
       db.from('routes').select('id, name, run_date, status').neq('status','cancelled').gte('run_date', today()).order('run_date').limit(40),
-      db.from('route_templates').select('id, name, color, window_start, window_end, arrival_window_hours, zone_id, service_zones(name, cities)').eq('is_active', true)
+      db.from('route_templates').select('id, name, color, schedule_days, window_start, window_end, arrival_window_hours, zone_id, service_zones(name, cities)').eq('is_active', true)
     ]);
     _opRoutes    = rRes.data  || [];
     _opTemplates = tRes.data  || [];
@@ -5157,12 +5157,19 @@
 
     if (!dayRoutes.length) {
       // No pre-generated routes for this date — show templates so admin can create one
+      // Convert dateStr to 0=Mon..6=Sun to match schedule_days
+      const [yr, mo, dy] = dateStr.split('-').map(Number);
+      const jsDay = new Date(yr, mo - 1, dy).getDay(); // 0=Sun..6=Sat
+      const schedDay = jsDay === 0 ? 6 : jsDay - 1;     // 0=Mon..6=Sun
       const matchTemplates = _opTemplates.filter(t => {
+        // Only show templates that run on this day of week
+        if (Array.isArray(t.schedule_days) && !t.schedule_days.includes(schedDay)) return false;
         if (!_opPickerZoneIds.size) return true;
         return t.zone_id && _opPickerZoneIds.has(t.zone_id);
       });
       if (!matchTemplates.length) {
-        listEl.innerHTML = '<span style="color:var(--gray-400);font-size:13px">No routes available for this date.</span>';
+        const dayName = new Date(yr, mo - 1, dy).toLocaleDateString('en-US', { weekday: 'long' });
+        listEl.innerHTML = `<span style="color:var(--gray-400);font-size:13px">No routes run on ${dayName}s.</span>`;
         return;
       }
       listEl.innerHTML = matchTemplates.map(t => {
