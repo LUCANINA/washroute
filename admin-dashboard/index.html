@@ -12187,9 +12187,10 @@ window.onload=()=>{window.print();};
           <span>📦 ${bags} bag${bags!==1?'s':''}</span>
           <span>⚖️ ${lbs}</span>
           <span>${o.services?.name||'Walk-in'}</span>
+          ${Number(o.total_amount)>0 ? `<span style="font-weight:600;color:var(--gray-700)">${fmtMoney(o.total_amount)}</span>` : ''}
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
-        <button class="proc-card-btn" style="background:#059669;cursor:pointer;margin-top:4px" onclick="openRackPanel('${o.id}')">🗂️ Assign Rack</button>
+        <button class="proc-card-btn" style="background:#059669;cursor:pointer;margin-top:4px" onclick="openRackPanel('${o.id}')">${o.stripe_payment_intent_id ? '🗂️ Assign Rack' : '💳 Charge & Rack'}</button>
         <div style="text-align:right;margin-top:4px">
           <span style="font-size:11px;color:var(--gray-300);cursor:pointer;user-select:none" onclick="event.stopPropagation();moveOrderBack('${o.id}','processing')">← undo</span>
         </div>
@@ -12291,7 +12292,7 @@ window.onload=()=>{window.print();};
       allRacksCache = data || [];
     }
     const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, rack_id, source,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, rack_id, source,
                customers(id, first_name_cache, last_name_cache, phone_cache), services(name)`)
       .eq('status', 'ready_for_delivery')
       .order('racked_at', { ascending: false })
@@ -12317,9 +12318,19 @@ window.onload=()=>{window.print();};
       const name = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.trim() || '—';
       const rack = allRacksCache.find(r => r.id === o.rack_id);
       const rackLabel = rack ? rack.name : '—';
+      const paid = !!o.stripe_payment_intent_id;
+      const noBill = !o.total_amount || Number(o.total_amount) <= 0;
+      const payBadge = paid
+        ? `<span style="font-size:11px;font-weight:600;color:#059669;display:inline-flex;align-items:center;gap:2px" title="Payment collected">✅ Paid</span>`
+        : noBill
+          ? ''
+          : `<span style="font-size:11px;font-weight:600;color:#dc2626;display:inline-flex;align-items:center;gap:2px" title="Not yet charged">❌ Unpaid</span>`;
       return `<div class="proc-card" id="racked-card-${o.id}">
         <div onclick="openRackPanel('${o.id}')" style="cursor:pointer">
-          <div class="proc-card-order">#${o.order_number||'—'}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div class="proc-card-order">#${o.order_number||'—'}</div>
+            ${payBadge}
+          </div>
           <div class="proc-card-name">${name}</div>
         </div>
         <div class="proc-card-meta" onclick="openRackPanel('${o.id}')" style="cursor:pointer">
