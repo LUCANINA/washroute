@@ -2562,7 +2562,7 @@
   <!-- Customer strip -->
   <div class="op-cust-strip">
     <div style="font-size:14px;font-weight:700;color:var(--gray-900)">
-      <a id="op-cust-name" href="#" onclick="event.preventDefault();var _cid=opCurrentCustId;closeOrderPanel();setTimeout(()=>openCustomerPanel(_cid,'orders'),200)" style="color:var(--gray-900);text-decoration:none">—</a>
+      <a id="op-cust-name" href="#" onclick="event.preventDefault();var _cid=opCurrentCustId;closeOrderPanel();setTimeout(()=>openCustomerPanel(_cid,'contact'),200)" style="color:var(--gray-900);text-decoration:none">—</a>
     </div>
     <div style="font-size:12px;color:var(--gray-500);margin-top:1px" id="op-cust-phone">—</div>
     <div id="op-recur-control" style="margin-top:4px;display:flex;align-items:center;gap:6px">
@@ -5057,7 +5057,7 @@
     if (!opCurrentCustId) return;
     const custId = opCurrentCustId;  // capture before closeOrderPanel nulls it
     closeOrderPanel();
-    setTimeout(() => openCustomerPanel(custId, 'orders'), 200);
+    setTimeout(() => openCustomerPanel(custId, 'contact'), 200);
   }
 
   // ── RECURRING INTERVAL SAVE ──
@@ -9630,25 +9630,26 @@ window.onload=()=>{window.print();};
       const chargeable  = Number(o.total_amount)>0 && !o.stripe_payment_intent_id && o.status==='ready_for_delivery';
       const receiptable = !!o.stripe_payment_intent_id || o.status==='delivered';
       const actionBtn = receiptable
-        ? `<button class="btn" style="padding:3px 8px;font-size:11.5px;border:1px solid var(--gray-200)" onclick="sendReceipt('${o.id}','${o.order_number}',this)" title="Email receipt to customer">📧 Receipt</button>`
+        ? `<button class="btn" style="padding:3px 8px;font-size:11.5px;border:1px solid var(--gray-200)" onclick="event.stopPropagation();sendReceipt('${o.id}','${o.order_number}',this)" title="Email receipt to customer">📧 Receipt</button>`
         : chargeable
-          ? `<button class="btn btn-primary" style="padding:3px 8px;font-size:11.5px" onclick="chargeOrder('${o.id}','${o.order_number}',this)">💳 Charge</button>`
+          ? `<button class="btn btn-primary" style="padding:3px 8px;font-size:11.5px" onclick="event.stopPropagation();chargeOrder('${o.id}','${o.order_number}',this)">💳 Charge</button>`
           : '';
-      const slotBtn = o.status !== 'delivered' && o.status !== 'cancelled'
-        ? `<button class="btn" style="padding:3px 8px;font-size:11.5px;border:1px solid var(--gray-200);flex-shrink:0" onclick="openSlotPicker('${o.id}','${o.order_number}','${panelCustomerId}')" title="Schedule pickup slot">📅 Slot</button>`
-        : '';
-      return `<div class="cp-order-row">
+      return `<div class="cp-order-row" style="cursor:pointer" onclick="cpOpenOrder('${o.id}')">
         <span class="cp-order-num">#${o.order_number}</span>
         <div class="cp-order-svc">
           <div style="font-weight:500">${o.services?.name||'—'}</div>
           <div style="font-size:11.5px;color:var(--gray-400)">${cpOrderMeta(o)}</div>
         </div>
-        <span style="cursor:pointer" onclick="openSingleStatusPicker('${o.id}','${o.order_number}','${o.status}')" title="Click to change status">${statusBadge(o.status)}</span>
+        ${statusBadge(o.status)}
         <span class="cp-order-amt">${fmtMoney(o.total_amount)}</span>
-        ${slotBtn}
         ${actionBtn}
       </div>`;
     }).join('');
+  }
+
+  function cpOpenOrder(orderId) {
+    closeCustomerPanel();
+    setTimeout(() => openOrderPanel(orderId), 200);
   }
 
   // ── BILLING FUNCTIONS ──
