@@ -2549,8 +2549,10 @@
   <div class="op-header">
     <div style="flex:1;min-width:0">
       <div class="op-num" id="op-num">ORDER #—</div>
-      <div id="op-status-badge" style="position:relative;display:inline-block;cursor:pointer" onclick="opToggleStatusDropdown(event)"></div>
-      <div id="op-status-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1px solid var(--gray-200);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:4px 0;min-width:180px;max-height:320px;overflow-y:auto;margin-top:4px"></div>
+      <div style="position:relative;display:inline-block">
+        <div id="op-status-badge" style="cursor:pointer" onclick="opToggleStatusDropdown(event)"></div>
+        <div id="op-status-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1px solid var(--gray-200);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:4px 0;min-width:180px;max-height:320px;overflow-y:auto;margin-top:4px"></div>
+      </div>
     </div>
     <button class="modal-close" onclick="closeOrderPanel()" title="Close" style="margin-left:12px;flex-shrink:0">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -4989,6 +4991,13 @@
     null, // separator
     'on_hold','skipped','pickup_failed','delivery_failed','cancelled'
   ];
+  const _OP_STATUS_LABELS = {
+    scheduled:'Scheduled', ready_for_pickup:'Ready for Pickup', picked_up:'Picked Up',
+    processing:'Processing', ready_for_delivery:'Ready for Delivery',
+    out_for_delivery:'Out for Delivery', delivered:'Delivered',
+    on_hold:'On Hold', skipped:'Skipped', pickup_failed:'Pickup Failed',
+    delivery_failed:'Delivery Failed', cancelled:'Cancelled'
+  };
 
   function opToggleStatusDropdown(e) {
     e.stopPropagation();
@@ -4999,7 +5008,7 @@
     let html = '';
     for (const s of _opStatusChoices) {
       if (s === null) { html += '<div style="border-top:1px solid var(--gray-100);margin:4px 0"></div>'; continue; }
-      const label = (STATUS_LABELS[s] || s.replace(/_/g,' ')).replace(/\b\w/g, c => c.toUpperCase());
+      const label = _OP_STATUS_LABELS[s] || s.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
       const isCurrent = s === o.status;
       html += `<div class="op-status-option${isCurrent ? ' current' : ''}" onclick="opSetOrderStatus('${s}')" style="padding:6px 14px;font-size:12.5px;font-weight:${isCurrent?'700':'500'};cursor:pointer;display:flex;align-items:center;gap:8px;color:${isCurrent?'var(--accent)':'var(--gray-700)'}">`
         + `<span style="width:7px;height:7px;border-radius:50%;background:${isCurrent?'var(--accent)':'transparent'};flex-shrink:0"></span>`
@@ -5041,7 +5050,7 @@
     opRefreshAdvanceBtn(o);
     updateOrderFilterCounts();
     renderOrders(getFilteredOrders());
-    showToast(`Status → ${(STATUS_LABELS[newStatus]||newStatus).replace(/\b\w/g,c=>c.toUpperCase())}`, 'success');
+    showToast(`Status → ${_OP_STATUS_LABELS[newStatus] || newStatus.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}`, 'success');
   }
 
   function opViewCustomer() {
