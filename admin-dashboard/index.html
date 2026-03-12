@@ -5197,7 +5197,7 @@
     rowEl.querySelector('.op-route-date').textContent = 'Creating…';
     const tmpl = _opTemplates.find(t => t.id === templateId) || {};
     const { data: newRoute, error } = await db.from('routes')
-      .insert({ name: templateName, date: dateStr, run_date: dateStr, status: 'planned', template_id: templateId, color: tmpl.color || '#635bff' })
+      .insert({ name: templateName, date: dateStr, run_date: dateStr, status: 'scheduled', template_id: templateId, color: tmpl.color || '#635bff' })
       .select('id, name, run_date, status')
       .single();
     if (error) { showToast('Failed to create route: ' + error.message, 'error'); return; }
