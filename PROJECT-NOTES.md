@@ -105,6 +105,12 @@ Twilio credentials are embedded in the three Edge Functions (not yet moved to Su
 
 ---
 
+## Terminology
+
+We use **"Route"** for everything — both the template definition (e.g. "the Oakland AM route") and a specific dated instance (e.g. "the Oakland AM route on March 12"). We never say "run" in conversation or UI. The DB still has legacy column names like `run_date`, `pickup_run_id`, `delivery_run_id` — renaming those would touch hundreds of lines across all apps, so they stay as-is, but in all human-facing text and notes we say "route."
+
+---
+
 ## Database Key Tables
 
 | Table | Notes |
@@ -112,7 +118,7 @@ Twilio credentials are embedded in the three Edge Functions (not yet moved to Su
 | `customers` | `phone_cache` stores phone in any format (e.g. `(415) 608-5446`) |
 | `orders` | Status pipeline: scheduled → ready_for_pickup → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. `source`: scheduled, walk_in, customer_app, recurring |
 | `route_templates` | Recurring route definitions: zone, schedule_days (0=Mon..5=Sat), window_start/end, turnaround_days, default drivers, stop_limit |
-| `routes` | Dated route instances (auto-created from templates by `auto_route_order()`). Links to template_id, run_date, driver assignments |
+| `routes` | Dated route instances (auto-created from templates by `auto_route_order()`). Links to template_id, date, driver assignments. Note: DB columns still use `run_date` / `pickup_run_id` / `delivery_run_id` — legacy naming, but we call everything "Route" in conversation and UI |
 | `route_stops` | `driver_id = NULL` means inherit route default; set = individual override |
 | `route_driver_overrides` | Per-day driver overrides: (template_id, day_of_week, driver_type) → driver_id |
 | `sms_messages` | All SMS in/out. `direction`: inbound/outbound. Linked to `customers` by phone matching |
@@ -121,7 +127,7 @@ Twilio credentials are embedded in the three Edge Functions (not yet moved to Su
 ### Key DB Functions & Triggers
 | Object | Type | Purpose |
 |---|---|---|
-| `auto_route_order(p_order_id)` | Function | Matches order to template by zone+day+time, finds/creates route run, assigns driver, creates stops |
+| `auto_route_order(p_order_id)` | Function | Matches order to template by zone+day+time, finds/creates the dated route, assigns driver, creates stops |
 | `trg_auto_route_new_order` | Trigger (AFTER INSERT on orders) | Fires for new scheduled orders with zone but no route assigned |
 | `trg_create_recurring_order` | Trigger (AFTER UPDATE on orders) | On status → delivered with recurring_interval, creates next order (which then auto-routes) |
 | `find_customer_by_phone(digits)` | Function | Matches phone by last 10 digits |
@@ -260,14 +266,14 @@ There are actually **two separate hang points** that must both be covered:
   The system now auto-routes orders without any admin intervention. Zero manual route creation needed.
 - **New DB objects created:**
   1. `route_driver_overrides` table — per-day driver overrides by template + day_of_week + driver_type (pickup/delivery)
-  2. `auto_route_order(p_order_id UUID)` function — matches templates by zone + day + time window, finds or creates route runs, resolves drivers (override → template default → NULL), handles capacity overflow, creates route_stops, links order FKs, syncs `total_stops`
+  2. `auto_route_order(p_order_id UUID)` function — matches templates by zone + day + time window, finds or creates the dated route, resolves drivers (override → template default → NULL), handles capacity overflow, creates route_stops, links order FKs, syncs `total_stops`
   3. `trg_auto_route_new_order()` trigger — AFTER INSERT on orders, fires for `status='scheduled' AND zone_id IS NOT NULL AND pickup_run_id IS NULL`
   4. `trg_create_recurring_order()` trigger — AFTER UPDATE on orders, fires when status transitions to `delivered` and `recurring_interval` is set. Creates next order (shifted by weekly/biweekly/monthly), skips Sundays (bumps to Monday). New order INSERT fires the auto-route trigger automatically.
 - **Updated `orders_source_check`** — expanded from `('scheduled','walk_in')` to include `'customer_app'` and `'recurring'`.
 - **Removed JS auto-assign from customer app** — the 80-line IIFE with `tmplsForDay()`, `runForDate()`, `nextStopNum()` helpers is gone. Replaced with a comment noting DB trigger handles it.
 - **Admin dashboard JS route_stop code retained** — `saveOrder()` route_stop creation stays (needed when admin explicitly picks routes, since trigger only fires when `pickup_run_id IS NULL`). `opSaveRouteAndSlot()` stays (manual route reassignment from order panel).
-- **Tested end-to-end:** Inserted a test order for Oakland AM March 12 → trigger auto-created route run, assigned driver, created pickup + delivery stops. Then set `recurring_interval='weekly'` and marked delivered → recurring trigger created next order for March 19, which in turn auto-routed to Oakland AM March 19/20. Full chain works.
-- **⚠️ Previous operational note is OBSOLETE:** Admins no longer need to pre-create route runs. The DB function auto-creates them from templates on demand.
+- **Tested end-to-end:** Inserted a test order for Oakland AM March 12 → trigger auto-created the dated route, assigned driver, created pickup + delivery stops. Then set `recurring_interval='weekly'` and marked delivered → recurring trigger created next order for March 19, which in turn auto-routed to Oakland AM March 19/20. Full chain works.
+- **⚠️ Previous operational note is OBSOLETE:** Admins no longer need to pre-create routes. The DB function auto-creates them from templates on demand.
 
 ### Mar 12, 2026 (session 2)
 - **SendGrid confirmed working** — customer email receipts are live.
@@ -277,7 +283,7 @@ There are actually **two separate hang points** that must both be covered:
   3. **Admin new-order modal: created route FKs but never created route_stop rows** — fixed to also insert pickup and delivery `route_stop` rows when routes are auto-linked.
   4. **Admin order panel delivery assignment: created no route_stop** — `opSaveRouteAndSlot` already upserted a stop for pickup assignments; mirrored the same logic for delivery.
 - **`source` field fixed** — customer-placed orders now correctly set `source = 'customer_app'` (was inheriting DB default `'scheduled'`).
-- ~~**⚠️ Important operational note:** Auto-assign only works when admin has already created route runs~~ — **OBSOLETE as of session 3, DB triggers now auto-create routes.**
+- ~~**⚠️ Important operational note:** Auto-assign only works when admin has already created routes~~ — **OBSOLETE as of session 3, DB triggers now auto-create routes.**
 - **Commit:** `791cc6f`
 
 ### Mar 12, 2026 (session 1)
@@ -315,7 +321,7 @@ When inserting test orders directly via SQL, use this template so that DB trigge
 -- ╚══════════════════════════════════════════════════════════════╝
 --
 -- REQUIRED: fill in customer_id, address_id, zone_id, and dates.
--- The auto-route trigger handles everything else (route run, stops, driver).
+-- The auto-route trigger handles everything else (route, stops, driver).
 --
 -- Zone IDs (for reference):
 --   Oakland:       fbc4627b-7026-44e2-9b00-2c3c867f4460
