@@ -2562,7 +2562,7 @@
   <!-- Customer strip -->
   <div class="op-cust-strip">
     <div style="font-size:14px;font-weight:700;color:var(--gray-900)">
-      <a id="op-cust-name" href="#" onclick="event.preventDefault();closeOrderPanel();setTimeout(()=>openCustomerPanel(opCurrentCustId,'orders'),200)" style="color:var(--gray-900);text-decoration:none">—</a>
+      <a id="op-cust-name" href="#" onclick="event.preventDefault();var _cid=opCurrentCustId;closeOrderPanel();setTimeout(()=>openCustomerPanel(_cid,'orders'),200)" style="color:var(--gray-900);text-decoration:none">—</a>
     </div>
     <div style="font-size:12px;color:var(--gray-500);margin-top:1px" id="op-cust-phone">—</div>
     <div id="op-recur-control" style="margin-top:4px;display:flex;align-items:center;gap:6px">
@@ -5055,8 +5055,9 @@
 
   function opViewCustomer() {
     if (!opCurrentCustId) return;
+    const custId = opCurrentCustId;  // capture before closeOrderPanel nulls it
     closeOrderPanel();
-    setTimeout(() => openCustomerPanel(opCurrentCustId, 'orders'), 200);
+    setTimeout(() => openCustomerPanel(custId, 'orders'), 200);
   }
 
   // ── RECURRING INTERVAL SAVE ──
