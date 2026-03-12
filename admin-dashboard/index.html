@@ -3226,14 +3226,11 @@
   const SUPA_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
   const STRIPE_PK     = 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B';
   const { createClient } = supabase;
-  // On a FRESH visit (new tab or window), clear any stored session before
-  // initialising Supabase. This prevents INITIAL_SESSION + TOKEN_REFRESHED from
-  // racing against the user's manual sign-in and causing 30s timeouts.
-  // sessionStorage survives page refreshes within the same tab, so an active
-  // session is preserved across refreshes — it's only wiped on a truly fresh load.
-  if (!sessionStorage.getItem('wr-admin-tab')) {
-    try { localStorage.removeItem('wr-admin-auth'); } catch(_) {}
-  }
+  // NOTE: We previously cleared localStorage on fresh-tab visits (no sessionStorage key)
+  // to prevent a race condition bug. That race was caused by the Web Locks deadlock —
+  // now fully fixed by _noopLock below. The clear was actively harmful: Safari wipes
+  // sessionStorage on hard refresh (Cmd+Shift+R), so the guard fired on every refresh
+  // and wiped the auth session, forcing a login on every page reload. Removed.
   // Supabase v2 acquires a Web Lock (named `lock:${storageKey}`) during auth init.
   // On hard refresh (Cmd+R), the new page can try to acquire the same lock before
   // the browser fully releases it, causing a permanent deadlock where every auth
