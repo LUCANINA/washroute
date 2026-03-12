@@ -12419,6 +12419,15 @@ window.onload=()=>{window.print();};
     const alreadyCharged = !!rackActiveOrder.stripe_payment_intent_id;
     const hasAmount = Number(rackActiveOrder.total_amount) > 0;
 
+    // ── Mark fully-credited orders ($0) as paid without charging ──
+    if (!isRerack && !alreadyCharged && !hasAmount) {
+      await db.from('orders').update({
+        stripe_payment_intent_id: 'credit_applied',
+        updated_at: new Date().toISOString(),
+      }).eq('id', rackActiveOrder.id);
+      showToast(`💰 Order #${rackActiveOrder.order_number} — fully covered by credits`, 'success');
+    }
+
     // ── Charge the order (unless it's a re-rack, already charged, or $0) ──
     if (!isRerack && !alreadyCharged && hasAmount) {
       try {
@@ -12495,6 +12504,8 @@ window.onload=()=>{window.print();};
   let procAddonServices = {}; // { [serviceId]: { selected: bool, service: {...} } }
   let procFeeExempt = false;  // true when customer has fee_exempt checked
   let procIsSameDay = false;  // true when pickup date === delivery date
+  let procCustomerCredits = 0; // customer's available credit balance
+  let procCustomerId = null;   // customer ID for credit deduction
   let allAddonServicesCache = []; // active is_addon services with pricelist + linked_preference_id
   let allPreferencesCache  = []; // global preferences table (for pre-fill logic)
 
@@ -12701,13 +12712,15 @@ window.onload=()=>{window.print();};
     let customerPrefs = order.customers?.preferences   || {};
     if (custId) {
       const { data: fresh } = await db.from('customers')
-        .select('customer_type, preferences, fee_exempt')
+        .select('customer_type, preferences, fee_exempt, credits')
         .eq('id', custId)
         .single();
       if (fresh) {
         customerType  = fresh.customer_type  || customerType;
         customerPrefs = fresh.preferences    || {};
         procFeeExempt = !!fresh.fee_exempt;
+        procCustomerCredits = parseFloat(fresh.credits || 0);
+        procCustomerId = custId;
       }
     }
 
@@ -12892,6 +12905,10 @@ window.onload=()=>{window.print();};
       if (bd.sameDaySurcharge > 0)
         rows.push(`<div class="proc-breakdown-row"><span>Same-day surcharge</span><span class="amount">+${fmtMoney(bd.sameDaySurcharge)}</span></div>`);
     }
+    // Credits
+    if (bd.creditApplied > 0) {
+      rows.push(`<div class="proc-breakdown-row" style="color:#059669"><span>💰 Account credit</span><span class="amount">−${fmtMoney(bd.creditApplied)}</span></div>`);
+    }
     const totalLabel = bd.weight > 0 ? 'Total' : 'Total (pending weight)';
     rows.push(`<div class="proc-breakdown-row total-row"><span>${totalLabel}</span><span class="amount">${fmtMoney(bd.total)}</span></div>`);
     return rows.join('');
@@ -12936,9 +12953,12 @@ window.onload=()=>{window.print();};
       return sum + (parseFloat(linkedSvc.base_price) || 0) * bags;
     }, 0);
     const { deliveryFee, sameDaySurcharge, deliveryTotal } = getDeliveryFees();
+    const subtotal = base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total + deliveryTotal;
+    const creditApplied = Math.min(procCustomerCredits, subtotal); // never exceed total
+    const total = Math.max(0, subtotal - creditApplied);
     return { bags, weight, base, overage_lbs, overage_charge, addons_total, addonSvc_total, prefLinkedSvc_total,
-             deliveryFee, sameDaySurcharge, deliveryTotal,
-             total: base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total + deliveryTotal };
+             deliveryFee, sameDaySurcharge, deliveryTotal, subtotal, creditApplied,
+             total };
   }
 
   function setProcBags(delta) {
@@ -13082,6 +13102,10 @@ window.onload=()=>{window.print();};
       if (bd.sameDaySurcharge > 0)
         lineItems.push({ type: 'same_day_surcharge', label: 'Same-day surcharge', amount: bd.sameDaySurcharge });
     }
+    // Apply customer credits (negative line item)
+    if (bd.creditApplied > 0) {
+      lineItems.push({ type: 'credit', label: 'Account credit applied', amount: -bd.creditApplied });
+    }
 
     const { error } = await db.from('orders').update({
       status: 'processing', weight_lbs: weight, total_bags: bd.bags,
@@ -13097,13 +13121,19 @@ window.onload=()=>{window.print();};
       btn.disabled = false; btn.textContent = 'Save & Start Processing';
       return;
     }
+    // Deduct credits from customer if applied
+    if (bd.creditApplied > 0 && procCustomerId) {
+      const newCredits = Math.max(0, procCustomerCredits - bd.creditApplied);
+      db.from('customers').update({ credits: newCredits, updated_at: new Date().toISOString() })
+        .eq('id', procCustomerId).then(() => {});
+    }
     const movedId  = procActiveOrder.id;
     const movedNum = procActiveOrder.order_number;
     closeIntakePanel();
     // Instant removal from Intake column
     document.getElementById('proc-card-' + movedId)?.remove();
     allProcOrders = allProcOrders.filter(o => o.id !== movedId);
-    showToast(`Order #${movedNum} → Processing!`, 'success');
+    showToast(`Order #${movedNum} → Processing!${bd.creditApplied > 0 ? ` (${fmtMoney(bd.creditApplied)} credit applied)` : ''}`, 'success');
     reloadColumns('intake', 'cleaning');
   }
 
