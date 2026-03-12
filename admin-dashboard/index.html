@@ -954,10 +954,6 @@
         Processing
         <span class="nav-badge" id="badge-processing">0</span>
       </div>
-      <div id="nav-routes" class="nav-item" data-min-role="admin" onclick="showPage('routes',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/></svg>
-        Routes
-      </div>
       <div id="nav-inbox" class="nav-item" onclick="showPage('inbox',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         Inbox
@@ -1174,27 +1170,68 @@
 
         <!-- ── ORDERS ── -->
         <div class="page" id="page-orders">
-          <div class="stats-grid">
-            <div class="stat-card"><div class="stat-label">Active Orders</div><div class="stat-value" id="ostat-active">—</div></div>
-            <div class="stat-card"><div class="stat-label">Pending Pickup</div><div class="stat-value" id="ostat-pending">—</div></div>
-            <div class="stat-card"><div class="stat-label">Out for Delivery</div><div class="stat-value" id="ostat-out">—</div></div>
-            <div class="stat-card"><div class="stat-label">Delivered Today</div><div class="stat-value" id="ostat-done">—</div></div>
+          <!-- Orders/Daily Schedule Toggle -->
+          <div id="orders-view-toggle" style="display:flex;gap:4px;margin-bottom:16px;">
+            <button class="section-tab active" id="ovt-orders" onclick="switchOrdersView('orders')">Orders</button>
+            <button class="section-tab" id="ovt-schedule" onclick="switchOrdersView('schedule')">Daily Schedule</button>
           </div>
-          <div class="card">
-            <div class="card-header" style="flex-wrap:wrap;gap:10px;">
-              <div><div class="card-title">Orders</div><div class="card-sub" id="orders-count-label"></div></div>
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <input type="search" id="order-search" placeholder="Search orders…" class="form-input" style="width:190px;padding:6px 10px;font-size:13px" oninput="filterOrdersBySearch(this.value)">
-                <div class="filter-tabs" id="order-filter-tabs">
-                  <button class="filter-tab active" data-filter="scheduled" onclick="filterOrders('scheduled',this)">Scheduled</button>
-                  <button class="filter-tab" data-filter="active" onclick="filterOrders('active',this)">Active</button>
-                  <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
-                  <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
-                  <button class="filter-tab" data-filter="cancelled" onclick="filterOrders('cancelled',this)" style="color:var(--gray-400)">Cancelled</button>
+
+          <!-- Orders List View -->
+          <div id="orders-list-view">
+            <div class="stats-grid">
+              <div class="stat-card"><div class="stat-label">Active Orders</div><div class="stat-value" id="ostat-active">—</div></div>
+              <div class="stat-card"><div class="stat-label">Pending Pickup</div><div class="stat-value" id="ostat-pending">—</div></div>
+              <div class="stat-card"><div class="stat-label">Out for Delivery</div><div class="stat-value" id="ostat-out">—</div></div>
+              <div class="stat-card"><div class="stat-label">Delivered Today</div><div class="stat-value" id="ostat-done">—</div></div>
+            </div>
+            <div class="card">
+              <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+                <div><div class="card-title">Orders</div><div class="card-sub" id="orders-count-label"></div></div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                  <input type="search" id="order-search" placeholder="Search orders…" class="form-input" style="width:190px;padding:6px 10px;font-size:13px" oninput="filterOrdersBySearch(this.value)">
+                  <div class="filter-tabs" id="order-filter-tabs">
+                    <button class="filter-tab active" data-filter="scheduled" onclick="filterOrders('scheduled',this)">Scheduled</button>
+                    <button class="filter-tab" data-filter="active" onclick="filterOrders('active',this)">Active</button>
+                    <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
+                    <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
+                    <button class="filter-tab" data-filter="cancelled" onclick="filterOrders('cancelled',this)" style="color:var(--gray-400)">Cancelled</button>
+                  </div>
+                </div>
+              </div>
+              <div id="orders-table-body" style="overflow-x:auto;"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            </div>
+          </div>
+
+          <!-- Daily Schedule View (will contain content from Daily Runs) -->
+          <div id="orders-schedule-view" style="display:none;">
+            <!-- Date picker bar -->
+            <div style="padding:12px 20px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+              <div style="font-size:13px;font-weight:600;color:var(--gray-700);">Date:</div>
+              <input type="date" id="runs-date-picker" class="form-input" style="width:160px;padding:5px 10px;font-size:13px;" onchange="loadDailyRuns()">
+              <div id="runs-toggle-btns" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"></div>
+              <button class="btn btn-ghost" id="btn-optimize" style="font-size:12px;padding:5px 12px;display:none;margin-left:auto;" onclick="optimizeRoute()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="margin-right:4px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                Optimize
+              </button>
+            </div>
+            <!-- Map + stop list -->
+            <div class="route-map-layout" style="height:693px;">
+              <div class="route-stop-list" id="route-stop-list" style="min-width:260px;max-width:280px;overflow-y:auto;border-right:1px solid var(--gray-200);display:flex;flex-direction:column;">
+                <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:13px;padding:20px;text-align:center;">
+                  Select a run to view stops
+                </div>
+              </div>
+              <div style="flex:1;position:relative;">
+                <div id="route-live-map" style="height:100%;width:100%;"></div>
+                <div class="map-legend-box" style="bottom:12px;left:12px;">
+                  <div class="leg-title">Stop Status</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Completed</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#2563eb"></div>Active</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>Upcoming</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#635bff"></div>Driver</div>
                 </div>
               </div>
             </div>
-            <div id="orders-table-body" style="overflow-x:auto;"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
 
         </div>
@@ -1269,132 +1306,60 @@
           </div>
         </div>
 
-        <!-- ── ROUTES ── -->
-        <div class="page" id="page-routes">
-          <div class="stats-grid">
-            <div class="stat-card"><div class="stat-label">Active Routes</div><div class="stat-value" id="rstat-templates">—</div></div>
-            <div class="stat-card"><div class="stat-label">Routes Today</div><div class="stat-value" id="rstat-today">—</div></div>
-            <div class="stat-card"><div class="stat-label">Total Stops</div><div class="stat-value" id="rstat-stops">—</div></div>
-            <div class="stat-card"><div class="stat-label">Active Drivers</div><div class="stat-value" id="rstat-drivers">—</div></div>
-          </div>
-
-          <!-- ── TAB CARD ── -->
-          <div class="card" style="padding:0;overflow:visible;">
-            <!-- Tab bar -->
-            <div class="section-tabs" style="padding:0 8px;align-items:center;">
-              <button class="section-tab active" id="rtab-btn-templates" onclick="setRoutesTab('templates',this)">Routes</button>
-              <button class="section-tab" id="rtab-btn-schedule" onclick="setRoutesTab('schedule',this)">Weekly Schedule</button>
-              <button class="section-tab" id="rtab-btn-runs" onclick="setRoutesTab('runs',this)">Daily Routes</button>
-              <div style="flex:1"></div>
-              <button class="btn btn-primary" id="rtab-add-btn" style="padding:6px 14px;font-size:12px;margin:6px 8px 6px 0;" onclick="openTemplateEditor(null)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12" style="margin-right:4px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                New Route
-              </button>
+        <!-- Move Stop modal (shared across orders and maps pages) -->
+        <div id="move-stop-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
+          <div style="background:white;border-radius:10px;padding:24px;width:340px;box-shadow:0 20px 60px rgba(0,0,0,.2);">
+            <div style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:4px">Move Stop</div>
+            <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px" id="move-stop-desc">Move stop to another route</div>
+            <div class="form-group">
+              <label class="form-label">Move to Route</label>
+              <select class="form-input" id="move-stop-target-route"></select>
             </div>
-
-            <!-- TEMPLATES TAB -->
-            <div id="rtab-templates" class="rtab-panel">
-              <div id="templates-list-body" style="padding:16px;">
-                <div class="loading"><div class="spinner"></div> Loading…</div>
-              </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
+              <button class="btn btn-ghost" onclick="document.getElementById('move-stop-modal').style.display='none'">Cancel</button>
+              <button class="btn btn-primary" onclick="confirmMoveStop()">Move Stop</button>
             </div>
-
-            <!-- WEEKLY SCHEDULE TAB -->
-            <div id="rtab-schedule" class="rtab-panel" style="display:none">
-              <!-- Week navigation -->
-              <div class="sched-week-nav">
-                <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(-1)">← Prev Week</button>
-                <span class="sched-week-label" id="sched-week-label">—</span>
-                <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(1)">Next Week →</button>
-                <span style="font-size:12px;color:var(--gray-400);margin-left:8px;">Click any cell to reassign a driver for that day. — means the route doesn't run.</span>
-              </div>
-              <!-- Schedule grid -->
-              <div id="weekly-schedule-grid" style="overflow-x:auto;padding:4px 0;">
-                <div class="loading"><div class="spinner"></div> Loading…</div>
-              </div>
-            </div>
-
-            <!-- DAILY RUNS TAB -->
-            <div id="rtab-runs" class="rtab-panel" style="display:none">
-              <!-- Date picker bar -->
-              <div style="padding:12px 20px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                <div style="font-size:13px;font-weight:600;color:var(--gray-700);">Date:</div>
-                <input type="date" id="runs-date-picker" class="form-input" style="width:160px;padding:5px 10px;font-size:13px;" onchange="loadDailyRuns()">
-                <div id="runs-toggle-btns" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"></div>
-                <button class="btn btn-ghost" id="btn-optimize" style="font-size:12px;padding:5px 12px;display:none;margin-left:auto;" onclick="optimizeRoute()">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="margin-right:4px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-                  Optimize
-                </button>
-              </div>
-              <!-- Map + stop list -->
-              <div class="route-map-layout" style="height:693px;">
-                <div class="route-stop-list" id="route-stop-list" style="min-width:260px;max-width:280px;overflow-y:auto;border-right:1px solid var(--gray-200);display:flex;flex-direction:column;">
-                  <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:13px;padding:20px;text-align:center;">
-                    Select a run to view stops
-                  </div>
-                </div>
-                <div style="flex:1;position:relative;">
-                  <div id="route-live-map" style="height:100%;width:100%;"></div>
-                  <div class="map-legend-box" style="bottom:12px;left:12px;">
-                    <div class="leg-title">Stop Status</div>
-                    <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Completed</div>
-                    <div class="leg-row"><div class="leg-dot" style="background:#2563eb"></div>Active</div>
-                    <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>Upcoming</div>
-                    <div class="leg-row"><div class="leg-dot" style="background:#635bff"></div>Driver</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Move Stop modal -->
-          <div id="move-stop-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
-            <div style="background:white;border-radius:10px;padding:24px;width:340px;box-shadow:0 20px 60px rgba(0,0,0,.2);">
-              <div style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:4px">Move Stop</div>
-              <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px" id="move-stop-desc">Move stop to another route</div>
-              <div class="form-group">
-                <label class="form-label">Move to Route</label>
-                <select class="form-input" id="move-stop-target-route"></select>
-              </div>
-              <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
-                <button class="btn btn-ghost" onclick="document.getElementById('move-stop-modal').style.display='none'">Cancel</button>
-                <button class="btn btn-primary" onclick="confirmMoveStop()">Move Stop</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Reassign stop driver modal -->
-          <div id="reassign-driver-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
-            <div style="background:white;border-radius:10px;padding:24px;width:340px;box-shadow:0 20px 60px rgba(0,0,0,.2);">
-              <div style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:4px">Reassign Stop</div>
-              <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px" id="reassign-stop-desc">Assign this stop to a specific driver</div>
-              <div class="form-group">
-                <label class="form-label">Assign to Driver</label>
-                <select class="form-input" id="reassign-driver-select">
-                  <option value="">— Route's default driver —</option>
-                </select>
-              </div>
-              <div style="font-size:12px;color:var(--gray-400);margin-top:8px;line-height:1.5">
-                The stop stays on its current route but will appear in this driver's app instead.
-              </div>
-              <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
-                <button class="btn btn-ghost" onclick="document.getElementById('reassign-driver-modal').style.display='none'">Cancel</button>
-                <button class="btn btn-primary" onclick="confirmReassignDriver()">Reassign</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Driver assignment popover (weekly schedule) -->
-          <div id="driver-popover" style="display:none;position:fixed;z-index:2000;background:white;border-radius:12px;padding:16px;width:230px;box-shadow:0 8px 32px rgba(0,0,0,.18);border:1px solid var(--gray-200);">
-            <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;" id="driver-popover-title">Assign Driver</div>
-            <div id="driver-popover-options" style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;"></div>
-            <button class="btn btn-ghost" style="width:100%;margin-top:10px;font-size:12px;" onclick="closeDriverPopover()">Cancel</button>
           </div>
         </div>
 
-        <!-- ── MAPS (Delivery Zones) ── -->
+        <!-- Reassign stop driver modal -->
+        <div id="reassign-driver-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
+          <div style="background:white;border-radius:10px;padding:24px;width:340px;box-shadow:0 20px 60px rgba(0,0,0,.2);">
+            <div style="font-size:15px;font-weight:700;color:var(--gray-900);margin-bottom:4px">Reassign Stop</div>
+            <div style="font-size:13px;color:var(--gray-500);margin-bottom:16px" id="reassign-stop-desc">Assign this stop to a specific driver</div>
+            <div class="form-group">
+              <label class="form-label">Assign to Driver</label>
+              <select class="form-input" id="reassign-driver-select">
+                <option value="">— Route's default driver —</option>
+              </select>
+            </div>
+            <div style="font-size:12px;color:var(--gray-400);margin-top:8px;line-height:1.5">
+              The stop stays on its current route but will appear in this driver's app instead.
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px">
+              <button class="btn btn-ghost" onclick="document.getElementById('reassign-driver-modal').style.display='none'">Cancel</button>
+              <button class="btn btn-primary" onclick="confirmReassignDriver()">Reassign</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Driver assignment popover (weekly schedule) -->
+        <div id="driver-popover" style="display:none;position:fixed;z-index:2000;background:white;border-radius:12px;padding:16px;width:230px;box-shadow:0 8px 32px rgba(0,0,0,.18);border:1px solid var(--gray-200);">
+          <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;" id="driver-popover-title">Assign Driver</div>
+          <div id="driver-popover-options" style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;"></div>
+          <button class="btn btn-ghost" style="width:100%;margin-top:10px;font-size:12px;" onclick="closeDriverPopover()">Cancel</button>
+        </div>
+
+        <!-- ── MAPS (Delivery Zones & Routes) ── -->
         <div class="page" id="page-maps">
-          <div class="card" style="padding:0;overflow:visible;">
+          <!-- Top-level tabs: Zones vs Route Templates -->
+          <div style="display:flex;gap:4px;margin-bottom:16px;">
+            <button class="section-tab active" id="maps-tab-zones" onclick="setMapsTab('zones', this)">Zones</button>
+            <button class="section-tab" id="maps-tab-routes" onclick="setMapsTab('routes', this)">Route Templates</button>
+          </div>
+
+          <!-- ZONES TAB CONTENT -->
+          <div id="maps-zones-view" class="card" style="padding:0;overflow:visible;">
             <div class="card-header" style="padding:16px 20px;">
               <div>
                 <div class="card-title">Delivery Zones</div>
@@ -1478,7 +1443,55 @@
 
               </div><!-- /zone-panel -->
             </div>
-          </div>
+          </div><!-- /maps-zones-view -->
+
+          <!-- ROUTE TEMPLATES TAB CONTENT -->
+          <div id="maps-routes-view" style="display:none;">
+            <!-- Stats cards -->
+            <div class="stats-grid">
+              <div class="stat-card"><div class="stat-label">Active Routes</div><div class="stat-value" id="rstat-templates">—</div></div>
+              <div class="stat-card"><div class="stat-label">Routes Today</div><div class="stat-value" id="rstat-today">—</div></div>
+              <div class="stat-card"><div class="stat-label">Total Stops</div><div class="stat-value" id="rstat-stops">—</div></div>
+              <div class="stat-card"><div class="stat-label">Active Drivers</div><div class="stat-value" id="rstat-drivers">—</div></div>
+            </div>
+
+            <!-- Sub-tabs: Templates & Weekly Schedule -->
+            <div class="card" style="padding:0;overflow:visible;">
+              <!-- Tab bar -->
+              <div class="section-tabs" style="padding:0 8px;align-items:center;">
+                <button class="section-tab active" id="rtab-btn-templates" onclick="setRoutesTab('templates',this)">Templates</button>
+                <button class="section-tab" id="rtab-btn-schedule" onclick="setRoutesTab('schedule',this)">Weekly Schedule</button>
+                <div style="flex:1"></div>
+                <button class="btn btn-primary" id="rtab-add-btn" style="padding:6px 14px;font-size:12px;margin:6px 8px 6px 0;" onclick="openTemplateEditor(null)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12" style="margin-right:4px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  New Route
+                </button>
+              </div>
+
+              <!-- TEMPLATES TAB -->
+              <div id="rtab-templates" class="rtab-panel">
+                <div id="templates-list-body" style="padding:16px;">
+                  <div class="loading"><div class="spinner"></div> Loading…</div>
+                </div>
+              </div>
+
+              <!-- WEEKLY SCHEDULE TAB -->
+              <div id="rtab-schedule" class="rtab-panel" style="display:none">
+                <!-- Week navigation -->
+                <div class="sched-week-nav">
+                  <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(-1)">← Prev Week</button>
+                  <span class="sched-week-label" id="sched-week-label">—</span>
+                  <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(1)">Next Week →</button>
+                  <span style="font-size:12px;color:var(--gray-400);margin-left:8px;">Click any cell to reassign a driver for that day. — means the route doesn't run.</span>
+                </div>
+                <!-- Schedule grid -->
+                <div id="weekly-schedule-grid" style="overflow-x:auto;padding:4px 0;">
+                  <div class="loading"><div class="spinner"></div> Loading…</div>
+                </div>
+              </div>
+            </div>
+          </div><!-- /maps-routes-view -->
+
         </div>
 
         <!-- ── INBOX ── -->
@@ -3626,7 +3639,7 @@
   });
 
   // ── ROLE-BASED NAV ──
-  const ADMIN_ONLY_PAGES = ['routes','reports','services','notifications','maps',
+  const ADMIN_ONLY_PAGES = ['reports','services','notifications','maps',
                             'drivers','discounts','driver-messages','settings','team'];
 
   function applyRoleToNav(role) {
@@ -3808,12 +3821,12 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', routes:'Routes', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', 'driver-messages':'Driver Messages', settings:'Timezone', team:'Team' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', routes:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', 'driver-messages':'', settings:'', team:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', 'driver-messages':'Driver Messages', settings:'Timezone', team:'Team' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', 'driver-messages':'', settings:'', team:'' };
 
   function showPage(id, navEl) {
     // Role guard — staff cannot navigate to admin-only pages
-    const ADMIN_ONLY_PAGES = ['routes','reports','services','notifications','maps',
+    const ADMIN_ONLY_PAGES = ['reports','services','notifications','maps',
                               'drivers','discounts','driver-messages','settings','team'];
     if (ADMIN_ONLY_PAGES.includes(id) && currentUserRole !== 'admin') {
       showToast("You don't have permission to view that page.", 'error');
@@ -3833,10 +3846,16 @@
     document.getElementById('topbar-cta').style.display = pageCTAs[id] ? '' : 'none';
     currentPage = id;
     try { history.replaceState(null, '', '#' + id); } catch(_) {} // persist page across refresh
-    if (id === 'orders') { clearNewOrderBadge(); loadOrders(currentOrderFilter); }
+    if (id === 'orders') {
+      clearNewOrderBadge();
+      switchOrdersView('orders');
+      loadOrders(currentOrderFilter);
+    }
     if (id === 'inbox')   loadInbox();
-    if (id === 'maps')    setTimeout(()=>initZonesMap(), 80);
-    if (id === 'routes')  setTimeout(()=>initRoutesPage(), 80);
+    if (id === 'maps')    {
+      setTimeout(()=>initZonesMap(), 80);
+      setTimeout(()=>initRoutesPage(), 80);
+    }
     if (id === 'drivers') loadDrivers();
     if (id === 'services') loadServices();
     if (id === 'notifications') loadNotifications();
@@ -3851,7 +3870,13 @@
   }
 
   function handleCTA() {
-    if (currentPage === 'routes')    { openTemplateEditor(null); return; }
+    if (currentPage === 'maps') {
+      const mapsTab = document.querySelector('.section-tab.active[id^="maps-tab-"]');
+      if (mapsTab && mapsTab.id === 'maps-tab-routes') {
+        openTemplateEditor(null);
+      }
+      return;
+    }
     if (currentPage === 'drivers')   { openDriverEditor(null);   return; }
     if (currentPage === 'inbox')     { _inboxChannel === 'email' ? openComposeEmail() : openComposeSMS(); return; }
     const map = { overview:'add-order', customers:'add-customer', orders:'add-order' };
@@ -6560,6 +6585,34 @@ window.onload=()=>{window.print();};
     document.querySelectorAll('.inbox-ch-tab').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
     renderInboxList();
+  }
+
+  // ── ORDERS PAGE: TOGGLE BETWEEN ORDERS LIST AND DAILY SCHEDULE ──
+  function switchOrdersView(view) {
+    const ordersList = document.getElementById('orders-list-view');
+    const scheduleView = document.getElementById('orders-schedule-view');
+    const ovtOrders = document.getElementById('ovt-orders');
+    const ovtSchedule = document.getElementById('ovt-schedule');
+
+    if (view === 'orders') {
+      ordersList.style.display = '';
+      scheduleView.style.display = 'none';
+      ovtOrders.classList.add('active');
+      ovtSchedule.classList.remove('active');
+      document.getElementById('topbar-cta-label').textContent = 'New Order';
+      document.getElementById('topbar-cta').style.display = '';
+      loadOrders(currentOrderFilter);
+    } else if (view === 'schedule') {
+      ordersList.style.display = 'none';
+      scheduleView.style.display = '';
+      ovtOrders.classList.remove('active');
+      ovtSchedule.classList.add('active');
+      document.getElementById('topbar-cta').style.display = 'none';
+      setTimeout(() => {
+        initRunsMap();
+        loadDailyRuns();
+      }, 80);
+    }
   }
 
   // ── openSMSConversation ──
@@ -10254,12 +10307,6 @@ window.onload=()=>{window.print();};
   }
   const cartoTiles=()=>L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © Carto',maxZoom:19});
 
-  // ── MAPS PAGE TABS (zones only now) ──
-  function setMapsTab(tab, btn){
-    // Legacy compat — only zones tab remains
-    setTimeout(()=>initZonesMap(), 50);
-  }
-
   // ── ROUTES PAGE ──
   let routeLiveMap = null, routeLiveRouteId = null, routeStopMoving = null, routeLiveDefaultDriverId = null;
 
@@ -10528,7 +10575,24 @@ window.onload=()=>{window.print();};
     const addBtn = document.getElementById('rtab-add-btn');
     if (addBtn) addBtn.style.display = tab === 'templates' ? '' : 'none';
     if (tab === 'schedule') renderWeeklySchedule();
-    if (tab === 'runs') { initRunsMap(); loadDailyRuns(); }
+  }
+
+  // ── MAPS TAB SWITCHING ──
+  function setMapsTab(tab, btn) {
+    document.getElementById('maps-zones-view').style.display = tab === 'zones' ? '' : 'none';
+    document.getElementById('maps-routes-view').style.display = tab === 'routes' ? '' : 'none';
+    document.getElementById('maps-tab-zones').classList.toggle('active', tab === 'zones');
+    document.getElementById('maps-tab-routes').classList.toggle('active', tab === 'routes');
+    if (tab === 'routes') {
+      // Update CTA to show "New Route" when in route templates tab
+      document.getElementById('topbar-cta-label').textContent = 'New Route';
+      document.getElementById('topbar-cta').style.display = '';
+    } else {
+      // Update CTA to show "Draw New Zone" when in zones tab
+      document.getElementById('topbar-cta-label').textContent = 'Draw New Zone';
+      document.getElementById('topbar-cta').style.display = '';
+      setTimeout(()=>initZonesMap(), 50);
+    }
   }
 
   // ── TEMPLATE EDITOR SLIDE-OVER ──
