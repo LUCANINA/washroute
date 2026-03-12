@@ -110,11 +110,21 @@ Twilio credentials are embedded in the three Edge Functions (not yet moved to Su
 | Table | Notes |
 |---|---|
 | `customers` | `phone_cache` stores phone in any format (e.g. `(415) 608-5446`) |
-| `orders` | Status pipeline: scheduled → ready_for_pickup → assembled → ready_for_delivery → out_for_delivery → delivered |
-| `routes` | Route templates (recurring schedule) |
+| `orders` | Status pipeline: scheduled → ready_for_pickup → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. `source`: scheduled, walk_in, customer_app, recurring |
+| `route_templates` | Recurring route definitions: zone, schedule_days (0=Mon..5=Sat), window_start/end, turnaround_days, default drivers, stop_limit |
+| `routes` | Dated route instances (auto-created from templates by `auto_route_order()`). Links to template_id, run_date, driver assignments |
 | `route_stops` | `driver_id = NULL` means inherit route default; set = individual override |
+| `route_driver_overrides` | Per-day driver overrides: (template_id, day_of_week, driver_type) → driver_id |
 | `sms_messages` | All SMS in/out. `direction`: inbound/outbound. Linked to `customers` by phone matching |
 | `driver_messages` | In-app admin ↔ driver chat (not SMS) |
+
+### Key DB Functions & Triggers
+| Object | Type | Purpose |
+|---|---|---|
+| `auto_route_order(p_order_id)` | Function | Matches order to template by zone+day+time, finds/creates route run, assigns driver, creates stops |
+| `trg_auto_route_new_order` | Trigger (AFTER INSERT on orders) | Fires for new scheduled orders with zone but no route assigned |
+| `trg_create_recurring_order` | Trigger (AFTER UPDATE on orders) | On status → delivered with recurring_interval, creates next order (which then auto-routes) |
+| `find_customer_by_phone(digits)` | Function | Matches phone by last 10 digits |
 
 ---
 
@@ -189,15 +199,11 @@ If migration is incomplete or Stripe can't move certain cards, run a re-entry em
 
 ## Recurring Order Auto-Scheduling
 
-### How it works
-A Postgres function `create_recurring_orders()` runs every day at **8 AM UTC** (midnight Pacific) via pg_cron.
+### How it works (two mechanisms)
 
-For each customer's most recent recurring order, it:
-1. Calculates the next pickup date (weekly +7d, biweekly +14d, monthly +30d)
-2. If that date is **within 7 days**, checks whether an order already exists in that window
-3. If not, creates a new `scheduled` order copying all the key fields from the previous one
+**1. Trigger-based (primary, real-time):** When an order with `recurring_interval` is marked `delivered`, the `trg_create_recurring_order` trigger immediately creates the next order with shifted pickup/delivery windows (weekly +7d, biweekly +14d, monthly +1mo). Sundays are skipped (bumped to Monday). The new order INSERT fires `trg_auto_route_new_order` which auto-assigns it to the correct route. Source is set to `'recurring'`.
 
-The function is idempotent — running it multiple times won't create duplicates.
+**2. pg_cron batch (backup, daily):** A Postgres function `create_recurring_orders()` runs every day at **8 AM UTC** (midnight Pacific) via pg_cron. For each customer's most recent recurring order, it calculates the next pickup date and creates orders within a 7-day lookahead window. Idempotent — won't create duplicates.
 
 **Manual trigger:** Admin Dashboard → Overview → "Recurring Orders" panel → **▶ Run Scheduler** button.
 
@@ -249,7 +255,32 @@ There are actually **two separate hang points** that must both be covered:
 - **Admin login timeout fix (root cause solved):** When a cached session existed in localStorage, Supabase fired `INITIAL_SESSION` + `TOKEN_REFRESHED` on page load. These background operations raced against the user's manual `signInWithPassword` call and caused the 30s safety timer to fire ("Connection timed out"). Fix: on a fresh tab/window load, clear localStorage before initialising Supabase so there's no cached session to trigger the race. `sessionStorage` is used to distinguish a fresh load (clear localStorage) from a page refresh within the same tab (keep the session). Outcome: no timeout on fresh visits, no logout on refresh. sessionStorage flag set on successful login, cleared on logout.
 - **Admin logout-on-refresh fix (round 2):** Supabase v2 can fire `INITIAL_SESSION` with `session = null` when the access token is expired but the refresh token is still valid (e.g. once per hour). The previous code called `showLoginScreen()` immediately on any null session, removing the `sessionStorage` key and flashing the login screen before `TOKEN_REFRESHED` arrived with a fresh token. Fix: `SIGNED_OUT` is the only event that definitively ends a session — show login immediately only for that event. For any other null-session event (`INITIAL_SESSION` null, etc.), start a 2-second fallback timer; if `TOKEN_REFRESHED` arrives with a valid session first, the timer is cancelled and the app shows normally. Result: no login-screen flash on token refresh, and users stay logged in across refreshes.
 
-### Mar 12, 2026
+### Mar 12, 2026 (session 3) — Auto-routing architecture overhaul
+- **Major architecture change: route assignment moved from client JS to DB triggers.**
+  The system now auto-routes orders without any admin intervention. Zero manual route creation needed.
+- **New DB objects created:**
+  1. `route_driver_overrides` table — per-day driver overrides by template + day_of_week + driver_type (pickup/delivery)
+  2. `auto_route_order(p_order_id UUID)` function — matches templates by zone + day + time window, finds or creates route runs, resolves drivers (override → template default → NULL), handles capacity overflow, creates route_stops, links order FKs, syncs `total_stops`
+  3. `trg_auto_route_new_order()` trigger — AFTER INSERT on orders, fires for `status='scheduled' AND zone_id IS NOT NULL AND pickup_run_id IS NULL`
+  4. `trg_create_recurring_order()` trigger — AFTER UPDATE on orders, fires when status transitions to `delivered` and `recurring_interval` is set. Creates next order (shifted by weekly/biweekly/monthly), skips Sundays (bumps to Monday). New order INSERT fires the auto-route trigger automatically.
+- **Updated `orders_source_check`** — expanded from `('scheduled','walk_in')` to include `'customer_app'` and `'recurring'`.
+- **Removed JS auto-assign from customer app** — the 80-line IIFE with `tmplsForDay()`, `runForDate()`, `nextStopNum()` helpers is gone. Replaced with a comment noting DB trigger handles it.
+- **Admin dashboard JS route_stop code retained** — `saveOrder()` route_stop creation stays (needed when admin explicitly picks routes, since trigger only fires when `pickup_run_id IS NULL`). `opSaveRouteAndSlot()` stays (manual route reassignment from order panel).
+- **Tested end-to-end:** Inserted a test order for Oakland AM March 12 → trigger auto-created route run, assigned driver, created pickup + delivery stops. Then set `recurring_interval='weekly'` and marked delivered → recurring trigger created next order for March 19, which in turn auto-routed to Oakland AM March 19/20. Full chain works.
+- **⚠️ Previous operational note is OBSOLETE:** Admins no longer need to pre-create route runs. The DB function auto-creates them from templates on demand.
+
+### Mar 12, 2026 (session 2)
+- **SendGrid confirmed working** — customer email receipts are live.
+- **Root cause of missing routes on customer orders diagnosed and fixed (4 bugs):**
+  1. **Dummy test routes had no `template_id`** — auto-assign queries routes by `template_id`; the 4 hardcoded test routes (c1000000... IDs) had `template_id = NULL`, making them invisible. Fixed via SQL UPDATE.
+  2. **Customer app: auto-assign only handled pickup, never delivery** — rewrote the auto-assign block to find both pickup and delivery routes (by zone + day-of-week), create both stops, and update both `pickup_run_id` + `delivery_run_id` in one write.
+  3. **Admin new-order modal: created route FKs but never created route_stop rows** — fixed to also insert pickup and delivery `route_stop` rows when routes are auto-linked.
+  4. **Admin order panel delivery assignment: created no route_stop** — `opSaveRouteAndSlot` already upserted a stop for pickup assignments; mirrored the same logic for delivery.
+- **`source` field fixed** — customer-placed orders now correctly set `source = 'customer_app'` (was inheriting DB default `'scheduled'`).
+- ~~**⚠️ Important operational note:** Auto-assign only works when admin has already created route runs~~ — **OBSOLETE as of session 3, DB triggers now auto-create routes.**
+- **Commit:** `791cc6f`
+
+### Mar 12, 2026 (session 1)
 - **Admin logout-on-refresh — FINAL root cause and fix:** Despite the `_noopLock` Web Locks fix being confirmed deployed and working, the logout-on-refresh bug persisted on every single refresh. Diagnosed using `[WR Auth]` console logging added to `onAuthStateChange`. Root cause: there was a `localStorage.removeItem('wr-admin-auth')` call guarded by `sessionStorage.getItem('wr-admin-tab')`. The intent was to clear stale sessions on fresh tab opens. The guard was supposed to pass on page refreshes (same tab, sessionStorage preserved). BUT: in Chrome, when the profile fetch fails for any reason, `sessionStorage.setItem('wr-admin-tab', '1')` never runs — so the flag is never set — so the guard fires on the next refresh — so localStorage gets wiped — perpetual logout cycle. Additionally the `_noopLock` fix already eliminated the Web Locks race that this guard was defending against, making the guard pure overhead. **Fix:** Removed the entire `localStorage.removeItem` guard block. Supabase now manages the session lifecycle on its own. Invalid/expired sessions result in `SIGNED_OUT` which correctly shows the login screen. **Commit:** `57cfcb0`. **⚠️ NOT DEPLOYED YET — David needs to run `vercel --prod` from terminal to go live.**
 - **Auth diagnostics added (will remove in a future cleanup):** Added `[WR Auth]` console.log lines at every key auth decision point (onAuthStateChange entry, profile fetch success/error, showLoginScreen, null-session timer). Useful for debugging. Commit `afe7436`.
 - **`_sessionNullTimer` extended from 2s → 10s:** Commit `afe7436`. Also not yet deployed but bundled with the above.
