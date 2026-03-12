@@ -2685,12 +2685,9 @@
     <div class="op-sched-card">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);width:80px;flex-shrink:0">Bags</span>
-        <input id="op-bags-input" type="number" min="0" step="1" style="flex:1;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;color:var(--gray-800)" placeholder="—">
+        <input id="op-bags-input" type="number" min="0" step="1" style="flex:1;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;color:var(--gray-800)" placeholder="—" oninput="opRecalcEstimate()">
       </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);width:80px;flex-shrink:0">Total</span>
-        <span id="op-total" style="font-size:13.5px;font-weight:600;color:var(--gray-800)">—</span>
-      </div>
+      <div id="op-cost-breakdown" style="margin-top:6px;font-size:12.5px;color:var(--gray-600);line-height:2"></div>
     </div>
 
     <div class="op-sec-head" style="margin-top:14px">Special Instructions</div>
@@ -3849,6 +3846,7 @@
     if (id === 'orders') {
       clearNewOrderBadge();
       switchOrdersView('orders');
+      if (!allServices.length || !allFees.length) { loadFees(); loadServices(); }
       loadOrders(currentOrderFilter);
     }
     if (id === 'inbox')   loadInbox();
@@ -4687,7 +4685,7 @@
       </tr></thead><tbody>
       ${sorted.map(o => {
         const custId = o.customers?.id || '';
-        const bags = o.weight_lbs != null ? Number(o.weight_lbs) : '—';
+        const bags = o.total_bags != null ? o.total_bags : (o.weight_lbs != null ? Number(o.weight_lbs) : '—');
         return `<tr style="cursor:pointer" onclick="openOrderPanel('${o.id}')">
           <td style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${o.customers?.phone_cache||''}" data-cust-name="${(o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||'')}" onchange="updateOrderBatchBar()"></td>
           <td class="td-name">${orderCustomerCell(o)}</td>
@@ -4810,9 +4808,9 @@
 
     // Details tab
     document.getElementById('op-bags-input').value = o.total_bags != null ? o.total_bags : (o.weight_lbs != null ? Number(o.weight_lbs) : '');
-    document.getElementById('op-total').textContent = fmtMoney(o.total_amount);
     document.getElementById('op-notes-input').value = o.special_instructions || '';
     document.getElementById('op-details-msg').style.display = 'none';
+    opRecalcEstimate();
 
     // Billing tab
     opPopulateBilling(o);
@@ -5429,18 +5427,88 @@
   }
 
   // ── DETAILS TAB ──
+  function opRecalcEstimate() {
+    const el = document.getElementById('op-cost-breakdown');
+    if (!el) return;
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) { el.innerHTML = ''; return; }
+
+    const bags = parseInt(document.getElementById('op-bags-input').value) || 0;
+    const svc = allServices.find(s => s.id === o.service_id);
+    const basePrice = svc ? parseFloat(svc.base_price || 0) : 0;
+    const svcName = o.services?.name || svc?.name || 'Service';
+
+    // Delivery fee from allFees
+    const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
+    const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
+
+    const bagTotal = bags * basePrice;
+    const estimated = bagTotal + deliveryFee;
+
+    let html = '';
+    if (bags > 0 && basePrice > 0) {
+      html += `<div style="display:flex;justify-content:space-between"><span>${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}</span><span>${fmtMoney(bagTotal)}</span></div>`;
+    }
+    if (deliveryFee > 0) {
+      html += `<div style="display:flex;justify-content:space-between"><span>Delivery Fee</span><span>${fmtMoney(deliveryFee)}</span></div>`;
+    }
+    // Credit line items from order
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const creditItem = lineItems.find(li => li.type === 'credit');
+    let creditAmt = 0;
+    if (creditItem) {
+      creditAmt = Math.abs(parseFloat(creditItem.amount || 0));
+      html += `<div style="display:flex;justify-content:space-between;color:#059669"><span>${creditItem.label || 'Credit applied'}</span><span>−${fmtMoney(creditAmt)}</span></div>`;
+    }
+
+    const total = Math.max(0, estimated - creditAmt);
+    html += `<div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--gray-200);padding-top:4px;margin-top:4px;font-size:13.5px;color:var(--gray-800)"><span>Estimated Total</span><span>${fmtMoney(total)}</span></div>`;
+    el.innerHTML = html;
+  }
+
   async function opSaveDetails() {
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
-    const bags  = document.getElementById('op-bags-input').value;
+    const bags  = parseInt(document.getElementById('op-bags-input').value) || 0;
     const notes = document.getElementById('op-notes-input').value.trim();
-    const update = { special_instructions: notes || null };
-    if (bags !== '') update.total_bags = parseInt(bags) || null;
+
+    // Recalculate total based on bags + delivery fee
+    const svc = allServices.find(s => s.id === o.service_id);
+    const basePrice = svc ? parseFloat(svc.base_price || 0) : 0;
+    const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
+    const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
+    const bagTotal = bags * basePrice;
+
+    // Preserve credits if already applied
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const creditItem = lineItems.find(li => li.type === 'credit');
+    const creditAmt = creditItem ? Math.abs(parseFloat(creditItem.amount || 0)) : 0;
+
+    const newTotal = Math.max(0, bagTotal + deliveryFee - creditAmt);
+
+    // Build line items
+    const newLineItems = [];
+    if (bags > 0 && basePrice > 0) newLineItems.push({ type: 'base', label: `${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}`, amount: bagTotal });
+    if (deliveryFee > 0) newLineItems.push({ type: 'fee', label: 'Delivery Fee', amount: deliveryFee });
+    if (creditItem) newLineItems.push(creditItem); // keep existing credit
+
+    const update = {
+      special_instructions: notes || null,
+      total_bags: bags || null,
+      total_amount: newTotal,
+      line_items: newLineItems,
+      updated_at: new Date().toISOString(),
+    };
+
     const { error } = await db.from('orders').update(update).eq('id', opCurrentOrderId);
     if (error) { showToast('Failed to save', 'error'); return; }
     Object.assign(o, update);
+    document.getElementById('op-bill-total').textContent = fmtMoney(newTotal);
+    showToast(`Order #${o.order_number} updated — ${fmtMoney(newTotal)}`, 'success');
     const msg = document.getElementById('op-details-msg');
     msg.style.display = ''; setTimeout(() => msg.style.display = 'none', 2500);
+    // Refresh orders list
+    renderOrders(getFilteredOrders());
   }
 
   // ── BILLING TAB ──
