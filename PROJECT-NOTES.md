@@ -244,6 +244,8 @@ There are actually **two separate hang points** that must both be covered:
 
 **Update PROJECT-NOTES.md at the end of every session.** This is the only memory that persists between days — Claude starts fresh each session, so anything not written here is lost. At end of day, log what was built, any decisions made, and anything pending.
 
+**Update the Git Log section after every major commit or deploy.** Keep it current so future sessions can see the full history at a glance.
+
 ---
 
 ## Session Log
