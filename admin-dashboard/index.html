@@ -896,6 +896,9 @@
     .bill-method-opt:has(input:checked) { border-color:var(--accent);background:#f5f3ff; }
     .bill-method-opt:hover { border-color:var(--gray-300); }
     .recur-tip-wrap:hover .recur-tip { display:block !important; }
+    .op-status-option:hover { background:var(--gray-50); }
+    #op-recur-select { transition: border-color .15s, color .15s; }
+    #op-recur-select:focus { outline:none; border-color:var(--accent); }
   </style>
 </head>
 <body>
@@ -2546,7 +2549,8 @@
   <div class="op-header">
     <div style="flex:1;min-width:0">
       <div class="op-num" id="op-num">ORDER #—</div>
-      <div id="op-status-badge"></div>
+      <div id="op-status-badge" style="position:relative;display:inline-block;cursor:pointer" onclick="opToggleStatusDropdown(event)"></div>
+      <div id="op-status-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1px solid var(--gray-200);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:4px 0;min-width:180px;max-height:320px;overflow-y:auto;margin-top:4px"></div>
     </div>
     <button class="modal-close" onclick="closeOrderPanel()" title="Close" style="margin-left:12px;flex-shrink:0">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -2559,7 +2563,14 @@
       <a id="op-cust-name" href="#" onclick="event.preventDefault();closeOrderPanel();setTimeout(()=>openCustomerPanel(opCurrentCustId,'orders'),200)" style="color:var(--gray-900);text-decoration:none">—</a>
     </div>
     <div style="font-size:12px;color:var(--gray-500);margin-top:1px" id="op-cust-phone">—</div>
-    <div id="op-recur-badge" style="display:none;margin-top:4px;font-size:11px;font-weight:600;color:#10b981;align-items:center;gap:4px"></div>
+    <div id="op-recur-control" style="margin-top:4px;display:flex;align-items:center;gap:6px">
+      <select id="op-recur-select" onchange="opSaveRecurring(this.value)" style="font-size:11px;font-weight:600;border:1px solid var(--gray-200);border-radius:6px;padding:2px 6px;background:#fff;color:var(--gray-700);cursor:pointer">
+        <option value="">One-time</option>
+        <option value="weekly">Repeats weekly</option>
+        <option value="biweekly">Repeats every 2 weeks</option>
+        <option value="monthly">Repeats monthly</option>
+      </select>
+    </div>
   </div>
 
   <!-- Tab bar -->
@@ -2586,8 +2597,12 @@
       <!-- Inline picker -->
       <div id="op-pickup-picker" style="display:none">
         <div class="op-picker-section">
+          <div class="op-picker-lbl">Pick a Date</div>
+          <input type="date" id="op-pickup-date" onchange="opFilterRoutesByDate('pickup',this.value)" style="font-size:13px;padding:6px 10px;border:1px solid var(--gray-200);border-radius:8px;width:100%;box-sizing:border-box;color:var(--gray-700)">
+        </div>
+        <div class="op-picker-section">
           <div class="op-picker-lbl">Select Route</div>
-          <div class="op-route-list" id="op-pickup-route-list"><span style="color:var(--gray-400);font-size:13px">Loading…</span></div>
+          <div class="op-route-list" id="op-pickup-route-list"><span style="color:var(--gray-400);font-size:13px">Pick a date above to see available routes</span></div>
         </div>
         <div id="op-pickup-slot-wrap" style="display:none">
           <div class="op-picker-section">
@@ -2621,8 +2636,12 @@
       <!-- Inline picker -->
       <div id="op-delivery-picker" style="display:none">
         <div class="op-picker-section">
+          <div class="op-picker-lbl">Pick a Date</div>
+          <input type="date" id="op-delivery-date" onchange="opFilterRoutesByDate('delivery',this.value)" style="font-size:13px;padding:6px 10px;border:1px solid var(--gray-200);border-radius:8px;width:100%;box-sizing:border-box;color:var(--gray-700)">
+        </div>
+        <div class="op-picker-section">
           <div class="op-picker-lbl">Select Route</div>
-          <div class="op-route-list" id="op-delivery-route-list"><span style="color:var(--gray-400);font-size:13px">Loading…</span></div>
+          <div class="op-route-list" id="op-delivery-route-list"><span style="color:var(--gray-400);font-size:13px">Pick a date above to see available routes</span></div>
         </div>
         <div id="op-delivery-slot-wrap" style="display:none">
           <div class="op-picker-section">
@@ -3756,7 +3775,7 @@
           if (currentPage === 'overview') loadOverview();
           // If this order's detail panel is open, refresh its status badge + advance btn
           if (opCurrentOrderId === updated.id) {
-            document.getElementById('op-status-badge').innerHTML = statusBadge(updated.status);
+            document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(updated.status);
             opRefreshAdvanceBtn(allOrders[idx]);
           }
         }
@@ -4742,23 +4761,17 @@
 
     // Header
     document.getElementById('op-num').textContent = `ORDER #${o.order_number || '—'}`;
-    document.getElementById('op-status-badge').innerHTML = statusBadge(o.status);
+    document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(o.status);
 
     // Customer strip
     const custLink = document.getElementById('op-cust-name');
     if (custLink) custLink.textContent = orderCustomerName(o);
     document.getElementById('op-cust-phone').textContent = o.customers?.phone_cache || '—';
 
-    // Recurring badge
-    const recurBadge = document.getElementById('op-recur-badge');
-    if (o.recurring_interval) {
-      recurBadge.style.display = 'inline-flex';
-      const _panelRecurLabel = { weekly: 'Repeats every week', biweekly: 'Repeats every 2 weeks', monthly: 'Repeats every month' };
-      recurBadge.innerHTML = _recurSvg(o.recurring_interval) + ' ' + (_panelRecurLabel[o.recurring_interval] || ('Repeats: ' + o.recurring_interval));
-    } else {
-      recurBadge.style.display = 'none';
-      recurBadge.innerHTML = '';
-    }
+    // Recurring control
+    const recurSelect = document.getElementById('op-recur-select');
+    recurSelect.value = o.recurring_interval || '';
+    recurSelect.style.color = o.recurring_interval ? '#10b981' : 'var(--gray-700)';
 
     // Default to Schedule tab
     opSwitchTab('schedule', document.getElementById('op-tab-btn-schedule'));
@@ -4778,6 +4791,9 @@
 
     // Advance button
     opRefreshAdvanceBtn(o);
+
+    // Close status dropdown if open
+    document.getElementById('op-status-dropdown').style.display = 'none';
 
     // Reset any open pickers
     ['pickup','delivery'].forEach(leg => {
@@ -4936,19 +4952,93 @@
     if (!o) return;
     const next = STATUS_FLOW[o.status];
     if (!next) return;
-    const { error } = await db.from('orders').update({ status: next }).eq('id', opCurrentOrderId);
-    if (error) { showToast('Failed to update status', 'error'); return; }
-    o.status = next;
-    openOrderPanel(opCurrentOrderId);
+    opSetOrderStatus(next);
+  }
+
+  function opStatusBadgeWithChevron(status) {
+    return statusBadge(status) + ' <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="vertical-align:middle;opacity:.5;margin-left:2px"><path d="M6 9l6 6 6-6"/></svg>';
+  }
+
+  // ── STATUS DROPDOWN ──
+  const _opStatusChoices = [
+    'scheduled','ready_for_pickup','picked_up','processing',
+    'ready_for_delivery','out_for_delivery','delivered',
+    null, // separator
+    'on_hold','skipped','pickup_failed','delivery_failed','cancelled'
+  ];
+
+  function opToggleStatusDropdown(e) {
+    e.stopPropagation();
+    const dd = document.getElementById('op-status-dropdown');
+    if (dd.style.display !== 'none') { dd.style.display = 'none'; return; }
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+    let html = '';
+    for (const s of _opStatusChoices) {
+      if (s === null) { html += '<div style="border-top:1px solid var(--gray-100);margin:4px 0"></div>'; continue; }
+      const label = (STATUS_LABELS[s] || s.replace(/_/g,' ')).replace(/\b\w/g, c => c.toUpperCase());
+      const isCurrent = s === o.status;
+      html += `<div class="op-status-option${isCurrent ? ' current' : ''}" onclick="opSetOrderStatus('${s}')" style="padding:6px 14px;font-size:12.5px;font-weight:${isCurrent?'700':'500'};cursor:pointer;display:flex;align-items:center;gap:8px;color:${isCurrent?'var(--accent)':'var(--gray-700)'}">`
+        + `<span style="width:7px;height:7px;border-radius:50%;background:${isCurrent?'var(--accent)':'transparent'};flex-shrink:0"></span>`
+        + `${label}</div>`;
+    }
+    dd.innerHTML = html;
+    dd.style.display = 'block';
+    // close on click-away
+    const close = () => { dd.style.display = 'none'; document.removeEventListener('click', close); };
+    setTimeout(() => document.addEventListener('click', close), 0);
+  }
+
+  async function opSetOrderStatus(newStatus) {
+    if (!opCurrentOrderId) return;
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o || o.status === newStatus) { document.getElementById('op-status-dropdown').style.display = 'none'; return; }
+
+    // Charge when moving to ready_for_delivery
+    if (newStatus === 'ready_for_delivery' && o.status !== 'ready_for_delivery') {
+      try {
+        const { data: { session } } = await db.auth.getSession();
+        await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},
+          body: JSON.stringify({ orderId: o.id }),
+        });
+      } catch(e) { console.warn('Charge failed', e); }
+    }
+
+    const payload = { status: newStatus };
+    if (newStatus === 'picked_up') payload.actual_pickup_at = new Date().toISOString();
+    if (newStatus === 'delivered') payload.actual_delivery_at = new Date().toISOString();
+
+    const { error } = await db.from('orders').update(payload).eq('id', opCurrentOrderId);
+    if (error) { showToast('Failed to update status: ' + error.message, 'error'); return; }
+    Object.assign(o, payload);
+    document.getElementById('op-status-dropdown').style.display = 'none';
+    document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(o.status);
+    opRefreshAdvanceBtn(o);
     updateOrderFilterCounts();
     renderOrders(getFilteredOrders());
-    showToast('Status updated', 'success');
+    showToast(`Status → ${(STATUS_LABELS[newStatus]||newStatus).replace(/\b\w/g,c=>c.toUpperCase())}`, 'success');
   }
 
   function opViewCustomer() {
     if (!opCurrentCustId) return;
     closeOrderPanel();
     setTimeout(() => openCustomerPanel(opCurrentCustId, 'orders'), 200);
+  }
+
+  // ── RECURRING INTERVAL SAVE ──
+  async function opSaveRecurring(val) {
+    if (!opCurrentOrderId) return;
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+    const newVal = val || null;
+    const { error } = await db.from('orders').update({ recurring_interval: newVal }).eq('id', opCurrentOrderId);
+    if (error) { showToast('Failed to update recurrence: ' + error.message, 'error'); return; }
+    o.recurring_interval = newVal;
+    document.getElementById('op-recur-select').style.color = newVal ? '#10b981' : 'var(--gray-700)';
+    renderOrders(getFilteredOrders());
+    showToast(newVal ? `Set to ${_recurLabel[newVal] || newVal}` : 'Set to one-time', 'success');
   }
 
   // ── PICKUP SCHEDULE EDIT ──
@@ -4972,65 +5062,114 @@
     if (open) await opLoadRoutePicker('delivery');
   }
 
+  // Zone IDs cached per picker session
+  let _opPickerZoneIds = new Set();
+
   async function opLoadRoutePicker(leg) {
     const listEl = document.getElementById(`op-${leg}-route-list`);
+    const dateInput = document.getElementById(`op-${leg}-date`);
     listEl.innerHTML = '<span style="color:var(--gray-400);font-size:13px">Loading…</span>';
     document.getElementById(`op-${leg}-slot-wrap`).style.display = 'none';
     if (!_opRoutes.length) await opPrefetchRoutes();
-    if (!_opRoutes.length) {
-      listEl.innerHTML = '<span style="color:var(--gray-400);font-size:13px">No upcoming routes found.</span>';
-      return;
-    }
-    const o         = allOrders.find(x => x.id === opCurrentOrderId);
-    const currentId = leg === 'pickup' ? o?.pickup_run_id : o?.delivery_run_id;
 
-    // ── Determine which zones the order's address belongs to ──
+    // Pre-fill the date input from the order's current window
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    const windowField = leg === 'pickup' ? o?.pickup_window_start : o?.delivery_window_start;
+    if (windowField) {
+      dateInput.value = new Date(windowField).toISOString().slice(0,10);
+    } else {
+      dateInput.value = today();
+    }
+    // Set min date to today
+    dateInput.min = today();
+
+    // Determine zones for filtering
+    _opPickerZoneIds = new Set();
     const cust   = allCustomers.find(c => c.id === opCurrentCustId);
     const addrs  = Array.isArray(cust?.addresses) ? cust.addresses : [];
     const addrId = leg === 'pickup' ? o?.pickup_address_id : o?.delivery_address_id;
     const addr   = addrs.find(a => a.id === addrId) || addrs.find(a => a.is_default) || addrs[0];
-    let matchingZoneIds = new Set();
 
-    // Primary: geo lookup when lat/lng available
     if (addr?.lat && addr?.lng) {
       const { data: zones } = await db.rpc('get_zones_for_point', {
         lat: addr.lat, lng: addr.lng, p_city: addr.city || null
       });
-      (zones || []).forEach(z => matchingZoneIds.add(z.id));
+      (zones || []).forEach(z => _opPickerZoneIds.add(z.id));
     }
-
-    // Fallback: match by city name against zone name / cities array
-    if (!matchingZoneIds.size && addr?.city) {
+    if (!_opPickerZoneIds.size && addr?.city) {
       const city = addr.city.trim().toLowerCase();
       _opTemplates.forEach(tmpl => {
         const zone = tmpl.service_zones;
         if (!zone || !tmpl.zone_id) return;
         const nameMatch   = (zone.name || '').toLowerCase() === city;
         const citiesMatch = Array.isArray(zone.cities) && zone.cities.some(c => c.toLowerCase() === city);
-        if (nameMatch || citiesMatch) matchingZoneIds.add(tmpl.zone_id);
+        if (nameMatch || citiesMatch) _opPickerZoneIds.add(tmpl.zone_id);
       });
     }
 
-    // ── Build route rows, filtering to matched zones only (fallback: show all) ──
+    // Show routes for the pre-filled date
+    opFilterRoutesByDate(leg, dateInput.value);
+  }
+
+  function opFilterRoutesByDate(leg, dateStr) {
+    const listEl = document.getElementById(`op-${leg}-route-list`);
+    document.getElementById(`op-${leg}-slot-wrap`).style.display = 'none';
+    if (!dateStr) { listEl.innerHTML = '<span style="color:var(--gray-400);font-size:13px">Pick a date above</span>'; return; }
+
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    const currentId = leg === 'pickup' ? o?.pickup_run_id : o?.delivery_run_id;
+
+    // Filter routes to chosen date
+    const dayRoutes = _opRoutes.filter(r => r.run_date === dateStr);
+
+    if (!dayRoutes.length) {
+      // No pre-generated routes for this date — show templates so admin can create one
+      const matchTemplates = _opTemplates.filter(t => {
+        if (!_opPickerZoneIds.size) return true;
+        return t.zone_id && _opPickerZoneIds.has(t.zone_id);
+      });
+      if (!matchTemplates.length) {
+        listEl.innerHTML = '<span style="color:var(--gray-400);font-size:13px">No routes available for this date.</span>';
+        return;
+      }
+      listEl.innerHTML = matchTemplates.map(t => {
+        const color = t.color || '#8b93a7';
+        return `<div class="op-route-row" onclick="opCreateRouteAndSelect('${leg}','${t.id}','${t.name}','${dateStr}',this)">
+          <div class="op-route-dot" style="background:${color}"></div>
+          <span class="op-route-name">${t.name}</span>
+          <span class="op-route-date" style="color:var(--gray-400)">+ Create</span>
+        </div>`;
+      }).join('');
+      return;
+    }
+
+    // Show routes for this date, zone-filtered
     const matchRows = [], otherRows = [];
-    for (const r of _opRoutes) {
+    for (const r of dayRoutes) {
       const tmpl  = _opTemplates.find(t => t.name === r.name) || {};
       const color = tmpl.color || '#8b93a7';
-      const isMatch = matchingZoneIds.size > 0 && tmpl.zone_id && matchingZoneIds.has(tmpl.zone_id);
-      const d     = new Date(r.run_date + 'T12:00:00');
-      const label = d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+      const isMatch = _opPickerZoneIds.size > 0 && tmpl.zone_id && _opPickerZoneIds.has(tmpl.zone_id);
       const sel   = r.id === currentId ? ' selected' : '';
       const row   = `<div class="op-route-row${sel}" onclick="opSelectRoute('${leg}','${r.id}','${r.run_date}',this)">
         <div class="op-route-dot" style="background:${color}"></div>
         <span class="op-route-name">${r.name}</span>
-        <span class="op-route-date">${label}</span>
       </div>`;
       if (isMatch) matchRows.push(row);
       else otherRows.push(row);
     }
+    listEl.innerHTML = (matchRows.length ? matchRows.join('') : otherRows.join('')) || '<span style="color:var(--gray-400);font-size:13px">No matching routes for this date.</span>';
+  }
 
-    // Show only matched routes; fall back to all when no zone data is available
-    listEl.innerHTML = matchRows.length ? matchRows.join('') : otherRows.join('');
+  async function opCreateRouteAndSelect(leg, templateId, templateName, dateStr, rowEl) {
+    rowEl.querySelector('.op-route-date').textContent = 'Creating…';
+    const { data: newRoute, error } = await db.from('routes')
+      .insert({ name: templateName, run_date: dateStr, status: 'planned' })
+      .select('id, name, run_date, status')
+      .single();
+    if (error) { showToast('Failed to create route: ' + error.message, 'error'); return; }
+    _opRoutes.push(newRoute);
+    _opRoutes.sort((a,b) => a.run_date.localeCompare(b.run_date));
+    opSelectRoute(leg, newRoute.id, dateStr, rowEl);
   }
 
   function opSelectRoute(leg, routeId, runDate, rowEl) {
