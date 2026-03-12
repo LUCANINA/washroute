@@ -2538,6 +2538,7 @@ function computeSubWindows(runDate, tmpl, routeId, routeName) {
   const sMins = sh * 60 + (sm || 0);
   const eMins = eh * 60 + (em || 0);
   const step  = (tmpl.arrival_window_hours || 2) * 60;
+  const cutoff = tmpl.booking_cutoff_minutes ?? 30;
   const pad2  = n => String(n).padStart(2, '0');
   const windows = [];
   for (let from = sMins; from + step <= eMins; from += step) {
@@ -2547,7 +2548,7 @@ function computeSubWindows(runDate, tmpl, routeId, routeName) {
     const slotStart = new Date(`${runDate}T${pad2(Math.floor(from/60))}:${pad2(from%60)}:00`).toISOString();
     const slotEnd   = new Date(`${runDate}T${pad2(Math.floor(to/60))}:${pad2(to%60)}:00`).toISOString();
     const label     = `${fmtHourMin(from)} – ${fmtHourMin(to)}`;
-    windows.push({ routeId, routeName, slotStart, slotEnd, label, icon: slotIcon(from), startMins: from, endMins: to });
+    windows.push({ routeId, routeName, slotStart, slotEnd, label, icon: slotIcon(from), startMins: from, endMins: to, cutoffMins: cutoff });
   }
   return windows;
 }
@@ -2569,7 +2570,7 @@ async function fetchWindowsForDate(iso) {
 
   const { data: templates, error } = await db
     .from('route_templates')
-    .select('id, name, window_start, window_end, arrival_window_hours')
+    .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes')
     .eq('zone_id', draft.zoneId)
     .eq('is_active', true)
     .contains('schedule_days', [isoDay]);
@@ -2583,10 +2584,14 @@ async function fetchWindowsForDate(iso) {
   });
   windows.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
 
-  // If today is selected, hide windows whose start time has already passed
+  // If today is selected, hide windows that are within their booking cutoff
+  // e.g. a 9-11 AM slot with 30min cutoff disappears at 10:30 AM
   if (iso === localIso()) {
     const now = new Date();
-    draft.availableWindows = windows.filter(w => new Date(w.slotStart) > now);
+    draft.availableWindows = windows.filter(w => {
+      const cutoffMs = (w.cutoffMins || 30) * 60 * 1000;
+      return (new Date(w.slotEnd).getTime() - cutoffMs) > now.getTime();
+    });
   } else {
     draft.availableWindows = windows;
   }
@@ -4170,7 +4175,7 @@ async function fetchEditWindows(iso) {
   es.availableWindows = [];
   const isoDay = (new Date(iso + 'T12:00:00').getDay() + 6) % 7;
   const { data: templates } = await db.from('route_templates')
-    .select('id, name, window_start, window_end, arrival_window_hours')
+    .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes')
     .eq('zone_id', es.zoneId).eq('is_active', true).contains('schedule_days', [isoDay]);
   if (!templates?.length) return;
   const windows = [];
@@ -4180,10 +4185,13 @@ async function fetchEditWindows(iso) {
   });
   windows.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
 
-  // If today is selected, hide windows whose start time has already passed
+  // If today is selected, hide windows that are within their booking cutoff
   if (iso === localIso()) {
     const now = new Date();
-    es.availableWindows = windows.filter(w => new Date(w.slotStart) > now);
+    es.availableWindows = windows.filter(w => {
+      const cutoffMs = (w.cutoffMins || 30) * 60 * 1000;
+      return (new Date(w.slotEnd).getTime() - cutoffMs) > now.getTime();
+    });
   } else {
     es.availableWindows = windows;
   }
