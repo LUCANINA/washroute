@@ -3500,6 +3500,7 @@
       const profileTimer = setTimeout(() => {
         if (myGen !== _authGen) return;
         if (document.getElementById('app').style.display !== 'block') {
+          document.getElementById('login-screen').style.display = 'flex'; // re-show if hidden by flash-prevention
           btn.disabled = false; btn.textContent = 'Sign in';
           err.textContent = 'Connection timed out — please try again.';
           err.style.display = 'block';
@@ -3554,6 +3555,7 @@
           showToast('Could not refresh your profile — please reload if something looks wrong.', '');
         } else {
           _loginInProgress = false;
+          document.getElementById('login-screen').style.display = 'flex'; // re-show if hidden by flash-prevention
           err.textContent = 'Sign-in failed: ' + (e.message || 'unexpected error. Please try again.');
           err.style.display = 'block';
           btn.disabled = false; btn.textContent = 'Sign in';
@@ -3585,6 +3587,11 @@
     // Everything async is deferred to _handleSessionChange via setTimeout(0).
     const myGen = ++_authGen;
     console.log('[WR Auth]', new Date().toISOString(), 'event:', event, 'session:', session ? 'YES (uid:' + session.user?.id?.slice(0,8) + ')' : 'NULL', 'gen:', myGen);
+    // Immediately hide the login screen when we have a session to prevent a flash.
+    // The deferred handler will show the full app once the profile loads.
+    if (session && document.getElementById('app').style.display !== 'block') {
+      document.getElementById('login-screen').style.display = 'none';
+    }
     setTimeout(() => _handleSessionChange(event, session, myGen), 0);
   });
 
