@@ -2718,6 +2718,7 @@
   <!-- Footer (always visible) -->
   <div class="op-actions">
     <button class="btn btn-primary" id="op-advance-btn" onclick="opAdvanceStatus()" style="flex:1">Advance Status</button>
+    <button class="btn" id="op-skip-btn" onclick="opSkipOrder()" style="display:none;color:#ef4444;border-color:#fca5a5">Skip</button>
     <button class="btn" onclick="printBagTag()" style="color:var(--gray-700)">🖨 Print</button>
     <button class="btn" onclick="opViewCustomer()" style="color:var(--accent)">View Customer</button>
   </div>
@@ -4859,6 +4860,8 @@
     }
   }
 
+  const _terminalStatuses = new Set(['delivered','skipped','cancelled','pickup_failed','delivery_failed']);
+
   function opRefreshAdvanceBtn(o) {
     const advBtn = document.getElementById('op-advance-btn');
     const next = STATUS_FLOW[o.status];
@@ -4868,6 +4871,26 @@
     advBtn.textContent   = next
       ? `Advance to ${next.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}`
       : 'Fully Delivered';
+
+    // Show Skip button only for recurring orders that aren't in a terminal state
+    const skipBtn = document.getElementById('op-skip-btn');
+    const showSkip = o.recurring_interval && !_terminalStatuses.has(o.status);
+    skipBtn.style.display = showSkip ? '' : 'none';
+  }
+
+  async function opSkipOrder() {
+    if (!opCurrentOrderId) return;
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+    if (!confirm('Skip this order? The next recurring order will be auto-created.')) return;
+    const { error } = await db.from('orders').update({ status: 'skipped' }).eq('id', opCurrentOrderId);
+    if (error) { showToast('Failed to skip: ' + error.message, 'error'); return; }
+    o.status = 'skipped';
+    document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(o.status);
+    opRefreshAdvanceBtn(o);
+    updateOrderFilterCounts();
+    renderOrders(getFilteredOrders());
+    showToast('Order skipped — next recurring order created', 'success');
   }
 
   // Fetch proof photos from route_stops and render them in the Details tab
