@@ -305,6 +305,70 @@ There are actually **two separate hang points** that must both be covered:
 
 ---
 
+## Test Order SQL Template
+
+When inserting test orders directly via SQL, use this template so that DB triggers fire correctly and the order behaves like a real customer-placed one. **Replace the placeholder values** with real IDs from the DB.
+
+```sql
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║  TEST ORDER INSERT — copy, fill in placeholders, run once   ║
+-- ╚══════════════════════════════════════════════════════════════╝
+--
+-- REQUIRED: fill in customer_id, address_id, zone_id, and dates.
+-- The auto-route trigger handles everything else (route run, stops, driver).
+--
+-- Zone IDs (for reference):
+--   Oakland:       fbc4627b-7026-44e2-9b00-2c3c867f4460
+--   Berkeley:      2dfc9835-3528-4143-bfa1-c6a9961bb3c2
+--   Alameda:       9d624c91-2991-45d0-bcdd-db0906ad88c2
+--   San Francisco: 670d7bb1-68f0-4696-9b8c-a726d8c85da4
+--   Hayward:       39d9a0c0-c906-45f6-a8ab-6fe4a992e026
+
+INSERT INTO orders (
+  customer_id,
+  status,
+  total_bags,
+  total_amount,
+  pickup_window_start,        -- UTC timestamp (Pacific + 7 in winter, + 8 in summer)
+  pickup_window_end,
+  delivery_window_start,
+  delivery_window_end,
+  zone_id,
+  pickup_address_id,
+  delivery_address_id,
+  source,
+  line_items,
+  recurring_interval          -- NULL, 'weekly', 'biweekly', or 'monthly'
+) VALUES (
+  '________-____-____-____-____________',   -- customer_id (required)
+  'scheduled',                               -- must be 'scheduled' for trigger to fire
+  2,                                         -- total_bags
+  0,                                         -- total_amount (set when charged)
+  '2026-03-__T__:00:00Z',                   -- pickup start (UTC)
+  '2026-03-__T__:00:00Z',                   -- pickup end (UTC)
+  '2026-03-__T__:00:00Z',                   -- delivery start (UTC, typically +1 day)
+  '2026-03-__T__:00:00Z',                   -- delivery end (UTC, typically +1 day)
+  '________-____-____-____-____________',   -- zone_id (required — see list above)
+  '________-____-____-____-____________',   -- pickup_address_id
+  '________-____-____-____-____________',   -- delivery_address_id (same as pickup if identical)
+  'customer_app',                            -- source: customer_app, scheduled, walk_in, recurring
+  '[]',                                      -- line_items (JSONB array)
+  NULL                                       -- recurring_interval (NULL for one-time)
+);
+
+-- ⚠️ DO NOT set pickup_run_id or delivery_run_id — leave them NULL
+--    so the auto_route_on_insert trigger fires and assigns routes.
+--
+-- ⚠️ Pickup time must fall within a route template's window for the
+--    order's zone + day-of-week, or no route will be assigned.
+--    Current windows: AM = 07:00-11:00, PM = 18:00-22:00 Pacific
+--
+-- To verify it worked:
+-- SELECT id, pickup_run_id, delivery_run_id FROM orders WHERE id = '<new-id>';
+```
+
+---
+
 ## Git Log (recent)
 ```
 57cfcb0  fix: remove Safari/Chrome-breaking sessionStorage guard that wiped auth on every refresh
