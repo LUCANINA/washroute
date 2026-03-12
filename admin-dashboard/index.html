@@ -3833,7 +3833,7 @@
     document.getElementById('topbar-cta').style.display = pageCTAs[id] ? '' : 'none';
     currentPage = id;
     try { history.replaceState(null, '', '#' + id); } catch(_) {} // persist page across refresh
-    if (id === 'orders') clearNewOrderBadge();
+    if (id === 'orders') { clearNewOrderBadge(); loadOrders(currentOrderFilter); }
     if (id === 'inbox')   loadInbox();
     if (id === 'maps')    setTimeout(()=>initZonesMap(), 80);
     if (id === 'routes')  setTimeout(()=>initRoutesPage(), 80);
@@ -12451,30 +12451,6 @@ window.onload=()=>{window.print();};
     if (cols.includes('rack'))     tasks.push(loadRacking());
     await Promise.all(tasks);
     updateProcNavBadge();
-    // Sync orders page so status changes from the kanban are reflected immediately
-    syncOrdersFromProcessing();
-  }
-
-  function syncOrdersFromProcessing() {
-    // Gather all orders currently visible in the processing kanban columns
-    const procSources = [
-      ...(allProcOrders || []),       // intake (picked_up)
-      ...(allCleanOrders || []),      // cleaning (processing)
-      ...(allFoldOrders || []),       // folding
-      ...(allRackOrders || []),       // rack (ready_for_delivery)
-    ];
-    let changed = false;
-    for (const po of procSources) {
-      const idx = allOrders.findIndex(o => o.id === po.id);
-      if (idx !== -1 && allOrders[idx].status !== po.status) {
-        allOrders[idx].status = po.status;
-        changed = true;
-      }
-    }
-    if (changed) {
-      updateOrderFilterCounts();
-      renderOrders(getFilteredOrders());
-    }
   }
 
   async function loadIntakeCol() {
