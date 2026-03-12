@@ -272,6 +272,7 @@ There are actually **two separate hang points** that must both be covered:
   3. `trg_auto_route_new_order()` trigger — AFTER INSERT on orders, fires for `status='scheduled' AND zone_id IS NOT NULL AND pickup_run_id IS NULL`
   4. `trg_create_recurring_order()` trigger — AFTER UPDATE on orders, fires when status transitions to `delivered` and `recurring_interval` is set. Creates next order (shifted by weekly/biweekly/monthly), skips Sundays (bumps to Monday). New order INSERT fires the auto-route trigger automatically.
 - **Updated `orders_source_check`** — expanded from `('scheduled','walk_in')` to include `'customer_app'` and `'recurring'`.
+- **Booking cutoff feature:** Added `booking_cutoff_minutes` column to `route_templates` (default 30). Customer app now hides time slots when current time is within the cutoff of the slot's end time (e.g. a 9–11 AM slot with 30min cutoff disappears at 10:30 AM). Configurable per route in admin Routes editor. Previously, slots vanished the moment their start time passed — a 9–11 AM slot disappeared at 9:01 AM.
 - **Removed JS auto-assign from customer app** — the 80-line IIFE with `tmplsForDay()`, `runForDate()`, `nextStopNum()` helpers is gone. Replaced with a comment noting DB trigger handles it.
 - **Admin dashboard JS route_stop code retained** — `saveOrder()` route_stop creation stays (needed when admin explicitly picks routes, since trigger only fires when `pickup_run_id IS NULL`). `opSaveRouteAndSlot()` stays (manual route reassignment from order panel).
 - **Tested end-to-end:** Inserted a test order for Oakland AM March 12 → trigger auto-created the dated route, assigned driver, created pickup + delivery stops. Then set `recurring_interval='weekly'` and marked delivered → recurring trigger created next order for March 19, which in turn auto-routed to Oakland AM March 19/20. Full chain works.
@@ -379,6 +380,7 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
+b277677  feat: configurable booking cutoff per route template
 dfc203e  docs: standardize on "Route" terminology, retire "run" from notes
 6c7ccbd  docs: add test order SQL template to PROJECT-NOTES
 957d1c5  feat: move order routing from client JS to DB triggers
