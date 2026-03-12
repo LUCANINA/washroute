@@ -2364,25 +2364,21 @@ function subscribeToRouteStopUpdates() {
 /* ──────────────────────────────
    AUTH STATE CHANGE
 ────────────────────────────── */
-db.auth.onAuthStateChange(async (event, session) => {
+// CRITICAL: Supabase-js deadlocks if you await Supabase calls inside onAuthStateChange.
+// All async work is deferred via setTimeout(0). See: https://github.com/supabase/auth-js/issues/762
+async function _handleDriverSession(event, session) {
   if (session?.user) {
-    // Once initialized, skip all redundant events (TOKEN_REFRESHED, duplicate SIGNED_IN, etc.)
-    // appReady is reset to false on sign-out, so re-login always works correctly.
     if (appReady) return;
     currentUser = session.user;
 
     const cached = loadDriverCache(currentUser.id);
     if (cached) {
-      // Instant render — use cached data, no spinner needed
       currentProfile = cached.profile;
       currentDriver  = cached.driver;
       todayRoutes    = cached.routes || [];
       allStops       = cached.stops  || [];
-      showLoading(false); // dismiss any spinner doLogin may have shown
+      showLoading(false);
     } else {
-      // First login or cache expired — show spinner while fetching.
-      // Safety net: if loadDriverData hangs, reset the login button after 15s so
-      // the user is never permanently stuck on the auth screen.
       const btn = document.getElementById('btn-login');
       const err = document.getElementById('auth-err');
       const loadTimer = setTimeout(() => {
@@ -2403,7 +2399,6 @@ db.auth.onAuthStateChange(async (event, session) => {
     subscribeToDriverMessages();
     subscribeToRouteStopUpdates();
     goTo('home');
-    // If we rendered from cache, silently refresh route data in background
     if (cached) loadDriverData().then(() => renderRoute()).catch(console.error);
   } else {
     appReady = false;
@@ -2411,6 +2406,9 @@ db.auth.onAuthStateChange(async (event, session) => {
     document.getElementById('bottom-nav').style.display = 'none';
     showScreen('auth');
   }
+}
+db.auth.onAuthStateChange((event, session) => {
+  setTimeout(() => _handleDriverSession(event, session), 0);
 });
 </script>
 </body>

@@ -1862,40 +1862,34 @@ async function handleMagicLink() {
 /* ── AUTH STATE ── */
 let appReady = false;
 
-db.auth.onAuthStateChange(async (event, session) => {
+// CRITICAL: Supabase-js deadlocks if you await Supabase calls inside onAuthStateChange.
+// All async work is deferred via setTimeout(0). See: https://github.com/supabase/auth-js/issues/762
+async function _handleCustomerSession(event, session) {
   if (session?.user) {
-    // Once initialized, skip all redundant events (TOKEN_REFRESHED, duplicate SIGNED_IN, etc.)
-    // appReady is reset to false on sign-out, so re-login always works correctly.
     if (appReady) return;
-    // Phone OTP new-user flow: name screen is shown AFTER verification.
-    // Don't navigate yet — handleNameSubmit() will take over once name is collected.
     if (_awaitingName) return;
     currentUser = session.user;
 
     const cached = loadUserCache(currentUser.id);
     if (cached) {
-      // Instant render — use cached profile/customer/cards data, no spinner needed
       currentProfile  = cached.profile;
       currentCustomer = cached.customer;
       currentCards    = cached.cards || [];
-      showLoading(false); // dismiss any spinner handleLogin may have shown
+      showLoading(false);
     } else {
-      // First login or cache expired — show spinner while fetching
       showLoading(true);
       try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }
     }
     appReady = true;
     document.getElementById('bottom-nav').style.display = 'flex';
 
-    // Check if returning from Stripe payment
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('payment') === 'success') {
       const returnedOrder = urlParams.get('order');
       const returnedPlan  = urlParams.get('plan');
       const returnedSetup = urlParams.get('setup');
-      history.replaceState({}, '', window.location.pathname); // clean URL
+      history.replaceState({}, '', window.location.pathname);
       if (returnedSetup) {
-        // Card was saved — reload customer data so we have the new card info
         try { await loadUserData(); } catch (_) {}
         goTo('account');
         setTimeout(() => toast('💳 Card saved successfully!'), 400);
@@ -1918,20 +1912,20 @@ db.auth.onAuthStateChange(async (event, session) => {
       goTo('home');
     }
     loadServices();
-    // If we rendered from cache, silently refresh in background so data stays fresh
     if (cached) loadUserData().then(() => loadHome()).catch(console.error);
   } else {
-    if (currentUser?.id) clearUserCache(currentUser.id); // wipe cache on sign-out
+    if (currentUser?.id) clearUserCache(currentUser.id);
     appReady = false;
     currentUser = currentProfile = currentCustomer = null;
     currentCards = [];
     document.getElementById('bottom-nav').style.display = 'none';
-    // Show auth screen so existing customers can sign in.
-    // New visitors click "Continue without an account" to start the order flow.
     showScreen('auth');
-    showAuthPanel('hero'); // always return to the main magic-link panel, not email
-    loadServices(); // load in background so order flow is ready when they tap
+    showAuthPanel('hero');
+    loadServices();
   }
+}
+db.auth.onAuthStateChange((event, session) => {
+  setTimeout(() => _handleCustomerSession(event, session), 0);
 });
 
 async function loadUserData() {

@@ -3479,32 +3479,27 @@
     showLoginScreen();
   }
 
-  db.auth.onAuthStateChange(async (event, session) => {
-    // Each invocation claims a generation ID. If a newer auth event fires while
-    // this one is still awaiting the profile fetch, the stale handler bails out
-    // before it can overwrite the UI — preventing the "login timed out" bug caused
-    // by an old session racing against a fresh sign-in.
-    const myGen = ++_authGen;
-    console.log('[WR Auth]', new Date().toISOString(), 'event:', event, 'session:', session ? 'YES (uid:' + session.user?.id?.slice(0,8) + ')' : 'NULL', 'gen:', myGen);
+  // ── DEFERRED SESSION HANDLER ──
+  // CRITICAL: Supabase-js has a known deadlock bug where making ANY async
+  // Supabase API call (db.from(...), db.auth.signOut(), etc.) inside the
+  // onAuthStateChange callback blocks the internal auth state machine.
+  // The profile fetch, role check, and signOut all hang forever.
+  // Fix: the callback only captures event/session and returns immediately.
+  // All async work is deferred to the next microtask via setTimeout(0).
+  // See: https://github.com/supabase/auth-js/issues/762
 
+  async function _handleSessionChange(event, session, myGen) {
     if (session) {
-      // A valid session arrived — cancel any pending "show login screen" fallback timer.
       clearTimeout(_sessionNullTimer);
       _sessionNullTimer = null;
-      // App already visible — token refresh or duplicate event, nothing to re-init
       if (document.getElementById('app').style.display === 'block') return;
 
       const btn = document.getElementById('login-btn');
       const err = document.getElementById('login-error');
 
-      // Safety net: if the profile fetch hangs for 15 s and the app still hasn't shown,
-      // reset the button so the user can try again. We do NOT call signOut() here —
-      // that would cascade into a signOut→showLoginScreen→signIn loop. The session
-      // itself may still be valid; a transient fetch hang shouldn't invalidate it.
       const profileTimer = setTimeout(() => {
-        if (myGen !== _authGen) return; // superseded by a newer auth event
+        if (myGen !== _authGen) return;
         if (document.getElementById('app').style.display !== 'block') {
-          // App still not visible — profile fetch timed out. Reset the UI.
           btn.disabled = false; btn.textContent = 'Sign in';
           err.textContent = 'Connection timed out — please try again.';
           err.style.display = 'block';
@@ -3513,7 +3508,6 @@
       }, 15000);
 
       try {
-        // Fetch the user's profile to check their role
         const { data: profile, error: profileError } = await db
           .from('profiles')
           .select('role, first_name, last_name')
@@ -3521,33 +3515,25 @@
           .single();
 
         clearTimeout(profileTimer);
-
-        // If a newer session came in while we were waiting, do nothing — let it win
         if (myGen !== _authGen) return;
-
         if (profileError) throw profileError;
 
         const role = profile?.role || 'staff';
         console.log('[WR Auth] Profile fetch success, role:', role, 'gen:', myGen);
 
-        // Block customers and drivers — this is the admin dashboard only
         if (role === 'customer' || role === 'driver') {
           _pendingAccessDeniedMsg = 'Access denied. This dashboard is for staff only.';
-          await db.auth.signOut(); // triggers onAuthStateChange(null) which calls showLoginScreen(msg)
+          await db.auth.signOut();
           return;
         }
 
         currentUserRole = role;
         _loginInProgress = false;
-
-        // Mark this tab as having an active session so page refreshes keep it.
         try { sessionStorage.setItem('wr-admin-tab', '1'); } catch(_) {}
 
-        // Show the app
         document.getElementById('login-screen').style.display = 'none';
         document.getElementById('app').style.display = 'block';
 
-        // Sidebar: name and role badge
         const displayName = profile?.first_name
           ? `${profile.first_name} ${profile.last_name || ''}`.trim()
           : session.user.email.split('@')[0];
@@ -3556,22 +3542,17 @@
         document.getElementById('user-avatar').textContent = initials;
         document.getElementById('user-role-label').textContent = role === 'admin' ? 'Admin' : 'Staff';
 
-        // Show/hide nav items based on role
         applyRoleToNav(role);
-
         loadAll();
         startNewOrderListener();
         startRouteStopListener();
       } catch (e) {
         clearTimeout(profileTimer);
-        if (myGen !== _authGen) return; // superseded — don't touch UI
-        // Profile query failed (network blip, etc.) — do NOT call signOut().
-        // A transient error shouldn't end the session.
+        if (myGen !== _authGen) return;
         console.error('[WR Auth] Profile fetch error gen:', myGen, e);
         if (document.getElementById('app').style.display === 'block') {
           showToast('Could not refresh your profile — please reload if something looks wrong.', '');
         } else {
-          // Still on login screen — surface the error so they can try again
           _loginInProgress = false;
           err.textContent = 'Sign-in failed: ' + (e.message || 'unexpected error. Please try again.');
           err.style.display = 'block';
@@ -3579,13 +3560,6 @@
         }
       }
     } else {
-      // ── NULL SESSION ──
-      // SIGNED_OUT is Supabase's definitive "session is over" signal — show login immediately.
-      // For any other null event (most commonly INITIAL_SESSION null when the access token
-      // just expired), do NOT immediately show the login screen: TOKEN_REFRESHED may be
-      // arriving within milliseconds with a fresh token. Use a short fallback timer instead.
-      // The login-screen div is already visible via CSS on a fresh page load, so there is
-      // no visible flash during the wait period.
       if (event === 'SIGNED_OUT') {
         clearTimeout(_sessionNullTimer);
         _sessionNullTimer = null;
@@ -3593,10 +3567,6 @@
         _pendingAccessDeniedMsg = '';
         showLoginScreen(msg);
       } else {
-        // INITIAL_SESSION null, TOKEN_REFRESH_FAILED, or similar: wait for TOKEN_REFRESHED.
-        // If TOKEN_REFRESHED arrives with a valid session, the if(session) branch above
-        // will cancel this timer and show the app instead. 10 s gives the refresh
-        // call plenty of time to complete even on a slow connection.
         clearTimeout(_sessionNullTimer);
         console.log('[WR Auth] Null session (event:', event, ') — waiting up to 10s for TOKEN_REFRESHED');
         _sessionNullTimer = setTimeout(() => {
@@ -3608,6 +3578,14 @@
         }, 10000);
       }
     }
+  }
+
+  db.auth.onAuthStateChange((event, session) => {
+    // Synchronous-only inside this callback — no awaits, no Supabase API calls.
+    // Everything async is deferred to _handleSessionChange via setTimeout(0).
+    const myGen = ++_authGen;
+    console.log('[WR Auth]', new Date().toISOString(), 'event:', event, 'session:', session ? 'YES (uid:' + session.user?.id?.slice(0,8) + ')' : 'NULL', 'gen:', myGen);
+    setTimeout(() => _handleSessionChange(event, session, myGen), 0);
   });
 
   // ── ROLE-BASED NAV ──
