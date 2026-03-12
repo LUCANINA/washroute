@@ -386,7 +386,7 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
-XXXXXXX  feat: auto-fail expired orders + driver app time-window filtering
+030ada6  feat: auto-fail expired orders + driver app time-window filtering
 b277677  feat: configurable booking cutoff per route template
 dfc203e  docs: standardize on "Route" terminology, retire "run" from notes
 6c7ccbd  docs: add test order SQL template to PROJECT-NOTES
