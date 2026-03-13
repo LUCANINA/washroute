@@ -11058,95 +11058,197 @@ window.onload=()=>{window.print();};
     }
   }
 
+  // Module-level state for the template-driven Daily Schedule
+  let _dsTemplates = [], _dsRoutes = [], _dsCountMap = {}, _dsDateStr = '';
+  let _dsActiveZone = null, _dsActiveSlot = null;
+
   async function loadDailyRuns() {
     const dp = document.getElementById('runs-date-picker');
-    const dateStr = (dp && dp.value) ? dp.value : today();
+    _dsDateStr = (dp && dp.value) ? dp.value : today();
 
-    const { data: runs } = await db.from('routes')
-      .select('id, name, status, total_stops, color, template_id, route_templates(window_start, window_end)')
-      .eq('run_date', dateStr)
-      .order('name');
+    // Load all route templates + any routes for this date in parallel
+    const [{ data: templates }, { data: routes }] = await Promise.all([
+      db.from('route_templates').select('id, name, window_start, window_end, color').order('name'),
+      db.from('routes')
+        .select('id, name, status, template_id')
+        .eq('run_date', _dsDateStr)
+    ]);
 
     const toggleEl = document.getElementById('runs-toggle-btns');
     if (!toggleEl) return;
+    _dsTemplates = templates || [];
+    _dsRoutes = routes || [];
 
-    if (!runs || !runs.length) {
-      toggleEl.innerHTML = '<span style="color:var(--gray-400);font-size:12.5px">No routes on this date</span>';
-      const optBtn = document.getElementById('btn-optimize');
-      if (optBtn) optBtn.style.display = 'none';
-      const stopList = document.getElementById('route-stop-list');
-      if (stopList) stopList.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:13px;padding:20px;text-align:center;">No routes for this date</div>';
+    if (!_dsTemplates.length) {
+      toggleEl.innerHTML = '<span style="color:var(--gray-400);font-size:12.5px">No route templates configured</span>';
       return;
     }
 
-    // Get live stop counts
-    const runIds = runs.map(r => r.id);
-    const { data: stopCounts } = await db.from('route_stops')
-      .select('route_id')
-      .in('route_id', runIds);
-    const countMap = {};
-    (stopCounts||[]).forEach(s => { countMap[s.route_id] = (countMap[s.route_id]||0) + 1; });
+    // Get live stop counts for routes that exist
+    _dsCountMap = {};
+    const routeIds = _dsRoutes.map(r => r.id);
+    if (routeIds.length) {
+      const { data: sc } = await db.from('route_stops').select('route_id').in('route_id', routeIds);
+      (sc||[]).forEach(s => { _dsCountMap[s.route_id] = (_dsCountMap[s.route_id]||0) + 1; });
+    }
 
-    // Determine which route is most relevant right now
+    // Derive zones and slots from templates
+    const fmtH = hr => { const p = hr >= 12 ? 'PM' : 'AM'; return `${hr > 12 ? hr-12 : (hr === 0 ? 12 : hr)}${p}`; };
+    const zones = {};
+    _dsTemplates.forEach(t => {
+      const zoneName = t.name.replace(/\s*(AM|PM)$/i, '').trim();
+      const slot = parseInt(t.window_start) < 12 ? 'AM' : 'PM';
+      if (!zones[zoneName]) zones[zoneName] = { name: zoneName, color: t.color || '#635bff', templates: {} };
+      const matchedRoute = _dsRoutes.find(r => r.template_id === t.id);
+      const cnt = matchedRoute ? (_dsCountMap[matchedRoute.id] || 0) : 0;
+      zones[zoneName].templates[slot] = {
+        template: t,
+        route: matchedRoute || null,
+        stopCount: cnt,
+        timeLabel: `${fmtH(parseInt(t.window_start))} – ${fmtH(parseInt(t.window_end))}`
+      };
+    });
+    const zoneList = Object.values(zones);
+
+    // Determine best zone + slot based on current time
     const now = new Date();
     const nowMins = now.getHours() * 60 + now.getMinutes();
-    let bestId = runs[0]?.id, bestScore = Infinity;
-    runs.forEach(r => {
-      const tmpl = r.route_templates;
-      if (!tmpl?.window_start || !tmpl?.window_end) return;
-      const [sh] = tmpl.window_start.split(':').map(Number);
-      const [eh] = tmpl.window_end.split(':').map(Number);
-      const startM = sh * 60, endM = eh * 60;
-      let score;
-      if (nowMins >= startM && nowMins <= endM) score = 0;
-      else if (nowMins < startM) score = startM - nowMins;
-      else score = (nowMins - endM) + 10000;
-      if (score < bestScore) { bestScore = score; bestId = r.id; }
+    let bestZone = zoneList[0]?.name, bestSlot = 'AM', bestScore = Infinity;
+    zoneList.forEach(z => {
+      Object.entries(z.templates).forEach(([slot, info]) => {
+        const t = info.template;
+        const [sh] = t.window_start.split(':').map(Number);
+        const [eh] = t.window_end.split(':').map(Number);
+        const startM = sh * 60, endM = eh * 60;
+        let score;
+        if (nowMins >= startM && nowMins <= endM) score = 0;
+        else if (nowMins < startM) score = startM - nowMins;
+        else score = (nowMins - endM) + 10000;
+        // Boost routes that actually have stops
+        if (info.route && info.stopCount > 0) score -= 5000;
+        if (score < bestScore) { bestScore = score; bestZone = z.name; bestSlot = slot; }
+      });
     });
 
-    // Build segmented toggle with NOW badge and time window
-    const fmtH = hr => { const p = hr >= 12 ? 'PM' : 'AM'; return `${hr > 12 ? hr-12 : (hr === 0 ? 12 : hr)}${p}`; };
-    toggleEl.style.cssText = 'display:flex;gap:0;background:#f1f5f9;border-radius:10px;padding:3px;';
-    toggleEl.innerHTML = runs.map(r => {
-      const cnt = countMap[r.id] || 0;
-      const isBest = r.id === bestId;
-      const tmpl = r.route_templates;
-      const timeRange = tmpl?.window_start && tmpl?.window_end
-        ? `${fmtH(parseInt(tmpl.window_start))} – ${fmtH(parseInt(tmpl.window_end))}`
-        : '';
-      // Determine status: active (in window now), upcoming, or past
-      let statusTag = '';
-      if (tmpl?.window_start && tmpl?.window_end) {
-        const [sh] = tmpl.window_start.split(':').map(Number);
-        const [eh] = tmpl.window_end.split(':').map(Number);
-        if (nowMins >= sh*60 && nowMins <= eh*60) statusTag = '<span style="font-size:8px;font-weight:800;color:white;background:#10b981;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:.3px;">NOW</span>';
-        else if (nowMins < sh*60) statusTag = '<span style="font-size:8px;font-weight:700;color:#6366f1;background:#e0e7ff;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:.3px;">NEXT</span>';
-      }
-      return `<button class="run-toggle-btn" data-rid="${r.id}"
-        style="flex:1;border:none;background:${isBest ? 'white' : 'transparent'};border-radius:8px;padding:6px 10px;cursor:pointer;
-        display:flex;flex-direction:column;align-items:center;gap:1px;transition:all .15s;
-        ${isBest ? 'box-shadow:0 1px 3px rgba(0,0,0,.1);' : 'opacity:.65;'}"
-        onclick="selectRunOnMap('${r.id}', this)">
-        <div style="display:flex;align-items:center;gap:4px;">
-          <span style="font-size:13px;font-weight:700;color:${isBest ? 'var(--gray-800)' : 'var(--gray-500)'};">${r.name}</span>
-          ${statusTag}
-        </div>
-        <div style="font-size:10px;color:var(--gray-400);font-weight:500;">${timeRange}${timeRange ? ' · ' : ''}${cnt} stops</div>
+    // Render: Row 1 = zone pills, Row 2 = AM/PM toggle
+    toggleEl.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+    let html = '<div style="display:flex;gap:6px;" id="ds-zone-row">';
+    zoneList.forEach(z => {
+      const isSel = z.name === bestZone;
+      html += `<button class="ds-zone-btn" data-zone="${z.name}"
+        style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:8px;border:1.5px solid ${isSel ? z.color : '#e2e8f0'};
+        background:${isSel ? z.color + '0d' : 'white'};cursor:pointer;transition:all .15s;"
+        onclick="dsSelectZone('${z.name}')">
+        <div style="width:8px;height:8px;border-radius:50%;background:${z.color};flex-shrink:0;"></div>
+        <span style="font-size:13px;font-weight:${isSel ? '700' : '500'};color:${isSel ? 'var(--gray-800)' : 'var(--gray-500)'};">${z.name}</span>
       </button>`;
-    }).join('');
+    });
+    html += '</div>';
+    html += '<div style="display:flex;gap:0;background:#f1f5f9;border-radius:10px;padding:3px;" id="ds-slot-row">';
+    ['AM','PM'].forEach(slot => {
+      const isSel = slot === bestSlot;
+      // Find time label from any zone (all zones share same time windows)
+      const info = zoneList[0]?.templates[slot];
+      const timeLabel = info?.timeLabel || slot;
+      // NOW/NEXT badge for this slot
+      let badge = '';
+      if (info?.template) {
+        const [sh] = info.template.window_start.split(':').map(Number);
+        const [eh] = info.template.window_end.split(':').map(Number);
+        if (nowMins >= sh*60 && nowMins <= eh*60) badge = '<span style="font-size:8px;font-weight:800;color:white;background:#10b981;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:.3px;">NOW</span>';
+        else if (nowMins < sh*60) badge = '<span style="font-size:8px;font-weight:700;color:#6366f1;background:#e0e7ff;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:.3px;">NEXT</span>';
+      }
+      html += `<button class="ds-slot-btn" data-slot="${slot}"
+        style="flex:1;border:none;background:${isSel ? 'white' : 'transparent'};border-radius:8px;padding:7px 10px;cursor:pointer;
+        display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s;
+        ${isSel ? 'box-shadow:0 1px 3px rgba(0,0,0,.1);' : 'opacity:.6;'}"
+        onclick="dsSelectSlot('${slot}')">
+        <span style="font-size:13px;font-weight:700;color:${isSel ? 'var(--gray-800)' : 'var(--gray-500)'};">${slot}</span>
+        <span style="font-size:10px;color:var(--gray-400);font-weight:500;">${timeLabel}</span>
+        ${badge}
+      </button>`;
+    });
+    html += '</div>';
+    toggleEl.innerHTML = html;
 
-    // Auto-click the best route
-    const bestBtn = toggleEl.querySelector(`.run-toggle-btn[data-rid="${bestId}"]`);
-    if (bestBtn) bestBtn.click();
+    // Store zone data for later lookups
+    toggleEl._zoneData = zones;
+    _dsActiveZone = bestZone;
+    _dsActiveSlot = bestSlot;
+    dsLoadSelectedRoute();
   }
 
-  async function selectRunOnMap(runId, btn) {
-    document.querySelectorAll('.run-toggle-btn').forEach(b => {
-      b.style.background = 'transparent'; b.style.boxShadow = 'none'; b.style.opacity = '.65';
+  function dsSelectZone(zoneName) {
+    _dsActiveZone = zoneName;
+    const toggleEl = document.getElementById('runs-toggle-btns');
+    const zones = toggleEl._zoneData;
+    // Update zone button styles
+    document.querySelectorAll('.ds-zone-btn').forEach(b => {
+      const z = zones[b.dataset.zone];
+      const isSel = b.dataset.zone === zoneName;
+      b.style.borderColor = isSel ? (z?.color || 'var(--accent)') : '#e2e8f0';
+      b.style.background = isSel ? (z?.color || 'var(--accent)') + '0d' : 'white';
+      b.querySelector('span:last-child').style.fontWeight = isSel ? '700' : '500';
+      b.querySelector('span:last-child').style.color = isSel ? 'var(--gray-800)' : 'var(--gray-500)';
     });
-    btn.style.background = 'white';
-    btn.style.boxShadow = '0 1px 3px rgba(0,0,0,.1)';
-    btn.style.opacity = '1';
+    // Update stop counts on slot buttons
+    dsUpdateSlotCounts();
+    dsLoadSelectedRoute();
+  }
+
+  function dsSelectSlot(slot) {
+    _dsActiveSlot = slot;
+    document.querySelectorAll('.ds-slot-btn').forEach(b => {
+      const isSel = b.dataset.slot === slot;
+      b.style.background = isSel ? 'white' : 'transparent';
+      b.style.boxShadow = isSel ? '0 1px 3px rgba(0,0,0,.1)' : 'none';
+      b.style.opacity = isSel ? '1' : '.6';
+      b.querySelector('span:first-child').style.color = isSel ? 'var(--gray-800)' : 'var(--gray-500)';
+    });
+    dsLoadSelectedRoute();
+  }
+
+  function dsUpdateSlotCounts() {
+    const toggleEl = document.getElementById('runs-toggle-btns');
+    const zones = toggleEl._zoneData;
+    const zone = zones[_dsActiveZone];
+    if (!zone) return;
+    document.querySelectorAll('.ds-slot-btn').forEach(b => {
+      const info = zone.templates[b.dataset.slot];
+      const cnt = info?.stopCount || 0;
+      const countEl = b.querySelector('.ds-slot-count');
+      if (countEl) countEl.textContent = `${cnt} stop${cnt !== 1 ? 's' : ''}`;
+    });
+  }
+
+  function dsLoadSelectedRoute() {
+    const toggleEl = document.getElementById('runs-toggle-btns');
+    const zones = toggleEl._zoneData;
+    const zone = zones[_dsActiveZone];
+    const info = zone?.templates[_dsActiveSlot];
+    const optBtn = document.getElementById('btn-optimize');
+    if (!info?.route) {
+      // No route for this template + date
+      routeLiveRouteId = null;
+      if (optBtn) optBtn.style.display = 'none';
+      const stopList = document.getElementById('route-stop-list');
+      if (stopList) stopList.innerHTML = `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--gray-400);font-size:13px;padding:30px;text-align:center;gap:4px;">
+        <span>No ${_dsActiveZone} ${_dsActiveSlot} route on ${_dsDateStr}</span>
+        <span style="font-size:11px;">Routes are created when orders are assigned to this template.</span>
+      </div>`;
+      // Clear map pins
+      if (routeLiveMap) {
+        const toRemove = [];
+        routeLiveMap.eachLayer(l => { if (l._isStopLayer) toRemove.push(l); });
+        toRemove.forEach(l => routeLiveMap.removeLayer(l));
+      }
+      return;
+    }
+    // Route exists — load it via selectRunOnMap
+    selectRunOnMap(info.route.id, null);
+  }
+
+  async function selectRunOnMap(runId, _btn) {
     routeLiveRouteId = runId;
     const optBtn = document.getElementById('btn-optimize');
     if (optBtn) optBtn.style.display = '';
