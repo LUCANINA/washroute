@@ -1165,7 +1165,7 @@ async function loadDriverData() {
   const [{ data: routes }, { data: overrideStops }] = await Promise.all([
     db.from('routes')
       .select('id, name, status, run_date, template_id, route_templates(window_start, window_end)')
-      .or(`pickup_driver_id.eq.${currentDriver.id},delivery_driver_id.eq.${currentDriver.id}`)
+      .eq('driver_id', currentDriver.id)
       .eq('run_date', today())
       .neq('status', 'cancelled'),
     db.from('route_stops')
@@ -1204,7 +1204,7 @@ async function loadDriverData() {
     const { data: rs } = await db.from('route_stops')
       .select(stopFields)
       .in('route_id', routeIds)
-      .is('driver_id', null)          // only stops not individually reassigned elsewhere
+      .eq('driver_id', currentDriver.id)  // only stops assigned to this driver
       .order('stop_number', { ascending: true });
     routeStops = rs || [];
   }
@@ -1217,7 +1217,7 @@ async function loadDriverData() {
     const { data: carryStops } = await db.from('route_stops')
       .select(stopFields)
       .in('route_id', hiddenIds)
-      .is('driver_id', null)
+      .eq('driver_id', currentDriver.id)
       .in('status', ['pending', 'en_route'])   // only incomplete stops
       .order('stop_number', { ascending: true });
     if (carryStops?.length) {

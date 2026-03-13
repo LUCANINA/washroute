@@ -4532,7 +4532,7 @@
                actual_pickup_at, actual_delivery_at,
                pickup_run_id, delivery_run_id,
                pickup_address_id, delivery_address_id,
-               created_at, recurring_interval,
+               created_at, recurring_interval, routing_error,
                services(name),
                customers(id, first_name_cache, last_name_cache, phone_cache),
                pickup_run:pickup_run_id(id, name),
@@ -4686,7 +4686,7 @@
         return `<tr style="cursor:pointer" onclick="openOrderPanel('${o.id}')">
           <td style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${o.customers?.phone_cache||''}" data-cust-name="${(o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||'')}" onchange="updateOrderBatchBar()"></td>
           <td class="td-name">${orderCustomerCell(o)}</td>
-          <td>${statusBadge(o.status)}</td>
+          <td>${statusBadge(o.status)}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:4px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : ''}</td>
           <td style="font-size:12.5px;white-space:nowrap">${pickupRouteCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${pickupTimeCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${deliveryRouteCell(o)}</td>
@@ -4790,6 +4790,22 @@
     const custLink = document.getElementById('op-cust-name');
     if (custLink) custLink.textContent = orderCustomerName(o);
     document.getElementById('op-cust-phone').textContent = o.customers?.phone_cache || '—';
+
+    // Routing error banner
+    let routeErrEl = document.getElementById('op-routing-error');
+    if (!routeErrEl) {
+      routeErrEl = document.createElement('div');
+      routeErrEl.id = 'op-routing-error';
+      routeErrEl.style.cssText = 'background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:8px 12px;border-radius:8px;font-size:12.5px;margin:0 16px 8px;display:none';
+      const custStrip = document.getElementById('op-cust-phone')?.closest('.op-cust-strip');
+      if (custStrip) custStrip.after(routeErrEl);
+    }
+    if (o.routing_error) {
+      routeErrEl.innerHTML = `⚠️ <strong>Routing error:</strong> ${o.routing_error}`;
+      routeErrEl.style.display = 'block';
+    } else {
+      routeErrEl.style.display = 'none';
+    }
 
     // Recurring control
     const recurSelect = document.getElementById('op-recur-select');
@@ -6348,14 +6364,14 @@ window.onload=()=>{window.print();};
 
     // Today's run stats
     const { data: todayRuns } = await db.from('routes')
-      .select('id, total_stops, pickup_driver_id, delivery_driver_id')
+      .select('id, total_stops, driver_id')
       .eq('run_date', today());
     const runs = todayRuns || [];
 
     document.getElementById('rstat-templates').textContent = allTemplates.filter(t=>t.is_active).length;
     document.getElementById('rstat-today').textContent = runs.length;
     document.getElementById('rstat-stops').textContent = runs.reduce((s,r)=>s+(r.total_stops||0),0);
-    const driverIds = new Set([...runs.map(r=>r.pickup_driver_id),...runs.map(r=>r.delivery_driver_id)].filter(Boolean));
+    const driverIds = new Set(runs.map(r=>r.driver_id).filter(Boolean));
     document.getElementById('rstat-drivers').textContent = driverIds.size;
 
     renderTemplates();
@@ -13861,7 +13877,7 @@ window.onload=()=>{window.print();};
 
     // ── Fetch routes with driver info ──
     let rQ = db.from('routes')
-      .select('id, run_date, status, total_stops, completed_stops, started_at, completed_at, pickup_driver_id, delivery_driver_id');
+      .select('id, run_date, status, total_stops, completed_stops, started_at, completed_at, driver_id');
     if (rptPeriod !== 'all') rQ = rQ.gte('run_date', start.toISOString().split('T')[0]).lte('run_date', end.toISOString().split('T')[0]);
     const { data: routes } = await rQ;
     const routeList = routes || [];
@@ -14015,27 +14031,18 @@ window.onload=()=>{window.print();};
     const drvMap = {}; // driverId → stats
     const driverName = id => allDriversCache.find(d => d.id === id)?.name || 'Unknown';
 
-    // Build a routeId → driver lookup (pickup first, fall back to delivery)
+    // Build a routeId → driver lookup
     const routeDriver = {};
     routes.forEach(r => {
-      if (r.pickup_driver_id) routeDriver[r.id] = r.pickup_driver_id;
-      else if (r.delivery_driver_id) routeDriver[r.id] = r.delivery_driver_id;
+      if (r.driver_id) routeDriver[r.id] = r.driver_id;
     });
 
     routes.forEach(r => {
-      const pickupDid = r.pickup_driver_id;
-      const delivDid  = r.delivery_driver_id;
-      // Credit pickup driver
-      if (pickupDid) {
-        if (!drvMap[pickupDid]) drvMap[pickupDid] = { routes:0, stops:0, bags:0, ratingSum:0, ratingCount:0 };
-        drvMap[pickupDid].routes++;
-        drvMap[pickupDid].stops += r.completed_stops || 0;
-      }
-      // Credit delivery driver (only if different from pickup driver)
-      if (delivDid && delivDid !== pickupDid) {
-        if (!drvMap[delivDid]) drvMap[delivDid] = { routes:0, stops:0, bags:0, ratingSum:0, ratingCount:0 };
-        drvMap[delivDid].routes++;
-        drvMap[delivDid].stops += r.completed_stops || 0;
+      const did = r.driver_id;
+      if (did) {
+        if (!drvMap[did]) drvMap[did] = { routes:0, stops:0, bags:0, ratingSum:0, ratingCount:0 };
+        drvMap[did].routes++;
+        drvMap[did].stops += r.completed_stops || 0;
       }
     });
 
