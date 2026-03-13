@@ -11258,32 +11258,20 @@ window.onload=()=>{window.print();};
     routeLiveMap.fitBounds(L.latLngBounds(coords), {padding:[30,30]});
   }
 
-  // ── OPTIMIZE ROUTE ──
+  // ── OPTIMIZE ROUTE (Google Maps Directions API) ──
   async function optimizeRoute() {
     if (!routeLiveRouteId) return;
     const btn = document.getElementById('btn-optimize');
     btn.disabled = true; btn.textContent = 'Optimizing…';
     try {
-      const { data: stops } = await db.from('route_stops')
-        .select('id, stop_number, orders(customer_id)')
-        .eq('route_id', routeLiveRouteId).order('stop_number');
-      // Resolve addresses through customers
-      const custIds = [...new Set((stops||[]).map(s => s.orders?.customer_id).filter(Boolean))];
-      let optAddrMap = {};
-      if (custIds.length) {
-        const { data: addrs } = await db.from('addresses').select('customer_id, lat, lng').in('customer_id', custIds).eq('is_default', true);
-        if (addrs) addrs.forEach(a => { optAddrMap[a.customer_id] = a; });
-      }
-      const valid = (stops||[]).map(s => {
-        const a = optAddrMap[s.orders?.customer_id];
-        return a ? { ...s, addresses: a } : null;
-      }).filter(s => s && s.addresses?.lat && s.addresses?.lng);
-      if (valid.length < 2) { showToast('Need at least 2 stops with addresses to optimize.'); return; }
-      const optimized = nearestNeighborTSP(valid);
-      for (const [i, s] of optimized.entries()) {
-        await db.from('route_stops').update({ stop_number: i+1 }).eq('id', s.id);
-      }
-      showToast('✓ Route optimized — stops reordered by distance');
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/optimize-route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+        body: JSON.stringify({ route_id: routeLiveRouteId })
+      });
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.error || 'Optimization failed');
+      showToast(`✓ Route optimized — ${result.pickups_optimized} pickups, ${result.deliveries_optimized} deliveries reordered`);
       const activeBtn = document.querySelector('.run-toggle-btn[data-rid="'+routeLiveRouteId+'"]');
       if (activeBtn) selectRunOnMap(routeLiveRouteId, activeBtn);
     } catch(e) {
@@ -11291,21 +11279,6 @@ window.onload=()=>{window.print();};
     } finally {
       btn.disabled = false; btn.textContent = 'Optimize';
     }
-  }
-
-  function nearestNeighborTSP(stops) {
-    const remaining = [...stops];
-    const result = [remaining.splice(0, 1)[0]];
-    while (remaining.length) {
-      const last = result[result.length - 1];
-      let nearestIdx = 0, nearestDist = Infinity;
-      remaining.forEach((s, i) => {
-        const d = Math.hypot(s.addresses.lat - last.addresses.lat, s.addresses.lng - last.addresses.lng);
-        if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
-      });
-      result.push(remaining.splice(nearestIdx, 1)[0]);
-    }
-    return result;
   }
 
   // ── MOVE STOP BETWEEN RUNS ──
