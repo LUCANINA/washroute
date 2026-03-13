@@ -1160,18 +1160,13 @@ async function loadDriverData() {
     orders(*, customers(*), services(*))
   `;
 
-  // ── Group 2: today's routes + override stops + messages in parallel ──
-  // All three only need currentDriver.id and are independent of each other
-  const [{ data: routes }, { data: overrideStops }] = await Promise.all([
+  // ── Group 2: today's routes + messages in parallel ──
+  const [{ data: routes }] = await Promise.all([
     db.from('routes')
       .select('id, name, status, run_date, template_id, route_templates(window_start, window_end)')
       .eq('driver_id', currentDriver.id)
       .eq('run_date', today())
       .neq('status', 'cancelled'),
-    db.from('route_stops')
-      .select(`${stopFields}, routes(id, name, run_date)`)
-      .eq('driver_id', currentDriver.id)
-      .order('stop_number', { ascending: true }),
     loadDriverMessages()
   ]);
   const allRoutesForToday = routes || [];
@@ -1199,6 +1194,7 @@ async function loadDriverData() {
 
   // ── Group 3: route stops (needs routeIds from group 2) ──
   let routeStops = [];
+  const myRouteIds = allRoutesForToday.map(r => r.id); // ALL today's routes (visible + hidden)
   if (todayRoutes.length > 0) {
     const routeIds = todayRoutes.map(r => r.id);
     const { data: rs } = await db.from('route_stops')
@@ -1232,8 +1228,29 @@ async function loadDriverData() {
     }
   }
 
-  // Merge — mark override stops so they appear in the "Extra Stops" card, not a phantom route card
-  const tagged = (overrideStops || []).map(s => ({ ...s, _reassigned: true }));
+  // ── Override / reassigned stops: stops on OTHER drivers' routes that were
+  //    individually assigned to this driver for TODAY only ──
+  let overrideStops = [];
+  {
+    // Find today's routes belonging to OTHER drivers that have stops assigned to me
+    const { data: otherStops } = await db.from('route_stops')
+      .select(`${stopFields}, routes!inner(id, name, run_date)`)
+      .eq('driver_id', currentDriver.id)
+      .eq('routes.run_date', today())
+      .not('route_id', 'in', `(${myRouteIds.length ? myRouteIds.join(',') : '00000000-0000-0000-0000-000000000000'})`)
+      .order('stop_number', { ascending: true });
+    overrideStops = (otherStops || []).filter(s =>
+      s.orders && !['delivered','cancelled'].includes(s.orders.status)
+    );
+  }
+
+  // Merge — mark override stops so they appear in the "Extra Stops" card
+  const tagged = overrideStops.map(s => ({ ...s, _reassigned: true }));
+
+  // Also filter out delivered/cancelled from route stops
+  routeStops = routeStops.filter(s =>
+    s.orders && !['delivered','cancelled'].includes(s.orders.status)
+  );
   allStops = [...routeStops, ...tagged];
 
   // ── Resolve addresses through customers' default addresses ──
