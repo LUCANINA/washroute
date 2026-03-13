@@ -1227,6 +1227,21 @@
             </div>
           </div>
 
+          <!-- Driver Schedule View -->
+          <div id="orders-drivers-view" style="display:none;">
+            <!-- Week navigation -->
+            <div class="sched-week-nav">
+              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(-1)">← Prev Week</button>
+              <span class="sched-week-label" id="sched-week-label2">—</span>
+              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(1)">Next Week →</button>
+              <span style="font-size:12px;color:var(--gray-400);margin-left:8px;">Click any cell to reassign a driver for that day.</span>
+            </div>
+            <!-- Schedule grid -->
+            <div id="driver-schedule-grid" style="overflow-x:auto;padding:4px 0;">
+              <div class="loading"><div class="spinner"></div> Loading…</div>
+            </div>
+          </div>
+
         </div>
 
         <!-- ── PROCESSING ── -->
@@ -1298,20 +1313,6 @@
             </div>
           </div>
 
-          <!-- Driver Schedule View (moved from Routes/Settings) -->
-          <div id="orders-drivers-view" style="display:none;">
-            <!-- Week navigation -->
-            <div class="sched-week-nav">
-              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(-1)">← Prev Week</button>
-              <span class="sched-week-label" id="sched-week-label2">—</span>
-              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(1)">Next Week →</button>
-              <span style="font-size:12px;color:var(--gray-400);margin-left:8px;">Click any cell to reassign a driver for that day.</span>
-            </div>
-            <!-- Schedule grid -->
-            <div id="driver-schedule-grid" style="overflow-x:auto;padding:4px 0;">
-              <div class="loading"><div class="spinner"></div> Loading…</div>
-            </div>
-          </div>
 
         </div>
 
