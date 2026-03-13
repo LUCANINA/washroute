@@ -11087,48 +11087,66 @@ window.onload=()=>{window.print();};
     const countMap = {};
     (stopCounts||[]).forEach(s => { countMap[s.route_id] = (countMap[s.route_id]||0) + 1; });
 
-    toggleEl.innerHTML = runs.map(r => {
-      const color = r.color || '#635bff';
-      const cnt = countMap[r.id] || 0;
-      return `<button class="btn btn-ghost run-toggle-btn" data-rid="${r.id}" data-color="${color}"
-        style="font-size:12px;padding:4px 12px;border-radius:20px;display:flex;align-items:center;gap:6px;"
-        onclick="selectRunOnMap('${r.id}', this)">
-        <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></div>
-        ${r.name}
-        <span style="font-size:10px;color:var(--gray-400)">${cnt} stops</span>
-      </button>`;
-    }).join('');
-
-    // Auto-select the most relevant route: pick the one whose window is closest
-    // to the current time (prefer active/upcoming over past)
+    // Determine which route is most relevant right now
     const now = new Date();
     const nowMins = now.getHours() * 60 + now.getMinutes();
-    let bestBtn = null, bestScore = Infinity;
+    let bestId = runs[0]?.id, bestScore = Infinity;
     runs.forEach(r => {
       const tmpl = r.route_templates;
-      const btn = toggleEl.querySelector(`.run-toggle-btn[data-rid="${r.id}"]`);
-      if (!btn) return;
-      if (!tmpl?.window_start || !tmpl?.window_end) { if (!bestBtn) bestBtn = btn; return; }
+      if (!tmpl?.window_start || !tmpl?.window_end) return;
       const [sh] = tmpl.window_start.split(':').map(Number);
       const [eh] = tmpl.window_end.split(':').map(Number);
       const startM = sh * 60, endM = eh * 60;
-      // Score: 0 = currently in window, positive = distance from window (prefer future over past)
       let score;
-      if (nowMins >= startM && nowMins <= endM) score = 0; // in window now
-      else if (nowMins < startM) score = startM - nowMins; // upcoming
-      else score = (nowMins - endM) + 10000; // past (heavily penalized)
-      if (score < bestScore) { bestScore = score; bestBtn = btn; }
+      if (nowMins >= startM && nowMins <= endM) score = 0;
+      else if (nowMins < startM) score = startM - nowMins;
+      else score = (nowMins - endM) + 10000;
+      if (score < bestScore) { bestScore = score; bestId = r.id; }
     });
+
+    // Build segmented toggle with NOW badge and time window
+    const fmtH = hr => { const p = hr >= 12 ? 'PM' : 'AM'; return `${hr > 12 ? hr-12 : (hr === 0 ? 12 : hr)}${p}`; };
+    toggleEl.style.cssText = 'display:flex;gap:0;background:#f1f5f9;border-radius:10px;padding:3px;';
+    toggleEl.innerHTML = runs.map(r => {
+      const cnt = countMap[r.id] || 0;
+      const isBest = r.id === bestId;
+      const tmpl = r.route_templates;
+      const timeRange = tmpl?.window_start && tmpl?.window_end
+        ? `${fmtH(parseInt(tmpl.window_start))} – ${fmtH(parseInt(tmpl.window_end))}`
+        : '';
+      // Determine status: active (in window now), upcoming, or past
+      let statusTag = '';
+      if (tmpl?.window_start && tmpl?.window_end) {
+        const [sh] = tmpl.window_start.split(':').map(Number);
+        const [eh] = tmpl.window_end.split(':').map(Number);
+        if (nowMins >= sh*60 && nowMins <= eh*60) statusTag = '<span style="font-size:8px;font-weight:800;color:white;background:#10b981;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:.3px;">NOW</span>';
+        else if (nowMins < sh*60) statusTag = '<span style="font-size:8px;font-weight:700;color:#6366f1;background:#e0e7ff;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:.3px;">NEXT</span>';
+      }
+      return `<button class="run-toggle-btn" data-rid="${r.id}"
+        style="flex:1;border:none;background:${isBest ? 'white' : 'transparent'};border-radius:8px;padding:6px 10px;cursor:pointer;
+        display:flex;flex-direction:column;align-items:center;gap:1px;transition:all .15s;
+        ${isBest ? 'box-shadow:0 1px 3px rgba(0,0,0,.1);' : 'opacity:.65;'}"
+        onclick="selectRunOnMap('${r.id}', this)">
+        <div style="display:flex;align-items:center;gap:4px;">
+          <span style="font-size:13px;font-weight:700;color:${isBest ? 'var(--gray-800)' : 'var(--gray-500)'};">${r.name}</span>
+          ${statusTag}
+        </div>
+        <div style="font-size:10px;color:var(--gray-400);font-weight:500;">${timeRange}${timeRange ? ' · ' : ''}${cnt} stops</div>
+      </button>`;
+    }).join('');
+
+    // Auto-click the best route
+    const bestBtn = toggleEl.querySelector(`.run-toggle-btn[data-rid="${bestId}"]`);
     if (bestBtn) bestBtn.click();
   }
 
   async function selectRunOnMap(runId, btn) {
     document.querySelectorAll('.run-toggle-btn').forEach(b => {
-      b.style.background = ''; b.style.color = ''; b.style.borderColor = '';
+      b.style.background = 'transparent'; b.style.boxShadow = 'none'; b.style.opacity = '.65';
     });
-    btn.style.background = 'var(--accent)';
-    btn.style.color = 'white';
-    btn.style.borderColor = 'var(--accent)';
+    btn.style.background = 'white';
+    btn.style.boxShadow = '0 1px 3px rgba(0,0,0,.1)';
+    btn.style.opacity = '1';
     routeLiveRouteId = runId;
     const optBtn = document.getElementById('btn-optimize');
     if (optBtn) optBtn.style.display = '';
