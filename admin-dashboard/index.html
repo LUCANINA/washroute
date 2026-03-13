@@ -6663,6 +6663,7 @@ window.onload=()=>{window.print();};
       ovtSchedule.classList.remove('active');
       document.getElementById('topbar-cta-label').textContent = 'New Order';
       document.getElementById('topbar-cta').style.display = '';
+      unsubscribeDriverLocations(); // Clean up live tracking when leaving schedule
       loadOrders(currentOrderFilter);
     } else if (view === 'schedule') {
       ordersList.style.display = 'none';
@@ -6672,6 +6673,8 @@ window.onload=()=>{window.print();};
       document.getElementById('topbar-cta').style.display = 'none';
       setTimeout(() => {
         initRunsMap();
+        // Start live driver tracking on the map
+        setTimeout(() => { loadLiveDriverLocations(); subscribeToDriverLocations(); }, 200);
         // Always default to today when opening Daily Schedule
         const dp = document.getElementById('runs-date-picker');
         if (dp) dp.value = today();
@@ -10416,6 +10419,82 @@ window.onload=()=>{window.print();};
       html:`<div style="width:38px;height:38px;border-radius:50%;background:#635bff;border:3px solid white;box-shadow:0 2px 12px rgba(99,91,255,.5);display:flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99z"/></svg></div>`});
   }
   const cartoTiles=()=>L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © Carto',maxZoom:19});
+
+  // ── LIVE DRIVER TRACKING ──
+  let _driverMarkers = {};       // keyed by driver_id
+  let _driverTrackingSub = null; // Supabase realtime subscription
+
+  function makeDriverMarker(driverName) {
+    const initials = driverName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);
+    return L.divIcon({
+      className: '',
+      iconSize: [36, 36],
+      iconAnchor: [18, 18],
+      html: `<div style="width:36px;height:36px;border-radius:50%;background:#635bff;border:3px solid white;box-shadow:0 2px 12px rgba(99,91,255,.5);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:white;position:relative">
+        ${initials}
+        <div style="position:absolute;top:-2px;right:-2px;width:10px;height:10px;border-radius:50%;background:#22c55e;border:2px solid white;"></div>
+      </div>`
+    });
+  }
+
+  async function loadLiveDriverLocations() {
+    if (!routeLiveMap) return;
+    // Fetch current positions + driver names
+    const { data, error } = await db.from('driver_locations')
+      .select('driver_id, lat, lng, heading, speed, updated_at, drivers(first_name, last_name)')
+      .gte('updated_at', new Date(Date.now() - 30 * 60 * 1000).toISOString()); // last 30 mins
+    if (error || !data) return;
+
+    // Clear old driver markers
+    Object.values(_driverMarkers).forEach(m => routeLiveMap.removeLayer(m));
+    _driverMarkers = {};
+
+    data.forEach(loc => {
+      const driver = loc.drivers || {};
+      const name = `${driver.first_name || ''} ${driver.last_name || ''}`.trim() || 'Driver';
+      const marker = L.marker([loc.lat, loc.lng], { icon: makeDriverMarker(name), zIndexOffset: 1000 })
+        .bindPopup(`<strong>${name}</strong><br><span style="font-size:11px;color:#888">Updated ${new Date(loc.updated_at).toLocaleTimeString()}</span>`);
+      marker._isDriverMarker = true;
+      marker.addTo(routeLiveMap);
+      _driverMarkers[loc.driver_id] = marker;
+    });
+  }
+
+  function subscribeToDriverLocations() {
+    if (_driverTrackingSub) return;
+    _driverTrackingSub = db.channel('driver-locations-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_locations' }, (payload) => {
+        const loc = payload.new;
+        if (!loc || !routeLiveMap) return;
+        // Update existing marker or add new one
+        if (_driverMarkers[loc.driver_id]) {
+          _driverMarkers[loc.driver_id].setLatLng([loc.lat, loc.lng]);
+        } else {
+          // Need driver name — fetch it
+          db.from('drivers').select('first_name, last_name').eq('id', loc.driver_id).single()
+            .then(({ data: driver }) => {
+              const name = driver ? `${driver.first_name||''} ${driver.last_name||''}`.trim() : 'Driver';
+              const marker = L.marker([loc.lat, loc.lng], { icon: makeDriverMarker(name), zIndexOffset: 1000 })
+                .bindPopup(`<strong>${name}</strong><br><span style="font-size:11px;color:#888">Live</span>`);
+              marker._isDriverMarker = true;
+              marker.addTo(routeLiveMap);
+              _driverMarkers[loc.driver_id] = marker;
+            });
+        }
+      })
+      .subscribe();
+  }
+
+  function unsubscribeDriverLocations() {
+    if (_driverTrackingSub) {
+      db.removeChannel(_driverTrackingSub);
+      _driverTrackingSub = null;
+    }
+    Object.values(_driverMarkers).forEach(m => {
+      if (routeLiveMap) routeLiveMap.removeLayer(m);
+    });
+    _driverMarkers = {};
+  }
 
   // ── ROUTES PAGE ──
   let routeLiveMap = null, routeLiveRouteId = null, routeStopMoving = null, routeLiveDefaultDriverId = null;

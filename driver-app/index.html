@@ -853,6 +853,67 @@ let appReady = false, loadingTimer = null;
 let undoTimer = null, undoCountTimer = null, pendingUndo = null;
 
 /* ──────────────────────────────
+   LIVE GPS TRACKING
+────────────────────────────── */
+let _gpsWatchId = null;
+let _gpsInterval = null;
+let _lastGpsSend = 0;
+const GPS_SEND_INTERVAL = 12000; // send position every 12 seconds
+
+function startGpsTracking() {
+  if (_gpsWatchId !== null) return; // already tracking
+  if (!currentDriver?.id) return;
+  if (!navigator.geolocation) { console.warn('Geolocation not supported'); return; }
+
+  // Find the active route ID (first in_progress, else first route)
+  const activeRoute = todayRoutes.find(r => r.status === 'in_progress') || todayRoutes[0];
+  const routeId = activeRoute?.id || null;
+
+  console.log('[GPS] Starting tracking for driver', currentDriver.id, 'route', routeId);
+
+  _gpsWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      const now = Date.now();
+      if (now - _lastGpsSend < GPS_SEND_INTERVAL) return; // throttle
+      _lastGpsSend = now;
+
+      const payload = {
+        driver_id: currentDriver.id,
+        route_id: routeId,
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        heading: pos.coords.heading,
+        speed: pos.coords.speed,
+        accuracy: pos.coords.accuracy,
+        updated_at: new Date().toISOString()
+      };
+
+      db.from('driver_locations')
+        .upsert(payload, { onConflict: 'driver_id' })
+        .then(({ error }) => {
+          if (error) console.error('[GPS] upsert error:', error.message);
+        });
+    },
+    (err) => {
+      console.warn('[GPS] watchPosition error:', err.message);
+    },
+    { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+  );
+}
+
+function stopGpsTracking() {
+  if (_gpsWatchId !== null) {
+    navigator.geolocation.clearWatch(_gpsWatchId);
+    _gpsWatchId = null;
+    console.log('[GPS] Tracking stopped');
+  }
+  if (_gpsInterval) {
+    clearInterval(_gpsInterval);
+    _gpsInterval = null;
+  }
+}
+
+/* ──────────────────────────────
    DRIVER DATA CACHE
 ────────────────────────────── */
 // Caches profile + driver identity + today's route snapshot so the app
@@ -2049,6 +2110,11 @@ async function completeStop(stopId, stopType) {
     route.completed_stops = newDone;
     route.status = allDone ? 'complete' : 'in_progress';
     if (!route.started_at) route.started_at = now;
+    // Stop GPS tracking when all routes for today are complete
+    if (allDone) {
+      const anyActive = todayRoutes.some(r => r.status !== 'complete');
+      if (!anyActive) stopGpsTracking();
+    }
   }
 
   // Fire both DB writes in parallel
@@ -2417,8 +2483,11 @@ async function _handleDriverSession(event, session) {
     subscribeToDriverMessages();
     subscribeToRouteStopUpdates();
     goTo('home');
+    // Start live GPS tracking if driver has any active routes today
+    if (todayRoutes.length) startGpsTracking();
     if (cached) loadDriverData().then(() => renderRoute()).catch(console.error);
   } else {
+    stopGpsTracking(); // Stop sending location when signed out
     appReady = false;
     currentUser = currentProfile = currentDriver = null;
     document.getElementById('bottom-nav').style.display = 'none';
