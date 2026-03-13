@@ -842,6 +842,7 @@ const db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'wr-d
 let currentUser = null, currentProfile = null, currentDriver = null;
 let todayRoutes = [], allStops = [], pendingOrders = [];
 let activeRouteFilter = null;  // null = all | routeId = one route | 'extra' = reassigned stops
+let _dataLoading = false; // prevents realtime events from corrupting allStops mid-load
 let currentStopId = null;
 let currentStopPhase = 1;    // 1 = pre-arrival, 2 = at-stop
 let currentStopSubPhase = 1; // within phase 2: 1 = bags+notes, 2 = photo+complete
@@ -918,9 +919,16 @@ function stopGpsTracking() {
 ────────────────────────────── */
 // Caches profile + driver identity + today's route snapshot so the app
 // renders instantly on reopen. Background refresh keeps data current.
-const _dcKey = uid => `wr-driver-${uid}`;
+const _dcKey = uid => `wr-driver-${uid}-${today()}`;
 function saveDriverCache(uid, profile, driver, routes, stops) {
-  try { localStorage.setItem(_dcKey(uid), JSON.stringify({ profile, driver, routes, stops, ts: Date.now() })); } catch (_) {}
+  // Clear any old-date caches for this user
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(`wr-driver-${uid}-`) && k !== _dcKey(uid)) localStorage.removeItem(k);
+    }
+    localStorage.setItem(_dcKey(uid), JSON.stringify({ profile, driver, routes, stops, ts: Date.now() }));
+  } catch (_) {}
 }
 function loadDriverCache(uid) {
   try {
@@ -928,8 +936,6 @@ function loadDriverCache(uid) {
     if (!raw) return null;
     const { profile, driver, routes, stops, ts } = JSON.parse(raw);
     if (Date.now() - ts > 86400000) return null; // expire after 24 h
-    // Invalidate if cached routes belong to a different day
-    if (routes?.length && routes[0].run_date !== today()) return null;
     return { profile, driver, routes, stops };
   } catch (_) { return null; }
 }
@@ -1139,6 +1145,8 @@ async function doSignOut() {
    DATA LOADING
 ────────────────────────────── */
 async function loadDriverData() {
+  _dataLoading = true;
+  try {
   // ── Group 1: profile + driver record in parallel ──
   const [{ data: prof }, { data: drv0 }] = await Promise.all([
     db.from('profiles').select('*').eq('id', currentUser.id).single(),
@@ -1271,6 +1279,9 @@ async function loadDriverData() {
 
   // Persist to localStorage so next app open is instant
   saveDriverCache(currentUser.id, currentProfile, currentDriver, todayRoutes, allStops);
+  } finally {
+    _dataLoading = false;
+  }
 }
 
 async function refreshRoute() {
@@ -2071,6 +2082,7 @@ async function completeStop(stopId, stopType) {
   const notes = draftNotes !== null ? draftNotes : (document.getElementById('stop-notes')?.value?.trim() || null);
   const now   = new Date().toISOString();
   const stop  = allStops.find(s => s.id === stopId);
+  if (!stop) { toast('Stop no longer exists'); goTo('route'); return; }
   const prevOrderStatus = stop?.orders?.status || null;
 
   const { error: stopErr } = await db.from('route_stops').update({
@@ -2135,7 +2147,7 @@ async function completeStop(stopId, stopType) {
   }
 
   // Fire both DB writes in parallel
-  await Promise.all(updatePromises);
+  try { await Promise.all(updatePromises); } catch(e) { console.warn('Partial update error:', e); }
 
   // Fire SMS notification (best-effort, non-blocking)
   if (stop?.orders?.id && newStatus) {
@@ -2196,6 +2208,8 @@ async function failStop(stopId) {
   if (!really) return;
 
   const stop = allStops.find(s => s.id === stopId);
+  if (!stop) { toast('Stop no longer exists'); goTo('route'); return; }
+  if (stop.stop_type !== 'pickup') { toast('Only pickups can be marked as failed'); return; }
 
   // Mark route stop as failed
   await db.from('route_stops').update({ status: 'failed' }).eq('id', stopId);
@@ -2212,7 +2226,7 @@ async function failStop(stopId) {
       try {
         await fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
           body: JSON.stringify({ order_id: stop.orders.id, event: 'pickup_failed' })
         });
       } catch(e) { console.warn('Notification failed:', e); }
@@ -2220,7 +2234,7 @@ async function failStop(stopId) {
   }
 
   goTo('route');
-  showToast('Stop marked as failed', 'error');
+  toast('Stop marked as failed');
 }
 
 /* ──────────────────────────────
@@ -2231,6 +2245,8 @@ async function skipStop(stopId) {
   if (!really) return;
 
   const stop = allStops.find(s => s.id === stopId);
+  if (!stop) { toast('Stop no longer exists'); goTo('route'); return; }
+  const prevStopStatus = stop.status || 'pending';
   const prevOrderStatus = stop?.orders?.status || null;
 
   await db.from('route_stops').update({ status: 'skipped' }).eq('id', stopId);
@@ -2249,7 +2265,7 @@ async function skipStop(stopId) {
   showUndoBar('Stop skipped', {
     type: 'skip',
     stopId,
-    prevStopStatus: 'pending',
+    prevStopStatus,
     prevOrderStatus,
   });
 }
@@ -2431,6 +2447,7 @@ function subscribeToRouteStopUpdates() {
 
     // Route stop changed by admin (reassignment, address edit, cancellation)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'route_stops' }, payload => {
+      if (_dataLoading) return;
       const updated = payload.new;
       const idx = allStops.findIndex(s => s.id === updated.id);
       if (idx < 0) return; // Not our stop — ignore
@@ -2442,6 +2459,7 @@ function subscribeToRouteStopUpdates() {
 
     // Route stop DELETED (admin deleted order, or rollback detached stops)
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'route_stops' }, payload => {
+      if (_dataLoading) return;
       const deleted = payload.old;
       const idx = allStops.findIndex(s => s.id === deleted.id);
       if (idx < 0) return;
@@ -2457,6 +2475,7 @@ function subscribeToRouteStopUpdates() {
 
     // Order updated by admin (status change, bag count, special instructions, etc.)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, payload => {
+      if (_dataLoading) return;
       const updated = payload.new;
       // If order was cancelled or delivered by admin, remove the stop entirely
       if (['cancelled','delivered'].includes(updated.status)) {
@@ -2491,6 +2510,7 @@ function subscribeToRouteStopUpdates() {
     // Order DELETED by admin (hard delete — cascade removes route_stop too,
     // but DELETE event on orders may arrive before route_stops cascade)
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, payload => {
+      if (_dataLoading) return;
       const deleted = payload.old;
       const idx = allStops.findIndex(s => s.orders?.id === deleted.id);
       if (idx < 0) return;
