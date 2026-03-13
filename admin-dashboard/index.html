@@ -1170,10 +1170,11 @@
 
         <!-- ── ORDERS ── -->
         <div class="page" id="page-orders">
-          <!-- Orders/Daily Schedule Toggle -->
+          <!-- Orders / Order Schedule / Driver Schedule Toggle -->
           <div id="orders-view-toggle" style="display:flex;gap:4px;margin-bottom:16px;">
             <button class="section-tab active" id="ovt-orders" onclick="switchOrdersView('orders')">Orders</button>
-            <button class="section-tab" id="ovt-schedule" onclick="switchOrdersView('schedule')">Daily Schedule</button>
+            <button class="section-tab" id="ovt-schedule" onclick="switchOrdersView('schedule')">Order Schedule</button>
+            <button class="section-tab" id="ovt-drivers" onclick="switchOrdersView('drivers')">Driver Schedule</button>
           </div>
 
           <!-- Orders List View -->
@@ -1296,6 +1297,22 @@
               </div>
             </div>
           </div>
+
+          <!-- Driver Schedule View (moved from Routes/Settings) -->
+          <div id="orders-drivers-view" style="display:none;">
+            <!-- Week navigation -->
+            <div class="sched-week-nav">
+              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(-1)">← Prev Week</button>
+              <span class="sched-week-label" id="sched-week-label2">—</span>
+              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(1)">Next Week →</button>
+              <span style="font-size:12px;color:var(--gray-400);margin-left:8px;">Click any cell to reassign a driver for that day.</span>
+            </div>
+            <!-- Schedule grid -->
+            <div id="driver-schedule-grid" style="overflow-x:auto;padding:4px 0;">
+              <div class="loading"><div class="spinner"></div> Loading…</div>
+            </div>
+          </div>
+
         </div>
 
         <!-- Move Stop modal (shared across orders and maps pages) -->
@@ -1452,7 +1469,6 @@
               <!-- Tab bar -->
               <div class="section-tabs" style="padding:0 8px;align-items:center;">
                 <button class="section-tab active" id="rtab-btn-templates" onclick="setRoutesTab('templates',this)">Templates</button>
-                <button class="section-tab" id="rtab-btn-schedule" onclick="setRoutesTab('schedule',this)">Weekly Schedule</button>
                 <div style="flex:1"></div>
                 <button class="btn btn-primary" id="rtab-add-btn" style="padding:6px 14px;font-size:12px;margin:6px 8px 6px 0;" onclick="openTemplateEditor(null)">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12" style="margin-right:4px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -1467,20 +1483,7 @@
                 </div>
               </div>
 
-              <!-- WEEKLY SCHEDULE TAB -->
-              <div id="rtab-schedule" class="rtab-panel" style="display:none">
-                <!-- Week navigation -->
-                <div class="sched-week-nav">
-                  <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(-1)">← Prev Week</button>
-                  <span class="sched-week-label" id="sched-week-label">—</span>
-                  <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(1)">Next Week →</button>
-                  <span style="font-size:12px;color:var(--gray-400);margin-left:8px;">Click any cell to reassign a driver for that day. — means the route doesn't run.</span>
-                </div>
-                <!-- Schedule grid -->
-                <div id="weekly-schedule-grid" style="overflow-x:auto;padding:4px 0;">
-                  <div class="loading"><div class="spinner"></div> Loading…</div>
-                </div>
-              </div>
+              <!-- WEEKLY SCHEDULE (moved to Orders → Driver Schedule) -->
             </div>
           </div><!-- /maps-routes-view -->
 
@@ -6649,37 +6652,46 @@ window.onload=()=>{window.print();};
     renderInboxList();
   }
 
-  // ── ORDERS PAGE: TOGGLE BETWEEN ORDERS LIST AND DAILY SCHEDULE ──
+  // ── ORDERS PAGE: TOGGLE BETWEEN ORDERS / ORDER SCHEDULE / DRIVER SCHEDULE ──
   function switchOrdersView(view) {
     const ordersList = document.getElementById('orders-list-view');
     const scheduleView = document.getElementById('orders-schedule-view');
+    const driversView = document.getElementById('orders-drivers-view');
     const ovtOrders = document.getElementById('ovt-orders');
     const ovtSchedule = document.getElementById('ovt-schedule');
+    const ovtDrivers = document.getElementById('ovt-drivers');
+
+    // Hide all views and deactivate all tabs
+    ordersList.style.display = 'none';
+    scheduleView.style.display = 'none';
+    driversView.style.display = 'none';
+    ovtOrders.classList.remove('active');
+    ovtSchedule.classList.remove('active');
+    ovtDrivers.classList.remove('active');
+    unsubscribeDriverLocations();
 
     if (view === 'orders') {
       ordersList.style.display = '';
-      scheduleView.style.display = 'none';
       ovtOrders.classList.add('active');
-      ovtSchedule.classList.remove('active');
       document.getElementById('topbar-cta-label').textContent = 'New Order';
       document.getElementById('topbar-cta').style.display = '';
-      unsubscribeDriverLocations(); // Clean up live tracking when leaving schedule
       loadOrders(currentOrderFilter);
     } else if (view === 'schedule') {
-      ordersList.style.display = 'none';
       scheduleView.style.display = '';
-      ovtOrders.classList.remove('active');
       ovtSchedule.classList.add('active');
       document.getElementById('topbar-cta').style.display = 'none';
       setTimeout(() => {
         initRunsMap();
-        // Start live driver tracking on the map
         setTimeout(() => { loadLiveDriverLocations(); subscribeToDriverLocations(); }, 200);
-        // Always default to today when opening Daily Schedule
         const dp = document.getElementById('runs-date-picker');
         if (dp) dp.value = today();
         loadDailyRuns();
       }, 80);
+    } else if (view === 'drivers') {
+      driversView.style.display = '';
+      ovtDrivers.classList.add('active');
+      document.getElementById('topbar-cta').style.display = 'none';
+      loadAllDriversCache().then(() => loadTemplates()).then(() => renderDriverSchedule());
     }
   }
 
@@ -10925,10 +10937,16 @@ window.onload=()=>{window.print();};
     loadTemplates();
   }
 
-  // ── WEEKLY SCHEDULE ──
+  // ── WEEKLY / DRIVER SCHEDULE ──
   function shiftWeek(delta) {
     schedWeekOffset += delta;
-    renderWeeklySchedule();
+    // Render whichever schedule is currently visible
+    const driversView = document.getElementById('orders-drivers-view');
+    if (driversView && driversView.style.display !== 'none') {
+      renderDriverSchedule();
+    } else {
+      renderWeeklySchedule();
+    }
   }
 
   function getWeekDates(offset) {
@@ -11059,6 +11077,117 @@ window.onload=()=>{window.print();};
 
   }
 
+  // ── DRIVER SCHEDULE (Orders page version) ──
+  async function renderDriverSchedule() {
+    const el = document.getElementById('driver-schedule-grid');
+    if (!el) return;
+    if (!allTemplates.length) {
+      el.innerHTML = '<div style="padding:20px;color:var(--gray-400);font-size:13px;">No routes yet. Create routes in Settings → Routes first.</div>';
+      return;
+    }
+    el.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+
+    const { data: overrides } = await db.from('route_driver_schedule')
+      .select('template_id, day_of_week, driver_type, driver_id')
+      .in('template_id', allTemplates.map(t => t.id));
+
+    const overMap = {};
+    (overrides||[]).forEach(o => { overMap[`${o.template_id}-${o.day_of_week}-${o.driver_type}`] = o.driver_id; });
+    const driverMap = Object.fromEntries(allDriversCache.map(d => [d.id, d.name]));
+
+    const editSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="9" height="9" style="flex-shrink:0"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+
+    function fmtT(t) {
+      if (!t) return '';
+      const [h, m] = t.split(':').map(Number);
+      const ap = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 || 12;
+      return m ? `${h12}:${String(m).padStart(2,'0')}${ap}` : `${h12}${ap}`;
+    }
+
+    const makeChip = (t, day) => {
+      const runs = (t.schedule_days||[]).includes(day);
+      if (!runs) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
+      const ovDrvId = overMap[`${t.id}-${day}-pickup`];
+      const defaultId = t.default_pickup_driver_id;
+      const drvId = ovDrvId || defaultId;
+      const drvName = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
+      const drvFirst = drvName.split(' ')[0];
+      const isOv = !!ovDrvId;
+      const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
+      const fg = drvId ? 'white' : '#9ca3af';
+      return `<div class="sched-cell${isOv?' sched-override':''}"
+        style="background:${bg};color:${fg};padding:4px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:4px"
+        onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
+        title="${t.name} · ${drvName}${isOv?' (override)':''}">
+        ${drvFirst}${isOv ? editSvg : ''}
+      </div>`;
+    };
+
+    const sorted = [...allTemplates].sort((a, b) =>
+      (a.window_start || '99:99').localeCompare(b.window_start || '99:99')
+    );
+
+    const bands = [];
+    sorted.forEach(t => {
+      const key = `${t.window_start||''}|${t.window_end||''}`;
+      let band = bands.find(b => b.key === key);
+      if (!band) {
+        band = { key, ws: t.window_start, we: t.window_end, routes: [] };
+        bands.push(band);
+      }
+      band.routes.push(t);
+    });
+
+    const weekDates = getWeekDates(schedWeekOffset);
+    schedWeekDates = weekDates;
+    const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
+    const todayStr = todayMidnight.toDateString();
+    const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const fmtWeekDate = d => `${MON_ABBR[d.getMonth()]} ${d.getDate()}`;
+    const weekLabel = document.getElementById('sched-week-label2');
+    if (weekLabel) weekLabel.textContent = `${fmtWeekDate(weekDates[0])} – ${fmtWeekDate(weekDates[6])}, ${weekDates[0].getFullYear()}`;
+
+    el.innerHTML = `<table class="sched-grid">
+      <thead><tr>
+        <th style="min-width:100px">Time</th>
+        <th style="min-width:130px;text-align:left">Route</th>
+        ${weekDates.map((d, i) => {
+          const isToday = d.toDateString() === todayStr;
+          return `<th style="${isToday?'background:var(--accent-light);color:var(--accent);':''}">${DAY_LABELS[i]}<br><span style="font-weight:400;font-size:10px;${isToday?'color:var(--accent);':''}">${fmtWeekDate(d)}${isToday?' ★':''}</span></th>`;
+        }).join('')}
+      </tr></thead>
+      <tbody>
+      ${bands.map((band, bi) => {
+        const timeLabel = band.ws ? `${fmtT(band.ws)} – ${fmtT(band.we)}` : 'Unscheduled';
+        const bandBorder = bi > 0 ? 'border-top:2px solid var(--gray-200)' : '';
+        return band.routes.map((t, ri) => {
+          const isFirstInBand = ri === 0;
+          const rowBorder = isFirstInBand ? bandBorder : '';
+          const timeTd = isFirstInBand
+            ? `<td rowspan="${band.routes.length}" style="vertical-align:middle;padding:10px 10px;white-space:nowrap;${bandBorder}">
+                <div style="font-size:12px;font-weight:700;color:var(--accent)">${timeLabel}</div>
+               </td>`
+            : '';
+          return `<tr style="${rowBorder}">
+            ${timeTd}
+            <td style="vertical-align:middle;padding:7px 8px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="width:8px;height:8px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>
+                <span style="font-size:12px;font-weight:600;color:var(--gray-800)">${t.name}</span>
+              </div>
+            </td>
+            ${[0,1,2,3,4,5,6].map(day => `
+              <td style="text-align:center;vertical-align:middle;padding:5px 4px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
+                ${makeChip(t, day)}
+              </td>`).join('')}
+          </tr>`;
+        }).join('');
+      }).join('')}
+      </tbody>
+    </table>`;
+  }
+
   // ── DRIVER POPOVER ──
   let popoverCtx = {};
 
@@ -11113,7 +11242,13 @@ window.onload=()=>{window.print();};
       }, { onConflict: 'template_id,day_of_week,driver_type' });
     }
     showToast('Driver updated!', 'success');
-    renderWeeklySchedule();
+    // Refresh whichever schedule view is currently active
+    const driversView = document.getElementById('orders-drivers-view');
+    if (driversView && driversView.style.display !== 'none') {
+      renderDriverSchedule();
+    } else {
+      renderWeeklySchedule();
+    }
   }
 
   function closeDriverPopover() {
