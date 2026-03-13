@@ -916,7 +916,10 @@ function setRouteFilter(filterId) {
   goTo('route');
 }
 
-function today() { return new Date().toISOString().split('T')[0]; }
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 
 function fmtAddr(a) {
   if (!a) return 'No address on file';
@@ -1093,7 +1096,6 @@ async function loadDriverData() {
 
   const stopFields = `
     *,
-    addresses(*),
     orders(*, customers(*), services(*))
   `;
 
@@ -1172,6 +1174,22 @@ async function loadDriverData() {
   // Merge — mark override stops so they appear in the "Extra Stops" card, not a phantom route card
   const tagged = (overrideStops || []).map(s => ({ ...s, _reassigned: true }));
   allStops = [...routeStops, ...tagged];
+
+  // ── Resolve addresses through customers' default addresses ──
+  // (address_id on route_stops is often null; look up via customer instead)
+  const custIds = [...new Set(allStops.map(s => s.orders?.customer_id).filter(Boolean))];
+  if (custIds.length) {
+    const { data: addrs } = await db.from('addresses')
+      .select('customer_id, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default')
+      .in('customer_id', custIds)
+      .eq('is_default', true);
+    const addrMap = {};
+    (addrs || []).forEach(a => { addrMap[a.customer_id] = a; });
+    allStops = allStops.map(s => {
+      const cid = s.orders?.customer_id;
+      return { ...s, _addr: (cid && addrMap[cid]) || null };
+    });
+  }
 
   // Persist to localStorage so next app open is instant
   saveDriverCache(currentUser.id, currentProfile, currentDriver, todayRoutes, allStops);
@@ -1287,7 +1305,7 @@ function renderHome() {
       return null;
     })();
     if (next) {
-      const addr = next.addresses;
+      const addr = next._addr;
       const cust = next.orders?.customers;
       const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
       const isEnRoute = next.status === 'en_route';
@@ -1355,7 +1373,7 @@ function renderRoute() {
 
   // Render a single stop card
   const renderStopCard = (stop) => {
-    const addr = stop.addresses;
+    const addr = stop._addr;
     const cust = stop.orders?.customers;
     const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
     const isDone    = stop.status === 'complete';
@@ -1487,7 +1505,7 @@ function openStop(stopId) {
 }
 
 function renderStopDetail(stop) {
-  const addr  = stop.addresses;
+  const addr  = stop._addr;
   const order = stop.orders;
   const cust  = order?.customers;
   const svc   = order?.services;
@@ -1556,7 +1574,7 @@ function renderStopDetail(stop) {
     if (currentStopPhase === 1) {
       // ════ PHASE 1: Pre-arrival ════
       const alreadySent = !!stop.on_my_way_sent_at || isEnRoute;
-      const mapsHref = stop.addresses ? mapsLink(stop.addresses) : null;
+      const mapsHref = stop._addr ? mapsLink(stop._addr) : null;
       h += `<div class="phase1-actions">`;
       if (!alreadySent) {
         h += `<button class="btn-notify-big" id="btn-notify-cust" onclick="sendOnMyWay('${stop.id}')">
@@ -1585,7 +1603,7 @@ function renderStopDetail(stop) {
       const expectedBags = order?.total_bags || 1;
 
       // Arrival chip (shown on both sub-phases) + small navigate link
-      const p2mapsHref = stop.addresses ? mapsLink(stop.addresses) : null;
+      const p2mapsHref = stop._addr ? mapsLink(stop._addr) : null;
       const navLink = p2mapsHref
         ? `<a href="${p2mapsHref}" target="_blank" style="margin-left:10px;font-size:12px;font-weight:700;color:#1a73e8;text-decoration:none;white-space:nowrap">↗ Maps</a>`
         : '';
@@ -1670,7 +1688,7 @@ function renderStopDetail(stop) {
       return candidates.sort((a,b) => a.stop_number - b.stop_number)[0] || null;
     })();
     if (next) {
-      const na = next.addresses;
+      const na = next._addr;
       const nc = next.orders?.customers;
       const nn = nc ? `${nc.first_name_cache||''} ${nc.last_name_cache||''}`.trim() : 'Customer';
       h += `<div style="padding:0 20px 16px">
