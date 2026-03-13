@@ -8500,6 +8500,13 @@ window.onload=()=>{window.print();};
       document.getElementById('o-tip').value = cust.default_tip;
       setNoTipType(cust.default_tip_type === 'percent' ? 'pct' : 'dollar');
     }
+
+    // Re-filter routes by the new customer's address city
+    _noSelectedTmpl = null;
+    document.getElementById('no-route-expanded').style.display = '';
+    document.getElementById('no-route-bar').style.display      = 'none';
+    document.getElementById('no-day-section').style.display    = 'none';
+    renderNoRoutes();
   }
 
   function setNoTipType(type) {
