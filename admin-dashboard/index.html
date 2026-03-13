@@ -11114,15 +11114,34 @@ window.onload=()=>{window.print();};
       db.from('routes').select('driver_id').eq('id', runId).single(),
       db.from('route_stops')
         .select(`id, stop_number, stop_type, status, estimated_arrival, driver_id,
-                 orders(order_number, customers(first_name_cache, last_name_cache)),
-                 addresses(line1, city, lat, lng)`)
+                 orders(id, order_number, total_amount, customer_id,
+                   customers(first_name_cache, last_name_cache))`)
         .eq('route_id', runId)
         .order('stop_number')
     ]);
     routeLiveDefaultDriverId = route?.driver_id || null;
 
-    renderRouteStops(stops || [], runId);
-    renderRouteMapPins(stops || []);
+    // Resolve addresses through customers' default addresses (address_id on stops is often null)
+    const customerIds = [...new Set((stops||[]).map(s => s.orders?.customer_id).filter(Boolean))];
+    let addrLookup = {};
+    if (customerIds.length) {
+      const { data: addrs } = await db.from('addresses')
+        .select('customer_id, line1, city, lat, lng')
+        .in('customer_id', customerIds)
+        .eq('is_default', true);
+      if (addrs) {
+        addrs.forEach(a => { addrLookup[a.customer_id] = a; });
+      }
+    }
+    // Attach resolved address to each stop
+    const enrichedStops = (stops||[]).map(s => {
+      const custId = s.orders?.customer_id;
+      const addr = custId ? addrLookup[custId] : null;
+      return { ...s, _addr: addr || null };
+    });
+
+    renderRouteStops(enrichedStops, runId);
+    renderRouteMapPins(enrichedStops);
   }
 
   function renderRouteStops(stops, routeId) {
@@ -11133,22 +11152,40 @@ window.onload=()=>{window.print();};
     }
     const allBtns = document.querySelectorAll('.run-toggle-btn');
     const otherRuns = [...allBtns].filter(b => b.dataset.rid !== routeId);
+
+    // Group stops by stop_number so pickup+delivery at same customer are combined
+    const grouped = {};
+    stops.forEach(s => {
+      const key = `${s.stop_number}-${s.orders?.customer_id || s.id}`;
+      if (!grouped[key]) grouped[key] = { pickup: null, delivery: null, stop: s };
+      if (s.stop_type === 'pickup') grouped[key].pickup = s;
+      else grouped[key].delivery = s;
+    });
+
     el.innerHTML = stops.map(s => {
       const cust = s.orders?.customers || {};
       const name = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
-      const addr = s.addresses ? `${s.addresses.line1||''}, ${s.addresses.city||''}`.replace(/^,\s*|,\s*$/g,'') : '—';
-      const dot = s.status === 'complete' ? '#0ba25a' : s.status === 'active' ? '#2563eb' : '#9ca3af';
-      const label = s.status === 'complete' ? '✓' : s.stop_number.toString();
+      const a = s._addr;
+      const addr = a ? `${a.line1||''}, ${a.city||''}`.replace(/^,\s*|,\s*$/g,'') : '—';
+      const dot = s.status === 'complete' ? '#0ba25a' : s.status === 'failed' ? '#ef4444' : s.status === 'active' || s.status === 'en_route' ? '#2563eb' : '#9ca3af';
+      const label = s.status === 'complete' ? '✓' : s.status === 'failed' ? '✗' : s.stop_number.toString();
       const eta = s.estimated_arrival ? fmtDate(s.estimated_arrival) : '';
-      const lat = s.addresses?.lat || 0, lng = s.addresses?.lng || 0;
+      const lat = a?.lat || 0, lng = a?.lng || 0;
+      const amt = s.orders?.total_amount ? fmtMoney(s.orders.total_amount) : '';
+      const orderNum = s.orders?.order_number ? `#${s.orders.order_number}` : '';
       const overrideDriver = s.driver_id ? (allDriversCache.find(d => d.id === s.driver_id)?.name || 'Driver') : null;
       return `<div class="rsl-item" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}">
         <div class="rsl-pin" style="background:${dot}">${label}</div>
         <div class="rsl-info">
-          <div class="rsl-name">${name}</div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div class="rsl-name">${name}</div>
+            ${orderNum ? `<span style="font-size:10px;color:var(--gray-400)">${orderNum}</span>` : ''}
+            ${amt ? `<span style="font-size:10px;font-weight:600;color:var(--gray-500);margin-left:auto">${amt}</span>` : ''}
+          </div>
           <div class="rsl-addr">${addr}</div>
           <div style="display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap;">
             <span class="rsl-tag ${s.stop_type==='pickup'?'tag-pickup':'tag-delivery'}">${s.stop_type==='pickup'?'Pickup':'Delivery'}</span>
+            ${s.status === 'failed' ? '<span style="font-size:10px;font-weight:700;color:#ef4444;background:#fef2f2;padding:1px 6px;border-radius:4px">Failed</span>' : ''}
             ${overrideDriver ? `<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:1px 6px;border-radius:4px">↗ ${overrideDriver}</span>` : ''}
             ${eta ? `<span style="font-size:10px;color:var(--gray-400)">${eta}</span>` : ''}
             <span style="margin-left:auto;display:flex;gap:4px">
@@ -11168,19 +11205,27 @@ window.onload=()=>{window.print();};
     const toRemove = [];
     routeLiveMap.eachLayer(l => { if (l._isStopLayer) toRemove.push(l); });
     toRemove.forEach(l => routeLiveMap.removeLayer(l));
-    const valid = stops.filter(s => s.addresses?.lat && s.addresses?.lng);
+    const valid = stops.filter(s => s._addr?.lat && s._addr?.lng);
     if (!valid.length) return;
-    const stopColor = { complete:'#0ba25a', en_route:'#2563eb', pending:'#9ca3af' };
-    const coords = valid.map(s => [s.addresses.lat, s.addresses.lng]);
+    const stopColor = { complete:'#0ba25a', failed:'#ef4444', en_route:'#2563eb', pending:'#9ca3af' };
+    // Deduplicate pins by customer (pickup+delivery at same address don't need two pins)
+    const seen = new Set();
+    const unique = valid.filter(s => {
+      const key = `${s._addr.lat},${s._addr.lng}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const coords = unique.map(s => [s._addr.lat, s._addr.lng]);
     const line = L.polyline(coords, {color:'#635bff', weight:2.5, opacity:.4, dashArray:'6 4'});
     line._isStopLayer = true; line.addTo(routeLiveMap);
-    valid.forEach(s => {
+    unique.forEach(s => {
       const col = stopColor[s.status] || '#9ca3af';
-      const label = s.status === 'complete' ? '✓' : s.stop_number.toString();
+      const label = s.status === 'complete' ? '✓' : s.status === 'failed' ? '✗' : s.stop_number.toString();
       const cust = s.orders?.customers || {};
       const custName = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
-      const m = L.marker([s.addresses.lat, s.addresses.lng], {icon: makePin(col, label)})
-        .bindPopup(`<strong>#${s.stop_number} ${custName}</strong><br>${s.addresses.line1||''}<br><em>${s.stop_type} · ${s.status}</em>`);
+      const m = L.marker([s._addr.lat, s._addr.lng], {icon: makePin(col, label)})
+        .bindPopup(`<strong>#${s.stop_number} ${custName}</strong><br>${s._addr.line1||''}<br><em>${s.stop_type} · ${s.status}</em>`);
       m._isStopLayer = true; m.addTo(routeLiveMap);
     });
     routeLiveMap.fitBounds(L.latLngBounds(coords), {padding:[30,30]});
@@ -11193,9 +11238,19 @@ window.onload=()=>{window.print();};
     btn.disabled = true; btn.textContent = 'Optimizing…';
     try {
       const { data: stops } = await db.from('route_stops')
-        .select('id, stop_number, addresses(lat, lng)')
+        .select('id, stop_number, orders(customer_id)')
         .eq('route_id', routeLiveRouteId).order('stop_number');
-      const valid = (stops||[]).filter(s => s.addresses?.lat && s.addresses?.lng);
+      // Resolve addresses through customers
+      const custIds = [...new Set((stops||[]).map(s => s.orders?.customer_id).filter(Boolean))];
+      let optAddrMap = {};
+      if (custIds.length) {
+        const { data: addrs } = await db.from('addresses').select('customer_id, lat, lng').in('customer_id', custIds).eq('is_default', true);
+        if (addrs) addrs.forEach(a => { optAddrMap[a.customer_id] = a; });
+      }
+      const valid = (stops||[]).map(s => {
+        const a = optAddrMap[s.orders?.customer_id];
+        return a ? { ...s, addresses: a } : null;
+      }).filter(s => s && s.addresses?.lat && s.addresses?.lng);
       if (valid.length < 2) { showToast('Need at least 2 stops with addresses to optimize.'); return; }
       const optimized = nearestNeighborTSP(valid);
       for (const [i, s] of optimized.entries()) {
