@@ -11388,14 +11388,6 @@ window.onload=()=>{window.print();};
       // Find time label from any zone (all zones share same time windows)
       const info = zoneList[0]?.templates[slot];
       const timeLabel = info?.timeLabel || slot;
-      // NOW/NEXT badge for this slot
-      let badge = '';
-      if (info?.template) {
-        const [sh] = info.template.window_start.split(':').map(Number);
-        const [eh] = info.template.window_end.split(':').map(Number);
-        if (nowMins >= sh*60 && nowMins <= eh*60) badge = '<span style="font-size:8px;font-weight:800;color:white;background:#10b981;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:.3px;">NOW</span>';
-        else if (nowMins < sh*60) badge = '<span style="font-size:8px;font-weight:700;color:#6366f1;background:#e0e7ff;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:.3px;">NEXT</span>';
-      }
       html += `<button class="ds-slot-btn" data-slot="${slot}"
         style="flex:1;border:none;background:${isSel ? 'white' : 'transparent'};border-radius:8px;padding:7px 10px;cursor:pointer;
         display:flex;align-items:center;justify-content:center;gap:5px;transition:all .15s;
@@ -11403,7 +11395,6 @@ window.onload=()=>{window.print();};
         onclick="dsSelectSlot('${slot}')">
         <span style="font-size:13px;font-weight:700;color:${isSel ? 'var(--gray-800)' : 'var(--gray-500)'};">${slot}</span>
         <span style="font-size:10px;color:var(--gray-400);font-weight:500;">${timeLabel}</span>
-        ${badge}
       </button>`;
     });
     html += '</div>';
@@ -11720,11 +11711,11 @@ window.onload=()=>{window.print();};
         : '';
       const reassigned = s.driver_id ? (allDriversCache.find(d => d.id === s.driver_id)?.name || 'Driver') : null;
 
-      return `<div class="rsl-item" style="${bg}cursor:pointer;padding:7px 12px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:10px;" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}">
+      return `<div class="rsl-item" style="${bg}cursor:pointer;padding:7px 12px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:10px;" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}" ${lat ? `onmouseenter="highlightStopPin(${lat},${lng})" onmouseleave="unhighlightStopPin()"` : ''}>
         <div style="width:24px;height:24px;border-radius:50%;${typeBg}display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">${typeLabel}</div>
         <div style="flex:1;min-width:0;">
           <div style="display:flex;align-items:center;gap:4px;">
-            <span style="font-size:13px;font-weight:600;color:var(--gray-800);">${name}</span>${statusBadge}${reassigned ? `<span style="font-size:9px;font-weight:600;color:#7c3aed;background:#f5f3ff;padding:1px 5px;border-radius:3px;margin-left:2px;">↗ ${reassigned}</span>` : ''}
+            <span style="font-size:13px;font-weight:600;color:var(--gray-800);">${name}</span>${statusBadge}
             <span style="font-size:11px;color:var(--gray-400);margin-left:auto;flex-shrink:0;">${bags} bag${bags!==1?'s':''}</span>
           </div>
           <div style="font-size:11px;color:var(--gray-400);margin-top:1px;display:flex;align-items:center;gap:6px;">
@@ -11765,6 +11756,25 @@ window.onload=()=>{window.print();};
       m._isStopLayer = true; m.addTo(routeLiveMap);
     });
     routeLiveMap.fitBounds(L.latLngBounds(coords), {padding:[30,30]});
+  }
+
+  // ── HOVER HIGHLIGHT STOP PIN ON MAP ──
+  let _highlightCircle = null;
+  function highlightStopPin(lat, lng) {
+    unhighlightStopPin();
+    if (!routeLiveMap) return;
+    _highlightCircle = L.circleMarker([lat, lng], {
+      radius: 18, color: '#635bff', weight: 3, fillColor: '#635bff', fillOpacity: 0.15
+    });
+    _highlightCircle._isStopLayer = true;
+    _highlightCircle.addTo(routeLiveMap);
+    routeLiveMap.panTo([lat, lng], { animate: true, duration: 0.3 });
+  }
+  function unhighlightStopPin() {
+    if (_highlightCircle && routeLiveMap) {
+      routeLiveMap.removeLayer(_highlightCircle);
+      _highlightCircle = null;
+    }
   }
 
   // ── OPTIMIZE ROUTE (Google Maps Directions API) ──
