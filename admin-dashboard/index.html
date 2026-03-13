@@ -11099,8 +11099,27 @@ window.onload=()=>{window.print();};
       </button>`;
     }).join('');
 
-    const firstBtn = toggleEl.querySelector('.run-toggle-btn');
-    if (firstBtn) firstBtn.click();
+    // Auto-select the most relevant route: pick the one whose window is closest
+    // to the current time (prefer active/upcoming over past)
+    const now = new Date();
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+    let bestBtn = null, bestScore = Infinity;
+    runs.forEach(r => {
+      const tmpl = r.route_templates;
+      const btn = toggleEl.querySelector(`.run-toggle-btn[data-rid="${r.id}"]`);
+      if (!btn) return;
+      if (!tmpl?.window_start || !tmpl?.window_end) { if (!bestBtn) bestBtn = btn; return; }
+      const [sh] = tmpl.window_start.split(':').map(Number);
+      const [eh] = tmpl.window_end.split(':').map(Number);
+      const startM = sh * 60, endM = eh * 60;
+      // Score: 0 = currently in window, positive = distance from window (prefer future over past)
+      let score;
+      if (nowMins >= startM && nowMins <= endM) score = 0; // in window now
+      else if (nowMins < startM) score = startM - nowMins; // upcoming
+      else score = (nowMins - endM) + 10000; // past (heavily penalized)
+      if (score < bestScore) { bestScore = score; bestBtn = btn; }
+    });
+    if (bestBtn) bestBtn.click();
   }
 
   async function selectRunOnMap(runId, btn) {
@@ -11169,25 +11188,36 @@ window.onload=()=>{window.print();};
       }
     }
 
-    // Sort stops: pickups first, then deliveries, each by stop_number
-    const pickups = stops.filter(s => s.stop_type === 'pickup').sort((a,b) => a.stop_number - b.stop_number);
-    const deliveries = stops.filter(s => s.stop_type === 'delivery').sort((a,b) => a.stop_number - b.stop_number);
-    const sorted = [...pickups, ...deliveries];
+    // Group stops by time slot (pickups and deliveries mixed together)
+    // Within each slot: sort by stop_number
+    const sorted = [...stops].sort((a, b) => a.stop_number - b.stop_number);
 
+    // Assign each stop to a time slot based on its type:
+    // Pickups go in the first half of the window, deliveries in the second half
+    // If no time slots, just show all stops in order
     let html = '';
-    // Add first time slot header
-    if (timeSlots.length >= 1) {
-      html += `<div style="padding:6px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-100);font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;">${timeSlots[0].label} · Pickups</div>`;
+    if (timeSlots.length >= 2) {
+      // Split stops into first-half and second-half based on type
+      const firstSlotStops = sorted.filter(s => s.stop_type === 'pickup');
+      const secondSlotStops = sorted.filter(s => s.stop_type === 'delivery');
+      // But also include any deliveries in first slot or pickups in second slot
+      // Actually: just group by stop_number midpoint
+      const mid = Math.ceil(sorted.length / 2);
+      const slot1 = sorted.slice(0, mid);
+      const slot2 = sorted.slice(mid);
+
+      html += `<div style="padding:6px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-100);font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;">${timeSlots[0].label}</div>`;
+      slot1.forEach(s => { html += renderStopRow(s); });
+      html += `<div style="padding:6px 12px;background:var(--gray-50);border-top:1px solid var(--gray-200);border-bottom:1px solid var(--gray-100);font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-top:2px;">${timeSlots[1].label}</div>`;
+      slot2.forEach(s => { html += renderStopRow(s); });
+    } else if (timeSlots.length === 1) {
+      html += `<div style="padding:6px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-100);font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;">${timeSlots[0].label}</div>`;
+      sorted.forEach(s => { html += renderStopRow(s); });
+    } else {
+      sorted.forEach(s => { html += renderStopRow(s); });
     }
 
-    let deliveryHeaderShown = false;
-    sorted.forEach((s, idx) => {
-      // Insert delivery divider before first delivery
-      if (s.stop_type === 'delivery' && !deliveryHeaderShown) {
-        deliveryHeaderShown = true;
-        const slotLabel = timeSlots.length >= 2 ? timeSlots[1].label : '';
-        html += `<div style="padding:6px 12px;background:var(--gray-50);border-top:1px solid var(--gray-200);border-bottom:1px solid var(--gray-100);font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-top:2px;">${slotLabel ? slotLabel + ' · ' : ''}Deliveries</div>`;
-      }
+    function renderStopRow(s) {
 
       const cust = s.orders?.customers || {};
       const name = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
@@ -11207,7 +11237,7 @@ window.onload=()=>{window.print();};
         : '';
       const overrideDriver = s.driver_id ? (allDriversCache.find(d => d.id === s.driver_id)?.name || 'Driver') : null;
 
-      html += `<div class="rsl-item" style="${bg}cursor:pointer;padding:8px 12px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:10px;" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}">
+      return `<div class="rsl-item" style="${bg}cursor:pointer;padding:8px 12px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:10px;" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}">
         <div style="width:24px;height:24px;border-radius:50%;${typeBg}display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">${typeLabel}</div>
         <div style="flex:1;min-width:0;">
           <div style="display:flex;align-items:center;gap:6px;">
@@ -11225,7 +11255,7 @@ window.onload=()=>{window.print();};
           </div>
         </div>
       </div>`;
-    });
+    }
 
     el.innerHTML = html;
   }
