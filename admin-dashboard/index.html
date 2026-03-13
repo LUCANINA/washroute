@@ -4171,9 +4171,13 @@
   }
 
   async function loadCustomers() {
-    const { data, error } = await db.from('customers')
-      .select('id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
-      .order('created_at', { ascending: false });
+    const [{ data, error }, { data: templates }] = await Promise.all([
+      db.from('customers')
+        .select('id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
+        .order('created_at', { ascending: false }),
+      db.from('route_templates').select('id, name').order('name')
+    ]);
+    allRoutes = (templates || []).map(t => ({ id: t.id, name: t.name }));
 
     if (error) {
       console.error('loadCustomers error:', error);
@@ -4429,11 +4433,14 @@
     if (val === 'all') {
       _routeCustomerSet = null;
     } else {
-      // Find which customers have a stop on this route via address linkage
-      const { data, error } = await db.from('route_stops').select('address_id').eq('route_id', val);
-      if (error) { showToast('Route filter error: ' + error.message, 'error'); return; }
-      const addrIds = new Set((data || []).map(s => s.address_id).filter(Boolean));
-      _routeCustomerSet = new Set(allCustomers.filter(c => c.addr_id && addrIds.has(c.addr_id)).map(c => c.id));
+      // val is a template_id — find all routes for this template, then find customers via orders
+      const { data: routes } = await db.from('routes').select('id').eq('template_id', val);
+      const routeIds = (routes || []).map(r => r.id);
+      if (!routeIds.length) { _routeCustomerSet = new Set(); } else {
+        const { data: stops, error } = await db.from('route_stops').select('orders(customer_id)').in('route_id', routeIds);
+        if (error) { showToast('Route filter error: ' + error.message, 'error'); return; }
+        _routeCustomerSet = new Set((stops || []).map(s => s.orders?.customer_id).filter(Boolean));
+      }
     }
     const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
     applyCustomerFilters(q, custStatusFilter);
