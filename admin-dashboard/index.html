@@ -3334,10 +3334,10 @@
   };
   // ── PICKUP ROUTE cell: plain text only — row click opens order panel ──
   const pickupRouteCell = (o) => {
-    if (o.actual_pickup_at) return `<span style="color:var(--gray-500);font-size:12px">Picked up</span>`;
-    const canAssign = ['scheduled','ready_for_pickup'].includes(o.status);
     const routeName = o.pickup_run?.name || '';
     if (routeName) return `<span style="font-weight:600">${routeName}</span>`;
+    if (o.actual_pickup_at) return `<span style="color:var(--gray-400);font-size:12px">—</span>`;
+    const canAssign = ['scheduled','ready_for_pickup'].includes(o.status);
     if (canAssign) return `<span style="color:var(--gray-400);font-size:12px">+ Assign</span>`;
     return '—';
   };
@@ -3359,10 +3359,10 @@
 
   // ── DELIVERY ROUTE cell: plain text only — row click opens order panel ──
   const deliveryRouteCell = (o) => {
-    if (o.actual_delivery_at) return `<span style="color:var(--gray-500);font-size:12px">Delivered</span>`;
-    const canAssign = ['processing','ready_for_delivery','out_for_delivery'].includes(o.status);
     const routeName = o.delivery_run?.name || '';
     if (routeName) return `<span style="font-weight:600">${routeName}</span>`;
+    if (o.actual_delivery_at) return `<span style="color:var(--gray-400);font-size:12px">—</span>`;
+    const canAssign = ['processing','ready_for_delivery','out_for_delivery'].includes(o.status);
     if (canAssign) return `<span style="color:var(--gray-400);font-size:12px">+ Assign</span>`;
     return '—';
   };
