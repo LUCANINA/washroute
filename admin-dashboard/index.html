@@ -1213,7 +1213,7 @@
               </button>
             </div>
             <!-- Map + stop list -->
-            <div class="route-map-layout" style="height:693px;">
+            <div class="route-map-layout" style="height:1040px;">
               <div class="route-stop-list" id="route-stop-list" style="min-width:260px;max-width:280px;overflow-y:auto;border-right:1px solid var(--gray-200);display:flex;flex-direction:column;">
                 <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--gray-400);font-size:13px;padding:20px;text-align:center;">
                   Select a run to view stops
@@ -11130,9 +11130,16 @@ window.onload=()=>{window.print();};
       });
     });
 
-    // Render: Row 1 = zone pills, Row 2 = AM/PM toggle
+    // Render: Row 1 = zone pills (with All), Row 2 = AM/PM toggle
     toggleEl.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
     let html = '<div style="display:flex;gap:6px;" id="ds-zone-row">';
+    // "All" pill
+    html += `<button class="ds-zone-btn" data-zone="_all"
+      style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:8px;border:1.5px solid #e2e8f0;
+      background:white;cursor:pointer;transition:all .15s;"
+      onclick="dsSelectZone('_all')">
+      <span style="font-size:13px;font-weight:500;color:var(--gray-500);">All</span>
+    </button>`;
     zoneList.forEach(z => {
       const isSel = z.name === bestZone;
       html += `<button class="ds-zone-btn" data-zone="${z.name}"
@@ -11186,10 +11193,17 @@ window.onload=()=>{window.print();};
     document.querySelectorAll('.ds-zone-btn').forEach(b => {
       const z = zones[b.dataset.zone];
       const isSel = b.dataset.zone === zoneName;
-      b.style.borderColor = isSel ? (z?.color || 'var(--accent)') : '#e2e8f0';
-      b.style.background = isSel ? (z?.color || 'var(--accent)') + '0d' : 'white';
-      b.querySelector('span:last-child').style.fontWeight = isSel ? '700' : '500';
-      b.querySelector('span:last-child').style.color = isSel ? 'var(--gray-800)' : 'var(--gray-500)';
+      if (b.dataset.zone === '_all') {
+        b.style.borderColor = isSel ? '#374151' : '#e2e8f0';
+        b.style.background = isSel ? '#f3f4f6' : 'white';
+        const sp = b.querySelector('span');
+        if (sp) { sp.style.fontWeight = isSel ? '700' : '500'; sp.style.color = isSel ? 'var(--gray-800)' : 'var(--gray-500)'; }
+      } else {
+        b.style.borderColor = isSel ? (z?.color || 'var(--accent)') : '#e2e8f0';
+        b.style.background = isSel ? (z?.color || 'var(--accent)') + '0d' : 'white';
+        const sp = b.querySelector('span:last-child');
+        if (sp) { sp.style.fontWeight = isSel ? '700' : '500'; sp.style.color = isSel ? 'var(--gray-800)' : 'var(--gray-500)'; }
+      }
     });
     // Update stop counts on slot buttons
     dsUpdateSlotCounts();
@@ -11224,6 +11238,16 @@ window.onload=()=>{window.print();};
   function dsLoadSelectedRoute() {
     const toggleEl = document.getElementById('runs-toggle-btns');
     const zones = toggleEl._zoneData;
+
+    // ── ALL ROUTES mode ──
+    if (_dsActiveZone === '_all') {
+      const optBtn = document.getElementById('btn-optimize');
+      if (optBtn) optBtn.style.display = 'none';
+      routeLiveRouteId = null;
+      dsLoadAllRoutes(zones);
+      return;
+    }
+
     const zone = zones[_dsActiveZone];
     const info = zone?.templates[_dsActiveSlot];
     const optBtn = document.getElementById('btn-optimize');
@@ -11244,11 +11268,120 @@ window.onload=()=>{window.print();};
       }
       return;
     }
-    // Route exists — load it via selectRunOnMap
-    selectRunOnMap(info.route.id, null);
+    // Route exists — load it via selectRunOnMap, passing template color
+    const zoneColor = zone.color || '#635bff';
+    selectRunOnMap(info.route.id, null, zoneColor);
   }
 
-  async function selectRunOnMap(runId, _btn) {
+  async function dsLoadAllRoutes(zones) {
+    // Collect all routes for this date across all zones and slots
+    const routeEntries = [];
+    Object.values(zones).forEach(z => {
+      Object.entries(z.templates).forEach(([slot, info]) => {
+        if (info.route) {
+          routeEntries.push({ route: info.route, color: z.color || '#635bff', zoneName: z.name, slot });
+        }
+      });
+    });
+
+    if (!routeEntries.length) {
+      const stopList = document.getElementById('route-stop-list');
+      if (stopList) stopList.innerHTML = '<div style="padding:20px;color:var(--gray-400);font-size:13px;text-align:center">No routes on this date</div>';
+      if (routeLiveMap) {
+        const toRemove = [];
+        routeLiveMap.eachLayer(l => { if (l._isStopLayer) toRemove.push(l); });
+        toRemove.forEach(l => routeLiveMap.removeLayer(l));
+      }
+      return;
+    }
+
+    // Fetch all stops for all routes at once
+    const allRouteIds = routeEntries.map(r => r.route.id);
+    const { data: allStops } = await db.from('route_stops')
+      .select('id, route_id, stop_number, stop_type, status, driver_id, orders(id, total_bags, customer_id, customers(first_name_cache, last_name_cache))')
+      .in('route_id', allRouteIds)
+      .order('stop_number');
+
+    // Resolve all customer addresses
+    const custIds = [...new Set((allStops||[]).map(s => s.orders?.customer_id).filter(Boolean))];
+    let addrMap = {};
+    if (custIds.length) {
+      const { data: addrs } = await db.from('addresses')
+        .select('customer_id, line1, city, lat, lng')
+        .in('customer_id', custIds)
+        .eq('is_default', true);
+      (addrs||[]).forEach(a => { addrMap[a.customer_id] = a; });
+    }
+
+    // Build route color lookup
+    const routeColorMap = {};
+    routeEntries.forEach(r => { routeColorMap[r.route.id] = r.color; });
+
+    // Show stop list grouped by route
+    const stopList = document.getElementById('route-stop-list');
+    let html = '';
+    routeEntries.forEach(re => {
+      const rStops = (allStops||[]).filter(s => s.route_id === re.route.id);
+      html += `<div style="padding:6px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:6px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:${re.color};flex-shrink:0;"></div>
+        <span style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;">${re.zoneName} ${re.slot}</span>
+        <span style="font-size:10px;color:var(--gray-400);margin-left:auto;">${rStops.length} stop${rStops.length!==1?'s':''}</span>
+      </div>`;
+      rStops.forEach(s => {
+        const enriched = { ...s, _addr: s.orders?.customer_id ? addrMap[s.orders.customer_id] || null : null };
+        html += renderAllRouteStopRow(enriched);
+      });
+    });
+    if (stopList) stopList.innerHTML = html;
+
+    // Render all routes on map with their colors
+    if (!routeLiveMap) return;
+    const toRemove = [];
+    routeLiveMap.eachLayer(l => { if (l._isStopLayer) toRemove.push(l); });
+    toRemove.forEach(l => routeLiveMap.removeLayer(l));
+    const allCoords = [];
+    routeEntries.forEach(re => {
+      const rStops = (allStops||[]).filter(s => s.route_id === re.route.id);
+      const enriched = rStops.map(s => ({ ...s, _addr: s.orders?.customer_id ? addrMap[s.orders.customer_id] || null : null }));
+      const valid = enriched.filter(s => s._addr?.lat && s._addr?.lng);
+      if (!valid.length) return;
+      const seen = new Set();
+      const unique = valid.filter(s => { const k = `${s._addr.lat},${s._addr.lng}`; if (seen.has(k)) return false; seen.add(k); return true; });
+      const coords = unique.map(s => [s._addr.lat, s._addr.lng]);
+      allCoords.push(...coords);
+      const line = L.polyline(coords, {color: re.color, weight:3, opacity:.5, dashArray:'6 4'});
+      line._isStopLayer = true; line.addTo(routeLiveMap);
+      unique.forEach((s, i) => {
+        const cust = s.orders?.customers || {};
+        const custName = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
+        const m = L.marker([s._addr.lat, s._addr.lng], {icon: makePin(re.color, (i+1).toString())})
+          .bindPopup(`<strong>${custName}</strong><br>${s._addr.line1||''}<br><span style="font-size:11px;color:#888">${re.zoneName} ${re.slot}</span>`);
+        m._isStopLayer = true; m.addTo(routeLiveMap);
+      });
+    });
+    if (allCoords.length) routeLiveMap.fitBounds(L.latLngBounds(allCoords), {padding:[30,30]});
+  }
+
+  function renderAllRouteStopRow(s) {
+    const cust = s.orders?.customers || {};
+    const name = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
+    const a = s._addr;
+    const addr = a ? `${a.line1||''}, ${a.city||''}`.replace(/^,\s*|,\s*$/g,'') : '—';
+    const bags = s.orders?.total_bags || 1;
+    const isDelivery = s.stop_type === 'delivery';
+    const bg = isDelivery ? 'background:#f8f8f8;' : '';
+    const typeLabel = isDelivery ? 'D' : 'P';
+    return `<div style="${bg}padding:5px 12px 5px 20px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:8px;">
+      <span style="width:18px;height:18px;border-radius:50%;background:#6b7280;color:white;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;">${typeLabel}</span>
+      <div style="flex:1;min-width:0;">
+        <span style="font-size:12px;font-weight:600;color:var(--gray-700);">${name}</span>
+        <span style="font-size:10px;color:var(--gray-400);margin-left:6px;">${addr}</span>
+      </div>
+      <span style="font-size:10px;color:var(--gray-400);flex-shrink:0;">${bags}</span>
+    </div>`;
+  }
+
+  async function selectRunOnMap(runId, _btn, routeColor) {
     routeLiveRouteId = runId;
     const optBtn = document.getElementById('btn-optimize');
     if (optBtn) optBtn.style.display = '';
@@ -11286,7 +11419,7 @@ window.onload=()=>{window.print();};
 
     const routeWindow = route?.route_templates || null;
     renderRouteStops(enrichedStops, runId, routeWindow);
-    renderRouteMapPins(enrichedStops);
+    renderRouteMapPins(enrichedStops, routeColor || '#635bff');
   }
 
   function renderRouteStops(stops, routeId, routeWindow) {
@@ -11340,6 +11473,7 @@ window.onload=()=>{window.print();};
     function renderStopRow(s) {
       const cust = s.orders?.customers || {};
       const name = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
+      const safeName = name.replace(/'/g,"\\'");
       const a = s._addr;
       const addr = a ? `${a.line1||''}, ${a.city||''}`.replace(/^,\s*|,\s*$/g,'') : '—';
       const lat = a?.lat || 0, lng = a?.lng || 0;
@@ -11347,7 +11481,7 @@ window.onload=()=>{window.print();};
       const isDelivery = s.stop_type === 'delivery';
       const bg = isDelivery ? 'background:#f8f8f8;' : '';
       const typeLabel = isDelivery ? 'D' : 'P';
-      const typeBg = isDelivery ? 'background:#9ca3af;color:white;' : 'background:var(--accent);color:white;';
+      const typeBg = isDelivery ? 'background:#6b7280;color:white;' : 'background:#6b7280;color:white;';
       const statusBadge = s.status === 'complete'
         ? '<span style="font-size:10px;font-weight:600;color:#059669;margin-left:4px;">✓</span>'
         : s.status === 'failed'
@@ -11355,8 +11489,8 @@ window.onload=()=>{window.print();};
         : '';
       const reassigned = s.driver_id ? (allDriversCache.find(d => d.id === s.driver_id)?.name || 'Driver') : null;
 
-      return `<div class="rsl-item" style="${bg}cursor:pointer;padding:7px 12px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:10px;" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}" oncontextmenu="event.preventDefault();event.stopPropagation();openReassignDriver('${s.id}','${name}','${s.driver_id||''}')">
-        <div style="width:22px;height:22px;border-radius:50%;${typeBg}display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">${typeLabel}</div>
+      return `<div class="rsl-item" style="${bg}cursor:pointer;padding:7px 12px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:10px;" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}">
+        <div onclick="event.stopPropagation();openReassignDriver('${s.id}','${safeName}','${s.driver_id||''}')" style="width:24px;height:24px;border-radius:50%;${typeBg}display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;cursor:pointer;transition:transform .1s,box-shadow .1s;" onmouseover="this.style.transform='scale(1.15)';this.style.boxShadow='0 0 0 3px rgba(107,114,128,.25)'" onmouseout="this.style.transform='scale(1)';this.style.boxShadow='none'" title="Reassign driver">${typeLabel}</div>
         <div style="flex:1;min-width:0;">
           <div style="display:flex;align-items:center;gap:4px;">
             <span style="font-size:13px;font-weight:600;color:var(--gray-800);">${name}</span>${statusBadge}${reassigned ? `<span style="font-size:9px;font-weight:600;color:#7c3aed;background:#f5f3ff;padding:1px 5px;border-radius:3px;margin-left:2px;">↗ ${reassigned}</span>` : ''}
@@ -11370,8 +11504,9 @@ window.onload=()=>{window.print();};
     el.innerHTML = html;
   }
 
-  function renderRouteMapPins(stops) {
+  function renderRouteMapPins(stops, pinColor) {
     if (!routeLiveMap) return;
+    const c = pinColor || '#635bff';
     const toRemove = [];
     routeLiveMap.eachLayer(l => { if (l._isStopLayer) toRemove.push(l); });
     toRemove.forEach(l => routeLiveMap.removeLayer(l));
@@ -11386,12 +11521,12 @@ window.onload=()=>{window.print();};
       return true;
     });
     const coords = unique.map(s => [s._addr.lat, s._addr.lng]);
-    const line = L.polyline(coords, {color:'#635bff', weight:2.5, opacity:.4, dashArray:'6 4'});
+    const line = L.polyline(coords, {color:c, weight:2.5, opacity:.4, dashArray:'6 4'});
     line._isStopLayer = true; line.addTo(routeLiveMap);
     unique.forEach((s, i) => {
       const cust = s.orders?.customers || {};
       const custName = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
-      const m = L.marker([s._addr.lat, s._addr.lng], {icon: makePin('#635bff', (i+1).toString())})
+      const m = L.marker([s._addr.lat, s._addr.lng], {icon: makePin(c, (i+1).toString())})
         .bindPopup(`<strong>${custName}</strong><br>${s._addr.line1||''}`);
       m._isStopLayer = true; m.addTo(routeLiveMap);
     });
