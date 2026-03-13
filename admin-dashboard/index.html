@@ -959,9 +959,9 @@
         Inbox
         <span class="nav-badge" id="badge-inbox" style="background:var(--red)">0</span>
       </div>
-      <div class="nav-item" data-min-role="admin" onclick="showPage('driver-messages',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-        Driver Messages
+      <div class="nav-item" data-min-role="admin" onclick="showPage('drivers',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M17 11l1.5 1.5L21 10"/></svg>
+        Drivers
         <span id="admin-msg-badge" style="display:none;background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:auto">0</span>
       </div>
       <div class="sidebar-section-label" data-min-role="admin">Analytics</div>
@@ -981,10 +981,6 @@
       <div class="nav-item" data-min-role="admin" onclick="showPage('maps',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
         Delivery Zones
-      </div>
-      <div class="nav-item" data-min-role="admin" onclick="showPage('drivers',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M17 11l1.5 1.5L21 10"/></svg>
-        Drivers
       </div>
       <div class="nav-item" onclick="showPage('launderers',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><path d="M16 3.13a4 4 0 010 7.75"/><path d="M21 21v-2a4 4 0 00-3-3.87"/></svg>
@@ -1792,28 +1788,68 @@
 
         <!-- ── DRIVERS ── -->
         <div class="page" id="page-drivers">
-          <div class="page-header" style="margin-bottom:20px">
-            <div>
-              <div class="page-title">Drivers</div>
-              <div class="page-sub" id="drivers-subtitle">Loading…</div>
-            </div>
-            <button class="btn btn-primary" onclick="openDriverEditor(null)">+ New Driver</button>
-          </div>
-
-          <!-- Filter + Search bar -->
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap">
-            <div class="filter-tabs" style="display:flex;gap:4px">
-              <button class="filter-tab active" id="drvf-all"      onclick="filterDrivers('all',this)">All</button>
-              <button class="filter-tab"        id="drvf-active"   onclick="filterDrivers('active',this)">Active</button>
-              <button class="filter-tab"        id="drvf-inactive" onclick="filterDrivers('inactive',this)">Inactive</button>
-            </div>
+          <!-- ── Tab bar ── -->
+          <div style="display:flex;align-items:center;gap:0;margin-bottom:20px;border-bottom:2px solid var(--gray-100)">
+            <button class="filter-tab active" id="drv-tab-messages" onclick="switchDriverTab('messages')"
+              style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--gray-900)">
+              Messages
+            </button>
+            <button class="filter-tab" id="drv-tab-manage" onclick="switchDriverTab('manage')"
+              style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--gray-400)">
+              All Drivers
+            </button>
             <div style="flex:1"></div>
-            <input type="search" class="form-input" id="driver-search" placeholder="Search drivers…" oninput="renderDrivers()" style="width:220px;padding:7px 12px;font-size:13px">
+            <div id="drv-tab-actions"></div>
           </div>
 
-          <!-- Driver cards grid -->
-          <div id="drivers-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px">
-            <div class="loading"><div class="spinner"></div> Loading…</div>
+          <!-- ═══ MESSAGES TAB ═══ -->
+          <div id="drv-panel-messages">
+            <div style="display:grid;grid-template-columns:260px 1fr;gap:0;height:calc(100vh - 190px);border-radius:14px;overflow:hidden;border:1px solid var(--gray-200);background:white">
+              <!-- Online driver list -->
+              <div style="border-right:1px solid var(--gray-200);display:flex;flex-direction:column;overflow:hidden">
+                <div style="padding:14px 16px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;justify-content:space-between">
+                  <span style="font-size:13px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:0.5px">Online Now</span>
+                  <span id="online-driver-count" style="font-size:11px;font-weight:700;color:var(--green);background:var(--green-light);padding:2px 8px;border-radius:10px">0</span>
+                </div>
+                <div id="admin-driver-list" style="flex:1;overflow-y:auto">
+                  <div style="padding:32px;text-align:center;color:var(--gray-400)">Loading…</div>
+                </div>
+              </div>
+              <!-- Thread panel -->
+              <div style="display:flex;flex-direction:column;overflow:hidden">
+                <div id="admin-thread-hdr" style="padding:14px 18px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:10px;min-height:53px">
+                  <div style="color:var(--gray-400);font-size:14px">Select a driver to view the conversation</div>
+                </div>
+                <div id="admin-thread" style="flex:1;overflow-y:auto;padding:18px 18px 4px;background:#f9fafb"></div>
+                <div id="admin-compose" style="padding:12px 16px;border-top:1px solid var(--gray-200);display:none;gap:10px;align-items:flex-end">
+                  <textarea id="admin-msg-input"
+                    style="flex:1;background:#f3f4f6;border:1.5px solid var(--gray-200);border-radius:12px;padding:10px 14px;font-size:14px;font-family:inherit;resize:none;min-height:42px;max-height:120px;outline:none;line-height:1.4"
+                    placeholder="Message to driver…" rows="1"
+                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAdminMessage();}"
+                    oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'"></textarea>
+                  <button onclick="sendAdminMessage()"
+                    style="height:42px;padding:0 18px;background:var(--accent);color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">
+                    Send ↑
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ═══ ALL DRIVERS TAB ═══ -->
+          <div id="drv-panel-manage" style="display:none">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap">
+              <div class="filter-tabs" style="display:flex;gap:4px">
+                <button class="filter-tab active" id="drvf-all"      onclick="filterDrivers('all',this)">All</button>
+                <button class="filter-tab"        id="drvf-active"   onclick="filterDrivers('active',this)">Active</button>
+                <button class="filter-tab"        id="drvf-inactive" onclick="filterDrivers('inactive',this)">Inactive</button>
+              </div>
+              <div style="flex:1"></div>
+              <input type="search" class="form-input" id="driver-search" placeholder="Search drivers…" oninput="renderDrivers()" style="width:220px;padding:7px 12px;font-size:13px">
+            </div>
+            <div id="drivers-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px">
+              <div class="loading"><div class="spinner"></div> Loading…</div>
+            </div>
           </div>
         </div><!-- /page-drivers -->
 
@@ -1901,39 +1937,7 @@
           </div>
         </div><!-- /page-discounts -->
 
-        <!-- ── DRIVER MESSAGES ── -->
-        <div class="page" id="page-driver-messages">
-          <div style="display:grid;grid-template-columns:260px 1fr;gap:0;height:calc(100vh - 130px);border-radius:14px;overflow:hidden;border:1px solid var(--gray-200);background:white">
-
-            <!-- Driver list -->
-            <div style="border-right:1px solid var(--gray-200);display:flex;flex-direction:column;overflow:hidden">
-              <div style="padding:14px 16px;border-bottom:1px solid var(--gray-200);font-size:13px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:0.5px">Drivers</div>
-              <div id="admin-driver-list" style="flex:1;overflow-y:auto">
-                <div style="padding:32px;text-align:center;color:var(--gray-400)">Loading…</div>
-              </div>
-            </div>
-
-            <!-- Thread panel -->
-            <div style="display:flex;flex-direction:column;overflow:hidden">
-              <div id="admin-thread-hdr" style="padding:14px 18px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:10px;min-height:53px">
-                <div style="color:var(--gray-400);font-size:14px">Select a driver to view the conversation</div>
-              </div>
-              <div id="admin-thread" style="flex:1;overflow-y:auto;padding:18px 18px 4px;background:#f9fafb"></div>
-              <div id="admin-compose" style="padding:12px 16px;border-top:1px solid var(--gray-200);display:none;gap:10px;align-items:flex-end">
-                <textarea id="admin-msg-input"
-                  style="flex:1;background:#f3f4f6;border:1.5px solid var(--gray-200);border-radius:12px;padding:10px 14px;font-size:14px;font-family:inherit;resize:none;min-height:42px;max-height:120px;outline:none;line-height:1.4"
-                  placeholder="Message to driver…" rows="1"
-                  onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAdminMessage();}"
-                  oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'"></textarea>
-                <button onclick="sendAdminMessage()"
-                  style="height:42px;padding:0 18px;background:var(--accent);color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">
-                  Send ↑
-                </button>
-              </div>
-            </div>
-
-          </div>
-        </div><!-- /page-driver-messages -->
+        <!-- page-driver-messages removed — merged into page-drivers -->
 
         <!-- ── SETTINGS ── -->
         <div class="page" id="page-settings"></div>
@@ -3576,7 +3580,8 @@
         startRouteStopListener();
 
         // Restore the page the user was on before refresh (from URL hash)
-        const hashPage = location.hash.replace('#', '');
+        let hashPage = location.hash.replace('#', '');
+        if (hashPage === 'driver-messages') hashPage = 'drivers'; // legacy redirect
         if (hashPage && document.getElementById('page-' + hashPage)) {
           showPage(hashPage, document.getElementById('nav-' + hashPage));
         }
@@ -3630,7 +3635,7 @@
 
   // ── ROLE-BASED NAV ──
   const ADMIN_ONLY_PAGES = ['reports','services','notifications','maps',
-                            'drivers','discounts','driver-messages','settings','team'];
+                            'drivers','discounts','settings','team'];
 
   function applyRoleToNav(role) {
     document.querySelectorAll('[data-min-role="admin"]').forEach(el => {
@@ -3811,13 +3816,13 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', 'driver-messages':'Driver Messages', settings:'Timezone', team:'Team' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', 'driver-messages':'', settings:'', team:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', settings:'Timezone', team:'Team' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', settings:'', team:'' };
 
   function showPage(id, navEl) {
     // Role guard — staff cannot navigate to admin-only pages
     const ADMIN_ONLY_PAGES = ['reports','services','notifications','maps',
-                              'drivers','discounts','driver-messages','settings','team'];
+                              'drivers','discounts','settings','team'];
     if (ADMIN_ONLY_PAGES.includes(id) && currentUserRole !== 'admin') {
       showToast("You don't have permission to view that page.", 'error');
       showPage('overview', document.getElementById('nav-overview'));
@@ -3847,7 +3852,7 @@
       setTimeout(()=>initZonesMap(), 80);
       setTimeout(()=>initRoutesPage(), 80);
     }
-    if (id === 'drivers') loadDrivers();
+    if (id === 'drivers') { loadDrivers(); loadAdminDriverMessages(); }
     if (id === 'services') loadServices();
     if (id === 'notifications') loadNotifications();
     if (id === 'reports') loadReports();
@@ -3855,7 +3860,6 @@
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
     if (id === 'discounts') renderDiscounts();
-    if (id === 'driver-messages') loadAdminDriverMessages();
     if (id === 'settings') renderSettingsTab();
     if (id === 'team') loadTeamPage();
   }
@@ -14175,9 +14179,42 @@ window.onload=()=>{window.print();};
   }
 
   /* ──────────────────────────────
+     DRIVERS PAGE — TAB SWITCHING
+  ────────────────────────────── */
+  let _activeDriverTab = 'messages';
+
+  function switchDriverTab(tab) {
+    _activeDriverTab = tab;
+    const msgTab = document.getElementById('drv-tab-messages');
+    const mngTab = document.getElementById('drv-tab-manage');
+    const msgPanel = document.getElementById('drv-panel-messages');
+    const mngPanel = document.getElementById('drv-panel-manage');
+    const actions  = document.getElementById('drv-tab-actions');
+
+    if (tab === 'messages') {
+      msgTab.style.borderBottomColor = 'var(--accent)';
+      msgTab.style.color = 'var(--gray-900)';
+      mngTab.style.borderBottomColor = 'transparent';
+      mngTab.style.color = 'var(--gray-400)';
+      msgPanel.style.display = '';
+      mngPanel.style.display = 'none';
+      if (actions) actions.innerHTML = '';
+    } else {
+      mngTab.style.borderBottomColor = 'var(--accent)';
+      mngTab.style.color = 'var(--gray-900)';
+      msgTab.style.borderBottomColor = 'transparent';
+      msgTab.style.color = 'var(--gray-400)';
+      msgPanel.style.display = 'none';
+      mngPanel.style.display = '';
+      if (actions) actions.innerHTML = `<button class="btn btn-primary" onclick="openDriverEditor(null)" style="font-size:13px;padding:7px 16px">+ New Driver</button>`;
+    }
+  }
+
+  /* ──────────────────────────────
      DRIVER MESSAGES (Admin)
   ────────────────────────────── */
   let adminMsgDrivers = [], adminMsgAllMessages = [], adminMsgActiveDriver = null, adminMsgSub = null;
+  let _onlineDriverIds = new Set();
 
   async function loadAdminDriverMessages() {
     // Load all active drivers with their profiles
@@ -14195,8 +14232,19 @@ window.onload=()=>{window.print();};
       .order('created_at', { ascending: true });
     adminMsgAllMessages = msgs || [];
 
+    // Determine which drivers are online (GPS ping within last 15 minutes)
+    const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const { data: locs } = await db.from('driver_locations')
+      .select('driver_id')
+      .gte('updated_at', cutoff);
+    _onlineDriverIds = new Set((locs || []).map(l => l.driver_id));
+
     renderAdminDriverList();
     updateAdminMsgBadge();
+
+    // Update online counter badge
+    const countEl = document.getElementById('online-driver-count');
+    if (countEl) countEl.textContent = _onlineDriverIds.size;
 
     // Subscribe to new incoming driver replies
     if (!adminMsgSub) {
@@ -14206,9 +14254,22 @@ window.onload=()=>{window.print();};
             adminMsgAllMessages.push(payload.new);
             updateAdminMsgBadge();
             renderAdminDriverList();
-            // If this driver's thread is open, refresh it
             if (adminMsgActiveDriver?.id === payload.new.driver_id) {
               renderAdminThread(adminMsgActiveDriver);
+            }
+          }
+        })
+        // Also watch driver_locations to update online status in real time
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_locations' }, payload => {
+          const loc = payload.new;
+          if (!loc?.driver_id) return;
+          const cutoffMs = Date.now() - 15 * 60 * 1000;
+          if (new Date(loc.updated_at).getTime() >= cutoffMs) {
+            if (!_onlineDriverIds.has(loc.driver_id)) {
+              _onlineDriverIds.add(loc.driver_id);
+              renderAdminDriverList();
+              const countEl = document.getElementById('online-driver-count');
+              if (countEl) countEl.textContent = _onlineDriverIds.size;
             }
           }
         })
@@ -14234,12 +14295,19 @@ window.onload=()=>{window.print();};
     const el = document.getElementById('admin-driver-list');
     if (!el) return;
 
-    if (!adminMsgDrivers.length) {
-      el.innerHTML = '<div style="padding:24px 16px;text-align:center;color:var(--gray-400);font-size:13px">No active drivers</div>';
+    // Messages tab: show only online drivers (with GPS ping in last 15 min)
+    const onlineDrivers = adminMsgDrivers.filter(d => _onlineDriverIds.has(d.id));
+
+    if (!onlineDrivers.length) {
+      el.innerHTML = `<div style="padding:32px 16px;text-align:center">
+        <div style="font-size:32px;margin-bottom:10px">📡</div>
+        <div style="font-size:13px;font-weight:600;color:var(--gray-500);margin-bottom:4px">No drivers online</div>
+        <div style="font-size:12px;color:var(--gray-400);line-height:1.5">Drivers appear here when<br>they're actively on a route</div>
+      </div>`;
       return;
     }
 
-    el.innerHTML = adminMsgDrivers.map(drv => {
+    el.innerHTML = onlineDrivers.map(drv => {
       const msgs   = adminMsgAllMessages.filter(m => m.driver_id === drv.id);
       const unread = msgs.filter(m => m.sender_type === 'driver' && !m.read_at).length;
       const last   = msgs[msgs.length - 1];
@@ -14253,10 +14321,13 @@ window.onload=()=>{window.print();};
                border-left:3px solid ${isActive ? 'var(--accent)' : 'transparent'};
                transition:background .1s">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
-          <div style="font-size:14px;font-weight:700;color:var(--gray-800)">${adminDriverName(drv)}</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></span>
+            <span style="font-size:14px;font-weight:700;color:var(--gray-800)">${adminDriverName(drv)}</span>
+          </div>
           ${unread > 0 ? `<span style="background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:800;padding:1px 7px">${unread}</span>` : `<span style="font-size:11px;color:var(--gray-400)">${lastTime}</span>`}
         </div>
-        <div style="font-size:12px;color:${unread > 0 ? 'var(--gray-700)' : 'var(--gray-400)'};font-weight:${unread > 0 ? '600' : '400'}">${lastText}</div>
+        <div style="font-size:12px;color:${unread > 0 ? 'var(--gray-700)' : 'var(--gray-400)'};font-weight:${unread > 0 ? '600' : '400'};padding-left:14px">${lastText}</div>
       </div>`;
     }).join('');
   }
