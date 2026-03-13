@@ -34,10 +34,9 @@ Three connected web apps, one shared database. Focused on **delivery first** (re
 | Twilio | 2-way SMS inbox + driver notifications | ✅ Built — ⚠️ see note below |
 | SendGrid | Transactional email + receipts | ✅ Done |
 | Klaviyo | Marketing broadcasts + segments | 🔲 Pending |
-| Google Maps | Driver navigation + live tracking | 🔲 Pending |
-| Google Route Optimization API | Auto-sort route stops | 🔲 Pending |
+| Google Maps | Driver navigation + route optimization | ✅ API key set (Edge Function secret) |
 | Xero | Accounting sync | 🔲 Pending |
-| Vercel | App hosting | 🔲 Pending |
+| Vercel | App hosting | ✅ Auto-deploys on push to main |
 
 ### ⚠️ Twilio — Action Required Before SMS Works
 Outbound SMS is built and tested end-to-end but messages are stuck in `queued` status because:
@@ -76,10 +75,12 @@ Twilio credentials are embedded in the three Edge Functions (not yet moved to Su
 
 ### Routes Page
 - Route template editor (create/edit recurring routes)
-- Live map view with stop assignment/reassignment per driver
-- Stop reassignment: picking route's default driver clears override (sets NULL, not explicit UUID)
+- **Daily Schedule** — template-driven zone pills (All | Berkeley | Oakland) + AM/PM toggle with NOW/NEXT badges. Auto-selects most relevant route. Stops show name, address, bags with "Assign" link.
+- **All Routes map** — shows every route for the date on one map, each in its template color
+- Live map view (1040px tall) with pins and polylines matching route template colors
+- Stop reassignment: "Assign" link on each stop row opens driver picker. Picking route's default driver clears override (sets NULL, not explicit UUID)
 - Weekly Schedule: time-banded rows (morning/evening slots), one row per route, chips show driver name
-- Removed: "Upcoming Routes Preview", "This Week's Workload"
+- **Route optimization** via Google Maps API (Optimize button on Daily Schedule)
 
 ### Inbox Page
 - Real SMS conversations grouped by customer
@@ -264,6 +265,35 @@ There are actually **two separate hang points** that must both be covered:
 - **Admin login timeout fix (root cause solved):** When a cached session existed in localStorage, Supabase fired `INITIAL_SESSION` + `TOKEN_REFRESHED` on page load. These background operations raced against the user's manual `signInWithPassword` call and caused the 30s safety timer to fire ("Connection timed out"). Fix: on a fresh tab/window load, clear localStorage before initialising Supabase so there's no cached session to trigger the race. `sessionStorage` is used to distinguish a fresh load (clear localStorage) from a page refresh within the same tab (keep the session). Outcome: no timeout on fresh visits, no logout on refresh. sessionStorage flag set on successful login, cleared on logout.
 - **Admin logout-on-refresh fix (round 2):** Supabase v2 can fire `INITIAL_SESSION` with `session = null` when the access token is expired but the refresh token is still valid (e.g. once per hour). The previous code called `showLoginScreen()` immediately on any null session, removing the `sessionStorage` key and flashing the login screen before `TOKEN_REFRESHED` arrived with a fresh token. Fix: `SIGNED_OUT` is the only event that definitively ends a session — show login immediately only for that event. For any other null-session event (`INITIAL_SESSION` null, etc.), start a 2-second fallback timer; if `TOKEN_REFRESHED` arrives with a valid session first, the timer is cancelled and the app shows normally. Result: no login-screen flash on token refresh, and users stay logged in across refreshes.
 
+### Mar 12, 2026 (session 4) — Daily Schedule overhaul + UX cleanup
+
+- **Driver app: tonight's orders not showing (3 bugs fixed):**
+  1. `today()` used `toISOString().split('T')[0]` which returns UTC date — after 5 PM Pacific it returns tomorrow's date. Fixed to use local `getFullYear()/getMonth()/getDate()`.
+  2. Address resolution: `route_stops.address_id` is always null. Added customer-based address enrichment — queries `addresses` table via `orders.customer_id` and attaches as `stop._addr`.
+  3. RLS policy missing: authenticated drivers had no SELECT on `addresses`. Added `driver_read_stop_addresses` policy.
+
+- **Google Maps API key** added to Supabase Edge Function secrets (`GOOGLE_MAPS_API_KEY`). Optimize route button fixed (was referencing `SUPABASE_URL` instead of `SUPA_URL`).
+
+- **Daily Schedule redesigned as template-driven zone + AM/PM selector:**
+  - Row 1: zone pills (All | Berkeley | Oakland) with colored dots matching route template colors
+  - Row 2: AM/PM toggle with time labels and NOW/NEXT badges based on current time
+  - Auto-selects the most relevant zone+slot (scores: in-window=0, upcoming=distance, past=penalized, routes with stops get priority)
+  - "All" pill shows all routes on the map simultaneously, each in its template color
+
+- **Stop rows simplified:** Shows only customer name, address, bags. Removed order number and price. "Assign" text link on the address line for driver reassignment (replaces failed attempts at dots icon and right-click menu).
+
+- **Stop grouping fixed:** Pickups and deliveries mixed within time slots (split by stop_number midpoint), not separated by type.
+
+- **Payment indicator on Orders page:** Green ✓ if paid (has stripe_payment_intent_id and not failed), red ✗ if billing_status=failed, blank otherwise.
+
+- **Map improvements:** Height increased 50% (693px → 1040px). Route line color and pin color now match the route template's color instead of hardcoded purple.
+
+- **Monochrome avatars:** All avatar circles across the dashboard (Customers, Drivers, Team) changed from rainbow colors to white background + black border + black text. Cleaner, more professional.
+
+- **QA pass:** Fixed 3 callers of `selectRunOnMap` missing the new `routeColor` parameter. Bumped Assign link contrast from gray-300 to gray-400 for accessibility.
+
+- **Route template IDs (for reference):** Berkeley AM `656c380d`, Berkeley PM `1468ff14`, Oakland AM `a9d16a68`, Oakland PM `0fe884ef`
+
 ### Mar 12, 2026 (session 3) — Auto-routing architecture overhaul
 - **Major architecture change: route assignment moved from client JS to DB triggers.**
   The system now auto-routes orders without any admin intervention. Zero manual route creation needed.
@@ -316,7 +346,7 @@ There are actually **two separate hang points** that must both be covered:
 - Live driver tracking (Google Maps)
 - Xero accounting sync
 - Klaviyo marketing integration
-- Vercel deployment
+- ~~Vercel deployment~~ ✅ — Vercel auto-deploys on push to main
 
 ---
 
@@ -386,6 +416,11 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
+d0f073a  fix: QA — explicit null for route color fallback, Assign link contrast
+bca66a7  ux: Assign link visible on address line instead of hidden interaction
+5995230  ux: monochrome avatars across all pages
+3d52f05  feat: Assign via P/D circle, map 50% taller, dark gray circles, template route colors, All Routes view
+daf809f  (earlier today) driver app fixes, Daily Schedule redesign, payment indicators
 030ada6  feat: auto-fail expired orders + driver app time-window filtering
 b277677  feat: configurable booking cutoff per route template
 dfc203e  docs: standardize on "Route" terminology, retire "run" from notes
