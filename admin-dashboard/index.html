@@ -2742,6 +2742,10 @@
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;margin-left:12px">
       <span id="cp-status-badge"></span>
+      <button id="cp-new-order-btn" onclick="openOrderForCustomer()" style="display:flex;align-items:center;gap:5px;padding:5px 12px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Order
+      </button>
       <button class="modal-close" onclick="closeCustomerPanel()"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
     </div>
   </div>
@@ -7178,9 +7182,9 @@ window.onload=()=>{window.print();};
   }
 
   // ── MODALS ──
-  function openModal(name) {
+  function openModal(name, opts) {
     if (name === 'add-customer') populateCustomerModal();
-    if (name === 'add-order')    populateOrderModal();
+    if (name === 'add-order')    populateOrderModal(opts?.customerId);
     // add-route handled by openTemplateEditor slide-over
     document.getElementById('modal-'+name).classList.add('open');
   }
@@ -8402,7 +8406,7 @@ window.onload=()=>{window.print();};
     if (opts[_custComboHighlight]) opts[_custComboHighlight].scrollIntoView({ block: 'nearest' });
   }
 
-  async function populateOrderModal() {
+  async function populateOrderModal(prefillCustomerId) {
     try {
     // Reset all state
     _noSelectedTmpl = null;
@@ -8432,16 +8436,18 @@ window.onload=()=>{window.print();};
       if (!allCustomers.length) await loadCustomers();
     }
 
-    // Init combobox with first customer
+    // Init combobox — use prefilled customer if provided, otherwise first
     if (allCustomers.length) {
-      const first = allCustomers[0];
-      const p  = custProfile(first);
-      const fn = p.first_name || first.first_name_cache || '';
-      const ln = p.last_name  || first.last_name_cache  || '';
+      const target = prefillCustomerId
+        ? (allCustomers.find(c => c.id === prefillCustomerId) || allCustomers[0])
+        : allCustomers[0];
+      const p  = custProfile(target);
+      const fn = p.first_name || target.first_name_cache || '';
+      const ln = p.last_name  || target.last_name_cache  || '';
       const label = (fn + ' ' + ln).trim() || 'Unknown';
-      document.getElementById('o-customer').value = first.id;
+      document.getElementById('o-customer').value = target.id;
       document.getElementById('o-customer-input').value = label;
-      await onOrderCustomerChange(first.id);
+      await onOrderCustomerChange(target.id);
     } else {
       document.getElementById('o-customer').value = '';
       document.getElementById('o-customer-input').value = '';
@@ -9027,6 +9033,11 @@ window.onload=()=>{window.print();};
   let cpAllOrders = [];
   let cpBillingMode = false;
   let cpBillingSelection = new Set();
+
+  function openOrderForCustomer() {
+    if (!panelCustomerId) return;
+    openModal('add-order', { customerId: panelCustomerId });
+  }
 
   function cpTab(name, btn) {
     document.querySelectorAll('.cp-tab').forEach(t=>t.classList.remove('active'));
