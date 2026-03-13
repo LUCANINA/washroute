@@ -10811,7 +10811,12 @@ window.onload=()=>{window.print();};
         const { data: fnData, error: fnErr } = await db.functions.invoke('create-driver', {
           body: { email, password: pw, first_name: first, last_name: last, phone: phone || null, license_number: licNum || null, license_expiry: licExp }
         });
-        if (fnErr) throw new Error(fnErr.message || 'Edge function error');
+        if (fnErr) {
+          // Supabase wraps non-2xx responses — dig out the real error from the body
+          let msg = fnErr.message || 'Edge function error';
+          try { const body = await fnErr.context?.json(); if (body?.error) msg = body.error; } catch(_){}
+          throw new Error(msg);
+        }
         if (fnData?.error) throw new Error(fnData.error);
       }
 
