@@ -4522,7 +4522,7 @@
 
     // Always fetch all orders — filtering is done client-side so pill counts stay accurate
     const { data, error } = await db.from('orders')
-      .select(`id, order_number, status, total_amount, stripe_payment_intent_id,
+      .select(`id, order_number, status, total_amount, stripe_payment_intent_id, billing_status,
                weight_lbs, total_bags, service_id, special_instructions,
                pickup_window_start, pickup_window_end,
                delivery_window_start, delivery_window_end,
@@ -4689,7 +4689,7 @@
           <td style="font-size:12.5px;white-space:nowrap">${deliveryRouteCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${deliveryTimeCell(o)}</td>
           <td style="font-size:12.5px;text-align:right;padding-right:20px">${bags}</td>
-          <td style="font-weight:600;text-align:right;padding-right:20px">${fmtMoney(o.total_amount)}</td>
+          <td style="font-weight:600;text-align:right;padding-right:20px;white-space:nowrap">${o.stripe_payment_intent_id && o.billing_status !== 'failed' ? '<span style="color:#16a34a;margin-right:4px;" title="Paid">✓</span>' : o.billing_status === 'failed' ? '<span style="color:#dc2626;margin-right:4px;" title="Payment failed">✗</span>' : ''}${fmtMoney(o.total_amount)}</td>
         </tr>`;
       }).join('')}
     </tbody></table>`;
