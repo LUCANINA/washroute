@@ -11496,11 +11496,11 @@ window.onload=()=>{window.print();};
   }
 
   async function dsLoadAllRoutes(zones) {
-    // Collect all routes for this date across all zones and slots
+    // Collect routes for this date, filtered by the active AM/PM slot
     const routeEntries = [];
     Object.values(zones).forEach(z => {
       Object.entries(z.templates).forEach(([slot, info]) => {
-        if (info.route) {
+        if (info.route && slot === _dsActiveSlot) {
           routeEntries.push({ route: info.route, color: z.color || '#635bff', zoneName: z.name, slot });
         }
       });
