@@ -1221,13 +1221,7 @@
               </div>
               <div style="flex:1;position:relative;">
                 <div id="route-live-map" style="height:100%;width:100%;"></div>
-                <div class="map-legend-box" style="bottom:12px;left:12px;">
-                  <div class="leg-title">Stop Status</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Completed</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#2563eb"></div>Active</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>Upcoming</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#635bff"></div>Driver</div>
-                </div>
+                <!-- map legend removed: simplified pin design -->
               </div>
             </div>
           </div>
@@ -11223,7 +11217,12 @@ window.onload=()=>{window.print();};
             ${overrideDriver ? `<span style="font-size:10px;font-weight:600;color:#7c3aed;margin-left:2px;">↗ ${overrideDriver}</span>` : ''}
             ${amt ? `<span style="font-size:12px;font-weight:600;color:var(--gray-500);margin-left:auto;">${amt}</span>` : ''}
           </div>
-          <div style="font-size:11px;color:var(--gray-400);margin-top:1px;">${addr}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:1px;">
+            <span style="font-size:11px;color:var(--gray-400);flex:1;">${addr}</span>
+            <button class="btn btn-ghost" style="padding:1px 7px;font-size:10px;color:#7c3aed;border-color:#e9d5ff;flex-shrink:0;" onclick="event.stopPropagation();openReassignDriver('${s.id}','#${s.stop_number} ${name}','${s.driver_id||''}')">
+              ${overrideDriver ? '↗ Reassigned' : 'Assign'}
+            </button>
+          </div>
         </div>
       </div>`;
     });
