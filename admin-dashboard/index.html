@@ -5059,10 +5059,48 @@
     setTimeout(() => document.addEventListener('click', close), 0);
   }
 
+  // Ordered status list for detecting rollbacks
+  const _STATUS_ORDER = ['scheduled','ready_for_pickup','picked_up','processing','ready_for_delivery','out_for_delivery','delivered'];
+
   async function opSetOrderStatus(newStatus) {
     if (!opCurrentOrderId) return;
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o || o.status === newStatus) { document.getElementById('op-status-dropdown').style.display = 'none'; return; }
+
+    const oldIdx = _STATUS_ORDER.indexOf(o.status);
+    const newIdx = _STATUS_ORDER.indexOf(newStatus);
+    const isRollback = oldIdx > 0 && newIdx >= 0 && newIdx < oldIdx;
+
+    // If rolling back: detach route stops and redirect to on_hold so it lands in Issues
+    if (isRollback) {
+      const confirmMsg = `Rolling "${_OP_STATUS_LABELS[o.status]}" back to "${_OP_STATUS_LABELS[newStatus]}".\n\nThis will remove the order from its current route(s) and place it On Hold in the Issues queue so your team can reassign it.\n\nContinue?`;
+      if (!confirm(confirmMsg)) return;
+
+      // Detach: delete route_stops for this order and clear route references
+      const { error: delErr } = await db.from('route_stops').delete().eq('order_id', opCurrentOrderId);
+      if (delErr) console.warn('Could not detach route stops:', delErr.message);
+
+      const reopenNote = `Reopened from ${_OP_STATUS_LABELS[o.status] || o.status} → needs reassignment`;
+      const payload = {
+        status: 'on_hold',
+        pickup_run_id: null,
+        delivery_run_id: null,
+        actual_pickup_at: null,
+        actual_delivery_at: null,
+        routing_error: reopenNote,
+      };
+
+      const { error } = await db.from('orders').update(payload).eq('id', opCurrentOrderId);
+      if (error) { showToast('Failed to update status: ' + error.message, 'error'); return; }
+      Object.assign(o, payload);
+      document.getElementById('op-status-dropdown').style.display = 'none';
+      document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(o.status);
+      opRefreshAdvanceBtn(o);
+      updateOrderFilterCounts();
+      renderOrders(getFilteredOrders());
+      showToast(`⚠️ Order reopened → On Hold (check Issues tab)`, 'warning');
+      return;
+    }
 
     // Charge when moving to ready_for_delivery
     if (newStatus === 'ready_for_delivery' && o.status !== 'ready_for_delivery') {
@@ -5084,6 +5122,8 @@
     const payload = { status: newStatus };
     if (newStatus === 'picked_up') payload.actual_pickup_at = new Date().toISOString();
     if (newStatus === 'delivered') payload.actual_delivery_at = new Date().toISOString();
+    // Clear routing_error if advancing forward (order was fixed)
+    if (newIdx > oldIdx && o.routing_error) payload.routing_error = null;
 
     const { error } = await db.from('orders').update(payload).eq('id', opCurrentOrderId);
     if (error) { showToast('Failed to update status: ' + error.message, 'error'); return; }
@@ -5327,6 +5367,9 @@
       update.delivery_run_id = routeId;
       if (startIso) { update.delivery_window_start = startIso; update.delivery_window_end = endIso; }
     }
+
+    // Clear routing_error when reassigning (order has been handled)
+    if (o.routing_error) update.routing_error = null;
 
     const { error } = await db.from('orders').update(update).eq('id', opCurrentOrderId);
     if (error) {
