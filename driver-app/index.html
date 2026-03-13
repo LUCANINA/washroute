@@ -2423,9 +2423,38 @@ function subscribeToRouteStopUpdates() {
       if (currentStopId === updated.id) renderStopDetail(updated.id);
     })
 
+    // Route stop DELETED (admin deleted order, or rollback detached stops)
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'route_stops' }, payload => {
+      const deleted = payload.old;
+      const idx = allStops.findIndex(s => s.id === deleted.id);
+      if (idx < 0) return;
+      allStops.splice(idx, 1);
+      renderHome();
+      renderRoute();
+      // If driver was viewing this stop, go back to route list
+      if (currentStopId === deleted.id) {
+        currentStopId = null;
+        showScreen('route');
+      }
+    })
+
     // Order updated by admin (status change, bag count, special instructions, etc.)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, payload => {
       const updated = payload.new;
+      // If order was cancelled or delivered by admin, remove the stop entirely
+      if (['cancelled','delivered'].includes(updated.status)) {
+        const idx = allStops.findIndex(s => s.orders?.id === updated.id);
+        if (idx < 0) return;
+        const removedStopId = allStops[idx].id;
+        allStops.splice(idx, 1);
+        renderHome();
+        renderRoute();
+        if (currentStopId === removedStopId) {
+          currentStopId = null;
+          showScreen('route');
+        }
+        return;
+      }
       let affected = false;
       allStops.forEach(s => {
         if (s.orders?.id === updated.id) {
@@ -2439,6 +2468,22 @@ function subscribeToRouteStopUpdates() {
       if (currentStopId) {
         const stop = allStops.find(s => s.id === currentStopId);
         if (stop?.orders?.id === updated.id) renderStopDetail(currentStopId);
+      }
+    })
+
+    // Order DELETED by admin (hard delete — cascade removes route_stop too,
+    // but DELETE event on orders may arrive before route_stops cascade)
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, payload => {
+      const deleted = payload.old;
+      const idx = allStops.findIndex(s => s.orders?.id === deleted.id);
+      if (idx < 0) return;
+      const removedStopId = allStops[idx].id;
+      allStops.splice(idx, 1);
+      renderHome();
+      renderRoute();
+      if (currentStopId === removedStopId) {
+        currentStopId = null;
+        showScreen('route');
       }
     })
 
