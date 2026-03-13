@@ -11264,9 +11264,9 @@ window.onload=()=>{window.print();};
     const btn = document.getElementById('btn-optimize');
     btn.disabled = true; btn.textContent = 'Optimizing…';
     try {
-      const resp = await fetch(`${SUPABASE_URL}/functions/v1/optimize-route`, {
+      const resp = await fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
         body: JSON.stringify({ route_id: routeLiveRouteId })
       });
       const result = await resp.json();
