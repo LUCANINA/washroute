@@ -8645,13 +8645,28 @@ window.onload=()=>{window.print();};
     const tmpl = _noSelectedTmpl; if (!tmpl) return;
     const activeDays = tmpl.schedule_days || [0,1,2,3,4];
     const DAY_ABBR   = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const now        = new Date();
     const base       = new Date(); base.setHours(0,0,0,0);
+
+    // Same-day cutoff: 30 min before route window_end (e.g. "22:00" → 21:30)
+    let todayCutoff = null;
+    if (tmpl.window_end) {
+      const [h, m] = tmpl.window_end.split(':').map(Number);
+      todayCutoff = new Date(base);
+      todayCutoff.setHours(h, m - 30, 0, 0);
+    }
+
     const days = [];
-    for (let i = 1; i <= _noDayLimit; i++) {
+    for (let i = 0; i <= _noDayLimit; i++) {
       const d   = new Date(base); d.setDate(base.getDate() + i);
       const dow = (d.getDay() + 6) % 7;
       const iso = d.toLocaleDateString('sv');
-      days.push({ d, dow, iso, avail: activeDays.includes(dow) });
+      let avail = activeDays.includes(dow);
+      // For today: only available if before the cutoff
+      if (i === 0 && avail) {
+        avail = todayCutoff ? now < todayCutoff : false;
+      }
+      days.push({ d, dow, iso, avail });
     }
     document.getElementById('no-days').innerHTML = days.map(({ d, dow, iso, avail }) => {
       const mon = d.toLocaleDateString('en-US', { month: 'short' });
