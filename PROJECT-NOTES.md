@@ -119,18 +119,23 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 | `customers` | `phone_cache` stores phone in any format (e.g. `(415) 608-5446`) |
 | `orders` | Status pipeline: scheduled → ready_for_pickup → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. `source`: scheduled, walk_in, customer_app, recurring |
 | `route_templates` | Recurring route definitions: zone, schedule_days (0=Mon..5=Sat), window_start/end, turnaround_days, default drivers, stop_limit |
-| `routes` | Dated route instances (auto-created from templates by `auto_route_order()`). Links to template_id, date, driver assignments. Note: DB columns still use `run_date` / `pickup_run_id` / `delivery_run_id` — legacy naming, but we call everything "Route" in conversation and UI |
-| `route_stops` | `driver_id = NULL` means inherit route default; set = individual override |
-| `route_driver_overrides` | Per-day driver overrides: (template_id, day_of_week, driver_type) → driver_id |
+| `routes` | Dated route instances (auto-created from templates by `auto_route_order()`). Links to template_id, date, single `driver_id`. Legacy `pickup_driver_id`/`delivery_driver_id` columns still exist in DB but are unused by app code |
+| `route_stops` | Each stop has explicit `driver_id` (auto-filled from parent route on INSERT by `trg_fill_stop_driver`). No more NULL-inherit pattern |
+| `route_driver_schedule` | Per-day driver assignments: (template_id, day_of_week, driver_type) → driver_id. Sole source of truth for driver scheduling (no template defaults) |
+| `driver_locations` | Live GPS: one row per driver (UPSERT on driver_id), updated every 12s from driver app. Realtime-enabled |
 | `sms_messages` | All SMS in/out. `direction`: inbound/outbound. Linked to `customers` by phone matching |
 | `driver_messages` | In-app admin ↔ driver chat (not SMS) |
 
 ### Key DB Functions & Triggers
 | Object | Type | Purpose |
 |---|---|---|
-| `auto_route_order(p_order_id)` | Function | Matches order to template by zone+day+time, finds/creates the dated route, assigns driver, creates stops |
-| `trg_auto_route_new_order` | Trigger (AFTER INSERT on orders) | Fires for new scheduled orders with zone but no route assigned |
-| `trg_create_recurring_order` | Trigger (AFTER UPDATE on orders) | On status → delivered with recurring_interval, creates next order (which then auto-routes) |
+| `auto_route_order(p_order_id)` | Function | Matches order to template by zone+day+time, finds/creates the dated route, assigns driver, creates stops. Sets `routing_error` on orders if no match found |
+| `trg_auto_route_new_order` | Trigger (AFTER INSERT on orders) | Fires for all new scheduled orders — sets routing_error for missing zone, calls auto_route_order for valid orders |
+| `trg_create_recurring_order` | Trigger (AFTER UPDATE on orders) | On status → delivered with recurring_interval, creates next order. Bumps both pickup AND delivery off Sundays to Monday |
+| `trg_sync_order_status` | Trigger (AFTER UPDATE on route_stops) | When all pickup stops → complete, order → `picked_up`. When all delivery stops → complete, order → `delivered` |
+| `trg_fill_stop_driver` | Trigger (BEFORE INSERT on route_stops) | Auto-fills `driver_id` from parent route when stop is inserted with NULL driver |
+| `trg_cascade_route_driver` | Trigger (AFTER UPDATE OF driver_id ON routes) | When admin reassigns driver on a route, cascades to all pending/en_route stops |
+| `trg_sync_customer_cache` | Trigger (AFTER UPDATE on profiles) | Syncs `first_name`/`last_name` changes to `customers.first_name_cache`/`last_name_cache` |
 | `auto_fail_expired_orders()` | Function (pg_cron every 30min) | Fails orders 2h past their window, sends SMS to customer |
 | `find_customer_by_phone(digits)` | Function | Matches phone by last 10 digits |
 
@@ -265,6 +270,58 @@ There are actually **two separate hang points** that must both be covered:
 - **Admin login timeout fix (root cause solved):** When a cached session existed in localStorage, Supabase fired `INITIAL_SESSION` + `TOKEN_REFRESHED` on page load. These background operations raced against the user's manual `signInWithPassword` call and caused the 30s safety timer to fire ("Connection timed out"). Fix: on a fresh tab/window load, clear localStorage before initialising Supabase so there's no cached session to trigger the race. `sessionStorage` is used to distinguish a fresh load (clear localStorage) from a page refresh within the same tab (keep the session). Outcome: no timeout on fresh visits, no logout on refresh. sessionStorage flag set on successful login, cleared on logout.
 - **Admin logout-on-refresh fix (round 2):** Supabase v2 can fire `INITIAL_SESSION` with `session = null` when the access token is expired but the refresh token is still valid (e.g. once per hour). The previous code called `showLoginScreen()` immediately on any null session, removing the `sessionStorage` key and flashing the login screen before `TOKEN_REFRESHED` arrived with a fresh token. Fix: `SIGNED_OUT` is the only event that definitively ends a session — show login immediately only for that event. For any other null-session event (`INITIAL_SESSION` null, etc.), start a 2-second fallback timer; if `TOKEN_REFRESHED` arrives with a valid session first, the timer is cancelled and the app shows normally. Result: no login-screen flash on token refresh, and users stay logged in across refreshes.
 
+### Mar 13, 2026 — System simplification + live GPS tracking
+
+- **Live GPS driver tracking (end-to-end):**
+  - New `driver_locations` table (one row per driver, UPSERT pattern, Realtime-enabled)
+  - Driver app sends GPS every 12s via `navigator.geolocation.watchPosition`
+  - Admin dashboard: live driver markers on the Routes map, subscribed via Supabase Realtime
+
+- **Unified single driver model:**
+  - Drivers handle both pickup and delivery — no more `pickup_driver_id` / `delivery_driver_id` distinction
+  - All app code now uses single `driver_id` on routes and `driver_id` on route_stops
+  - Legacy DB columns (`pickup_driver_id`, `delivery_driver_id`) still exist but are unused by app code
+  - Reports page simplified to use single driver lookup
+
+- **Driver Schedule as sole source of truth:**
+  - Moved Weekly Schedule from Settings/Routes page to Orders page, renamed to "Driver Schedule"
+  - Renamed "Daily Schedule" tab to "Order Schedule"
+  - Migrated 24 entries from template defaults into `route_driver_schedule`
+  - Removed Default Driver concept entirely — no more template `default_pickup_driver_id` fallback
+  - All driver assignment logic reads only from `route_driver_schedule`
+
+- **New DB triggers for automation:**
+  - `trg_sync_order_status` — auto-advances `orders.status` when all pickup/delivery route_stops are complete
+  - `trg_fill_stop_driver` — auto-fills `driver_id` on new route_stops from parent route
+  - `trg_sync_customer_cache` — keeps `customers.first_name_cache`/`last_name_cache` in sync with `profiles` table
+
+- **Routing error tracking:**
+  - Added `routing_error` text column on orders
+  - `auto_route_order()` sets descriptive error when routing fails (no zone, no matching template, etc.)
+  - Admin orders table: ⚠️ icon with tooltip on orders with routing errors
+  - Admin order detail panel: red banner showing the routing error message
+
+- **Explicit driver_id on route_stops:**
+  - Replaced NULL-inherit pattern with explicit `driver_id` on every stop
+  - Driver app queries changed from `.is('driver_id', null)` to `.eq('driver_id', currentDriver.id)`
+
+- **Customer orders not appearing in driver app (fixed):**
+  - Root cause: seed data routes had NULL driver IDs. Auto-route trigger found existing routes but never backfilled drivers.
+  - Fixed trigger + ran one-time UPDATE on all existing routes
+
+- **QA: fixed XSS** — HTML-escape `routing_error` in order detail panel `innerHTML`
+
+- **Edge case testing (9 scenarios tested, 3 bugs found and fixed):**
+  1. Order with no zone → was silently unrouted (trigger skipped it). **Fixed:** trigger now sets `routing_error = 'No zone assigned'`
+  2. Order on Sunday → correctly fails with routing_error (no Sunday templates). ✅
+  3. Order at 2 PM (between AM/PM windows) → silently assigned to AM. Acceptable fallback but noted for future improvement
+  4. Route at capacity → overflow order assigned to next template (PM). Works correctly ✅
+  5. Driver reassigned on route → existing stops kept old driver. **Fixed:** new `trg_cascade_route_driver` trigger cascades to pending/en_route stops
+  6. Status sync (pickup complete → order picked_up, delivery complete → order delivered) ✅
+  7. Recurring order with Sunday delivery → delivery stayed on Sunday, failed every cycle. **Fixed:** recurring trigger now bumps both pickup AND delivery off Sundays
+  8. Two orders same customer same route → both get separate stops on same route ✅
+  9. Duplicate customer on same day/zone → works correctly ✅
+
 ### Mar 12, 2026 (session 4) — Daily Schedule overhaul + UX cleanup
 
 - **Driver app: tonight's orders not showing (3 bugs fixed):**
@@ -343,7 +400,7 @@ There are actually **two separate hang points** that must both be covered:
 - Receipt printing: print button on order detail (thermal 80mm bag tag) — mockup exists at `receipt-mockup.html`
 - ~~Customer email receipt (SendGrid)~~ ✅ — SendGrid confirmed working and sending
 - SMS/email automation — Phase 1: status check auto-replies (see section above)
-- Live driver tracking (Google Maps)
+- ~~Live driver tracking~~ ✅ — GPS tracking live (driver app → Supabase Realtime → admin map)
 - Xero accounting sync
 - Klaviyo marketing integration
 - ~~Vercel deployment~~ ✅ — Vercel auto-deploys on push to main
@@ -416,6 +473,11 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
+07a0cb0  Fix XSS: HTML-escape routing_error in order detail panel
+fc94f6c  Simplify system: single driver model, status sync, routing errors
+5661355  Remove Default Driver — Driver Schedule is sole source of truth
+fd28b94  Move Driver Schedule to Orders page, unify driver assignment
+764d05c  Add live driver GPS tracking
 d0f073a  fix: QA — explicit null for route color fallback, Assign link contrast
 bca66a7  ux: Assign link visible on address line instead of hidden interaction
 5995230  ux: monochrome avatars across all pages
