@@ -1814,7 +1814,10 @@ function renderPrefTags(prefs) {
 /* ──────────────────────────────
    ON MY WAY
 ────────────────────────────── */
+let _onMyWaySending = false;
 async function sendOnMyWay(stopId) {
+  if (_onMyWaySending) return; // debounce: prevent double-tap
+  _onMyWaySending = true;
   const btn = document.getElementById('btn-notify-cust');
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
 
@@ -1865,6 +1868,8 @@ async function sendOnMyWay(stopId) {
     console.error('sendOnMyWay error:', e);
     toast('Could not update status — check connection');
     if (btn) { btn.disabled = false; btn.textContent = 'Notify Customer'; }
+  } finally {
+    _onMyWaySending = false;
   }
 }
 
@@ -2432,6 +2437,13 @@ function subscribeToDriverMessages() {
     })
     .subscribe(status => {
       console.log('Driver messages channel:', status);
+      // Reload messages after reconnection to catch anything we missed
+      if (status === 'SUBSCRIBED' && allMessages.length > 0) {
+        loadDriverMessages().then(() => {
+          if (document.getElementById('screen-messages')?.classList.contains('active')) renderMessages();
+          updateMsgBadge();
+        }).catch(console.error);
+      }
     });
 }
 
@@ -2524,7 +2536,13 @@ function subscribeToRouteStopUpdates() {
       }
     })
 
-    .subscribe();
+    .subscribe(status => {
+      console.log('Route/order updates channel:', status);
+      // After reconnection, reload all stop data to catch missed events
+      if (status === 'SUBSCRIBED' && allStops.length > 0) {
+        loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
+      }
+    });
 }
 
 /* ──────────────────────────────
@@ -2538,6 +2556,7 @@ async function _handleDriverSession(event, session) {
     currentUser = session.user;
 
     const cached = loadDriverCache(currentUser.id);
+    let loadFailed = false;
     if (cached) {
       currentProfile = cached.profile;
       currentDriver  = cached.driver;
@@ -2555,11 +2574,19 @@ async function _handleDriverSession(event, session) {
         }
       }, 15000);
       showLoading(true);
-      try { await loadDriverData(); } catch(e) { console.error('loadDriverData:', e); } finally {
+      try {
+        await loadDriverData();
+      } catch(e) {
+        console.error('loadDriverData:', e);
+        loadFailed = true;
+        toast('Could not load route data — pull down to retry');
+      } finally {
         clearTimeout(loadTimer);
         showLoading(false);
       }
     }
+    // If first load failed with no cache, don't lock out retries
+    if (loadFailed && !cached) { appReady = false; return; }
     appReady = true;
     document.getElementById('bottom-nav').style.display = 'flex';
     subscribeToDriverMessages();
@@ -2567,7 +2594,7 @@ async function _handleDriverSession(event, session) {
     goTo('home');
     // Start live GPS tracking if driver has any active routes today
     if (todayRoutes.length) startGpsTracking();
-    if (cached) loadDriverData().then(() => renderRoute()).catch(console.error);
+    if (cached) loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
   } else {
     stopGpsTracking(); // Stop sending location when signed out
     appReady = false;
