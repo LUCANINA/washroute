@@ -1209,7 +1209,6 @@
               <input type="date" id="runs-date-picker" class="form-input" style="width:160px;padding:5px 10px;font-size:13px;" onchange="loadDailyRuns()">
               <div id="runs-toggle-btns" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"></div>
               <button class="btn btn-ghost" id="btn-optimize" style="font-size:12px;padding:5px 12px;display:none;margin-left:auto;" onclick="optimizeRoute()">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="margin-right:4px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
                 Optimize
               </button>
             </div>
@@ -11086,14 +11085,23 @@ window.onload=()=>{window.print();};
       return;
     }
 
+    // Get live stop counts
+    const runIds = runs.map(r => r.id);
+    const { data: stopCounts } = await db.from('route_stops')
+      .select('route_id')
+      .in('route_id', runIds);
+    const countMap = {};
+    (stopCounts||[]).forEach(s => { countMap[s.route_id] = (countMap[s.route_id]||0) + 1; });
+
     toggleEl.innerHTML = runs.map(r => {
       const color = r.color || '#635bff';
+      const cnt = countMap[r.id] || 0;
       return `<button class="btn btn-ghost run-toggle-btn" data-rid="${r.id}" data-color="${color}"
         style="font-size:12px;padding:4px 12px;border-radius:20px;display:flex;align-items:center;gap:6px;"
         onclick="selectRunOnMap('${r.id}', this)">
         <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></div>
         ${r.name}
-        <span style="font-size:10px;color:var(--gray-400)">${r.total_stops||0} stops</span>
+        <span style="font-size:10px;color:var(--gray-400)">${cnt} stops</span>
       </button>`;
     }).join('');
 
@@ -11112,9 +11120,9 @@ window.onload=()=>{window.print();};
     const optBtn = document.getElementById('btn-optimize');
     if (optBtn) optBtn.style.display = '';
 
-    // Fetch route's default driver alongside stops
+    // Fetch route's default driver + template window alongside stops
     const [{ data: route }, { data: stops }] = await Promise.all([
-      db.from('routes').select('driver_id').eq('id', runId).single(),
+      db.from('routes').select('driver_id, route_templates(window_start, window_end)').eq('id', runId).single(),
       db.from('route_stops')
         .select(`id, stop_number, stop_type, status, estimated_arrival, driver_id,
                  orders(id, order_number, total_amount, customer_id,
@@ -11143,64 +11151,84 @@ window.onload=()=>{window.print();};
       return { ...s, _addr: addr || null };
     });
 
-    renderRouteStops(enrichedStops, runId);
+    const routeWindow = route?.route_templates || null;
+    renderRouteStops(enrichedStops, runId, routeWindow);
     renderRouteMapPins(enrichedStops);
   }
 
-  function renderRouteStops(stops, routeId) {
+  function renderRouteStops(stops, routeId, routeWindow) {
     const el = document.getElementById('route-stop-list');
     if (!stops.length) {
       el.innerHTML = '<div style="padding:20px;color:var(--gray-400);font-size:13px;text-align:center">No stops on this run yet</div>';
       return;
     }
-    const allBtns = document.querySelectorAll('.run-toggle-btn');
-    const otherRuns = [...allBtns].filter(b => b.dataset.rid !== routeId);
 
-    // Group stops by stop_number so pickup+delivery at same customer are combined
-    const grouped = {};
-    stops.forEach(s => {
-      const key = `${s.stop_number}-${s.orders?.customer_id || s.id}`;
-      if (!grouped[key]) grouped[key] = { pickup: null, delivery: null, stop: s };
-      if (s.stop_type === 'pickup') grouped[key].pickup = s;
-      else grouped[key].delivery = s;
-    });
+    // Build time slot headers from route template window (split into 2-hour blocks)
+    let timeSlots = [];
+    if (routeWindow?.window_start && routeWindow?.window_end) {
+      const [sh, sm] = routeWindow.window_start.split(':').map(Number);
+      const [eh] = routeWindow.window_end.split(':').map(Number);
+      for (let h = sh; h < eh; h += 2) {
+        const endH = Math.min(h + 2, eh);
+        const fmtH = hr => { const p = hr >= 12 ? 'PM' : 'AM'; return `${hr > 12 ? hr-12 : hr}${p}`; };
+        timeSlots.push({ startH: h, endH, label: `${fmtH(h)} – ${fmtH(endH)}` });
+      }
+    }
 
-    el.innerHTML = stops.map(s => {
+    // Sort stops: pickups first, then deliveries, each by stop_number
+    const pickups = stops.filter(s => s.stop_type === 'pickup').sort((a,b) => a.stop_number - b.stop_number);
+    const deliveries = stops.filter(s => s.stop_type === 'delivery').sort((a,b) => a.stop_number - b.stop_number);
+    const sorted = [...pickups, ...deliveries];
+
+    let html = '';
+    // Add first time slot header
+    if (timeSlots.length >= 1) {
+      html += `<div style="padding:6px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-100);font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;">${timeSlots[0].label} · Pickups</div>`;
+    }
+
+    let deliveryHeaderShown = false;
+    sorted.forEach((s, idx) => {
+      // Insert delivery divider before first delivery
+      if (s.stop_type === 'delivery' && !deliveryHeaderShown) {
+        deliveryHeaderShown = true;
+        const slotLabel = timeSlots.length >= 2 ? timeSlots[1].label : '';
+        html += `<div style="padding:6px 12px;background:var(--gray-50);border-top:1px solid var(--gray-200);border-bottom:1px solid var(--gray-100);font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-top:2px;">${slotLabel ? slotLabel + ' · ' : ''}Deliveries</div>`;
+      }
+
       const cust = s.orders?.customers || {};
       const name = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
       const a = s._addr;
       const addr = a ? `${a.line1||''}, ${a.city||''}`.replace(/^,\s*|,\s*$/g,'') : '—';
-      const dot = s.status === 'complete' ? '#0ba25a' : s.status === 'failed' ? '#ef4444' : s.status === 'active' || s.status === 'en_route' ? '#2563eb' : '#9ca3af';
-      const label = s.status === 'complete' ? '✓' : s.status === 'failed' ? '✗' : s.stop_number.toString();
-      const eta = s.estimated_arrival ? fmtDate(s.estimated_arrival) : '';
       const lat = a?.lat || 0, lng = a?.lng || 0;
       const amt = s.orders?.total_amount ? fmtMoney(s.orders.total_amount) : '';
       const orderNum = s.orders?.order_number ? `#${s.orders.order_number}` : '';
+      const isDelivery = s.stop_type === 'delivery';
+      const bg = isDelivery ? 'background:#f5f5f5;' : '';
+      const typeLabel = isDelivery ? 'D' : 'P';
+      const typeBg = isDelivery ? 'background:#9ca3af;color:white;' : 'background:var(--accent);color:white;';
+      const statusBadge = s.status === 'failed'
+        ? '<span style="font-size:10px;font-weight:600;color:#ef4444;background:#fef2f2;padding:1px 6px;border-radius:4px;margin-left:4px;">Failed</span>'
+        : s.status === 'complete'
+        ? '<span style="font-size:10px;font-weight:600;color:#059669;background:#ecfdf5;padding:1px 6px;border-radius:4px;margin-left:4px;">Done</span>'
+        : '';
       const overrideDriver = s.driver_id ? (allDriversCache.find(d => d.id === s.driver_id)?.name || 'Driver') : null;
-      return `<div class="rsl-item" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}">
-        <div class="rsl-pin" style="background:${dot}">${label}</div>
-        <div class="rsl-info">
+
+      html += `<div class="rsl-item" style="${bg}cursor:pointer;padding:8px 12px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:10px;" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}">
+        <div style="width:24px;height:24px;border-radius:50%;${typeBg}display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">${typeLabel}</div>
+        <div style="flex:1;min-width:0;">
           <div style="display:flex;align-items:center;gap:6px;">
-            <div class="rsl-name">${name}</div>
-            ${orderNum ? `<span style="font-size:10px;color:var(--gray-400)">${orderNum}</span>` : ''}
-            ${amt ? `<span style="font-size:10px;font-weight:600;color:var(--gray-500);margin-left:auto">${amt}</span>` : ''}
+            <span style="font-size:13px;font-weight:600;color:var(--gray-800);">${name}</span>
+            ${orderNum ? `<span style="font-size:10px;color:var(--gray-400);">${orderNum}</span>` : ''}
+            ${statusBadge}
+            ${overrideDriver ? `<span style="font-size:10px;font-weight:600;color:#7c3aed;margin-left:2px;">↗ ${overrideDriver}</span>` : ''}
+            ${amt ? `<span style="font-size:12px;font-weight:600;color:var(--gray-500);margin-left:auto;">${amt}</span>` : ''}
           </div>
-          <div class="rsl-addr">${addr}</div>
-          <div style="display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap;">
-            <span class="rsl-tag ${s.stop_type==='pickup'?'tag-pickup':'tag-delivery'}">${s.stop_type==='pickup'?'Pickup':'Delivery'}</span>
-            ${s.status === 'failed' ? '<span style="font-size:10px;font-weight:700;color:#ef4444;background:#fef2f2;padding:1px 6px;border-radius:4px">Failed</span>' : ''}
-            ${overrideDriver ? `<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:1px 6px;border-radius:4px">↗ ${overrideDriver}</span>` : ''}
-            ${eta ? `<span style="font-size:10px;color:var(--gray-400)">${eta}</span>` : ''}
-            <span style="margin-left:auto;display:flex;gap:4px">
-              <button class="btn btn-ghost" style="padding:1px 7px;font-size:10px;color:#7c3aed;border-color:#e9d5ff" onclick="event.stopPropagation();openReassignDriver('${s.id}','#${s.stop_number} ${name}','${s.driver_id||''}')">
-                ${overrideDriver ? '↗ Reassigned' : 'Reassign'}
-              </button>
-              ${otherRuns.length ? `<button class="btn btn-ghost" style="padding:1px 7px;font-size:10px" onclick="event.stopPropagation();openMoveStop('${s.id}','#${s.stop_number} ${name}')">Move →</button>` : ''}
-            </span>
-          </div>
+          <div style="font-size:11px;color:var(--gray-400);margin-top:1px;">${addr}</div>
         </div>
       </div>`;
-    }).join('');
+    });
+
+    el.innerHTML = html;
   }
 
   function renderRouteMapPins(stops) {
@@ -11210,8 +11238,7 @@ window.onload=()=>{window.print();};
     toRemove.forEach(l => routeLiveMap.removeLayer(l));
     const valid = stops.filter(s => s._addr?.lat && s._addr?.lng);
     if (!valid.length) return;
-    const stopColor = { complete:'#0ba25a', failed:'#ef4444', en_route:'#2563eb', pending:'#9ca3af' };
-    // Deduplicate pins by customer (pickup+delivery at same address don't need two pins)
+    // Deduplicate by address so pickup+delivery at same location = one pin
     const seen = new Set();
     const unique = valid.filter(s => {
       const key = `${s._addr.lat},${s._addr.lng}`;
@@ -11222,13 +11249,11 @@ window.onload=()=>{window.print();};
     const coords = unique.map(s => [s._addr.lat, s._addr.lng]);
     const line = L.polyline(coords, {color:'#635bff', weight:2.5, opacity:.4, dashArray:'6 4'});
     line._isStopLayer = true; line.addTo(routeLiveMap);
-    unique.forEach(s => {
-      const col = stopColor[s.status] || '#9ca3af';
-      const label = s.status === 'complete' ? '✓' : s.status === 'failed' ? '✗' : s.stop_number.toString();
+    unique.forEach((s, i) => {
       const cust = s.orders?.customers || {};
       const custName = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
-      const m = L.marker([s._addr.lat, s._addr.lng], {icon: makePin(col, label)})
-        .bindPopup(`<strong>#${s.stop_number} ${custName}</strong><br>${s._addr.line1||''}<br><em>${s.stop_type} · ${s.status}</em>`);
+      const m = L.marker([s._addr.lat, s._addr.lng], {icon: makePin('#635bff', (i+1).toString())})
+        .bindPopup(`<strong>${custName}</strong><br>${s._addr.line1||''}`);
       m._isStopLayer = true; m.addTo(routeLiveMap);
     });
     routeLiveMap.fitBounds(L.latLngBounds(coords), {padding:[30,30]});
