@@ -2511,12 +2511,7 @@
         <input type="number" class="form-input" id="so-turnaround-days" value="1" min="0" max="14">
       </div>
     </div>
-    <!-- Driver -->
-    <div class="so-section">
-      <div class="so-label">Default Driver</div>
-      <select class="form-input" id="so-pickup-driver"><option value="">Unassigned</option></select>
-      <div style="font-size:11.5px;color:var(--gray-500);margin-top:6px;">Fallback for any day not manually overridden in the Weekly Schedule tab.</div>
-    </div>
+    <!-- Driver assignment now managed via Orders → Driver Schedule -->
     <!-- Stop Limit + Booking Cutoff -->
     <div class="so-row">
       <div class="so-section">
@@ -6347,7 +6342,7 @@ window.onload=()=>{window.print();};
 
   async function loadTemplates() {
     const { data: templates } = await db.from('route_templates')
-      .select('*, service_zones(name, color), pickup_driver:default_pickup_driver_id(id, profiles(first_name, last_name))')
+      .select('*, service_zones(name, color)')
       .order('name');
     allTemplates = templates || [];
 
@@ -6380,8 +6375,6 @@ window.onload=()=>{window.print();};
     el.innerHTML = allTemplates.map(t => {
       const days = (t.schedule_days||[]).slice().sort().map(d=>DAY_LABELS[d]).join(', ');
       const zone = t.service_zones?.name || 'No zone';
-      const drv = t.pickup_driver?.profiles;
-      const driverName = drv ? `${drv.first_name||''} ${drv.last_name||''}`.trim() : 'Unassigned';
       const time = `${fmtTimeStr(t.window_start)} – ${fmtTimeStr(t.window_end)}`;
       return `<div class="tpl-card" onclick="openTemplateEditor('${t.id}')">
         <div style="width:12px;height:12px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;"></div>
@@ -6389,7 +6382,6 @@ window.onload=()=>{window.print();};
           <div class="tpl-name">${t.name}</div>
           <div class="tpl-meta">${zone} · ${days} · ${time}</div>
         </div>
-        <div style="font-size:12px;color:var(--gray-400);margin-right:6px;">${driverName}</div>
         <span class="tpl-badge" style="background:${t.is_active?'var(--green-light)':'var(--gray-100)'};color:${t.is_active?'var(--green)':'var(--gray-400)'}">
           ${t.is_active?'Active':'Paused'}
         </span>
@@ -10828,12 +10820,6 @@ window.onload=()=>{window.print();};
     document.getElementById('so-service-type').value = tmpl?.service_type || 'pickup_delivery';
     document.getElementById('so-active').checked = tmpl ? tmpl.is_active : true;
 
-    // Driver dropdown (single)
-    const driverOptions = `<option value="">Unassigned</option>` +
-      allDriversCache.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
-    document.getElementById('so-pickup-driver').innerHTML = driverOptions;
-    if (tmpl?.default_pickup_driver_id) document.getElementById('so-pickup-driver').value = tmpl.default_pickup_driver_id;
-
     // Zone dropdown
     await loadZonesIntoSelect(tmpl?.zone_id);
 
@@ -10911,7 +10897,6 @@ window.onload=()=>{window.print();};
       stop_limit: document.getElementById('so-stop-limit').value ? parseInt(document.getElementById('so-stop-limit').value) : null,
       booking_cutoff_minutes: (() => { const v = parseInt(document.getElementById('so-booking-cutoff').value); return isNaN(v) ? 30 : v; })(),
       service_type: document.getElementById('so-service-type').value,
-      default_pickup_driver_id: document.getElementById('so-pickup-driver').value || null,
       is_active: document.getElementById('so-active').checked,
     };
 
@@ -10992,19 +10977,16 @@ window.onload=()=>{window.print();};
     const makeChip = (t, day) => {
       const runs = (t.schedule_days||[]).includes(day);
       if (!runs) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
-      const ovDrvId = overMap[`${t.id}-${day}-pickup`];
-      const defaultId = t.default_pickup_driver_id;
-      const drvId = ovDrvId || defaultId;
+      const drvId = overMap[`${t.id}-${day}-pickup`] || null;
       const drvName = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
-      const isOv = !!ovDrvId;
       const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
       const fg = drvId ? 'white' : '#9ca3af';
-      return `<div class="sched-cell${isOv?' sched-override':''}"
+      return `<div class="sched-cell"
         style="background:${bg};color:${fg};padding:4px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:4px"
         onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
-        title="${t.name} · ${drvName}${isOv?' (override)':''}">
-        ${drvFirst}${isOv ? editSvg : ''}
+        title="${t.name} · ${drvName}">
+        ${drvFirst}
       </div>`;
     };
 
@@ -11108,19 +11090,16 @@ window.onload=()=>{window.print();};
     const makeChip = (t, day) => {
       const runs = (t.schedule_days||[]).includes(day);
       if (!runs) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
-      const ovDrvId = overMap[`${t.id}-${day}-pickup`];
-      const defaultId = t.default_pickup_driver_id;
-      const drvId = ovDrvId || defaultId;
+      const drvId = overMap[`${t.id}-${day}-pickup`] || null;
       const drvName = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
-      const isOv = !!ovDrvId;
       const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
       const fg = drvId ? 'white' : '#9ca3af';
-      return `<div class="sched-cell${isOv?' sched-override':''}"
+      return `<div class="sched-cell"
         style="background:${bg};color:${fg};padding:4px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:4px"
         onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
-        title="${t.name} · ${drvName}${isOv?' (override)':''}">
-        ${drvFirst}${isOv ? editSvg : ''}
+        title="${t.name} · ${drvName}">
+        ${drvFirst}
       </div>`;
     };
 
@@ -11228,12 +11207,10 @@ window.onload=()=>{window.print();};
 
   async function assignDriverOverride(newDriverId) {
     const { templateId, day, driverType } = popoverCtx;
-    const tmpl = allTemplates.find(t => t.id === templateId);
-    const defaultDrvId = driverType === 'pickup' ? tmpl?.default_pickup_driver_id : tmpl?.default_delivery_driver_id;
     closeDriverPopover();
 
-    if (!newDriverId || newDriverId === defaultDrvId) {
-      // Remove override — falls back to template default
+    if (!newDriverId) {
+      // Remove assignment — route will be unassigned for this day
       await db.from('route_driver_schedule').delete()
         .eq('template_id', templateId).eq('day_of_week', day).eq('driver_type', driverType);
     } else {
