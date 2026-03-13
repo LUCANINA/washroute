@@ -3384,7 +3384,10 @@
       return `<span style="font-size:12.5px">${fmtDate(o.delivery_window_start)} · ${fmtSlot(o.delivery_window_start, o.delivery_window_end)}</span>`;
     return '—';
   };
-  const today = () => new Date().toISOString().split('T')[0];
+  const today = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
 
   const statusBadge = (s) => {
     const map = {
