@@ -11496,7 +11496,7 @@ window.onload=()=>{window.print();};
           </div>
           <div style="font-size:11px;color:var(--gray-400);margin-top:1px;display:flex;align-items:center;gap:6px;">
             <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1;">${addr}</span>
-            <a href="#" onclick="event.preventDefault();event.stopPropagation();openReassignDriver('${s.id}','${safeName}','${s.driver_id||''}')" style="font-size:10px;color:var(--gray-300);text-decoration:none;flex-shrink:0;font-weight:600;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--gray-300)'">Assign</a>
+            <a href="#" onclick="event.preventDefault();event.stopPropagation();openReassignDriver('${s.id}','${safeName}','${s.driver_id||''}')" style="font-size:10px;color:var(--gray-400);text-decoration:none;flex-shrink:0;font-weight:600;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--gray-400)'">Assign</a>
           </div>
         </div>
       </div>`;
@@ -11549,7 +11549,7 @@ window.onload=()=>{window.print();};
       if (!resp.ok) throw new Error(result.error || 'Optimization failed');
       showToast(`✓ Route optimized — ${result.pickups_optimized} pickups, ${result.deliveries_optimized} deliveries reordered`);
       const activeBtn = document.querySelector('.run-toggle-btn[data-rid="'+routeLiveRouteId+'"]');
-      if (activeBtn) selectRunOnMap(routeLiveRouteId, activeBtn);
+      if (activeBtn) selectRunOnMap(routeLiveRouteId, activeBtn, null);
     } catch(e) {
       showToast('Optimization failed: ' + e.message, 'error');
     } finally {
@@ -11590,7 +11590,7 @@ window.onload=()=>{window.print();};
       ]);
       showToast('Stop moved successfully');
       const activeBtn = document.querySelector('.run-toggle-btn[data-rid="'+routeLiveRouteId+'"]');
-      if (activeBtn) selectRunOnMap(routeLiveRouteId, activeBtn);
+      if (activeBtn) selectRunOnMap(routeLiveRouteId, activeBtn, null);
     } catch(e) {
       showToast('Move failed: ' + e.message, 'error');
     }
@@ -11628,7 +11628,7 @@ window.onload=()=>{window.print();};
       const activeBtn = document.querySelector('.run-toggle-btn[style*="background: var(--accent)"], .run-toggle-btn[style*="background:var(--accent)"]');
       if (routeLiveRouteId) {
         const btn = document.querySelector(`.run-toggle-btn[data-rid="${routeLiveRouteId}"]`);
-        if (btn) selectRunOnMap(routeLiveRouteId, btn);
+        if (btn) selectRunOnMap(routeLiveRouteId, btn, null);
       }
     } catch(e) {
       showToast('Reassign failed: ' + e.message, 'error');
