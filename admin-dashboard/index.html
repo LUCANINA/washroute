@@ -180,7 +180,7 @@
 
     /* ── CUSTOMER CELL ── */
     .customer-cell { display: flex; align-items: center; gap: 10px; }
-    .c-avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #1f2937; flex-shrink: 0; border: 1.5px solid #1f2937; background: white; }
+    .c-avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; flex-shrink: 0; background: #6b7280; }
 
     /* ── LOADING ── */
     .loading { display: flex; align-items: center; justify-content: center; padding: 48px; color: var(--gray-400); gap: 10px; }
@@ -641,7 +641,7 @@
     /* Driver workload cards */
     .workload-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;padding:20px; }
     .workload-card { background:var(--gray-50);border:1px solid var(--gray-200);border-radius:10px;padding:14px; }
-    .workload-avatar { width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#1f2937;border:1.5px solid #1f2937;background:white;flex-shrink:0; }
+    .workload-avatar { width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:white;background:#6b7280;flex-shrink:0; }
     .slide-backdrop { display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:899; }
 
     /* ── SLOT PICKER SLIDE-OVER ── */
@@ -874,7 +874,7 @@
     .proc-save-btn:disabled { background:var(--gray-300);cursor:not-allowed; }
     /* Team page */
     .team-card { background:white;border:1.5px solid var(--gray-100);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:14px; }
-    .team-avatar { width:40px;height:40px;border-radius:50%;background:white;color:#1f2937;border:1.5px solid #1f2937;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0; }
+    .team-avatar { width:40px;height:40px;border-radius:50%;background:#6b7280;color:white;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0; }
     .team-info { flex:1;min-width:0; }
     .team-name { font-size:14px;font-weight:600;color:var(--gray-900); }
     .team-email { font-size:12px;color:var(--gray-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
@@ -10530,7 +10530,7 @@ window.onload=()=>{window.print();};
         : `<span style="font-size:10.5px;font-weight:700;background:var(--gray-100);color:var(--gray-400);padding:2px 8px;border-radius:10px">Inactive</span>`;
 
       return `<div class="card" style="padding:16px 18px;display:flex;gap:14px;align-items:flex-start;cursor:pointer;transition:background .1s" onclick="openDriverEditor('${d.id}')">
-        <div style="width:42px;height:42px;border-radius:50%;background:white;border:1.5px solid #1f2937;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#1f2937;flex-shrink:0">${initials}</div>
+        <div style="width:42px;height:42px;border-radius:50%;background:#6b7280;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:white;flex-shrink:0">${initials}</div>
         <div style="flex:1;min-width:0">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap">
             <span style="font-size:14px;font-weight:700;color:var(--gray-900)">${name}</span>
