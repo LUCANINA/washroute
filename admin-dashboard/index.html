@@ -4254,11 +4254,20 @@
         // Relative approach — compare gap to the customer's own average interval
         let totalGap = 0;
         for (let i = 1; i < dates.length; i++) totalGap += (dates[i] - dates[i - 1]);
-        const avgIntervalDays = (totalGap / (dates.length - 1)) / DAY_MS;
+        let avgIntervalDays = (totalGap / (dates.length - 1)) / DAY_MS;
 
-        if      (daysSinceLast > avgIntervalDays * 3.0) newStatus = 'churned';
-        else if (daysSinceLast > avgIntervalDays * 1.5) newStatus = 'at_risk';
-        else                                             newStatus = 'active';
+        // Floor: if orders are very close together (e.g. same day), use the
+        // absolute thresholds instead — otherwise a 1-hour gap × 3 = 3 hours
+        // would falsely flag someone as churned the next morning.
+        if (avgIntervalDays < 7) {
+          if      (daysSinceLast > 60) newStatus = 'churned';
+          else if (daysSinceLast > 30) newStatus = 'at_risk';
+          else                         newStatus = 'active';
+        } else {
+          if      (daysSinceLast > avgIntervalDays * 3.0) newStatus = 'churned';
+          else if (daysSinceLast > avgIntervalDays * 1.5) newStatus = 'at_risk';
+          else                                             newStatus = 'active';
+        }
       } else {
         // Absolute fallback for customers with 0–1 orders
         if      (daysSinceLast > 60) newStatus = 'churned';
