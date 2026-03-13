@@ -6369,11 +6369,15 @@ window.onload=()=>{window.print();};
       .eq('run_date', today());
     const runs = todayRuns || [];
 
-    document.getElementById('rstat-templates').textContent = allTemplates.filter(t=>t.is_active).length;
-    document.getElementById('rstat-today').textContent = runs.length;
-    document.getElementById('rstat-stops').textContent = runs.reduce((s,r)=>s+(r.total_stops||0),0);
+    const elTemplates = document.getElementById('rstat-templates');
+    const elToday = document.getElementById('rstat-today');
+    const elStops = document.getElementById('rstat-stops');
+    const elDrivers = document.getElementById('rstat-drivers');
+    if (elTemplates) elTemplates.textContent = allTemplates.filter(t=>t.is_active).length;
+    if (elToday) elToday.textContent = runs.length;
+    if (elStops) elStops.textContent = runs.reduce((s,r)=>s+(r.total_stops||0),0);
     const driverIds = new Set(runs.map(r=>r.driver_id).filter(Boolean));
-    document.getElementById('rstat-drivers').textContent = driverIds.size;
+    if (elDrivers) elDrivers.textContent = driverIds.size;
 
     renderTemplates();
   }
@@ -6700,7 +6704,20 @@ window.onload=()=>{window.print();};
       driversView.style.display = '';
       ovtDrivers.classList.add('active');
       document.getElementById('topbar-cta').style.display = 'none';
-      loadAllDriversCache().then(() => loadTemplates()).then(() => renderDriverSchedule());
+      loadDriverScheduleTab();
+    }
+  }
+
+  async function loadDriverScheduleTab() {
+    const grid = document.getElementById('driver-schedule-grid');
+    if (grid) grid.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+    try {
+      await loadAllDriversCache();
+      await loadTemplates();
+      await renderDriverSchedule();
+    } catch (err) {
+      console.error('Driver schedule load error:', err);
+      if (grid) grid.innerHTML = `<div style="padding:20px;color:#dc2626;font-size:13px;">⚠️ Failed to load driver schedule: ${err.message || 'Unknown error'}. <button class="btn btn-ghost" style="font-size:12px;margin-left:8px;" onclick="loadDriverScheduleTab()">Retry</button></div>`;
     }
   }
 
