@@ -4801,7 +4801,8 @@
       if (custStrip) custStrip.after(routeErrEl);
     }
     if (o.routing_error) {
-      routeErrEl.innerHTML = `⚠️ <strong>Routing error:</strong> ${o.routing_error}`;
+      const safeErr = o.routing_error.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      routeErrEl.innerHTML = `⚠️ <strong>Routing error:</strong> ${safeErr}`;
       routeErrEl.style.display = 'block';
     } else {
       routeErrEl.style.display = 'none';
