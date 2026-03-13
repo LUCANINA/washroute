@@ -11315,12 +11315,13 @@ window.onload=()=>{window.print();};
       return;
     }
 
-    // Get live stop counts for routes that exist
+    // Get live stop counts for routes that exist (exclude delivered/cancelled orders)
     _dsCountMap = {};
     const routeIds = _dsRoutes.map(r => r.id);
     if (routeIds.length) {
-      const { data: sc } = await db.from('route_stops').select('route_id').in('route_id', routeIds);
-      (sc||[]).forEach(s => { _dsCountMap[s.route_id] = (_dsCountMap[s.route_id]||0) + 1; });
+      const { data: sc } = await db.from('route_stops').select('route_id, orders(status)').in('route_id', routeIds);
+      (sc||[]).filter(s => s.orders && !['delivered','cancelled'].includes(s.orders.status))
+        .forEach(s => { _dsCountMap[s.route_id] = (_dsCountMap[s.route_id]||0) + 1; });
     }
 
     // Derive zones and slots from templates
@@ -11519,13 +11520,16 @@ window.onload=()=>{window.print();};
 
     // Fetch all stops for all routes at once
     const allRouteIds = routeEntries.map(r => r.route.id);
-    const { data: allStops } = await db.from('route_stops')
-      .select('id, route_id, stop_number, stop_type, status, driver_id, orders(id, total_bags, customer_id, customers(first_name_cache, last_name_cache))')
+    const { data: rawStops } = await db.from('route_stops')
+      .select('id, route_id, stop_number, stop_type, status, driver_id, orders(id, status, total_bags, customer_id, customers(first_name_cache, last_name_cache))')
       .in('route_id', allRouteIds)
       .order('stop_number');
 
+    // Filter out stops whose parent order is delivered or cancelled
+    const allStops = (rawStops||[]).filter(s => s.orders && !['delivered','cancelled'].includes(s.orders.status));
+
     // Resolve all customer addresses
-    const custIds = [...new Set((allStops||[]).map(s => s.orders?.customer_id).filter(Boolean))];
+    const custIds = [...new Set(allStops.map(s => s.orders?.customer_id).filter(Boolean))];
     let addrMap = {};
     if (custIds.length) {
       const { data: addrs } = await db.from('addresses')
@@ -11543,7 +11547,7 @@ window.onload=()=>{window.print();};
     const stopList = document.getElementById('route-stop-list');
     let html = '';
     routeEntries.forEach(re => {
-      const rStops = (allStops||[]).filter(s => s.route_id === re.route.id);
+      const rStops = allStops.filter(s => s.route_id === re.route.id);
       html += `<div style="padding:6px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:6px;">
         <div style="width:8px;height:8px;border-radius:50%;background:${re.color};flex-shrink:0;"></div>
         <span style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;">${re.zoneName} ${re.slot}</span>
@@ -11563,7 +11567,7 @@ window.onload=()=>{window.print();};
     toRemove.forEach(l => routeLiveMap.removeLayer(l));
     const allCoords = [];
     routeEntries.forEach(re => {
-      const rStops = (allStops||[]).filter(s => s.route_id === re.route.id);
+      const rStops = allStops.filter(s => s.route_id === re.route.id);
       const enriched = rStops.map(s => ({ ...s, _addr: s.orders?.customer_id ? addrMap[s.orders.customer_id] || null : null }));
       const valid = enriched.filter(s => s._addr?.lat && s._addr?.lng);
       if (!valid.length) return;
@@ -11613,15 +11617,18 @@ window.onload=()=>{window.print();};
       db.from('routes').select('driver_id, route_templates(window_start, window_end)').eq('id', runId).single(),
       db.from('route_stops')
         .select(`id, stop_number, stop_type, status, estimated_arrival, driver_id,
-                 orders(id, total_bags, customer_id,
+                 orders(id, status, total_bags, customer_id,
                    customers(first_name_cache, last_name_cache))`)
         .eq('route_id', runId)
         .order('stop_number')
     ]);
     routeLiveDefaultDriverId = route?.driver_id || null;
 
+    // Filter out stops whose parent order is delivered or cancelled
+    const activeStops = (stops||[]).filter(s => s.orders && !['delivered','cancelled'].includes(s.orders.status));
+
     // Resolve addresses through customers' default addresses (address_id on stops is often null)
-    const customerIds = [...new Set((stops||[]).map(s => s.orders?.customer_id).filter(Boolean))];
+    const customerIds = [...new Set(activeStops.map(s => s.orders?.customer_id).filter(Boolean))];
     let addrLookup = {};
     if (customerIds.length) {
       const { data: addrs } = await db.from('addresses')
@@ -11633,7 +11640,7 @@ window.onload=()=>{window.print();};
       }
     }
     // Attach resolved address to each stop
-    const enrichedStops = (stops||[]).map(s => {
+    const enrichedStops = activeStops.map(s => {
       const custId = s.orders?.customer_id;
       const addr = custId ? addrLookup[custId] : null;
       return { ...s, _addr: addr || null };
