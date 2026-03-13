@@ -6671,6 +6671,9 @@ window.onload=()=>{window.print();};
       document.getElementById('topbar-cta').style.display = 'none';
       setTimeout(() => {
         initRunsMap();
+        // Always default to today when opening Daily Schedule
+        const dp = document.getElementById('runs-date-picker');
+        if (dp) dp.value = today();
         loadDailyRuns();
       }, 80);
     }
@@ -10419,9 +10422,7 @@ window.onload=()=>{window.print();};
   async function initRoutesPage() {
     await loadAllDriversCache();
     await loadTemplates();
-    // Pre-set date picker for Daily Runs tab
-    const dp = document.getElementById('runs-date-picker');
-    if (dp && !dp.value) dp.value = today();
+    // Date picker is set in switchOrdersView('schedule')
   }
 
   async function loadAllDriversCache() {
@@ -11061,14 +11062,8 @@ window.onload=()=>{window.print();};
     }
   }
 
-  let dailyRunsInitialized = false;
   async function loadDailyRuns() {
     const dp = document.getElementById('runs-date-picker');
-    // On first load, always default to today
-    if (!dailyRunsInitialized) {
-      dailyRunsInitialized = true;
-      if (dp) dp.value = today();
-    }
     const dateStr = (dp && dp.value) ? dp.value : today();
 
     const { data: runs } = await db.from('routes')
