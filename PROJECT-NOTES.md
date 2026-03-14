@@ -503,7 +503,7 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
-(pending)  Low-priority QA cleanup: dead email code, no-phone warning, smart address labels
+5f97573  Low-priority QA cleanup: dead email code, no-phone warning, smart address labels
 57e0475  Fix new addresses not being saved on customer app orders
 410a257  Add customer search to SMS compose modal
 09605c0  Remove email view from Inbox — SMS only for now
