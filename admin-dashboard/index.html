@@ -103,6 +103,27 @@
     .page { display: none; }
     .page.active { display: block; }
 
+    /* ── TECH MODE: full-screen kanban for Laundry Tech ── */
+    body.tech-mode .sidebar { display: none; }
+    body.tech-mode .main    { margin-left: 0; }
+    body.tech-mode .topbar  { display: none; }
+    body.tech-mode .content { padding: 0; }
+    body.tech-mode .tech-header { display: flex; }
+    body.tech-mode #page-processing > .card { margin:0;border-radius:0;border:none;box-shadow:none; }
+    body.tech-mode #page-processing > .card > div:first-child { display:none; } /* hide "Processing Queue / No orders waiting" bar */
+    body.tech-mode .kanban-board { height: calc(100vh - 48px); min-height: unset; }
+    body.tech-mode .kanban-col-header { padding:12px 16px;font-size:14px; }
+    body.tech-mode .proc-card { padding:20px 22px;gap:12px; }
+    body.tech-mode .proc-card-name { font-size:18px; }
+    body.tech-mode .proc-card-meta { font-size:14px; }
+    body.tech-mode .proc-card-btn { padding:14px;font-size:15px; }
+    .tech-header { display:none;align-items:center;height:48px;padding:0 16px;background:var(--sidebar-bg);color:white;gap:12px; }
+    .tech-header-logo { font-size:14px;font-weight:700;letter-spacing:-.01em; }
+    .tech-header-logo span { font-weight:400;opacity:.5; }
+    .tech-header-user { margin-left:auto;font-size:13px;opacity:.7; }
+    .tech-header-logout { background:rgba(255,255,255,.12);border:none;color:white;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit; }
+    .tech-header-logout:hover { background:rgba(255,255,255,.2); }
+
     /* ── CARDS & STATS ── */
     .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
     .stat-card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-sm); }
@@ -928,6 +949,12 @@
 
 <!-- ─── APP ─── -->
 <div id="app">
+  <!-- Tech mode header (visible only in tech-mode) -->
+  <div class="tech-header">
+    <img src="../assets/logo.png" alt="Family Laundry" style="height:24px;object-fit:contain;" onerror="this.outerHTML='<div class=\'tech-header-logo\'>Family <span>Laundry</span></div>'" />
+    <span class="tech-header-user" id="tech-header-name"></span>
+    <button class="tech-header-logout" onclick="handleSignOut()">Log Out</button>
+  </div>
   <div class="layout">
     <nav class="sidebar">
       <div class="sidebar-logo" style="padding:26px 20px 16px;justify-content:center;">
@@ -3492,6 +3519,7 @@
   function showLoginScreen(msg) {
     console.log('[WR Auth] showLoginScreen called', new Date().toISOString());
     _loginInProgress = false;
+    document.body.classList.remove('tech-mode'); // clear tech mode on logout
     try { sessionStorage.removeItem('wr-admin-tab'); } catch(_) {}
     document.getElementById('app').style.display = 'none';
     document.getElementById('login-screen').style.display = 'flex';
@@ -3585,6 +3613,14 @@
         document.getElementById('user-name').textContent = displayName;
         document.getElementById('user-avatar').textContent = initials;
         document.getElementById('user-role-label').textContent = ROLE_LABELS_MAP[role] || 'Staff';
+
+        // Tech mode: full-screen kanban for laundry_tech
+        if (role === 'laundry_tech') {
+          document.body.classList.add('tech-mode');
+          document.getElementById('tech-header-name').textContent = displayName;
+        } else {
+          document.body.classList.remove('tech-mode');
+        }
 
         applyRoleToNav(role);
         loadAll();
