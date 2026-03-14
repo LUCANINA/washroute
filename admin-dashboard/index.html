@@ -3966,6 +3966,12 @@
         if (opCurrentOrderId && stop.order_id === opCurrentOrderId) {
           opRefreshProofPhotos(opCurrentOrderId);
         }
+        // If the Order Schedule is open and this stop belongs to the currently displayed route,
+        // refresh the stop list so skips, completions, and reassignments appear in real-time
+        if (routeLiveRouteId && stop.route_id === routeLiveRouteId) {
+          const btn = document.querySelector(`.run-toggle-btn[data-rid="${routeLiveRouteId}"]`);
+          selectRunOnMap(routeLiveRouteId, btn, null);
+        }
       })
       .subscribe();
   }
@@ -12055,11 +12061,10 @@ window.onload=()=>{window.print();};
       await db.from('route_stops').update({ driver_id: driverId }).eq('id', reassignStopId);
       const driverName = driverId ? (allDriversCache.find(d => d.id === driverId)?.name || 'Driver') : 'route default';
       showToast(`✓ Stop reassigned to ${driverName}`);
-      // Refresh current route stop list
-      const activeBtn = document.querySelector('.run-toggle-btn[style*="background: var(--accent)"], .run-toggle-btn[style*="background:var(--accent)"]');
+      // Refresh current route stop list — always call selectRunOnMap, btn may be null (that's fine)
       if (routeLiveRouteId) {
         const btn = document.querySelector(`.run-toggle-btn[data-rid="${routeLiveRouteId}"]`);
-        if (btn) selectRunOnMap(routeLiveRouteId, btn, null);
+        selectRunOnMap(routeLiveRouteId, btn, null);
       }
     } catch(e) {
       showToast('Reassign failed: ' + e.message, 'error');

@@ -2465,7 +2465,30 @@ function subscribeToRouteStopUpdates() {
       if (_dataLoading) return;
       const updated = payload.new;
       const idx = allStops.findIndex(s => s.id === updated.id);
-      if (idx < 0) return; // Not our stop — ignore
+
+      if (idx < 0) {
+        // Stop not currently in our list — check if it was just assigned to us
+        if (updated.driver_id === currentDriver?.id) {
+          // A stop from another route was just reassigned to us — reload to pick it up
+          loadRouteData();
+        }
+        return;
+      }
+
+      // Stop IS in our list — check if it was just reassigned to someone else
+      const reassignedAway = updated.driver_id !== null && updated.driver_id !== currentDriver?.id;
+      if (reassignedAway) {
+        allStops.splice(idx, 1);
+        renderHome();
+        renderRoute();
+        if (currentStopId === updated.id) {
+          currentStopId = null;
+          showScreen('route');
+          toast('This stop was reassigned to another driver.');
+        }
+        return;
+      }
+
       Object.assign(allStops[idx], updated);
       renderHome();
       renderRoute();
