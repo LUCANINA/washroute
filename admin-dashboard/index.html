@@ -12918,6 +12918,8 @@ window.onload=()=>{window.print();};
   }
 
   function touchStartOrder(event, id) {
+    // If the touch started on a button/link, let it click normally — don't drag
+    if (event.target.closest('button, a, .proc-card-btn')) return;
     _tdId = id;
     const card = document.getElementById('proc-card-'+id)
               || document.getElementById('clean-card-'+id)
