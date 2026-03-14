@@ -270,6 +270,22 @@ There are actually **two separate hang points** that must both be covered:
 - **Admin login timeout fix (root cause solved):** When a cached session existed in localStorage, Supabase fired `INITIAL_SESSION` + `TOKEN_REFRESHED` on page load. These background operations raced against the user's manual `signInWithPassword` call and caused the 30s safety timer to fire ("Connection timed out"). Fix: on a fresh tab/window load, clear localStorage before initialising Supabase so there's no cached session to trigger the race. `sessionStorage` is used to distinguish a fresh load (clear localStorage) from a page refresh within the same tab (keep the session). Outcome: no timeout on fresh visits, no logout on refresh. sessionStorage flag set on successful login, cleared on logout.
 - **Admin logout-on-refresh fix (round 2):** Supabase v2 can fire `INITIAL_SESSION` with `session = null` when the access token is expired but the refresh token is still valid (e.g. once per hour). The previous code called `showLoginScreen()` immediately on any null session, removing the `sessionStorage` key and flashing the login screen before `TOKEN_REFRESHED` arrived with a fresh token. Fix: `SIGNED_OUT` is the only event that definitively ends a session — show login immediately only for that event. For any other null-session event (`INITIAL_SESSION` null, etc.), start a 2-second fallback timer; if `TOKEN_REFRESHED` arrives with a valid session first, the timer is cancelled and the app shows normally. Result: no login-screen flash on token refresh, and users stay logged in across refreshes.
 
+### Mar 13, 2026 (session 3) — Role-based access permissions
+
+- **Three admin roles:** Admin (full access), Manager (Overview + Operations: Customers, Orders, Processing, Inbox, Drivers), Laundry Tech (Processing only).
+
+- **`role_permissions` DB table:** Stores per-role, per-page boolean access flags. Seeded with defaults for all three roles. Queried at login to determine nav visibility and page access.
+
+- **Dynamic nav visibility:** Nav items now use `data-page` and `data-section` attributes. `applyRoleToNav()` reads from `rolePermissions` cache (loaded at login). Section labels auto-hide when all items in the section are hidden.
+
+- **`showPage()` guard:** Uses `canAccessPage(pageId)` instead of hardcoded `ADMIN_ONLY_PAGES` array. Redirects to first allowed page on denial.
+
+- **Permissions grid UI (Team page):** Admins see a checkbox grid showing all pages × all roles. Clicking a checkbox instantly updates `role_permissions` in the DB. Admin column is locked (always full access).
+
+- **Role management updated:** Invite modal and Change Role modal now offer Admin / Manager / Laundry Tech options instead of Admin / Staff. Role badges have distinct colors (purple/amber/green).
+
+- **Default landing page:** Restricted roles land on their first allowed page (e.g., Laundry Tech goes straight to Processing).
+
 ### Mar 13, 2026 (session 2) — Order Schedule polish, Inbox cleanup, address fix
 
 - **Reassignment tags on Order Schedule:** Purple "→ DriverName" pill tag appears next to any stop that's been reassigned to a different driver than the route's default. Uses `route_stops.driver_id` vs `routeLiveDefaultDriverId`.
@@ -503,6 +519,7 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
+(pending)  Add role-based access: Admin, Manager, Laundry Tech with permissions grid
 5f97573  Low-priority QA cleanup: dead email code, no-phone warning, smart address labels
 57e0475  Fix new addresses not being saved on customer app orders
 410a257  Add customer search to SMS compose modal

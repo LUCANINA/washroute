@@ -878,6 +878,8 @@
     .team-email { font-size:12px;color:var(--gray-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
     .team-role-badge { font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em; }
     .team-role-badge.admin { background:#ede9fe;color:#6d28d9; }
+    .team-role-badge.manager { background:#fef3c7;color:#92400e; }
+    .team-role-badge.laundry_tech { background:#d1fae5;color:#065f46; }
     .team-role-badge.staff { background:#f0f9ff;color:#0369a1; }
     .team-actions { display:flex;gap:8px; }
     /* Billing feature */
@@ -931,69 +933,69 @@
       <div class="sidebar-logo" style="padding:26px 20px 16px;justify-content:center;">
         <img src="../assets/logo.png" alt="Family Laundry" style="width:100%;max-width:107px;height:auto;object-fit:contain;" onerror="this.outerHTML='<div style=\'font-size:15px;font-weight:800;color:white;letter-spacing:-.02em;\'>Family <span style=\'font-weight:400;opacity:.5\'>Laundry</span></div>'" />
       </div>
-      <div class="sidebar-section-label">Main</div>
-      <div id="nav-overview" class="nav-item active" onclick="showPage('overview',this)">
+      <div class="sidebar-section-label" data-section="main">Main</div>
+      <div id="nav-overview" class="nav-item active" data-page="overview" data-section="main" onclick="showPage('overview',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
         Overview
       </div>
-      <div class="sidebar-section-label">Operations</div>
-      <div id="nav-customers" class="nav-item" onclick="showPage('customers',this)">
+      <div class="sidebar-section-label" data-section="ops">Operations</div>
+      <div id="nav-customers" class="nav-item" data-page="customers" data-section="ops" onclick="showPage('customers',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
         Customers
       </div>
-      <div id="nav-orders" class="nav-item" onclick="showPage('orders',this)">
+      <div id="nav-orders" class="nav-item" data-page="orders" data-section="ops" onclick="showPage('orders',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
         Orders
       </div>
-      <div id="nav-processing" class="nav-item" onclick="showPage('processing',this)">
+      <div id="nav-processing" class="nav-item" data-page="processing" data-section="ops" onclick="showPage('processing',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6l9-4 9 4v12l-9 4-9-4V6z"/><polyline points="3 6 12 10 21 6"/><line x1="12" y1="10" x2="12" y2="22"/></svg>
         Processing
       </div>
-      <div id="nav-inbox" class="nav-item" onclick="showPage('inbox',this)">
+      <div id="nav-inbox" class="nav-item" data-page="inbox" data-section="ops" onclick="showPage('inbox',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         Inbox
         <span class="nav-badge" id="badge-inbox" style="background:var(--red)">0</span>
       </div>
-      <div class="nav-item" data-min-role="admin" onclick="showPage('drivers',this)">
+      <div class="nav-item" data-page="drivers" data-section="ops" onclick="showPage('drivers',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M17 11l1.5 1.5L21 10"/></svg>
         Drivers
         <span id="admin-msg-badge" style="display:none;background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:auto">0</span>
       </div>
-      <div class="sidebar-section-label" data-min-role="admin">Analytics</div>
-      <div id="nav-reports" class="nav-item" data-min-role="admin" onclick="showPage('reports',this)">
+      <div class="sidebar-section-label" data-section="analytics">Analytics</div>
+      <div id="nav-reports" class="nav-item" data-page="reports" data-section="analytics" onclick="showPage('reports',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         Reports
       </div>
-      <div class="sidebar-section-label">Settings</div>
-      <div class="nav-item" data-min-role="admin" onclick="showPage('services',this)">
+      <div class="sidebar-section-label" data-section="settings">Settings</div>
+      <div class="nav-item" data-page="services" data-section="settings" onclick="showPage('services',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
         Services
       </div>
-      <div class="nav-item" data-min-role="admin" onclick="showPage('notifications',this)">
+      <div class="nav-item" data-page="notifications" data-section="settings" onclick="showPage('notifications',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
         Notifications
       </div>
-      <div class="nav-item" data-min-role="admin" onclick="showPage('maps',this)">
+      <div class="nav-item" data-page="maps" data-section="settings" onclick="showPage('maps',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
         Delivery Zones
       </div>
-      <div class="nav-item" onclick="showPage('launderers',this)">
+      <div class="nav-item" data-page="launderers" data-section="settings" onclick="showPage('launderers',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><path d="M16 3.13a4 4 0 010 7.75"/><path d="M21 21v-2a4 4 0 00-3-3.87"/></svg>
         Launderers
       </div>
-      <div class="nav-item" onclick="showPage('racks',this)">
+      <div class="nav-item" data-page="racks" data-section="settings" onclick="showPage('racks',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><rect x="2" y="10" width="20" height="5" rx="1"/><rect x="2" y="17" width="20" height="5" rx="1"/></svg>
         Racks
       </div>
-      <div class="nav-item" data-min-role="admin" onclick="showPage('discounts',this)">
+      <div class="nav-item" data-page="discounts" data-section="settings" onclick="showPage('discounts',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
         Discounts
       </div>
-      <div class="nav-item" data-min-role="admin" onclick="showPage('team',this)">
+      <div class="nav-item" data-page="team" data-section="settings" onclick="showPage('team',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
         Team
       </div>
-      <div id="nav-settings" class="nav-item" data-min-role="admin" onclick="showPage('settings',this)">
+      <div id="nav-settings" class="nav-item" data-page="settings" data-section="settings" onclick="showPage('settings',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         Timezone
       </div>
@@ -1954,6 +1956,15 @@
             </div>
           </div>
 
+          <!-- Permissions Grid -->
+          <div id="permissions-section" style="margin-top:36px">
+            <h2 style="font-size:18px;font-weight:700;color:var(--gray-900);margin:0 0 6px">Page Permissions</h2>
+            <p style="font-size:13px;color:var(--gray-500);margin:0 0 16px">Control which pages each role can access. Admin always has full access.</p>
+            <div id="permissions-grid" style="overflow-x:auto">
+              <div style="text-align:center;color:var(--gray-400);padding:30px 0">Loading…</div>
+            </div>
+          </div>
+
           <!-- Invite Modal -->
           <div id="invite-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:none;align-items:center;justify-content:center">
             <div style="background:white;border-radius:14px;padding:28px;width:380px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.25)">
@@ -1965,7 +1976,8 @@
               <div style="margin-bottom:22px">
                 <label style="font-size:12px;font-weight:600;color:var(--gray-600);display:block;margin-bottom:5px">Role</label>
                 <select id="invite-role" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none">
-                  <option value="staff">Staff (Operations only)</option>
+                  <option value="laundry_tech">Laundry Tech (Processing only)</option>
+                  <option value="manager">Manager (Operations)</option>
                   <option value="admin">Admin (Full access)</option>
                 </select>
               </div>
@@ -1984,7 +1996,8 @@
               <h3 style="margin:0 0 6px;font-size:16px;font-weight:700">Change Role</h3>
               <p id="role-modal-name" style="margin:0 0 18px;font-size:14px;color:var(--gray-600)"></p>
               <select id="role-modal-select" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none;margin-bottom:22px">
-                <option value="staff">Staff (Operations only)</option>
+                <option value="laundry_tech">Laundry Tech (Processing only)</option>
+                <option value="manager">Manager (Operations)</option>
                 <option value="admin">Admin (Full access)</option>
               </select>
               <div style="display:flex;gap:10px;justify-content:flex-end">
@@ -3254,7 +3267,9 @@
   // Single-admin single-tab usage makes concurrent refresh races negligible.
   const _noopLock = (name, acquireTimeout, fn) => fn();
   const db = createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { storageKey: 'wr-admin-auth', autoRefreshToken: true, persistSession: true, lock: _noopLock } });
-  let currentUserRole = null; // 'admin' | 'staff' — set after login
+  let currentUserRole = null; // 'admin' | 'manager' | 'laundry_tech'
+  let rolePermissions = {};   // { page_id: true/false } — loaded from role_permissions table
+  let allRolePermissions = []; // full table cache for the permissions grid UI
 
   // ── STATE ──
   let BIZ_TZ = 'America/Los_Angeles'; // loaded from settings table at startup
@@ -3538,6 +3553,17 @@
         }
 
         currentUserRole = role;
+
+        // Load permissions for this role from role_permissions table
+        try {
+          const { data: perms } = await db.from('role_permissions').select('page_id, allowed').eq('role', role);
+          rolePermissions = {};
+          (perms || []).forEach(p => { rolePermissions[p.page_id] = p.allowed; });
+        } catch(_) { /* admin fallback: allow all */ }
+        // Admin always has full access regardless of DB rows
+        if (role === 'admin') {
+          ALL_PAGE_IDS.forEach(p => { rolePermissions[p] = true; });
+        }
         _loginInProgress = false;
         try { sessionStorage.setItem('wr-admin-tab', '1'); } catch(_) {}
 
@@ -3550,7 +3576,7 @@
         const initials = displayName.split(' ').map(w => w[0]?.toUpperCase() || '').join('').slice(0, 2) || '?';
         document.getElementById('user-name').textContent = displayName;
         document.getElementById('user-avatar').textContent = initials;
-        document.getElementById('user-role-label').textContent = role === 'admin' ? 'Admin' : 'Staff';
+        document.getElementById('user-role-label').textContent = ROLE_LABELS_MAP[role] || 'Staff';
 
         applyRoleToNav(role);
         loadAll();
@@ -3560,8 +3586,12 @@
         // Restore the page the user was on before refresh (from URL hash)
         let hashPage = location.hash.replace('#', '');
         if (hashPage === 'driver-messages') hashPage = 'drivers'; // legacy redirect
-        if (hashPage && document.getElementById('page-' + hashPage)) {
-          showPage(hashPage, document.getElementById('nav-' + hashPage));
+        // If no hash or no permission, land on first allowed page
+        const defaultPage = ALL_PAGE_IDS.find(p => canAccessPage(p)) || 'processing';
+        if (hashPage && document.getElementById('page-' + hashPage) && canAccessPage(hashPage)) {
+          showPage(hashPage, document.querySelector(`.nav-item[data-page="${hashPage}"]`));
+        } else {
+          showPage(defaultPage, document.querySelector(`.nav-item[data-page="${defaultPage}"]`));
         }
       } catch (e) {
         clearTimeout(profileTimer);
@@ -3612,17 +3642,41 @@
   });
 
   // ── ROLE-BASED NAV ──
-  const ADMIN_ONLY_PAGES = ['reports','services','notifications','maps',
-                            'drivers','discounts','settings','team'];
+  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', staff: 'Staff' };
+  const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','drivers',
+                        'reports','services','notifications','maps','launderers','racks',
+                        'discounts','team','settings'];
+
+  function canAccessPage(pageId) {
+    if (currentUserRole === 'admin') return true;
+    return rolePermissions[pageId] === true;
+  }
 
   function applyRoleToNav(role) {
-    document.querySelectorAll('[data-min-role="admin"]').forEach(el => {
-      el.style.display = (role !== 'admin') ? 'none' : '';
+    // Hide/show nav items based on permissions
+    document.querySelectorAll('.nav-item[data-page]').forEach(el => {
+      const pageId = el.dataset.page;
+      el.style.display = canAccessPage(pageId) ? '' : 'none';
+    });
+    // Hide/show section labels if all items in that section are hidden
+    document.querySelectorAll('.sidebar-section-label[data-section]').forEach(label => {
+      const section = label.dataset.section;
+      const items = document.querySelectorAll(`.nav-item[data-section="${section}"]`);
+      const anyVisible = Array.from(items).some(el => el.style.display !== 'none');
+      label.style.display = anyVisible ? '' : 'none';
     });
   }
 
   // ── TEAM PAGE ──
   let _roleModalProfileId = null;
+
+  const PAGE_LABELS = {
+    overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing',
+    inbox:'Inbox', drivers:'Drivers', reports:'Reports', services:'Services',
+    notifications:'Notifications', maps:'Delivery Zones', launderers:'Launderers',
+    racks:'Racks', discounts:'Discounts', team:'Team', settings:'Timezone'
+  };
+  const EDITABLE_ROLES = ['manager', 'laundry_tech']; // admin is always full access
 
   async function loadTeamPage() {
     const container = document.getElementById('team-list');
@@ -3630,7 +3684,7 @@
     const { data, error } = await db
       .from('profiles')
       .select('id, first_name, last_name, role')
-      .in('role', ['admin', 'staff'])
+      .in('role', ['admin', 'manager', 'laundry_tech', 'staff'])
       .order('role').order('first_name');
     if (error || !data) {
       container.innerHTML = '<div style="color:var(--red);text-align:center;padding:40px 0">Failed to load team.</div>';
@@ -3643,6 +3697,7 @@
     container.innerHTML = data.map(p => {
       const name = [p.first_name, p.last_name].filter(Boolean).join(' ') || '(No name)';
       const initials = name.split(' ').map(w=>w[0]?.toUpperCase()||'').join('').slice(0,2);
+      const roleLabel = ROLE_LABELS_MAP[p.role] || 'Staff';
       return `
         <div class="team-card">
           <div class="team-avatar">${initials}</div>
@@ -3650,7 +3705,7 @@
             <div class="team-name">${name}</div>
             <div class="team-email" id="team-email-${p.id}" style="font-style:italic;color:var(--gray-400)">—</div>
           </div>
-          <span class="team-role-badge ${p.role}">${p.role === 'admin' ? 'Admin' : 'Staff'}</span>
+          <span class="team-role-badge ${p.role}">${roleLabel}</span>
           <div class="team-actions">
             <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px"
               data-pid="${p.id}" data-pname="${name.replace(/"/g,'&quot;')}" data-prole="${p.role}"
@@ -3658,11 +3713,74 @@
           </div>
         </div>`;
     }).join('');
+
+    // Load permissions grid (admin only)
+    if (currentUserRole === 'admin') {
+      document.getElementById('permissions-section').style.display = '';
+      loadPermissionsGrid();
+    } else {
+      document.getElementById('permissions-section').style.display = 'none';
+    }
+  }
+
+  async function loadPermissionsGrid() {
+    const grid = document.getElementById('permissions-grid');
+    const { data, error } = await db.from('role_permissions').select('*').order('role').order('page_id');
+    if (error || !data) { grid.innerHTML = '<div style="color:var(--red)">Failed to load permissions.</div>'; return; }
+    allRolePermissions = data;
+
+    // Build a lookup: { role: { page_id: allowed } }
+    const perms = {};
+    data.forEach(r => {
+      if (!perms[r.role]) perms[r.role] = {};
+      perms[r.role][r.page_id] = r.allowed;
+    });
+
+    const roles = ['admin', 'manager', 'laundry_tech'];
+    const roleHeaders = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech' };
+
+    let html = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr>
+        <th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--gray-200);font-weight:600;color:var(--gray-700)">Page</th>
+        ${roles.map(r => `<th style="text-align:center;padding:8px 12px;border-bottom:2px solid var(--gray-200);font-weight:600;color:var(--gray-700)">${roleHeaders[r]}</th>`).join('')}
+      </tr></thead><tbody>`;
+
+    ALL_PAGE_IDS.forEach(pageId => {
+      html += `<tr style="border-bottom:1px solid var(--gray-100)">
+        <td style="padding:8px 12px;color:var(--gray-800)">${PAGE_LABELS[pageId] || pageId}</td>`;
+      roles.forEach(role => {
+        const checked = perms[role]?.[pageId] ? 'checked' : '';
+        const disabled = role === 'admin' ? 'disabled checked' : '';
+        const opacity = role === 'admin' ? 'opacity:.5;' : '';
+        html += `<td style="text-align:center;padding:8px 12px;${opacity}">
+          <input type="checkbox" ${checked} ${disabled}
+            style="width:16px;height:16px;cursor:${role === 'admin' ? 'not-allowed' : 'pointer'};accent-color:var(--accent)"
+            onchange="togglePermission('${role}','${pageId}',this.checked)" />
+        </td>`;
+      });
+      html += `</tr>`;
+    });
+
+    html += `</tbody></table>`;
+    grid.innerHTML = html;
+  }
+
+  async function togglePermission(role, pageId, allowed) {
+    const { error } = await db.from('role_permissions')
+      .update({ allowed })
+      .eq('role', role)
+      .eq('page_id', pageId);
+    if (error) {
+      showToast('Failed to update permission', 'error');
+      loadPermissionsGrid(); // revert UI
+      return;
+    }
+    showToast(`${PAGE_LABELS[pageId] || pageId} ${allowed ? 'enabled' : 'disabled'} for ${ROLE_LABELS_MAP[role] || role}`, 'success');
   }
 
   function openInviteModal() {
     document.getElementById('invite-email').value = '';
-    document.getElementById('invite-role').value = 'staff';
+    document.getElementById('invite-role').value = 'laundry_tech';
     document.getElementById('invite-error').style.display = 'none';
     document.getElementById('invite-submit-btn').disabled = false;
     document.getElementById('invite-submit-btn').textContent = 'Send Invite';
@@ -3798,12 +3916,12 @@
   const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', settings:'', team:'' };
 
   function showPage(id, navEl) {
-    // Role guard — staff cannot navigate to admin-only pages
-    const ADMIN_ONLY_PAGES = ['reports','services','notifications','maps',
-                              'drivers','discounts','settings','team'];
-    if (ADMIN_ONLY_PAGES.includes(id) && currentUserRole !== 'admin') {
+    // Role guard — check dynamic permissions
+    if (!canAccessPage(id)) {
       showToast("You don't have permission to view that page.", 'error');
-      showPage('overview', document.getElementById('nav-overview'));
+      // Redirect to first allowed page
+      const fallback = ALL_PAGE_IDS.find(p => canAccessPage(p)) || 'processing';
+      showPage(fallback, document.querySelector(`.nav-item[data-page="${fallback}"]`));
       return;
     }
 
@@ -4073,7 +4191,7 @@
         ? `${iss.customers.first_name_cache||''} ${iss.customers.last_name_cache||''}`.trim()
         : '—';
       const age = inboxTimeAgo(iss.created_at);
-      return `<div class="issue-row" onclick="showPage('inbox',document.querySelectorAll('.nav-item')[6])">
+      return `<div class="issue-row" onclick="showPage('inbox',document.querySelector('.nav-item[data-page=\"inbox\"]'))">
         <span class="issue-pri-badge ${priBadgeClass(iss.priority)}">${iss.priority.toUpperCase()}</span>
         <span class="issue-row-title">${esc(iss.title)}</span>
         <span class="issue-row-meta">${esc(custName)} · ${age}${iss.assigned_to ? ' · ' + esc(iss.assigned_to) : ''}</span>
