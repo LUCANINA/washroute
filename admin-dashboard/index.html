@@ -8946,6 +8946,7 @@ window.onload=()=>{window.print();};
     const { data: newOrder, error } = await db.from('orders').insert({
       customer_id:           customerId,
       status:                'scheduled',
+      zone_id:               _noSelectedTmpl?.zone_id || null,
       pickup_address_id:     addressId,
       delivery_address_id:   addressId,     // same address by default
       pickup_window_start:   _noPickupStart,
