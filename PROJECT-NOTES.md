@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 13, 2026*
+*Last updated: Mar 14, 2026*
 
 ---
 
@@ -257,6 +257,26 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
+### Mar 14, 2026 — Same-day delivery + site-wide QA
+
+- **Full site QA (all 3 apps):** Reviewed admin dashboard, driver app, and customer app end-to-end. Two real issues found and fixed:
+  - **HIGH (admin):** Credit deduction on processing intake was fire-and-forget — if the DB write silently failed, customer credits wouldn't be reduced but admin UI showed success. Now `await`ed with an error toast so admins know to fix manually.
+  - **MEDIUM (admin):** `last_order_at` cache sync was fire-and-forget. Changed to `.catch()` so failures are logged.
+  - All 5 realtime subscriptions confirmed properly guarded. Permissions grid refresh confirmed working. All auth safety timers confirmed in place. No High/Medium issues found in driver or customer apps.
+
+- **Same-day delivery feature (customer app + admin route editor):**
+  - Customers on **AM pickup routes** (Berkeley AM, Oakland AM) now see an "⚡ Want it back tonight?" toggle immediately after selecting their pickup window.
+  - Eligibility driven by `turnaround_hours` on `route_templates` (AM routes = 9, PM routes = 0 — no same-day for evening pickups). Configurable per route from the admin route editor.
+  - When toggled ON: delivery date = same day, delivery window = first qualifying PM slot (e.g. 6–8 PM for a 7–9 AM pickup), +$10 surcharge added. Fee always read from `service_fees` (Same-Day Surcharge row) — never hardcoded.
+  - `is_same_day: true` written to orders; surcharge included as `same_day_surcharge` line item.
+  - Admin route editor now shows and saves the "Same-day turnaround (hours)" field.
+  - Toggle resets cleanly whenever pickup date or window changes. No schema migration needed — `turnaround_hours` column already existed on `route_templates` (was 0/unused).
+  - **Timezone math note:** `slotEnd` and `slotStart` are both UTC ISO strings (created via `new Date(local).toISOString()`). The 9-hour UTC addition correctly resolves to the PM slot on the same local date in both winter (UTC−8) and summer (UTC−7).
+
+- **New skills installed (found at session start):** `washroute-changelog`, `washroute-test`, `washroute-migration-review` — all three are now active and being used proactively.
+
+- **Commits:** `751baba` (QA fixes), `6eb9426` (same-day delivery)
+
 ### Mar 10, 2026
 - **Order status pipeline rework:** New flow is `scheduled → ready_for_pickup → picked_up → processing → ready_for_delivery → out_for_delivery → delivered`. Retired `assembled`; replaced `pickup_missed`/`delivery_missed` with unified `skipped` (sits in Issues tab until manually resolved).
 - **Filter tabs rework:** Removed "All" tab from Orders page and customer profile. "Upcoming" renamed to "Scheduled". Default tab is now Scheduled.
@@ -447,6 +467,7 @@ There are actually **two separate hang points** that must both be covered:
 - ~~Customer email receipt (SendGrid)~~ ✅ — SendGrid confirmed working and sending
 - SMS/email automation — Phase 1: status check auto-replies (see section above)
 - ~~Live driver tracking~~ ✅ — GPS tracking live (driver app → Supabase Realtime → admin map)
+- ~~Same-day delivery option~~ ✅ — live in customer app for AM routes
 - Xero accounting sync
 - Klaviyo marketing integration
 - ~~Vercel deployment~~ ✅ — Vercel auto-deploys on push to main
@@ -519,6 +540,16 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
+6eb9426  feat: same-day delivery option for AM pickup routes
+751baba  Fix: await credit deduction + catch last_order_at sync errors
+3bfc4b8  Light blue kanban header bar, white column backgrounds
+92d8631  Unify kanban columns to light blue palette
+0b3ee9e  Fix Process Order button not working on iPad touch devices
+73284c6  Brighten kanban column colors and restore one emoji per column
+be8c75b  Add subtle muted color tints to kanban columns
+08ee95e  Redesign kanban board: professional neutral palette, centered tech-mode logo
+22310bc  Add full-screen tech mode for Laundry Tech on iPad
+db92fdc  Move permissions grid to its own tab on Team page
 2d41a90  Add role-based access: Admin, Manager, Laundry Tech with permissions grid
 5f97573  Low-priority QA cleanup: dead email code, no-phone warning, smart address labels
 57e0475  Fix new addresses not being saved on customer app orders
