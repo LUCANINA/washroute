@@ -1943,25 +1943,33 @@
 
         <!-- ── TEAM ── -->
         <div class="page" id="page-team">
-          <div style="max-width:720px;margin:0 auto">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-              <h2 style="font-size:18px;font-weight:700;color:var(--gray-900);margin:0">Team Members</h2>
-              <button class="btn btn-primary" onclick="openInviteModal()">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Invite Staff
-              </button>
-            </div>
-            <div id="team-list" style="display:flex;flex-direction:column;gap:8px">
-              <div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>
+          <div class="section-tabs">
+            <button class="section-tab active" id="team-tab-members" onclick="setTeamTab('members',this)">Team Members</button>
+            <button class="section-tab" id="team-tab-permissions" onclick="setTeamTab('permissions',this)">Permissions</button>
+          </div>
+
+          <!-- Tab: Team Members -->
+          <div id="team-view-members">
+            <div style="max-width:720px;margin:0 auto;padding-top:20px">
+              <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:16px">
+                <button class="btn btn-primary" onclick="openInviteModal()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Invite Staff
+                </button>
+              </div>
+              <div id="team-list" style="display:flex;flex-direction:column;gap:8px">
+                <div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>
+              </div>
             </div>
           </div>
 
-          <!-- Permissions Grid -->
-          <div id="permissions-section" style="margin-top:36px">
-            <h2 style="font-size:18px;font-weight:700;color:var(--gray-900);margin:0 0 6px">Page Permissions</h2>
-            <p style="font-size:13px;color:var(--gray-500);margin:0 0 16px">Control which pages each role can access. Admin always has full access.</p>
-            <div id="permissions-grid" style="overflow-x:auto">
-              <div style="text-align:center;color:var(--gray-400);padding:30px 0">Loading…</div>
+          <!-- Tab: Permissions -->
+          <div id="team-view-permissions" style="display:none">
+            <div id="permissions-section" style="max-width:720px;margin:0 auto;padding-top:20px">
+              <p style="font-size:13px;color:var(--gray-500);margin:0 0 16px">Control which pages each role can access. Admin always has full access.</p>
+              <div id="permissions-grid" style="overflow-x:auto">
+                <div style="text-align:center;color:var(--gray-400);padding:30px 0">Loading…</div>
+              </div>
             </div>
           </div>
 
@@ -3669,6 +3677,16 @@
 
   // ── TEAM PAGE ──
   let _roleModalProfileId = null;
+  let _teamTab = 'members';
+
+  function setTeamTab(tab, btn) {
+    _teamTab = tab;
+    document.querySelectorAll('#page-team .section-tab').forEach(t => t.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    document.getElementById('team-view-members').style.display = tab === 'members' ? '' : 'none';
+    document.getElementById('team-view-permissions').style.display = tab === 'permissions' ? '' : 'none';
+    if (tab === 'permissions' && currentUserRole === 'admin') loadPermissionsGrid();
+  }
 
   const PAGE_LABELS = {
     overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing',
@@ -3714,13 +3732,10 @@
         </div>`;
     }).join('');
 
-    // Load permissions grid (admin only)
-    if (currentUserRole === 'admin') {
-      document.getElementById('permissions-section').style.display = '';
-      loadPermissionsGrid();
-    } else {
-      document.getElementById('permissions-section').style.display = 'none';
-    }
+    // Show/hide Permissions tab based on role (admin only)
+    document.getElementById('team-tab-permissions').style.display = currentUserRole === 'admin' ? '' : 'none';
+    // If currently on permissions tab, load the grid
+    if (_teamTab === 'permissions' && currentUserRole === 'admin') loadPermissionsGrid();
   }
 
   async function loadPermissionsGrid() {
