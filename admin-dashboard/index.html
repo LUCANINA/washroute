@@ -822,21 +822,21 @@
     .kanban-col:last-child { border-right:none; }
     .kanban-col-header { display:flex;align-items:center;gap:7px;padding:10px 14px;border-bottom:3px solid transparent;flex-shrink:0;font-weight:700;font-size:12.5px; }
     .kanban-col-body { flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px; }
-    /* Kanban columns — subtle tinted backgrounds */
-    .kcol-intake  { background:#f8f9fb;border-bottom-color:#94a3b8; }
-    .kcol-clean   { background:#f6f9fb;border-bottom-color:#7dacbf; }
-    .kcol-folding { background:#f8f9f6;border-bottom-color:#9aab7f; }
-    .kcol-rack    { background:#f9f8fb;border-bottom-color:#9b8fc2; }
-    .kbadge-intake  { background:#e8ecf0;color:#475569; }
-    .kbadge-clean   { background:#e2edf2;color:#3b6b7d; }
-    .kbadge-folding { background:#eaf0e4;color:#556b3e; }
-    .kbadge-rack    { background:#ece8f4;color:#5b4f8a; }
+    /* Kanban columns — clean with color accents */
+    .kcol-intake  { background:#f0f4f8;border-bottom-color:#5b8db8; }
+    .kcol-clean   { background:#eef6f9;border-bottom-color:#3a9bb5; }
+    .kcol-folding { background:#f2f7ee;border-bottom-color:#6a9a4a; }
+    .kcol-rack    { background:#f3f0fa;border-bottom-color:#7c6bb5; }
+    .kbadge-intake  { background:#dce6f0;color:#2e5a7e; }
+    .kbadge-clean   { background:#d4eef5;color:#1e6e82; }
+    .kbadge-folding { background:#e2eedb;color:#3d6822; }
+    .kbadge-rack    { background:#e4ddf2;color:#4a3d80; }
     .proc-tab-badge { font-size:11px;font-weight:700;border-radius:20px;padding:2px 7px; }
     .kanban-drop-zone { transition:background .15s,outline .1s; }
-    .kcol-intake.drag-over  { background:rgba(148,163,184,.08) !important;outline:2px dashed #94a3b8;outline-offset:-4px; }
-    .kcol-clean.drag-over   { background:rgba(125,172,191,.08) !important;outline:2px dashed #7dacbf;outline-offset:-4px; }
-    .kcol-folding.drag-over { background:rgba(154,171,127,.08) !important;outline:2px dashed #9aab7f;outline-offset:-4px; }
-    .kcol-rack.drag-over    { background:rgba(155,143,194,.08) !important;outline:2px dashed #9b8fc2;outline-offset:-4px; }
+    .kcol-intake.drag-over  { background:rgba(91,141,184,.10) !important;outline:2px dashed #5b8db8;outline-offset:-4px; }
+    .kcol-clean.drag-over   { background:rgba(58,155,181,.10) !important;outline:2px dashed #3a9bb5;outline-offset:-4px; }
+    .kcol-folding.drag-over { background:rgba(106,154,74,.10) !important;outline:2px dashed #6a9a4a;outline-offset:-4px; }
+    .kcol-rack.drag-over    { background:rgba(124,107,181,.10) !important;outline:2px dashed #7c6bb5;outline-offset:-4px; }
     .kanban-col-hint { font-size:10px;color:var(--gray-400);margin-left:auto;font-weight:400; }
     .kanban-drop-label { font-size:10px;font-weight:700;margin-left:auto;opacity:0;transition:opacity .15s;color:var(--accent); }
     .kcol-intake.drag-over  .kanban-drop-label,
@@ -1266,7 +1266,7 @@
                 ondragleave="onKanbanColLeave(event,'kanban-intake-col')"
                 ondrop="dropToIntake(event)">
                 <div class="kanban-col-header kcol-intake">
-                  <span style="font-size:10px;font-weight:800;color:var(--gray-400);margin-right:2px">1</span> Intake
+                  ⚖️ Intake
                   <span class="proc-tab-badge kbadge-intake" id="ptab-badge-intake">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
@@ -1280,7 +1280,7 @@
                 ondragleave="onKanbanColLeave(event,'kanban-clean-col')"
                 ondrop="dropToCleaning(event)">
                 <div class="kanban-col-header kcol-clean">
-                  <span style="font-size:10px;font-weight:800;color:var(--gray-400);margin-right:2px">2</span> Cleaning
+                  💧 Cleaning
                   <span class="proc-tab-badge kbadge-clean" id="ptab-badge-clean">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
@@ -1294,7 +1294,7 @@
                 ondragleave="onKanbanColLeave(event,'kanban-fold-col')"
                 ondrop="dropToFolding(event)">
                 <div class="kanban-col-header kcol-folding">
-                  <span style="font-size:10px;font-weight:800;color:var(--gray-400);margin-right:2px">3</span> Folding
+                  👕 Folding
                   <span class="proc-tab-badge kbadge-folding" id="ptab-badge-folding">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
@@ -1308,7 +1308,7 @@
                 ondragleave="onKanbanColLeave(event,'kanban-rack-col')"
                 ondrop="dropToRack(event)">
                 <div class="kanban-col-header kcol-rack">
-                  <span style="font-size:10px;font-weight:800;color:var(--gray-400);margin-right:2px">4</span> Rack
+                  🗂️ Rack
                   <span class="proc-tab-badge kbadge-rack" id="ptab-badge-rack">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
