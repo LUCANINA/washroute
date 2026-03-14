@@ -1170,7 +1170,7 @@
           <div id="orders-view-toggle" style="display:flex;gap:4px;margin-bottom:16px;">
             <button class="section-tab active" id="ovt-orders" onclick="switchOrdersView('orders')">Orders</button>
             <button class="section-tab" id="ovt-schedule" onclick="switchOrdersView('schedule')">Order Schedule</button>
-            <button class="section-tab" id="ovt-drivers" onclick="switchOrdersView('drivers')">Driver Schedule</button>
+            <!-- Driver Schedule moved to Drivers page -->
           </div>
 
           <!-- Orders List View -->
@@ -1223,20 +1223,6 @@
             </div>
           </div>
 
-          <!-- Driver Schedule View -->
-          <div id="orders-drivers-view" style="display:none;">
-            <!-- Week navigation -->
-            <div class="sched-week-nav">
-              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(-1)">← Prev Week</button>
-              <span class="sched-week-label" id="sched-week-label2">—</span>
-              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(1)">Next Week →</button>
-              <span style="font-size:12px;color:var(--gray-400);margin-left:8px;">Click any cell to reassign a driver for that day.</span>
-            </div>
-            <!-- Schedule grid -->
-            <div id="driver-schedule-grid" style="overflow-x:auto;padding:4px 0;">
-              <div class="loading"><div class="spinner"></div> Loading…</div>
-            </div>
-          </div>
 
         </div>
 
@@ -1794,6 +1780,10 @@
               style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--gray-900)">
               Messages
             </button>
+            <button class="filter-tab" id="drv-tab-schedule" onclick="switchDriverTab('schedule')"
+              style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--gray-400)">
+              Schedule
+            </button>
             <button class="filter-tab" id="drv-tab-manage" onclick="switchDriverTab('manage')"
               style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--gray-400)">
               All Drivers
@@ -1833,6 +1823,22 @@
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- ═══ ALL DRIVERS TAB ═══ -->
+          <!-- ═══ SCHEDULE TAB ═══ -->
+          <div id="drv-panel-schedule" style="display:none">
+            <!-- Week navigation -->
+            <div class="sched-week-nav">
+              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(-1)">← Prev Week</button>
+              <span class="sched-week-label" id="sched-week-label2">—</span>
+              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(1)">Next Week →</button>
+              <span style="font-size:12px;color:var(--gray-400);margin-left:8px;">Click any cell to reassign a driver for that day.</span>
+            </div>
+            <!-- Schedule grid -->
+            <div id="driver-schedule-grid" style="overflow-x:auto;padding:4px 0;">
+              <div class="loading"><div class="spinner"></div> Loading…</div>
             </div>
           </div>
 
@@ -6726,22 +6732,18 @@ window.onload=()=>{window.print();};
     renderInboxList();
   }
 
-  // ── ORDERS PAGE: TOGGLE BETWEEN ORDERS / ORDER SCHEDULE / DRIVER SCHEDULE ──
+  // ── ORDERS PAGE: TOGGLE BETWEEN ORDERS / ORDER SCHEDULE ──
   function switchOrdersView(view) {
     const ordersList = document.getElementById('orders-list-view');
     const scheduleView = document.getElementById('orders-schedule-view');
-    const driversView = document.getElementById('orders-drivers-view');
     const ovtOrders = document.getElementById('ovt-orders');
     const ovtSchedule = document.getElementById('ovt-schedule');
-    const ovtDrivers = document.getElementById('ovt-drivers');
 
     // Hide all views and deactivate all tabs
     ordersList.style.display = 'none';
     scheduleView.style.display = 'none';
-    driversView.style.display = 'none';
     ovtOrders.classList.remove('active');
     ovtSchedule.classList.remove('active');
-    ovtDrivers.classList.remove('active');
     unsubscribeDriverLocations();
 
     if (view === 'orders') {
@@ -6761,10 +6763,6 @@ window.onload=()=>{window.print();};
         if (dp) dp.value = today();
         loadDailyRuns();
       }, 80);
-    } else if (view === 'drivers') {
-      driversView.style.display = '';
-      ovtDrivers.classList.add('active');
-      document.getElementById('topbar-cta').style.display = 'none';
       loadDriverScheduleTab();
     }
   }
@@ -11056,7 +11054,7 @@ window.onload=()=>{window.print();};
   function shiftWeek(delta) {
     schedWeekOffset += delta;
     // Render whichever schedule is currently visible
-    const driversView = document.getElementById('orders-drivers-view');
+    const driversView = document.getElementById('drv-panel-schedule');
     if (driversView && driversView.style.display !== 'none') {
       renderDriverSchedule();
     } else {
@@ -11380,7 +11378,7 @@ window.onload=()=>{window.print();};
 
     showToast('Driver updated!', 'success');
     // Refresh whichever schedule view is currently active
-    const driversView = document.getElementById('orders-drivers-view');
+    const driversView = document.getElementById('drv-panel-schedule');
     if (driversView && driversView.style.display !== 'none') {
       renderDriverSchedule();
     } else {
@@ -14257,28 +14255,36 @@ window.onload=()=>{window.print();};
 
   function switchDriverTab(tab) {
     _activeDriverTab = tab;
-    const msgTab = document.getElementById('drv-tab-messages');
-    const mngTab = document.getElementById('drv-tab-manage');
-    const msgPanel = document.getElementById('drv-panel-messages');
-    const mngPanel = document.getElementById('drv-panel-manage');
-    const actions  = document.getElementById('drv-tab-actions');
+    const tabs = {
+      messages: { tab: document.getElementById('drv-tab-messages'), panel: document.getElementById('drv-panel-messages') },
+      schedule: { tab: document.getElementById('drv-tab-schedule'), panel: document.getElementById('drv-panel-schedule') },
+      manage:   { tab: document.getElementById('drv-tab-manage'),   panel: document.getElementById('drv-panel-manage') },
+    };
+    const actions = document.getElementById('drv-tab-actions');
 
-    if (tab === 'messages') {
-      msgTab.style.borderBottomColor = 'var(--accent)';
-      msgTab.style.color = 'var(--gray-900)';
-      mngTab.style.borderBottomColor = 'transparent';
-      mngTab.style.color = 'var(--gray-400)';
-      msgPanel.style.display = '';
-      mngPanel.style.display = 'none';
-      if (actions) actions.innerHTML = '';
-    } else {
-      mngTab.style.borderBottomColor = 'var(--accent)';
-      mngTab.style.color = 'var(--gray-900)';
-      msgTab.style.borderBottomColor = 'transparent';
-      msgTab.style.color = 'var(--gray-400)';
-      msgPanel.style.display = 'none';
-      mngPanel.style.display = '';
-      if (actions) actions.innerHTML = `<button class="btn btn-primary" onclick="openDriverEditor(null)" style="font-size:13px;padding:7px 16px">+ New Driver</button>`;
+    // Reset all tabs
+    Object.values(tabs).forEach(({ tab: t, panel: p }) => {
+      if (t) { t.style.borderBottomColor = 'transparent'; t.style.color = 'var(--gray-400)'; }
+      if (p) p.style.display = 'none';
+    });
+
+    // Activate selected
+    const sel = tabs[tab];
+    if (sel?.tab) { sel.tab.style.borderBottomColor = 'var(--accent)'; sel.tab.style.color = 'var(--gray-900)'; }
+    if (sel?.panel) sel.panel.style.display = '';
+
+    // Tab-specific actions
+    if (actions) {
+      if (tab === 'manage') {
+        actions.innerHTML = `<button class="btn btn-primary" onclick="openDriverEditor(null)" style="font-size:13px;padding:7px 16px">+ New Driver</button>`;
+      } else {
+        actions.innerHTML = '';
+      }
+    }
+
+    // Load schedule data when switching to schedule tab
+    if (tab === 'schedule') {
+      loadDriverScheduleTab();
     }
   }
 
