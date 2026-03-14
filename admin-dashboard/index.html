@@ -9831,7 +9831,7 @@ window.onload=()=>{window.print();};
     if (!cpAllOrders.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>'; return; }
     // Sync last_order date if stale
     const latest = cpAllOrders.reduce((best,o)=>o.created_at&&(!best||o.created_at>best)?o.created_at:best, null);
-    if (latest) { const el2=document.getElementById('cp-last-order'); if(el2&&el2.textContent==='—') { el2.textContent=fmtDate(latest); db.from('customers').update({last_order_at:latest}).eq('id',customerId).then(()=>{}); } }
+    if (latest) { const el2=document.getElementById('cp-last-order'); if(el2&&el2.textContent==='—') { el2.textContent=fmtDate(latest); db.from('customers').update({last_order_at:latest}).eq('id',customerId).catch(e=>console.warn('last_order_at sync failed:',e)); } }
     // Reset filter tab UI and billing state to default 'scheduled'
     document.querySelectorAll('#cptab-orders .filter-tab').forEach(t => t.classList.remove('active'));
     const schedTab = document.getElementById('cpof-scheduled'); if (schedTab) schedTab.classList.add('active');
@@ -13988,8 +13988,13 @@ window.onload=()=>{window.print();};
     // Deduct credits from customer if applied
     if (bd.creditApplied > 0 && procCustomerId) {
       const newCredits = Math.max(0, procCustomerCredits - bd.creditApplied);
-      db.from('customers').update({ credits: newCredits, updated_at: new Date().toISOString() })
-        .eq('id', procCustomerId).then(() => {});
+      const { error: creditErr } = await db.from('customers')
+        .update({ credits: newCredits, updated_at: new Date().toISOString() })
+        .eq('id', procCustomerId);
+      if (creditErr) {
+        showToast('Order saved but credit deduction failed — please adjust credits manually', 'error');
+        console.error('Credit deduction failed:', creditErr);
+      }
     }
     const movedId  = procActiveOrder.id;
     const movedNum = procActiveOrder.order_number;
