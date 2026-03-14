@@ -519,7 +519,7 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
-(pending)  Add role-based access: Admin, Manager, Laundry Tech with permissions grid
+2d41a90  Add role-based access: Admin, Manager, Laundry Tech with permissions grid
 5f97573  Low-priority QA cleanup: dead email code, no-phone warning, smart address labels
 57e0475  Fix new addresses not being saved on customer app orders
 410a257  Add customer search to SMS compose modal
