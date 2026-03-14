@@ -822,11 +822,16 @@
     .kanban-col:last-child { border-right:none; }
     .kanban-col-header { display:flex;align-items:center;gap:7px;padding:10px 14px;border-bottom:3px solid transparent;flex-shrink:0;font-weight:700;font-size:12.5px; }
     .kanban-col-body { flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px; }
-    /* Kanban columns — uniform light blue */
-    .kcol-intake  { background:#f0f4f8;border-bottom-color:#5b8db8; }
-    .kcol-clean   { background:#eef6f9;border-bottom-color:#3a9bb5; }
-    .kcol-folding { background:#f0f4f8;border-bottom-color:#5b8db8; }
-    .kcol-rack    { background:#eef6f9;border-bottom-color:#3a9bb5; }
+    /* Kanban columns — light blue header, white body */
+    .kanban-col-header.kcol-intake,
+    .kanban-col-header.kcol-clean,
+    .kanban-col-header.kcol-folding,
+    .kanban-col-header.kcol-rack   { background:#edf2f7; }
+    .kcol-intake  { border-bottom-color:#5b8db8; }
+    .kcol-clean   { border-bottom-color:#3a9bb5; }
+    .kcol-folding { border-bottom-color:#5b8db8; }
+    .kcol-rack    { border-bottom-color:#3a9bb5; }
+    .kanban-col-body { background:#fff; }
     .kbadge-intake  { background:#dce6f0;color:#2e5a7e; }
     .kbadge-clean   { background:#d4eef5;color:#1e6e82; }
     .kbadge-folding { background:#dce6f0;color:#2e5a7e; }
