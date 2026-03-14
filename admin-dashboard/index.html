@@ -1479,11 +1479,7 @@
                   <svg class="inbox-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="top:18px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                   <input class="inbox-search" id="inbox-search" placeholder="Search conversations…" oninput="filterInbox(this.value)" />
                 </div>
-                <div class="inbox-ch-tabs">
-                  <button class="inbox-ch-tab active" id="cht-all"   onclick="setInboxChannel('all',this)">All</button>
-                  <button class="inbox-ch-tab"        id="cht-sms"   onclick="setInboxChannel('sms',this)">SMS</button>
-                  <button class="inbox-ch-tab"        id="cht-email" onclick="setInboxChannel('email',this)">Email</button>
-                </div>
+                <!-- channel tabs removed — SMS only for now -->
               </div>
               <div class="inbox-list-body" id="inbox-list-body">
                 <div class="loading"><div class="spinner"></div></div>
@@ -3880,7 +3876,7 @@
       return;
     }
     if (currentPage === 'drivers')   { openDriverEditor(null);   return; }
-    if (currentPage === 'inbox')     { _inboxChannel === 'email' ? openComposeEmail() : openComposeSMS(); return; }
+    if (currentPage === 'inbox')     { openComposeSMS(); return; }
     const map = { overview:'add-order', customers:'add-customer', orders:'add-order' };
     if (map[currentPage]) openModal(map[currentPage]);
   }
@@ -6528,15 +6524,10 @@ window.onload=()=>{window.print();};
     const el = document.getElementById('inbox-list-body');
     el.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
 
-    // Load SMS messages + email messages in parallel
-    const [{ data: msgs, error }, { data: emails }] = await Promise.all([
-      db.from('sms_messages')
-        .select('id, customer_id, direction, body, from_number, to_number, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, email_cache)')
-        .order('created_at', { ascending: false }),
-      db.from('email_messages')
-        .select('id, customer_id, direction, subject, body, from_email, to_email, created_at, customers(id, first_name_cache, last_name_cache, email_cache)')
-        .order('created_at', { ascending: false }),
-    ]);
+    // Load SMS messages only (email view removed for now)
+    const { data: msgs, error } = await db.from('sms_messages')
+      .select('id, customer_id, direction, body, from_number, to_number, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, email_cache)')
+      .order('created_at', { ascending: false });
 
     if (error) {
       el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--red);font-size:13px">Failed to load inbox</div>`;
@@ -6564,20 +6555,6 @@ window.onload=()=>{window.print();};
           phone, latest: m, unread: 0, channel: 'sms',
           conv_id: convRow?.id || null,
           db_status: convRow?.status || null,
-        };
-      }
-      if (m.direction === 'inbound') convMap[key].unread++;
-    });
-
-    // ── Build Email conversations ──
-    (emails || []).forEach(m => {
-      const emailAddr = m.direction === 'inbound' ? m.from_email : m.to_email;
-      const key = 'email:' + (m.customer_id || emailAddr);
-      if (!convMap[key]) {
-        convMap[key] = {
-          key, customer_id: m.customer_id, cust: m.customers,
-          email: emailAddr, latest: m, unread: 0, channel: 'email',
-          conv_id: null, db_status: null,
         };
       }
       if (m.direction === 'inbound') convMap[key].unread++;
@@ -6621,8 +6598,7 @@ window.onload=()=>{window.print();};
 
     let convs = _allConvs;
 
-    // Channel filter
-    if (_inboxChannel !== 'all') convs = convs.filter(c => c.channel === _inboxChannel);
+    // Channel filter (SMS only for now)
 
     // Search filter
     if (_inboxSearch) {
