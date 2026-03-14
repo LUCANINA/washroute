@@ -1824,8 +1824,16 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
 }
 
 async function handleSignOut() {
-  if (_orderSub) { db.removeChannel(_orderSub); _orderSub = null; }
-  await db.auth.signOut();
+  const btn = document.querySelector('.signout-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Signing out…'; }
+  try {
+    if (_orderSub) { db.removeChannel(_orderSub); _orderSub = null; }
+    await db.auth.signOut();
+  } catch (err) {
+    console.error('Sign-out error:', err);
+    toast('Sign-out failed — please try again');
+    if (btn) { btn.disabled = false; btn.textContent = 'Sign Out'; }
+  }
 }
 
 function showMagicLink() {
@@ -5184,6 +5192,7 @@ window.renderAccountPrefs = renderAccountPrefs;
 window.openSubPanel      = openSubPanel;
 window.closeSubPanel     = closeSubPanel;
 window.openPricingPanel  = openPricingPanel;
+window.toggleSameDay     = toggleSameDay;
 window.loadContactDetails  = loadContactDetails;
 window.saveContactInfo     = saveContactInfo;
 window.saveEmailChange     = saveEmailChange;
