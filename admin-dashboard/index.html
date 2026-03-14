@@ -2543,6 +2543,14 @@
         <input type="number" class="form-input" id="so-turnaround-days" value="1" min="0" max="14">
       </div>
     </div>
+    <!-- Same-day turnaround hours -->
+    <div class="so-row">
+      <div class="so-section" style="flex:1">
+        <div class="so-label">Same-day turnaround (hours)</div>
+        <input type="number" class="form-input" id="so-turnaround-hours" value="0" min="0" max="23" placeholder="0 = disabled">
+        <div style="font-size:11.5px;color:var(--gray-500);margin-top:4px;">0 = no same-day option. Set to min hours between pickup end and delivery start (e.g. 9 for AM routes).</div>
+      </div>
+    </div>
     <!-- Driver assignment now managed via Orders → Driver Schedule -->
     <!-- Stop Limit + Booking Cutoff -->
     <div class="so-row">
@@ -10964,6 +10972,7 @@ window.onload=()=>{window.print();};
     document.getElementById('so-window-end').value   = tmpl?.window_end?.slice(0,5)   || '10:00';
     document.getElementById('so-arrival-window').value = tmpl?.arrival_window_hours ?? 3;
     document.getElementById('so-turnaround-days').value = tmpl?.turnaround_days ?? 1;
+    document.getElementById('so-turnaround-hours').value = tmpl?.turnaround_hours ?? 0;
     document.getElementById('so-stop-limit').value = tmpl?.stop_limit || '';
     document.getElementById('so-booking-cutoff').value = tmpl?.booking_cutoff_minutes ?? 30;
     document.getElementById('so-service-type').value = tmpl?.service_type || 'pickup_delivery';
@@ -11043,6 +11052,7 @@ window.onload=()=>{window.print();};
       window_end:   document.getElementById('so-window-end').value   + ':00',
       arrival_window_hours: parseInt(document.getElementById('so-arrival-window').value) || 3,
       turnaround_days: parseInt(document.getElementById('so-turnaround-days').value) || 1,
+      turnaround_hours: parseInt(document.getElementById('so-turnaround-hours').value) || 0,
       stop_limit: document.getElementById('so-stop-limit').value ? parseInt(document.getElementById('so-stop-limit').value) : null,
       booking_cutoff_minutes: (() => { const v = parseInt(document.getElementById('so-booking-cutoff').value); return isNaN(v) ? 30 : v; })(),
       service_type: document.getElementById('so-service-type').value,

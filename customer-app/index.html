@@ -2127,7 +2127,7 @@ function restoreDraftFromSession() {
 }
 
 function startNewOrder() {
-  draft = { address: '', lat: null, lng: null, zoneId: null, addressId: null, deliveryAddressId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], deliveryDate: null, deliveryWindow: null, _deliveryOptions: [], _windowsForDate: null, recurring: '', prefs: {}, _addrComponents: null };
+  draft = { address: '', lat: null, lng: null, zoneId: null, addressId: null, deliveryAddressId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], deliveryDate: null, deliveryWindow: null, _deliveryOptions: [], _windowsForDate: null, recurring: '', prefs: {}, _addrComponents: null, isSameDay: false, _sameDaySurcharge: 0, _sameDayWindows: [] };
   orderStep = 0;
   calMonth  = new Date();
   // Reset address UI
@@ -2542,7 +2542,7 @@ function computeSubWindows(runDate, tmpl, routeId, routeName) {
     const slotStart = new Date(`${runDate}T${pad2(Math.floor(from/60))}:${pad2(from%60)}:00`).toISOString();
     const slotEnd   = new Date(`${runDate}T${pad2(Math.floor(to/60))}:${pad2(to%60)}:00`).toISOString();
     const label     = `${fmtHourMin(from)} – ${fmtHourMin(to)}`;
-    windows.push({ routeId, routeName, slotStart, slotEnd, label, icon: slotIcon(from), startMins: from, endMins: to, cutoffMins: cutoff });
+    windows.push({ routeId, routeName, slotStart, slotEnd, label, icon: slotIcon(from), startMins: from, endMins: to, cutoffMins: cutoff, turnaroundHours: tmpl.turnaround_hours || 0 });
   }
   return windows;
 }
@@ -2564,7 +2564,7 @@ async function fetchWindowsForDate(iso) {
 
   const { data: templates, error } = await db
     .from('route_templates')
-    .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes')
+    .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
     .eq('zone_id', draft.zoneId)
     .eq('is_active', true)
     .contains('schedule_days', [isoDay]);
@@ -2629,6 +2629,12 @@ async function renderSchedCard() {
   // Show delivery section whenever a pickup window is set (including auto-selected)
   if (draft.pickupWindow) {
     await _updateSchedDelivery();
+    // Check same-day availability and show/hide the upsell toggle
+    const sdWindows  = await _checkSameDayAvailable();
+    draft._sameDayWindows = sdWindows;
+    const sdSurcharge = sdWindows.length ? await _fetchSameDaySurcharge() : 0;
+    draft._sameDaySurcharge = sdSurcharge;
+    _renderSameDayToggle(sdWindows, sdSurcharge);
   }
 }
 
@@ -2756,11 +2762,14 @@ async function selectSchedPickupDate(iso) {
   if (expandEl) { expandEl.classList.remove('open'); expandEl.innerHTML = ''; }
   if (chevEl)   chevEl.classList.remove('open');
 
-  // New date resets window and delivery
-  draft.pickupDate     = iso;
-  draft.pickupWindow   = null;
-  draft.deliveryDate   = null;
-  draft.deliveryWindow = null;
+  // New date resets window, delivery, and same-day state
+  draft.pickupDate      = iso;
+  draft.pickupWindow    = null;
+  draft.deliveryDate    = null;
+  draft.deliveryWindow  = null;
+  draft.isSameDay       = false;
+  draft._sameDayWindows = [];
+  document.getElementById('same-day-toggle-card')?.remove();
 
   // Immediately clear the window label so no stale time shows during the async fetch
   const winValEl = document.getElementById('val-pickup-window');
@@ -2820,9 +2829,20 @@ async function selectSchedWindow(which, idx) {
   if (which === 'pickup') {
     draft.pickupWindow   = win;
     draft.deliveryWindow = null; // reset so delivery inherits pickup
+    draft.isSameDay      = false; // reset same-day when pickup changes
+    draft._sameDayWindows = [];
+    // Reset toggle visual if it exists
+    const chk = document.getElementById('same-day-chk');
+    if (chk) chk.checked = false;
     const valEl = document.getElementById('val-pickup-window');
     if (valEl) valEl.textContent = win.label;
     await _updateSchedDelivery();
+    // Check same-day availability and show/hide the upsell toggle
+    const sdWindows  = await _checkSameDayAvailable();
+    draft._sameDayWindows = sdWindows;
+    const sdSurcharge = sdWindows.length ? await _fetchSameDaySurcharge() : 0;
+    draft._sameDaySurcharge = sdSurcharge;
+    _renderSameDayToggle(sdWindows, sdSurcharge);
   } else {
     draft.deliveryWindow = win;
     const valEl = document.getElementById('val-delivery-window');
@@ -2832,6 +2852,18 @@ async function selectSchedWindow(which, idx) {
 
 // Compute delivery date, update delivery section display
 async function _updateSchedDelivery() {
+  // Same-day active: delivery is already locked to pickup date + PM window — don't recalculate
+  if (draft.isSameDay && draft._sameDayWindows.length) {
+    draft.deliveryDate   = draft.pickupDate;
+    draft._deliveryOptions = [draft.pickupDate];
+    const valDate = document.getElementById('val-delivery-date');
+    if (valDate) valDate.textContent = 'Tonight 🌙';
+    const valWin = document.getElementById('val-delivery-window');
+    if (valWin) valWin.textContent = draft._sameDayWindows[0].label;
+    const delSec = document.getElementById('sched-delivery-section');
+    if (delSec) delSec.style.display = '';
+    return;
+  }
   let turnaround   = 2;
   let deliveryDays = null;
   try {
@@ -2874,11 +2906,121 @@ async function _updateSchedDelivery() {
   if (delSec) delSec.style.display = '';
 }
 
+// ── SAME-DAY: check if same-day delivery is available for the current pickup window ──
+// Returns array of qualifying same-day delivery sub-windows (PM slots on same date
+// that start at least turnaroundHours after pickup window end). Empty = not available.
+async function _checkSameDayAvailable() {
+  const pw = draft.pickupWindow;
+  if (!pw || !pw.turnaroundHours || pw.turnaroundHours === 0) return [];
+  if (!draft.zoneId || !draft.pickupDate) return [];
+
+  // Earliest possible delivery = pickup window end + turnaround hours (UTC math is fine here
+  // because computeSubWindows also uses .toISOString() for slotStart, so all in UTC)
+  const earliestDeliveryMs = new Date(pw.slotEnd).getTime() + pw.turnaroundHours * 3600000;
+
+  // Fetch ALL templates for same zone + same day — we'll filter by window time below
+  const isoDay = (new Date(draft.pickupDate + 'T12:00:00').getDay() + 6) % 7;
+  const { data: templates } = await db
+    .from('route_templates')
+    .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
+    .eq('zone_id', draft.zoneId)
+    .eq('is_active', true)
+    .contains('schedule_days', [isoDay]);
+
+  if (!templates?.length) return [];
+
+  // Build sub-windows for the same pickup date and keep only those starting >= earliest delivery
+  const qualifying = [];
+  templates.forEach(tmpl => {
+    computeSubWindows(draft.pickupDate, tmpl, tmpl.id, tmpl.name).forEach(w => {
+      if (new Date(w.slotStart).getTime() >= earliestDeliveryMs && w.slotStart !== pw.slotStart) {
+        qualifying.push(w);
+      }
+    });
+  });
+  return qualifying.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
+}
+
+// Fetch same-day surcharge amount once and cache it
+let _sameDaySurchargeCache = null;
+async function _fetchSameDaySurcharge() {
+  if (_sameDaySurchargeCache !== null) return _sameDaySurchargeCache;
+  const { data } = await db.from('service_fees')
+    .select('amount')
+    .ilike('name', '%same%day%')
+    .eq('is_active', true)
+    .limit(1)
+    .single();
+  _sameDaySurchargeCache = parseFloat(data?.amount || 0);
+  return _sameDaySurchargeCache;
+}
+
+// Render or remove the same-day upsell toggle card (injected between pickup section and delivery)
+function _renderSameDayToggle(sameDayWindows, surcharge) {
+  // Remove any existing toggle card first
+  document.getElementById('same-day-toggle-card')?.remove();
+  if (!sameDayWindows?.length) return;
+
+  const firstWin   = sameDayWindows[0];
+  const surchargeLabel = surcharge > 0 ? `+$${surcharge.toFixed(2)}` : 'included';
+  const card = document.createElement('div');
+  card.id = 'same-day-toggle-card';
+  card.style.cssText = 'background:var(--gray-50);border:1.5px solid var(--gray-200);border-radius:12px;margin:12px 0 4px;overflow:hidden;';
+  card.innerHTML = `
+    <label style="display:flex;align-items:center;gap:14px;padding:14px 16px;cursor:pointer;-webkit-tap-highlight-color:transparent;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:14px;font-weight:600;color:var(--gray-900);">⚡ Want it back tonight?</div>
+        <div style="font-size:12px;color:var(--gray-500);margin-top:3px;">Delivery ${firstWin.label} &nbsp;·&nbsp; <span style="color:var(--accent);font-weight:600;">${surchargeLabel}</span></div>
+      </div>
+      <div style="position:relative;flex-shrink:0;width:44px;height:26px;">
+        <input type="checkbox" id="same-day-chk" onchange="toggleSameDay(this.checked)"
+          style="opacity:0;width:0;height:0;position:absolute;">
+        <span id="same-day-track" style="position:absolute;inset:0;border-radius:13px;background:var(--gray-300);transition:background .2s;"></span>
+        <span id="same-day-thumb" style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .2s;"></span>
+      </div>
+    </label>`;
+  // Insert before the delivery section
+  const deliverySec = document.getElementById('sched-delivery-section');
+  if (deliverySec) deliverySec.parentNode.insertBefore(card, deliverySec);
+}
+
+// Called when customer taps the same-day toggle
+function toggleSameDay(checked) {
+  // Update toggle visual
+  const track = document.getElementById('same-day-track');
+  const thumb = document.getElementById('same-day-thumb');
+  if (track) track.style.background = checked ? 'var(--accent)' : 'var(--gray-300)';
+  if (thumb) thumb.style.transform  = checked ? 'translateX(18px)' : 'translateX(0)';
+
+  draft.isSameDay = checked;
+
+  if (checked && draft._sameDayWindows.length) {
+    // Set delivery to same day, first qualifying PM window
+    draft.deliveryDate   = draft.pickupDate;
+    draft.deliveryWindow = draft._sameDayWindows[0];
+    draft._deliveryOptions = [draft.pickupDate];
+    // Update delivery display
+    const valDate = document.getElementById('val-delivery-date');
+    if (valDate) valDate.textContent = 'Tonight 🌙';
+    const valWin = document.getElementById('val-delivery-window');
+    if (valWin) valWin.textContent = draft._sameDayWindows[0].label;
+    const delSec = document.getElementById('sched-delivery-section');
+    if (delSec) delSec.style.display = '';
+  } else {
+    // Revert to standard next-day delivery
+    draft.isSameDay      = false;
+    draft.deliveryDate   = null;
+    draft.deliveryWindow = null;
+    _updateSchedDelivery();
+  }
+}
+
 function buildConfirmSummary() {
   const svc         = defaultService;
-  const bags        = draft.bags;
-  const addonsTotal = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
-  const total       = Math.round(((svc?.base_price||0)*bags + addonsTotal)*100)/100;
+  const bags           = draft.bags;
+  const addonsTotal    = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
+  const sameDayFee     = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
+  const total          = Math.round(((svc?.base_price||0)*bags + addonsTotal + sameDayFee)*100)/100;
 
   const pickup = new Date(draft.pickupDate + 'T12:00:00');
   const fmt    = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
@@ -2967,6 +3109,7 @@ function buildConfirmSummary() {
         <span class="d-val">${$m((svc?.base_price||0)*bags)}</span>
       </div>
       ${addonRows}
+      ${sameDayFee > 0 ? `<div class="d-row"><span class="d-key">⚡ Same-day surcharge</span><span class="d-val" style="color:var(--accent);font-weight:600;">+${$m(sameDayFee)}</span></div>` : ''}
       <div class="d-row" style="border-top:1.5px solid var(--gray-200);margin-top:4px;padding-top:14px">
         <span class="d-key" style="font-weight:700;font-size:15px">Estimated Total</span>
         <span class="d-val" style="font-size:17px;font-weight:800;color:var(--navy)">${$m(total)}</span>
@@ -3092,20 +3235,26 @@ async function placeOrder() {
     } catch (_) { /* continue — order will just have null address */ }
   }
 
-  const svc   = defaultService;
-  const bags  = draft.bags;
-  const addonsTotal = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
-  const total = Math.round(((svc?.base_price||0)*bags + addonsTotal)*100)/100;
+  const svc          = defaultService;
+  const bags         = draft.bags;
+  const addonsTotal  = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
+  const sameDayFee   = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
+  const total        = Math.round(((svc?.base_price||0)*bags + addonsTotal + sameDayFee)*100)/100;
 
   const pickupDate   = draft.pickupDate;
-  // Use customer's chosen delivery date; fall back to route-schedule calculation
-  const deliveryDate = draft.deliveryDate || await getNextDeliveryDay(pickupDate, draft.zoneId);
+  // Same-day: delivery is same day. Otherwise use chosen date or fallback calculation.
+  const deliveryDate = draft.isSameDay
+    ? pickupDate
+    : (draft.deliveryDate || await getNextDeliveryDay(pickupDate, draft.zoneId));
 
   // Build line_items from prefs
   const lineItems = [
     { type:'base', label:`${bags} bag${bags!==1?'s':''} × ${$m(svc?.base_price||0)}`, amount:(svc?.base_price||0)*bags },
     ...Object.values(draft.prefs).filter(p=>p.priceMod).map(p=>({ type:'addon', label:p.label, amount:p.priceMod }))
   ];
+  if (sameDayFee > 0) {
+    lineItems.push({ type: 'same_day_surcharge', label: 'Same-day surcharge', amount: sameDayFee });
+  }
 
   const pw = draft.pickupWindow;
   const { data: order, error } = await db.from('orders').insert({
@@ -3134,7 +3283,8 @@ async function placeOrder() {
       }
       return new Date(deliveryDate + 'T18:00:00').toISOString();
     })(),
-    pickup_run_id:        null,                   // auto-assigned below if a matching route run exists
+    pickup_run_id:        null,                   // auto-assigned by DB trigger
+    is_same_day:          draft.isSameDay || false,
     recurring_interval:   draft.recurring || null,
     line_items:           lineItems,
     special_instructions: draft.specialInstructions || null,
