@@ -11350,18 +11350,30 @@ window.onload=()=>{window.print();};
     }
 
     // ── Propagate to existing route runs ──
-    // If the changed day matches today or future dates, update routes.driver_id
-    // so the driver app picks up the change immediately (not just next time routes generate)
-    if (driverType === 'primary' || driverType === 'pickup') {
+    // When a route is reassigned, update the actual route run for today AND
+    // reset all stop-level driver overrides so stops inherit the new driver.
+    {
       const todayDate = today();
       const todayDow = (new Date().getDay() + 6) % 7; // 0=Mon..6=Sun
-      if (day === todayDow) {
-        // Update today's route run for this template
+      if (Number(day) === todayDow) {
         const { data: existing } = await db.from('routes')
-          .select('id').eq('template_id', templateId).eq('run_date', todayDate);
+          .select('id, driver_id')
+          .eq('template_id', templateId).eq('run_date', todayDate);
         if (existing?.length) {
+          const oldDriverId = existing[0].driver_id;
+          const routeIds = existing.map(r => r.id);
+          // Update route's default driver
           await db.from('routes').update({ driver_id: newDriverId || null })
-            .eq('template_id', templateId).eq('run_date', todayDate);
+            .in('id', routeIds);
+          // Reset stop-level driver overrides: stops assigned to the old driver
+          // (or NULL) should now inherit the new route driver
+          if (oldDriverId) {
+            await db.from('route_stops').update({ driver_id: null })
+              .in('route_id', routeIds)
+              .eq('driver_id', oldDriverId);
+          }
+          // Also clear any NULL stops that might exist (they already inherit, but
+          // ensure consistency)
         }
       }
     }
