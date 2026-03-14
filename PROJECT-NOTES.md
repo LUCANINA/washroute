@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 14, 2026*
+*Last updated: Mar 14, 2026 (session 2)*
 
 ---
 
@@ -103,6 +103,8 @@ Twilio credentials are embedded in the three Edge Functions (not yet moved to Su
 - Mark pickup / delivery complete with optional photo
 - **📲 On My Way button** → marks stop `en_route` + sends customer an SMS automatically
 - Undo complete (within same session)
+- Skip stop (with 12-second undo window, requires confirmation)
+- **Realtime stop reassignment:** If admin reassigns a stop to another driver while they're en route, the stop disappears from the original driver's app with a toast. If a stop is newly assigned to a driver, their app triggers a reload to pick it up.
 
 ---
 
@@ -255,7 +257,49 @@ There are actually **two separate hang points** that must both be covered:
 
 ---
 
+## Known Issues (found, not yet fixed)
+
+| # | Severity | Where | Symptom |
+|---|----------|-------|---------|
+| 1 | P2 Medium | `route_stops` | Stops stay `pending` when order reaches `delivered` or `pickup_failed` via admin — never auto-cleaned up |
+| 2 | P2 Medium | `route_stops` | Cancelled orders retain their pending route stops — drivers still see them until stops are manually cleared |
+| 3 | P2 Medium | admin `saveOrder()` | Admin-created orders always saved with `total_amount = 0` — intentional (price set at intake/weigh) but skews revenue reports. Estimated price shown in form is not persisted anywhere |
+| 4 | P2 Medium | `confirmReassignDriver` | ~~Order Schedule map/list stays stale after reassignment — **FIXED commit 7916331**~~ |
+| 5 | P2 Medium | processing kanban | Price recalculated at rack step doesn't match original order total — order #84 stored $164.95 but processing showed/saved $139.95. Needs investigation into how `total_amount` is recalculated at racking vs what the customer paid |
+| 6 | P3 Low | `route_stops` DB | `updated_at` column not refreshed on driver reassignment or status changes — stays at creation time. Needs a DB trigger `BEFORE UPDATE` |
+| 7 | P0 → Fixed | driver app realtime handler | ~~Stops reassigned to another driver stayed in original driver's list — **FIXED commit 7916331**~~ |
+| 8 | P3 Low | driver app "skip notification" | After clicking "Skip notification — I'm Already Here", the banner reads "Customer notified · Safe travels!" — unclear if SMS was actually sent or just confusing copy |
+
+---
+
 ## Session Log
+
+### Mar 14, 2026 (session 2) — End-to-end system test + bug fixes
+
+- **Full end-to-end test:** Placed a test order (admin → processing pipeline → driver skip). Ran full lifecycle: intake (weight entry) → cleaning → folding → rack (Berkeley) → ready_for_delivery → driver skip. Verified all DB state changes at each step.
+
+- **Processing queue realtime sync (commit `1e35b36`):** Replaced 30s poll with Supabase Realtime subscription + 5-min safety net. Both admin and Laundry Tech views now update instantly when any order moves through the kanban.
+
+- **Customer app fixes (commit `a9344c4`):**
+  - Sign-out button now disables with "Signing out…" text while the auth request is in flight (was silent with no feedback on slow connections).
+  - `window.toggleSameDay` was missing from the `window.` exposure block — would throw a `ReferenceError` on the pricing panel's same-day checkbox tap. Fixed.
+
+- **Bug #7 fixed — Driver app stop reassignment realtime (commit `7916331`):**
+  - Realtime UPDATE handler on `route_stops` now removes the stop from a driver's list if its `driver_id` is changed to someone else. Previously the stop just stayed (stale), meaning two drivers could potentially attempt the same delivery.
+  - Also handles the inverse: if a stop is newly assigned to this driver (idx < 0 but `driver_id === currentDriver.id`), triggers a `loadRouteData()` reload so it appears immediately.
+  - Toast shown: "This stop was reassigned to another driver."
+
+- **Bug #4 fixed — Order Schedule realtime (commit `7916331`):**
+  - `confirmReassignDriver()` had an `if (btn)` guard that silently skipped the `selectRunOnMap()` refresh call when no `.run-toggle-btn` could be found. Removed the guard — `selectRunOnMap` handles a null btn fine.
+  - Extended `startRouteStopListener` (the global route_stops subscription) to also call `selectRunOnMap(routeLiveRouteId, ...)` when any stop on the currently displayed route changes. Admin now sees driver skips, completions, and reassignments reflected on the Order Schedule map in real-time (~1–2s).
+
+- **Realtime latency measured:**
+  - Admin Orders list tab: ~2 seconds after a driver skip (Supabase Realtime on orders table).
+  - Driver app: immediate after own action; realtime from admin changes now instant.
+
+- **Bugs found (not yet fixed):** See Known Issues table. Key ones: route stops not cleaned up on cancel/deliver (P2), processing price discrepancy (P2), `route_stops.updated_at` not updated (P3), "Customer notified" banner after skip-notification (P3).
+
+- **Commits:** `1e35b36` (processing queue realtime), `a9344c4` (customer app sign-out + toggleSameDay), `7916331` (driver stop reassignment + Order Schedule realtime)
 
 ### Mar 14, 2026 — Same-day delivery + site-wide QA
 
