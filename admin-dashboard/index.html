@@ -117,10 +117,11 @@
     body.tech-mode .proc-card-name { font-size:18px; }
     body.tech-mode .proc-card-meta { font-size:14px; }
     body.tech-mode .proc-card-btn { padding:14px;font-size:15px; }
-    .tech-header { display:none;align-items:center;height:48px;padding:0 16px;background:var(--sidebar-bg);color:white;gap:12px; }
+    .tech-header { display:none;align-items:center;justify-content:center;height:48px;padding:0 16px;background:var(--sidebar-bg);color:white;position:relative; }
     .tech-header-logo { font-size:14px;font-weight:700;letter-spacing:-.01em; }
     .tech-header-logo span { font-weight:400;opacity:.5; }
-    .tech-header-user { margin-left:auto;font-size:13px;opacity:.7; }
+    .tech-header-right { position:absolute;right:16px;top:0;height:100%;display:flex;align-items:center;gap:10px; }
+    .tech-header-user { font-size:13px;opacity:.7; }
     .tech-header-logout { background:rgba(255,255,255,.12);border:none;color:white;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit; }
     .tech-header-logout:hover { background:rgba(255,255,255,.2); }
 
@@ -821,26 +822,20 @@
     .kanban-col:last-child { border-right:none; }
     .kanban-col-header { display:flex;align-items:center;gap:7px;padding:10px 14px;border-bottom:3px solid transparent;flex-shrink:0;font-weight:700;font-size:12.5px; }
     .kanban-col-body { flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px; }
-    .kcol-intake  { background:#eff6ff;border-bottom-color:#93c5fd; }
-    .kcol-clean   { background:#fefce8;border-bottom-color:#fde047; }
-    .kcol-folding { background:#f0fdf4;border-bottom-color:#86efac; }
-    .kcol-rack    { background:#faf5ff;border-bottom-color:#c4b5fd; }
-    .kbadge-intake  { background:#dbeafe;color:#1e40af; }
-    .kbadge-clean   { background:#fef9c3;color:#854d0e; }
-    .kbadge-folding { background:#d1fae5;color:#065f46; }
-    .kbadge-rack    { background:#ede9fe;color:#5b21b6; }
+    /* Kanban columns — neutral professional palette */
+    .kcol-intake  { background:var(--gray-50);border-bottom-color:var(--gray-400); }
+    .kcol-clean   { background:var(--gray-50);border-bottom-color:var(--gray-400); }
+    .kcol-folding { background:var(--gray-50);border-bottom-color:var(--gray-400); }
+    .kcol-rack    { background:var(--gray-50);border-bottom-color:var(--gray-400); }
+    .kbadge-intake, .kbadge-clean, .kbadge-folding, .kbadge-rack { background:var(--gray-200);color:var(--gray-700); }
     .proc-tab-badge { font-size:11px;font-weight:700;border-radius:20px;padding:2px 7px; }
     .kanban-drop-zone { transition:background .15s,outline .1s; }
-    .kcol-intake.drag-over  { background:rgba(147,197,253,.12) !important;outline:3px dashed #93c5fd;outline-offset:-4px; }
-    .kcol-clean.drag-over   { background:rgba(253,224,71,.1)  !important;outline:3px dashed #fde047;outline-offset:-4px; }
-    .kcol-folding.drag-over { background:rgba(16,185,129,.07)  !important;outline:3px dashed #10b981;outline-offset:-4px; }
-    .kcol-rack.drag-over    { background:rgba(139,92,246,.07)  !important;outline:3px dashed #8b5cf6;outline-offset:-4px; }
+    .kcol-intake.drag-over,
+    .kcol-clean.drag-over,
+    .kcol-folding.drag-over,
+    .kcol-rack.drag-over    { background:rgba(99,91,255,.04) !important;outline:2px dashed var(--accent);outline-offset:-4px; }
     .kanban-col-hint { font-size:10px;color:var(--gray-400);margin-left:auto;font-weight:400; }
-    .kanban-drop-label { font-size:10px;font-weight:700;margin-left:auto;opacity:0;transition:opacity .15s; }
-    .kcol-intake  .kanban-drop-label { color:#3b82f6; }
-    .kcol-clean   .kanban-drop-label { color:#ca8a04; }
-    .kcol-folding .kanban-drop-label { color:#10b981; }
-    .kcol-rack    .kanban-drop-label { color:#8b5cf6; }
+    .kanban-drop-label { font-size:10px;font-weight:700;margin-left:auto;opacity:0;transition:opacity .15s;color:var(--accent); }
     .kcol-intake.drag-over  .kanban-drop-label,
     .kcol-clean.drag-over   .kanban-drop-label,
     .kcol-folding.drag-over .kanban-drop-label,
@@ -952,8 +947,10 @@
   <!-- Tech mode header (visible only in tech-mode) -->
   <div class="tech-header">
     <img src="../assets/logo.png" alt="Family Laundry" style="height:24px;object-fit:contain;" onerror="this.outerHTML='<div class=\'tech-header-logo\'>Family <span>Laundry</span></div>'" />
-    <span class="tech-header-user" id="tech-header-name"></span>
-    <button class="tech-header-logout" onclick="handleSignOut()">Log Out</button>
+    <div class="tech-header-right">
+      <span class="tech-header-user" id="tech-header-name"></span>
+      <button class="tech-header-logout" onclick="handleSignOut()">Log Out</button>
+    </div>
   </div>
   <div class="layout">
     <nav class="sidebar">
@@ -1266,7 +1263,7 @@
                 ondragleave="onKanbanColLeave(event,'kanban-intake-col')"
                 ondrop="dropToIntake(event)">
                 <div class="kanban-col-header kcol-intake">
-                  ⚖️ Intake
+                  <span style="font-size:10px;font-weight:800;color:var(--gray-400);margin-right:2px">1</span> Intake
                   <span class="proc-tab-badge kbadge-intake" id="ptab-badge-intake">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
@@ -1280,7 +1277,7 @@
                 ondragleave="onKanbanColLeave(event,'kanban-clean-col')"
                 ondrop="dropToCleaning(event)">
                 <div class="kanban-col-header kcol-clean">
-                  🫧 Cleaning
+                  <span style="font-size:10px;font-weight:800;color:var(--gray-400);margin-right:2px">2</span> Cleaning
                   <span class="proc-tab-badge kbadge-clean" id="ptab-badge-clean">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
@@ -1294,7 +1291,7 @@
                 ondragleave="onKanbanColLeave(event,'kanban-fold-col')"
                 ondrop="dropToFolding(event)">
                 <div class="kanban-col-header kcol-folding">
-                  👕 Folding
+                  <span style="font-size:10px;font-weight:800;color:var(--gray-400);margin-right:2px">3</span> Folding
                   <span class="proc-tab-badge kbadge-folding" id="ptab-badge-folding">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
@@ -1308,7 +1305,7 @@
                 ondragleave="onKanbanColLeave(event,'kanban-rack-col')"
                 ondrop="dropToRack(event)">
                 <div class="kanban-col-header kcol-rack">
-                  🗂️ Rack
+                  <span style="font-size:10px;font-weight:800;color:var(--gray-400);margin-right:2px">4</span> Rack
                   <span class="proc-tab-badge kbadge-rack" id="ptab-badge-rack">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
@@ -13015,9 +13012,8 @@ window.onload=()=>{window.print();};
     if (!wrap) return;
     if (!allFoldOrders.length) {
       wrap.innerHTML = `<div class="empty" style="padding:48px 0">
-        <div class="empty-icon">👕</div>
-        <div class="empty-title">Nothing to fold yet</div>
-        <div class="empty-sub">Orders appear here once they've been weighed and loaded into the machines.</div>
+        <div class="empty-title" style="color:var(--gray-400)">Nothing to fold</div>
+        <div class="empty-sub">Orders move here after cleaning.</div>
       </div>`;
       return;
     }
@@ -13166,9 +13162,8 @@ window.onload=()=>{window.print();};
     if (!wrap) return;
     if (!allRackOrders.length) {
       wrap.innerHTML = `<div class="empty" style="padding:32px 0">
-        <div class="empty-icon">🗂️</div>
-        <div class="empty-title">Racks are empty</div>
-        <div class="empty-sub">Drag folded orders here to rack them.</div>
+        <div class="empty-title" style="color:var(--gray-400)">Racks empty</div>
+        <div class="empty-sub">Drag folded orders here to rack.</div>
       </div>`;
       return;
     }
@@ -13456,9 +13451,8 @@ window.onload=()=>{window.print();};
     if (!wrap) return;
     if (!allCleanOrders.length) {
       wrap.innerHTML = `<div class="empty" style="padding:48px 0">
-        <div class="empty-icon">🫧</div>
-        <div class="empty-title">Machines are empty</div>
-        <div class="empty-sub">Orders appear here after intake is saved.</div>
+        <div class="empty-title" style="color:var(--gray-400)">No active loads</div>
+        <div class="empty-sub">Orders move here after intake.</div>
       </div>`;
       return;
     }
@@ -13503,9 +13497,8 @@ window.onload=()=>{window.print();};
 
     if (!allProcOrders.length) {
       wrap.innerHTML = `<div class="empty" style="padding:48px 0">
-        <div class="empty-icon">📭</div>
-        <div class="empty-title">No orders to process</div>
-        <div class="empty-sub">Orders will appear here once drivers complete their pickups.</div>
+        <div class="empty-title" style="color:var(--gray-400)">No orders to process</div>
+        <div class="empty-sub">Orders appear here once drivers complete pickups.</div>
       </div>`;
       if (sub) sub.textContent = 'No orders waiting';
       return;
