@@ -3064,6 +3064,30 @@ async function placeOrder() {
 
   btn.disabled = true; btn.textContent = 'Placing order…';
 
+  // ── Save new address BEFORE creating the order so we have an address ID ──
+  if (!draft.addressId && draft._addrComponents && currentCustomer) {
+    try {
+      const { line1, city, state, zip, lat, lng } = draft._addrComponents;
+      if (line1 && city) {
+        const isFirstAddr = !_savedAddresses.length;
+        if (isFirstAddr) {
+          await db.from('addresses').update({ is_default: false }).eq('customer_id', currentCustomer.id);
+        }
+        const { data: newAddr } = await db.from('addresses').insert({
+          customer_id: currentCustomer.id,
+          label: 'Home',
+          line1, city, state: state || 'CA', zip: zip || '',
+          lat: lat || null, lng: lng || null,
+          is_default: isFirstAddr
+        }).select().single();
+        if (newAddr) {
+          draft.addressId = newAddr.id;
+          _savedAddresses = [..._savedAddresses, newAddr];
+        }
+      }
+    } catch (_) { /* continue — order will just have null address */ }
+  }
+
   const svc   = defaultService;
   const bags  = draft.bags;
   const addonsTotal = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
@@ -3188,32 +3212,7 @@ async function placeOrder() {
     }).catch(() => {});
   }
 
-  // ── Auto-save address for logged-in customers who typed a new address ──
-  // (best-effort, runs in background so it never delays the success screen)
-  if (currentCustomer && !draft.addressId && draft._addrComponents) {
-    (async () => {
-      try {
-        const { line1, city, state, zip, lat, lng } = draft._addrComponents;
-        if (line1 && city && zip) {
-          const isFirstAddr = !_savedAddresses.length;
-          if (isFirstAddr) {
-            // Clear any stale defaults (shouldn't exist, but safety check)
-            await db.from('addresses').update({ is_default: false }).eq('customer_id', currentCustomer.id);
-          }
-          const { data: newAddr, error: addrErr } = await db.from('addresses').insert({
-            customer_id: currentCustomer.id,
-            label:       'Home',
-            line1, city, state: state || 'CA', zip,
-            lat: lat || null, lng: lng || null,
-            is_default: isFirstAddr
-          }).select().single();
-          if (!addrErr && newAddr) {
-            _savedAddresses = [..._savedAddresses, newAddr]; // update cache
-          }
-        }
-      } catch(_) { /* best-effort — never block the success screen */ }
-    })();
-  }
+  // Address auto-save now happens BEFORE order creation (above) so the address ID is set on the order
 
   // Success screen
   const longDate  = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
