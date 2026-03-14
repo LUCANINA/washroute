@@ -441,9 +441,7 @@
     .inbox-search-icon { position: absolute; left: 24px; top: 50%; transform: translateY(-50%); color: var(--gray-400); pointer-events: none; }
     .inbox-search { width: 100%; padding: 7px 12px 7px 32px; border: 1.5px solid var(--gray-200); border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; background: var(--gray-50); }
     .inbox-search:focus { border-color: var(--accent); background: white; }
-    .inbox-ch-tabs { display: flex; padding: 8px 14px 0; gap: 2px; }
-    .inbox-ch-tab { flex: 1; text-align: center; padding: 6px 4px; font-size: 12px; font-weight: 600; color: var(--gray-500); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; }
-    .inbox-ch-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    /* inbox-ch-tabs CSS removed — SMS only */
 
     /* Scrollable list body */
     .inbox-list-body { flex: 1; overflow-y: auto; }
@@ -486,7 +484,7 @@
     /* Channel + unread badges */
     .ch-badge { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
     .ch-sms   { background: #dbeafe; color: #1d4ed8; }
-    .ch-email { background: #ede9fe; color: #6d28d9; }
+    /* .ch-email removed — SMS only */
     .unread-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 
     /* Thread panel */
@@ -2065,36 +2063,7 @@
 </div>
 
 <!-- Email Compose Modal -->
-<div id="modal-email-compose" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1050;align-items:center;justify-content:center;">
-  <div class="modal" style="max-width:480px;width:90%">
-    <div class="modal-header">
-      <div class="modal-title">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="vertical-align:-2px;margin-right:6px"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-        Compose Email
-      </div>
-      <button class="modal-close" onclick="closeEmailCompose()"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-    </div>
-    <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
-      <div>
-        <label class="form-label">To (email address)</label>
-        <input type="email" id="email-compose-to" class="form-input" placeholder="customer@example.com" />
-      </div>
-      <div>
-        <label class="form-label">Subject</label>
-        <input type="text" id="email-compose-subject" class="form-input" placeholder="Subject…" />
-      </div>
-      <div>
-        <label class="form-label">Message</label>
-        <textarea id="email-compose-body" class="form-input" rows="5" placeholder="Type your message…"
-          style="resize:vertical;font-family:inherit;font-size:13.5px;line-height:1.5"></textarea>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeEmailCompose()">Cancel</button>
-      <button class="btn btn-primary" id="email-send-btn" onclick="sendComposeEmail()">Send Email</button>
-    </div>
-  </div>
-</div>
+<!-- Email compose modal removed — SMS only for now -->
 
 <!-- Reschedule Route modal (per-order pickup or delivery) -->
 <div id="reassign-run-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
@@ -6486,7 +6455,7 @@ window.onload=()=>{window.print();};
   // ── INBOX ──────────────────────────────────────────────────
   let currentConv          = null;   // { key, customer_id, phone, channel, conv_id, status }
   let _allConvs            = [];     // cached conversation list
-  let _inboxChannel        = 'all';  // channel filter
+  // _inboxChannel removed — SMS only
   let _inboxSearch         = '';     // search filter
 
   // ── helpers ──
@@ -6650,32 +6619,25 @@ window.onload=()=>{window.print();};
   }
 
   function renderConvItem(c) {
-    const isEmail = c.channel === 'email';
-    const identifier = isEmail ? (c.email || '') : (c.phone || '');
+    const identifier = c.phone || '';
     const name = c.cust
       ? `${c.cust.first_name_cache||''} ${c.cust.last_name_cache||''}`.trim() || identifier
       : identifier;
     const arrow = c.latest.direction === 'inbound' ? '↓ ' : '↑ ';
-    const preview = isEmail
-      ? (c.latest.subject ? `[${c.latest.subject}] ` : '') + (c.latest.body || '')
-      : (c.latest.body || '');
+    const preview = c.latest.body || '';
     const isActive = currentConv && currentConv.key === c.key;
     const unreadDot = c.unread > 0 ? `<span class="unread-dot"></span>` : '';
     const safeKey = c.key.replace(/'/g, "\\'");
-    const clickFn = isEmail
-      ? `openEmailConversation('${safeKey}')`
-      : `openSMSConversation('${c.customer_id||''}','${c.phone||''}',this)`;
+    const clickFn = `openSMSConversation('${c.customer_id||''}','${c.phone||''}',this)`;
     const resolveFn  = `quickToggleResolve('${safeKey}','${c.customer_id||''}','${c.phone||''}','resolved')`;
     const reopenFn   = `quickToggleResolve('${safeKey}','${c.customer_id||''}','${c.phone||''}','open')`;
-    const issueFn    = isEmail
-      ? `openEmailConversation('${safeKey}');setTimeout(()=>showIssueForm(),100)`
-      : `openSMSConversation('${c.customer_id||''}','${c.phone||''}',this.closest('.inbox-item'));setTimeout(()=>showIssueForm(),100)`;
+    const issueFn    = `openSMSConversation('${c.customer_id||''}','${c.phone||''}',this.closest('.inbox-item'));setTimeout(()=>showIssueForm(),100)`;
     return `<div class="inbox-item${isActive ? ' active' : ''}" data-conv-key="${esc(c.key)}"
       onclick="${clickFn}">
       <div class="inbox-item-header">
         <div class="inbox-item-name">
           ${unreadDot}${esc(name)}
-          <span class="ch-badge ch-${c.channel}">${c.channel.toUpperCase()}</span>
+          <span class="ch-badge ch-sms">SMS</span>
         </div>
         <div class="inbox-item-time">${inboxTimeAgo(c.latest.created_at)}</div>
       </div>
@@ -6702,12 +6664,7 @@ window.onload=()=>{window.print();};
     renderInboxList();
   }
 
-  function setInboxChannel(ch, btn) {
-    _inboxChannel = ch;
-    document.querySelectorAll('.inbox-ch-tab').forEach(b => b.classList.remove('active'));
-    if (btn) btn.classList.add('active');
-    renderInboxList();
-  }
+  // setInboxChannel removed — SMS only
 
   // ── ORDERS PAGE: TOGGLE BETWEEN ORDERS / ORDER SCHEDULE ──
   function switchOrdersView(view) {
@@ -6872,108 +6829,7 @@ window.onload=()=>{window.print();};
     if (!silent) setTimeout(() => { const mt = document.getElementById('msg-thread'); if (mt) mt.scrollTop = mt.scrollHeight; }, 50);
   }
 
-  // ── openEmailConversation ──
-  async function openEmailConversation(key) {
-    document.querySelectorAll('.inbox-item').forEach(i => i.classList.remove('active'));
-    const itemEl = document.querySelector(`[data-conv-key="${key.replace(/"/g,'&quot;')}"]`);
-    if (itemEl) itemEl.classList.add('active');
-
-    const convMeta = _allConvs.find(c => c.key === key)
-      || { key, customer_id: null, email: '', channel: 'email', status: 'open', conv_id: null };
-    currentConv = convMeta;
-
-    const emailAddr  = convMeta.email || '';
-    const custId     = convMeta.customer_id || null;
-    const cust       = convMeta.cust;
-    const name       = cust
-      ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || emailAddr
-      : emailAddr;
-
-    // Load messages from DB
-    let query = db.from('email_messages')
-      .select('id, customer_id, direction, subject, body, from_email, to_email, created_at')
-      .order('created_at', { ascending: true });
-    if (custId) query = query.eq('customer_id', custId);
-    else        query = query.or(`from_email.eq.${emailAddr},to_email.eq.${emailAddr}`);
-    const { data: emails } = await query;
-
-    const isResolved   = convMeta.status === 'resolved';
-    const resolveLabel = isResolved ? '↩ Reopen' : '✓ Resolve';
-    const resolveClass = isResolved ? 'resolved' : '';
-    const lastSubject  = emails?.length ? (emails[emails.length - 1].subject || '') : '';
-    const replySubject = lastSubject.startsWith('Re:') ? lastSubject : (lastSubject ? 'Re: ' + lastSubject : '');
-
-    document.getElementById('inbox-thread').innerHTML = `
-      <div class="inbox-thread-header">
-        <div class="inbox-thread-header-top">
-          <div>
-            <div class="inbox-thread-name">${esc(name)}</div>
-            <div class="inbox-thread-meta">${esc(emailAddr)} · <span class="ch-badge ch-email">EMAIL</span></div>
-          </div>
-          <div class="inbox-thread-btns">
-            <button class="btn-resolve ${resolveClass}" onclick="toggleResolve()" id="btn-resolve-thread">${resolveLabel}</button>
-          </div>
-        </div>
-      </div>
-      <div class="inbox-messages" id="msg-thread">
-        ${(emails||[]).map(m => {
-          const isOut = m.direction === 'outbound';
-          const subjectLine = m.subject ? `<div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:3px">${esc(m.subject)}</div>` : '';
-          return `<div style="display:flex;flex-direction:column;align-items:${isOut?'flex-end':'flex-start'}">
-            ${subjectLine}
-            <div class="message-bubble message-${m.direction}" style="white-space:pre-wrap">${esc(m.body)}</div>
-            <div class="msg-ts">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}</div>
-          </div>`;
-        }).join('')}
-        ${(!emails||emails.length===0) ? '<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:20px">No emails yet</div>' : ''}
-      </div>
-      <div class="inbox-composer" style="flex-direction:column;gap:6px;padding:12px 16px">
-        <input type="text" id="email-reply-subject" class="form-input" style="font-size:13px"
-          placeholder="Subject…" value="${esc(replySubject)}">
-        <div style="display:flex;gap:8px;align-items:flex-end">
-          <textarea class="inbox-composer-input" id="email-compose-input" rows="2"
-            placeholder="Type a reply…"
-            oninput="this.style.height=&quot;auto&quot;;this.style.height=this.scrollHeight+&quot;px&quot;"
-            onkeydown="if(event.key===&quot;Enter&quot;&amp;&amp;(event.metaKey||event.ctrlKey)){event.preventDefault();sendEmailReply()}"></textarea>
-          <button class="btn btn-primary" id="email-reply-btn" onclick="sendEmailReply()">Send</button>
-        </div>
-        <div style="font-size:11px;color:var(--gray-400)">⌘ Enter to send</div>
-      </div>`;
-
-    setTimeout(() => { const mt = document.getElementById('msg-thread'); if (mt) mt.scrollTop = mt.scrollHeight; }, 50);
-  }
-
-  // ── sendEmailReply ──
-  async function sendEmailReply() {
-    const subjectEl = document.getElementById('email-reply-subject');
-    const bodyEl    = document.getElementById('email-compose-input');
-    const subject   = (subjectEl?.value || '').trim();
-    const body      = (bodyEl?.value || '').trim();
-    if (!body) return;
-    const toEmail   = currentConv?.email || '';
-    if (!toEmail) { showToast('No email address for this conversation', 'error'); return; }
-
-    const btn = document.getElementById('email-reply-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-    if (bodyEl) { bodyEl.value = ''; bodyEl.style.height = 'auto'; }
-
-    try {
-      const res = await fetch(`${SUPA_URL}/functions/v1/send-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
-        body: JSON.stringify({ customer_id: currentConv?.customer_id || null, to_email: toEmail, subject, body }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Send failed');
-      showToast('Email sent ✓', 'success');
-      openEmailConversation(currentConv.key);
-      loadInbox();
-    } catch (err) {
-      showToast('Failed to send: ' + err.message, 'error');
-      if (bodyEl) bodyEl.value = body;
-    }
-    if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
-  }
+  // Email conversation/reply functions removed — SMS only for now
 
   // ── _upsertConvStatus: single-operation resolve/reopen helper ──
   // Avoids the two-step get-then-update race. Tries UPDATE first (fast path),
@@ -7102,47 +6958,7 @@ window.onload=()=>{window.print();};
     if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
   }
 
-  // ── openComposeEmail / closeEmailCompose / sendComposeEmail ──
-  function openComposeEmail() {
-    document.getElementById('email-compose-to').value      = '';
-    document.getElementById('email-compose-subject').value = '';
-    document.getElementById('email-compose-body').value    = '';
-    const btn = document.getElementById('email-send-btn');
-    if (btn) { btn.disabled = false; btn.textContent = 'Send Email'; }
-    document.getElementById('modal-email-compose').style.display = 'flex';
-    setTimeout(() => document.getElementById('email-compose-to').focus(), 50);
-  }
-
-  function closeEmailCompose() {
-    document.getElementById('modal-email-compose').style.display = 'none';
-  }
-
-  async function sendComposeEmail() {
-    const toEmail = (document.getElementById('email-compose-to')?.value    || '').trim();
-    const subject = (document.getElementById('email-compose-subject')?.value || '').trim();
-    const body    = (document.getElementById('email-compose-body')?.value    || '').trim();
-    if (!toEmail) { showToast('Please enter a recipient email address', 'error'); return; }
-    if (!body)    { showToast('Message cannot be empty', 'error'); return; }
-
-    const btn = document.getElementById('email-send-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-
-    try {
-      const res = await fetch(`${SUPA_URL}/functions/v1/send-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
-        body: JSON.stringify({ customer_id: null, to_email: toEmail, subject, body }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Send failed');
-      showToast('Email sent ✓', 'success');
-      closeEmailCompose();
-      if (currentPage === 'inbox') loadInbox();
-    } catch (err) {
-      showToast('Failed to send: ' + err.message, 'error');
-    }
-    if (btn) { btn.disabled = false; btn.textContent = 'Send Email'; }
-  }
+  // Email compose functions removed — SMS only for now
 
   // ── openComposeSMS ──
   function openComposeSMS() {
@@ -7190,12 +7006,16 @@ window.onload=()=>{window.print();};
 
   function smsComposePickCustomer(name, phone) {
     document.getElementById('sms-modal-search').value = name;
-    document.getElementById('sms-modal-to').value = phone;
     document.getElementById('sms-compose-dropdown').style.display = 'none';
-    if (phone) {
-      document.getElementById('sms-compose-selected').textContent = phone;
-      document.getElementById('sms-compose-selected').style.display = 'block';
+    if (!phone) {
+      showToast('This customer has no phone number on file', 'error');
+      document.getElementById('sms-modal-to').value = '';
+      document.getElementById('sms-compose-selected').style.display = 'none';
+      return;
     }
+    document.getElementById('sms-modal-to').value = phone;
+    document.getElementById('sms-compose-selected').textContent = phone;
+    document.getElementById('sms-compose-selected').style.display = 'block';
     document.getElementById('sms-compose-body').focus();
   }
 

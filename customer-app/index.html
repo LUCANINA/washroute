@@ -3073,9 +3073,13 @@ async function placeOrder() {
         if (isFirstAddr) {
           await db.from('addresses').update({ is_default: false }).eq('customer_id', currentCustomer.id);
         }
+        const existingLabels = _savedAddresses.map(a => (a.label||'').toLowerCase());
+        const autoLabel = !existingLabels.includes('home') ? 'Home'
+          : !existingLabels.includes('work') ? 'Work'
+          : `Address ${_savedAddresses.length + 1}`;
         const { data: newAddr } = await db.from('addresses').insert({
           customer_id: currentCustomer.id,
-          label: 'Home',
+          label: autoLabel,
           line1, city, state: state || 'CA', zip: zip || '',
           lat: lat || null, lng: lng || null,
           is_default: isFirstAddr

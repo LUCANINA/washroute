@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 12, 2026*
+*Last updated: Mar 13, 2026*
 
 ---
 
@@ -295,6 +295,11 @@ There are actually **two separate hang points** that must both be covered:
 
 - **QA pass:** No High/Medium issues. Dead code from email removal noted for future cleanup. SMS compose search handles XSS correctly via `esc()`.
 
+- **Low-priority QA cleanup (post-QA):**
+  - Dead email code removed from admin dashboard — stripped leftover CSS (`.inbox-ch-tabs`, `.inbox-ch-tab`, `.ch-email`), email compose modal HTML, and 6 orphaned JS functions (`setInboxChannel`, `openComposeEmail`, `closeEmailCompose`, `sendComposeEmail`, `openEmailConversation`, `sendEmailReply`). Simplified `renderConvItem()` to remove email branching.
+  - SMS compose: added "no phone on file" toast warning when picking a customer with no phone number, preventing silent failure.
+  - Customer app: smart address auto-labeling — new addresses now get "Home" → "Work" → "Address N" instead of always "Home", preventing duplicate labels.
+
 ### Mar 13, 2026 (session 1) — System simplification + live GPS tracking
 
 - **Live GPS driver tracking (end-to-end):**
@@ -498,6 +503,7 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
+(pending)  Low-priority QA cleanup: dead email code, no-phone warning, smart address labels
 57e0475  Fix new addresses not being saved on customer app orders
 410a257  Add customer search to SMS compose modal
 09605c0  Remove email view from Inbox — SMS only for now
