@@ -822,18 +822,21 @@
     .kanban-col:last-child { border-right:none; }
     .kanban-col-header { display:flex;align-items:center;gap:7px;padding:10px 14px;border-bottom:3px solid transparent;flex-shrink:0;font-weight:700;font-size:12.5px; }
     .kanban-col-body { flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px; }
-    /* Kanban columns — neutral professional palette */
-    .kcol-intake  { background:var(--gray-50);border-bottom-color:var(--gray-400); }
-    .kcol-clean   { background:var(--gray-50);border-bottom-color:var(--gray-400); }
-    .kcol-folding { background:var(--gray-50);border-bottom-color:var(--gray-400); }
-    .kcol-rack    { background:var(--gray-50);border-bottom-color:var(--gray-400); }
-    .kbadge-intake, .kbadge-clean, .kbadge-folding, .kbadge-rack { background:var(--gray-200);color:var(--gray-700); }
+    /* Kanban columns — subtle tinted backgrounds */
+    .kcol-intake  { background:#f8f9fb;border-bottom-color:#94a3b8; }
+    .kcol-clean   { background:#f6f9fb;border-bottom-color:#7dacbf; }
+    .kcol-folding { background:#f8f9f6;border-bottom-color:#9aab7f; }
+    .kcol-rack    { background:#f9f8fb;border-bottom-color:#9b8fc2; }
+    .kbadge-intake  { background:#e8ecf0;color:#475569; }
+    .kbadge-clean   { background:#e2edf2;color:#3b6b7d; }
+    .kbadge-folding { background:#eaf0e4;color:#556b3e; }
+    .kbadge-rack    { background:#ece8f4;color:#5b4f8a; }
     .proc-tab-badge { font-size:11px;font-weight:700;border-radius:20px;padding:2px 7px; }
     .kanban-drop-zone { transition:background .15s,outline .1s; }
-    .kcol-intake.drag-over,
-    .kcol-clean.drag-over,
-    .kcol-folding.drag-over,
-    .kcol-rack.drag-over    { background:rgba(99,91,255,.04) !important;outline:2px dashed var(--accent);outline-offset:-4px; }
+    .kcol-intake.drag-over  { background:rgba(148,163,184,.08) !important;outline:2px dashed #94a3b8;outline-offset:-4px; }
+    .kcol-clean.drag-over   { background:rgba(125,172,191,.08) !important;outline:2px dashed #7dacbf;outline-offset:-4px; }
+    .kcol-folding.drag-over { background:rgba(154,171,127,.08) !important;outline:2px dashed #9aab7f;outline-offset:-4px; }
+    .kcol-rack.drag-over    { background:rgba(155,143,194,.08) !important;outline:2px dashed #9b8fc2;outline-offset:-4px; }
     .kanban-col-hint { font-size:10px;color:var(--gray-400);margin-left:auto;font-weight:400; }
     .kanban-drop-label { font-size:10px;font-weight:700;margin-left:auto;opacity:0;transition:opacity .15s;color:var(--accent); }
     .kcol-intake.drag-over  .kanban-drop-label,
