@@ -13368,12 +13368,39 @@ window.onload=()=>{window.print();};
   // ── PROCESSING ──
   let allProcOrders = [];
   let _procPollTimer = null;
+  let _procSub = null;
+  const _PROC_STATUSES = ['picked_up', 'processing', 'folding', 'ready_for_delivery'];
+
   function startProcPoll() {
     stopProcPoll();
-    _procPollTimer = setInterval(() => loadProcessing(), 30000); // refresh every 30 s
+    // 5-min safety-net poll (catches anything realtime might miss)
+    _procPollTimer = setInterval(() => loadProcessing(), 300000);
+    // Realtime subscription — fires immediately on any relevant order change
+    _procSub = db.channel('proc-orders-live')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, payload => {
+        if (currentPage !== 'processing') return;
+        const newStatus = payload.new?.status;
+        const orderId   = payload.new?.id;
+        const wasTracked = orderId && [
+          ...(allProcOrders || []),
+          ...(allCleanOrders || []),
+          ...(allFoldOrders  || []),
+          ...(allRackOrders  || []),
+        ].some(o => o.id === orderId);
+        if (_PROC_STATUSES.includes(newStatus) || wasTracked) {
+          loadProcessing();
+        }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, payload => {
+        if (currentPage !== 'processing') return;
+        if (payload.new?.status === 'picked_up') loadProcessing();
+      })
+      .subscribe();
   }
+
   function stopProcPoll() {
     if (_procPollTimer) { clearInterval(_procPollTimer); _procPollTimer = null; }
+    if (_procSub) { db.removeChannel(_procSub); _procSub = null; }
   }
   let procActiveOrder = null, procSvc = null;
   let procBags = 1, procWeight = '', procAddons = {}, procNotes = '';
