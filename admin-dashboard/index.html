@@ -942,17 +942,14 @@
       <div id="nav-customers" class="nav-item" onclick="showPage('customers',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
         Customers
-        <span class="nav-badge" id="badge-customers">0</span>
       </div>
       <div id="nav-orders" class="nav-item" onclick="showPage('orders',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
         Orders
-        <span class="nav-badge" id="badge-orders">0</span>
       </div>
       <div id="nav-processing" class="nav-item" onclick="showPage('processing',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6l9-4 9 4v12l-9 4-9-4V6z"/><polyline points="3 6 12 10 21 6"/><line x1="12" y1="10" x2="12" y2="22"/></svg>
         Processing
-        <span class="nav-badge" id="badge-processing">0</span>
       </div>
       <div id="nav-inbox" class="nav-item" onclick="showPage('inbox',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
@@ -3987,9 +3984,7 @@
     document.getElementById('stat-today-revenue').textContent = fmtMoney(todayRevenue);
     document.getElementById('stat-today-revenue-sub').textContent = todayCount ? `avg ${fmtMoney(todayRevenue/(todayCount||1))} per order` : 'No pickups today';
 
-    // Keep nav badges up to date
-    document.getElementById('badge-customers').textContent = custCount ?? 0;
-    document.getElementById('badge-orders').textContent    = activeOrders?.length ?? 0;
+    // Nav badges removed (only inbox badge remains)
 
     loadNewCustomers();
     loadRecentOrders();
