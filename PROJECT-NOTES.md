@@ -270,7 +270,32 @@ There are actually **two separate hang points** that must both be covered:
 - **Admin login timeout fix (root cause solved):** When a cached session existed in localStorage, Supabase fired `INITIAL_SESSION` + `TOKEN_REFRESHED` on page load. These background operations raced against the user's manual `signInWithPassword` call and caused the 30s safety timer to fire ("Connection timed out"). Fix: on a fresh tab/window load, clear localStorage before initialising Supabase so there's no cached session to trigger the race. `sessionStorage` is used to distinguish a fresh load (clear localStorage) from a page refresh within the same tab (keep the session). Outcome: no timeout on fresh visits, no logout on refresh. sessionStorage flag set on successful login, cleared on logout.
 - **Admin logout-on-refresh fix (round 2):** Supabase v2 can fire `INITIAL_SESSION` with `session = null` when the access token is expired but the refresh token is still valid (e.g. once per hour). The previous code called `showLoginScreen()` immediately on any null session, removing the `sessionStorage` key and flashing the login screen before `TOKEN_REFRESHED` arrived with a fresh token. Fix: `SIGNED_OUT` is the only event that definitively ends a session — show login immediately only for that event. For any other null-session event (`INITIAL_SESSION` null, etc.), start a 2-second fallback timer; if `TOKEN_REFRESHED` arrives with a valid session first, the timer is cancelled and the app shows normally. Result: no login-screen flash on token refresh, and users stay logged in across refreshes.
 
-### Mar 13, 2026 — System simplification + live GPS tracking
+### Mar 13, 2026 (session 2) — Order Schedule polish, Inbox cleanup, address fix
+
+- **Reassignment tags on Order Schedule:** Purple "→ DriverName" pill tag appears next to any stop that's been reassigned to a different driver than the route's default. Uses `route_stops.driver_id` vs `routeLiveDefaultDriverId`.
+
+- **Driver name display on Order Schedule:**
+  - Route stop list header shows "DriverName driving" above the stops
+  - All Routes group headers show "· DriverName" next to zone/slot label
+  - `driver_id` now loaded in the routes query for `loadDailyRuns()`
+
+- **Nav sidebar badges cleaned up:** Removed counters from Customers, Orders, and Processing. Only the Inbox badge (red, unread count) remains — it's the only actionable one.
+
+- **Inbox: email view removed:** Stripped email fetch, email conversation grouping, and channel filter tabs (All/SMS/Email). Inbox is now SMS-only. "+" button always opens SMS compose. Email can be re-added later.
+
+- **SMS compose: customer search:** New search-by-name input above the phone number field. Type a name → dropdown shows matching customers → pick one to auto-fill phone. Manual phone entry still works.
+
+- **Google Maps API fix (customer app):** Address autocomplete and geocoding were silently failing — the Places API and Geocoding API weren't enabled in Google Cloud Console. No code change needed; David enabled the APIs and it started working.
+
+- **Customer app: new address not saved on orders (bug fix):**
+  - When a customer typed a new address (not selecting a saved one), `draft.addressId` stayed null because the address was only saved to the DB *after* the order was created
+  - The order was inserted with `pickup_address_id: null`, so it showed the old default address
+  - Fix: new address is now saved to the `addresses` table BEFORE creating the order, so the address ID is available for the insert
+  - Also patched order #84 in the DB (was missing its Berkeley High School address)
+
+- **QA pass:** No High/Medium issues. Dead code from email removal noted for future cleanup. SMS compose search handles XSS correctly via `esc()`.
+
+### Mar 13, 2026 (session 1) — System simplification + live GPS tracking
 
 - **Live GPS driver tracking (end-to-end):**
   - New `driver_locations` table (one row per driver, UPSERT pattern, Realtime-enabled)
@@ -473,6 +498,12 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
+57e0475  Fix new addresses not being saved on customer app orders
+410a257  Add customer search to SMS compose modal
+09605c0  Remove email view from Inbox — SMS only for now
+dbbe34c  Remove nav sidebar badges except Inbox
+0046f69  Add reassignment tags and driver name display to Order Schedule
+c34d575  Fix driver message compose bar hidden behind bottom nav
 07a0cb0  Fix XSS: HTML-escape routing_error in order detail panel
 fc94f6c  Simplify system: single driver model, status sync, routing errors
 5661355  Remove Default Driver — Driver Schedule is sole source of truth
