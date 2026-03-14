@@ -517,7 +517,7 @@
 
     .msg-compose {
       padding: 10px 14px;
-      padding-bottom: calc(10px + env(safe-area-inset-bottom));
+      padding-bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom));
       background: var(--white); border-top: 1px solid var(--border);
       display: flex; gap: 10px; align-items: flex-end; flex-shrink: 0;
     }
@@ -796,7 +796,7 @@
 <div class="screen" id="screen-messages">
   <div class="msg-hdr">
     <div class="msg-hdr-title">Messages</div>
-    <div class="msg-hdr-sub">From the WashRoute team</div>
+    <div class="msg-hdr-sub">Chat with the WashRoute team</div>
   </div>
   <div class="msg-thread" id="msg-thread"></div>
   <div class="msg-compose">
@@ -2345,7 +2345,7 @@ function renderMessages() {
     thread.innerHTML = `<div class="msg-empty">
       <div class="msg-empty-icon">${ICONS.msg}</div>
       <div style="font-size:18px;font-weight:800;margin-bottom:8px">No Messages Yet</div>
-      <div style="font-size:14px;color:var(--muted);line-height:1.6">The team will send important updates here. You can reply directly from this screen.</div>
+      <div style="font-size:14px;color:var(--muted);line-height:1.6">Need help or have a question? Send a message below and the team will respond.</div>
     </div>`;
     return;
   }
