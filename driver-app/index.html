@@ -1205,10 +1205,13 @@ async function loadDriverData() {
   const myRouteIds = allRoutesForToday.map(r => r.id); // ALL today's routes (visible + hidden)
   if (todayRoutes.length > 0) {
     const routeIds = todayRoutes.map(r => r.id);
+    // Include stops explicitly assigned to this driver OR stops with NULL driver_id
+    // (NULL = inherit from route's default driver, which is this driver since we
+    //  already filtered routes by driver_id above)
     const { data: rs } = await db.from('route_stops')
       .select(stopFields)
       .in('route_id', routeIds)
-      .eq('driver_id', currentDriver.id)  // only stops assigned to this driver
+      .or(`driver_id.eq.${currentDriver.id},driver_id.is.null`)
       .order('stop_number', { ascending: true });
     routeStops = rs || [];
   }
@@ -1221,7 +1224,7 @@ async function loadDriverData() {
     const { data: carryStops } = await db.from('route_stops')
       .select(stopFields)
       .in('route_id', hiddenIds)
-      .eq('driver_id', currentDriver.id)
+      .or(`driver_id.eq.${currentDriver.id},driver_id.is.null`)
       .in('status', ['pending', 'en_route'])   // only incomplete stops
       .order('stop_number', { ascending: true });
     if (carryStops?.length) {

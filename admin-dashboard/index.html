@@ -11348,6 +11348,24 @@ window.onload=()=>{window.print();};
         template_id: templateId, day_of_week: day, driver_type: driverType, driver_id: newDriverId
       }, { onConflict: 'template_id,day_of_week,driver_type' });
     }
+
+    // ── Propagate to existing route runs ──
+    // If the changed day matches today or future dates, update routes.driver_id
+    // so the driver app picks up the change immediately (not just next time routes generate)
+    if (driverType === 'primary' || driverType === 'pickup') {
+      const todayDate = today();
+      const todayDow = (new Date().getDay() + 6) % 7; // 0=Mon..6=Sun
+      if (day === todayDow) {
+        // Update today's route run for this template
+        const { data: existing } = await db.from('routes')
+          .select('id').eq('template_id', templateId).eq('run_date', todayDate);
+        if (existing?.length) {
+          await db.from('routes').update({ driver_id: newDriverId || null })
+            .eq('template_id', templateId).eq('run_date', todayDate);
+        }
+      }
+    }
+
     showToast('Driver updated!', 'success');
     // Refresh whichever schedule view is currently active
     const driversView = document.getElementById('orders-drivers-view');
