@@ -1188,7 +1188,7 @@
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
         <!-- Laundry Preferences -->
-        <div class="menu-item" onclick="openSubPanel('sub-prefs')">
+        <div class="menu-item" onclick="openPrefsSubPanel()">
           <div class="mi-left">
             <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
             <div><div class="mi-label">Laundry Preferences</div></div>
@@ -2472,6 +2472,7 @@ function selectOrderPref(groupId, optId, label, priceMod) {
     draft.prefs[groupId] = { optId, label, priceMod };
   }
   renderOrderPrefs();
+  _syncOrderPrefsToAccount();
 }
 
 function toggleOrderAddon(groupId, activeOptId, activeLabel, activePriceMod, defaultOptId, defaultLabel) {
@@ -2483,6 +2484,22 @@ function toggleOrderAddon(groupId, activeOptId, activeLabel, activePriceMod, def
   }
   renderOrderPrefs();
   updateEstimate(); // live price update
+  _syncOrderPrefsToAccount();
+}
+
+// Silently persist the current order-flow preferences back to the customer's
+// saved Laundry Preferences so the Account page stays in sync.
+async function _syncOrderPrefsToAccount() {
+  if (!currentCustomer) return;
+  // Convert draft.prefs { groupId: {optId, label, priceMod} } → { groupId: optionId }
+  const prefsToSave = {};
+  Object.entries(draft.prefs).forEach(([gId, p]) => {
+    prefsToSave[gId] = p.optId;
+  });
+  const { error } = await db.from('customers')
+    .update({ preferences: prefsToSave })
+    .eq('id', currentCustomer.id);
+  if (!error) currentCustomer.preferences = prefsToSave;
 }
 
 /* ── BAGS + ESTIMATE ── */
@@ -5048,51 +5065,103 @@ async function selectPlan(planId, isFree) {
   await startSubscription(planId);
 }
 
+// Working state for the account preferences panel (separate from draft.prefs).
+// Format: { [groupId]: optionId }
+let acctPrefs = {};
+
+// Called when the user taps "Laundry Preferences" in the Account menu.
+// Re-initialises acctPrefs from the latest saved values, then opens the panel.
+function openPrefsSubPanel() {
+  const saved = currentCustomer?.preferences || {};
+  acctPrefs = {};
+  globalPrefs.forEach(g => {
+    if (saved[g.id]) {
+      acctPrefs[g.id] = saved[g.id];
+    } else {
+      const def = (g.options || []).find(o => o.is_default);
+      if (def) acctPrefs[g.id] = def.id;
+    }
+  });
+  renderAccountPrefs();
+  openSubPanel('sub-prefs');
+}
+
 function renderAccountPrefs() {
   const container = document.getElementById('account-prefs-container');
   if (!container) return;
-  const customerSel = currentCustomer?.preferences || {};
 
   if (!globalPrefs.length) {
     container.innerHTML = '<div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">No preferences configured yet.</div>';
     return;
   }
 
-  // Group by category
-  const byCategory = {};
-  globalPrefs.forEach(p => {
-    if (!byCategory[p.category]) byCategory[p.category] = [];
-    byCategory[p.category].push(p);
-  });
+  const regularPrefs = globalPrefs.filter(g => !_isAddonPref(g));
+  const addonPrefs   = globalPrefs.filter(g =>  _isAddonPref(g));
 
-  container.innerHTML = Object.entries(byCategory).map(([cat, catPrefs]) => `
-    <div style="margin-bottom:4px">
-      <div class="pref-title" style="margin-top:4px;margin-bottom:10px">${cat}</div>
-      ${catPrefs.map(p => {
-        const selOpt = customerSel[p.id] || p.options.find(o => o.is_default)?.id || '';
-        return `<div class="pref-row">
-          <div class="pref-left">
-            <div class="pref-name">${p.name}</div>
+  // Regular prefs — button grid (same style as order flow)
+  let html = regularPrefs.map(group => `
+    <div class="order-pref-group" style="margin-bottom:16px">
+      <div class="order-pref-label">${group.name}</div>
+      <div class="order-pref-grid">
+        ${(group.options || []).map(opt => {
+          const sel = acctPrefs[group.id] === opt.id;
+          return `<button class="order-pref-btn${sel ? ' selected' : ''}"
+            onclick="selectAcctPref('${group.id}','${opt.id}')">
+            ${opt.label}
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`).join('');
+
+  // Add-on prefs — checkbox rows (same style as order flow)
+  if (addonPrefs.length) {
+    html += `<div class="order-addon-section">
+      <div class="order-addon-section-title">Optional Add-ons</div>
+      ${addonPrefs.map(group => {
+        const activeOpt  = (group.options || []).find(o => !o.is_default);
+        const defaultOpt = (group.options || []).find(o =>  o.is_default);
+        if (!activeOpt || !defaultOpt) return '';
+        const isChecked  = acctPrefs[group.id] === activeOpt.id;
+        const price      = parseFloat(activeOpt.price_mod || 0);
+        const priceLabel = price > 0 ? `+$${price.toFixed(2)}/bag` : '';
+        const checkSvg   = isChecked
+          ? `<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>`
+          : '';
+        return `<div class="order-addon-row${isChecked ? ' checked' : ''}"
+          onclick="toggleAcctAddon('${group.id}','${activeOpt.id}','${defaultOpt.id}')">
+          <div class="order-addon-check${isChecked ? ' checked' : ''}">${checkSvg}</div>
+          <div class="order-addon-info">
+            <span class="order-addon-name">${group.name}</span>
+            ${priceLabel ? `<span class="order-addon-price">${priceLabel}</span>` : ''}
           </div>
-          <select class="pref-select" id="acct-pref-${p.id}" data-pref-id="${p.id}">
-            ${p.options.map(o => `<option value="${o.id}"${selOpt===o.id?' selected':''}>${o.label}</option>`).join('')}
-          </select>
         </div>`;
       }).join('')}
-    </div>
-  `).join('');
+    </div>`;
+  }
+
+  container.innerHTML = html;
+}
+
+function selectAcctPref(groupId, optId) {
+  acctPrefs[groupId] = optId;
+  renderAccountPrefs();
+}
+
+function toggleAcctAddon(groupId, activeOptId, defaultOptId) {
+  acctPrefs[groupId] = acctPrefs[groupId] === activeOptId ? defaultOptId : activeOptId;
+  renderAccountPrefs();
 }
 
 async function savePreferences() {
   if (!currentCustomer) return;
-  const prefs = {};
-  document.querySelectorAll('#account-prefs-container select[data-pref-id]').forEach(sel => {
-    if (sel.value) prefs[sel.dataset.prefId] = sel.value;
-  });
-  const { error } = await db.from('customers').update({ preferences: prefs }).eq('id', currentCustomer.id);
-  if (error) { toast('Error saving preferences'); return; }
-  currentCustomer.preferences = prefs;
-  toast('Preferences saved ✓');
+  const btn = document.querySelector('#sub-prefs .pref-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  // acctPrefs holds { groupId: optionId } — save directly to Supabase
+  const { error } = await db.from('customers').update({ preferences: acctPrefs }).eq('id', currentCustomer.id);
+  if (btn) { btn.disabled = false; btn.textContent = 'Save Preferences'; }
+  if (error) { showToast('Error saving preferences', 'error'); return; }
+  currentCustomer.preferences = { ...acctPrefs };
+  showToast('Preferences saved ✓', 'success');
 }
 
 /* ── ACCOUNT SUB-PANELS ── */
@@ -5361,6 +5430,9 @@ window.removeCard        = removeCard;
 window.selectPlan        = selectPlan;
 window.savePreferences   = savePreferences;
 window.renderAccountPrefs = renderAccountPrefs;
+window.openPrefsSubPanel = openPrefsSubPanel;
+window.selectAcctPref    = selectAcctPref;
+window.toggleAcctAddon   = toggleAcctAddon;
 window.openSubPanel      = openSubPanel;
 window.closeSubPanel     = closeSubPanel;
 window.openPricingPanel  = openPricingPanel;
