@@ -2439,7 +2439,7 @@ function updateEstimate() {
   const svc         = defaultService;
   const pricePerBag = parseFloat(svc?.base_price || 0);
   const bags        = draft.bags;
-  const addonsTotal = Object.values(draft.prefs).reduce((s, p) => s + (p.priceMod || 0), 0);
+  const addonsTotal = Object.values(draft.prefs).reduce((s, p) => s + (p.priceMod || 0) * bags, 0);
   const base        = pricePerBag * bags;
 
   // Only include fees explicitly categorized as Delivery or Pickup — never Penalty/Reward/Surcharge
@@ -3098,7 +3098,7 @@ function toggleSameDay(checked) {
 function buildConfirmSummary() {
   const svc         = defaultService;
   const bags           = draft.bags;
-  const addonsTotal    = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
+  const addonsTotal    = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0)*bags,0);
   const sameDayFee     = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
   const routeFees      = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const routeFeeTotal  = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
@@ -3119,14 +3119,16 @@ function buildConfirmSummary() {
     .map(g => `${g.name}: ${draft.prefs[g.id].label}`)
     .join(' · ') || 'Default';
 
-  // Paid add-on rows — show preference question name, not the option label ("Yes")
+  // Paid add-on rows — per-bag pricing, matching processing queue logic
   const addonRows = Object.entries(draft.prefs)
     .filter(([, p]) => p.priceMod > 0)
     .map(([groupId, p]) => {
-      const prefName = globalPrefs.find(g => g.id === groupId)?.name || p.label;
+      const prefName  = globalPrefs.find(g => g.id === groupId)?.name || p.label;
+      const lineTotal = (p.priceMod || 0) * bags;
+      const perBagLabel = bags > 1 ? ` × ${bags} bags` : '';
       return `<div class="d-row">
-        <span class="d-key">${escHtml(prefName)}</span>
-        <span class="d-val">+${$m(p.priceMod)}</span>
+        <span class="d-key">${escHtml(prefName)}${perBagLabel}</span>
+        <span class="d-val">+${$m(lineTotal)}</span>
       </div>`;
     }).join('');
 
