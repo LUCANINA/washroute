@@ -5782,6 +5782,36 @@
     const ab = document.getElementById(`op-${leg}-addr-btn`);
     ab.textContent = 'Change'; ab.classList.remove('cancel-btn');
     showToast('Address updated ✓', 'success');
+
+    // If the route picker is currently open, re-detect zones for the new address
+    // and refresh the route list immediately — no manual refresh needed.
+    const pickerEl  = document.getElementById(`op-${leg}-picker`);
+    const dateInput = document.getElementById(`op-${leg}-date`);
+    if (pickerEl && pickerEl.style.display !== 'none' && dateInput?.value) {
+      const cust  = allCustomers.find(c => c.id === opCurrentCustId);
+      const addrs = Array.isArray(cust?.addresses) ? cust.addresses : [];
+      const addr  = addrs.find(a => a.id === addressId);
+      _opPickerZoneIds = new Set();
+      if (addr?.lat && addr?.lng) {
+        const { data: zones, error: zoneErr } = await db.rpc('get_zones_for_point', {
+          lat: parseFloat(addr.lat), lng: parseFloat(addr.lng), p_city: addr.city || null
+        });
+        if (zoneErr) console.warn('[RoutePicker] zone RPC error:', zoneErr.message);
+        (zones || []).forEach(z => _opPickerZoneIds.add(z.id));
+      }
+      if (!_opPickerZoneIds.size && addr?.city) {
+        const city = addr.city.trim().toLowerCase();
+        _opTemplates.forEach(tmpl => {
+          const zoneRaw = tmpl.service_zones;
+          const zone = Array.isArray(zoneRaw) ? zoneRaw[0] : zoneRaw;
+          if (!zone || !tmpl.zone_id) return;
+          const nameMatch   = (zone.name || '').toLowerCase() === city;
+          const citiesMatch = Array.isArray(zone.cities) && zone.cities.some(c => c.toLowerCase() === city);
+          if (nameMatch || citiesMatch) _opPickerZoneIds.add(tmpl.zone_id);
+        });
+      }
+      opFilterRoutesByDate(leg, dateInput.value);
+    }
   }
 
   // ── DETAILS TAB ──
