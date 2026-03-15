@@ -5584,6 +5584,12 @@
     // Clear routing_error when reassigning (order has been handled)
     if (o.routing_error) update.routing_error = null;
 
+    // Reset status to scheduled when rescheduling a failed or on-hold order
+    if (['pickup_failed','delivery_failed','on_hold'].includes(o.status)) {
+      update.status = 'scheduled';
+      update.cancelled_by = null;
+    }
+
     const { error } = await db.from('orders').update(update).eq('id', opCurrentOrderId);
     if (error) {
       showToast('Failed to save: ' + error.message, 'error');
