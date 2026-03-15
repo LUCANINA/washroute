@@ -328,7 +328,11 @@ There are actually **two separate hang points** that must both be covered:
   - **Fix 2:** City-name fallback now handles `service_zones` as array or single object from Supabase join (`Array.isArray(zoneRaw) ? zoneRaw[0] : zoneRaw`).
   - **UX tightened:** When customer zone is known, only zone-matched routes are shown in the picker. Other-zone routes are completely hidden (not dimmed). All routes shown as fallback if zone can't be determined.
 
-- **All commits:** `b3b4c16`, `25cda26`, `e502e07`, `9699164`, `d7923f9`, `f9e3538`, `b233190`
+- **QA pass — 2 bugs found and fixed (commit `9483060`):**
+  - **Medium:** `'skipped'` was accidentally dropped from `ORDER_FILTER_GROUPS.issues` in the tab restructure. Driver-skipped and admin-skipped orders were invisible in all tabs. Fixed by adding `'skipped'` back and restoring `cancelled_by !== 'customer'` filter so customer-initiated skips stay archived.
+  - **Low:** `delivery_failed` orders were resetting to `'scheduled'` on reschedule, implying a full restart when the laundry is already at the facility. Fixed to reset to `'ready_for_delivery'` instead. `pickup_failed` and `on_hold` still correctly reset to `'scheduled'`.
+
+- **All commits:** `b3b4c16`, `25cda26`, `e502e07`, `9699164`, `d7923f9`, `f9e3538`, `b233190`, `0956d44`, `9483060`
 
 ---
 
