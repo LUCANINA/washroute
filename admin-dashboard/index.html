@@ -4746,7 +4746,7 @@
     // Always fetch all orders — filtering is done client-side so pill counts stay accurate
     const { data, error } = await db.from('orders')
       .select(`id, order_number, status, total_amount, stripe_payment_intent_id, billing_status,
-               weight_lbs, total_bags, service_id, special_instructions,
+               weight_lbs, total_bags, service_id, special_instructions, line_items,
                pickup_window_start, pickup_window_end,
                delivery_window_start, delivery_window_end,
                actual_pickup_at, actual_delivery_at,
