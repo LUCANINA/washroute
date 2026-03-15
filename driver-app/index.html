@@ -1689,7 +1689,7 @@ function renderStopDetail(stop) {
 
     } else {
       // ════ PHASE 2: At-stop ════
-      const notified = !!stop.on_my_way_sent_at || isEnRoute;
+      const notified = !!stop.on_my_way_sent_at; // only true if SMS was actually sent
       const bagCount = adjustedBagCount ?? (order?.total_bags || 1);
       if (adjustedBagCount === null) adjustedBagCount = order?.total_bags || 1;
       const expectedBags = order?.total_bags || 1;
