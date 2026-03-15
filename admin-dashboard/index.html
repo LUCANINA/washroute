@@ -5525,11 +5525,30 @@
     }
     let html = '';
     if (matchRows.length) {
-      // Zone known — show only matching routes, hide the rest
+      // Zone known — existing routes for this zone on this date
       html = matchRows.join('');
+    } else if (_opPickerZoneIds.size > 0) {
+      // Zone known but no existing routes for this zone on this date.
+      // Offer to create one from matching templates instead of showing wrong-zone routes.
+      const matchTemplates = _opTemplates.filter(t => {
+        if (Array.isArray(t.schedule_days) && !t.schedule_days.includes(schedDay)) return false;
+        return t.zone_id && _opPickerZoneIds.has(t.zone_id);
+      });
+      if (matchTemplates.length) {
+        html = matchTemplates.map(t => {
+          const color = t.color || '#8b93a7';
+          return `<div class="op-route-row" onclick="opCreateRouteAndSelect('${leg}','${t.id}','${t.name}','${dateStr}',this)">
+            <div class="op-route-dot" style="background:${color}"></div>
+            <span class="op-route-name">${t.name}</span>
+            <span class="op-route-date" style="color:var(--gray-400)">+ Create</span>
+          </div>`;
+        }).join('');
+      } else {
+        html = `<span style="color:var(--gray-400);font-size:13px">No routes run on ${dayName}s for this zone.</span>`;
+      }
     } else {
-      // Zone unknown or no match — show all routes equally
-      html = [...matchRows, ...otherRows].join('');
+      // Zone unknown — show all routes as fallback
+      html = otherRows.join('');
     }
     listEl.innerHTML = html || '<span style="color:var(--gray-400);font-size:13px">No matching routes for this date.</span>';
   }
