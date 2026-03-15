@@ -4714,8 +4714,8 @@
     scheduled:  ['scheduled'],
     in_process: ['picked_up','processing','folding'],
     ready:      ['ready_for_delivery','out_for_delivery'],
-    issues:     ['pickup_failed','delivery_failed','on_hold'],
-    // delivered, cancelled, skipped → archived (not shown in main tabs)
+    issues:     ['pickup_failed','delivery_failed','on_hold','skipped'],
+    // delivered, cancelled → archived. customer-initiated skips also excluded (see getFilteredOrders)
   };
 
   async function loadOrders(statusFilter) {
@@ -4769,9 +4769,10 @@
     let data = allOrders;
     if (currentOrderFilter) {
       if (currentOrderFilter === 'issues') {
-        // Issues = actual failure statuses OR failed payment
+        // Issues = failure/hold/non-customer-skip statuses OR failed payment
+        // Customer-initiated skips (cancelled_by='customer') are intentional — exclude them
         data = data.filter(o =>
-          ORDER_FILTER_GROUPS.issues.includes(o.status) ||
+          (ORDER_FILTER_GROUPS.issues.includes(o.status) && o.cancelled_by !== 'customer') ||
           o.billing_status === 'failed'
         );
       } else if (ORDER_FILTER_GROUPS[currentOrderFilter]) {
@@ -4798,7 +4799,7 @@
       scheduled:  allOrders.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
       in_process: allOrders.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
       ready:      allOrders.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
-      issues:     allOrders.filter(o => (ORDER_FILTER_GROUPS.issues||[]).includes(o.status) || o.billing_status === 'failed').length,
+      issues:     allOrders.filter(o => ((ORDER_FILTER_GROUPS.issues||[]).includes(o.status) && o.cancelled_by !== 'customer') || o.billing_status === 'failed').length,
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
       const key = btn.dataset.filter;
@@ -5640,8 +5641,13 @@
     // Clear routing_error when reassigning (order has been handled)
     if (o.routing_error) update.routing_error = null;
 
-    // Reset status to scheduled when rescheduling a failed or on-hold order
-    if (['pickup_failed','delivery_failed','on_hold'].includes(o.status)) {
+    // Reset status when rescheduling a failed or on-hold order
+    // delivery_failed → ready_for_delivery (laundry is already at facility, just needs redelivery)
+    // pickup_failed / on_hold → scheduled (full restart)
+    if (o.status === 'delivery_failed') {
+      update.status = 'ready_for_delivery';
+      update.cancelled_by = null;
+    } else if (['pickup_failed','on_hold'].includes(o.status)) {
       update.status = 'scheduled';
       update.cancelled_by = null;
     }
