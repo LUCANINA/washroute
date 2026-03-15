@@ -301,11 +301,20 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
-### Mar 15, 2026 (session 9) — Same-day toggle confirmed working, sign-out fix
+### Mar 15, 2026 (session 9) — Same-day toggle confirmed, sign-out fix, estimate total overhaul
 
 - **Same-day toggle confirmed working end-to-end:** Toggle now appears correctly when 7am–9am is auto-selected after date pick. Root fix from session 8 (`04e18e9`) was correct — added a `try/catch` wrapper and diagnostic logging (`8616949`) to catch any silent exception in the async chain, which resolved the issue. Diagnostic logs cleaned up in the same session (`customer-app/index.html` — no separate commit, bundled with sign-out fix).
 
 - **Sign-out button stuck on "Signing out…" (commit `8ae1ef1`):** `db.auth.signOut()` makes a network call to revoke the Supabase token and can hang indefinitely — the Promise never settles, the button stays disabled forever. Fixed by adding a 1.5s `setTimeout` force-logout fallback: clears local auth state (`appReady`, `currentUser`, `currentProfile`, `currentCustomer`, `currentCards`), hides bottom nav, and navigates to auth screen. If the Supabase call resolves before 1.5s, the timer is cleared. Error path also now logs out locally instead of just re-enabling the button.
+
+- **Estimate total now shows all charges (commits `41d0144`, `59115bf`):** The bag count step estimate and the confirm order page total were only showing the per-bag base price. Two root causes fixed:
+  1. **`loadServices()` updated** to fetch `service_fees` table (`show_in_app=true`) in parallel with services and preferences — stored in new global `allServiceFees[]`.
+  2. **`updateEstimate()` and `buildConfirmSummary()` updated** to include: delivery/pickup fees from `service_fees` (category whitelist: `'Delivery'` or `'Pickup'`), add-on preference charges, and same-day surcharge if toggled on. Estimate note now shows a breakdown, e.g. "2 bags × $29.50 · add-ons +$6.00 · Delivery Fee +$9.95 · ⚡ Same-day +$10.00", plus "Up to 25 lbs/bag · Overages billed at processing".
+  3. **Route fee filter uses category whitelist** (not name exclusion) so Missed Pickup Fee ($15) and Refer-a-Friend Credit ($10) never appear in estimates.
+
+- **Preference add-on prices added to DB (SQL migration, session 9):** The `preferences` table stores options as a JSONB array. Options had no `price_mod` field, so add-ons always contributed $0 to the estimate. Added `"price_mod": 3.00` to the "Yes" option for both "Add Vinegar?" and "Add Oxi?" via targeted `jsonb_agg` + `CASE WHEN` SQL. Verified with a SELECT confirming both options now carry the correct price mod. Double Wash and other add-on prices deferred to a future session.
+
+- **Next session:** Add `price_mod` for Double Wash and remaining add-ons.
 
 ---
 
