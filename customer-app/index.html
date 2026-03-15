@@ -870,6 +870,22 @@
             <input type="checkbox" id="s-sms-consent" required>
             <span>I agree to receive SMS updates from Family Laundry. Msg &amp; data rates may apply. Reply STOP to opt out.</span>
           </label>
+          <div class="field">
+            <label>How did you find us? <span style="font-size:11px;color:var(--gray-400);font-weight:400">(optional)</span></label>
+            <select id="s-source" style="width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:15px;font-family:inherit;color:var(--text);background:white;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 12 8%22><path d=%22M1 1l5 5 5-5%22 fill=%22none%22 stroke=%22%23888%22 stroke-width=%221.5%22 stroke-linecap=%22round%22/></svg>');background-repeat:no-repeat;background-position:right 14px center;background-size:12px">
+              <option value="">— Select one —</option>
+              <option value="nextdoor">Nextdoor</option>
+              <option value="yelp">Yelp</option>
+              <option value="google">Google search</option>
+              <option value="friend_family">Friend / family</option>
+              <option value="instagram">Instagram</option>
+              <option value="roots_soul">Roots &amp; Soul</option>
+              <option value="oakland_ballers">Oakland Ballers</option>
+              <option value="saw_van">I saw your van!</option>
+              <option value="other">Other</option>
+              <option value="ai">ChatGPT, Claude, or other AI</option>
+            </select>
+          </div>
           <button class="btn-primary" type="submit" id="btn-signup">Create Account</button>
         </form>
         <div id="signup-success" style="display:none; text-align:center; padding: 32px 16px;">
@@ -1081,6 +1097,22 @@
                 <input type="checkbox" id="c-sms-consent">
                 <span>I agree to receive text messages from Family Laundry about my orders. Message &amp; data rates may apply. Reply STOP to opt out.</span>
               </label>
+              <div class="field">
+                <label>How did you find us? <span style="font-size:11px;color:var(--gray-400);font-weight:400">(optional)</span></label>
+                <select id="c-source" style="width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:15px;font-family:inherit;color:var(--text);background:white;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 12 8%22><path d=%22M1 1l5 5 5-5%22 fill=%22none%22 stroke=%22%23888%22 stroke-width=%221.5%22 stroke-linecap=%22round%22/></svg>');background-repeat:no-repeat;background-position:right 14px center;background-size:12px">
+                  <option value="">— Select one —</option>
+                  <option value="nextdoor">Nextdoor</option>
+                  <option value="yelp">Yelp</option>
+                  <option value="google">Google search</option>
+                  <option value="friend_family">Friend / family</option>
+                  <option value="instagram">Instagram</option>
+                  <option value="roots_soul">Roots &amp; Soul</option>
+                  <option value="oakland_ballers">Oakland Ballers</option>
+                  <option value="saw_van">I saw your van!</option>
+                  <option value="other">Other</option>
+                  <option value="ai">ChatGPT, Claude, or other AI</option>
+                </select>
+              </div>
             </div>
             <div class="confirm-or">or</div>
             <button class="confirm-signin-link" onclick="saveDraftToSession();showScreen('auth');switchTab('login')">Sign in to an existing account</button>
@@ -1766,6 +1798,7 @@ async function handleSignup(e) {
   const phone = document.getElementById('s-phone').value.trim();
   const pass  = document.getElementById('s-pass').value;
   const smsConsent = document.getElementById('s-sms-consent').checked;
+  const referralSource = document.getElementById('s-source')?.value || null;
   const btn = document.getElementById('btn-signup');
   const errEl = document.getElementById('signup-err');
   errEl.classList.remove('show');
@@ -1780,7 +1813,7 @@ async function handleSignup(e) {
   btn.disabled = false; btn.textContent = 'Create Account';
   if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
   if (data.user) {
-    await ensureProfile(data.user, first, last, email, phone, smsConsent);
+    await ensureProfile(data.user, first, last, email, phone, smsConsent, referralSource);
     // If no session yet, email confirmation is required — show check-your-email panel
     if (!data.session) {
       document.getElementById('form-signup').style.display = 'none';
@@ -1794,7 +1827,7 @@ async function handleSignup(e) {
   }
 }
 
-async function ensureProfile(user, first, last, email, phone, smsConsent = false) {
+async function ensureProfile(user, first, last, email, phone, smsConsent = false, referralSource = null) {
   await db.from('profiles').upsert({
     id: user.id,
     first_name: first || user.user_metadata?.first_name || '',
@@ -1826,6 +1859,7 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
         if (firstName && !orphan.first_name_cache) updates.first_name_cache = firstName;
         if (lastName  && !orphan.last_name_cache)  updates.last_name_cache  = lastName;
         if (userPhone && !orphan.phone_cache)       updates.phone_cache      = userPhone;
+        if (referralSource && !orphan.referral_source) updates.referral_source = referralSource;
         await db.from('customers').update(updates).eq('id', orphan.id);
         ec = { ...orphan, ...updates };
       }
@@ -1840,7 +1874,8 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
       last_name_cache:  last  || user.user_metadata?.last_name  || '',
       email_cache:      email || user.email || '',
       phone_cache:      phone || user.user_metadata?.phone || '',
-      sms_consent_at:   smsConsent ? new Date().toISOString() : null
+      sms_consent_at:   smsConsent ? new Date().toISOString() : null,
+      referral_source:  referralSource || null
     });
     const { data: newCust } = await db.from('customers').select('*').eq('profile_id', user.id).maybeSingle();
     currentCustomer = newCust;
@@ -3351,6 +3386,7 @@ async function placeOrder() {
     const email = document.getElementById('c-email')?.value.trim();
     const pass  = document.getElementById('c-pass')?.value;
     const smsConsent = document.getElementById('c-sms-consent')?.checked || false;
+    const referralSource = document.getElementById('c-source')?.value || null;
     if (!first || !email || !pass || !phone) {
       if (errEl) { errEl.textContent = 'Please fill in all fields.'; errEl.classList.add('show'); }
       return;
@@ -3369,7 +3405,7 @@ async function placeOrder() {
       if (errEl) { errEl.textContent = authErr.message; errEl.classList.add('show'); }
       return;
     }
-    if (authData.user) await ensureProfile(authData.user, first, last, email, phone, smsConsent);
+    if (authData.user) await ensureProfile(authData.user, first, last, email, phone, smsConsent, referralSource);
   }
 
   if (!currentCustomer) { toast('Account error — please try again'); btn.disabled = false; return; }
