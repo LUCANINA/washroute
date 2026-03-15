@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 14, 2026 (session 6)*
+*Last updated: Mar 14, 2026 (session 7)*
 
 ---
 
@@ -299,6 +299,15 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Mar 14, 2026 (session 7) — Route picker UX overhaul (friction removal, zone refresh, smart defaults, past-slot guard)
+
+- **Remove '+ Create' friction (commit `f46bede`):** Templates no longer show a "+ Create" label. Zone-matched templates for a date appear as normal selectable routes. When tapped, the route instance is created silently in the background (brief opacity dim). No extra admin step ever required.
+- **Zone refresh on address change (commit `b6b65f8`):** When admin changes pickup/delivery address while the route picker is already open, zone detection re-runs immediately and the route list updates in place — no manual page refresh needed. Implemented in `opSaveAddress()`.
+- **Always show all zone routes (commit `1b36755`):** Previously, if Berkeley PM had a route instance for a date but Berkeley AM didn't, only Berkeley PM appeared. Now the code always combines existing route instances with eligible un-instantiated templates, so both AM and PM always show for any Mon–Sat date regardless of which instances were pre-created.
+- **Delivery auto-selects matching timeframe (commit `1b36755`):** When the delivery picker opens, it auto-selects the route matching the pickup's timeframe. Pass 1: exact name match. Pass 2: same AM/PM suffix (e.g. Oakland AM pickup → Berkeley AM delivery when address was changed). Implemented at end of `opFilterRoutesByDate()`.
+- **Past time slots hidden on today's date (commit `1192fbb`):** Admin route picker now filters out slots whose window has already ended when the selected date is today. If all slots are past, shows "All windows for this route have passed today. Choose a future date." instead of showing ghost bookings.
+- **QA fix: ghost route guard (commit `f8f52df`):** After saving a pickup, `opSaveRouteAndSlot` pre-fills the delivery picker in the background. The new auto-select logic would have fired and silently inserted orphaned route records. Fixed by guarding auto-select to only run when the delivery picker is visibly open.
 
 ### Mar 14, 2026 (session 6) — Orders tab restructure, ready_for_pickup removal, reschedule picker overhaul
 
@@ -632,15 +641,16 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Pending / Next Up
-- ~~Design decision: customer-initiated skips + `cancelled_by` field~~ ✅ — fully implemented session 5
-- ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix)
+- ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix — David action required)
 - Receipt printing: print button on order detail (thermal 80mm bag tag) — mockup exists at `receipt-mockup.html`
-- ~~Customer email receipt (SendGrid)~~ ✅ — SendGrid confirmed working and sending
-- SMS/email automation — Phase 1: status check auto-replies (see section above)
-- ~~Live driver tracking~~ ✅ — GPS tracking live (driver app → Supabase Realtime → admin map)
-- ~~Same-day delivery option~~ ✅ — live in customer app for AM routes
+- SMS/email automation — Phase 1: status check auto-replies
+- Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - Xero accounting sync
 - Klaviyo marketing integration
+- ~~Design decision: customer-initiated skips + `cancelled_by` field~~ ✅ — fully implemented session 5
+- ~~Customer email receipt (SendGrid)~~ ✅ — confirmed working
+- ~~Live driver tracking~~ ✅ — GPS tracking live (driver app → Supabase Realtime → admin map)
+- ~~Same-day delivery option~~ ✅ — live in customer app for AM routes
 - ~~Vercel deployment~~ ✅ — Vercel auto-deploys on push to main
 
 ---
