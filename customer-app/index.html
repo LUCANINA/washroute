@@ -3433,7 +3433,7 @@ function renderOrdersList(orders) {
 
   el.innerHTML = filtered.map(o => `
     <div class="order-item" onclick="openDetail('${o.id}')">
-      <div class="oi-top"><span class="oi-num">#${o.order_number || '—'}</span><span class="oi-date">${o.pickup_date ? 'Pickup ' + fmtDate(o.pickup_date) : fmtDate(o.created_at)}</span></div>
+      <div class="oi-top"><span class="oi-num">#${o.order_number || '—'}</span><span class="oi-date">${o.pickup_window_start ? fmtDate(o.pickup_window_start) : fmtDate(o.created_at)}</span></div>
       <div class="oi-svc">${o.services?.name || '—'} · ${o.total_bags || 1} bag${(o.total_bags || 1) !== 1 ? 's' : ''}</div>
       ${o.recurring_interval ? `<div class="oi-recur">${RLABELS[o.recurring_interval] || ''}</div>` : ''}
       <div class="oi-bottom">${buildStatusBadge(o.status)}<div class="oi-total">${o.total_amount ? $m(o.total_amount) : 'TBD'}</div></div>
@@ -3495,7 +3495,7 @@ async function openDetail(orderId) {
 
   document.getElementById('d-num').textContent  = '#' + (o.order_number || '—');
   document.getElementById('d-svc').textContent  = o.services?.name || '—';
-  document.getElementById('d-date').textContent = o.pickup_date ? 'Pickup ' + fmtDate(o.pickup_date) : 'Placed ' + fmtDate(o.created_at);
+  document.getElementById('d-date').textContent = 'Placed ' + fmtDate(o.created_at);
   document.getElementById('d-badge').innerHTML  = buildStatusBadge(o.status);
   document.getElementById('d-track').innerHTML  = ''; // progress bar hidden on detail view
 
