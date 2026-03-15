@@ -6525,7 +6525,7 @@
     const _advBtn2 = document.getElementById('batch-advance-btn');
     const _delBtn2 = document.querySelector('.batch-bar-btn.danger');
     if (_advBtn2) { _advBtn2.disabled = true; _advBtn2.style.opacity = '0.5'; }
-    if (_delBtn2) { _delBtn2.disabled = true; _delBtn2.textContent = 'Deleting…'; _delBtn2.style.opacity = '0.5'; }
+    if (_delBtn2) { _delBtn2.disabled = true; _delBtn2.style.opacity = '0.5'; }
     const ids = sel.map(s => s.id);
     // Use RPC (SECURITY DEFINER) so cascade deletes on route_stops/notifications
     // are not blocked by their RLS policies
