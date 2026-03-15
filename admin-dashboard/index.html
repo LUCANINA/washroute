@@ -878,7 +878,7 @@
     .proc-addon-group { margin-bottom:14px; }
     .proc-addon-group-label { font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-800);margin-bottom:8px; }
     .proc-addon-options { display:flex;flex-wrap:wrap;gap:8px; }
-    .proc-addon-btn { padding:14px 22px;border-radius:12px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;flex-direction:column;gap:3px; }
+    .proc-addon-btn { padding:14px 22px;border-radius:12px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;flex-direction:column;gap:3px;width:120px;box-sizing:border-box; }
     .proc-addon-btn.selected { border-color:var(--accent);background:#ede9ff; }
     .proc-addon-btn-name { font-size:16px;font-weight:600;color:var(--gray-800); }
     .proc-addon-btn.selected .proc-addon-btn-name { color:var(--accent); }
@@ -3983,10 +3983,12 @@
             renderOrders(getFilteredOrders());
           }
           if (currentPage === 'overview') loadOverview();
-          // If this order's detail panel is open, refresh its status badge + advance btn
+          // If this order's detail panel is open, refresh its status badge, advance btn, and billing breakdown
           if (opCurrentOrderId === updated.id) {
             document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(updated.status);
             opRefreshAdvanceBtn(allOrders[idx]);
+            opRecalcEstimate();   // refresh Details tab with latest line_items + total
+            opPopulateBilling(allOrders[idx]); // refresh Billing tab charge button
           }
         }
       })
@@ -5942,40 +5944,53 @@
     const bags = parseInt(document.getElementById('op-bags-input').value) || 0;
     const svc = allServices.find(s => s.id === o.service_id);
     const basePrice = svc ? parseFloat(svc.base_price || 0) : 0;
-    const svcName = o.services?.name || svc?.name || 'Service';
 
     // Delivery fee from allFees
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
 
-    // Same-day surcharge (only when toggle is on)
+    // Same-day surcharge (controlled by toggle — always live)
     const sameDayFeeObj = allFees.find(f => (f.category === 'Surcharge' || f.category === 'surcharge') && (f.name || '').toLowerCase().includes('same'));
     const sameDaySurcharge = opIsSameDay ? (sameDayFeeObj ? parseFloat(sameDayFeeObj.amount || 0) : 10) : 0;
 
     const bagTotal = bags * basePrice;
-    const estimated = bagTotal + deliveryFee + sameDaySurcharge;
+
+    // Saved line items — show add-on services, overages, etc. that came from processing
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const baseTypes = new Set(['base','fee','delivery_fee','same_day_surcharge','credit']);
+    const extraItems = lineItems.filter(li => !baseTypes.has(li.type));
+    const creditItem = lineItems.find(li => li.type === 'credit');
+    const creditAmt  = creditItem ? Math.abs(parseFloat(creditItem.amount || 0)) : 0;
 
     let html = '';
+    let total = 0;
+
     if (bags > 0 && basePrice > 0) {
       html += `<div style="display:flex;justify-content:space-between"><span>${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}</span><span>${fmtMoney(bagTotal)}</span></div>`;
+      total += bagTotal;
     }
     if (deliveryFee > 0) {
       html += `<div style="display:flex;justify-content:space-between"><span>Delivery Fee</span><span>${fmtMoney(deliveryFee)}</span></div>`;
+      total += deliveryFee;
     }
     if (sameDaySurcharge > 0) {
       html += `<div style="display:flex;justify-content:space-between"><span>⚡ Same-day surcharge</span><span>${fmtMoney(sameDaySurcharge)}</span></div>`;
+      total += sameDaySurcharge;
     }
-    // Credit line items from order
-    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
-    const creditItem = lineItems.find(li => li.type === 'credit');
-    let creditAmt = 0;
+    // Extra line items from processing (add-on services, overages, etc.)
+    extraItems.forEach(li => {
+      const amt = parseFloat(li.amount || 0);
+      html += `<div style="display:flex;justify-content:space-between"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
+      total += amt;
+    });
     if (creditItem) {
-      creditAmt = Math.abs(parseFloat(creditItem.amount || 0));
       html += `<div style="display:flex;justify-content:space-between;color:#059669"><span>${creditItem.label || 'Credit applied'}</span><span>−${fmtMoney(creditAmt)}</span></div>`;
+      total -= creditAmt;
     }
 
-    const total = Math.max(0, estimated - creditAmt);
-    html += `<div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--gray-200);padding-top:4px;margin-top:4px;font-size:13.5px;color:var(--gray-800)"><span>Estimated Total</span><span>${fmtMoney(total)}</span></div>`;
+    total = Math.max(0, total);
+    const totalLabel = extraItems.length > 0 ? 'Total' : 'Estimated Total';
+    html += `<div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--gray-200);padding-top:4px;margin-top:4px;font-size:13.5px;color:var(--gray-800)"><span>${totalLabel}</span><span>${fmtMoney(total)}</span></div>`;
     el.innerHTML = html;
   }
 
@@ -14061,14 +14076,14 @@ window.onload=()=>{window.print();};
                 ? `+${fmtMoney(service.base_price)}/item`
                 : `+${fmtMoney(service.base_price)}/bag`;
               const qtyRow = (selected && isPerItem) ? `
-                <div style="display:flex;align-items:center;gap:8px;margin-top:6px;margin-left:2px">
-                  <span style="font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em">Qty</span>
+                <div style="display:flex;align-items:center;justify-content:center;gap:8px;width:120px">
                   <button class="proc-stepper-btn" style="width:26px;height:26px;font-size:14px" onclick="setAddonServiceQty('${service.id}',-1)">−</button>
                   <span style="font-size:14px;font-weight:700;min-width:20px;text-align:center">${qty}</span>
                   <button class="proc-stepper-btn" style="width:26px;height:26px;font-size:14px" onclick="setAddonServiceQty('${service.id}',1)">+</button>
                 </div>` : '';
-              return `<div>
+              return `<div style="display:flex;flex-direction:column;gap:6px;width:120px">
                 <button class="proc-addon-btn${selected ? ' selected' : ''}"
+                  style="width:100%"
                   onclick="toggleAddonService('${service.id}')">
                   <span class="proc-addon-btn-name">${service.name}</span>
                   <span class="proc-addon-btn-price">${priceLabel}</span>
