@@ -6241,9 +6241,15 @@
     w.document.write(fullHtml); w.document.close();
   }
 
-  async function printBagTag() {
-    if (!opCurrentOrderId) return;
-    const o = allOrders.find(x => x.id === opCurrentOrderId);
+  async function printBagTag(overrideOrderId) {
+    // Can be called from the order panel (no arg) or directly from a kanban card (with orderId)
+    const targetId = overrideOrderId || opCurrentOrderId;
+    if (!targetId) return;
+    // Look across all order caches so kanban cards work even when the order panel is closed
+    const o = allOrders.find(x => x.id === targetId)
+           || (allCleanOrders||[]).find(x => x.id === targetId)
+           || (allFoldOrders||[]).find(x => x.id === targetId)
+           || (allProcOrders||[]).find(x => x.id === targetId);
     if (!o) return;
 
     // Open popup NOW while still in the click-handler context (before any async calls)
@@ -6251,7 +6257,8 @@
     const printWin = window.open('', '_blank', 'width=420,height=750');
     if (!printWin) { showToast('Pop-up blocked — allow pop-ups for this page to print receipts', ''); return; }
 
-    const cust = allCustomers.find(c => c.id === o.customer_id) || {};
+    // allOrders has customer_id + allCustomers; kanban caches have o.customers embedded — use whichever is available
+    const cust = allCustomers.find(c => c.id === o.customer_id) || o.customers || {};
     const custName = [cust.first_name_cache, cust.last_name_cache].filter(Boolean).join(' ').toUpperCase() || '—';
     const custAddr = cust.address_cache || '';
     const orderNum = String(o.order_number || o.id.slice(-5).toUpperCase());
@@ -6261,7 +6268,7 @@
     try {
       const { data: stopData } = await db.from('route_stops')
         .select('stop_number, routes(name)')
-        .eq('order_id', opCurrentOrderId)
+        .eq('order_id', targetId)
         .eq('stop_type', 'delivery')
         .maybeSingle();
       if (stopData) {
@@ -6271,7 +6278,7 @@
         // Fallback: pickup stop
         const { data: pu } = await db.from('route_stops')
           .select('stop_number, routes(name)')
-          .eq('order_id', opCurrentOrderId)
+          .eq('order_id', targetId)
           .eq('stop_type', 'pickup')
           .maybeSingle();
         if (pu) {
@@ -13507,7 +13514,8 @@
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
         <button class="proc-card-btn" style="background:#059669;cursor:pointer;margin-top:4px" onclick="openRackPanel('${o.id}')">${o.stripe_payment_intent_id ? '🗂️ Assign Rack' : '💳 Charge & Rack'}</button>
-        <div style="text-align:right;margin-top:4px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
+          <button onclick="event.stopPropagation();printBagTag('${o.id}')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--gray-400);padding:0;font-family:inherit">🖨 Reprint</button>
           <span style="font-size:11px;color:var(--gray-300);cursor:pointer;user-select:none" onclick="event.stopPropagation();moveOrderBack('${o.id}','processing')">← undo</span>
         </div>
       </div>`;
@@ -13973,7 +13981,8 @@
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
         <button class="proc-card-btn" onclick="event.stopPropagation();openFoldPanel('${o.id}')">👕 Assign to Folder</button>
-        <div style="text-align:right;margin-top:4px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
+          <button onclick="event.stopPropagation();printBagTag('${o.id}')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--gray-400);padding:0;font-family:inherit">🖨 Reprint</button>
           <span style="font-size:11px;color:var(--gray-300);cursor:pointer;user-select:none" onclick="event.stopPropagation();moveOrderBack('${o.id}','picked_up')">← undo</span>
         </div>
       </div>`;
@@ -14550,6 +14559,12 @@
     const movedId  = procActiveOrder.id;
     const movedNum = procActiveOrder.order_number;
     _autoPrintIntake(lineItems, bd, printWin);   // fire-and-forget — fills the pre-opened popup
+    // Auto-send email receipt — fire-and-forget (silent fail so intake isn't blocked)
+    fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+      body: JSON.stringify({ order_id: movedId }),
+    }).catch(e => console.warn('Auto email receipt failed:', e));
     closeIntakePanel();
     // Instant removal from Intake column
     document.getElementById('proc-card-' + movedId)?.remove();
