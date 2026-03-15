@@ -5509,7 +5509,7 @@
       return;
     }
 
-    // Show routes for this date — zone-matched first, others below with separator
+    // Show only zone-matched routes; fall back to all routes if zone is unknown
     const matchRows = [], otherRows = [];
     for (const r of dayRoutes) {
       const tmpl  = _opTemplates.find(t => t.name === r.name) || {};
@@ -5525,11 +5525,8 @@
     }
     let html = '';
     if (matchRows.length) {
-      html += matchRows.join('');
-      if (otherRows.length) {
-        html += `<div style="font-size:10px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.06em;padding:8px 4px 4px">Other zones</div>`;
-        html += otherRows.map(r => r.replace('class="op-route-row', 'class="op-route-row" style="opacity:.5"').replace('class="op-route-row selected"', 'class="op-route-row selected"')).join('');
-      }
+      // Zone known — show only matching routes, hide the rest
+      html = matchRows.join('');
     } else {
       // Zone unknown or no match — show all routes equally
       html = [...matchRows, ...otherRows].join('');
