@@ -3635,10 +3635,11 @@ async function loadOrders() {
         if (window._cachedOrders) {
           const idx = window._cachedOrders.findIndex(o => o.id === updated.id);
           if (idx >= 0) {
-            Object.assign(window._cachedOrders[idx], updated);
+            // Spread preserves joined data (services.name etc) that realtime payload lacks
+            window._cachedOrders[idx] = { ...window._cachedOrders[idx], ...updated };
           } else {
-            // New order appeared (e.g. rescheduled from cancelled)
-            window._cachedOrders.unshift(updated);
+            // New order — re-fetch to get joined service name
+            loadOrders(); return;
           }
           renderOrdersList(window._cachedOrders);
         }
