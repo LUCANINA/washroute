@@ -1053,7 +1053,7 @@
 
         <div style="margin-top:4px;margin-bottom:4px">
           <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);display:block;margin-bottom:8px">Special Care Notes</label>
-          <textarea id="o-instructions" rows="3" placeholder="e.g. No fabric softener, hang dry delicates…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none" oninput="draft.specialInstructions=this.value.trim()||null"></textarea>
+          <textarea id="o-instructions" rows="3" placeholder="e.g. Hang dry delicates, separate darks…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none" oninput="draft.specialInstructions=this.value.trim()||null"></textarea>
         </div>
 
         <button class="btn-primary" style="margin-top:12px" onclick="goOrderStep(4)">Continue →</button>
@@ -4333,7 +4333,7 @@ function openEditOrder() {
           <div style="padding:16px 0;border-bottom:1px solid var(--gray-100)">
             <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px">Special Care Notes</div>
             <textarea id="edit-instructions" rows="3"
-              placeholder="e.g. No fabric softener, hang dry delicates…"
+              placeholder="e.g. Hang dry delicates, separate darks…"
               style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none"
             >${escHtml(o.special_instructions || '')}</textarea>
           </div>
