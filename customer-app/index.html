@@ -3100,7 +3100,7 @@ function buildConfirmSummary() {
   const bags           = draft.bags;
   const addonsTotal    = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
   const sameDayFee     = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
-  const routeFees      = allServiceFees.filter(f => !/same.?day/i.test(f.name) && f.fee_type !== 'percent');
+  const routeFees      = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const routeFeeTotal  = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
   const total          = Math.round(((svc?.base_price||0)*bags + addonsTotal + routeFeeTotal + sameDayFee)*100)/100;
 
@@ -3119,14 +3119,16 @@ function buildConfirmSummary() {
     .map(g => `${g.name}: ${draft.prefs[g.id].label}`)
     .join(' · ') || 'Default';
 
-  // Paid add-on rows
-  const prefValues = Object.values(draft.prefs);
-  const addonRows  = prefValues.filter(p => p.priceMod > 0).map(p =>
-    `<div class="d-row">
-      <span class="d-key">${p.label}</span>
-      <span class="d-val">+${$m(p.priceMod)}</span>
-    </div>`
-  ).join('');
+  // Paid add-on rows — show preference question name, not the option label ("Yes")
+  const addonRows = Object.entries(draft.prefs)
+    .filter(([, p]) => p.priceMod > 0)
+    .map(([groupId, p]) => {
+      const prefName = globalPrefs.find(g => g.id === groupId)?.name || p.label;
+      return `<div class="d-row">
+        <span class="d-key">${escHtml(prefName)}</span>
+        <span class="d-val">+${$m(p.priceMod)}</span>
+      </div>`;
+    }).join('');
 
   // ── Delivery address ──
   const delAddrRec  = draft.deliveryAddressId ? _savedAddresses.find(a => a.id === draft.deliveryAddressId) : null;
