@@ -3113,11 +3113,19 @@ function buildConfirmSummary() {
   const pw        = draft.pickupWindow;
   const timeLabel = pw ? pw.label : '—';
 
-  // Preference summary
-  const prefSummary = globalPrefs
+  // Preference rows — one per group, with paid add-on price note
+  const prefRows = globalPrefs
     .filter(g => draft.prefs[g.id])
-    .map(g => `${g.name}: ${draft.prefs[g.id].label}`)
-    .join(' · ') || 'Default';
+    .map(g => {
+      const sel = draft.prefs[g.id];
+      const priceNote = sel.priceMod > 0
+        ? `<span style="font-size:11px;color:var(--accent);margin-left:6px;font-weight:600">+${$m(sel.priceMod)}/bag</span>`
+        : '';
+      return `<div class="d-row">
+        <span class="d-key">${escHtml(g.name)}</span>
+        <span class="d-val">${escHtml(sel.label)}${priceNote}</span>
+      </div>`;
+    }).join('') || `<div class="d-row"><span class="d-key" style="color:var(--gray-400)">Using defaults</span><span class="d-val">—</span></div>`;
 
   // Paid add-on rows — per-bag pricing, matching processing queue logic
   const addonRows = Object.entries(draft.prefs)
@@ -3158,10 +3166,14 @@ function buildConfirmSummary() {
         <span class="d-key">Bags</span>
         <span class="d-val">${bags} bag${bags!==1?'s':''}</span>
       </div>
-      <div class="d-row">
-        <span class="d-key">Preferences</span>
-        <span class="d-val" style="font-size:12px;line-height:1.5">${prefSummary}</span>
-      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:20px;margin-bottom:8px">
+      <div class="d-section-title" style="margin:0">Preferences</div>
+      <button onclick="goOrderStep(2)" style="font-size:13px;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0">Edit →</button>
+    </div>
+    <div class="confirm-card">
+      ${prefRows}
     </div>
 
     <div class="d-section-title" style="margin-top:20px">Pickup</div>
