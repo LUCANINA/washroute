@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 15, 2026 (session 12)*
+*Last updated: Mar 15, 2026 (session 13)*
 
 ---
 
@@ -316,9 +316,30 @@ There are actually **two separate hang points** that must both be covered:
 - **Fixed order data sync across views (commit `15f89eb`):** Processing queue's `loadProcessing()` was missing key fields from its SELECT — `pickup_window_start`, `delivery_window_start`, `total_amount`, `line_items` — so `procIsSameDay` was always false and same-day surcharges were never applied during intake. Added those fields. `openIntakePanel()` now fresh-fetches the order from DB on panel open and patches the cache with the live data. Customer app detail screen now re-renders in-place via `openDetail()` when a realtime order update fires while that order is open.
 
 - **Next session priorities:**
-  1. Receipt printing — thermal 80mm bag tag (mockup at `receipt-mockup.html`)
+  1. ~~Receipt printing~~ ✅ Done session 13
   2. Add `price_mod` for Double Wash and remaining add-on prefs
   3. Twilio A2P 10DLC registration (David action required)
+
+---
+
+### Mar 15, 2026 (session 13) — Thermal receipt printing + intake UX polish
+
+- **Thermal receipt printing — 2 copies auto-print on intake save (commit `58f8a18`):** `_openReceiptWindow(data, copies, win)` builds a full 80mm thermal receipt: business header, customer name + address, order # + "2 BAGS · 27 LBS", schedule box with pickup/delivery dates and Stop · Route (fetched from `route_stops` joined to `routes`), add-on tags section (bordered chips from `addon_service` line items), invoice section (filtered to `base`/`overage`/`addon_service` types only — raw "Yes"/"Hot" `addon` items excluded), subtotal/delivery fee/credit breakdown, Amount Due in large type, CODE128 barcode via JsBarcode CDN. Two copies rendered side-by-side (screen) / separated by `page-break-after: always` (print).
+
+- **Popup blocking fix:** `window.open()` is called *before* any `await` in `saveIntake()` so browsers don't block it as a non-gesture popup. The pre-opened window reference is passed through `_autoPrintIntake(lineItems, bd, printWin)` → `_openReceiptWindow()`. If the DB save fails, the orphaned window is closed via `printWin.close()`. The order panel 🖨 Print button (`printBagTag()`) opens the popup synchronously before its async route stop query. If popups are blocked by browser settings, a toast is shown.
+
+- **Receipt line item filtering:** Only `base`, `overage`, `addon_service` types appear in the invoice body. `delivery_fee`, `same_day_surcharge`, and `credit` types appear as their own totals rows below. This eliminates the "Yes"/"Hot" noise from `addon` items that previously inflated receipts.
+
+- **Receipt weight display:** Format is "2 BAGS · 27 LBS" — bags first (more natural), weight always shown (falls back to "— LBS" if not yet recorded).
+
+- **Special instructions in intake panel (commit `58f8a18`):** `renderIntakePanel()` now renders a "Special Instructions" textarea between the add-on prefs and price breakdown sections. Pre-filled from `procNotes` (loaded from `order.special_instructions` on panel open — same DB field the customer fills in at booking). Editable before save; changes persist to `special_instructions` on the order. `procNotes` is updated via `oninput` so re-renders (triggered by bag/weight/addon changes) preserve any edits.
+
+- **Weight displayed across admin views (commit `58f8a18`):** Orders table "Bags" column now shows bag count bold + lbs in grey below (e.g. **2** / 27 lbs) when weight is available. Order panel Details tab gains a read-only "Weight" row (hidden until the order has been weighed at intake) displayed below the editable "Bags" input. Customer panel order rows already showed weight via `cpOrderMeta()` — no change needed.
+
+- **Next session priorities:**
+  1. Add `price_mod` for Double Wash and remaining add-on prefs
+  2. Twilio A2P 10DLC registration (David action required)
+  3. SMS/email automation Phase 1 — status check auto-replies ("Where's my driver?")
 
 ---
 
@@ -738,7 +759,8 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Pending / Next Up
 - ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix — David action required)
-- Receipt printing: print button on order detail (thermal 80mm bag tag) — mockup exists at `receipt-mockup.html`
+- ~~Receipt printing~~ ✅ — thermal 80mm, 2 copies, auto-prints on intake save + 🖨 Print button on order panel (session 13)
+- Add `price_mod` for Double Wash and remaining add-on prefs
 - SMS/email automation — Phase 1: status check auto-replies
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - Xero accounting sync
