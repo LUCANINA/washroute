@@ -5504,7 +5504,6 @@
         return `<div class="op-route-row" onclick="opCreateRouteAndSelect('${leg}','${t.id}','${t.name}','${dateStr}',this)">
           <div class="op-route-dot" style="background:${color}"></div>
           <span class="op-route-name">${t.name}</span>
-          <span class="op-route-date" style="color:var(--gray-400)">+ Create</span>
         </div>`;
       }).join('');
       return;
@@ -5541,7 +5540,6 @@
           return `<div class="op-route-row" onclick="opCreateRouteAndSelect('${leg}','${t.id}','${t.name}','${dateStr}',this)">
             <div class="op-route-dot" style="background:${color}"></div>
             <span class="op-route-name">${t.name}</span>
-            <span class="op-route-date" style="color:var(--gray-400)">+ Create</span>
           </div>`;
         }).join('');
       } else {
@@ -5555,12 +5553,16 @@
   }
 
   async function opCreateRouteAndSelect(leg, templateId, templateName, dateStr, rowEl) {
-    rowEl.querySelector('.op-route-date').textContent = 'Creating…';
+    // Briefly dim the row to signal activity — no visible "Create" step
+    rowEl.style.opacity = '0.5';
+    rowEl.style.pointerEvents = 'none';
     const tmpl = _opTemplates.find(t => t.id === templateId) || {};
     const { data: newRoute, error } = await db.from('routes')
       .insert({ name: templateName, date: dateStr, run_date: dateStr, status: 'scheduled', template_id: templateId, color: tmpl.color || '#635bff' })
       .select('id, name, run_date, status')
       .single();
+    rowEl.style.opacity = '';
+    rowEl.style.pointerEvents = '';
     if (error) { showToast('Failed to create route: ' + error.message, 'error'); return; }
     _opRoutes.push(newRoute);
     _opRoutes.sort((a,b) => a.run_date.localeCompare(b.run_date));
