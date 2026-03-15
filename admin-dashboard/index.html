@@ -5436,15 +5436,21 @@
     const addr   = addrs.find(a => a.id === addrId) || addrs.find(a => a.is_default) || addrs[0];
 
     if (addr?.lat && addr?.lng) {
-      const { data: zones } = await db.rpc('get_zones_for_point', {
-        lat: addr.lat, lng: addr.lng, p_city: addr.city || null
+      // Always parse to float — Supabase returns numeric columns as strings,
+      // and PostgREST may silently fail casting a JSON string to double precision.
+      const { data: zones, error: zoneErr } = await db.rpc('get_zones_for_point', {
+        lat: parseFloat(addr.lat), lng: parseFloat(addr.lng), p_city: addr.city || null
       });
+      if (zoneErr) console.warn('[RoutePicker] zone RPC error:', zoneErr.message);
       (zones || []).forEach(z => _opPickerZoneIds.add(z.id));
     }
     if (!_opPickerZoneIds.size && addr?.city) {
+      // City fallback: match templates whose zone name or cities list contains the address city.
+      // service_zones is returned as a single object (many-to-one join) but guard against array too.
       const city = addr.city.trim().toLowerCase();
       _opTemplates.forEach(tmpl => {
-        const zone = tmpl.service_zones;
+        const zoneRaw = tmpl.service_zones;
+        const zone = Array.isArray(zoneRaw) ? zoneRaw[0] : zoneRaw;
         if (!zone || !tmpl.zone_id) return;
         const nameMatch   = (zone.name || '').toLowerCase() === city;
         const citiesMatch = Array.isArray(zone.cities) && zone.cities.some(c => c.toLowerCase() === city);
@@ -9393,7 +9399,7 @@ window.onload=()=>{window.print();};
         continue;
       }
       const { data: zones, error } = await db.rpc('get_zones_for_point', {
-        lat: a.lat, lng: a.lng, p_city: a.city || null
+        lat: parseFloat(a.lat), lng: parseFloat(a.lng), p_city: a.city || null
       });
       if (error || !zones?.length) {
         el.innerHTML = `<span style="font-size:11px;color:var(--gray-400);background:var(--gray-50);padding:2px 9px;border-radius:20px;border:1px solid var(--gray-100)">No service zone</span>`;
