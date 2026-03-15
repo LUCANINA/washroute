@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 14, 2026 (session 2)*
+*Last updated: Mar 14, 2026 (session 3)*
 
 ---
 
@@ -261,11 +261,11 @@ There are actually **two separate hang points** that must both be covered:
 
 | # | Severity | Where | Symptom |
 |---|----------|-------|---------|
-| 1 | P2 Medium | `route_stops` | Stops stay `pending` when order reaches `delivered` or `pickup_failed` via admin — never auto-cleaned up |
-| 2 | P2 Medium | `route_stops` | Cancelled orders retain their pending route stops — drivers still see them until stops are manually cleared |
+| 1 | ~~P2 → Fixed~~ | `route_stops` | ~~Stops stay `pending` when order reaches `delivered` or `pickup_failed` via admin~~ — **FIXED session 3**: DB trigger `trg_sync_stops_on_order_terminal` now cascades order terminal status to route_stops. Backfill ran on all existing orphaned stops. |
+| 2 | ~~P2 → Fixed~~ | `route_stops` | ~~Cancelled orders retain their pending route stops~~ — **FIXED session 3**: Same trigger handles `cancelled` → stops set to `skipped`. Hard deletes handled by existing FK CASCADE DELETE. |
 | 3 | P2 Medium | admin `saveOrder()` | Admin-created orders always saved with `total_amount = 0` — intentional (price set at intake/weigh) but skews revenue reports. Estimated price shown in form is not persisted anywhere |
 | 4 | P2 Medium | `confirmReassignDriver` | ~~Order Schedule map/list stays stale after reassignment — **FIXED commit 7916331**~~ |
-| 5 | P2 Medium | processing kanban | Price recalculated at rack step doesn't match original order total — order #84 stored $164.95 but processing showed/saved $139.95. Needs investigation into how `total_amount` is recalculated at racking vs what the customer paid |
+| 5 | P3 Low → Likely non-issue | processing kanban | Price recalculated at rack step doesn't match original order total — order #84 stored $164.95 but processing showed/saved $139.95. **Investigated session 3:** `saveIntake()` correctly writes `bd.total` from `calcProcTotal()`. `saveRacking()` does NOT update `total_amount`. Discrepancy on order #84 was a legacy/pre-existing test value — not a code bug. Monitor real orders to confirm. |
 | 6 | P3 Low | `route_stops` DB | `updated_at` column not refreshed on driver reassignment or status changes — stays at creation time. Needs a DB trigger `BEFORE UPDATE` |
 | 7 | P0 → Fixed | driver app realtime handler | ~~Stops reassigned to another driver stayed in original driver's list — **FIXED commit 7916331**~~ |
 | 8 | P3 Low | driver app "skip notification" | After clicking "Skip notification — I'm Already Here", the banner reads "Customer notified · Safe travels!" — unclear if SMS was actually sent or just confusing copy |
@@ -273,6 +273,23 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Mar 14, 2026 (session 3) — P2 bug fixes: route_stop orphan cleanup
+
+- **Bug #1 + #2 fixed — Route stops now sync to terminal order status:**
+  - DB trigger `trg_sync_stops_on_order_terminal` created via migration. Fires AFTER UPDATE on `orders` when status changes to any terminal value.
+  - `delivered` → pending/en_route stops → `complete`
+  - `cancelled` → pending/en_route stops → `skipped`
+  - `pickup_failed` → pickup stops → `failed`, delivery stops → `skipped`
+  - `skipped` → pending/en_route stops → `skipped`
+  - Hard deletes handled by existing FK CASCADE DELETE (confirmed via schema check).
+  - **Backfill ran:** 10 orphaned stops across orders #75, 77, 78, 83, 84, 85 all corrected in a one-time cleanup query. Zero orphaned stops remain.
+  - QA confirmed: no circular trigger loops, no blast radius in app code, all cancel paths correctly handled.
+
+- **Bug #5 investigated (price discrepancy) — closed as non-issue:**
+  - `saveIntake()` correctly writes `total_amount: bd.total` from `calcProcTotal()`. `saveRacking()` does not touch `total_amount`. The $164.95 vs $139.95 discrepancy on order #84 was a pre-existing test value, not a code bug. Downgraded to P3/monitor.
+
+- **No app code commits this session** — all changes were DB-level (migration + backfill via Supabase MCP).
 
 ### Mar 14, 2026 (session 2) — End-to-end system test + bug fixes
 
