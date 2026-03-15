@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 14, 2026 (session 5)*
+*Last updated: Mar 14, 2026 (session 6)*
 
 ---
 
@@ -119,7 +119,7 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 | Table | Notes |
 |---|---|
 | `customers` | `phone_cache` stores phone in any format (e.g. `(415) 608-5446`) |
-| `orders` | Status pipeline: scheduled → ready_for_pickup → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. `source`: scheduled, walk_in, customer_app, recurring. `cancelled_by`: 'customer', 'driver', 'admin', 'system' (nullable) — set on skip/cancel to distinguish who initiated |
+| `orders` | Status pipeline: scheduled → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. (`ready_for_pickup` was removed session 6 — never auto-set, redundant.) `source`: scheduled, walk_in, customer_app, recurring. `cancelled_by`: 'customer', 'driver', 'admin', 'system' (nullable) — set on skip/cancel to distinguish who initiated |
 | `route_templates` | Recurring route definitions: zone, schedule_days (0=Mon..5=Sat), window_start/end, turnaround_days, default drivers, stop_limit |
 | `routes` | Dated route instances (auto-created from templates by `auto_route_order()`). Links to template_id, date, single `driver_id`. Legacy `pickup_driver_id`/`delivery_driver_id` columns still exist in DB but are unused by app code |
 | `route_stops` | Each stop has explicit `driver_id` (auto-filled from parent route on INSERT by `trg_fill_stop_driver`). No more NULL-inherit pattern |
@@ -138,7 +138,7 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 | `trg_fill_stop_driver` | Trigger (BEFORE INSERT on route_stops) | Auto-fills `driver_id` from parent route when stop is inserted with NULL driver |
 | `trg_cascade_route_driver` | Trigger (AFTER UPDATE OF driver_id ON routes) | When admin reassigns driver on a route, cascades to all pending/en_route stops |
 | `trg_sync_customer_cache` | Trigger (AFTER UPDATE on profiles) | Syncs `first_name`/`last_name` changes to `customers.first_name_cache`/`last_name_cache` |
-| `auto_fail_expired_orders()` | Function (pg_cron every 30min) | Fails orders 2h past their window, sends SMS to customer, stamps `cancelled_by = 'system'` |
+| `auto_fail_expired_orders()` | Function (pg_cron every 30min) | Fails **`scheduled`** orders 2h past their window (session 6: no longer targets `ready_for_pickup`), sends SMS, stamps `cancelled_by = 'system'` |
 | `trg_sync_stops_on_order_terminal` | Trigger (AFTER UPDATE on orders) | When order reaches terminal status, cascades to route_stops: delivered→complete, cancelled→skipped, pickup_failed→failed+skipped, skipped→skipped |
 | `trg_route_stops_updated_at` | Trigger (BEFORE UPDATE on route_stops) | Auto-sets `updated_at = now()` on every route_stop write |
 | `find_customer_by_phone(digits)` | Function | Matches phone by last 10 digits |
@@ -299,6 +299,38 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Mar 14, 2026 (session 6) — Orders tab restructure, ready_for_pickup removal, reschedule picker overhaul
+
+- **Issues tab: single descriptive badge (commit `b3b4c16`):**
+  - Replaced the redundant "status badge + sub-label" combo in the Issues tab with a single `issueBadge(o)` function.
+  - Badge text fully describes the situation: "Skipped by Driver", "Skipped by Admin", "Pickup Failed (Auto)", "Delivery Failed (Auto)", "Payment Failed", "On Hold". No separate sub-label needed.
+
+- **Orders tabs restructured (commit `25cda26`):**
+  - Old tabs: Scheduled / Active / Delivered / Issues / Cancelled (5 tabs).
+  - New tabs: Scheduled / In Process / Ready / Issues (4 tabs). Delivered, cancelled, and customer-skipped orders are archived — not shown in any tab.
+  - `ORDER_FILTER_GROUPS`: `scheduled: ['scheduled']`, `in_process: ['picked_up','processing','folding']`, `ready: ['ready_for_delivery','out_for_delivery']`, `issues: ['pickup_failed','delivery_failed','on_hold']`.
+
+- **Removed `ready_for_pickup` status entirely (commit `e502e07`):**
+  - Status was never auto-set by any code path — it was a manual-only intermediate step with no functional purpose.
+  - DB migration `remove_ready_for_pickup_status`: dropped and recreated `orders_status_check` constraint without `ready_for_pickup`. `auto_fail_expired_orders()` updated to target only `'scheduled'`.
+  - All 18 references removed across admin dashboard and customer app: `STATUS_FLOW` (now `scheduled → picked_up` directly), `STATUS_STYLES`, `canAssign`, `ALL_STATUSES`, `ORDER_FILTER_GROUPS`, Reports labels/colors, customer app CSS/logic.
+
+- **Reschedule fixes — failed orders and delivery validation (commits `9699164`, `d7923f9`):**
+  - `opSaveRouteAndSlot()` now resets status to `scheduled` (clears `cancelled_by`) when rescheduling a `pickup_failed`, `delivery_failed`, or `on_hold` order. Previously rescheduling left the order stuck in Issues.
+  - Delivery date defaults to pickup+1 if existing delivery is invalid (before pickup); `min` date enforced on the delivery date input.
+  - Delivery validation: saving a delivery leg before the pickup window end now shows a toast error and aborts.
+  - After saving a pickup, delivery date is automatically advanced and delivery route list refreshed.
+
+- **Route picker zone filtering (commits `f9e3538`, `b233190`):**
+  - **Root cause found:** Supabase returns `numeric` lat/lng columns as strings. Passing strings to `db.rpc('get_zones_for_point', ...)` caused a silent PostgREST type-cast failure — `_opPickerZoneIds` stayed empty and all routes showed with no filtering.
+  - **Fix 1:** `parseFloat(addr.lat)` / `parseFloat(addr.lng)` before passing to the RPC (applied at both call sites).
+  - **Fix 2:** City-name fallback now handles `service_zones` as array or single object from Supabase join (`Array.isArray(zoneRaw) ? zoneRaw[0] : zoneRaw`).
+  - **UX tightened:** When customer zone is known, only zone-matched routes are shown in the picker. Other-zone routes are completely hidden (not dimmed). All routes shown as fallback if zone can't be determined.
+
+- **All commits:** `b3b4c16`, `25cda26`, `e502e07`, `9699164`, `d7923f9`, `f9e3538`, `b233190`
+
+---
 
 ### Mar 14, 2026 (session 5) — Payment indicator polish, cancelled_by system, Issues tab improvements, customer skip button
 
