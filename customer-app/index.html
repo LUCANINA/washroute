@@ -2811,11 +2811,17 @@ async function selectSchedPickupDate(iso) {
     draft.pickupWindow = draft.availableWindows[0];
     await _updateSchedDelivery();
     // Check same-day availability and show/hide the upsell toggle
-    const sdWindows  = await _checkSameDayAvailable();
-    draft._sameDayWindows = sdWindows;
-    const sdSurcharge = sdWindows.length ? await _fetchSameDaySurcharge() : 0;
-    draft._sameDaySurcharge = sdSurcharge;
-    _renderSameDayToggle(sdWindows, sdSurcharge);
+    try {
+      const sdWindows  = await _checkSameDayAvailable();
+      console.log('[WR same-day] pickupWindow:', draft.pickupWindow?.label, '| turnaroundHours:', draft.pickupWindow?.turnaroundHours, '| zoneId:', draft.zoneId, '| qualifying windows:', sdWindows.length, sdWindows.map(w => w.label));
+      draft._sameDayWindows = sdWindows;
+      const sdSurcharge = sdWindows.length ? await _fetchSameDaySurcharge() : 0;
+      draft._sameDaySurcharge = sdSurcharge;
+      _renderSameDayToggle(sdWindows, sdSurcharge);
+      console.log('[WR same-day] toggle card in DOM:', !!document.getElementById('same-day-toggle-card'));
+    } catch (err) {
+      console.error('[WR same-day] ERROR in same-day check:', err);
+    }
   } else {
     showToast('No pickup times available for that date — try another', 'error');
   }
@@ -2940,8 +2946,9 @@ async function _updateSchedDelivery() {
 // that start at least turnaroundHours after pickup window end). Empty = not available.
 async function _checkSameDayAvailable() {
   const pw = draft.pickupWindow;
-  if (!pw || !pw.turnaroundHours || pw.turnaroundHours === 0) return [];
-  if (!draft.zoneId || !draft.pickupDate) return [];
+  if (!pw) { console.log('[WR same-day] early exit: no pickupWindow'); return []; }
+  if (!pw.turnaroundHours || pw.turnaroundHours === 0) { console.log('[WR same-day] early exit: turnaroundHours=', pw.turnaroundHours); return []; }
+  if (!draft.zoneId || !draft.pickupDate) { console.log('[WR same-day] early exit: zoneId=', draft.zoneId, 'pickupDate=', draft.pickupDate); return []; }
 
   // Earliest possible delivery = pickup window end + turnaround hours (UTC math is fine here
   // because computeSubWindows also uses .toISOString() for slotStart, so all in UTC)
@@ -2956,15 +2963,18 @@ async function _checkSameDayAvailable() {
     .eq('is_active', true)
     .contains('schedule_days', [isoDay]);
 
-  if (!templates?.length) return [];
+  if (!templates?.length) { console.log('[WR same-day] no templates found for zoneId=', draft.zoneId, 'isoDay=', isoDay); return []; }
+
+  console.log('[WR same-day] templates found:', templates.map(t => t.name + ' ws=' + t.window_start + ' turnaround_hours=' + t.turnaround_hours));
+  console.log('[WR same-day] earliestDeliveryMs =', new Date(earliestDeliveryMs).toISOString(), '(pw slotEnd=', pw.slotEnd, '+ ', pw.turnaroundHours, 'h)');
 
   // Build sub-windows for the same pickup date and keep only those starting >= earliest delivery
   const qualifying = [];
   templates.forEach(tmpl => {
     computeSubWindows(draft.pickupDate, tmpl, tmpl.id, tmpl.name).forEach(w => {
-      if (new Date(w.slotStart).getTime() >= earliestDeliveryMs && w.slotStart !== pw.slotStart) {
-        qualifying.push(w);
-      }
+      const qualifies = new Date(w.slotStart).getTime() >= earliestDeliveryMs && w.slotStart !== pw.slotStart;
+      console.log('[WR same-day]  window', w.label, 'slotStart=', w.slotStart, qualifies ? '✓ QUALIFIES' : '✗ skip');
+      if (qualifies) qualifying.push(w);
     });
   });
   return qualifying.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
