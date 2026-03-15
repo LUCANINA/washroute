@@ -13884,10 +13884,16 @@ window.onload=()=>{window.print();};
     let prefsHTML = '';
     const addonEntries = Object.values(procAddonServices);
     // Use the global preferences table directly — any preference added there appears here automatically
-    const globalPrefs  = allPreferencesCache.filter(g => (g.options||[]).length);
-    const hasPrefs     = globalPrefs.length > 0;
+    const allIntakePrefs = allPreferencesCache.filter(g => (g.options||[]).length);
+    // Split: add-on prefs (exactly 2 options, one default = Yes/No style) vs regular prefs
+    const _isIntakeAddon = g => { const o = g.options||[]; return o.length===2 && o.filter(x=>x.is_default).length===1; };
+    const regularPrefs   = allIntakePrefs.filter(g => !_isIntakeAddon(g));
+    const addonPrefsArr  = allIntakePrefs.filter(g =>  _isIntakeAddon(g));
+    const globalPrefs    = allIntakePrefs; // keep for hasPrefs check
+    const hasPrefs       = allIntakePrefs.length > 0;
     if (hasPrefs || addonEntries.length) {
-      const prefChips = globalPrefs.map(g => `
+      // Regular preferences (Wash temp, Dry temp, etc.) — full button groups
+      const prefChips = regularPrefs.map(g => `
         <div class="proc-addon-group">
           <div class="proc-addon-group-label">${g.name}</div>
           <div class="proc-addon-options">
@@ -13902,6 +13908,25 @@ window.onload=()=>{window.print();};
             }).join('')}
           </div>
         </div>`).join('');
+
+      // Add-on preferences (Vinegar, Oxi, Double Wash) — compact togglable chips
+      const addonPrefChips = addonPrefsArr.length ? `
+        <div class="proc-addon-group">
+          <div class="proc-addon-group-label">Customer Add-ons</div>
+          <div class="proc-addon-options">
+            ${addonPrefsArr.map(g => {
+              const activeOpt = (g.options||[]).find(o => !o.is_default);
+              if (!activeOpt) return '';
+              const sel = procAddons[g.id]?.id === activeOpt.id;
+              const priceLabel = activeOpt.price_mod > 0 ? `+${fmtMoney(activeOpt.price_mod)}/bag` : '';
+              return `<button class="proc-addon-btn${sel?' selected':''}"
+                onclick="selectProcAddon('${g.id}','${activeOpt.id}','${(activeOpt.label||'').replace(/'/g,"\\'")}',${activeOpt.price_mod||0},'${(g.options.find(o=>o.is_default)?.id||'')}','${(g.options.find(o=>o.is_default)?.label||'').replace(/'/g,"\\'")}')">
+                <span class="proc-addon-btn-name">${g.name}</span>
+                ${priceLabel ? `<span class="proc-addon-btn-price">${priceLabel}</span>` : ''}
+              </button>`;
+            }).join('')}
+          </div>
+        </div>` : '';
 
       const addonChips = addonEntries.length ? `
         <div class="proc-addon-group">
@@ -13932,7 +13957,7 @@ window.onload=()=>{window.print();};
         </div>` : '';
 
       prefsHTML = `<div class="intake-section">
-        ${prefChips}${addonChips}
+        ${prefChips}${addonPrefChips}${addonChips}
       </div>`;
     }
 
@@ -14078,9 +14103,17 @@ window.onload=()=>{window.print();};
     updateIntakeSaveBtn();
   }
 
-  function selectProcAddon(groupId, optId, label, priceMod) {
+  // selectProcAddon: for add-on chips, optId is the non-default "Yes" option.
+  // defaultOptId/defaultLabel are passed for add-on chips so clicking an already-selected
+  // chip reverts to the default (unchecked) state rather than simply removing the entry.
+  function selectProcAddon(groupId, optId, label, priceMod, defaultOptId, defaultLabel) {
     if (procAddons[groupId]?.id === optId) {
-      delete procAddons[groupId];
+      // Toggle off — revert to default if provided, otherwise remove
+      if (defaultOptId) {
+        procAddons[groupId] = { id: defaultOptId, label: defaultLabel || '', price_mod: 0 };
+      } else {
+        delete procAddons[groupId];
+      }
     } else {
       procAddons[groupId] = { id: optId, label, price_mod: parseFloat(priceMod)||0 };
     }

@@ -645,6 +645,18 @@
     .order-pref-btn:hover { border-color: var(--navy); }
     .order-pref-btn.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
 
+    /* ── ADD-ON CHECKBOXES ── */
+    .order-addon-section { margin-top: 24px; }
+    .order-addon-section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 10px; }
+    .order-addon-row { display: flex; align-items: center; gap: 14px; padding: 14px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; margin-bottom: 8px; transition: all .15s; user-select: none; -webkit-user-select: none; }
+    .order-addon-row:hover { border-color: var(--gray-300); }
+    .order-addon-row.checked { border-color: var(--accent); background: #f5f3ff; }
+    .order-addon-check { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--gray-300); background: white; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all .15s; }
+    .order-addon-check.checked { background: var(--accent); border-color: var(--accent); }
+    .order-addon-info { flex: 1; }
+    .order-addon-name { font-size: 14px; font-weight: 600; color: var(--text); display: block; }
+    .order-addon-price { font-size: 12px; color: var(--accent); font-weight: 600; display: block; margin-top: 2px; }
+
     /* ── ESTIMATE CARD ── */
     .estimate-card { background: linear-gradient(135deg, var(--navy) 0%, var(--accent) 100%); border-radius: var(--radius); padding: 22px 24px; text-align: center; margin: 16px 0 20px; }
     .estimate-amount { font-size: 48px; font-weight: 800; color: white; line-height: 1; }
@@ -2378,11 +2390,16 @@ function selectFreq(val) {
 }
 
 /* ── PREFERENCES (order flow) ── */
+// A preference group is an "add-on" if it has exactly 2 options and exactly one is the default.
+// This matches Yes/No groups (Vinegar, Oxi, Double Wash) but not multi-option groups (Wash/Dry temp).
+function _isAddonPref(group) {
+  const opts = group.options || [];
+  return opts.length === 2 && opts.filter(o => o.is_default).length === 1;
+}
+
 function renderOrderPrefs() {
   const el = document.getElementById('order-pref-groups');
   if (!el) return;
-  // Use the global preferences table (same IDs as the account screen and admin dashboard)
-  // so that preferences set here sync correctly across all three apps.
   const prefs = globalPrefs;
   if (!prefs?.length) {
     el.innerHTML = '<p style="color:var(--gray-400);font-size:14px;text-align:center;padding:20px 0">No preference options configured yet.</p>';
@@ -2390,9 +2407,8 @@ function renderOrderPrefs() {
   }
 
   // Pre-populate from customer's saved preferences (returning customers only).
-  // Only runs when the customer hasn't made any selections yet this session.
   if (Object.keys(draft.prefs).length === 0 && currentCustomer?.preferences) {
-    const savedPrefs = currentCustomer.preferences; // { groupId: optId } — UUID keys
+    const savedPrefs = currentCustomer.preferences;
     prefs.forEach(group => {
       const savedOptId = savedPrefs[group.id];
       if (!savedOptId) return;
@@ -2402,30 +2418,71 @@ function renderOrderPrefs() {
     });
   }
 
-  el.innerHTML = prefs.map(group => {
-    return `<div class="order-pref-group">
+  const regularPrefs = prefs.filter(g => !_isAddonPref(g));
+  const addonPrefs   = prefs.filter(g =>  _isAddonPref(g));
+
+  // Regular preferences — button grid (Wash temp, Dry temp, etc.)
+  let html = regularPrefs.map(group => `
+    <div class="order-pref-group" style="margin-bottom:16px">
       <div class="order-pref-label">${group.name}</div>
       <div class="order-pref-grid">
-        ${group.options.map(opt => {
+        ${(group.options || []).map(opt => {
           const sel = draft.prefs[group.id]?.optId === opt.id;
           return `<button class="order-pref-btn${sel?' selected':''}"
-            onclick="selectOrderPref('${group.id}','${opt.id}','${opt.label.replace(/'/g,"\\'")}',${opt.price_mod||0},this)">
-            ${opt.label}${opt.price_mod ? `<div style="font-size:11px;margin-top:2px;opacity:.7">${opt.price_mod>0?'+':''}\$${Math.abs(opt.price_mod).toFixed(2)}</div>` : ''}
+            onclick="selectOrderPref('${group.id}','${opt.id}','${opt.label.replace(/'/g,"\\'")}',${opt.price_mod||0})">
+            ${opt.label}
           </button>`;
         }).join('')}
       </div>
+    </div>`).join('');
+
+  // Add-on preferences — checkbox rows
+  if (addonPrefs.length) {
+    html += `<div class="order-addon-section">
+      <div class="order-addon-section-title">Optional Add-ons</div>
+      ${addonPrefs.map(group => {
+        const activeOpt  = (group.options || []).find(o => !o.is_default);
+        const defaultOpt = (group.options || []).find(o =>  o.is_default);
+        if (!activeOpt || !defaultOpt) return '';
+        const isChecked  = draft.prefs[group.id]?.optId === activeOpt.id;
+        const price      = parseFloat(activeOpt.price_mod || 0);
+        const priceLabel = price > 0 ? `+$${price.toFixed(2)}/bag` : '';
+        const checkSvg   = isChecked
+          ? `<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>`
+          : '';
+        return `<div class="order-addon-row${isChecked?' checked':''}"
+          onclick="toggleOrderAddon('${group.id}','${activeOpt.id}','${activeOpt.label.replace(/'/g,"\\'")}',${price},'${defaultOpt.id}','${defaultOpt.label.replace(/'/g,"\\'")}')">
+          <div class="order-addon-check${isChecked?' checked':''}">${checkSvg}</div>
+          <div class="order-addon-info">
+            <span class="order-addon-name">${group.name}</span>
+            ${priceLabel ? `<span class="order-addon-price">${priceLabel}</span>` : ''}
+          </div>
+        </div>`;
+      }).join('')}
     </div>`;
-  }).join('');
+  }
+
+  el.innerHTML = html;
 }
 
-function selectOrderPref(groupId, optId, label, priceMod, btn) {
-  // Toggle — clicking same option deselects it
+function selectOrderPref(groupId, optId, label, priceMod) {
   if (draft.prefs[groupId]?.optId === optId) {
     delete draft.prefs[groupId];
   } else {
     draft.prefs[groupId] = { optId, label, priceMod };
   }
   renderOrderPrefs();
+}
+
+function toggleOrderAddon(groupId, activeOptId, activeLabel, activePriceMod, defaultOptId, defaultLabel) {
+  const isChecked = draft.prefs[groupId]?.optId === activeOptId;
+  if (isChecked) {
+    delete draft.prefs[groupId]; // uncheck — no price contribution
+  } else {
+    draft.prefs[groupId] = { optId: activeOptId, label: activeLabel, priceMod: activePriceMod };
+  }
+  renderOrderPrefs();
+  updateEstimate(); // live price update
 }
 
 /* ── BAGS + ESTIMATE ── */
