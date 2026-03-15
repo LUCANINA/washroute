@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 14, 2026 (session 4)*
+*Last updated: Mar 14, 2026 (session 5)*
 
 ---
 
@@ -119,7 +119,7 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 | Table | Notes |
 |---|---|
 | `customers` | `phone_cache` stores phone in any format (e.g. `(415) 608-5446`) |
-| `orders` | Status pipeline: scheduled → ready_for_pickup → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. `source`: scheduled, walk_in, customer_app, recurring |
+| `orders` | Status pipeline: scheduled → ready_for_pickup → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. `source`: scheduled, walk_in, customer_app, recurring. `cancelled_by`: 'customer', 'driver', 'admin', 'system' (nullable) — set on skip/cancel to distinguish who initiated |
 | `route_templates` | Recurring route definitions: zone, schedule_days (0=Mon..5=Sat), window_start/end, turnaround_days, default drivers, stop_limit |
 | `routes` | Dated route instances (auto-created from templates by `auto_route_order()`). Links to template_id, date, single `driver_id`. Legacy `pickup_driver_id`/`delivery_driver_id` columns still exist in DB but are unused by app code |
 | `route_stops` | Each stop has explicit `driver_id` (auto-filled from parent route on INSERT by `trg_fill_stop_driver`). No more NULL-inherit pattern |
@@ -133,12 +133,14 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 |---|---|---|
 | `auto_route_order(p_order_id)` | Function | Matches order to template by zone+day+time, finds/creates the dated route, assigns driver, creates stops. Sets `routing_error` on orders if no match found |
 | `trg_auto_route_new_order` | Trigger (AFTER INSERT on orders) | Fires for all new scheduled orders — sets routing_error for missing zone, calls auto_route_order for valid orders |
-| `trg_create_recurring_order` | Trigger (AFTER UPDATE on orders) | On status → delivered with recurring_interval, creates next order. Bumps both pickup AND delivery off Sundays to Monday |
+| `trg_create_recurring_order` | Trigger (AFTER UPDATE on orders) | On status → `delivered` OR `skipped` (when `cancelled_by = 'customer'`) with recurring_interval, creates next order. Bumps both pickup AND delivery off Sundays to Monday |
 | `trg_sync_order_status` | Trigger (AFTER UPDATE on route_stops) | When all pickup stops → complete, order → `picked_up`. When all delivery stops → complete, order → `delivered` |
 | `trg_fill_stop_driver` | Trigger (BEFORE INSERT on route_stops) | Auto-fills `driver_id` from parent route when stop is inserted with NULL driver |
 | `trg_cascade_route_driver` | Trigger (AFTER UPDATE OF driver_id ON routes) | When admin reassigns driver on a route, cascades to all pending/en_route stops |
 | `trg_sync_customer_cache` | Trigger (AFTER UPDATE on profiles) | Syncs `first_name`/`last_name` changes to `customers.first_name_cache`/`last_name_cache` |
-| `auto_fail_expired_orders()` | Function (pg_cron every 30min) | Fails orders 2h past their window, sends SMS to customer |
+| `auto_fail_expired_orders()` | Function (pg_cron every 30min) | Fails orders 2h past their window, sends SMS to customer, stamps `cancelled_by = 'system'` |
+| `trg_sync_stops_on_order_terminal` | Trigger (AFTER UPDATE on orders) | When order reaches terminal status, cascades to route_stops: delivered→complete, cancelled→skipped, pickup_failed→failed+skipped, skipped→skipped |
+| `trg_route_stops_updated_at` | Trigger (BEFORE UPDATE on route_stops) | Auto-sets `updated_at = now()` on every route_stop write |
 | `find_customer_by_phone(digits)` | Function | Matches phone by last 10 digits |
 
 ---
@@ -257,39 +259,27 @@ There are actually **two separate hang points** that must both be covered:
 
 ---
 
-## ⚠️ Design Decision Needed: Customer-Initiated Skips
+## ✅ Customer-Initiated Skips — Design Decision Resolved (session 5)
 
-### The problem
-Currently `skipped` is a single status that means "driver couldn't complete the stop." But customers also need a way to skip — e.g. "I'm out of town this Thursday, skip my pickup." These are fundamentally different scenarios with different consequences:
+`cancelled_by` column is now fully implemented across DB, all three apps, and all skip/cancel paths.
 
-| Who skipped | Cause | Should appear in Issues? | Next recurring order? |
+| Who skipped | `cancelled_by` value | Appears in Issues? | Next recurring order? |
 |---|---|---|---|
-| Driver | Couldn't complete (no access, not home) | ✅ Yes — needs reschedule | Not applicable (one-time resolution) |
-| Customer | Intentional request ("skip this week") | ❌ No — it's resolved | ✅ Yes — subscription continues |
-| Admin | Manual intervention | Depends | Depends |
+| Driver | `'driver'` | ✅ Yes | ❌ No |
+| Customer (intentional skip) | `'customer'` | ❌ No | ✅ Yes — chain continues |
+| Admin (manual intervention) | `'admin'` | ✅ Yes | ❌ No |
+| Auto-fail cron | `'system'` | ✅ Yes | ❌ No |
 
-### The recurring order bug
-`trg_create_recurring_order` only fires on `status → delivered`. If a recurring customer skips a week and the order lands in `skipped`, **the recurring chain silently breaks** — the next order is never created and the customer falls off the schedule. This is a real data integrity issue for any recurring subscriber who ever requests a skip.
+### Entry points
+- **Customer app:** "Skip this pickup" button on order detail — visible for recurring orders in skippable statuses. Sets `status = 'skipped', cancelled_by = 'customer'`.
+- **Driver app:** `skipStop()` sets `cancelled_by = 'driver'`. Undo clears it back to null.
+- **Admin:** `opSkipOrder()` (admin processing a customer request) sets `cancelled_by = 'customer'`. `opSetOrderStatus()` and `setSingleOrderStatus()` set `cancelled_by = 'admin'` for other terminal statuses.
+- **SMS automation** (future Phase 2): when customer texts "skip Thursday", set same fields as above.
 
-### Options
-1. **Add `skip_reason` column to `orders`** — e.g. `'customer_request'`, `'driver_skip'`, `'admin'`. Keep single `skipped` status but filter Issues tab and recurring trigger by reason.
-2. **Add separate `customer_cancelled` status** — cleanest separation, but requires schema change and updating all status arrays/filters across all three apps + DB constraints.
-3. **Hybrid** — use `cancelled_by` enum + `skip_reason` text for details.
-
-### Recommended approach (not yet built)
-- Add `cancelled_by TEXT` column to `orders` (values: `'customer'`, `'driver'`, `'admin'`, null)
-- Issues tab filter: only show `skipped` orders where `cancelled_by != 'customer'`
-- `trg_create_recurring_order`: fire on `skipped` too, but **only when `cancelled_by = 'customer'`** (customer-skipped recurring orders should create next instance)
-- Customer app: "Skip this pickup" button sets `status = 'skipped', cancelled_by = 'customer'`
-- SMS automation: when customer texts "skip Thursday", set same fields
-- Auto-fail cron: set `cancelled_by = 'system'` when it fires
-
-### Entry points for customer-initiated skips
-- Customer app (needs "Skip this pickup" button — not yet built)
-- SMS ("skip my pickup Thursday") — part of SMS automation Phase 2
-- Admin manually processing a customer call/text — available now via status change, but `cancelled_by` not recorded
-
-### Before building Issues improvements or SMS automation, resolve this design decision first.
+### Key behavior
+- Issues tab excludes orders where `cancelled_by = 'customer'` — these are resolved, not actionable.
+- `trg_create_recurring_order` now fires on `skipped` **only when `cancelled_by = 'customer'`** — ensures subscription chain continues for intentional customer skips.
+- `billing_status = 'failed'` orders always surface in Issues regardless of `cancelled_by`.
 
 ---
 
@@ -309,6 +299,38 @@ Currently `skipped` is a single status that means "driver couldn't complete the 
 ---
 
 ## Session Log
+
+### Mar 14, 2026 (session 5) — Payment indicator polish, cancelled_by system, Issues tab improvements, customer skip button
+
+- **Payment indicator rework (commit `ba5426a`):**
+  - Moved paid indicator from right side of Amount column to left side as a `$` badge (easier to spot at a glance).
+  - Paid orders: green `$` on the left. Failed: red `PAY FAILED` pill. No payment: blank placeholder to hold layout.
+  - Failed payments (`billing_status = 'failed'`) now surface in the Issues tab filter and count badge.
+
+- **`cancelled_by` column — full implementation (migrations + all 3 apps, commit `d884169`):**
+  - DB migration `orders_add_cancelled_by`: added `cancelled_by TEXT CHECK (IN ('customer','driver','admin','system'))`, nullable, with partial index on non-null values.
+  - DB migration `recurring_trigger_respect_cancelled_by`: updated `trg_create_recurring_order_fn` to fire on `skipped` status **only when `cancelled_by = 'customer'`** — fixes a silent bug where driver/admin skips on recurring orders would have broken the subscription chain.
+  - DB migration `auto_fail_set_cancelled_by_system`: `auto_fail_expired_orders()` now stamps `cancelled_by = 'system'` when it fires.
+  - **Admin:** `opSkipOrder()` (admin processing customer's request) sets `cancelled_by: 'customer'`. `opSetOrderStatus()` and `setSingleOrderStatus()` set `cancelled_by: 'admin'` for terminal statuses. Added `cancelled_by` to orders SELECT query.
+  - **Driver app:** `skipStop()` sets `cancelled_by: 'driver'`. Undo path (`triggerUndo()`) clears it back to `null`.
+  - **Customer app:** New "Skip this pickup" button on order detail — visible for recurring orders in skippable statuses. `skipPickup()` sets `status: 'skipped', cancelled_by: 'customer'`.
+
+- **Issues tab improvements (commit `7d7a09e`):**
+  - Filter now excludes `cancelled_by = 'customer'` orders (intentional skips, not actionable). Includes `billing_status = 'failed'` orders.
+  - `issueLabel(o)` helper renders context under each status badge: who skipped/failed it, auto-fail indicator.
+  - `issueActionBtn(o)` helper renders inline action: "Retry charge" for billing failures (calls `charge-order` edge function inline), "Reschedule →" for routing issues.
+  - Count badge uses the same logic — no more false positives from customer-skipped orders.
+
+- **Customer skip button (commit `0706362`):**
+  - New `<div id="d-skip-section">` in customer app order detail, rendered between edit and cancel sections.
+  - Shows "Skip this pickup" only when the order is recurring AND in a skippable pre-pickup status.
+  - Confirmation dialog reassures customer their subscription continues. Toast confirms skip.
+
+- **Design decision resolved:** See "Customer-Initiated Skips" section above — `cancelled_by` system is the chosen approach, fully shipped.
+
+- **All known P0–P3 bugs remain resolved.** No new issues opened this session.
+
+- **Commits:** `ba5426a` (payment indicator), `1980b60` (design decision doc), `d884169` (cancelled_by full impl), `7d7a09e` (Issues tab improvements), `0706362` (customer skip button)
 
 ### Mar 14, 2026 (session 4) — P3 bug fixes: updated_at trigger + skip-notification copy
 
@@ -574,7 +596,7 @@ Currently `skipped` is a single status that means "driver couldn't complete the 
 ---
 
 ## Pending / Next Up
-- ⚠️ **Design decision: customer-initiated skips + `cancelled_by` field** — blocks Issues tab improvements, SMS automation, and recurring skip handling. See "Design Decision Needed" section above.
+- ~~Design decision: customer-initiated skips + `cancelled_by` field~~ ✅ — fully implemented session 5
 - ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix)
 - Receipt printing: print button on order detail (thermal 80mm bag tag) — mockup exists at `receipt-mockup.html`
 - ~~Customer email receipt (SendGrid)~~ ✅ — SendGrid confirmed working and sending
@@ -653,6 +675,19 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
+0706362  feat: customer app — Skip this pickup button for recurring orders
+7d7a09e  ux: Issues tab — issue type labels, one-click actions, retry charge
+d884169  feat: cancelled_by field — distinguish customer vs driver vs admin skips
+1980b60  docs: note customer-initiated skip design decision + recurring chain bug
+ba5426a  ux: payment indicator — left-side $ badge, PAY FAILED label, Issues tab inclusion
+b55bb28  docs: update project notes after P3 bug fixes (Mar 14 session 4)
+0930719  Fix Bug #8: skip-notification banner no longer says "Customer notified"
+da2b299  docs: update project notes after P2 bug fixes (Mar 14 session 3)
+61fdd7a  docs: update project notes after e2e test + bug fixes (Mar 14 session 2)
+7916331  Fix driver app stop reassignment and Order Schedule realtime sync
+a9344c4  fix: sign-out feedback + expose toggleSameDay on window
+1e35b36  feat: realtime sync for processing queue (admin + laundry tech)
+00ecac1  docs: update project notes after same-day delivery feature
 6eb9426  feat: same-day delivery option for AM pickup routes
 751baba  Fix: await credit deduction + catch last_order_at sync errors
 3bfc4b8  Light blue kanban header bar, white column backgrounds
