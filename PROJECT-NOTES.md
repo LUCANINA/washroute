@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 14, 2026 (session 3)*
+*Last updated: Mar 14, 2026 (session 4)*
 
 ---
 
@@ -266,13 +266,28 @@ There are actually **two separate hang points** that must both be covered:
 | 3 | P2 Medium | admin `saveOrder()` | Admin-created orders always saved with `total_amount = 0` — intentional (price set at intake/weigh) but skews revenue reports. Estimated price shown in form is not persisted anywhere |
 | 4 | P2 Medium | `confirmReassignDriver` | ~~Order Schedule map/list stays stale after reassignment — **FIXED commit 7916331**~~ |
 | 5 | P3 Low → Likely non-issue | processing kanban | Price recalculated at rack step doesn't match original order total — order #84 stored $164.95 but processing showed/saved $139.95. **Investigated session 3:** `saveIntake()` correctly writes `bd.total` from `calcProcTotal()`. `saveRacking()` does NOT update `total_amount`. Discrepancy on order #84 was a legacy/pre-existing test value — not a code bug. Monitor real orders to confirm. |
-| 6 | P3 Low | `route_stops` DB | `updated_at` column not refreshed on driver reassignment or status changes — stays at creation time. Needs a DB trigger `BEFORE UPDATE` |
+| 6 | ~~P3 → Fixed~~ | `route_stops` DB | ~~`updated_at` column not refreshed on driver reassignment or status changes~~ — **FIXED session 4**: DB trigger `trg_route_stops_updated_at` (BEFORE UPDATE) now auto-sets `updated_at = now()` on every write. Migration `route_stops_auto_updated_at` applied. |
 | 7 | P0 → Fixed | driver app realtime handler | ~~Stops reassigned to another driver stayed in original driver's list — **FIXED commit 7916331**~~ |
-| 8 | P3 Low | driver app "skip notification" | After clicking "Skip notification — I'm Already Here", the banner reads "Customer notified · Safe travels!" — unclear if SMS was actually sent or just confusing copy |
+| 8 | ~~P3 → Fixed~~ | driver app "skip notification" | ~~Banner read "Customer notified · Safe travels!" even when no SMS was sent~~ — **FIXED commit 0930719**: `notified` flag now checks only `stop.on_my_way_sent_at`, not `isEnRoute`. Banner correctly shows "Arrived at stop" when driver skipped notification. |
 
 ---
 
 ## Session Log
+
+### Mar 14, 2026 (session 4) — P3 bug fixes: updated_at trigger + skip-notification copy
+
+- **Bug #6 fixed — `route_stops.updated_at` now auto-refreshes:**
+  - Added `BEFORE UPDATE` trigger `trg_route_stops_updated_at` via migration `route_stops_auto_updated_at`.
+  - Trigger calls `set_updated_at()` function which sets `NEW.updated_at = now()` on every UPDATE.
+  - Previously `updated_at` stayed at row creation time even after driver reassignment, status changes, or DB-level cascade updates. Now it always reflects the last actual change.
+  - No conflict with existing triggers: `trg_fill_stop_driver` is BEFORE INSERT only; `trg_sync_order_status` is AFTER UPDATE (fires after ours). Safe.
+
+- **Bug #8 fixed — driver app skip-notification banner (commit `0930719`):**
+  - `notified` variable in `renderStopDetail()` was computed as `!!stop.on_my_way_sent_at || isEnRoute`. Since `arrivedAtStop()` sets stop status to `en_route` immediately, `isEnRoute` was always `true` after a skip, causing the banner to show "Customer notified · Safe travels!" even when no SMS was sent.
+  - Fix: `notified = !!stop.on_my_way_sent_at` — checks only whether the "On My Way" SMS was actually fired.
+  - `alreadySent` (button label) and `currentStopPhase` (phase routing) retain `|| isEnRoute` intentionally — they need to route correctly when a stop is re-opened after a skip.
+
+- **All known P0–P3 bugs from the Mar 14 e2e test are now resolved.** Zero open issues in the Known Issues table.
 
 ### Mar 14, 2026 (session 3) — P2 bug fixes: route_stop orphan cleanup
 
