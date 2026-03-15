@@ -309,6 +309,8 @@ There are actually **two separate hang points** that must both be covered:
 
 - **`opSaveDetails()` updated to persist same-day surcharge:** When the same-day toggle is on, saves `type: 'same_day_surcharge'` line item (consistent with the admin order creation flow type) and includes the surcharge in `total_amount`. Billing tab Charge button is also refreshed via `opPopulateBilling(o)` after save so the label stays in sync.
 
+- **Same-day toggle auto-shifts delivery window date:** When admin checks ⚡ Same-day, `opToggleSameDay()` now automatically shifts `delivery_window_start`/`delivery_window_end` to the same local calendar date as the pickup (keeping the same time-of-day — e.g. 6pm stays 6pm but moves from Mar 17 → Mar 16). Saved to DB immediately, display refreshes. Unchecking restores the original delivery window from `_opPreSameDayDeliveryStart/End`. Auto-detection on panel open now uses `en-CA` locale in `BIZ_TZ` for accurate local date comparison. Admin still needs to verify/update the delivery route via Edit (route instances are date-specific).
+
 - **Next session priorities:**
   1. Add `price_mod` for Double Wash and remaining add-on prefs
   2. Receipt printing — thermal 80mm bag tag (mockup at `receipt-mockup.html`)
