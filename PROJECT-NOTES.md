@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 15, 2026 (session 11)*
+*Last updated: Mar 15, 2026 (session 12)*
 
 ---
 
@@ -300,6 +300,27 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Mar 15, 2026 (session 12) — Processing intake UX + order data sync fixes
+
+- **Standardized intake panel button sizes (commit `6064ad7`):** All `.proc-addon-btn` buttons now have a fixed `width: 120px; box-sizing: border-box` so Customer Add-on chips (Vinegar, Oxi) and Service add-on buttons (Air Dry, Shirt Service) are identical in size. Each service card is wrapped in a `120px` flex-column container so the QTY stepper (`− 1 +`) is constrained to that same width and can't overflow. Removed the "Qty" label from steppers — the `−` / `+` controls are self-explanatory.
+
+- **Admin Details tab now shows actual line_items from processing (commit `6064ad7`):** `opRecalcEstimate()` previously recalculated from scratch (bags × price + delivery + same-day) and ignored any add-on services or overage charges saved during processing intake. It now pulls all extra line items from `o.line_items` (types `addon_service`, `addon`, `overage`) and displays them alongside the live-calculated base/fees. Total label changes from "Estimated Total" → "Total" once real processed data is present. Base bag count and same-day toggle are still live-editable.
+
+- **Realtime handler refreshes Details and Billing tabs (commit `6064ad7`):** When the processing queue saves updated `total_amount` and `line_items` to the DB, Supabase Realtime fires an UPDATE event. The admin realtime handler now calls `opRecalcEstimate()` and `opPopulateBilling()` when the open order panel matches — so charges appear instantly without requiring a panel close/reopen.
+
+- **Fixed duplicate "Yes" rows in processing intake breakdown (commit `f6a3e3e`):** `renderBreakdownRows()` was emitting both a `price_mod` row (label "Yes") and a linked service row ("Vinegar × 2 bags") for the same preference, causing duplicate charges. `calcProcTotal()` was also double-counting these. Fixed both: any preference group that has a linked service in `allAddonServicesCache` now skips the `price_mod` line — only the linked service line (with correct bag × price calculation) appears.
+
+- **Fixed `procIsSameDay` and `opIsSameDay` same-day detection (commit `f6a3e3e`):** Both the admin order panel and the processing intake were using `.slice(0,10)` on UTC timestamps to compare pickup vs delivery dates. This fails for PM slots (e.g., 6pm Pacific = 01:00 UTC next day — UTC date shows wrong day). Fixed both to use `toLocaleDateString('en-CA', { timeZone: BIZ_TZ })` for accurate Pacific-time date comparison.
+
+- **Fixed order data sync across views (commit `15f89eb`):** Processing queue's `loadProcessing()` was missing key fields from its SELECT — `pickup_window_start`, `delivery_window_start`, `total_amount`, `line_items` — so `procIsSameDay` was always false and same-day surcharges were never applied during intake. Added those fields. `openIntakePanel()` now fresh-fetches the order from DB on panel open and patches the cache with the live data. Customer app detail screen now re-renders in-place via `openDetail()` when a realtime order update fires while that order is open.
+
+- **Next session priorities:**
+  1. Receipt printing — thermal 80mm bag tag (mockup at `receipt-mockup.html`)
+  2. Add `price_mod` for Double Wash and remaining add-on prefs
+  3. Twilio A2P 10DLC registration (David action required)
+
+---
 
 ### Mar 15, 2026 (session 11) — Admin order panel: same-day toggle + delivery address checkbox
 
