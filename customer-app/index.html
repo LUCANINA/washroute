@@ -2810,6 +2810,12 @@ async function selectSchedPickupDate(iso) {
   if (draft.availableWindows.length) {
     draft.pickupWindow = draft.availableWindows[0];
     await _updateSchedDelivery();
+    // Check same-day availability and show/hide the upsell toggle
+    const sdWindows  = await _checkSameDayAvailable();
+    draft._sameDayWindows = sdWindows;
+    const sdSurcharge = sdWindows.length ? await _fetchSameDaySurcharge() : 0;
+    draft._sameDaySurcharge = sdSurcharge;
+    _renderSameDayToggle(sdWindows, sdSurcharge);
   } else {
     showToast('No pickup times available for that date — try another', 'error');
   }
@@ -2986,13 +2992,16 @@ function _renderSameDayToggle(sameDayWindows, surcharge) {
 
   const firstWin   = sameDayWindows[0];
   const surchargeLabel = surcharge > 0 ? `+$${surcharge.toFixed(2)}` : 'included';
+  // Dynamic headline: "tonight" if booking for today, otherwise "same day"
+  const isToday = draft.pickupDate === localIso();
+  const eveningLabel = isToday ? 'tonight' : new Date(draft.pickupDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }) + ' evening';
   const card = document.createElement('div');
   card.id = 'same-day-toggle-card';
   card.style.cssText = 'background:var(--gray-50);border:1.5px solid var(--gray-200);border-radius:12px;margin:12px 0 4px;overflow:hidden;';
   card.innerHTML = `
     <label style="display:flex;align-items:center;gap:14px;padding:14px 16px;cursor:pointer;-webkit-tap-highlight-color:transparent;">
       <div style="flex:1;min-width:0;">
-        <div style="font-size:14px;font-weight:600;color:var(--gray-900);">⚡ Want it back tonight?</div>
+        <div style="font-size:14px;font-weight:600;color:var(--gray-900);">⚡ Want it back ${escHtml(eveningLabel)}?</div>
         <div style="font-size:12px;color:var(--gray-500);margin-top:3px;">Delivery ${firstWin.label} &nbsp;·&nbsp; <span style="color:var(--accent);font-weight:600;">${surchargeLabel}</span></div>
       </div>
       <div style="position:relative;flex-shrink:0;width:44px;height:26px;">
@@ -3024,7 +3033,9 @@ function toggleSameDay(checked) {
     draft._deliveryOptions = [draft.pickupDate];
     // Update delivery display
     const valDate = document.getElementById('val-delivery-date');
-    if (valDate) valDate.textContent = 'Tonight 🌙';
+    const _sdIsToday = draft.pickupDate === localIso();
+    const _sdDateLabel = _sdIsToday ? 'Tonight 🌙' : new Date(draft.pickupDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + ' 🌙';
+    if (valDate) valDate.textContent = _sdDateLabel;
     const valWin = document.getElementById('val-delivery-window');
     if (valWin) valWin.textContent = draft._sameDayWindows[0].label;
     const delSec = document.getElementById('sched-delivery-section');
