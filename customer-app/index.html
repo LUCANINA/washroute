@@ -1502,7 +1502,22 @@ function showToast(msg, type = '') {
 function $m(n) { return '$' + (+(n || 0)).toFixed(2); }
 function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'; }
 function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase() : ''; }
-function fmtSlot(start, end) { const s = fmtTime(start); if (!end) return s; const e = fmtTime(end); return s.replace(/\s*(am|pm)\s*$/i,'') + ' – ' + e; }
+function fmtSlot(start, end) {
+  function compact(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const h = d.getHours() % 12 || 12;
+    const m = d.getMinutes();
+    const p = d.getHours() < 12 ? 'am' : 'pm';
+    return m === 0 ? `${h}${p}` : `${h}:${String(m).padStart(2,'0')}${p}`;
+  }
+  if (!start) return '—';
+  const s = compact(start);
+  if (!end) return s;
+  const e = compact(end);
+  // Strip suffix from first time if both share the same am/pm
+  return s.slice(-2) === e.slice(-2) ? s.slice(0,-2) + '–' + e : s + '–' + e;
+}
 function daysFromNow(n) { const d = new Date(); d.setDate(d.getDate() + n); return d; }
 // Return YYYY-MM-DD in the user's LOCAL timezone — never use toISOString() for calendar
 // dates because that returns UTC, which can be a different day in the evenings.
@@ -3622,7 +3637,7 @@ function addrIcon(label) {
 }
 
 function fmtAddrOneLiner(a) {
-  const parts = [a.line1, a.line2, a.city, a.state].filter(Boolean);
+  const parts = [a.line1, a.line2, a.city].filter(Boolean);
   return parts.join(', ');
 }
 
