@@ -5543,7 +5543,10 @@
 
     // Delivery leg: auto-select the route matching the pickup's timeframe (AM/PM).
     // Tries exact name match first; falls back to same AM/PM suffix.
-    if (leg === 'delivery') {
+    // Guard: only auto-select when the delivery picker is actually open — if it's hidden,
+    // opFilterRoutesByDate was called as a background pre-fill and clicking rows would
+    // silently create ghost route records in the DB.
+    if (leg === 'delivery' && document.getElementById('op-delivery-picker')?.style.display !== 'none') {
       const pickupName = (_opRoutes.find(r => r.id === o?.pickup_run_id)?.name || '').trim();
       if (pickupName) {
         const suffix = / AM$/i.test(pickupName) ? 'AM' : (/ PM$/i.test(pickupName) ? 'PM' : '');
