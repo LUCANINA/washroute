@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 15, 2026 (session 14)*
+*Last updated: Mar 15, 2026 (session 15)*
 
 ---
 
@@ -378,9 +378,37 @@ There are actually **two separate hang points** that must both be covered:
 - **🖨 Reprint button on Cleaning + Folding kanban cards (commit `fb808eb`):** Each card in the Cleaning and Folding columns now has a small "🖨 Reprint" link at the bottom-left, alongside the existing "← undo" link on the right. Calls `printBagTag(orderId)` with `event.stopPropagation()` so it doesn't open the fold/rack panel.
 
 - **Next session priorities:**
+  1. ~~UX audit + top 5 fixes~~ ✅ Done session 15
+  2. Add `price_mod` for Double Wash and remaining add-on prefs
+  3. Twilio A2P 10DLC registration (David action required)
+  4. SMS/email automation Phase 1 — status check auto-replies ("Where's my driver?")
+
+---
+
+### Mar 15, 2026 (session 15) — UX audit + 5 high-impact fixes
+
+- **Full UX audit across all 3 apps:** Identified top 5 high-impact issues — duplicate order risk, silent server error, batch button races, low-contrast completed stops, unclear disabled slots.
+
+- **Fix 1 — Customer app: double-tap protection on Place Order (commits `b57c997`, `c99d756`):** `placeOrder()` now disables `#btn-place` and sets text to "Processing…" as the very first line, before any validation. Validation failures re-enable the button with the correct label (logged-in vs guest path). Prevents duplicate order creation on slow connections.
+
+- **Fix 2 — Driver app: `sendOnMyWay()` now checks `res.ok` (commit `b57c997`):** Added `if (!res.ok) throw new Error(...)` immediately after `await res.json()`. Previously, a server 500 would silently treat the "On My Way" notification as sent and advance the driver to Phase 2 — customer was never notified but driver was stuck in "en route" state.
+
+- **Fix 3 — Admin: batch Advance + Delete buttons disabled during async loop (commit `b57c997`):** `batchAdvanceStatus()` and `batchCancelOrders()` now disable both batch buttons (`#batch-advance-btn` and `.batch-bar-btn.danger`) at the start of the operation and re-enable on completion. Prevents double-tap mid-loop which could have fired duplicate DB writes.
+
+- **QA catch — delete button icon destroyed on RPC failure (commit `c99d756`):** `batchCancelOrders()` was setting `_delBtn.textContent = 'Deleting…'` which wiped the SVG trash icon. On RPC error, the batch bar stayed visible with a broken button. Fixed by removing the textContent change — opacity/disabled alone is sufficient feedback.
+
+- **Fix 4 — Driver app: completed stop cards now use background color (commit `b57c997`):** Replaced `.stop-card.done { opacity: 0.55 }` with `background: #f3f4f6; border-color: #d1d5db` and muted text colors on `.stop-name` / `.stop-meta`. Opacity-based dimming was unreadable on mobile in sunlight; background-color change is clearer and more accessible.
+
+- **Fix 5 — Customer app: `sched-opt` disabled state CSS (commit `b57c997`):** Added `.sched-opt:disabled, .sched-opt.unavailable { background: gray-50; color: gray-300; border: gray-100; cursor: not-allowed; text-decoration: line-through }`. Currently slots are pre-filtered and hidden when past cutoff, but this CSS ensures any future "show but disable" behavior renders correctly — and suppresses `:active` tap highlight on disabled slots.
+
+- **How did you find us? — referral source added to customer signup (commit `19453bb`):** Both the standalone signup form and the inline checkout account creation now include a "How did you find us?" dropdown. 10 source options: Nextdoor, Yelp, Google Search, Friend/Family, Instagram, Roots & Soul, Oakland Ballers, I Saw Your Van!, ChatGPT/AI, Other. `ensureProfile()` updated to accept `referralSource` param — sets on new insert; patches orphaned profiles only if they have no existing value. Admin customer panel also updated with matching options for manual entry.
+
+- **All commits this session:** `19453bb`, `b57c997`, `c99d756`
+
+- **Next session priorities:**
   1. Add `price_mod` for Double Wash and remaining add-on prefs
-  2. Twilio A2P 10DLC registration (David action required)
-  3. SMS/email automation Phase 1 — status check auto-replies ("Where's my driver?")
+  2. SMS/email automation Phase 1 — status check auto-replies
+  3. Twilio A2P 10DLC registration (David action required)
 
 ---
 
@@ -801,8 +829,11 @@ There are actually **two separate hang points** that must both be covered:
 ## Pending / Next Up
 - ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix — David action required)
 - ~~Receipt printing~~ ✅ — thermal 80mm, 2 copies, auto-prints on intake save + 🖨 Print button on order panel (session 13)
+- ~~UX audit top 5 fixes~~ ✅ — double-tap, res.ok guard, batch button disable, stop card styling, slot CSS (session 15)
+- ~~How did you find us? referral source~~ ✅ — both signup flows + admin dropdown (session 15)
 - Add `price_mod` for Double Wash and remaining add-on prefs
 - SMS/email automation — Phase 1: status check auto-replies
+- CloudPRNT integration (backlog) — `print_jobs` table + `cloudprnt-server` edge function; printer polls automatically
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - Xero accounting sync
 - Klaviyo marketing integration
