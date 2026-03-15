@@ -3425,6 +3425,29 @@
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   };
 
+  // Returns a sub-label shown under the status badge in the Issues tab
+  const issueLabel = (o) => {
+    const s = o.status, cb = o.cancelled_by;
+    if (o.billing_status === 'failed')
+      return '<div style="font-size:10px;color:#dc2626;font-weight:600;margin-top:2px;white-space:nowrap">Payment failed</div>';
+    if (s === 'on_hold')
+      return '<div style="font-size:10px;color:#d97706;font-weight:600;margin-top:2px;white-space:nowrap">Needs reassignment</div>';
+    if (s === 'skipped')
+      return `<div style="font-size:10px;color:#d97706;font-weight:600;margin-top:2px;white-space:nowrap">${cb==='driver'?'Driver skipped':cb==='admin'?'Admin skipped':'Skipped'}</div>`;
+    if (s === 'pickup_failed')
+      return `<div style="font-size:10px;color:#dc2626;font-weight:600;margin-top:2px;white-space:nowrap">${cb==='system'?'Auto-failed — window expired':cb==='driver'?'Driver — pickup failed':'Pickup failed'}</div>`;
+    if (s === 'delivery_failed')
+      return `<div style="font-size:10px;color:#dc2626;font-weight:600;margin-top:2px;white-space:nowrap">${cb==='system'?'Auto-failed — window expired':cb==='driver'?'Driver — delivery failed':'Delivery failed'}</div>`;
+    return '';
+  };
+
+  // Returns an inline action button for the Issues tab row
+  const issueActionBtn = (o) => {
+    if (o.billing_status === 'failed')
+      return `<button onclick="event.stopPropagation();retryChargeFromIssues('${o.id}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Retry charge</button>`;
+    return `<button onclick="event.stopPropagation();openOrderPanel('${o.id}')" style="font-size:11px;font-weight:700;color:#1a56db;background:#eff6ff;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Reschedule →</button>`;
+  };
+
   const statusBadge = (s) => {
     const map = {
       // Order statuses
@@ -4863,20 +4886,23 @@
         ${thSort('delivery_window_start','Delivery Time')}
         ${thSort('weight_lbs','Bags')}
         ${thSort('total_amount','Total')}
+        ${currentOrderFilter==='issues' ? '<th style="padding-right:16px"></th>' : ''}
       </tr></thead><tbody>
       ${sorted.map(o => {
         const custId = o.customers?.id || '';
         const bags = o.total_bags != null ? o.total_bags : (o.weight_lbs != null ? Number(o.weight_lbs) : '—');
+        const inIssues = currentOrderFilter === 'issues';
         return `<tr style="cursor:pointer" onclick="openOrderPanel('${o.id}')">
           <td style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${o.customers?.phone_cache||''}" data-cust-name="${(o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||'')}" onchange="updateOrderBatchBar()"></td>
           <td class="td-name">${orderCustomerCell(o)}</td>
-          <td>${statusBadge(o.status)}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:4px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : ''}</td>
+          <td>${statusBadge(o.status)}${inIssues ? issueLabel(o) : ''}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:4px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : ''}</td>
           <td style="font-size:12.5px;white-space:nowrap">${pickupRouteCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${pickupTimeCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${deliveryRouteCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${deliveryTimeCell(o)}</td>
           <td style="font-size:12.5px;text-align:right;padding-right:20px">${bags}</td>
           <td style="font-weight:600;padding-right:20px;white-space:nowrap"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:80px">${o.stripe_payment_intent_id && o.billing_status !== 'failed' ? '<span style="color:#16a34a;font-size:13px;font-weight:800;line-height:1" title="Paid">$</span>' : o.billing_status === 'failed' ? '<span style="background:#fee2e2;color:#dc2626;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;letter-spacing:.02em;white-space:nowrap" title="Payment failed">PAY FAILED</span>' : '<span></span>'}<span>${fmtMoney(o.total_amount)}</span></div></td>
+          ${inIssues ? `<td style="padding-right:16px;white-space:nowrap" onclick="event.stopPropagation()">${issueActionBtn(o)}</td>` : ''}
         </tr>`;
       }).join('')}
     </tbody></table>`;
@@ -6507,6 +6533,25 @@ window.onload=()=>{window.print();};
     } catch (e) {
       showToast('Failed to send invite: ' + e.message, 'error');
       if (btn) { btn.disabled = false; btn.textContent = originalText; }
+    }
+  }
+
+  // One-click retry charge from the Issues tab row — no confirm prompt, immediate feedback
+  async function retryChargeFromIssues(orderId, orderNum, btn) {
+    btn.disabled = true; btn.textContent = 'Charging…';
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ orderId }),
+      });
+      const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
+      showToast(`✓ Order #${orderNum} charged — ${result.card || ''}`, 'success');
+      loadOrders(); // Refresh so the order moves out of Issues
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'Retry charge';
+      showToast(`Charge failed: ${e.message}`, 'error');
     }
   }
 
