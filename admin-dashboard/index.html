@@ -6404,6 +6404,11 @@
     const nextStatus = STATUS_FLOW[advanceable[0].status];
     const nextLabel = STATUS_NEXT_LABEL[nextStatus] || nextStatus;
     if (!confirm(`Advance ${advanceable.length} order${advanceable.length>1?'s':''} to "${nextLabel}"?`)) return;
+    // Disable batch buttons to prevent double-click during async loop
+    const _advBtn = document.getElementById('batch-advance-btn');
+    const _delBtn = document.querySelector('.batch-bar-btn.danger');
+    if (_advBtn) { _advBtn.disabled = true; _advBtn.style.opacity = '0.5'; }
+    if (_delBtn) { _delBtn.disabled = true; _delBtn.style.opacity = '0.5'; }
     const now = new Date().toISOString();
     let succeeded = 0, chargeNeeded = 0;
     for (const s of advanceable) {
@@ -6429,6 +6434,8 @@
     const msg = chargeNeeded > 0 ? `✓ ${succeeded} advanced (${chargeNeeded} charged)` : `✓ ${succeeded} order${succeeded>1?'s':''} advanced`;
     showToast(msg);
     clearOrderSelection();
+    if (_advBtn) { _advBtn.disabled = false; _advBtn.style.opacity = ''; }
+    if (_delBtn) { _delBtn.disabled = false; _delBtn.style.opacity = ''; }
     setTimeout(() => loadOrders(currentOrderFilter), 400);
   }
 
@@ -6514,10 +6521,17 @@
     const sel = getSelectedOrderData();
     if (!sel.length) return;
     if (!confirm(`Delete ${sel.length} order${sel.length>1?'s':''}? This cannot be undone.`)) return;
+    // Disable batch buttons during delete
+    const _advBtn2 = document.getElementById('batch-advance-btn');
+    const _delBtn2 = document.querySelector('.batch-bar-btn.danger');
+    if (_advBtn2) { _advBtn2.disabled = true; _advBtn2.style.opacity = '0.5'; }
+    if (_delBtn2) { _delBtn2.disabled = true; _delBtn2.textContent = 'Deleting…'; _delBtn2.style.opacity = '0.5'; }
     const ids = sel.map(s => s.id);
     // Use RPC (SECURITY DEFINER) so cascade deletes on route_stops/notifications
     // are not blocked by their RLS policies
     const { error } = await db.rpc('delete_orders', { p_ids: ids });
+    if (_advBtn2) { _advBtn2.disabled = false; _advBtn2.style.opacity = ''; }
+    if (_delBtn2) { _delBtn2.disabled = false; _delBtn2.style.opacity = ''; }
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     showToast(`✓ ${ids.length} order${ids.length>1?'s':''} deleted`);
     clearOrderSelection();

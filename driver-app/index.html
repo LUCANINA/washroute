@@ -214,7 +214,9 @@
       cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
       transition: opacity .2s;
     }
-    .stop-card.done    { opacity: 0.55; }
+    .stop-card.done    { background: #f3f4f6; border-color: #d1d5db; }
+    .stop-card.done .stop-name,
+    .stop-card.done .stop-meta { color: #9ca3af; }
     .stop-card.en-route { border-left: 3px solid var(--info); }
     .stop-num {
       width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
@@ -1839,6 +1841,7 @@ async function sendOnMyWay(stopId) {
       body: JSON.stringify({ stopId, driverName }),
     });
     const result = await res.json();
+    if (!res.ok) throw new Error(result.error || result.message || `Server error ${res.status}`);
 
     // Update local stop state
     const idx = allStops.findIndex(s => s.id === stopId);

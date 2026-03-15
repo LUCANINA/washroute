@@ -619,6 +619,8 @@
     .sched-opt { padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 500; color: var(--text); text-align: left; transition: all .12s; display: flex; align-items: center; justify-content: space-between; -webkit-tap-highlight-color: transparent; }
     .sched-opt:active { background: var(--gray-50); }
     .sched-opt.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
+    .sched-opt:disabled, .sched-opt.unavailable { background: var(--gray-50); color: var(--gray-300); border-color: var(--gray-100); cursor: not-allowed; text-decoration: line-through; }
+    .sched-opt:disabled:active, .sched-opt.unavailable:active { background: var(--gray-50); }
     .sched-opt-check { font-size: 15px; opacity: 0; color: var(--navy); }
     .sched-opt.selected .sched-opt-check { opacity: 1; }
 
@@ -3378,6 +3380,9 @@ async function placeOrder() {
   const errEl  = document.getElementById('confirm-err');
   if (errEl) errEl.classList.remove('show');
 
+  // Prevent double-tap / double-submit immediately
+  if (btn) { btn.disabled = true; btn.textContent = 'Processing…'; }
+
   // If not logged in, create account first
   if (!currentCustomer) {
     const first = document.getElementById('c-first')?.value.trim();
@@ -3389,10 +3394,12 @@ async function placeOrder() {
     const referralSource = document.getElementById('c-source')?.value || null;
     if (!first || !email || !pass || !phone) {
       if (errEl) { errEl.textContent = 'Please fill in all fields.'; errEl.classList.add('show'); }
+      if (btn) { btn.disabled = false; btn.textContent = 'Create Account & Place Order'; }
       return;
     }
     if (!smsConsent) {
       if (errEl) { errEl.textContent = 'Please agree to receive SMS updates to continue.'; errEl.classList.add('show'); }
+      if (btn) { btn.disabled = false; btn.textContent = 'Create Account & Place Order'; }
       return;
     }
     btn.disabled = true; btn.textContent = 'Creating account…';
