@@ -207,8 +207,6 @@
     .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
     .s-scheduled            { background: #f1f5f9; color: #475569; }
     .s-scheduled .status-dot            { background: #94a3b8; }
-    .s-ready_for_pickup     { background: #fef3c7; color: #92400e; }
-    .s-ready_for_pickup .status-dot     { background: #f59e0b; }
     .s-picked_up            { background: #dbeafe; color: #1e40af; }
     .s-picked_up .status-dot            { background: #3b82f6; }
     .s-processing           { background: #e0f2fe; color: #0369a1; }
@@ -1994,7 +1992,6 @@ async function loadServices() {
 /* ── HOME ── */
 const STATUS_LABELS = {
   scheduled:          'Scheduled',
-  ready_for_pickup:   'Ready for Pickup',
   picked_up:          'Picked Up',
   processing:         'Processing',
   ready_for_delivery: 'Ready for Delivery',
@@ -2013,7 +2010,6 @@ const STATUS_LABELS = {
 const VISUAL_STEP_LABELS = ['Scheduled', 'Picked Up', 'Processing', 'Ready for Delivery', 'Delivered'];
 const STATUS_TO_VISUAL = {
   scheduled:          0,
-  ready_for_pickup:   0,
   picked_up:          1,
   processing:         2,
   ready_for_delivery: 3,
@@ -2051,7 +2047,7 @@ async function loadHome() {
     const { data: orders, error } = await db.from('orders')
       .select('*, services(name)')
       .eq('customer_id', currentCustomer.id)
-      .in('status', ['scheduled','ready_for_pickup','picked_up','processing','ready_for_delivery','out_for_delivery'])
+      .in('status', ['scheduled','picked_up','processing','ready_for_delivery','out_for_delivery'])
       .order('pickup_window_start', { ascending: true });
     if (error) throw error;
     const active = orders || [];
@@ -3558,7 +3554,7 @@ async function openDetail(orderId) {
 
   // Skip button — only for recurring orders not yet picked up
   const skipEl = document.getElementById('d-skip-section');
-  const skippable = o.recurring_interval && ['scheduled', 'ready_for_pickup'].includes(o.status);
+  const skippable = o.recurring_interval && o.status === 'scheduled';
   if (skipEl) {
     if (skippable) {
       skipEl.innerHTML = `
@@ -3581,7 +3577,7 @@ async function openDetail(orderId) {
 
   // Cancel button — only show for orders that haven't been picked up yet
   const cancelEl = document.getElementById('d-cancel-section');
-  const cancellable = ['scheduled', 'ready_for_pickup'].includes(o.status);
+  const cancellable = o.status === 'scheduled';
   if (cancellable) {
     cancelEl.innerHTML = `
       <div style="border-top:1px solid var(--gray-200);margin-top:16px;padding-top:16px;padding-bottom:48px">
