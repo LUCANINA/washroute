@@ -2037,7 +2037,7 @@ async function triggerUndo() {
       const clearField = type === 'complete'
         ? (stop.stop_type === 'pickup' ? { actual_pickup_at: null } : { actual_delivery_at: null })
         : {};
-      await db.from('orders').update({ status: prevOrderStatus, ...clearField }).eq('id', stop.orders.id);
+      await db.from('orders').update({ status: prevOrderStatus, cancelled_by: null, ...clearField }).eq('id', stop.orders.id);
       stop.orders.status = prevOrderStatus;
     }
 
@@ -2263,7 +2263,7 @@ async function skipStop(stopId) {
   if (idx >= 0) {
     allStops[idx].status = 'skipped';
     if (stop?.orders?.id) {
-      await db.from('orders').update({ status: 'skipped' }).eq('id', stop.orders.id);
+      await db.from('orders').update({ status: 'skipped', cancelled_by: 'driver' }).eq('id', stop.orders.id);
       allStops[idx].orders.status = 'skipped';
     }
   }

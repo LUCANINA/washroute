@@ -4710,7 +4710,7 @@
                actual_pickup_at, actual_delivery_at,
                pickup_run_id, delivery_run_id,
                pickup_address_id, delivery_address_id,
-               created_at, recurring_interval, routing_error,
+               created_at, recurring_interval, routing_error, cancelled_by,
                services(name),
                customers(id, first_name_cache, last_name_cache, phone_cache),
                pickup_run:pickup_run_id(id, name),
@@ -4742,8 +4742,11 @@
     let data = allOrders;
     if (currentOrderFilter) {
       if (currentOrderFilter === 'issues') {
-        // Issues = problem statuses OR any order with a failed payment
-        data = data.filter(o => ORDER_FILTER_GROUPS.issues.includes(o.status) || o.billing_status === 'failed');
+        // Issues = problem statuses (excluding customer-initiated skips) OR failed payment
+        data = data.filter(o =>
+          (ORDER_FILTER_GROUPS.issues.includes(o.status) && o.cancelled_by !== 'customer') ||
+          o.billing_status === 'failed'
+        );
       } else if (ORDER_FILTER_GROUPS[currentOrderFilter]) {
         data = data.filter(o => ORDER_FILTER_GROUPS[currentOrderFilter].includes(o.status));
       } else {
@@ -4768,7 +4771,7 @@
       scheduled: allOrders.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
       active:    allOrders.filter(o => (ORDER_FILTER_GROUPS.active||[]).includes(o.status)).length,
       delivered: allOrders.filter(o => o.status === 'delivered').length,
-      issues:    allOrders.filter(o => (ORDER_FILTER_GROUPS.issues||[]).includes(o.status) || o.billing_status === 'failed').length,
+      issues:    allOrders.filter(o => ((ORDER_FILTER_GROUPS.issues||[]).includes(o.status) && o.cancelled_by !== 'customer') || o.billing_status === 'failed').length,
       cancelled: allOrders.filter(o => o.status === 'cancelled').length,
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
@@ -5103,9 +5106,9 @@
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
     if (!confirm('Skip this order? The next recurring order will be auto-created.')) return;
-    const { error } = await db.from('orders').update({ status: 'skipped' }).eq('id', opCurrentOrderId);
+    const { error } = await db.from('orders').update({ status: 'skipped', cancelled_by: 'customer' }).eq('id', opCurrentOrderId);
     if (error) { showToast('Failed to skip: ' + error.message, 'error'); return; }
-    o.status = 'skipped';
+    o.status = 'skipped'; o.cancelled_by = 'customer';
     document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(o.status);
     opRefreshAdvanceBtn(o);
     updateOrderFilterCounts();
@@ -5302,6 +5305,7 @@
     const payload = { status: newStatus };
     if (newStatus === 'picked_up') payload.actual_pickup_at = new Date().toISOString();
     if (newStatus === 'delivered') payload.actual_delivery_at = new Date().toISOString();
+    if (['skipped','cancelled','pickup_failed','delivery_failed'].includes(newStatus)) payload.cancelled_by = 'admin';
     // Clear routing_error if advancing forward (order was fixed)
     if (newIdx > oldIdx && o.routing_error) payload.routing_error = null;
 
@@ -6141,6 +6145,7 @@ window.onload=()=>{window.print();};
       const payload = { status: newStatus };
       if (newStatus === 'picked_up')  payload.actual_pickup_at   = now;
       if (newStatus === 'delivered')  payload.actual_delivery_at = now;
+      if (['skipped','cancelled','pickup_failed','delivery_failed'].includes(newStatus)) payload.cancelled_by = 'admin';
       const { error } = await db.from('orders').update(payload).eq('id', orderId);
       if (error) { showToast('Error: ' + error.message, 'error'); return; }
       showToast(`✓ Order #${orderNum} → ${label}`);
