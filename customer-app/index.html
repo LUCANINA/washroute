@@ -3519,6 +3519,7 @@ async function openDetail(orderId) {
     <div class="d-row"><span class="d-key">Pickup address</span><span class="d-val">${escHtml(pickupAddrLine)}</span></div>
     <div class="d-row"><span class="d-key">Pickup</span><span class="d-val">${o.pickup_window_start ? fmtDate(o.pickup_window_start) + (o.pickup_window_end ? ' · ' + fmtSlot(o.pickup_window_start, o.pickup_window_end) : '') : '—'}</span></div>
     <div class="d-row"><span class="d-key">Delivery</span><span class="d-val">${deliveryDisplay}</span></div>
+    ${!sameAddr && dAddr ? `<div class="d-row"><span class="d-key">Delivery address</span><span class="d-val" style="font-size:13px">${escHtml(fmtAddrOneLiner(dAddr))}<br><span style="font-size:11px;color:var(--gray-400);font-weight:400">Updated by your service team · SMS us to change</span></span></div>` : ''}
     ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${escHtml(o.special_instructions)}</span></div>` : ''}
     <div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total (estimate)</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${o.total_amount ? $m(o.total_amount) : 'Confirmed at pickup'}</span></div>`;
 
@@ -4301,7 +4302,7 @@ async function saveEditOrder() {
     total_amount:         total,
     line_items:           lineItems,
     pickup_address_id:    window._editPickupAddressId   || null,
-    delivery_address_id:  window._editPickupAddressId   || null,
+    delivery_address_id:  window._editDeliveryAddressId || window._editPickupAddressId || null,
     ...schedFields,
     updated_at:           new Date().toISOString()
   }).eq('id', orderId);
