@@ -2666,7 +2666,13 @@
       <div id="op-pickup-addr-picker" style="display:none;margin-top:10px"></div>
     </div>
 
-    <div class="op-sec-head">Delivery</div>
+    <div class="op-sec-head" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Delivery</span>
+      <label style="display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--gray-500);cursor:pointer;text-transform:none;letter-spacing:0">
+        <input type="checkbox" id="op-sameday-chk" onchange="opToggleSameDay(this.checked)" style="accent-color:var(--accent);cursor:pointer;width:14px;height:14px">
+        ⚡ Same-day (+$10)
+      </label>
+    </div>
     <div class="op-sched-card">
       <div class="op-sched-row">
         <span class="op-sched-lbl">Route</span>
@@ -2696,13 +2702,20 @@
       </div>
     </div>
 
-    <div class="op-sec-head">Delivery Address</div>
-    <div class="op-sched-card">
-      <div class="op-sched-row">
-        <span class="op-sched-val" id="op-delivery-addr-val" style="font-size:12.5px">—</span>
-        <button class="op-edit-btn" id="op-delivery-addr-btn" onclick="opToggleAddrPicker('delivery')">Change</button>
+    <div class="op-sec-head" style="margin-top:14px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:12px;font-weight:600;color:var(--gray-500)">
+        <input type="checkbox" id="op-diff-addr-chk" onchange="opToggleDiffDeliveryAddr(this.checked)" style="accent-color:var(--accent);cursor:pointer;width:14px;height:14px">
+        Different delivery address
+      </label>
+    </div>
+    <div id="op-diff-delivery-wrap" style="display:none">
+      <div class="op-sched-card">
+        <div class="op-sched-row">
+          <span class="op-sched-val" id="op-delivery-addr-val" style="font-size:12.5px">—</span>
+          <button class="op-edit-btn" id="op-delivery-addr-btn" onclick="opToggleAddrPicker('delivery')">Change</button>
+        </div>
+        <div id="op-delivery-addr-picker" style="display:none;margin-top:10px"></div>
       </div>
-      <div id="op-delivery-addr-picker" style="display:none;margin-top:10px"></div>
     </div>
 
   </div><!-- /schedule tab -->
@@ -4987,6 +5000,7 @@
   // ── ORDER DETAIL PANEL ──
   let opCurrentOrderId = null;
   let opCurrentCustId  = null;
+  let opIsSameDay      = false; // tracks same-day toggle state for current open order
   let _opRoutes        = [];   // upcoming route runs cache
   let _opTemplates     = [];   // route_templates cache
 
@@ -5033,6 +5047,20 @@
     // Schedule tab
     opRefreshScheduleUI(o);
     opRefreshAddresses(o);
+
+    // Same-day: auto-detect if pickup date === delivery date
+    const _puDate = (o.pickup_window_start || '').substring(0, 10);
+    const _dlDate = (o.delivery_window_start || '').substring(0, 10);
+    opIsSameDay = !!((_puDate && _dlDate) && _puDate === _dlDate);
+    const _sdChk = document.getElementById('op-sameday-chk');
+    if (_sdChk) _sdChk.checked = opIsSameDay;
+
+    // Diff delivery address: show picker if delivery_address_id differs from pickup_address_id
+    const _diffAddr = !!(o.delivery_address_id && o.delivery_address_id !== o.pickup_address_id);
+    const _daChk  = document.getElementById('op-diff-addr-chk');
+    const _daWrap = document.getElementById('op-diff-delivery-wrap');
+    if (_daChk)  _daChk.checked = _diffAddr;
+    if (_daWrap) _daWrap.style.display = _diffAddr ? '' : 'none';
 
     // Details tab
     document.getElementById('op-bags-input').value = o.total_bags != null ? o.total_bags : (o.weight_lbs != null ? Number(o.weight_lbs) : '');
@@ -5195,6 +5223,25 @@
     const dlId   = o.delivery_address_id;
     const dlAddr = addrs.find(a => a.id === dlId) || addrs.find(a => a.is_default) || addrs[0];
     document.getElementById('op-delivery-addr-val').textContent = fmtAddr(dlAddr);
+  }
+
+  function opToggleSameDay(checked) {
+    opIsSameDay = checked;
+    opRecalcEstimate();
+  }
+
+  async function opToggleDiffDeliveryAddr(checked) {
+    const wrap = document.getElementById('op-diff-delivery-wrap');
+    if (wrap) wrap.style.display = checked ? '' : 'none';
+    if (!checked) {
+      // Clear delivery_address_id so it defaults back to the pickup address
+      const o = allOrders.find(x => x.id === opCurrentOrderId);
+      if (!o) return;
+      const { error } = await db.from('orders').update({ delivery_address_id: null }).eq('id', opCurrentOrderId);
+      if (error) { showToast('Failed to clear delivery address', 'error'); return; }
+      o.delivery_address_id = null;
+      showToast('Delivery address reset to pickup address ✓', 'success');
+    }
   }
 
   async function opPrefetchRoutes() {
@@ -5856,8 +5903,12 @@
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
 
+    // Same-day surcharge (only when toggle is on)
+    const sameDayFeeObj = allFees.find(f => (f.category === 'Surcharge' || f.category === 'surcharge') && (f.name || '').toLowerCase().includes('same'));
+    const sameDaySurcharge = opIsSameDay ? (sameDayFeeObj ? parseFloat(sameDayFeeObj.amount || 0) : 10) : 0;
+
     const bagTotal = bags * basePrice;
-    const estimated = bagTotal + deliveryFee;
+    const estimated = bagTotal + deliveryFee + sameDaySurcharge;
 
     let html = '';
     if (bags > 0 && basePrice > 0) {
@@ -5865,6 +5916,9 @@
     }
     if (deliveryFee > 0) {
       html += `<div style="display:flex;justify-content:space-between"><span>Delivery Fee</span><span>${fmtMoney(deliveryFee)}</span></div>`;
+    }
+    if (sameDaySurcharge > 0) {
+      html += `<div style="display:flex;justify-content:space-between"><span>⚡ Same-day surcharge</span><span>${fmtMoney(sameDaySurcharge)}</span></div>`;
     }
     // Credit line items from order
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
@@ -5886,24 +5940,29 @@
     const bags  = parseInt(document.getElementById('op-bags-input').value) || 0;
     const notes = document.getElementById('op-notes-input').value.trim();
 
-    // Recalculate total based on bags + delivery fee
+    // Recalculate total based on bags + delivery fee + same-day surcharge
     const svc = allServices.find(s => s.id === o.service_id);
     const basePrice = svc ? parseFloat(svc.base_price || 0) : 0;
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     const bagTotal = bags * basePrice;
 
+    // Same-day surcharge
+    const sameDayFeeObj = allFees.find(f => (f.category === 'Surcharge' || f.category === 'surcharge') && (f.name || '').toLowerCase().includes('same'));
+    const sameDaySurcharge = opIsSameDay ? (sameDayFeeObj ? parseFloat(sameDayFeeObj.amount || 0) : 10) : 0;
+
     // Preserve credits if already applied
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
     const creditItem = lineItems.find(li => li.type === 'credit');
     const creditAmt = creditItem ? Math.abs(parseFloat(creditItem.amount || 0)) : 0;
 
-    const newTotal = Math.max(0, bagTotal + deliveryFee - creditAmt);
+    const newTotal = Math.max(0, bagTotal + deliveryFee + sameDaySurcharge - creditAmt);
 
     // Build line items
     const newLineItems = [];
     if (bags > 0 && basePrice > 0) newLineItems.push({ type: 'base', label: `${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}`, amount: bagTotal });
     if (deliveryFee > 0) newLineItems.push({ type: 'fee', label: 'Delivery Fee', amount: deliveryFee });
+    if (sameDaySurcharge > 0) newLineItems.push({ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge });
     if (creditItem) newLineItems.push(creditItem); // keep existing credit
 
     const update = {
@@ -5918,6 +5977,7 @@
     if (error) { showToast('Failed to save', 'error'); return; }
     Object.assign(o, update);
     document.getElementById('op-bill-total').textContent = fmtMoney(newTotal);
+    opPopulateBilling(o); // refresh Charge button label with updated total
     showToast(`Order #${o.order_number} updated — ${fmtMoney(newTotal)}`, 'success');
     const msg = document.getElementById('op-details-msg');
     msg.style.display = ''; setTimeout(() => msg.style.display = 'none', 2500);
