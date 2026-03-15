@@ -2442,8 +2442,8 @@ function updateEstimate() {
   const addonsTotal = Object.values(draft.prefs).reduce((s, p) => s + (p.priceMod || 0), 0);
   const base        = pricePerBag * bags;
 
-  // Flat pickup/delivery fees (all show_in_app fees except the same-day surcharge)
-  const routeFees     = allServiceFees.filter(f => !/same.?day/i.test(f.name) && f.fee_type !== 'percent');
+  // Only include fees explicitly categorized as Delivery or Pickup — never Penalty/Reward/Surcharge
+  const routeFees     = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const routeFeeTotal = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
 
   // Same-day surcharge if the toggle is on
