@@ -5403,14 +5403,30 @@
 
     // Pre-fill the date input from the order's current window
     const o = allOrders.find(x => x.id === opCurrentOrderId);
-    const windowField = leg === 'pickup' ? o?.pickup_window_start : o?.delivery_window_start;
-    if (windowField) {
-      dateInput.value = new Date(windowField).toISOString().slice(0,10);
+    let prefillDate = null;
+    if (leg === 'pickup') {
+      prefillDate = o?.pickup_window_start ? new Date(o.pickup_window_start).toISOString().slice(0,10) : today();
     } else {
-      dateInput.value = today();
+      // For delivery: use existing delivery date only if it's after the pickup date
+      const pickupDate = o?.pickup_window_start ? new Date(o.pickup_window_start).toISOString().slice(0,10) : today();
+      const existingDelivery = o?.delivery_window_start ? new Date(o.delivery_window_start).toISOString().slice(0,10) : null;
+      if (existingDelivery && existingDelivery > pickupDate) {
+        prefillDate = existingDelivery;
+      } else {
+        // Default to pickup date + 1 day
+        const [yr, mo, dy] = pickupDate.split('-').map(Number);
+        prefillDate = new Date(yr, mo-1, dy+1).toISOString().slice(0,10);
+      }
     }
-    // Set min date to today
-    dateInput.min = today();
+    dateInput.value = prefillDate;
+    // Set min date: pickup leg = today, delivery leg = day after pickup
+    if (leg === 'pickup') {
+      dateInput.min = today();
+    } else {
+      const pickupDate = o?.pickup_window_start ? new Date(o.pickup_window_start).toISOString().slice(0,10) : today();
+      const [yr, mo, dy] = pickupDate.split('-').map(Number);
+      dateInput.min = new Date(yr, mo-1, dy+1).toISOString().slice(0,10);
+    }
 
     // Determine zones for filtering
     _opPickerZoneIds = new Set();
@@ -5487,7 +5503,7 @@
       return;
     }
 
-    // Show routes for this date, zone-filtered
+    // Show routes for this date — zone-matched first, others below with separator
     const matchRows = [], otherRows = [];
     for (const r of dayRoutes) {
       const tmpl  = _opTemplates.find(t => t.name === r.name) || {};
@@ -5501,7 +5517,18 @@
       if (isMatch) matchRows.push(row);
       else otherRows.push(row);
     }
-    listEl.innerHTML = (matchRows.length ? matchRows.join('') : otherRows.join('')) || '<span style="color:var(--gray-400);font-size:13px">No matching routes for this date.</span>';
+    let html = '';
+    if (matchRows.length) {
+      html += matchRows.join('');
+      if (otherRows.length) {
+        html += `<div style="font-size:10px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.06em;padding:8px 4px 4px">Other zones</div>`;
+        html += otherRows.map(r => r.replace('class="op-route-row', 'class="op-route-row" style="opacity:.5"').replace('class="op-route-row selected"', 'class="op-route-row selected"')).join('');
+      }
+    } else {
+      // Zone unknown or no match — show all routes equally
+      html = [...matchRows, ...otherRows].join('');
+    }
+    listEl.innerHTML = html || '<span style="color:var(--gray-400);font-size:13px">No matching routes for this date.</span>';
   }
 
   async function opCreateRouteAndSelect(leg, templateId, templateName, dateStr, rowEl) {
@@ -5577,6 +5604,13 @@
       update.pickup_run_id = routeId;
       if (startIso) { update.pickup_window_start = startIso; update.pickup_window_end = endIso; }
     } else {
+      // Validate: delivery must be after pickup
+      if (startIso && o.pickup_window_end && new Date(startIso) <= new Date(o.pickup_window_end)) {
+        showToast('Delivery must be after the pickup window. Please choose a later date.', 'error');
+        document.querySelectorAll(`#op-${leg}-slots .sp-slot-btn`).forEach(b => b.classList.remove('saving'));
+        if (btn?.classList) btn.textContent = btn.dataset.label || btn.textContent.replace('Saving…','');
+        return;
+      }
       update.delivery_run_id = routeId;
       if (startIso) { update.delivery_window_start = startIso; update.delivery_window_end = endIso; }
     }
@@ -5644,7 +5678,24 @@
     opRefreshScheduleUI(o);
     updateOrderFilterCounts();
     renderOrders(getFilteredOrders());
-    showToast(`✓ ${leg === 'pickup' ? 'Pickup' : 'Delivery'} scheduled`, 'success');
+
+    if (leg === 'pickup' && startIso) {
+      // Auto-update delivery date min + pre-fill to pickup+1 so it's ready to set
+      const [yr, mo, dy] = startIso.slice(0,10).split('-').map(Number);
+      const deliveryMin = new Date(yr, mo-1, dy+1).toISOString().slice(0,10);
+      const deliveryDateInput = document.getElementById('op-delivery-date');
+      if (deliveryDateInput) {
+        deliveryDateInput.min = deliveryMin;
+        // Only update delivery date if it's now invalid (before new pickup)
+        if (!deliveryDateInput.value || deliveryDateInput.value <= startIso.slice(0,10)) {
+          deliveryDateInput.value = deliveryMin;
+          opFilterRoutesByDate('delivery', deliveryMin);
+        }
+      }
+      showToast('✓ Pickup scheduled — now set the delivery date below', 'success');
+    } else {
+      showToast(`✓ ${leg === 'pickup' ? 'Pickup' : 'Delivery'} scheduled`, 'success');
+    }
   }
 
   // ── ADDRESS PICKER ──
