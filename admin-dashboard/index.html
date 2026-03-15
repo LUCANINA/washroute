@@ -13733,6 +13733,7 @@ window.onload=()=>{window.print();};
     const [{ data: pickedUp }] = await Promise.all([
       db.from('orders')
         .select(`id, order_number, status, total_bags, special_instructions, service_id,
+                 pickup_window_start, delivery_window_start, total_amount, line_items,
                  customers(id, first_name_cache, last_name_cache, customer_type, preferences),
                  services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
         .eq('status', 'picked_up')
@@ -13894,8 +13895,22 @@ window.onload=()=>{window.print();};
   }
 
   async function openIntakePanel(orderId) {
-    const order = allProcOrders.find(o => o.id === orderId);
+    // Fresh-fetch the order so bags/notes/dates are always current
+    // (admin may have changed them in the order panel since the proc queue last loaded)
+    const { data: freshOrder } = await db.from('orders')
+      .select(`id, order_number, status, total_bags, special_instructions, service_id,
+               pickup_window_start, delivery_window_start, total_amount, line_items,
+               customers(id, first_name_cache, last_name_cache, customer_type, preferences),
+               services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
+      .eq('id', orderId)
+      .single();
+    const order = freshOrder || allProcOrders.find(o => o.id === orderId);
     if (!order) return;
+    // Sync fresh data back into the local cache so the card also reflects updates
+    if (freshOrder) {
+      const idx = allProcOrders.findIndex(o => o.id === orderId);
+      if (idx >= 0) allProcOrders[idx] = freshOrder;
+    }
     procActiveOrder = order;
     procSvc         = order.services;
     procBags        = order.total_bags || 1;
@@ -13933,10 +13948,13 @@ window.onload=()=>{window.print();};
       }
     }
 
-    // Detect same-day: pickup date === delivery date (compare YYYY-MM-DD portion)
-    const pickupDate   = (order.pickup_window_start   || '').slice(0, 10);
-    const deliveryDate = (order.delivery_window_start || '').slice(0, 10);
-    procIsSameDay = !!(pickupDate && deliveryDate && pickupDate === deliveryDate);
+    // Detect same-day: compare local calendar dates in BIZ_TZ (not UTC strings, which
+    // can disagree around midnight — e.g. a 6pm Pacific delivery = 01:00 UTC next day)
+    const _puLocal = order.pickup_window_start
+      ? new Date(order.pickup_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;
+    const _dlLocal = order.delivery_window_start
+      ? new Date(order.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;
+    procIsSameDay = !!(_puLocal && _dlLocal && _puLocal === _dlLocal);
 
     // Normalize customer_type: legacy 'individual' value → treat as 'Delivery'
     const pricelist = (customerType === 'Commercial') ? 'Commercial' : 'Delivery';

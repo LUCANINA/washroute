@@ -3643,8 +3643,14 @@ async function loadOrders() {
           }
           renderOrdersList(window._cachedOrders);
         }
+        // If the detail screen is open for this order, re-render it with fresh data
+        const detailActive = document.getElementById('screen-detail')?.classList.contains('active');
+        if (detailActive && window._currentDetailOrder?.id === updated.id) {
+          openDetail(updated.id);
+        }
         // If home screen is active, refresh the active-order banner
-        if (document.getElementById('screen-home')?.style.display !== 'none') loadHome();
+        const homeActive = document.getElementById('screen-home')?.classList.contains('active');
+        if (homeActive) loadHome();
       })
       .subscribe();
   }
