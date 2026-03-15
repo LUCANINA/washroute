@@ -5621,11 +5621,20 @@
       const eDate = new Date(yr, mo-1, dy, Math.floor((m+slotSz)/60), (m+slotSz)%60, 0);
       slots.push({ start: sDate.toISOString(), end: eDate.toISOString(), label: `${fmtHM(m)} – ${fmtHM(m+slotSz)}` });
     }
-    if (!slots.length) {
-      slotsEl.innerHTML = `<span style="font-size:13px;color:var(--gray-500)">No slots available in route window.</span>`;
+
+    // On today's date, hide slots whose window has already ended.
+    // Admins shouldn't be able to assign a pickup to a window that's already in the past.
+    const isToday = runDate === today();
+    const visibleSlots = isToday ? slots.filter(s => new Date(s.end) > new Date()) : slots;
+
+    if (!visibleSlots.length) {
+      const msg = isToday
+        ? 'All windows for this route have passed today. Choose a future date.'
+        : 'No slots available in route window.';
+      slotsEl.innerHTML = `<span style="font-size:13px;color:var(--gray-500)">${msg}</span>`;
       return;
     }
-    slotsEl.innerHTML = slots.map(s =>
+    slotsEl.innerHTML = visibleSlots.map(s =>
       `<button class="sp-slot-btn" onclick="opSaveRouteAndSlot('${leg}','${routeId}','${s.start}','${s.end}',this)">${s.label}</button>`
     ).join('');
   }
