@@ -14123,8 +14123,12 @@ window.onload=()=>{window.print();};
     rows.push(`<div class="proc-breakdown-row"><span>${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}</span><span class="amount">${fmtMoney(bd.base)}</span></div>`);
     if (bd.overage_charge > 0)
       rows.push(`<div class="proc-breakdown-row overage-row"><span>⚠️ ${bd.overage_lbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}</span><span class="amount">+${fmtMoney(bd.overage_charge)}</span></div>`);
-    Object.values(procAddons).forEach(a => {
-      if (a.price_mod > 0) rows.push(`<div class="proc-breakdown-row"><span>${a.label}</span><span class="amount">+${fmtMoney(a.price_mod)}</span></div>`);
+    Object.entries(procAddons).forEach(([groupId, a]) => {
+      if (a.price_mod <= 0) return;
+      // Skip if this preference has a linked service — it will appear below as "Vinegar × N bags"
+      const hasLinkedSvc = allAddonServicesCache.some(s => s.linked_preference_id === groupId);
+      if (hasLinkedSvc) return;
+      rows.push(`<div class="proc-breakdown-row"><span>${a.label}</span><span class="amount">+${fmtMoney(a.price_mod)}</span></div>`);
     });
     // Preference-linked services (Vinegar, Oxi) — auto-billed when chip = non-default (Yes)
     allPreferencesCache.forEach(g => {
@@ -14185,7 +14189,13 @@ window.onload=()=>{window.print();};
     const base        = bags * pricePerBag;
     const overage_lbs    = Math.max(0, weight - bags * lbsPerBag);
     const overage_charge = overage_lbs * ovgRate;
-    const addons_total   = Object.values(procAddons).reduce((s,a) => s + (a.price_mod||0), 0);
+    // Sum price_mod for prefs WITHOUT a linked service only — prefs with linked services
+    // are billed via prefLinkedSvc_total below (otherwise they'd be counted twice)
+    const addons_total = Object.entries(procAddons).reduce((s, [groupId, a]) => {
+      if ((a.price_mod || 0) <= 0) return s;
+      const hasLinkedSvc = allAddonServicesCache.some(sv => sv.linked_preference_id === groupId);
+      return hasLinkedSvc ? s : s + a.price_mod;
+    }, 0);
     // Additional services: per_item uses qty, everything else uses bags
     const addonSvc_total = Object.values(procAddonServices)
       .filter(a => a.selected)
