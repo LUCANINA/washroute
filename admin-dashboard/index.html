@@ -2729,6 +2729,10 @@
         <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);width:80px;flex-shrink:0">Bags</span>
         <input id="op-bags-input" type="number" min="0" step="1" style="flex:1;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;color:var(--gray-800)" placeholder="—" oninput="opRecalcEstimate()">
       </div>
+      <div id="op-weight-row" style="display:none;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);width:80px;flex-shrink:0">Weight</span>
+        <span id="op-weight-display" style="font-size:13px;font-weight:600;color:var(--gray-800)">—</span>
+      </div>
       <div id="op-cost-breakdown" style="margin-top:6px;font-size:12.5px;color:var(--gray-600);line-height:2"></div>
     </div>
 
@@ -4910,6 +4914,11 @@
       ${sorted.map(o => {
         const custId = o.customers?.id || '';
         const bags = o.total_bags != null ? o.total_bags : (o.weight_lbs != null ? Number(o.weight_lbs) : '—');
+        const bagsDisplay = bags === '—'
+          ? '—'
+          : o.weight_lbs
+            ? `<span style="font-weight:600">${bags}</span><br><span style="font-size:11px;color:var(--gray-400)">${o.weight_lbs} lbs</span>`
+            : String(bags);
         const inIssues = currentOrderFilter === 'issues';
         return `<tr style="cursor:pointer" onclick="openOrderPanel('${o.id}')">
           <td style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${o.customers?.phone_cache||''}" data-cust-name="${(o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||'')}" onchange="updateOrderBatchBar()"></td>
@@ -4919,7 +4928,7 @@
           <td style="font-size:12.5px;white-space:nowrap">${pickupTimeCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${deliveryRouteCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${deliveryTimeCell(o)}</td>
-          <td style="font-size:12.5px;text-align:right;padding-right:20px">${bags}</td>
+          <td style="font-size:12.5px;text-align:right;padding-right:20px;line-height:1.4">${bagsDisplay}</td>
           <td style="font-weight:600;padding-right:20px;white-space:nowrap"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:80px">${o.stripe_payment_intent_id && o.billing_status !== 'failed' ? '<span style="color:#16a34a;font-size:13px;font-weight:800;line-height:1" title="Paid">$</span>' : o.billing_status === 'failed' ? '<span style="background:#fee2e2;color:#dc2626;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;letter-spacing:.02em;white-space:nowrap" title="Payment failed">PAY FAILED</span>' : '<span></span>'}<span>${fmtMoney(o.total_amount)}</span></div></td>
           ${inIssues ? `<td style="padding-right:16px;white-space:nowrap" onclick="event.stopPropagation()">${issueActionBtn(o)}</td>` : ''}
         </tr>`;
@@ -5074,6 +5083,15 @@
     document.getElementById('op-bags-input').value = o.total_bags != null ? o.total_bags : (o.weight_lbs != null ? Number(o.weight_lbs) : '');
     document.getElementById('op-notes-input').value = o.special_instructions || '';
     document.getElementById('op-details-msg').style.display = 'none';
+    // Weight row — show only when weight has been recorded (set during processing)
+    const _wRow = document.getElementById('op-weight-row');
+    const _wEl  = document.getElementById('op-weight-display');
+    if (o.weight_lbs && _wRow && _wEl) {
+      _wEl.textContent = o.weight_lbs + ' lbs';
+      _wRow.style.display = 'flex';
+    } else if (_wRow) {
+      _wRow.style.display = 'none';
+    }
     opRecalcEstimate();
 
     // Billing tab
@@ -6081,105 +6099,204 @@
     setTimeout(() => loadOrders(currentOrderFilter), 500);
   }
 
-  function printBagTag() {
+  // ── RECEIPT PRINTING ──
+
+  function _fmtReceiptDate(isoStr) {
+    if (!isoStr) return '—';
+    const d  = new Date(isoStr);
+    const tz = BIZ_TZ;
+    const dow  = d.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' });
+    const mon  = d.toLocaleDateString('en-US', { timeZone: tz, month: 'numeric' });
+    const day  = d.toLocaleDateString('en-US', { timeZone: tz, day: 'numeric' });
+    const time = d.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
+    return `${dow} ${mon}/${day} · ${time}`;
+  }
+
+  function _openReceiptWindow(data, copies, win) {
+    copies = copies || 2;
+    const { orderNum, custName, custAddr, weightLbs, bags,
+            pickupStr, delivStr, stopNum, routeName,
+            addonTags, lineItems, total } = data;
+
+    // Partition line items — only show meaningful service lines in the invoice body
+    const displayItems = (lineItems || []).filter(li =>
+      li.type === 'base' || li.type === 'overage' || li.type === 'addon_service');
+    const delivFeeItem = (lineItems || []).find(li => li.type === 'delivery_fee');
+    const sameDayItem  = (lineItems || []).find(li => li.type === 'same_day_surcharge');
+    const creditItem   = (lineItems || []).find(li => li.type === 'credit');
+    const subtotal     = displayItems.reduce((s, li) => s + Number(li.amount || 0), 0);
+    const hasFeeSplit  = !!(delivFeeItem || sameDayItem || creditItem);
+    const fmt = n => '$' + Math.abs(Number(n || 0)).toFixed(2);
+
+    // Invoice rows
+    const lineItemsHtml = displayItems.length
+      ? displayItems.map(li =>
+          `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dotted #ddd">` +
+          `<span style="flex:1;font-size:12px">${li.label || 'Service'}</span>` +
+          `<span style="width:56px;text-align:right;font-size:12px;font-weight:700">$${Number(li.amount || 0).toFixed(2)}</span></div>`
+        ).join('')
+      : '<div style="font-size:11px;color:#555">Wash &amp; Fold</div>';
+
+    // Add-on tags
+    const addonTagsHtml = (addonTags && addonTags.length)
+      ? `<div style="margin:7px 0 8px">` +
+        `<div style="font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:3px">Add-ons</div>` +
+        addonTags.map(t =>
+          `<span style="display:inline-block;border:2px solid #000;border-radius:3px;padding:2px 6px;` +
+          `font-size:11.5px;font-weight:800;text-transform:uppercase;margin:2px 3px 2px 0">${t}</span>`
+        ).join('') + `</div>`
+      : '';
+
+    // Schedule box
+    const hasRoute  = stopNum || routeName;
+    const routePart = hasRoute
+      ? `<div style="text-align:right">` +
+        `<div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">Stop · Route</div>` +
+        `<div style="font-size:11px;font-weight:700">${stopNum}${stopNum && routeName ? ' · ' : ''}${routeName}</div></div>`
+      : '';
+    const schedHtml =
+      `<div style="border:2px solid #000;border-radius:3px;padding:7px 9px;margin:7px 0">` +
+      `<div style="margin-bottom:5px">` +
+      `<div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">📦 Pickup Due</div>` +
+      `<div style="font-size:12px;font-weight:700">${pickupStr}</div></div>` +
+      `<div style="border-top:1px dashed #ccc;margin-bottom:5px"></div>` +
+      `<div style="display:flex;justify-content:space-between;align-items:flex-start">` +
+      `<div><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">🚐 Delivery</div>` +
+      `<div style="font-size:12px;font-weight:700">${delivStr}</div></div>${routePart}</div></div>`;
+
+    // Totals rows (subtotal / fees / credit breakdown)
+    let totalsHtml = '';
+    if (hasFeeSplit) {
+      totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Subtotal</span><span>${fmt(subtotal)}</span></div>`;
+      if (delivFeeItem) totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Delivery Fee</span><span>${fmt(delivFeeItem.amount)}</span></div>`;
+      if (sameDayItem)  totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Same-day surcharge</span><span>${fmt(sameDayItem.amount)}</span></div>`;
+      if (creditItem)   totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Credit applied</span><span style="color:#16a34a">&#8722;${fmt(creditItem.amount)}</span></div>`;
+    }
+
+    // Safe order number for CSS class names (alphanumeric only)
+    const sn = String(orderNum).replace(/[^a-zA-Z0-9]/g, '');
+
+    function oneCopy() {
+      return (
+        `<div style="font-family:-apple-system,sans-serif;font-size:16px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;text-align:center">Family Laundry</div>` +
+        `<div style="font-size:9.5px;color:#555;text-align:center;line-height:1.5;margin-top:2px">2609 Foothill Blvd · Oakland, CA 94601</div>` +
+        `<div style="font-size:9px;color:#777;display:flex;justify-content:space-between;margin-top:6px"><span>FL</span><span class="pdate"></span></div>` +
+        `<hr class="solid">` +
+        `<div style="font-family:-apple-system,sans-serif;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.03em;line-height:1.2;margin-bottom:2px">${custName}</div>` +
+        (custAddr ? `<div style="font-size:11px;color:#333;line-height:1.5">${custAddr}</div>` : '') +
+        `<hr class="dash">` +
+        `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">` +
+        `<div style="font-family:-apple-system,sans-serif;font-size:18px;font-weight:900">#${orderNum}</div>` +
+        `<div style="font-family:-apple-system,sans-serif;font-size:12px;font-weight:700;color:#333">${bags || '—'} BAGS · ${weightLbs ? weightLbs + ' LBS' : '— LBS'}</div></div>` +
+        schedHtml +
+        addonTagsHtml +
+        `<hr class="dash">` +
+        `<div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:2px">Invoice</div>` +
+        `<div style="border-top:1px solid #000;margin-bottom:3px"></div>` +
+        lineItemsHtml +
+        `<hr class="thin" style="margin-top:5px">` +
+        totalsHtml +
+        `<hr class="solid">` +
+        `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px">` +
+        `<span style="font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Amount Due</span>` +
+        `<span style="font-family:-apple-system,sans-serif;font-size:22px;font-weight:900">$${Number(total || 0).toFixed(2)}</span></div>` +
+        `<hr class="dash">` +
+        `<div style="text-align:center;margin:6px 0 2px"><svg class="bc-${sn}"></svg>` +
+        `<div style="font-size:9px;color:#777;margin-top:1px;letter-spacing:.08em">${orderNum}</div></div>` +
+        `<hr class="dash">` +
+        `<div style="font-size:9.5px;color:#555;text-align:center;line-height:1.6">Thank you for choosing Family Laundry!<br>Questions? Text us · (510) 588-4102</div>`
+      );
+    }
+
+    const copiesHtml = Array.from({ length: copies }, (_, i) =>
+      `<div class="rcopy"${i < copies - 1 ? ' style="page-break-after:always"' : ''}>${oneCopy()}</div>`
+    ).join('\n');
+
+    const fullHtml =
+      `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Receipt #${orderNum}<\/title>` +
+      `<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"><\/script>` +
+      `<style>` +
+      `*{box-sizing:border-box;margin:0;padding:0}` +
+      `body{font-family:'Courier New',monospace;background:#e5e7eb;display:flex;flex-direction:column;align-items:center;gap:20px;padding:24px}` +
+      `.rcopy{width:302px;background:white;padding:13px 12px 16px;box-shadow:0 4px 24px rgba(0,0,0,.18)}` +
+      `hr.dash{border:none;border-top:1px dashed #aaa;margin:7px 0}` +
+      `hr.solid{border:none;border-top:2px solid #000;margin:7px 0}` +
+      `hr.thin{border:none;border-top:1px solid #ccc;margin:4px 0}` +
+      `@media print{body{background:white;padding:0;display:block}` +
+      `.rcopy{width:80mm;box-shadow:none;padding:4mm 3mm 6mm}}` +
+      `<\/style></head><body>` +
+      copiesHtml +
+      `<script>` +
+      `const pd=new Date().toLocaleString('en-US',{month:'numeric',day:'numeric',year:'2-digit',hour:'numeric',minute:'2-digit'});` +
+      `document.querySelectorAll('.pdate').forEach(el=>el.textContent=pd);` +
+      `document.querySelectorAll('.bc-${sn}').forEach(svg=>{` +
+      `JsBarcode(svg,'${sn}',{format:'CODE128',width:1.6,height:46,displayValue:false,margin:0,background:'#ffffff',lineColor:'#000000'});` +
+      `});` +
+      `setTimeout(()=>window.print(),500);` +
+      `<\/script></body></html>`;
+
+    // win: pre-opened window (passed in to avoid popup-blocker), falls back to opening one now
+    const w = (win && !win.closed) ? win : window.open('', '_blank', 'width=420,height=750');
+    if (!w) { showToast('Pop-up blocked — allow pop-ups for this page to print receipts', ''); return; }
+    w.document.write(fullHtml); w.document.close();
+  }
+
+  async function printBagTag() {
     if (!opCurrentOrderId) return;
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
+
+    // Open popup NOW while still in the click-handler context (before any async calls)
+    // — browsers block window.open() called after an await
+    const printWin = window.open('', '_blank', 'width=420,height=750');
+    if (!printWin) { showToast('Pop-up blocked — allow pop-ups for this page to print receipts', ''); return; }
+
     const cust = allCustomers.find(c => c.id === o.customer_id) || {};
     const custName = [cust.first_name_cache, cust.last_name_cache].filter(Boolean).join(' ').toUpperCase() || '—';
-    const custAddr  = cust.address_cache || '';
-    const orderNum  = o.order_number || o.id.slice(-5).toUpperCase();
-    const bags      = o.bag_count || '—';
-    const weightLbs = o.weight_lbs ? `${o.weight_lbs} LBS · ` : '';
-    const pickupStr = o.pickup_window_start  ? fmtDate(o.pickup_window_start)  + ' · ' + fmtTime(o.pickup_window_start)  : '—';
-    const delivStr  = o.delivery_window_start ? fmtDate(o.delivery_window_start) + ' · ' + fmtTime(o.delivery_window_start) : '—';
-    const printDate = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const custAddr = cust.address_cache || '';
+    const orderNum = String(o.order_number || o.id.slice(-5).toUpperCase());
 
-    const items = Array.isArray(o.line_items) ? o.line_items : [];
-    const subtotal = items.reduce((s, i) => s + Number(i.amount || 0), 0);
-    const total    = Number(o.total_amount || 0);
-    const delivFee = Math.max(0, +(total - subtotal).toFixed(2));
-    const lineItemsHtml = items.length
-      ? items.map(i => `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;"><span style="flex:1">${i.label||'Service'}</span><span style="width:56px;text-align:right;font-weight:600">$${Number(i.amount||0).toFixed(2)}</span></div>`).join('')
-      : '<div style="font-size:11px;color:#555;">Wash &amp; Fold</div>';
+    // Fetch delivery route stop info for Stop · Route display
+    let stopNum = '', routeName = '';
+    try {
+      const { data: stopData } = await db.from('route_stops')
+        .select('stop_number, routes(name)')
+        .eq('order_id', opCurrentOrderId)
+        .eq('stop_type', 'delivery')
+        .maybeSingle();
+      if (stopData) {
+        stopNum   = stopData.stop_number != null ? String(stopData.stop_number) : '';
+        routeName = stopData.routes?.name || '';
+      } else {
+        // Fallback: pickup stop
+        const { data: pu } = await db.from('route_stops')
+          .select('stop_number, routes(name)')
+          .eq('order_id', opCurrentOrderId)
+          .eq('stop_type', 'pickup')
+          .maybeSingle();
+        if (pu) {
+          stopNum   = pu.stop_number != null ? String(pu.stop_number) : '';
+          routeName = pu.routes?.name || '';
+        }
+      }
+    } catch (e) { /* no route info — print without it */ }
 
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<title>Bag Tag #${orderNum}</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"><\/script>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Courier New',monospace;background:white;padding:6mm 3mm;width:80mm}
-.biz-name{font-family:-apple-system,sans-serif;font-size:18px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;text-align:center}
-.biz-addr{font-size:9.5px;color:#555;text-align:center;line-height:1.5;margin-top:2px}
-.ts{font-size:9px;color:#777;display:flex;justify-content:space-between;margin-top:6px}
-.cust-name{font-family:-apple-system,sans-serif;font-size:17px;font-weight:900;text-transform:uppercase;letter-spacing:.03em;line-height:1.2;margin-bottom:2px}
-.cust-addr{font-size:11px;color:#333;line-height:1.5}
-.order-meta{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
-.order-num{font-family:-apple-system,sans-serif;font-size:18px;font-weight:900}
-.weight-bags{font-family:-apple-system,sans-serif;font-size:12px;font-weight:700;color:#333}
-.sched{border:2px solid #000;border-radius:3px;padding:7px 9px;margin:7px 0}
-.sched-row{display:flex;justify-content:space-between;align-items:flex-start}
-.sched-label{font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px}
-.sched-val{font-size:12px;font-weight:700}
-.sched-sub{font-size:11px;font-weight:700;text-align:right}
-.inv-header{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:2px}
-.totals-row{display:flex;justify-content:space-between;font-size:11px;padding:2px 0}
-.amount-due{display:flex;justify-content:space-between;align-items:baseline;margin-top:6px}
-.amount-label{font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
-.amount-value{font-family:-apple-system,sans-serif;font-size:22px;font-weight:900}
-.barcode-wrap{text-align:center;margin:6px 0 2px}
-.barcode-id{font-size:9px;color:#777;margin-top:1px;letter-spacing:.08em}
-.footer{font-size:9.5px;color:#555;text-align:center;line-height:1.6}
-hr.dash{border:none;border-top:1px dashed #aaa;margin:7px 0}
-hr.solid{border:none;border-top:2px solid #000;margin:7px 0}
-hr.thin{border:none;border-top:1px solid #ccc;margin:4px 0}
-@media print{body{padding:0;width:80mm}}
-</style></head><body>
-<div class="biz-name">Family Laundry</div>
-<div class="biz-addr">2609 Foothill Blvd · Oakland, CA 94601</div>
-<div class="ts"><span>FL</span><span>${printDate}</span></div>
-<hr class="solid">
-<div class="cust-name">${custName}</div>
-${custAddr ? `<div class="cust-addr">${custAddr}</div>` : ''}
-<hr class="dash">
-<div class="order-meta">
-  <div class="order-num">#${orderNum}</div>
-  <div class="weight-bags">${weightLbs}${bags} BAGS</div>
-</div>
-<div class="sched">
-  <div class="sched-row" style="margin-bottom:5px">
-    <div><div class="sched-label">📦 Pickup Due</div><div class="sched-val">${pickupStr}</div></div>
-  </div>
-  <div style="border-top:1px dashed #ccc;margin-bottom:5px"></div>
-  <div class="sched-row">
-    <div><div class="sched-label">🚐 Delivery</div><div class="sched-val">${delivStr}</div></div>
-  </div>
-</div>
-<hr class="dash">
-<div class="inv-header">Invoice</div>
-${lineItemsHtml}
-<hr class="thin" style="margin-top:5px">
-${subtotal > 0 && delivFee > 0 ? `<div class="totals-row"><span style="color:#444">Subtotal</span><span>$${subtotal.toFixed(2)}</span></div><div class="totals-row"><span style="color:#444">Delivery Fee</span><span>$${delivFee.toFixed(2)}</span></div>` : ''}
-<hr class="solid">
-<div class="amount-due">
-  <span class="amount-label">Amount Due</span>
-  <span class="amount-value">$${total.toFixed(2)}</span>
-</div>
-<hr class="dash">
-<div class="barcode-wrap">
-  <svg id="bc"></svg>
-  <div class="barcode-id">${orderNum}</div>
-</div>
-<hr class="dash">
-<div class="footer">Thank you for choosing Family Laundry!<br>Questions? Text us · (510) 588-4102</div>
-<script>
-JsBarcode("#bc","${orderNum}",{format:"CODE128",width:1.6,height:48,displayValue:false,margin:0});
-window.onload=()=>{window.print();};
-<\/script>
-</body></html>`;
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const total     = Number(o.total_amount || 0);
+    // Add-on tags: extract service name from "Vinegar × 3 bags" → "Vinegar"
+    const addonTags = lineItems
+      .filter(li => li.type === 'addon_service')
+      .map(li => (li.label || '').replace(/\s*×.*$/, '').trim())
+      .filter(Boolean);
 
-    const w = window.open('', '_blank', 'width=400,height=700');
-    if (w) { w.document.write(html); w.document.close(); }
+    _openReceiptWindow({
+      orderNum, custName, custAddr,
+      weightLbs: o.weight_lbs || 0,
+      bags:      o.total_bags || 0,
+      pickupStr: _fmtReceiptDate(o.pickup_window_start),
+      delivStr:  _fmtReceiptDate(o.delivery_window_start),
+      stopNum, routeName, addonTags, lineItems, total,
+    }, 2, printWin);
   }
 
   // ── BATCH ACTION: REASSIGN RUN ──
@@ -14128,6 +14245,13 @@ window.onload=()=>{window.print();};
         </div>
       </div>
       ${prefsHTML}
+      <div class="intake-section">
+        <div class="intake-section-label">Special Instructions</div>
+        <textarea id="proc-notes-inp" rows="3"
+          placeholder="No special instructions…"
+          style="width:100%;border:1.5px solid var(--gray-200);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:13px;color:var(--gray-800);resize:none;outline:none;box-sizing:border-box;line-height:1.5;background:var(--gray-50)"
+          oninput="procNotes=this.value">${(procNotes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+      </div>
       <div class="intake-section" style="margin-bottom:0">
         <div class="intake-section-label">Price Breakdown</div>
         <div class="proc-breakdown" id="proc-breakdown">${renderBreakdownRows(bd, pricePerBag)}</div>
@@ -14394,6 +14518,9 @@ window.onload=()=>{window.print();};
       lineItems.push({ type: 'credit', label: 'Account credit applied', amount: -bd.creditApplied });
     }
 
+    // Open print popup NOW — before any await — so browsers don't block it
+    const printWin = window.open('', '_blank', 'width=420,height=750');
+
     const { error } = await db.from('orders').update({
       status: 'processing', weight_lbs: weight, total_bags: bd.bags,
       total_amount: bd.total, line_items: lineItems,
@@ -14403,6 +14530,7 @@ window.onload=()=>{window.print();};
     }).eq('id', procActiveOrder.id);
 
     if (error) {
+      if (printWin) printWin.close();  // dismiss the print window we pre-opened
       const errEl = document.getElementById('intake-error');
       errEl.textContent = error.message; errEl.style.display = '';
       btn.disabled = false; btn.textContent = 'Save & Start Processing';
@@ -14421,12 +14549,51 @@ window.onload=()=>{window.print();};
     }
     const movedId  = procActiveOrder.id;
     const movedNum = procActiveOrder.order_number;
+    _autoPrintIntake(lineItems, bd, printWin);   // fire-and-forget — fills the pre-opened popup
     closeIntakePanel();
     // Instant removal from Intake column
     document.getElementById('proc-card-' + movedId)?.remove();
     allProcOrders = allProcOrders.filter(o => o.id !== movedId);
     showToast(`Order #${movedNum} → Processing!${bd.creditApplied > 0 ? ` (${fmtMoney(bd.creditApplied)} credit applied)` : ''}`, 'success');
     reloadColumns('intake', 'cleaning');
+  }
+
+  async function _autoPrintIntake(lineItems, bd, printWin) {
+    const o = procActiveOrder;
+    if (!o) return;
+    const cust = allCustomers.find(c => c.id === (procCustomerId || o.customer_id)) || {};
+    const custName = [cust.first_name_cache, cust.last_name_cache].filter(Boolean).join(' ').toUpperCase() || '—';
+    const custAddr = cust.address_cache || '';
+    const orderNum = String(o.order_number || o.id.slice(-5).toUpperCase());
+
+    // Fetch delivery route stop for Stop · Route on the tag
+    let stopNum = '', routeName = '';
+    try {
+      const { data: stopData } = await db.from('route_stops')
+        .select('stop_number, routes(name)')
+        .eq('order_id', o.id)
+        .eq('stop_type', 'delivery')
+        .maybeSingle();
+      if (stopData) {
+        stopNum   = stopData.stop_number != null ? String(stopData.stop_number) : '';
+        routeName = stopData.routes?.name || '';
+      }
+    } catch (e) { /* print without route info */ }
+
+    // Add-on tags from addon_service line items — extract name before " × N"
+    const addonTags = (lineItems || [])
+      .filter(li => li.type === 'addon_service')
+      .map(li => (li.label || '').replace(/\s*×.*$/, '').trim())
+      .filter(Boolean);
+
+    _openReceiptWindow({
+      orderNum, custName, custAddr,
+      weightLbs: bd.weight || 0,
+      bags:      bd.bags,
+      pickupStr: _fmtReceiptDate(o.pickup_window_start),
+      delivStr:  _fmtReceiptDate(o.delivery_window_start),
+      stopNum, routeName, addonTags, lineItems, total: bd.total,
+    }, 2, printWin);
   }
 
   // ── REPORTS ──
