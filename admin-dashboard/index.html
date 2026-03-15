@@ -878,7 +878,7 @@
     .proc-addon-group { margin-bottom:14px; }
     .proc-addon-group-label { font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-800);margin-bottom:8px; }
     .proc-addon-options { display:flex;flex-wrap:wrap;gap:8px; }
-    .proc-addon-btn { padding:14px 22px;border-radius:12px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;flex-direction:column;gap:3px;width:120px;box-sizing:border-box; }
+    .proc-addon-btn { padding:10px 22px;border-radius:12px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:120px;height:80px;box-sizing:border-box;text-align:center; }
     .proc-addon-btn.selected { border-color:var(--accent);background:#ede9ff; }
     .proc-addon-btn-name { font-size:16px;font-weight:600;color:var(--gray-800); }
     .proc-addon-btn.selected .proc-addon-btn-name { color:var(--accent); }
@@ -5955,10 +5955,12 @@
 
     const bagTotal = bags * basePrice;
 
-    // Saved line items — show add-on services, overages, etc. that came from processing
+    // Saved line items — show add-on services and overages from processing.
+    // Whitelist only: 'addon' type has raw option labels ("Yes", "Hot") that are either $0
+    // noise or already covered by the matching addon_service line — exclude them.
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
-    const baseTypes = new Set(['base','fee','delivery_fee','same_day_surcharge','credit']);
-    const extraItems = lineItems.filter(li => !baseTypes.has(li.type));
+    const extraTypes = new Set(['addon_service', 'overage']);
+    const extraItems = lineItems.filter(li => extraTypes.has(li.type));
     const creditItem = lineItems.find(li => li.type === 'credit');
     const creditAmt  = creditItem ? Math.abs(parseFloat(creditItem.amount || 0)) : 0;
 
