@@ -3404,11 +3404,13 @@ async function placeOrder() {
     } catch (_) { /* continue — order will just have null address */ }
   }
 
-  const svc          = defaultService;
-  const bags         = draft.bags;
-  const addonsTotal  = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
-  const sameDayFee   = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
-  const total        = Math.round(((svc?.base_price||0)*bags + addonsTotal + sameDayFee)*100)/100;
+  const svc           = defaultService;
+  const bags          = draft.bags;
+  const addonsTotal   = Object.values(draft.prefs).reduce((s,p) => s + (p.priceMod||0) * bags, 0);
+  const sameDayFee    = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
+  const routeFees     = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
+  const routeFeeTotal = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+  const total         = Math.round(((svc?.base_price||0)*bags + addonsTotal + routeFeeTotal + sameDayFee)*100)/100;
 
   const pickupDate   = draft.pickupDate;
   // Same-day: delivery is same day. Otherwise use chosen date or fallback calculation.
@@ -4433,9 +4435,11 @@ async function saveEditOrder() {
   const existingAddons = (existing?.line_items || []).filter(li => li.type !== 'base');
   const addonTotal     = existingAddons.reduce((s, li) => s + (li.amount || 0), 0);
 
-  const svc       = defaultService;
-  const basePrice = svc?.base_price || 0;
-  const total     = Math.round((basePrice * bags + addonTotal) * 100) / 100;
+  const svc            = defaultService;
+  const basePrice      = svc?.base_price || 0;
+  const editRouteFees  = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
+  const editRouteFeeTotal = editRouteFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+  const total          = Math.round((basePrice * bags + addonTotal + editRouteFeeTotal) * 100) / 100;
   const lineItems = [
     { type: 'base', label: `${bags} bag${bags !== 1 ? 's' : ''} × ${$m(basePrice)}`, amount: basePrice * bags },
     ...existingAddons
