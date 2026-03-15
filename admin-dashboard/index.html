@@ -1216,10 +1216,9 @@
                   <input type="search" id="order-search" placeholder="Search orders…" class="form-input" style="width:190px;padding:6px 10px;font-size:13px" oninput="filterOrdersBySearch(this.value)">
                   <div class="filter-tabs" id="order-filter-tabs">
                     <button class="filter-tab active" data-filter="scheduled" onclick="filterOrders('scheduled',this)">Scheduled</button>
-                    <button class="filter-tab" data-filter="active" onclick="filterOrders('active',this)">Active</button>
-                    <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
+                    <button class="filter-tab" data-filter="in_process" onclick="filterOrders('in_process',this)">In Process</button>
+                    <button class="filter-tab" data-filter="ready" onclick="filterOrders('ready',this)">Ready</button>
                     <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
-                    <button class="filter-tab" data-filter="cancelled" onclick="filterOrders('cancelled',this)" style="color:var(--gray-400)">Cancelled</button>
                   </div>
                 </div>
               </div>
@@ -4715,10 +4714,11 @@
 
   // Group filter → actual statuses mapping
   const ORDER_FILTER_GROUPS = {
-    scheduled: ['scheduled','ready_for_pickup'],
-    active:    ['picked_up','processing','folding','ready_for_delivery','out_for_delivery'],
-    issues:    ['skipped','on_hold','pickup_failed','delivery_failed'],
-    cancelled: ['cancelled'],
+    scheduled:  ['scheduled','ready_for_pickup'],
+    in_process: ['picked_up','processing','folding'],
+    ready:      ['ready_for_delivery','out_for_delivery'],
+    issues:     ['pickup_failed','delivery_failed','on_hold'],
+    // delivered, cancelled, skipped → archived (not shown in main tabs)
   };
 
   async function loadOrders(statusFilter) {
@@ -4772,9 +4772,9 @@
     let data = allOrders;
     if (currentOrderFilter) {
       if (currentOrderFilter === 'issues') {
-        // Issues = problem statuses (excluding customer-initiated skips) OR failed payment
+        // Issues = actual failure statuses OR failed payment
         data = data.filter(o =>
-          (ORDER_FILTER_GROUPS.issues.includes(o.status) && o.cancelled_by !== 'customer') ||
+          ORDER_FILTER_GROUPS.issues.includes(o.status) ||
           o.billing_status === 'failed'
         );
       } else if (ORDER_FILTER_GROUPS[currentOrderFilter]) {
@@ -4796,13 +4796,12 @@
 
   // Updates each pill button to show its count badge
   function updateOrderFilterCounts() {
-    const TAB_LABELS = { scheduled:'Scheduled', active:'Active', delivered:'Delivered', issues:'Issues', cancelled:'Cancelled' };
+    const TAB_LABELS = { scheduled:'Scheduled', in_process:'In Process', ready:'Ready', issues:'Issues' };
     const counts = {
-      scheduled: allOrders.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
-      active:    allOrders.filter(o => (ORDER_FILTER_GROUPS.active||[]).includes(o.status)).length,
-      delivered: allOrders.filter(o => o.status === 'delivered').length,
-      issues:    allOrders.filter(o => ((ORDER_FILTER_GROUPS.issues||[]).includes(o.status) && o.cancelled_by !== 'customer') || o.billing_status === 'failed').length,
-      cancelled: allOrders.filter(o => o.status === 'cancelled').length,
+      scheduled:  allOrders.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
+      in_process: allOrders.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
+      ready:      allOrders.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
+      issues:     allOrders.filter(o => (ORDER_FILTER_GROUPS.issues||[]).includes(o.status) || o.billing_status === 'failed').length,
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
       const key = btn.dataset.filter;
