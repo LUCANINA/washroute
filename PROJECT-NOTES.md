@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 15, 2026 (session 8)*
+*Last updated: Mar 15, 2026 (session 9)*
 
 ---
 
@@ -300,6 +300,14 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Mar 15, 2026 (session 9) — Same-day toggle confirmed working, sign-out fix
+
+- **Same-day toggle confirmed working end-to-end:** Toggle now appears correctly when 7am–9am is auto-selected after date pick. Root fix from session 8 (`04e18e9`) was correct — added a `try/catch` wrapper and diagnostic logging (`8616949`) to catch any silent exception in the async chain, which resolved the issue. Diagnostic logs cleaned up in the same session (`customer-app/index.html` — no separate commit, bundled with sign-out fix).
+
+- **Sign-out button stuck on "Signing out…" (commit `8ae1ef1`):** `db.auth.signOut()` makes a network call to revoke the Supabase token and can hang indefinitely — the Promise never settles, the button stays disabled forever. Fixed by adding a 1.5s `setTimeout` force-logout fallback: clears local auth state (`appReady`, `currentUser`, `currentProfile`, `currentCustomer`, `currentCards`), hides bottom nav, and navigates to auth screen. If the Supabase call resolves before 1.5s, the timer is cleared. Error path also now logs out locally instead of just re-enabling the button.
+
+---
 
 ### Mar 15, 2026 (session 8) — Customer app UX fixes, security hardening, same-day toggle bug fix
 

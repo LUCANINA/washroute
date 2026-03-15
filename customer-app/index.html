@@ -1398,6 +1398,7 @@ let currentProfile  = null;
 let currentCustomer = null;
 let currentCards    = [];   // customer_payment_methods rows for the logged-in customer
 let allServices     = [];
+let allServiceFees  = []; // service_fees rows where show_in_app=true
 let dbPlans         = [];
 let defaultService  = null; // the single W&F service
 let globalPrefs     = []; // global service preferences from preferences table
@@ -2017,14 +2018,16 @@ async function loadUserData() {
 
 /* ── SERVICES + GLOBAL PREFS ── */
 async function loadServices() {
-  // Fetch services and global preferences in parallel — both needed before new-order flow
-  const [{ data: svcs }, { data: prefs }] = await Promise.all([
+  // Fetch services, preferences, and service fees in parallel
+  const [{ data: svcs }, { data: prefs }, { data: fees }] = await Promise.all([
     db.from('services').select('*').eq('is_active', true).eq('show_in_app', true).order('sort_order'),
-    db.from('preferences').select('*').order('sort_order')
+    db.from('preferences').select('*').order('sort_order'),
+    db.from('service_fees').select('id,name,amount,fee_type,category').eq('show_in_app', true).order('sort_order')
   ]);
   allServices    = svcs  || [];
   defaultService = allServices[0] || null;
   globalPrefs    = prefs || [];
+  allServiceFees = fees  || [];
 }
 
 /* ── HOME ── */
@@ -2433,18 +2436,35 @@ function changeBags(delta) {
 }
 
 function updateEstimate() {
-  const svc        = defaultService;
+  const svc         = defaultService;
   const pricePerBag = parseFloat(svc?.base_price || 0);
   const bags        = draft.bags;
   const addonsTotal = Object.values(draft.prefs).reduce((s, p) => s + (p.priceMod || 0), 0);
   const base        = pricePerBag * bags;
-  const total       = base + addonsTotal;
+
+  // Flat pickup/delivery fees (all show_in_app fees except the same-day surcharge)
+  const routeFees     = allServiceFees.filter(f => !/same.?day/i.test(f.name) && f.fee_type !== 'percent');
+  const routeFeeTotal = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+
+  // Same-day surcharge if the toggle is on
+  const sameDayFee = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
+
+  const total = base + addonsTotal + routeFeeTotal + sameDayFee;
+
+  // Build compact breakdown line
+  const parts = [`${bags} bag${bags!==1?'s':''} × ${$m(pricePerBag)}`];
+  if (addonsTotal > 0) parts.push(`add-ons +${$m(addonsTotal)}`);
+  if (routeFeeTotal > 0) {
+    const label = routeFees.length === 1 ? routeFees[0].name : 'Pickup & Delivery';
+    parts.push(`${label} +${$m(routeFeeTotal)}`);
+  }
+  if (sameDayFee > 0) parts.push(`⚡ Same-day +${$m(sameDayFee)}`);
 
   const amtEl  = document.getElementById('estimate-amount');
   const noteEl = document.getElementById('estimate-note');
-  if (amtEl)  amtEl.textContent  = $m(total);
-  if (noteEl) noteEl.textContent =
-    `${bags} bag${bags!==1?'s':''} × ${$m(pricePerBag)}/bag${addonsTotal ? ' + add-ons' : ''} · Overages billed at pickup`;
+  if (amtEl)  amtEl.textContent = $m(total);
+  if (noteEl) noteEl.innerHTML  =
+    `${parts.join(' · ')}<br>Up to 25 lbs/bag · Overages billed at processing`;
 }
 
 /* ── STEP NAVIGATION ── */
@@ -2834,14 +2854,12 @@ async function selectSchedPickupDate(iso) {
     // Check same-day availability and show/hide the upsell toggle
     try {
       const sdWindows  = await _checkSameDayAvailable();
-      console.log('[WR same-day] pickupWindow:', draft.pickupWindow?.label, '| turnaroundHours:', draft.pickupWindow?.turnaroundHours, '| zoneId:', draft.zoneId, '| qualifying windows:', sdWindows.length, sdWindows.map(w => w.label));
       draft._sameDayWindows = sdWindows;
       const sdSurcharge = sdWindows.length ? await _fetchSameDaySurcharge() : 0;
       draft._sameDaySurcharge = sdSurcharge;
       _renderSameDayToggle(sdWindows, sdSurcharge);
-      console.log('[WR same-day] toggle card in DOM:', !!document.getElementById('same-day-toggle-card'));
     } catch (err) {
-      console.error('[WR same-day] ERROR in same-day check:', err);
+      console.error('[WashRoute] same-day check error:', err);
     }
   } else {
     showToast('No pickup times available for that date — try another', 'error');
@@ -2967,9 +2985,9 @@ async function _updateSchedDelivery() {
 // that start at least turnaroundHours after pickup window end). Empty = not available.
 async function _checkSameDayAvailable() {
   const pw = draft.pickupWindow;
-  if (!pw) { console.log('[WR same-day] early exit: no pickupWindow'); return []; }
-  if (!pw.turnaroundHours || pw.turnaroundHours === 0) { console.log('[WR same-day] early exit: turnaroundHours=', pw.turnaroundHours); return []; }
-  if (!draft.zoneId || !draft.pickupDate) { console.log('[WR same-day] early exit: zoneId=', draft.zoneId, 'pickupDate=', draft.pickupDate); return []; }
+  if (!pw) return [];
+  if (!pw.turnaroundHours || pw.turnaroundHours === 0) return [];
+  if (!draft.zoneId || !draft.pickupDate) return [];
 
   // Earliest possible delivery = pickup window end + turnaround hours (UTC math is fine here
   // because computeSubWindows also uses .toISOString() for slotStart, so all in UTC)
@@ -2984,18 +3002,15 @@ async function _checkSameDayAvailable() {
     .eq('is_active', true)
     .contains('schedule_days', [isoDay]);
 
-  if (!templates?.length) { console.log('[WR same-day] no templates found for zoneId=', draft.zoneId, 'isoDay=', isoDay); return []; }
-
-  console.log('[WR same-day] templates found:', templates.map(t => t.name + ' ws=' + t.window_start + ' turnaround_hours=' + t.turnaround_hours));
-  console.log('[WR same-day] earliestDeliveryMs =', new Date(earliestDeliveryMs).toISOString(), '(pw slotEnd=', pw.slotEnd, '+ ', pw.turnaroundHours, 'h)');
+  if (!templates?.length) return [];
 
   // Build sub-windows for the same pickup date and keep only those starting >= earliest delivery
   const qualifying = [];
   templates.forEach(tmpl => {
     computeSubWindows(draft.pickupDate, tmpl, tmpl.id, tmpl.name).forEach(w => {
-      const qualifies = new Date(w.slotStart).getTime() >= earliestDeliveryMs && w.slotStart !== pw.slotStart;
-      console.log('[WR same-day]  window', w.label, 'slotStart=', w.slotStart, qualifies ? '✓ QUALIFIES' : '✗ skip');
-      if (qualifies) qualifying.push(w);
+      if (new Date(w.slotStart).getTime() >= earliestDeliveryMs && w.slotStart !== pw.slotStart) {
+        qualifying.push(w);
+      }
     });
   });
   return qualifying.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
@@ -3085,7 +3100,9 @@ function buildConfirmSummary() {
   const bags           = draft.bags;
   const addonsTotal    = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
   const sameDayFee     = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
-  const total          = Math.round(((svc?.base_price||0)*bags + addonsTotal + sameDayFee)*100)/100;
+  const routeFees      = allServiceFees.filter(f => !/same.?day/i.test(f.name) && f.fee_type !== 'percent');
+  const routeFeeTotal  = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+  const total          = Math.round(((svc?.base_price||0)*bags + addonsTotal + routeFeeTotal + sameDayFee)*100)/100;
 
   const pickup = new Date(draft.pickupDate + 'T12:00:00');
   const fmt    = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
@@ -3170,6 +3187,7 @@ function buildConfirmSummary() {
         <span class="d-val">${$m((svc?.base_price||0)*bags)}</span>
       </div>
       ${addonRows}
+      ${routeFees.map(f => `<div class="d-row"><span class="d-key">${escHtml(f.name)}</span><span class="d-val">+${$m(parseFloat(f.amount||0))}</span></div>`).join('')}
       ${sameDayFee > 0 ? `<div class="d-row"><span class="d-key">⚡ Same-day surcharge</span><span class="d-val" style="color:var(--accent);font-weight:600;">+${$m(sameDayFee)}</span></div>` : ''}
       <div class="d-row" style="border-top:1.5px solid var(--gray-200);margin-top:4px;padding-top:14px">
         <span class="d-key" style="font-weight:700;font-size:15px">Estimated Total</span>
