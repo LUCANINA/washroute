@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 15, 2026 (session 10)*
+*Last updated: Mar 15, 2026 (session 11)*
 
 ---
 
@@ -300,6 +300,21 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Mar 15, 2026 (session 11) — Admin order panel: same-day toggle + delivery address checkbox
+
+- **Same-day service toggle (commit `a5915a4`):** ⚡ checkbox added inline with the Delivery section header in the admin Order panel Schedule tab. On panel open, same-day is auto-detected by comparing `pickup_window_start` and `delivery_window_start` date substrings. When checked, adds a $10 surcharge to the estimate (fee amount looked up from `service_fees` with category `Surcharge` + name containing "same"). `opToggleSameDay()` sets `opIsSameDay` and calls `opRecalcEstimate()`.
+
+- **Delivery address hidden behind checkbox (commit `a5915a4`):** Replaced the always-visible "Delivery Address" section with a "Different delivery address" checkbox. The address picker is hidden by default and only revealed when checked. On panel open, the checkbox auto-checks if `delivery_address_id` exists and differs from `pickup_address_id`. Unchecking calls `opToggleDiffDeliveryAddr(false)` which nulls `delivery_address_id` in DB — the system then falls back to the pickup address. Reduces risk of accidental address changes.
+
+- **`opSaveDetails()` updated to persist same-day surcharge:** When the same-day toggle is on, saves `type: 'same_day_surcharge'` line item (consistent with the admin order creation flow type) and includes the surcharge in `total_amount`. Billing tab Charge button is also refreshed via `opPopulateBilling(o)` after save so the label stays in sync.
+
+- **Next session priorities:**
+  1. Add `price_mod` for Double Wash and remaining add-on prefs
+  2. Receipt printing — thermal 80mm bag tag (mockup at `receipt-mockup.html`)
+  3. Twilio A2P 10DLC registration (David action required)
+
+---
 
 ### Mar 15, 2026 (session 10) — Preference UX overhaul: checkboxes throughout + order→account sync
 
