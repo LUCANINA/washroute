@@ -257,6 +257,42 @@ There are actually **two separate hang points** that must both be covered:
 
 ---
 
+## ⚠️ Design Decision Needed: Customer-Initiated Skips
+
+### The problem
+Currently `skipped` is a single status that means "driver couldn't complete the stop." But customers also need a way to skip — e.g. "I'm out of town this Thursday, skip my pickup." These are fundamentally different scenarios with different consequences:
+
+| Who skipped | Cause | Should appear in Issues? | Next recurring order? |
+|---|---|---|---|
+| Driver | Couldn't complete (no access, not home) | ✅ Yes — needs reschedule | Not applicable (one-time resolution) |
+| Customer | Intentional request ("skip this week") | ❌ No — it's resolved | ✅ Yes — subscription continues |
+| Admin | Manual intervention | Depends | Depends |
+
+### The recurring order bug
+`trg_create_recurring_order` only fires on `status → delivered`. If a recurring customer skips a week and the order lands in `skipped`, **the recurring chain silently breaks** — the next order is never created and the customer falls off the schedule. This is a real data integrity issue for any recurring subscriber who ever requests a skip.
+
+### Options
+1. **Add `skip_reason` column to `orders`** — e.g. `'customer_request'`, `'driver_skip'`, `'admin'`. Keep single `skipped` status but filter Issues tab and recurring trigger by reason.
+2. **Add separate `customer_cancelled` status** — cleanest separation, but requires schema change and updating all status arrays/filters across all three apps + DB constraints.
+3. **Hybrid** — use `cancelled_by` enum + `skip_reason` text for details.
+
+### Recommended approach (not yet built)
+- Add `cancelled_by TEXT` column to `orders` (values: `'customer'`, `'driver'`, `'admin'`, null)
+- Issues tab filter: only show `skipped` orders where `cancelled_by != 'customer'`
+- `trg_create_recurring_order`: fire on `skipped` too, but **only when `cancelled_by = 'customer'`** (customer-skipped recurring orders should create next instance)
+- Customer app: "Skip this pickup" button sets `status = 'skipped', cancelled_by = 'customer'`
+- SMS automation: when customer texts "skip Thursday", set same fields
+- Auto-fail cron: set `cancelled_by = 'system'` when it fires
+
+### Entry points for customer-initiated skips
+- Customer app (needs "Skip this pickup" button — not yet built)
+- SMS ("skip my pickup Thursday") — part of SMS automation Phase 2
+- Admin manually processing a customer call/text — available now via status change, but `cancelled_by` not recorded
+
+### Before building Issues improvements or SMS automation, resolve this design decision first.
+
+---
+
 ## Known Issues (found, not yet fixed)
 
 | # | Severity | Where | Symptom |
@@ -538,6 +574,7 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Pending / Next Up
+- ⚠️ **Design decision: customer-initiated skips + `cancelled_by` field** — blocks Issues tab improvements, SMS automation, and recurring skip handling. See "Design Decision Needed" section above.
 - ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix)
 - Receipt printing: print button on order detail (thermal 80mm bag tag) — mockup exists at `receipt-mockup.html`
 - ~~Customer email receipt (SendGrid)~~ ✅ — SendGrid confirmed working and sending
