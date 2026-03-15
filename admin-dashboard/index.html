@@ -5474,7 +5474,7 @@
     const schedDay = jsDay === 0 ? 6 : jsDay - 1;     // 0=Mon..6=Sun
     const dayName = new Date(yr, mo - 1, dy).toLocaleDateString('en-US', { weekday: 'long' });
 
-    // Check if ANY template runs on this day — if not, block the entire day
+    // Block days where no templates run at all
     const anyTemplateRunsToday = _opTemplates.some(t =>
       !Array.isArray(t.schedule_days) || t.schedule_days.includes(schedDay));
     if (!anyTemplateRunsToday) {
@@ -5484,72 +5484,86 @@
 
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     const currentId = leg === 'pickup' ? o?.pickup_run_id : o?.delivery_run_id;
-
-    // Filter routes to chosen date
     const dayRoutes = _opRoutes.filter(r => r.run_date === dateStr);
 
-    if (!dayRoutes.length) {
-      // No pre-generated routes for this date — show templates so admin can create one
-      const matchTemplates = _opTemplates.filter(t => {
-        if (Array.isArray(t.schedule_days) && !t.schedule_days.includes(schedDay)) return false;
-        if (!_opPickerZoneIds.size) return true;
+    let html = '';
+    if (_opPickerZoneIds.size > 0) {
+      // Zone is known — show ALL eligible options: existing instances + un-instantiated templates.
+      // This ensures both AM and PM always appear even if only one has been created for that date.
+
+      const zoneRoutes = dayRoutes.filter(r => {
+        const t = _opTemplates.find(x => x.name === r.name) || {};
         return t.zone_id && _opPickerZoneIds.has(t.zone_id);
       });
-      if (!matchTemplates.length) {
-        listEl.innerHTML = `<span style="color:var(--gray-400);font-size:13px">No routes run on ${dayName}s.</span>`;
-        return;
-      }
-      listEl.innerHTML = matchTemplates.map(t => {
+      const instantiatedNames = new Set(zoneRoutes.map(r => r.name));
+
+      const existingRows = zoneRoutes.map(r => {
+        const tmpl  = _opTemplates.find(t => t.name === r.name) || {};
+        const color = tmpl.color || '#8b93a7';
+        const sel   = r.id === currentId ? ' selected' : '';
+        return `<div class="op-route-row${sel}" onclick="opSelectRoute('${leg}','${r.id}','${r.run_date}',this)">
+          <div class="op-route-dot" style="background:${color}"></div>
+          <span class="op-route-name">${r.name}</span>
+        </div>`;
+      });
+
+      // Templates for this zone + day that don't have a route instance yet
+      const missingTemplates = _opTemplates.filter(t => {
+        if (Array.isArray(t.schedule_days) && !t.schedule_days.includes(schedDay)) return false;
+        if (!t.zone_id || !_opPickerZoneIds.has(t.zone_id)) return false;
+        return !instantiatedNames.has(t.name);
+      });
+      const templateRows = missingTemplates.map(t => {
         const color = t.color || '#8b93a7';
         return `<div class="op-route-row" onclick="opCreateRouteAndSelect('${leg}','${t.id}','${t.name}','${dateStr}',this)">
           <div class="op-route-dot" style="background:${color}"></div>
           <span class="op-route-name">${t.name}</span>
         </div>`;
-      }).join('');
-      return;
+      });
+
+      const allRows = [...existingRows, ...templateRows];
+      html = allRows.length
+        ? allRows.join('')
+        : `<span style="color:var(--gray-400);font-size:13px">No routes run on ${dayName}s for this zone.</span>`;
+    } else {
+      // Zone unknown — show all pre-generated routes as fallback
+      const allRows = dayRoutes.map(r => {
+        const tmpl  = _opTemplates.find(t => t.name === r.name) || {};
+        const color = tmpl.color || '#8b93a7';
+        const sel   = r.id === currentId ? ' selected' : '';
+        return `<div class="op-route-row${sel}" onclick="opSelectRoute('${leg}','${r.id}','${r.run_date}',this)">
+          <div class="op-route-dot" style="background:${color}"></div>
+          <span class="op-route-name">${r.name}</span>
+        </div>`;
+      });
+      html = allRows.join('');
     }
 
-    // Show only zone-matched routes; fall back to all routes if zone is unknown
-    const matchRows = [], otherRows = [];
-    for (const r of dayRoutes) {
-      const tmpl  = _opTemplates.find(t => t.name === r.name) || {};
-      const color = tmpl.color || '#8b93a7';
-      const isMatch = _opPickerZoneIds.size > 0 && tmpl.zone_id && _opPickerZoneIds.has(tmpl.zone_id);
-      const sel   = r.id === currentId ? ' selected' : '';
-      const row   = `<div class="op-route-row${sel}" onclick="opSelectRoute('${leg}','${r.id}','${r.run_date}',this)">
-        <div class="op-route-dot" style="background:${color}"></div>
-        <span class="op-route-name">${r.name}</span>
-      </div>`;
-      if (isMatch) matchRows.push(row);
-      else otherRows.push(row);
-    }
-    let html = '';
-    if (matchRows.length) {
-      // Zone known — existing routes for this zone on this date
-      html = matchRows.join('');
-    } else if (_opPickerZoneIds.size > 0) {
-      // Zone known but no existing routes for this zone on this date.
-      // Offer to create one from matching templates instead of showing wrong-zone routes.
-      const matchTemplates = _opTemplates.filter(t => {
-        if (Array.isArray(t.schedule_days) && !t.schedule_days.includes(schedDay)) return false;
-        return t.zone_id && _opPickerZoneIds.has(t.zone_id);
-      });
-      if (matchTemplates.length) {
-        html = matchTemplates.map(t => {
-          const color = t.color || '#8b93a7';
-          return `<div class="op-route-row" onclick="opCreateRouteAndSelect('${leg}','${t.id}','${t.name}','${dateStr}',this)">
-            <div class="op-route-dot" style="background:${color}"></div>
-            <span class="op-route-name">${t.name}</span>
-          </div>`;
-        }).join('');
-      } else {
-        html = `<span style="color:var(--gray-400);font-size:13px">No routes run on ${dayName}s for this zone.</span>`;
-      }
-    } else {
-      // Zone unknown — show all routes as fallback
-      html = otherRows.join('');
-    }
     listEl.innerHTML = html || '<span style="color:var(--gray-400);font-size:13px">No matching routes for this date.</span>';
+
+    // Delivery leg: auto-select the route matching the pickup's timeframe (AM/PM).
+    // Tries exact name match first; falls back to same AM/PM suffix.
+    if (leg === 'delivery') {
+      const pickupName = (_opRoutes.find(r => r.id === o?.pickup_run_id)?.name || '').trim();
+      if (pickupName) {
+        const suffix = / AM$/i.test(pickupName) ? 'AM' : (/ PM$/i.test(pickupName) ? 'PM' : '');
+        const rows = listEl.querySelectorAll('.op-route-row');
+        let matched = false;
+        // Pass 1: exact name
+        for (const row of rows) {
+          if (row.querySelector('.op-route-name')?.textContent.trim() === pickupName) {
+            row.click(); matched = true; break;
+          }
+        }
+        // Pass 2: same AM/PM suffix
+        if (!matched && suffix) {
+          for (const row of rows) {
+            const name = row.querySelector('.op-route-name')?.textContent.trim() || '';
+            if (new RegExp(suffix + '$', 'i').test(name)) { row.click(); break; }
+          }
+        }
+      }
+    }
   }
 
   async function opCreateRouteAndSelect(leg, templateId, templateName, dateStr, rowEl) {
