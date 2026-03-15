@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 15, 2026 (session 9)*
+*Last updated: Mar 15, 2026 (session 10)*
 
 ---
 
@@ -300,6 +300,29 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Mar 15, 2026 (session 10) — Preference UX overhaul: checkboxes throughout + order→account sync
+
+- **Add-on preferences as checkboxes — order flow (commits `58917f7`):** Yes/No preference groups (Oxi, Vinegar, Double Wash, etc.) are now detected automatically via `_isAddonPref()` helper (exactly 2 options, one `is_default`). Instead of Yes/No buttons, these render as tappable checkbox rows under an "Optional Add-ons" heading. Regular multi-option prefs (Wash temp, Dry temp) still show the button grid. CSS classes: `.order-addon-section`, `.order-addon-row`, `.order-addon-row.checked`, `.order-addon-check`.
+
+- **Add-on preferences as chips — admin intake panel (commit `58917f7`):** Same `_isIntakeAddon` detection applied to `renderIntakePanel()`. Add-ons render as a compact "Customer Add-ons" chip row — togglable on/off. Regular prefs keep full button groups. `selectProcAddon()` updated to toggle: if tapping the already-selected active option, reverts to the default option (effectively unchecking).
+
+- **Confirm page pricing accuracy (commits `308f9d3`, `b0ba5a1`):** Fixed two issues on the booking confirmation screen:
+  1. Add-on rows were displaying the option label ("Yes") instead of the preference group name ("Vinegar Rinse"). Fixed by looking up `globalPrefs.find(g => g.id === groupId)?.name`.
+  2. Add-on fees were flat (not multiplied by bag count), mismatching the processing queue logic. Fixed: `priceMod × bags` in both `updateEstimate()` and `buildConfirmSummary()`.
+
+- **Confirm page preferences section redesigned (commit `fe4a84d`):** Preferences now show as a dedicated card with one row per selected preference (name + chosen option label, price note for paid add-ons). Edit → button navigates back to the preferences step (`goOrderStep(2)`).
+
+- **Account > Laundry Preferences redesigned to match order flow (commit `9cdad69`):** Replaced the old `<select>` dropdown UI with the same button grid + checkbox layout used in the order flow. Opening the panel calls `openPrefsSubPanel()` which re-initialises `acctPrefs` from saved data each time (no stale state). `selectAcctPref()` / `toggleAcctAddon()` handle interactions. Save button now shows "Saving…" and disables during the Supabase write.
+
+- **Order preference changes sync back to Laundry Preferences (commit `9cdad69`):** `selectOrderPref()` and `toggleOrderAddon()` now call `_syncOrderPrefsToAccount()` — a fire-and-forget async function that converts `draft.prefs` to `{ groupId: optionId }` format and writes it to `customers.preferences`. This means a customer who changes their prefs during booking automatically has their saved account prefs updated without any extra step.
+
+- **Next session priorities:**
+  1. Add `price_mod` for Double Wash and remaining add-on prefs
+  2. Receipt printing — thermal 80mm bag tag (mockup at `receipt-mockup.html`)
+  3. Twilio A2P 10DLC registration (David action required)
+
+---
 
 ### Mar 15, 2026 (session 9) — Same-day toggle confirmed, sign-out fix, estimate total overhaul
 
