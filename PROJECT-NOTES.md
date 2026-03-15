@@ -1,5 +1,20 @@
 # WashRoute — Project Notes
-*Last updated: Mar 15, 2026 (session 13)*
+*Last updated: Mar 15, 2026 (session 14)*
+
+---
+
+## 🖨 Hardware (Processing Center)
+
+Decisions made session 14 — not yet purchased.
+
+| Item | Recommendation | Notes |
+|---|---|---|
+| Thermal printer | **Star Micronics mC-Print3** (~$280–320) | Plugs directly into iPad via USB-C hub (built-in), works immediately with no network config. 80mm paper, 250mm/sec. Easier setup than Epson for browser-based printing. |
+| iPad stand (full-size) | **Heckler Design WindFall** (~$150–200) | Commercial POS standard, very stable, counter-mount |
+| iPad mini stand | **Heckler Design WindFall for iPad mini** (~$100–130) | Same family as above |
+| Receipt paper | Standard 80mm thermal roll | Interchangeable between Star and Epson. Buy in bulk. |
+
+> Note: WashRoute prints via browser `window.open()` popup. Printer must appear as a system/AirPrint printer. Star mC-Print3 via USB-C works natively on iPad — no network setup required.
 
 ---
 
@@ -335,6 +350,25 @@ There are actually **two separate hang points** that must both be covered:
 - **Special instructions in intake panel (commit `58f8a18`):** `renderIntakePanel()` now renders a "Special Instructions" textarea between the add-on prefs and price breakdown sections. Pre-filled from `procNotes` (loaded from `order.special_instructions` on panel open — same DB field the customer fills in at booking). Editable before save; changes persist to `special_instructions` on the order. `procNotes` is updated via `oninput` so re-renders (triggered by bag/weight/addon changes) preserve any edits.
 
 - **Weight displayed across admin views (commit `58f8a18`):** Orders table "Bags" column now shows bag count bold + lbs in grey below (e.g. **2** / 27 lbs) when weight is available. Order panel Details tab gains a read-only "Weight" row (hidden until the order has been weighed at intake) displayed below the editable "Bags" input. Customer panel order rows already showed weight via `cpOrderMeta()` — no change needed.
+
+- **Next session priorities:**
+  1. ~~Email receipt fixes~~ ✅ Done session 14
+  2. ~~Kanban reprint button~~ ✅ Done session 14
+  3. Add `price_mod` for Double Wash and remaining add-on prefs
+  4. Twilio A2P 10DLC registration (David action required)
+  5. SMS/email automation Phase 1 — status check auto-replies ("Where's my driver?")
+
+---
+
+### Mar 15, 2026 (session 14) — Email receipt fixes + kanban reprint buttons
+
+- **Email receipt auto-sent on intake save (commit `fb808eb`):** `saveIntake()` now fires a fire-and-forget `fetch` to `send-receipt` edge function immediately after the DB save succeeds. Uses the already-captured `movedId` (safe — `closeIntakePanel()` runs after, so `procActiveOrder` is still valid when the ID is captured). Silent fail: if the customer has no email or SendGrid fails, it logs a warning and doesn't block the intake flow.
+
+- **Email receipt — YES/YES noise fixed + weight added (`send-receipt` edge function v12):** `buildEmailHtml()` now filters `chargeItems` to only `base`, `overage`, `addon_service`, `delivery_fee`, `same_day_surcharge` types — same logic as the print receipt fix from session 13. Raw `addon` preference labels ("Yes", "Hot", etc.) are excluded. Also added `total_bags` and `weight_lbs` to the Supabase select, with a compact "2 bags · 27.0 lbs" summary line shown just below the receipt number.
+
+- **`printBagTag()` accepts optional orderId for kanban reprints (commit `fb808eb`):** Signature changed to `printBagTag(overrideOrderId)`. When called with an ID, looks up the order across all caches (`allOrders`, `allCleanOrders`, `allFoldOrders`, `allProcOrders`). Falls back to `allCustomers` lookup first, then uses embedded `o.customers` join data — needed because kanban caches don't include `customer_id` as a top-level field (only the nested join). Route stop query also uses `targetId` instead of `opCurrentOrderId`. No-arg calls from the order panel 🖨 Print button are unchanged.
+
+- **🖨 Reprint button on Cleaning + Folding kanban cards (commit `fb808eb`):** Each card in the Cleaning and Folding columns now has a small "🖨 Reprint" link at the bottom-left, alongside the existing "← undo" link on the right. Calls `printBagTag(orderId)` with `event.stopPropagation()` so it doesn't open the fold/rack panel.
 
 - **Next session priorities:**
   1. Add `price_mod` for Double Wash and remaining add-on prefs
