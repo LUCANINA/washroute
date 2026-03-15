@@ -1842,13 +1842,34 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
 async function handleSignOut() {
   const btn = document.querySelector('.signout-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Signing out…'; }
+
+  // Clean up realtime subscription first
+  if (_orderSub) { db.removeChannel(_orderSub); _orderSub = null; }
+
+  // Force local logout after 1.5s even if the Supabase network call stalls
+  const forceLogout = setTimeout(() => {
+    appReady = false;
+    currentUser = currentProfile = currentCustomer = null;
+    currentCards = [];
+    document.getElementById('bottom-nav').style.display = 'none';
+    showScreen('auth');
+    showAuthPanel('hero');
+  }, 1500);
+
   try {
-    if (_orderSub) { db.removeChannel(_orderSub); _orderSub = null; }
     await db.auth.signOut();
+    clearTimeout(forceLogout);
+    // onAuthStateChange will handle navigation — just clear the timer
   } catch (err) {
+    clearTimeout(forceLogout);
     console.error('Sign-out error:', err);
-    toast('Sign-out failed — please try again');
-    if (btn) { btn.disabled = false; btn.textContent = 'Sign Out'; }
+    // Still log out locally even if the server call failed
+    appReady = false;
+    currentUser = currentProfile = currentCustomer = null;
+    currentCards = [];
+    document.getElementById('bottom-nav').style.display = 'none';
+    showScreen('auth');
+    showAuthPanel('hero');
   }
 }
 
