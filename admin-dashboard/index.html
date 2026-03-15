@@ -5000,7 +5000,9 @@
   // ── ORDER DETAIL PANEL ──
   let opCurrentOrderId = null;
   let opCurrentCustId  = null;
-  let opIsSameDay      = false; // tracks same-day toggle state for current open order
+  let opIsSameDay                  = false;  // tracks same-day toggle state for current open order
+  let _opPreSameDayDeliveryStart   = null;   // saved delivery_window_start before same-day shift (for restore)
+  let _opPreSameDayDeliveryEnd     = null;   // saved delivery_window_end before same-day shift
   let _opRoutes        = [];   // upcoming route runs cache
   let _opTemplates     = [];   // route_templates cache
 
@@ -5048,10 +5050,14 @@
     opRefreshScheduleUI(o);
     opRefreshAddresses(o);
 
-    // Same-day: auto-detect if pickup date === delivery date
-    const _puDate = (o.pickup_window_start || '').substring(0, 10);
-    const _dlDate = (o.delivery_window_start || '').substring(0, 10);
-    opIsSameDay = !!((_puDate && _dlDate) && _puDate === _dlDate);
+    // Same-day: auto-detect if pickup local date === delivery local date
+    const _puLocalDate = o.pickup_window_start
+      ? new Date(o.pickup_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;
+    const _dlLocalDate = o.delivery_window_start
+      ? new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;
+    opIsSameDay = !!(_puLocalDate && _dlLocalDate && _puLocalDate === _dlLocalDate);
+    _opPreSameDayDeliveryStart = null; // reset on each panel open
+    _opPreSameDayDeliveryEnd   = null;
     const _sdChk = document.getElementById('op-sameday-chk');
     if (_sdChk) _sdChk.checked = opIsSameDay;
 
@@ -5225,9 +5231,48 @@
     document.getElementById('op-delivery-addr-val').textContent = fmtAddr(dlAddr);
   }
 
-  function opToggleSameDay(checked) {
+  async function opToggleSameDay(checked) {
     opIsSameDay = checked;
     opRecalcEstimate();
+
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o || !o.pickup_window_start) return;
+
+    if (checked) {
+      // Save current delivery window so we can restore it if unchecked
+      _opPreSameDayDeliveryStart = o.delivery_window_start;
+      _opPreSameDayDeliveryEnd   = o.delivery_window_end;
+
+      if (o.delivery_window_start) {
+        // Compute the day difference between delivery and pickup in BIZ_TZ local calendar
+        const puLocal = new Date(o.pickup_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }); // "YYYY-MM-DD"
+        const dlLocal = new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+        const diffMs  = new Date(dlLocal).getTime() - new Date(puLocal).getTime(); // ms between local calendar dates
+        if (diffMs > 0) {
+          const newStart = new Date(new Date(o.delivery_window_start).getTime() - diffMs).toISOString();
+          const newEnd   = o.delivery_window_end
+            ? new Date(new Date(o.delivery_window_end).getTime() - diffMs).toISOString() : null;
+          await _opShiftDeliveryWindow(o, newStart, newEnd);
+          showToast('Delivery moved to same day — verify delivery route', 'success');
+        }
+      }
+    } else {
+      // Restore the delivery window to what it was before same-day was checked
+      if (_opPreSameDayDeliveryStart) {
+        await _opShiftDeliveryWindow(o, _opPreSameDayDeliveryStart, _opPreSameDayDeliveryEnd);
+        _opPreSameDayDeliveryStart = null;
+        _opPreSameDayDeliveryEnd   = null;
+        showToast('Delivery restored to original date', 'success');
+      }
+    }
+  }
+
+  async function _opShiftDeliveryWindow(o, newStart, newEnd) {
+    const update = { delivery_window_start: newStart, delivery_window_end: newEnd, updated_at: new Date().toISOString() };
+    const { error } = await db.from('orders').update(update).eq('id', o.id);
+    if (error) { showToast('Failed to update delivery window', 'error'); return; }
+    Object.assign(o, update);
+    opRefreshScheduleUI(o);
   }
 
   async function opToggleDiffDeliveryAddr(checked) {
