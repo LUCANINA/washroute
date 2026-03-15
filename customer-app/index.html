@@ -1118,6 +1118,7 @@
       <div class="d-section"><div class="d-section-title">Status</div><div id="d-badge"></div><div id="d-track" style="margin-top:14px"></div></div>
       <div class="d-section"><div class="d-section-title">Order Details</div><div id="d-rows"></div><div id="d-pay-section"></div></div>
       <div id="d-edit-section"></div>
+      <div id="d-skip-section"></div>
       <div id="d-cancel-section"></div>
     </div>
   </div>
@@ -3555,12 +3556,35 @@ async function openDetail(orderId) {
     }
   }
 
+  // Skip button — only for recurring orders not yet picked up
+  const skipEl = document.getElementById('d-skip-section');
+  const skippable = o.recurring_interval && ['scheduled', 'ready_for_pickup'].includes(o.status);
+  if (skipEl) {
+    if (skippable) {
+      skipEl.innerHTML = `
+        <div style="border-top:1px solid var(--gray-200);margin-top:24px;padding-top:16px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px">Going out of town?</div>
+          <button onclick="skipPickup('${o.id}')" style="
+            width:100%;padding:12px;border:1.5px solid var(--gray-400);
+            background:transparent;color:var(--gray-600);border-radius:var(--radius);
+            font-size:14px;font-weight:600;cursor:pointer;transition:background .15s,color .15s"
+            onmouseover="this.style.background='var(--gray-100)'"
+            onmouseout="this.style.background='transparent'">
+            Skip this pickup
+          </button>
+          <div style="font-size:11px;color:var(--gray-400);text-align:center;margin-top:6px">Your subscription continues — we'll see you next time.</div>
+        </div>`;
+    } else {
+      skipEl.innerHTML = '';
+    }
+  }
+
   // Cancel button — only show for orders that haven't been picked up yet
   const cancelEl = document.getElementById('d-cancel-section');
   const cancellable = ['scheduled', 'ready_for_pickup'].includes(o.status);
   if (cancellable) {
     cancelEl.innerHTML = `
-      <div style="border-top:1px solid var(--gray-200);margin-top:24px;padding-top:16px;padding-bottom:48px">
+      <div style="border-top:1px solid var(--gray-200);margin-top:16px;padding-top:16px;padding-bottom:48px">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px">Need to cancel?</div>
         <button onclick="cancelOrder('${o.id}')" style="
           width:100%;padding:12px;border:1.5px solid var(--red);
@@ -3572,7 +3596,7 @@ async function openDetail(orderId) {
         </button>
       </div>`;
   } else {
-    cancelEl.innerHTML = '';
+    cancelEl.innerHTML = skippable ? '' : '<div style="padding-bottom:48px"></div>';
   }
 }
 
@@ -4306,6 +4330,17 @@ async function saveEditOrder() {
     ord.id === orderId ? { ...ord, total_bags: bags, special_instructions: instructions, total_amount: total } : ord
   );
   openDetail(orderId);
+}
+
+async function skipPickup(orderId) {
+  if (!confirm('Skip this pickup? Your subscription continues — we\'ll schedule your next pickup automatically.')) return;
+  const { error } = await db.from('orders')
+    .update({ status: 'skipped', cancelled_by: 'customer' })
+    .eq('id', orderId);
+  if (error) { toast('Could not skip order: ' + error.message); return; }
+  toast('Pickup skipped — see you next time! 👋');
+  showScreen('orders');
+  loadOrders();
 }
 
 async function cancelOrder(orderId) {
