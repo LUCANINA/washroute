@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 14, 2026 (session 7)*
+*Last updated: Mar 15, 2026 (session 8)*
 
 ---
 
@@ -295,10 +295,28 @@ There are actually **two separate hang points** that must both be covered:
 | 6 | ~~P3 → Fixed~~ | `route_stops` DB | ~~`updated_at` column not refreshed on driver reassignment or status changes~~ — **FIXED session 4**: DB trigger `trg_route_stops_updated_at` (BEFORE UPDATE) now auto-sets `updated_at = now()` on every write. Migration `route_stops_auto_updated_at` applied. |
 | 7 | P0 → Fixed | driver app realtime handler | ~~Stops reassigned to another driver stayed in original driver's list — **FIXED commit 7916331**~~ |
 | 8 | ~~P3 → Fixed~~ | driver app "skip notification" | ~~Banner read "Customer notified · Safe travels!" even when no SMS was sent~~ — **FIXED commit 0930719**: `notified` flag now checks only `stop.on_my_way_sent_at`, not `isEnRoute`. Banner correctly shows "Arrived at stop" when driver skipped notification. |
+| 9 | ~~P0 → Fixed~~ | `send-sms`, `notify-on-my-way` edge functions | ~~Hardcoded Twilio auth token as `\|\| 'cdfc2502...'` fallback~~ — **FIXED session 8**: Token rotated in Twilio. Both functions redeployed reading from Supabase Secrets only. `create-test-user` unauthenticated endpoint also neutralized (returns 404). |
 
 ---
 
 ## Session Log
+
+### Mar 15, 2026 (session 8) — Customer app UX fixes, security hardening, same-day toggle bug fix
+
+- **SendGrid receipts confirmed working:** Verified `SENDGRID_API_KEY` was already set in Supabase Secrets (shared with `send-email` function). Live test via browser console returned `{ok: true, sent_to: 'dmacquart@gmail.com'}`. No changes needed.
+
+- **Order cards now show pickup date (commits `cf809a8`, `ab66022`):** Order cards in My Orders were displaying the booking date (`created_at`) instead of the pickup date. Fixed by using `pickup_window_start` (the correct column — `pickup_date` doesn't exist). Order detail "Placed [date]" still correctly shows `created_at`. Also added `skipped` and `pickup_failed` to `PAST_STATUSES` so those orders correctly appear in the Past tab (not Current).
+
+- **Delivery address removed from customer app (commits `f65b95a`, `63cee3f`):** Removed the delivery address picker and same-address checkbox from the booking flow and Edit Order modal entirely. In 99%+ of cases delivery = pickup address. If admin sets a different delivery address, the customer now sees a read-only note: "Updated by your service team · SMS us to change." `saveEditOrder()` preserves the admin-set delivery address via `window._editDeliveryAddressId`.
+
+- **Compact display fixes (commit `b16697a`):** Removed state abbreviation from `fmtAddrOneLiner()` (all customers are in CA). Replaced `fmtSlot()` with a compact version — e.g., "7–9am" instead of "7:00 AM – 9:00 AM". Both prevent line breaks in order detail rows.
+
+- **Security hardening — Twilio credentials & test endpoint:**
+  - `send-sms` and `notify-on-my-way` edge functions had a hardcoded Twilio auth token as a fallback (`|| 'cdfc2502...'`). Token was rotated in Twilio Console. Both functions redeployed to read from Supabase Secrets (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`) with no hardcoded fallback. Both return 500 if secrets are missing.
+  - `create-test-user` edge function was a publicly accessible endpoint (no auth) that could create admin-role users. Neutralized — now always returns 404.
+  - Stripe publishable key and Supabase anon key in client code are safe by design (confirmed).
+
+- **Same-day toggle bug fixed (commit `04e18e9`):** Toggle never appeared when picking an AM slot via date selection. Root cause: `selectSchedPickupDate()` was missing the `_checkSameDayAvailable()` call after auto-selecting the first window on date change. The check existed in `renderSchedCard` (initial load) and `selectSchedWindow` (manual window tap) but not in the date-selection path. Fixed by adding the full same-day check block to `selectSchedPickupDate`. Also improved copy: "Want it back tonight?" for same-day bookings today, "Want it back Tuesday evening?" for future date bookings. Delivery display shows "Tonight 🌙" or "Mon, Mar 16 🌙" accordingly.
 
 ### Mar 14, 2026 (session 7) — Route picker UX overhaul (friction removal, zone refresh, smart defaults, past-slot guard)
 
@@ -650,7 +668,7 @@ There are actually **two separate hang points** that must both be covered:
 - ~~Design decision: customer-initiated skips + `cancelled_by` field~~ ✅ — fully implemented session 5
 - ~~Customer email receipt (SendGrid)~~ ✅ — confirmed working
 - ~~Live driver tracking~~ ✅ — GPS tracking live (driver app → Supabase Realtime → admin map)
-- ~~Same-day delivery option~~ ✅ — live in customer app for AM routes
+- ~~Same-day delivery option~~ ✅ — live in customer app for AM routes; toggle bug fixed session 8 (`selectSchedPickupDate` was missing the same-day check)
 - ~~Vercel deployment~~ ✅ — Vercel auto-deploys on push to main
 
 ---
