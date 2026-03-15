@@ -5,16 +5,23 @@
 
 ## 🖨 Hardware (Processing Center)
 
-Decisions made session 14 — not yet purchased.
-
-| Item | Recommendation | Notes |
+| Item | Decision | Notes |
 |---|---|---|
-| Thermal printer | **Star Micronics mC-Print3** (~$280–320) | Plugs directly into iPad via USB-C hub (built-in), works immediately with no network config. 80mm paper, 250mm/sec. Easier setup than Epson for browser-based printing. |
-| iPad stand (full-size) | **Heckler Design WindFall** (~$150–200) | Commercial POS standard, very stable, counter-mount |
-| iPad mini stand | **Heckler Design WindFall for iPad mini** (~$100–130) | Same family as above |
-| Receipt paper | Standard 80mm thermal roll | Interchangeable between Star and Epson. Buy in bulk. |
+| Thermal printer | **Star Micronics TSP654II CloudPRNT** (already owned) | MAC: `00:11:62:0D:B1:B8`. 80mm, 300mm/sec. Using via WiFi + AirPrint for now. |
+| iPad stand (full-size) | **Heckler Design WindFall** (~$150–200) | Not yet purchased |
+| iPad mini stand | **Heckler Design WindFall for iPad mini** (~$100–130) | Not yet purchased |
+| Receipt paper | Standard 80mm thermal roll | Buy in bulk |
 
-> Note: WashRoute prints via browser `window.open()` popup. Printer must appear as a system/AirPrint printer. Star mC-Print3 via USB-C works natively on iPad — no network setup required.
+### Current printing setup (WiFi / AirPrint)
+Connect TSP654II to WiFi network → add as AirPrint printer on iPad (Settings → Printers) → WashRoute's popup print works via browser print dialog. Manual tap required.
+
+### CloudPRNT (backlog — automatic printing)
+Goal: receipt prints automatically when intake saves, no user tap required. Planned build:
+- `print_jobs` DB table — intake save inserts a row with receipt HTML
+- `cloudprnt-server` Supabase Edge Function — printer polls every ~5s, fetches job, marks done
+- Configure printer CloudPRNT URL → `https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/cloudprnt-server`
+- Remove `window.open()` popup from `saveIntake()` and `printBagTag()` — replace with DB queue insert
+- Note: receipt HTML uses JsBarcode from CDN — printer needs internet access to render barcode (should be fine since it's already online for polling)
 
 ---
 
