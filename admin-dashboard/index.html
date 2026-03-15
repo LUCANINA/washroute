@@ -3425,20 +3425,27 @@
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   };
 
-  // Returns a sub-label shown under the status badge in the Issues tab
-  const issueLabel = (o) => {
+  // Returns a descriptive badge for the Issues tab — replaces generic statusBadge with context baked in
+  const issueBadge = (o) => {
     const s = o.status, cb = o.cancelled_by;
-    if (o.billing_status === 'failed')
-      return '<div style="font-size:10px;color:#dc2626;font-weight:600;margin-top:2px;white-space:nowrap">Payment failed</div>';
-    if (s === 'on_hold')
-      return '<div style="font-size:10px;color:#d97706;font-weight:600;margin-top:2px;white-space:nowrap">Needs reassignment</div>';
-    if (s === 'skipped')
-      return `<div style="font-size:10px;color:#d97706;font-weight:600;margin-top:2px;white-space:nowrap">${cb==='driver'?'Driver skipped':cb==='admin'?'Admin skipped':'Skipped'}</div>`;
-    if (s === 'pickup_failed')
-      return `<div style="font-size:10px;color:#dc2626;font-weight:600;margin-top:2px;white-space:nowrap">${cb==='system'?'Auto-failed — window expired':cb==='driver'?'Driver — pickup failed':'Pickup failed'}</div>`;
-    if (s === 'delivery_failed')
-      return `<div style="font-size:10px;color:#dc2626;font-weight:600;margin-top:2px;white-space:nowrap">${cb==='system'?'Auto-failed — window expired':cb==='driver'?'Driver — delivery failed':'Delivery failed'}</div>`;
-    return '';
+    let label, color, bg;
+    if (o.billing_status === 'failed') {
+      label = 'Payment Failed'; color = '#dc2626'; bg = '#fee2e2';
+    } else if (s === 'skipped') {
+      label = cb === 'driver' ? 'Skipped by Driver' : cb === 'admin' ? 'Skipped by Admin' : 'Skipped';
+      color = '#92400e'; bg = '#fef3c7';
+    } else if (s === 'pickup_failed') {
+      label = cb === 'system' ? 'Pickup Failed (Auto)' : 'Pickup Failed';
+      color = '#dc2626'; bg = '#fee2e2';
+    } else if (s === 'delivery_failed') {
+      label = cb === 'system' ? 'Delivery Failed (Auto)' : 'Delivery Failed';
+      color = '#dc2626'; bg = '#fee2e2';
+    } else if (s === 'on_hold') {
+      label = 'On Hold'; color = '#92400e'; bg = '#fef3c7';
+    } else {
+      return statusBadge(s);
+    }
+    return `<span style="display:inline-flex;align-items:center;gap:5px;background:${bg};color:${color};border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0"></span>${label}</span>`;
   };
 
   // Returns an inline action button for the Issues tab row
@@ -4895,7 +4902,7 @@
         return `<tr style="cursor:pointer" onclick="openOrderPanel('${o.id}')">
           <td style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${o.customers?.phone_cache||''}" data-cust-name="${(o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||'')}" onchange="updateOrderBatchBar()"></td>
           <td class="td-name">${orderCustomerCell(o)}</td>
-          <td>${statusBadge(o.status)}${inIssues ? issueLabel(o) : ''}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:4px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : ''}</td>
+          <td>${inIssues ? issueBadge(o) : statusBadge(o.status)}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:4px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : ''}</td>
           <td style="font-size:12.5px;white-space:nowrap">${pickupRouteCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${pickupTimeCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${deliveryRouteCell(o)}</td>
