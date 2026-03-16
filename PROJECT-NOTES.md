@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 16, 2026 (session 22)*
+*Last updated: Mar 16, 2026 (session 22 — outage fix)*
 
 ---
 
@@ -468,10 +468,15 @@ There are actually **two separate hang points** that must both be covered:
 
 - **Both print paths updated**: `printBagTag()` (order panel + kanban Reprint) and `_autoPrintIntake()` (intake save → processing) now check `BIZ_PRINTER_TOKEN`. When set: skip popup, queue CloudPRNT job. When unset: original browser popup behavior unchanged.
 
-- **Commits this session:** `bb7255a` (CloudPRNT integration)
+- **Commits this session:** `bb7255a` (CloudPRNT integration), `202e80b` (tree repair — see below)
+
+- **⚠ Site outage + fix (commit `202e80b`):**
+  - **Root cause:** The bindfs FUSE git workaround was seeding a *temp index from scratch* instead of from `HEAD`. Every docs-only commit after `a19d206` deployed a Vercel repo containing only the changed file (e.g., just `PROJECT-NOTES.md`). No `admin-dashboard/`, `customer-app/`, `driver-app/`, or `vercel.json` → 404 on all routes. Affected commits: `a19d206`, `4e62cf9`, `aecf9e3`.
+  - **Fix:** Rebuilt full tree from `d928bd0` (last good commit) using `git read-tree d928bd0` to seed the temp index, then layered on current `admin-dashboard/index.html`, `PROJECT-NOTES.md`, and `TSP654II-CloudPRNT-Setup.md`. Committed as `202e80b`, Vercel deployed immediately.
+  - **Prevention:** Created `.git-commit.sh` helper script at repo root. Uses `git read-tree HEAD` to seed temp index before adding any files — guarantees full tree on every commit. **Always use this script for future commits on this machine.**
 
 - **Next session priorities:**
-  1. Test CloudPRNT end-to-end with physical printer (David picking up TSP654II tonight)
+  1. Test CloudPRNT end-to-end with physical printer (David picking up TSP654II tonight — setup guide in `TSP654II-CloudPRNT-Setup.md`)
   2. Route picker fine-tuning (backlog)
   3. Xero accounting sync (backlog)
 
