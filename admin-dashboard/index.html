@@ -4743,7 +4743,7 @@
     in_process: ['picked_up','processing','folding'],
     ready:      ['ready_for_delivery','out_for_delivery'],
     issues:     ['pickup_failed','delivery_failed','on_hold','skipped'],
-    delivered:  ['delivered','cancelled'],  // history view: completed + cancelled orders
+    delivered:  ['delivered'],  // last 24h delivered orders only (cancelled are archived)
   };
 
   async function loadOrders(statusFilter) {
@@ -4803,6 +4803,13 @@
           (ORDER_FILTER_GROUPS.issues.includes(o.status) && o.cancelled_by !== 'customer') ||
           o.billing_status === 'failed'
         );
+      } else if (currentOrderFilter === 'delivered') {
+        // Delivered tab: only show orders delivered in the last 24 hours
+        const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        data = data.filter(o =>
+          o.status === 'delivered' &&
+          (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff
+        );
       } else if (ORDER_FILTER_GROUPS[currentOrderFilter]) {
         data = data.filter(o => ORDER_FILTER_GROUPS[currentOrderFilter].includes(o.status));
       } else {
@@ -4828,7 +4835,7 @@
       in_process: allOrders.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
       ready:      allOrders.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
       issues:     allOrders.filter(o => ((ORDER_FILTER_GROUPS.issues||[]).includes(o.status) && o.cancelled_by !== 'customer') || o.billing_status === 'failed').length,
-      delivered:  allOrders.filter(o => (ORDER_FILTER_GROUPS.delivered||[]).includes(o.status)).length,
+      delivered:  (() => { const cutoff = new Date(Date.now() - 24*60*60*1000).toISOString(); return allOrders.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
       const key = btn.dataset.filter;
