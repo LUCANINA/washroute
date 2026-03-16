@@ -1028,8 +1028,8 @@
         Team
       </div>
       <div id="nav-settings" class="nav-item" data-page="settings" data-section="settings" onclick="showPage('settings',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-        Timezone
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+        Printer
       </div>
       <div class="sidebar-footer" onclick="handleSignOut()">
         <div class="avatar" id="user-avatar">?</div>
@@ -1375,10 +1375,11 @@
 
         <!-- ── MAPS (Delivery Zones & Routes) ── -->
         <div class="page" id="page-maps">
-          <!-- Top-level tabs: Zones vs Route Templates -->
+          <!-- Top-level tabs: Zones / Route Templates / Settings -->
           <div style="display:flex;gap:4px;margin-bottom:16px;">
             <button class="section-tab active" id="maps-tab-zones" onclick="setMapsTab('zones', this)">Zones</button>
             <button class="section-tab" id="maps-tab-routes" onclick="setMapsTab('routes', this)">Route Templates</button>
+            <button class="section-tab" id="maps-tab-settings" onclick="setMapsTab('settings', this)">Settings</button>
           </div>
 
           <!-- ZONES TAB CONTENT -->
@@ -1500,6 +1501,11 @@
               <!-- WEEKLY SCHEDULE (moved to Orders → Driver Schedule) -->
             </div>
           </div><!-- /maps-routes-view -->
+
+          <!-- SETTINGS TAB CONTENT -->
+          <div id="maps-settings-view" style="display:none;">
+            <div id="maps-tz-card"></div>
+          </div>
 
         </div>
 
@@ -4192,36 +4198,10 @@
   }
 
   function renderSettingsTab() {
-    const timezones = [
-      { value: 'America/Los_Angeles', label: 'Pacific Time (PT) — Los Angeles' },
-      { value: 'America/Denver',      label: 'Mountain Time (MT) — Denver' },
-      { value: 'America/Chicago',     label: 'Central Time (CT) — Chicago' },
-      { value: 'America/New_York',    label: 'Eastern Time (ET) — New York' },
-      { value: 'America/Phoenix',     label: 'Arizona Time — Phoenix' },
-      { value: 'America/Anchorage',   label: 'Alaska Time — Anchorage' },
-      { value: 'Pacific/Honolulu',    label: 'Hawaii Time — Honolulu' },
-    ];
-    const options = timezones.map(tz =>
-      `<option value="${tz.value}" ${BIZ_TZ === tz.value ? 'selected' : ''}>${tz.label}</option>`
-    ).join('');
     const el = document.getElementById('page-settings');
     if (!el) return;
     const cloudprintUrl = `${SUPA_URL}/functions/v1/cloudprnt`;
     el.innerHTML = `
-      <div class="card" style="max-width:540px;margin-bottom:20px">
-        <div class="card-header">
-          <div class="card-title">Business Timezone</div>
-          <div class="card-sub">Controls how pickup and delivery times are displayed throughout the admin dashboard.</div>
-        </div>
-        <div style="padding:20px 24px 24px">
-          <select id="settings-tz-select" class="form-select" style="width:100%;font-size:13.5px;margin-bottom:16px">
-            ${options}
-          </select>
-          <button class="btn btn-primary" onclick="saveSettings()" style="font-size:13.5px;padding:8px 20px">
-            Save
-          </button>
-        </div>
-      </div>
       <div class="card" style="max-width:540px">
         <div class="card-header">
           <div class="card-title">🖨 Receipt Printer</div>
@@ -11666,19 +11646,55 @@ ${totalLinesXml}
   function setMapsTab(tab, btn) {
     document.getElementById('maps-zones-view').style.display = tab === 'zones' ? '' : 'none';
     document.getElementById('maps-routes-view').style.display = tab === 'routes' ? '' : 'none';
+    document.getElementById('maps-settings-view').style.display = tab === 'settings' ? '' : 'none';
     document.getElementById('maps-tab-zones').classList.toggle('active', tab === 'zones');
     document.getElementById('maps-tab-routes').classList.toggle('active', tab === 'routes');
+    document.getElementById('maps-tab-settings').classList.toggle('active', tab === 'settings');
     if (tab === 'routes') {
-      // Update CTA to show "New Route" when in route templates tab
       document.getElementById('topbar-cta-label').textContent = 'New Route';
       document.getElementById('topbar-cta').style.display = '';
-    } else {
-      // Update CTA to show "Draw New Zone" when in zones tab
+    } else if (tab === 'zones') {
       document.getElementById('topbar-cta-label').textContent = 'Draw New Zone';
       document.getElementById('topbar-cta').style.display = '';
       setTimeout(()=>initZonesMap(), 50);
+    } else {
+      // Settings tab — no CTA button
+      document.getElementById('topbar-cta').style.display = 'none';
+      renderMapsSettingsTab();
     }
     try { history.replaceState(null, '', '#maps/' + tab); } catch(_) {}
+  }
+
+  function renderMapsSettingsTab() {
+    const timezones = [
+      { value: 'America/Los_Angeles', label: 'Pacific Time (PT) — Los Angeles' },
+      { value: 'America/Denver',      label: 'Mountain Time (MT) — Denver' },
+      { value: 'America/Chicago',     label: 'Central Time (CT) — Chicago' },
+      { value: 'America/New_York',    label: 'Eastern Time (ET) — New York' },
+      { value: 'America/Phoenix',     label: 'Arizona Time — Phoenix' },
+      { value: 'America/Anchorage',   label: 'Alaska Time — Anchorage' },
+      { value: 'Pacific/Honolulu',    label: 'Hawaii Time — Honolulu' },
+    ];
+    const options = timezones.map(tz =>
+      `<option value="${tz.value}" ${BIZ_TZ === tz.value ? 'selected' : ''}>${tz.label}</option>`
+    ).join('');
+    const el = document.getElementById('maps-tz-card');
+    if (!el) return;
+    el.innerHTML = `
+      <div class="card" style="max-width:540px">
+        <div class="card-header">
+          <div class="card-title">Business Timezone</div>
+          <div class="card-sub">Controls how pickup and delivery times are displayed throughout the admin dashboard.</div>
+        </div>
+        <div style="padding:20px 24px 24px">
+          <select id="settings-tz-select" class="form-select" style="width:100%;font-size:13.5px;margin-bottom:16px">
+            ${options}
+          </select>
+          <button class="btn btn-primary" onclick="saveSettings()" style="font-size:13.5px;padding:8px 20px">
+            Save
+          </button>
+        </div>
+      </div>`;
   }
 
   // ── TEMPLATE EDITOR SLIDE-OVER ──
