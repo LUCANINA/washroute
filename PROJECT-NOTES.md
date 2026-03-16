@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 16, 2026 (session 17)*
+*Last updated: Mar 16, 2026 (session 18)*
 
 ---
 
@@ -409,6 +409,29 @@ There are actually **two separate hang points** that must both be covered:
   1. ~~Add Double Wash price_mod~~ ✅ Done session 16
   2. ~~SMS automation Phase 1~~ ✅ Done session 16
   3. Twilio A2P 10DLC registration (David action required)
+
+---
+
+### Mar 16, 2026 (session 18) — Hotfixes: same-day delivery window + email delivery time
+
+- **Bug: Same-day delivery was saving the pickup window as the delivery window (commit `825b3c7`):**
+  `placeOrder()` used `draft.deliveryWindow || pw` to resolve the delivery window. When `draft.deliveryWindow` was null at submission time (edge case where same-day toggle state and draft window became out of sync), it fell back to `pw` (the pickup window), producing an impossible same-delivery-as-pickup order. Order #101 was saved with `pickup_window_start = delivery_window_start = 16:00 UTC (9am PDT)` and `is_same_day = true`.
+
+- **Fix — `_effectiveDW` resolution in `placeOrder()`:** Replaced the single-line `|| pw` fallback with a proper two-path resolver:
+  - Same-day: `draft.deliveryWindow → draft._sameDayWindows[0]` — never falls back to `pw`
+  - Standard: `draft.deliveryWindow → null` (no explicit window; date-only delivery)
+
+- **Added two turnaround guards in `placeOrder()` (before the DB INSERT):**
+  1. **Turnaround check** — if same-day order and resolved `delivStartMs <= pickupEndMs`, blocks with toast: "Delivery time must be after your pickup window."
+  2. **Hard stop** — if `isSameDay=true` but no delivery window could be resolved at all, blocks with toast explaining to choose a different pickup time.
+
+- **Bug: Confirmation email showed delivery date only, no time (commit `825b3c7`):**
+  The `'Est. Delivery'` row in the booking confirmation email used `_fmtD(deliveryDate)` (date only). Pickup row correctly used `pw.label`. Fixed to use `_effectiveDW.label` (the same resolved delivery window used for the order) — email now shows e.g. "Monday, March 16 · 8pm – 10pm".
+
+- **Next session priorities:**
+  1. Twilio A2P 10DLC registration (David action required — SMS deliverability)
+  2. CloudPRNT integration (backlog)
+  3. Route picker fine-tuning
 
 ---
 
