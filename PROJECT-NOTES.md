@@ -340,16 +340,17 @@ There are actually **two separate hang points** that must both be covered:
 | 7 | P0 → Fixed | driver app realtime handler | ~~Stops reassigned to another driver stayed in original driver's list — **FIXED commit 7916331**~~ |
 | 8 | ~~P3 → Fixed~~ | driver app "skip notification" | ~~Banner read "Customer notified · Safe travels!" even when no SMS was sent~~ — **FIXED commit 0930719**: `notified` flag now checks only `stop.on_my_way_sent_at`, not `isEnRoute`. Banner correctly shows "Arrived at stop" when driver skipped notification. |
 | 9 | ~~P0 → Fixed~~ | `send-sms`, `notify-on-my-way` edge functions | ~~Hardcoded Twilio auth token as `\|\| 'cdfc2502...'` fallback~~ — **FIXED session 8**: Token rotated in Twilio. Both functions redeployed reading from Supabase Secrets only. `create-test-user` unauthenticated endpoint also neutralized (returns 404). |
-| 10 | **P0 Critical** | RLS — `customer_payment_methods` | Policy `cpm_anon_all` grants ALL (read + write) to the `anon` role with no conditions. Anyone who knows the Supabase URL (visible in app source) can read every customer's Stripe payment method ID, card brand, last 4, and expiry. Needs immediate fix: drop this policy, rely on `cpm_auth_all` which already covers authenticated users. |
-| 11 | **P0 Critical** | RLS — `sms_messages` | Policy `anon_all_sms_messages` grants ALL to public. Every SMS conversation (customer phone + full message history) is readable by anyone. Edge functions that write SMS records should use the service role key instead. Drop this policy. |
-| 12 | **P1 High** | RLS — `customers` | `anon_write_customers` (ALL for anon) + `Admin anon read customers` (SELECT for anon) means unauthenticated users can read all customer PII and write arbitrary rows. These were early-dev placeholders. Remove both; the scoped per-customer policies are sufficient. |
-| 13 | **P1 High** | RLS — `orders` | Same problem as customers: `anon_write_orders` (ALL) + `Admin anon read orders` (SELECT). Customer app requires auth to book, so these anon policies are unnecessary and dangerous. |
-| 14 | **P1 High** | RLS — `discounts` | `anon_all_discounts` allows anyone to create, modify, or delete discount codes without logging in. |
-| 15 | **P1 High** | RLS — `settings` | `anon_all_settings` allows anyone to read and modify business configuration. |
-| 16 | **P2 Medium** | RLS — `driver_locations` | "Anyone can upsert/update driver locations" — no auth required. Anyone can inject fake GPS coordinates for any driver. |
-| 17 | **P2 Medium** | RLS — `message_templates` | `anon_all_message_templates` — anyone can edit or delete SMS notification templates sent to customers. |
-| 18 | **P2 Medium** | RLS — `route_driver_overrides` | `Allow all access` with no conditions — anyone can override driver assignments on routes. |
-| 19 | **P2 Medium** | Google Maps API key | Key `AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc` is in customer app source. If unrestricted in Google Cloud Console, anyone can use it against your billing quota. Fix: restrict to `washroute.vercel.app` referrer in GCP Console. |
+| 10 | ~~P0 → Fixed~~ | RLS — `customer_payment_methods` | ~~Policy `cpm_anon_all` grants ALL to anon.~~ **FIXED session 21b** (migration `rls_security_hardening`): `cpm_anon_all` dropped. Only `cpm_auth_all` (authenticated) remains. |
+| 11 | ~~P0 → Fixed~~ | RLS — `sms_messages` | ~~`anon_all_sms_messages` exposes all SMS conversations to anyone.~~ **FIXED session 21b**: Policy dropped. Only `admin_all_sms_messages` (is_admin()) remains. Edge functions use service role. |
+| 12 | ~~P1 → Fixed~~ | RLS — `customers` | ~~`anon_write_customers` + `Admin anon read customers` — unauthenticated read/write of all customer PII.~~ **FIXED session 21b**: Both dropped. Scoped per-customer + admin policies remain. |
+| 13 | ~~P1 → Fixed~~ | RLS — `orders` | ~~`anon_write_orders` + `Admin anon read orders`.~~ **FIXED session 21b**: Both dropped. Scoped per-customer, per-driver, and admin policies remain. |
+| 14 | ~~P1 → Fixed~~ | RLS — `discounts` | ~~`anon_all_discounts` — anyone could create or delete discount codes.~~ **FIXED session 21b**: Replaced with `anon_read_discounts` (SELECT only). `admin_all_discounts` handles writes. |
+| 15 | ~~P1 → Fixed~~ | RLS — `settings` | ~~`anon_all_settings` — anyone could modify business config.~~ **FIXED session 21b**: Replaced with `anon_read_settings` (SELECT only). `admin_all_settings` handles writes. |
+| 16 | ~~P2 → Fixed~~ | RLS — `driver_locations` | ~~Anyone could spoof driver GPS coordinates.~~ **FIXED session 21b**: Replaced with `authenticated_read_driver_locations` (SELECT) + `driver_insert_own_location` + `driver_update_own_location` (scoped to own driver_id). |
+| 17 | ~~P2 → Fixed~~ | RLS — `message_templates` | ~~`anon_all_message_templates` — anyone could edit SMS templates.~~ **FIXED session 21b**: Dropped. `admin_all_message_templates` + edge functions (service role) cover all access. |
+| 18 | ~~P2 → Fixed~~ | RLS — `route_driver_overrides` | ~~`Allow all access` with no conditions.~~ **FIXED session 21b**: Replaced with `admin_all_route_driver_overrides` + `auth_read_route_driver_overrides`. |
+| 19 | **P2 Medium — David action** | Google Maps API key | Key `AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc` is in customer app source. Restrict to `washroute.vercel.app` referrer in [GCP Console → Credentials](https://console.cloud.google.com/apis/credentials). David is handling this. |
+| 20 | ~~Fixed~~ | RLS — 10 additional tables | ~~Broad anon write/read on `routes`, `route_stops`, `addresses`, `profiles`, `drivers`, `driver_messages`, `route_templates`, `preferences`, `notifications`, `cs_issues`, `conversations`, `launderers`, `racks`, `order_items`, `subscriptions`, `customer_transactions`, `services`, `service_fees`, `service_categories`~~ **FIXED session 21b**: All anon write policies dropped; scoped authenticated policies retained. Migrations: `rls_security_hardening`, `rls_security_hardening_services_v2`. |
 
 ---
 
@@ -462,15 +463,19 @@ There are actually **two separate hang points** that must both be covered:
 
 ---
 
-### Mar 16, 2026 (session 21b) — Security audit
+### Mar 16, 2026 (session 21b) — Security audit + full RLS hardening
 
-- **Full security audit run across all 3 apps + database.** No hardcoded Twilio/SendGrid/Stripe secret keys found in app files. XSS handling in SMS inbox is correct (full `esc()` function). All 34 tables have RLS enabled.
+- **Full security audit run across all 3 apps + database.** No hardcoded Twilio/SendGrid/Stripe secret keys found in app files. XSS in SMS inbox is correctly handled. All 34 tables have RLS enabled. Stripe secret key absent (publishable key only). Twilio/SendGrid credentials in Supabase Secrets only.
 
-- **10 RLS policy gaps found (see Known Issues #10–19).** Most are early-development "open everything" policies that were never tightened. Two are critical: `customer_payment_methods` (payment data) and `sms_messages` (full SMS history) are fully readable by anonymous unauthenticated users. Recommend tightening before going live with real customer data.
+- **27 dangerous RLS policies removed across 18 tables** (migrations `rls_security_hardening` + `rls_security_hardening_services_v2`). The two critical ones — `cpm_anon_all` (payment method data) and `anon_all_sms_messages` (full SMS history) — are gone. All tables now require authentication for any write access. Key policy changes:
+  - `customer_payment_methods`: `cpm_anon_all` dropped
+  - `sms_messages`: `anon_all_sms_messages` dropped
+  - `customers`, `orders`, `routes`, `route_stops`, `addresses`, `profiles`, `drivers`: all anon read/write blanket policies dropped; scoped per-user + admin policies retained
+  - `driver_locations`: open-to-anyone upsert replaced with driver-scoped insert/update + authenticated read
+  - `discounts`, `settings`: ALL-for-public replaced with SELECT-only for public
+  - `message_templates`, `route_driver_overrides`, `route_templates`, `preferences`, `driver_messages`, `notifications`, `cs_issues`, `conversations`, `launderers`, `racks`, `order_items`, `subscriptions`, `customer_transactions`, `services`, `service_fees`, `service_categories`: all anon write policies dropped
 
-- **Google Maps API key** is unrestricted. Should be restricted to app domains in Google Cloud Console.
-
-- **No code changes this session** — audit only. Fixes will be done in the next session.
+- **Google Maps API key** — David restricting to `washroute.vercel.app` in GCP Console (manual action, ~2 minutes).
 
 ---
 
