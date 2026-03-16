@@ -9445,21 +9445,27 @@ ${totalLinesXml}
     document.getElementById('no-delivery-section').style.display = 'none';
     _noDelivStart = null; _noDelivEnd = null;
 
-    // Render slot buttons
+    // Render slot buttons — pass iso explicitly so selectNoSlot uses the local
+    // date the admin picked, not the UTC-shifted date from the ISO timestamp
+    // (e.g. 6pm PT on Mon Mar 16 becomes 2026-03-17T01:00Z, and split('T')[0]
+    // would wrongly show "Tue Mar 17" in the summary and shift delivery by a day).
     const slots = buildSlots(_noSelectedTmpl, iso);
     document.getElementById('no-slots').innerHTML = !slots.length
       ? '<span style="color:var(--gray-400);font-size:13px">No slots — check the route\'s window times.</span>'
       : slots.map(s =>
-          `<button class="sp-slot-btn" data-no-slot onclick="selectNoSlot(this,'${s.start}','${s.end}','${s.label}')">
+          `<button class="sp-slot-btn" data-no-slot onclick="selectNoSlot(this,'${s.start}','${s.end}','${s.label}','${iso}')">
             ${s.label}
           </button>`).join('');
     document.getElementById('no-slot-section').style.display = '';
   }
 
-  function selectNoSlot(btn, startIso, endIso, label) {
+  function selectNoSlot(btn, startIso, endIso, label, pickupDateIso) {
     _noPickupStart = startIso;
     _noPickupEnd   = endIso;
-    const pickupDateIso = startIso.split('T')[0];
+    // Use the explicitly-passed local date rather than extracting from the ISO
+    // string, which would give the UTC date and shift display/delivery by a day
+    // for evening pickups in timezones west of UTC (e.g. Pacific Time).
+    if (!pickupDateIso) pickupDateIso = startIso.slice(0, 10); // legacy fallback
     const [yr, mo, dy] = pickupDateIso.split('-').map(Number);
     const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
 
