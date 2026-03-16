@@ -3692,13 +3692,44 @@
         startNewOrderListener();
         startRouteStopListener();
 
-        // Restore the page the user was on before refresh (from URL hash)
-        let hashPage = location.hash.replace('#', '');
+        // Restore the page + sub-tab the user was on before refresh (from URL hash).
+        // Hash format: #page  or  #page/subtab  (e.g. #orders/schedule, #orders/in_process, #routes/schedule)
+        const hashRaw   = location.hash.replace('#', '');
+        const hashParts = hashRaw.split('/');
+        let   hashPage  = hashParts[0];
+        const hashSub   = hashParts[1] || null;
         if (hashPage === 'driver-messages') hashPage = 'drivers'; // legacy redirect
         // If no hash or no permission, land on first allowed page
         const defaultPage = ALL_PAGE_IDS.find(p => canAccessPage(p)) || 'processing';
         if (hashPage && document.getElementById('page-' + hashPage) && canAccessPage(hashPage)) {
+          // Pre-set the order filter before showPage() so loadOrders() fetches the right set
+          if (hashPage === 'orders' && hashSub && hashSub !== 'orders' && hashSub !== 'schedule') {
+            currentOrderFilter = hashSub;
+          }
           showPage(hashPage, document.querySelector(`.nav-item[data-page="${hashPage}"]`));
+          // Restore sub-tab state (showPage defaults each section to its first tab)
+          if (hashSub) {
+            if (hashPage === 'orders' && hashSub === 'schedule') {
+              // Switch to Order Schedule sub-view (overrides the default 'orders' view set by showPage)
+              switchOrdersView('schedule');
+            } else if (hashPage === 'orders' && hashSub !== 'orders') {
+              // Activate the correct order filter button — loadOrders() already used the right filter above.
+              // Also re-set hash since switchOrdersView('orders') just wrote #orders/orders.
+              document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(t => t.classList.remove('active'));
+              const fb = document.querySelector(`#order-filter-tabs .filter-tab[data-filter="${hashSub}"]`);
+              if (fb) fb.classList.add('active');
+              try { history.replaceState(null, '', '#orders/' + hashSub); } catch(_) {}
+            } else if (hashPage === 'routes') {
+              const rtBtn = document.getElementById('rtab-btn-' + hashSub);
+              if (rtBtn) setRoutesTab(hashSub, rtBtn);
+            } else if (hashPage === 'maps') {
+              const mapsBtn = document.getElementById('maps-tab-' + hashSub);
+              if (mapsBtn) setMapsTab(hashSub, mapsBtn);
+            } else if (hashPage === 'team') {
+              const tmBtn = document.getElementById('team-tab-' + hashSub);
+              if (tmBtn) setTeamTab(hashSub, tmBtn);
+            }
+          }
         } else {
           showPage(defaultPage, document.querySelector(`.nav-item[data-page="${defaultPage}"]`));
         }
@@ -3787,6 +3818,7 @@
     document.getElementById('team-view-members').style.display = tab === 'members' ? '' : 'none';
     document.getElementById('team-view-permissions').style.display = tab === 'permissions' ? '' : 'none';
     if (tab === 'permissions' && currentUserRole === 'admin') loadPermissionsGrid();
+    try { history.replaceState(null, '', '#team/' + tab); } catch(_) {}
   }
 
   const PAGE_LABELS = {
@@ -5018,6 +5050,7 @@
     const searchEl = document.getElementById('order-search');
     if (searchEl) { searchEl.value = ''; orderSearchTerm = ''; }
     renderOrders(getFilteredOrders());
+    try { history.replaceState(null, '', '#orders/' + currentOrderFilter); } catch(_) {}
   }
 
   function filterOrdersBySearch(term) {
@@ -7349,6 +7382,7 @@
       document.getElementById('topbar-cta-label').textContent = 'New Order';
       document.getElementById('topbar-cta').style.display = '';
       loadOrders(currentOrderFilter);
+      try { history.replaceState(null, '', '#orders/orders'); } catch(_) {}
     } else if (view === 'schedule') {
       scheduleView.style.display = '';
       ovtSchedule.classList.add('active');
@@ -7361,6 +7395,7 @@
         loadDailyRuns();
       }, 80);
       loadDriverScheduleTab();
+      try { history.replaceState(null, '', '#orders/schedule'); } catch(_) {}
     }
   }
 
@@ -11404,6 +11439,7 @@
     const addBtn = document.getElementById('rtab-add-btn');
     if (addBtn) addBtn.style.display = tab === 'templates' ? '' : 'none';
     if (tab === 'schedule') renderWeeklySchedule();
+    try { history.replaceState(null, '', '#routes/' + tab); } catch(_) {}
   }
 
   // ── MAPS TAB SWITCHING ──
@@ -11422,6 +11458,7 @@
       document.getElementById('topbar-cta').style.display = '';
       setTimeout(()=>initZonesMap(), 50);
     }
+    try { history.replaceState(null, '', '#maps/' + tab); } catch(_) {}
   }
 
   // ── TEMPLATE EDITOR SLIDE-OVER ──
