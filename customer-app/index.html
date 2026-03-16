@@ -3552,14 +3552,14 @@ async function placeOrder() {
     ).getTime();
     if (delivStartMs <= pickupEndMs) {
       btn.disabled = false; btn.textContent = 'Place Order';
-      toast('Delivery time must be after your pickup window. Please go back and update your schedule.', 'error');
+      showToast('Delivery time must be after your pickup window. Please go back and update your schedule.', 'error');
       return;
     }
   }
   // Hard stop: no same-day delivery window available at all
   if (draft.isSameDay && !_effectiveDW) {
     btn.disabled = false; btn.textContent = 'Place Order';
-    toast('Same-day delivery is not available for this pickup window. Please choose a different pickup time.', 'error');
+    showToast('Same-day delivery is not available for this pickup window. Please choose a different pickup time.', 'error');
     return;
   }
 
@@ -3571,7 +3571,7 @@ async function placeOrder() {
     const minMins = draft._earliestDeliveryWindowMins ?? (pw?.templateStartMins ?? 0);
     if (deliveryDate === firstEligibleDate && _effectiveDW.startMins < minMins) {
       btn.disabled = false; btn.textContent = 'Place Order';
-      toast('Your delivery window is too soon after pickup. Please choose a later delivery time.', 'error');
+      showToast('Your delivery window is too soon after pickup. Please choose a later delivery time.', 'error');
       return;
     }
   }
