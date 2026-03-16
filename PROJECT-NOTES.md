@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 15, 2026 (session 16)*
+*Last updated: Mar 16, 2026 (session 17)*
 
 ---
 
@@ -409,6 +409,24 @@ There are actually **two separate hang points** that must both be covered:
   1. ~~Add Double Wash price_mod~~ ✅ Done session 16
   2. ~~SMS automation Phase 1~~ ✅ Done session 16
   3. Twilio A2P 10DLC registration (David action required)
+
+---
+
+### Mar 16, 2026 (session 17) — Hotfix: Double Wash overriding base bag price
+
+- **Bug: Double Wash was becoming the default service in customer app (commit `41f6b97`):**
+  When Double Wash was added to the `services` table in session 16, it was inserted with `sort_order=0` — lower than Wash & Fold's `sort_order=1`. The customer app sets `defaultService = allServices[0]` (the first row returned), so Double Wash ($15/bag) was being used as the base price instead of Wash & Fold ($59/bag). Pricing screen showed "1 bag × $15.00" and confirmed order summary showed "Double Wash × 1 bag $15.00" — a $44/bag undercharge per order.
+
+- **Fix — code:** Changed `defaultService = allServices[0]` to `defaultService = allServices.find(s => !s.is_addon) || null` in `customer-app/index.html`. This makes the selection immune to sort order changes — addon services can never become the default service regardless of their `sort_order`.
+
+- **Fix — DB:** Updated Double Wash `sort_order` from 0 → 5 (slots it after Oxi at 3, before Air Dry at 7). Corrected order is now: Wash & Fold (1), Vinegar (2), Oxi (3), Shirt Service (4), Double Wash (5), Air Dry (7).
+
+- **Admin unaffected:** Admin dashboard never used `defaultService` — it always looks up service by `service_id` on existing orders.
+
+- **Next session priorities:**
+  1. Twilio A2P 10DLC registration (David action required — SMS deliverability)
+  2. CloudPRNT integration (backlog)
+  3. Route picker fine-tuning
 
 ---
 
