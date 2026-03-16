@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 16, 2026 (session 19)*
+*Last updated: Mar 16, 2026 (session 20)*
 
 ---
 
@@ -65,10 +65,14 @@ Outbound SMS is built and tested end-to-end but messages are stuck in `queued` s
 - **If on a trial account:** Verify the recipient number at Twilio Console → Phone Numbers → Verified Caller IDs
 - **If on a paid account:** Register for A2P 10DLC at Twilio Console → Messaging → Regulatory Compliance (required by US carriers)
 
-Twilio credentials are embedded in the three Edge Functions (not yet moved to Supabase secrets):
+Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no longer hardcoded):
 - Account SID: `AC57c50cec278e5987a7a0d8d9443d1851`
 - From number: `+15105884102`
 - Webhook URL (set in Twilio Console): `https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/twilio-webhook`
+
+**⚠️ Important — two separate places store the Twilio Auth Token:**
+1. **Supabase Secrets** (`TWILIO_AUTH_TOKEN`) — used by edge functions (`send-sms`, `notify-on-my-way`). Updated session 8.
+2. **Supabase Auth → Authentication → Providers → Phone** — used by the customer app phone OTP login. This is a SEPARATE setting in the Supabase dashboard, not a secret. If the Twilio auth token is ever rotated again, **both** places must be updated or OTP login will break with error 20003.
 
 ---
 
@@ -87,13 +91,15 @@ Twilio credentials are embedded in the three Edge Functions (not yet moved to Su
 ## Admin Dashboard — Completed Features
 
 ### Orders Page
-- Full order table with status pipeline filter tabs
+- Full order table with status pipeline filter tabs: Scheduled / In Process / Ready / Issues / **Delivered** (last 24 hours only; cancelled orders are archived, never shown)
 - Click status badge to change status on individual orders
 - "Advance Status" batch action (requires all selected orders to have same status)
 - Cancel = hard delete (irreversible, with confirmation)
 - Clickable pickup/delivery route cells for rescheduling → "Reschedule Route" modal
 - "+ Assign" shown instead of "—" for unassigned reschedulable orders
 - **Batch SMS:** select orders → Send SMS → compose message → sends to all customer phones
+- **Order Schedule sub-view:** accessible via the "Order Schedule" tab button at the top of the Orders page; shows live map + driver schedule grid for the day
+- **URL hash persistence:** browser URL updates as you navigate (e.g. `#orders/in_process`, `#orders/schedule`). Refreshing the browser restores the exact page + sub-tab you were on.
 
 ### Routes Page
 - Route template editor (create/edit recurring routes)
@@ -104,6 +110,8 @@ Twilio credentials are embedded in the three Edge Functions (not yet moved to Su
 - Weekly Schedule: time-banded rows (morning/evening slots), one row per route, chips show driver name
 - **Route optimization** via Google Maps API (Optimize button on Daily Schedule)
 - **Drivers > Schedule page — smart reassignment rules:** Driver chips show 🔒 (complete) or amber dot (in-progress) badges for today's column. Clicking a chip for an in-progress route shows a warning banner and reassigns only the remaining `pending`/`en_route` stops (completed stops stay attributed to the driver who did them). Clicking a chip for a complete route is a no-op with an explanatory toast. Future-week changes apply freely with no restriction.
+- **Route-status badges on both schedule grids:** 🔒 (route fully complete) and amber pulsing dot (in progress) badges appear in both the Routes > Weekly Schedule grid and the Orders > Order Schedule > Driver Schedule grid for today's routes.
+- **URL hash sub-tab persistence:** Maps (`#maps/routes`, `#maps/zones`), Team (`#team/permissions`), and Routes (`#routes/templates`) tabs all write to the URL hash — refresh returns you to the correct tab.
 
 ### Inbox Page
 - Real SMS conversations grouped by customer
@@ -421,6 +429,27 @@ There are actually **two separate hang points** that must both be covered:
   1. ~~Add Double Wash price_mod~~ ✅ Done session 16
   2. ~~SMS automation Phase 1~~ ✅ Done session 16
   3. Twilio A2P 10DLC registration (David action required)
+
+---
+
+### Mar 16, 2026 (session 20) — UX fixes, route badges, Delivered tab, hash routing, OTP fix
+
+- **UX fixes — customer app (commit `56529f6`):** Orders screen back button now navigates to Home (not Account, which was a dead end). Step 2 CTA changed from "Looks good →" to "Next →" (clearer intent).
+
+- **Delivered tab added to admin Orders page (commit `56529f6`):** New "Delivered" filter tab shows orders delivered in the **last 24 hours only** (`actual_delivery_at || delivery_window_start >= now()-24h`). Cancelled orders are fully archived — never shown in any tab. Tab count badge updates live with the same 24h filter.
+
+- **Route-status badges added to Routes > Schedule grid (commit `9c714ae`):** 🔒 (all stops complete) and amber pulsing dot (in-progress) badges now appear in the weekly schedule grid on the Routes page, matching what was already on the Drivers > Schedule grid. Pre-fetched via a single query at render time when `schedWeekOffset === 0`.
+
+- **URL hash sub-page persistence (commit `9546d02`):** Admin dashboard now writes the active sub-tab to the URL hash when navigating. On browser refresh, both the page and sub-tab are restored. Supported states: `#orders/schedule`, `#orders/in_process`, `#orders/delivered`, `#orders/issues`, `#orders/ready`, `#orders/scheduled`, `#maps/zones`, `#maps/routes`, `#team/members`, `#team/permissions`, `#routes/templates`. Restore logic pre-sets `currentOrderFilter` before `showPage()` so `loadOrders()` fetches the correct dataset, then corrects the hash a second time after `switchOrdersView()` would otherwise overwrite it to `#orders/orders`.
+
+- **Twilio OTP fix (manual config — no code change):** Customer app phone login was failing with Twilio error 20003 (auth failure). Root cause: the Supabase Auth phone provider stores its own copy of the Twilio Auth Token, separate from Supabase Secrets. When the token was rotated in session 8, only Supabase Secrets was updated — not the Auth provider setting. Fixed by David updating the token at Supabase Dashboard → Authentication → Providers → Phone.
+
+- **Commits this session:** `9c714ae` (route badges), `56529f6` (UX + Delivered tab), `e3b8ee2` (Delivered tab 24h scope), `9546d02` (hash routing)
+
+- **Next session priorities:**
+  1. Twilio A2P 10DLC registration (David action required — SMS deliverability for non-OTP messages)
+  2. CloudPRNT integration (backlog)
+  3. Route picker fine-tuning
 
 ---
 
