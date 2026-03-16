@@ -11595,6 +11595,40 @@
 
     const editSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="9" height="9" style="flex-shrink:0"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
 
+    // ── Pre-fetch today's stop counts for in-progress / complete badges ──
+    const todayStopStatus = {};
+    if (schedWeekOffset === 0) {
+      try {
+        const todayDow = (new Date().getDay() + 6) % 7;
+        const todayTemplateIds = allTemplates
+          .filter(t => (t.schedule_days||[]).includes(todayDow))
+          .map(t => t.id);
+        if (todayTemplateIds.length) {
+          const { data: todayRoutes } = await db.from('routes')
+            .select('id, template_id')
+            .in('template_id', todayTemplateIds)
+            .eq('run_date', today());
+          if (todayRoutes?.length) {
+            const { data: todayStops } = await db.from('route_stops')
+              .select('route_id, status')
+              .in('route_id', todayRoutes.map(r => r.id));
+            const routeToTemplate = Object.fromEntries(todayRoutes.map(r => [r.id, r.template_id]));
+            (todayStops||[]).forEach(s => {
+              const tid = routeToTemplate[s.route_id];
+              if (!tid) return;
+              if (!todayStopStatus[tid]) todayStopStatus[tid] = { total: 0, done: 0, pending: 0 };
+              todayStopStatus[tid].total++;
+              if (s.status === 'complete' || s.status === 'skipped' || s.status === 'failed') {
+                todayStopStatus[tid].done++;
+              } else {
+                todayStopStatus[tid].pending++;
+              }
+            });
+          }
+        }
+      } catch (_) { /* non-critical — grid still renders without status badges */ }
+    }
+
     // Format "07:00:00" → "7AM", "18:00:00" → "6PM"
     function fmtT(t) {
       if (!t) return '';
@@ -11613,11 +11647,23 @@
       const drvFirst = drvName.split(' ')[0];
       const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
       const fg = drvId ? 'white' : '#9ca3af';
+
+      const isToday = schedWeekOffset === 0 && day === (new Date().getDay() + 6) % 7;
+      let statusBadgeHtml = '';
+      if (isToday && todayStopStatus[t.id]) {
+        const sc = todayStopStatus[t.id];
+        if (sc.total > 0 && sc.done === sc.total) {
+          statusBadgeHtml = `<span title="Route complete" style="font-size:10px;line-height:1;opacity:.9;">🔒</span>`;
+        } else if (sc.done > 0) {
+          statusBadgeHtml = `<span title="${sc.done} of ${sc.total} stops done" style="width:7px;height:7px;border-radius:50%;background:#fbbf24;display:inline-block;flex-shrink:0;box-shadow:0 0 0 2px rgba(251,191,36,.4);"></span>`;
+        }
+      }
+
       return `<div class="sched-cell"
-        style="background:${bg};color:${fg};padding:4px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:4px"
+        style="background:${bg};color:${fg};padding:4px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:5px"
         onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
         title="${t.name} · ${drvName}">
-        ${drvFirst}
+        ${statusBadgeHtml}${drvFirst}
       </div>`;
     };
 
