@@ -349,7 +349,7 @@ There are actually **two separate hang points** that must both be covered:
 | 16 | ~~P2 → Fixed~~ | RLS — `driver_locations` | ~~Anyone could spoof driver GPS coordinates.~~ **FIXED session 21b**: Replaced with `authenticated_read_driver_locations` (SELECT) + `driver_insert_own_location` + `driver_update_own_location` (scoped to own driver_id). |
 | 17 | ~~P2 → Fixed~~ | RLS — `message_templates` | ~~`anon_all_message_templates` — anyone could edit SMS templates.~~ **FIXED session 21b**: Dropped. `admin_all_message_templates` + edge functions (service role) cover all access. |
 | 18 | ~~P2 → Fixed~~ | RLS — `route_driver_overrides` | ~~`Allow all access` with no conditions.~~ **FIXED session 21b**: Replaced with `admin_all_route_driver_overrides` + `auth_read_route_driver_overrides`. |
-| 19 | **P2 Medium — David action** | Google Maps API key | Key `AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc` is in customer app source. Restrict to `washroute.vercel.app` referrer in [GCP Console → Credentials](https://console.cloud.google.com/apis/credentials). David is handling this. |
+| 19 | ~~P2 → Fixed~~ | Google Maps API key | ~~Key `AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc` unrestricted in customer app source.~~ **FIXED session 21b**: David restricted key to `*.washroute.vercel.app/*` referrer in GCP Console on 2026-03-16. |
 | 20 | ~~Fixed~~ | RLS — 10 additional tables | ~~Broad anon write/read on `routes`, `route_stops`, `addresses`, `profiles`, `drivers`, `driver_messages`, `route_templates`, `preferences`, `notifications`, `cs_issues`, `conversations`, `launderers`, `racks`, `order_items`, `subscriptions`, `customer_transactions`, `services`, `service_fees`, `service_categories`~~ **FIXED session 21b**: All anon write policies dropped; scoped authenticated policies retained. Migrations: `rls_security_hardening`, `rls_security_hardening_services_v2`. |
 
 ---
@@ -456,10 +456,9 @@ There are actually **two separate hang points** that must both be covered:
 - **Commits this session:** `a743a3b` (driver phone OTP)
 
 - **Next session priorities:**
-  1. **RLS security hardening** — 10 policies need to be tightened (see Known Issues #10–19). Items 10 and 11 are critical (payment data + SMS exposed to anon). Recommend doing this before going live with real customer data.
-  2. Google Maps API key — restrict to app domains in GCP Console (David action, 2 minutes)
-  3. Twilio A2P 10DLC registration (David action required — SMS deliverability for non-OTP messages)
-  4. CloudPRNT integration (backlog)
+  1. Twilio A2P 10DLC registration (David action required — SMS deliverability for non-OTP messages)
+  2. CloudPRNT integration (backlog)
+  3. Route picker fine-tuning (backlog)
 
 ---
 
@@ -475,7 +474,7 @@ There are actually **two separate hang points** that must both be covered:
   - `discounts`, `settings`: ALL-for-public replaced with SELECT-only for public
   - `message_templates`, `route_driver_overrides`, `route_templates`, `preferences`, `driver_messages`, `notifications`, `cs_issues`, `conversations`, `launderers`, `racks`, `order_items`, `subscriptions`, `customer_transactions`, `services`, `service_fees`, `service_categories`: all anon write policies dropped
 
-- **Google Maps API key** — David restricting to `washroute.vercel.app` in GCP Console (manual action, ~2 minutes).
+- **Google Maps API key** — David restricted to `*.washroute.vercel.app/*` referrer in GCP Console on 2026-03-16. ✅ Done.
 
 ---
 
