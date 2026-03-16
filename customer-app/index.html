@@ -2982,11 +2982,26 @@ async function selectSchedPickupDate(iso) {
 function _renderSchedWindowOpts(which) {
   const container = document.getElementById(`expand-${which}-window`);
   if (!container) return;
-  const windows = draft.availableWindows;
+
+  // For delivery: if same-day is active, block expanding entirely — window is locked
+  if (which === 'delivery' && draft.isSameDay) {
+    container.classList.remove('open');
+    return;
+  }
+
+  let windows = draft.availableWindows;
+
+  // For delivery on the same date as pickup: filter out windows that start before
+  // pickup end + turnaround hours (would be a physically impossible delivery time)
+  if (which === 'delivery' && draft.pickupWindow && draft.deliveryDate === draft.pickupDate) {
+    const pw = draft.pickupWindow;
+    const earliestMs = new Date(pw.slotEnd).getTime() + (pw.turnaroundHours || 0) * 3600000;
+    windows = windows.filter(w => new Date(w.slotStart).getTime() >= earliestMs);
+  }
+
   if (!windows.length) {
     container.innerHTML = '<div class="sched-opts"><div style="font-size:13px;color:var(--gray-400)">No windows available for this date.</div></div>';
-    // Clear any stale window label in the header so it doesn't show a time that isn't available
-    draft.pickupWindow = null;
+    if (which === 'pickup') draft.pickupWindow = null;
     const valEl = document.getElementById(`val-${which}-window`);
     if (valEl) valEl.textContent = '—';
     return;
@@ -2995,8 +3010,10 @@ function _renderSchedWindowOpts(which) {
     ? draft.pickupWindow
     : (draft.deliveryWindow || draft.pickupWindow);
   container.innerHTML = '<div class="sched-opts">' + windows.map((w, i) => {
+    // Use the index in the full availableWindows array so selectSchedWindow can look it up correctly
+    const fullIdx = draft.availableWindows.indexOf(w);
     const sel = cur?.slotStart === w.slotStart;
-    return `<button class="sched-opt${sel ? ' selected' : ''}" onclick="selectSchedWindow('${which}',${i})"><span>${w.label}</span><span class="sched-opt-check">✓</span></button>`;
+    return `<button class="sched-opt${sel ? ' selected' : ''}" onclick="selectSchedWindow('${which}',${fullIdx})"><span>${w.label}</span><span class="sched-opt-check">✓</span></button>`;
   }).join('') + '</div>';
 }
 
@@ -3037,6 +3054,16 @@ async function selectSchedWindow(which, idx) {
 
 // Compute delivery date, update delivery section display
 async function _updateSchedDelivery() {
+  // Helper: lock or unlock the delivery window row
+  function _setDeliveryWindowLocked(locked) {
+    const row = document.querySelector('#sched-delivery-section .sched-row[onclick*="delivery-window"]');
+    if (row) {
+      row.style.pointerEvents = locked ? 'none' : '';
+      row.style.opacity       = locked ? '0.65' : '';
+      row.style.cursor        = locked ? 'default' : '';
+    }
+  }
+
   // Same-day active: delivery is already locked to pickup date + PM window — don't recalculate
   if (draft.isSameDay && draft._sameDayWindows.length) {
     draft.deliveryDate   = draft.pickupDate;
@@ -3047,8 +3074,10 @@ async function _updateSchedDelivery() {
     if (valWin) valWin.textContent = draft._sameDayWindows[0].label;
     const delSec = document.getElementById('sched-delivery-section');
     if (delSec) delSec.style.display = '';
+    _setDeliveryWindowLocked(true);  // prevent user from changing the locked same-day window
     return;
   }
+  _setDeliveryWindowLocked(false); // unlock for standard delivery
   let turnaround   = 2;
   let deliveryDays = null;
   try {
