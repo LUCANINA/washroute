@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 15, 2026 (session 15)*
+*Last updated: Mar 15, 2026 (session 16)*
 
 ---
 
@@ -406,9 +406,39 @@ There are actually **two separate hang points** that must both be covered:
 - **All commits this session:** `19453bb`, `b57c997`, `c99d756`
 
 - **Next session priorities:**
-  1. Add `price_mod` for Double Wash and remaining add-on prefs
-  2. SMS/email automation Phase 1 — status check auto-replies
+  1. ~~Add Double Wash price_mod~~ ✅ Done session 16
+  2. ~~SMS automation Phase 1~~ ✅ Done session 16
   3. Twilio A2P 10DLC registration (David action required)
+
+---
+
+### Mar 15, 2026 (session 16) — Double Wash pricing + SMS automation Phase 1
+
+- **Double Wash preference + addon service added to DB (no code change needed):**
+  - New row in `preferences` table (`id: 523db29c`): name="Double Wash", category="Delivery", sort_order=4, options=[No (default, $0), Yes ($15)].
+  - New row in `services` table (`id: 3de1c270`): name="Double Wash", base_price=$15.00, pricing_type="per_bag", is_addon=true, linked_preference_id → the new preference.
+  - Both apps pick it up automatically on next load. Customer app shows "+$15.00/bag" toggle chip between Oxi and the next pref. Admin processing shows it in the intake breakdown.
+
+- **SMS automation Phase 1 — `twilio-webhook` v14 deployed:**
+  Four inbound keyword handlers are now live. All auto-replies are logged to `sms_messages` (direction='outbound') so they appear in the admin SMS inbox.
+
+  | Keyword | Action |
+  |---|---|
+  | `PICKUP` | Books the customer's next pickup using last order as template (zone, address, bags). Blocks duplicate if active order exists. Replies with order # + pickup date/window. |
+  | `STATUS` / `ORDER` / `ETA` / `WHERE` / `UPDATE` / `TRACK` + fuzzy phrases | Replies with real-time order status + relevant date. Covers all active statuses (scheduled, picked_up, processing, ready_for_delivery, on_hold, pickup_failed). No active order → nudges to reply PICKUP. |
+  | `SKIP` | Skips next scheduled pickup, sets cancelled_by='customer', sends skip confirmation template. Now also logs outbound confirmation to admin inbox (was missing before). |
+  | `HELP` / `HI` / `HELLO` / `HEY` | Sends command menu listing PICKUP, STATUS, SKIP. |
+  | Anything else | Logged to admin inbox, no reply. |
+
+  - PICKUP handler details: fetches last delivered order → copies zone_id, address IDs, bag count, service_id → finds next valid route day in PT using route_templates.schedule_days → creates order with source='sms' → DB trigger auto-assigns route + stops → confirms via TwiML reply.
+  - PT timezone handled dynamically via `getPtOffsetHours()` (works for both PST/PDT).
+  - STATUS query also nudges "Reply PICKUP to book" when no active order found.
+  - SKIP handler fixed to set `cancelled_by: 'customer'` (was missing) and now logs outbound confirmation.
+
+- **Next session priorities:**
+  1. Twilio A2P 10DLC registration (David action required — SMS deliverability)
+  2. CloudPRNT integration (backlog)
+  3. Route picker fine-tuning
 
 ---
 
@@ -831,8 +861,8 @@ There are actually **two separate hang points** that must both be covered:
 - ~~Receipt printing~~ ✅ — thermal 80mm, 2 copies, auto-prints on intake save + 🖨 Print button on order panel (session 13)
 - ~~UX audit top 5 fixes~~ ✅ — double-tap, res.ok guard, batch button disable, stop card styling, slot CSS (session 15)
 - ~~How did you find us? referral source~~ ✅ — both signup flows + admin dropdown (session 15)
-- Add `price_mod` for Double Wash and remaining add-on prefs
-- SMS/email automation — Phase 1: status check auto-replies
+- ~~Add Double Wash price_mod~~ ✅ — $15/bag, linked addon service, live in DB (session 16)
+- ~~SMS automation Phase 1~~ ✅ — PICKUP, STATUS, SKIP, HELP keywords live in twilio-webhook v14 (session 16)
 - CloudPRNT integration (backlog) — `print_jobs` table + `cloudprnt-server` edge function; printer polls automatically
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - Xero accounting sync

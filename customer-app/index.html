@@ -2074,7 +2074,7 @@ async function loadServices() {
     db.from('service_fees').select('id,name,amount,fee_type,category').eq('show_in_app', true).order('sort_order')
   ]);
   allServices    = svcs  || [];
-  defaultService = allServices[0] || null;
+  defaultService = allServices.find(s => !s.is_addon) || null;
   globalPrefs    = prefs || [];
   allServiceFees = fees  || [];
 }
