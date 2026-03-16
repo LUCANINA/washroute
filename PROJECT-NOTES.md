@@ -60,10 +60,8 @@ Three connected web apps, one shared database. Focused on **delivery first** (re
 | Xero | Accounting sync | 🔲 Pending |
 | Vercel | App hosting | ✅ Auto-deploys on push to main |
 
-### ⚠️ Twilio — Action Required Before SMS Works
-Outbound SMS is built and tested end-to-end but messages are stuck in `queued` status because:
-- **If on a trial account:** Verify the recipient number at Twilio Console → Phone Numbers → Verified Caller IDs
-- **If on a paid account:** Register for A2P 10DLC at Twilio Console → Messaging → Regulatory Compliance (required by US carriers)
+### ✅ Twilio A2P 10DLC — Approved (2026-03-16)
+Outbound SMS is fully live. A2P 10DLC registration was approved by US carriers on 2026-03-16. Messages no longer stuck in `queued` status.
 
 Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no longer hardcoded):
 - Account SID: `AC57c50cec278e5987a7a0d8d9443d1851`
@@ -373,7 +371,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. ~~Receipt printing~~ ✅ Done session 13
   2. Add `price_mod` for Double Wash and remaining add-on prefs
-  3. Twilio A2P 10DLC registration (David action required)
+  3. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
 
 ---
 
@@ -395,7 +393,7 @@ There are actually **two separate hang points** that must both be covered:
   1. ~~Email receipt fixes~~ ✅ Done session 14
   2. ~~Kanban reprint button~~ ✅ Done session 14
   3. Add `price_mod` for Double Wash and remaining add-on prefs
-  4. Twilio A2P 10DLC registration (David action required)
+  4. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   5. SMS/email automation Phase 1 — status check auto-replies ("Where's my driver?")
 
 ---
@@ -413,7 +411,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. ~~UX audit + top 5 fixes~~ ✅ Done session 15
   2. Add `price_mod` for Double Wash and remaining add-on prefs
-  3. Twilio A2P 10DLC registration (David action required)
+  3. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   4. SMS/email automation Phase 1 — status check auto-replies ("Where's my driver?")
 
 ---
@@ -441,7 +439,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. ~~Add Double Wash price_mod~~ ✅ Done session 16
   2. ~~SMS automation Phase 1~~ ✅ Done session 16
-  3. Twilio A2P 10DLC registration (David action required)
+  3. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
 
 ---
 
@@ -456,7 +454,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Commits this session:** `a743a3b` (driver phone OTP)
 
 - **Next session priorities:**
-  1. Twilio A2P 10DLC registration (David action required — SMS deliverability for non-OTP messages)
+  1. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   2. CloudPRNT integration (backlog)
   3. Route picker fine-tuning (backlog)
 
@@ -493,7 +491,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Commits this session:** `9c714ae` (route badges), `56529f6` (UX + Delivered tab), `e3b8ee2` (Delivered tab 24h scope), `9546d02` (hash routing)
 
 - **Next session priorities:**
-  1. Twilio A2P 10DLC registration (David action required — SMS deliverability for non-OTP messages)
+  1. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   2. CloudPRNT integration (backlog)
   3. Route picker fine-tuning
 
@@ -526,7 +524,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Commits:** `8882c52` (sign-out fix), `f213c99` + `f859f38` (turnaround enforcement), `f461017` (smart reassignment), `72f17b8` (QA: toast fix)
 
 - **Next session priorities:**
-  1. Twilio A2P 10DLC registration (David action required — SMS deliverability)
+  1. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   2. CloudPRNT integration (backlog)
   3. Route picker fine-tuning
 
@@ -549,7 +547,7 @@ There are actually **two separate hang points** that must both be covered:
   The `'Est. Delivery'` row in the booking confirmation email used `_fmtD(deliveryDate)` (date only). Pickup row correctly used `pw.label`. Fixed to use `_effectiveDW.label` (the same resolved delivery window used for the order) — email now shows e.g. "Monday, March 16 · 8pm – 10pm".
 
 - **Next session priorities:**
-  1. Twilio A2P 10DLC registration (David action required — SMS deliverability)
+  1. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   2. CloudPRNT integration (backlog)
   3. Route picker fine-tuning
 
@@ -567,7 +565,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Admin unaffected:** Admin dashboard never used `defaultService` — it always looks up service by `service_id` on existing orders.
 
 - **Next session priorities:**
-  1. Twilio A2P 10DLC registration (David action required — SMS deliverability)
+  1. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   2. CloudPRNT integration (backlog)
   3. Route picker fine-tuning
 
@@ -597,7 +595,7 @@ There are actually **two separate hang points** that must both be covered:
   - SKIP handler fixed to set `cancelled_by: 'customer'` (was missing) and now logs outbound confirmation.
 
 - **Next session priorities:**
-  1. Twilio A2P 10DLC registration (David action required — SMS deliverability)
+  1. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   2. CloudPRNT integration (backlog)
   3. Route picker fine-tuning
 
@@ -616,7 +614,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. Add `price_mod` for Double Wash and remaining add-on prefs
   2. Receipt printing — thermal 80mm bag tag (mockup at `receipt-mockup.html`)
-  3. Twilio A2P 10DLC registration (David action required)
+  3. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
 
 ---
 
@@ -639,7 +637,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. Add `price_mod` for Double Wash and remaining add-on prefs
   2. Receipt printing — thermal 80mm bag tag (mockup at `receipt-mockup.html`)
-  3. Twilio A2P 10DLC registration (David action required)
+  3. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
 
 ---
 
@@ -1018,7 +1016,7 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Pending / Next Up
-- ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix — David action required)
+- ~~Twilio A2P 10DLC registration~~ ✅ — Approved 2026-03-16. SMS fully live.
 - ~~Receipt printing~~ ✅ — thermal 80mm, 2 copies, auto-prints on intake save + 🖨 Print button on order panel (session 13)
 - ~~UX audit top 5 fixes~~ ✅ — double-tap, res.ok guard, batch button disable, stop card styling, slot CSS (session 15)
 - ~~How did you find us? referral source~~ ✅ — both signup flows + admin dropdown (session 15)
