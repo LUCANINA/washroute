@@ -5044,6 +5044,10 @@ const PLANS = [
 async function loadAccount() {
   if (!currentProfile) return;
 
+  // Always reset the sign-out button — it may still say "Signing out…" from a previous session
+  const _soBtn = document.querySelector('.signout-btn');
+  if (_soBtn) { _soBtn.disabled = false; _soBtn.textContent = 'Sign Out'; }
+
   // Always re-fetch fresh customer + preferences data so admin-side changes appear immediately
   const [{ data: freshCust }, { data: gp }] = await Promise.all([
     db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle(),
