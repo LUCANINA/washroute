@@ -136,6 +136,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Undo complete (within same session)
 - Skip stop (with 12-second undo window, requires confirmation)
 - **Realtime stop reassignment:** If admin reassigns a stop to another driver while they're en route, the stop disappears from the original driver's app with a toast. If a stop is newly assigned to a driver, their app triggers a reload to pick it up.
+- **Phone OTP login (session 21):** Magic Link tab replaced with Phone Code tab. Two-step flow: enter phone → enter SMS code. E.164 normalisation handles 10-digit US numbers automatically. `link_phone_auth_driver` RPC re-points existing driver records to the new phone-auth UUID on first login — drivers don't lose their history. Requires drivers to have a phone number stored in their profile.
 
 ---
 
@@ -147,6 +148,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Account management: name, email, password change, address book, laundry preferences, recurring plan, order history
 - Customer-initiated skip button on recurring orders (pre-pickup only)
 - Referral source captured at signup
+- **Phone OTP login (session 20/21):** SMS code login via Twilio. `link_phone_auth_account` RPC (SECURITY DEFINER) re-points existing customer records to the new phone-auth UUID on first login — customers with existing email accounts don't lose their history. Multiple-account collision handled with a graceful error + auto sign-out.
 
 ---
 
@@ -429,6 +431,23 @@ There are actually **two separate hang points** that must both be covered:
   1. ~~Add Double Wash price_mod~~ ✅ Done session 16
   2. ~~SMS automation Phase 1~~ ✅ Done session 16
   3. Twilio A2P 10DLC registration (David action required)
+
+---
+
+### Mar 16, 2026 (session 21) — Driver app phone OTP login
+
+- **Driver app: Magic Link replaced with Phone Code SMS OTP (commit `a743a3b`):** The "Magic Link" auth tab (email → sign-in link) has been removed and replaced with a "Phone Code" tab. Two-step flow: driver enters mobile number → receives SMS code → enters 6-digit code. E.164 normalisation handles any 10-digit US number format. Functions added: `doDriverPhoneOTP()`, `doDriverOTPVerify()`, `resendDriverOTP()`, `resetDriverPhone()`. `switchAuthTab()` updated from `'magic'` to `'phone'`. Load-timeout handler updated to also reset the phone OTP panel if it fires mid-verification.
+
+- **Driver phone account linking (commit `a743a3b`):** `link_phone_auth_driver` Postgres SECURITY DEFINER function (applied session 20) is called from `loadDriverData()` when `currentUser.phone` is set. It finds the existing driver record by matching last 10 phone digits in `profiles` (where `role = 'driver'`), re-points `drivers.profile_id` to the new phone-auth UUID, and patches the new profile row with the driver's real name/email. On first phone login, the driver's full history and route assignments transfer automatically. `MULTIPLE_MATCHES` (two drivers share a number) shows a toast and auto-signs out.
+
+- **Note for David:** Drivers must have a phone number stored in their profile for account linking to work. When setting up new drivers in the admin, make sure their mobile number is saved to the profile. Existing drivers can be verified in Admin → Team → Drivers.
+
+- **Commits this session:** `a743a3b` (driver phone OTP)
+
+- **Next session priorities:**
+  1. Twilio A2P 10DLC registration (David action required — SMS deliverability for non-OTP messages)
+  2. CloudPRNT integration (backlog)
+  3. Route picker fine-tuning
 
 ---
 
