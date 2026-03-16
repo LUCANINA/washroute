@@ -1364,9 +1364,11 @@
         </div>
 
         <!-- Driver assignment popover (weekly schedule) -->
-        <div id="driver-popover" style="display:none;position:fixed;z-index:2000;background:white;border-radius:12px;padding:16px;width:230px;box-shadow:0 8px 32px rgba(0,0,0,.18);border:1px solid var(--gray-200);">
+        <div id="driver-popover" style="display:none;position:fixed;z-index:2000;background:white;border-radius:12px;padding:16px;width:250px;box-shadow:0 8px 32px rgba(0,0,0,.18);border:1px solid var(--gray-200);">
           <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;" id="driver-popover-title">Assign Driver</div>
-          <div id="driver-popover-options" style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;"></div>
+          <!-- Status banner: shows in-progress / complete warning for today's routes -->
+          <div id="driver-popover-status" style="display:none;font-size:11px;border-radius:7px;padding:7px 9px;margin-bottom:10px;line-height:1.4;"></div>
+          <div id="driver-popover-options" style="display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;"></div>
           <button class="btn btn-ghost" style="width:100%;margin-top:10px;font-size:12px;" onclick="closeDriverPopover()">Cancel</button>
         </div>
 
@@ -11706,7 +11708,41 @@
     (overrides||[]).forEach(o => { overMap[`${o.template_id}-${o.day_of_week}-${o.driver_type}`] = o.driver_id; });
     const driverMap = Object.fromEntries(allDriversCache.map(d => [d.id, d.name]));
 
-    const editSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="9" height="9" style="flex-shrink:0"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    // ── Pre-fetch today's stop counts so grid cells can show in-progress / complete badges ──
+    // Only fetch when viewing the current week (schedWeekOffset === 0).
+    // todayStopStatus maps templateId → { total, done, pending }
+    const todayStopStatus = {};
+    if (schedWeekOffset === 0) {
+      try {
+        const todayDow = (new Date().getDay() + 6) % 7; // 0=Mon..6=Sun
+        const todayTemplateIds = allTemplates
+          .filter(t => (t.schedule_days||[]).includes(todayDow))
+          .map(t => t.id);
+        if (todayTemplateIds.length) {
+          const { data: todayRoutes } = await db.from('routes')
+            .select('id, template_id')
+            .in('template_id', todayTemplateIds)
+            .eq('run_date', today());
+          if (todayRoutes?.length) {
+            const { data: todayStops } = await db.from('route_stops')
+              .select('route_id, status')
+              .in('route_id', todayRoutes.map(r => r.id));
+            const routeToTemplate = Object.fromEntries(todayRoutes.map(r => [r.id, r.template_id]));
+            (todayStops||[]).forEach(s => {
+              const tid = routeToTemplate[s.route_id];
+              if (!tid) return;
+              if (!todayStopStatus[tid]) todayStopStatus[tid] = { total: 0, done: 0, pending: 0 };
+              todayStopStatus[tid].total++;
+              if (s.status === 'complete' || s.status === 'skipped' || s.status === 'failed') {
+                todayStopStatus[tid].done++;
+              } else {
+                todayStopStatus[tid].pending++;
+              }
+            });
+          }
+        }
+      } catch (_) { /* non-critical — grid still renders without status badges */ }
+    }
 
     function fmtT(t) {
       if (!t) return '';
@@ -11724,11 +11760,26 @@
       const drvFirst = drvName.split(' ')[0];
       const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
       const fg = drvId ? 'white' : '#9ca3af';
+
+      // Status badge for today's column only
+      const isToday = schedWeekOffset === 0 && day === (new Date().getDay() + 6) % 7;
+      let statusBadgeHtml = '';
+      if (isToday && todayStopStatus[t.id]) {
+        const sc = todayStopStatus[t.id];
+        if (sc.total > 0 && sc.done === sc.total) {
+          // All done — show lock icon
+          statusBadgeHtml = `<span title="Route complete" style="font-size:10px;line-height:1;opacity:.9;">🔒</span>`;
+        } else if (sc.done > 0) {
+          // In progress — show pulsing dot
+          statusBadgeHtml = `<span title="${sc.done} of ${sc.total} stops done" style="width:7px;height:7px;border-radius:50%;background:#fbbf24;display:inline-block;flex-shrink:0;box-shadow:0 0 0 2px rgba(251,191,36,.4);"></span>`;
+        }
+      }
+
       return `<div class="sched-cell"
-        style="background:${bg};color:${fg};padding:4px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:4px"
+        style="background:${bg};color:${fg};padding:4px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:5px"
         onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
         title="${t.name} · ${drvName}">
-        ${drvFirst}
+        ${statusBadgeHtml}${drvFirst}
       </div>`;
     };
 
@@ -11799,7 +11850,7 @@
   // ── DRIVER POPOVER ──
   let popoverCtx = {};
 
-  function openDriverPopover(templateId, day, driverType, currentDriverId, event) {
+  async function openDriverPopover(templateId, day, driverType, currentDriverId, event) {
     event.stopPropagation();
     popoverCtx = { templateId, day, driverType, currentDriverId };
     const tmpl = allTemplates.find(t => t.id === templateId);
@@ -11808,30 +11859,73 @@
     const dateStr = dayDate ? ` ${MON_SHORT[dayDate.getMonth()]} ${dayDate.getDate()}` : '';
     document.getElementById('driver-popover-title').textContent = `${DAY_LABELS[day]}${dateStr} · ${tmpl?.name || ''}`;
 
-    const opts = document.getElementById('driver-popover-options');
-    opts.innerHTML = [{ id: '', name: 'Unassigned' }, ...allDriversCache].map(d => {
-      const selected = d.id === currentDriverId || (!d.id && !currentDriverId);
-      return `<div onclick="assignDriverOverride('${d.id}')"
-        style="padding:8px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:${selected?'700':'500'};
-          color:${selected?'var(--accent)':'var(--gray-900)'};background:${selected?'var(--accent-light)':'white'};
-          display:flex;align-items:center;gap:8px;transition:background .1s;"
-        onmouseover="this.style.background='${selected?'var(--accent-light)':'var(--gray-50)'}'"
-        onmouseout="this.style.background='${selected?'var(--accent-light)':'white'}'">
-        <div style="width:26px;height:26px;border-radius:50%;background:${d.id?'var(--accent)':'var(--gray-200)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white;flex-shrink:0;">${d.name.charAt(0).toUpperCase()}</div>
-        <span style="flex:1">${d.name}</span>
-        ${selected ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
-      </div>`;
-    }).join('');
+    // Hide status banner initially while we check
+    const statusBanner = document.getElementById('driver-popover-status');
+    if (statusBanner) statusBanner.style.display = 'none';
 
+    // Render driver options
+    const renderOptions = (disabled = false) => {
+      const opts = document.getElementById('driver-popover-options');
+      opts.innerHTML = [{ id: '', name: 'Unassigned' }, ...allDriversCache].map(d => {
+        const selected = d.id === currentDriverId || (!d.id && !currentDriverId);
+        const opacity  = disabled ? 'opacity:.4;pointer-events:none;' : '';
+        return `<div onclick="${disabled ? '' : `assignDriverOverride('${d.id}')`}"
+          style="padding:8px 12px;border-radius:8px;cursor:${disabled?'default':'pointer'};font-size:13px;font-weight:${selected?'700':'500'};
+            color:${selected?'var(--accent)':'var(--gray-900)'};background:${selected?'var(--accent-light)':'white'};
+            display:flex;align-items:center;gap:8px;transition:background .1s;${opacity}"
+          onmouseover="if(!${disabled})this.style.background='${selected?'var(--accent-light)':'var(--gray-50)'}'"
+          onmouseout="if(!${disabled})this.style.background='${selected?'var(--accent-light)':'white'}'">
+          <div style="width:26px;height:26px;border-radius:50%;background:${d.id?'var(--accent)':'var(--gray-200)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white;flex-shrink:0;">${d.name.charAt(0).toUpperCase()}</div>
+          <span style="flex:1">${d.name}</span>
+          ${selected ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+        </div>`;
+      }).join('');
+    };
+
+    // Position and show the popover immediately with options enabled
+    renderOptions(false);
     const pop = document.getElementById('driver-popover');
     pop.style.display = 'block';
     const cell = event.target.closest('.sched-cell');
     const rect = cell ? cell.getBoundingClientRect() : { bottom: event.clientY, left: event.clientX };
     let top = rect.bottom + window.scrollY + 4;
     let left = rect.left + window.scrollX;
-    if (left + 240 > window.innerWidth) left = window.innerWidth - 245;
+    if (left + 255 > window.innerWidth) left = window.innerWidth - 260;
     pop.style.top = top + 'px';
     pop.style.left = left + 'px';
+
+    // ── For today's column only: check if this route is already in-progress or done ──
+    const isToday = schedWeekOffset === 0 && Number(day) === (new Date().getDay() + 6) % 7;
+    if (!isToday || !statusBanner) return;
+
+    try {
+      const { data: todayRoutes } = await db.from('routes')
+        .select('id').eq('template_id', templateId).eq('run_date', today());
+      if (!todayRoutes?.length) return; // No route run yet — fine to reassign freely
+
+      const { data: stops } = await db.from('route_stops')
+        .select('status')
+        .in('route_id', todayRoutes.map(r => r.id));
+
+      if (!stops?.length) return;
+      const total   = stops.length;
+      const done    = stops.filter(s => s.status === 'complete' || s.status === 'skipped' || s.status === 'failed').length;
+      const pending = total - done;
+
+      // Store counts so assignDriverOverride can use them
+      popoverCtx.routeStatus = { total, done, pending };
+
+      if (done === total) {
+        // Route fully complete — disable reassignment, show lock banner
+        renderOptions(true);
+        statusBanner.style.cssText = 'display:block;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;border-radius:7px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
+        statusBanner.innerHTML = `🔒 <strong>Route complete</strong><br>All ${total} stops are done. No remaining stops to reassign.`;
+      } else if (done > 0) {
+        // Route in progress — warn but allow reassigning the remaining stops
+        statusBanner.style.cssText = 'display:block;background:#fffbeb;color:#92400e;border:1px solid #fcd34d;border-radius:7px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
+        statusBanner.innerHTML = `⚡ <strong>Route in progress</strong><br>${done} of ${total} stops already done. Only the ${pending} remaining stop${pending!==1?'s':''} will be reassigned.`;
+      }
+    } catch (_) { /* non-critical */ }
   }
 
   async function assignDriverOverride(newDriverId) {
@@ -11848,13 +11942,27 @@
       }, { onConflict: 'template_id,day_of_week,driver_type' });
     }
 
-    // ── Propagate to existing route runs ──
-    // When a route is reassigned, update the actual route run for today AND
-    // reset all stop-level driver overrides so stops inherit the new driver.
+    // ── Propagate to existing route runs (today only) ──
+    // Rules:
+    //   - Route not started or partially done → update only pending/en_route stops
+    //   - Route fully complete → skip stop updates (no-op, route is done)
     {
       const todayDate = today();
-      const todayDow = (new Date().getDay() + 6) % 7; // 0=Mon..6=Sun
+      const todayDow  = (new Date().getDay() + 6) % 7; // 0=Mon..6=Sun
       if (Number(day) === todayDow) {
+        const routeStatus = popoverCtx.routeStatus; // set by openDriverPopover for today's column
+        // If route is fully complete, skip stop propagation
+        if (routeStatus && routeStatus.done === routeStatus.total && routeStatus.total > 0) {
+          showToast('Schedule updated. Route is already complete — no stops to reassign.', '');
+          const driversView = document.getElementById('drv-panel-schedule');
+          if (driversView && driversView.style.display !== 'none') {
+            renderDriverSchedule();
+          } else {
+            renderWeeklySchedule();
+          }
+          return;
+        }
+
         const { data: existing } = await db.from('routes')
           .select('id, driver_id')
           .eq('template_id', templateId).eq('run_date', todayDate);
@@ -11864,15 +11972,17 @@
           // Update route's default driver
           await db.from('routes').update({ driver_id: newDriverId || null })
             .in('id', routeIds);
-          // Reset stop-level driver overrides: stops assigned to the old driver
-          // (or NULL) should now inherit the new route driver
+          // Only reassign stops that haven't been started yet.
+          // Completed, skipped, or failed stops stay attributed to the driver who did them.
+          let q = db.from('route_stops')
+            .update({ driver_id: newDriverId || null })
+            .in('route_id', routeIds)
+            .in('status', ['pending', 'en_route']);
           if (oldDriverId) {
-            await db.from('route_stops').update({ driver_id: null })
-              .in('route_id', routeIds)
-              .eq('driver_id', oldDriverId);
+            // Further narrow to stops that were assigned to the old driver (not manually overridden)
+            q = q.eq('driver_id', oldDriverId);
           }
-          // Also clear any NULL stops that might exist (they already inherit, but
-          // ensure consistency)
+          await q;
         }
       }
     }
