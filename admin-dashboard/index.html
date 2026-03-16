@@ -1219,6 +1219,7 @@
                     <button class="filter-tab" data-filter="in_process" onclick="filterOrders('in_process',this)">In Process</button>
                     <button class="filter-tab" data-filter="ready" onclick="filterOrders('ready',this)">Ready</button>
                     <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
+                    <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
                   </div>
                 </div>
               </div>
@@ -4742,7 +4743,7 @@
     in_process: ['picked_up','processing','folding'],
     ready:      ['ready_for_delivery','out_for_delivery'],
     issues:     ['pickup_failed','delivery_failed','on_hold','skipped'],
-    // delivered, cancelled → archived. customer-initiated skips also excluded (see getFilteredOrders)
+    delivered:  ['delivered','cancelled'],  // history view: completed + cancelled orders
   };
 
   async function loadOrders(statusFilter) {
@@ -4821,12 +4822,13 @@
 
   // Updates each pill button to show its count badge
   function updateOrderFilterCounts() {
-    const TAB_LABELS = { scheduled:'Scheduled', in_process:'In Process', ready:'Ready', issues:'Issues' };
+    const TAB_LABELS = { scheduled:'Scheduled', in_process:'In Process', ready:'Ready', issues:'Issues', delivered:'Delivered' };
     const counts = {
       scheduled:  allOrders.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
       in_process: allOrders.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
       ready:      allOrders.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
       issues:     allOrders.filter(o => ((ORDER_FILTER_GROUPS.issues||[]).includes(o.status) && o.cancelled_by !== 'customer') || o.billing_status === 'failed').length,
+      delivered:  allOrders.filter(o => (ORDER_FILTER_GROUPS.delivered||[]).includes(o.status)).length,
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
       const key = btn.dataset.filter;
