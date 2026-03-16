@@ -2717,7 +2717,7 @@ function computeSubWindows(runDate, tmpl, routeId, routeName) {
     const slotStart = new Date(`${runDate}T${pad2(Math.floor(from/60))}:${pad2(from%60)}:00`).toISOString();
     const slotEnd   = new Date(`${runDate}T${pad2(Math.floor(to/60))}:${pad2(to%60)}:00`).toISOString();
     const label     = `${fmtHourMin(from)} – ${fmtHourMin(to)}`;
-    windows.push({ routeId, routeName, slotStart, slotEnd, label, icon: slotIcon(from), startMins: from, endMins: to, cutoffMins: cutoff, turnaroundHours: tmpl.turnaround_hours || 0 });
+    windows.push({ routeId, routeName, slotStart, slotEnd, label, icon: slotIcon(from), startMins: from, endMins: to, cutoffMins: cutoff, turnaroundHours: tmpl.turnaround_hours || 0, templateStartMins: sMins });
   }
   return windows;
 }
@@ -2822,9 +2822,7 @@ function _updateSchedWindowDisplay(which) {
       ? draft.pickupWindow.label
       : (draft.availableWindows[0]?.label || '—');
   } else {
-    valEl.textContent = draft.deliveryWindow
-      ? draft.deliveryWindow.label
-      : (draft.pickupWindow?.label || '—');
+    valEl.textContent = draft.deliveryWindow?.label || '—';
   }
 }
 
@@ -2920,8 +2918,16 @@ function selectSchedDeliveryDate(iso) {
   if (expandEl) { expandEl.classList.remove('open'); expandEl.innerHTML = ''; }
   if (chevEl)   chevEl.classList.remove('open');
 
-  draft.deliveryDate   = iso;
-  draft.deliveryWindow = null; // reset so it re-inherits pickup window default
+  draft.deliveryDate = iso;
+
+  // Auto-select the first valid delivery window for this date.
+  // On the first eligible date, respect the template turnaround — only PM windows for PM pickups.
+  {
+    const isFirstDate = draft._deliveryOptions?.length > 0 && iso === draft._deliveryOptions[0];
+    const minMins     = isFirstDate ? (draft._earliestDeliveryWindowMins ?? 0) : 0;
+    const validWins   = draft.availableWindows.filter(w => w.startMins >= minMins);
+    draft.deliveryWindow = validWins[0] || draft.availableWindows[0] || null;
+  }
 
   const valDate = document.getElementById('val-delivery-date');
   if (valDate) valDate.textContent = _schedDateLabel(iso);
@@ -2991,12 +2997,23 @@ function _renderSchedWindowOpts(which) {
 
   let windows = draft.availableWindows;
 
-  // For delivery on the same date as pickup: filter out windows that start before
-  // pickup end + turnaround hours (would be a physically impossible delivery time)
-  if (which === 'delivery' && draft.pickupWindow && draft.deliveryDate === draft.pickupDate) {
+  // For delivery windows: enforce the route-template turnaround rules.
+  if (which === 'delivery' && !draft.isSameDay && draft.pickupWindow) {
     const pw = draft.pickupWindow;
-    const earliestMs = new Date(pw.slotEnd).getTime() + (pw.turnaroundHours || 0) * 3600000;
-    windows = windows.filter(w => new Date(w.slotStart).getTime() >= earliestMs);
+    const isFirstEligibleDate = draft._deliveryOptions?.length > 0 &&
+                                draft.deliveryDate === draft._deliveryOptions[0];
+    if (isFirstEligibleDate) {
+      // On the first eligible delivery date, only show windows that start at or after
+      // the pickup route's template start time. A PM pickup (template start 18:00 = 1080 min)
+      // will only show PM delivery slots — AM slots next morning are filtered out.
+      const minMins = draft._earliestDeliveryWindowMins ?? (pw.templateStartMins ?? 0);
+      windows = windows.filter(w => w.startMins >= minMins);
+    } else if (draft.deliveryDate === draft.pickupDate) {
+      // Same calendar date, non-same-day path: filter by actual turnaround hours
+      const earliestMs = new Date(pw.slotEnd).getTime() + (pw.turnaroundHours || 0) * 3600000;
+      windows = windows.filter(w => new Date(w.slotStart).getTime() >= earliestMs);
+    }
+    // Later delivery dates (dates[1], dates[2], …): no time constraint — all windows are fine
   }
 
   if (!windows.length) {
@@ -3107,8 +3124,24 @@ async function _updateSchedDelivery() {
   }
   draft._deliveryOptions = dates;
 
+  // Compute the earliest valid delivery window start (in minutes) for the first eligible date.
+  // Rule: on the first eligible delivery date, only offer windows that start at or after
+  // the pickup route's template window start. This means a PM pickup (template start 18:00)
+  // will never show AM delivery windows on the next morning — it's physically not enough time.
+  const _pickupTmplStartMins = draft.pickupWindow?.templateStartMins ?? 0;
+  draft._earliestDeliveryWindowMins = _pickupTmplStartMins;
+
   if (!draft.deliveryDate || !dates.includes(draft.deliveryDate)) {
     draft.deliveryDate = dates[0] || null;
+  }
+
+  // Auto-select the first valid delivery window for this delivery date.
+  // This replaces the old behaviour where delivery window defaulted silently to the pickup window.
+  {
+    const isFirstDate = draft.deliveryDate === dates[0];
+    const minMins     = isFirstDate ? _pickupTmplStartMins : 0;
+    const validWins   = draft.availableWindows.filter(w => w.startMins >= minMins);
+    draft.deliveryWindow = validWins[0] || draft.availableWindows[0] || null;
   }
 
   const valDate = document.getElementById('val-delivery-date');
@@ -3289,7 +3322,7 @@ function buildConfirmSummary() {
   // ── Delivery date + window ──
   const delWin      = draft.deliveryWindow;
   const delDate     = draft.deliveryDate ? fmt(new Date(draft.deliveryDate + 'T12:00:00')) : '—';
-  const delWinLabel = delWin ? delWin.label : (pw ? pw.label : '—');
+  const delWinLabel = delWin ? delWin.label : '—';
 
   document.getElementById('confirm-summary').innerHTML = `
     <div class="d-section-title">Service details</div>
@@ -3528,6 +3561,19 @@ async function placeOrder() {
     btn.disabled = false; btn.textContent = 'Place Order';
     toast('Same-day delivery is not available for this pickup window. Please choose a different pickup time.', 'error');
     return;
+  }
+
+  // Non-same-day turnaround guard: on the first eligible delivery date, the delivery
+  // window must start at or after the pickup route's template start time.
+  // (e.g. a PM pickup cannot have an AM delivery the very next morning — not enough time)
+  if (!draft.isSameDay && _effectiveDW && draft._deliveryOptions?.length > 0) {
+    const firstEligibleDate = draft._deliveryOptions[0];
+    const minMins = draft._earliestDeliveryWindowMins ?? (pw?.templateStartMins ?? 0);
+    if (deliveryDate === firstEligibleDate && _effectiveDW.startMins < minMins) {
+      btn.disabled = false; btn.textContent = 'Place Order';
+      toast('Your delivery window is too soon after pickup. Please choose a later delivery time.', 'error');
+      return;
+    }
   }
 
   const pad2 = n => String(n).padStart(2,'0');
