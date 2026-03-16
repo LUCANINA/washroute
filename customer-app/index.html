@@ -2030,6 +2030,55 @@ async function loadUserData() {
   ]);
   currentProfile  = prof;
   currentCustomer = cust;
+
+  // ── PHONE OTP ACCOUNT LINKING ──
+  // When a user signs in via phone OTP, check if an existing customer is registered
+  // with this phone number (e.g. they previously had an email-auth account or were
+  // added by admin). If exactly one match is found, the DB function re-points that
+  // customer to this phone-auth user and cleans up any blank placeholder record.
+  // Zero matches → new customer (fall through). Multiple matches → ask for email login.
+  if (currentUser.phone) {
+    try {
+      const { data: linked, error: linkErr } = await db.rpc('link_phone_auth_account', {
+        p_phone_digits:   currentUser.phone,
+        p_new_profile_id: currentUser.id
+      });
+      if (linkErr?.message?.includes('MULTIPLE_MATCHES')) {
+        showToast('Multiple accounts share this number — please sign in with your email instead.', 'error');
+        setTimeout(() => db.auth.signOut(), 2500);
+        return;
+      }
+      if (linked?.length > 0) {
+        // Linked to an existing customer — populate the profile with their real data
+        const existing = linked[0];
+        await db.from('profiles').upsert({
+          id:         currentUser.id,
+          first_name: existing.first_name_cache || '',
+          last_name:  existing.last_name_cache  || '',
+          email:      existing.email_cache || '',
+          phone:      currentUser.phone
+        }, { onConflict: 'id' });
+        const { data: linkedProf } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
+        currentProfile  = linkedProf;
+        currentCustomer = existing;
+        // Load cards then return — skip the new-account creation path below
+        const { data: cards } = await db
+          .from('customer_payment_methods')
+          .select('id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at')
+          .eq('customer_id', currentCustomer.id)
+          .order('is_default', { ascending: false })
+          .order('created_at', { ascending: false });
+        currentCards = cards || [];
+        saveUserCache(currentUser.id, currentProfile, currentCustomer, currentCards);
+        return;
+      }
+      // Zero matches — new customer, fall through to normal account creation
+    } catch (e) {
+      console.warn('Phone account link check failed:', e.message);
+      // Non-fatal — continue with normal flow
+    }
+  }
+
   if (!currentProfile) {
     const m = currentUser.user_metadata || {};
     const { error: pe } = await db.from('profiles').upsert({ id: currentUser.id, first_name: m.first_name || '', last_name: m.last_name || '', email: currentUser.email, phone: m.phone || '' }, { onConflict: 'id' });
