@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 16, 2026 (session 18)*
+*Last updated: Mar 16, 2026 (session 19)*
 
 ---
 
@@ -103,6 +103,7 @@ Twilio credentials are embedded in the three Edge Functions (not yet moved to Su
 - Stop reassignment: "Assign" link on each stop row opens driver picker. Picking route's default driver clears override (sets NULL, not explicit UUID)
 - Weekly Schedule: time-banded rows (morning/evening slots), one row per route, chips show driver name
 - **Route optimization** via Google Maps API (Optimize button on Daily Schedule)
+- **Drivers > Schedule page — smart reassignment rules:** Driver chips show 🔒 (complete) or amber dot (in-progress) badges for today's column. Clicking a chip for an in-progress route shows a warning banner and reassigns only the remaining `pending`/`en_route` stops (completed stops stay attributed to the driver who did them). Clicking a chip for a complete route is a no-op with an explanatory toast. Future-week changes apply freely with no restriction.
 
 ### Inbox Page
 - Real SMS conversations grouped by customer
@@ -127,6 +128,17 @@ Twilio credentials are embedded in the three Edge Functions (not yet moved to Su
 - Undo complete (within same session)
 - Skip stop (with 12-second undo window, requires confirmation)
 - **Realtime stop reassignment:** If admin reassigns a stop to another driver while they're en route, the stop disappears from the original driver's app with a toast. If a stop is newly assigned to a driver, their app triggers a reload to pick it up.
+
+---
+
+## Customer App — Completed Features
+- Full order booking flow: address lookup, pickup/delivery date & window selection, bag count, preferences, confirmation
+- Same-day delivery toggle for AM routes (Berkeley AM, Oakland AM) — +$10 surcharge, PM delivery window locked automatically
+- **Route-template turnaround enforcement (session 19):** Delivery windows are filtered by the pickup route template's `window_start` time. A PM pickup (template start ≥ 6pm) cannot show AM delivery slots on the next morning. `templateStartMins` added to window objects; `draft._earliestDeliveryWindowMins` tracks the floor. Three guard layers: window render filter, auto-select on date change, and final check in `placeOrder()`.
+- **Sign-out button reset (session 19):** `loadAccount()` now resets the Sign Out button to its default state on every visit — prevents it staying stuck in "Signing out…" after a sign-in/sign-out cycle in the same browser session.
+- Account management: name, email, password change, address book, laundry preferences, recurring plan, order history
+- Customer-initiated skip button on recurring orders (pre-pickup only)
+- Referral source captured at signup
 
 ---
 
@@ -409,6 +421,39 @@ There are actually **two separate hang points** that must both be covered:
   1. ~~Add Double Wash price_mod~~ ✅ Done session 16
   2. ~~SMS automation Phase 1~~ ✅ Done session 16
   3. Twilio A2P 10DLC registration (David action required)
+
+---
+
+### Mar 16, 2026 (session 19) — Sign-out fix, turnaround enforcement, smart driver reassignment, QA
+
+- **Bug fix — Sign-out button stuck as "Signing out…" (commit `8882c52`):**
+  After a sign-in/sign-out cycle in the same browser session, the Account tab button remained disabled and showed "Signing out…" permanently. Root cause: the DOM state from the previous session was never reset. `loadAccount()` now unconditionally resets `.signout-btn` to `{disabled:false, textContent:'Sign Out'}` on every visit.
+
+- **Bug fix — Delivery window engine didn't respect route-template turnaround (commits `f213c99`, `f859f38`):**
+  A customer could book a PM pickup (e.g. 8–10 PM) with AM delivery the next morning (7–9 AM) despite a 1-day turnaround on the Berkeley PM route template. Root cause was three compounding gaps: (1) window objects lacked a `templateStartMins` field so the filter had no way to identify AM vs PM routes; (2) the delivery window filter only ran when `deliveryDate === pickupDate` (same calendar date), completely missing next-day PM → next-morning AM scenarios; (3) `draft.deliveryWindow` silently fell back to the pickup window label, masking the problem in the UI. Fixed with a layered approach:
+  - `templateStartMins` added to all window objects in `computeSubWindows()`.
+  - `draft._earliestDeliveryWindowMins` tracks the minimum valid delivery start (in minutes) for the first eligible delivery date.
+  - Delivery window render filter (`_renderSchedWindowOpts`) now checks `isFirstEligibleDate` against `draft._deliveryOptions[0]` and filters by `startMins >= minMins`.
+  - Auto-select logic in `_updateSchedDelivery()` and `selectSchedDeliveryDate()` both pick the first window that clears the floor.
+  - Final guard in `placeOrder()` blocks submission if the resolved window is still too early.
+  - `_updateSchedWindowDisplay` and `buildConfirmSummary` no longer fall back to the pickup window label — show "—" if no delivery window is set.
+
+- **Feature — Admin Drivers > Schedule: smart reassignment rules (commit `f461017`):**
+  Clicking a driver chip on today's column now runs a two-step check before allowing reassignment:
+  - Grid badges: 🔒 for fully-complete routes, amber pulsing dot for in-progress routes (pre-fetched when rendering the schedule grid).
+  - Popover banner: "Route in progress — only the N remaining stops will be reassigned" or "Route complete — no stops to reassign" shown asynchronously after popover opens.
+  - `assignDriverOverride()` uses `popoverCtx.routeStatus` (fetched by `openDriverPopover`) to: skip stop propagation if route is complete; or filter `route_stops` by `status IN ('pending', 'en_route')` if partially done. Completed/skipped/failed stops stay attributed to the driver who did them.
+  - `route_driver_schedule` is always updated (it's weekly/recurring), but the stop-level propagation is status-aware.
+
+- **QA fix — `toast()` called with wrong second argument in `placeOrder()` (commit `72f17b8`):**
+  Three delivery validation toasts in `placeOrder()` used `toast(msg, 'error')`. The `toast()` function signature is `(msg, duration)` — passing `'error'` as duration resulted in `setTimeout(fn, NaN)` → toast disappeared instantly (NaN → 0ms) with no error styling. Fixed all three to `showToast(msg, 'error')`. Two were pre-existing (same-day guard and turnaround check from session 18); one was from the new non-same-day guard added this session.
+
+- **Commits:** `8882c52` (sign-out fix), `f213c99` + `f859f38` (turnaround enforcement), `f461017` (smart reassignment), `72f17b8` (QA: toast fix)
+
+- **Next session priorities:**
+  1. Twilio A2P 10DLC registration (David action required — SMS deliverability)
+  2. CloudPRNT integration (backlog)
+  3. Route picker fine-tuning
 
 ---
 
