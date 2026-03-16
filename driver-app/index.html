@@ -705,7 +705,7 @@
     <!-- Tabs -->
     <div class="auth-tabs">
       <button class="auth-tab active" id="tab-password" onclick="switchAuthTab('password')">Password</button>
-      <button class="auth-tab" id="tab-magic" onclick="switchAuthTab('magic')">Magic Link</button>
+      <button class="auth-tab" id="tab-phone" onclick="switchAuthTab('phone')">Phone Code</button>
     </div>
 
     <!-- Password panel -->
@@ -719,22 +719,32 @@
       <button class="btn-auth" id="btn-login" onclick="doLogin()">Sign In →</button>
     </div>
 
-    <!-- Magic link panel -->
-    <div id="panel-magic" style="display:none">
-      <!-- Input form -->
-      <div id="magic-form">
-        <label class="auth-label">Email</label>
-        <input class="auth-input" type="email" id="magic-email" placeholder="you@example.com"
-          onkeydown="if(event.key==='Enter') doMagicLink()">
-        <div class="auth-err" id="magic-err"></div>
-        <button class="btn-auth info" id="btn-magic" onclick="doMagicLink()">Send Sign-In Link</button>
+    <!-- Phone OTP panel -->
+    <div id="panel-phone" style="display:none">
+      <!-- Step 1: phone input -->
+      <div id="phone-otp-form">
+        <label class="auth-label">Mobile Number</label>
+        <input class="auth-input" type="tel" id="driver-phone-input" placeholder="(510) 555-0100"
+          inputmode="numeric" autocomplete="tel"
+          onkeydown="if(event.key==='Enter') doDriverPhoneOTP()">
+        <div class="auth-err" id="phone-otp-err"></div>
+        <button class="btn-auth info" id="btn-phone-otp" onclick="doDriverPhoneOTP()">Send Code →</button>
       </div>
-      <!-- Sent state -->
-      <div class="magic-sent" id="magic-sent">
-        <div class="magic-sent-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
-        <div class="magic-sent-title">Check your email</div>
-        <div class="magic-sent-sub">We sent a sign-in link to <strong id="magic-sent-email" style="color:var(--white)"></strong>.<br>Tap the link in the email to sign in.</div>
-        <button class="btn-auth-ghost" onclick="resetMagicLink()">Use a different email</button>
+      <!-- Step 2: code entry -->
+      <div id="phone-otp-verify" style="display:none">
+        <div style="text-align:center;margin-bottom:16px;font-size:13px;color:rgba(255,255,255,0.7)">
+          Enter the 6-digit code sent to<br><strong id="phone-otp-display" style="color:white"></strong>
+        </div>
+        <input class="auth-input" type="text" id="driver-otp-input"
+          inputmode="numeric" maxlength="6" placeholder="— — — — — —"
+          autocomplete="one-time-code"
+          style="text-align:center;font-size:24px;letter-spacing:10px;font-weight:700"
+          oninput="if(this.value.length===6) doDriverOTPVerify()"
+          onkeydown="if(event.key==='Enter') doDriverOTPVerify()">
+        <div class="auth-err" id="phone-verify-err"></div>
+        <button class="btn-auth" id="btn-verify-otp" onclick="doDriverOTPVerify()">Verify →</button>
+        <button class="btn-auth-ghost" style="margin-top:8px" id="btn-resend-otp" onclick="resendDriverOTP()">Resend code</button>
+        <button class="btn-auth-ghost" style="margin-top:4px" onclick="resetDriverPhone()">← Try a different number</button>
       </div>
     </div>
   </div>
@@ -1043,9 +1053,9 @@ function stopWindow(stop) {
 ────────────────────────────── */
 function switchAuthTab(tab) {
   document.getElementById('tab-password').classList.toggle('active', tab === 'password');
-  document.getElementById('tab-magic').classList.toggle('active', tab === 'magic');
+  document.getElementById('tab-phone').classList.toggle('active', tab === 'phone');
   document.getElementById('panel-password').style.display = tab === 'password' ? 'block' : 'none';
-  document.getElementById('panel-magic').style.display   = tab === 'magic'    ? 'block' : 'none';
+  document.getElementById('panel-phone').style.display    = tab === 'phone'    ? 'block' : 'none';
 }
 
 /* ──────────────────────────────
@@ -1086,39 +1096,83 @@ async function doLogin() {
 }
 
 /* ──────────────────────────────
-   AUTH — MAGIC LINK
+   AUTH — PHONE OTP
 ────────────────────────────── */
-async function doMagicLink() {
-  const email = document.getElementById('magic-email').value.trim();
-  const btn   = document.getElementById('btn-magic');
-  const err   = document.getElementById('magic-err');
+let _driverPhoneSent = '';  // tracks the phone number we sent the code to
+
+async function doDriverPhoneOTP() {
+  const raw = document.getElementById('driver-phone-input').value.trim();
+  const btn = document.getElementById('btn-phone-otp');
+  const err = document.getElementById('phone-otp-err');
   err.classList.remove('show');
-  if (!email) { err.textContent = 'Please enter your email address.'; err.classList.add('show'); return; }
+  if (!raw) { err.textContent = 'Please enter your mobile number.'; err.classList.add('show'); return; }
+
+  // Normalise to E.164 (+1XXXXXXXXXX) — strip everything except digits, prepend +1 if 10 digits
+  const digits = raw.replace(/\D/g, '');
+  const e164   = digits.length === 10 ? '+1' + digits
+               : digits.length === 11 && digits[0] === '1' ? '+' + digits
+               : null;
+  if (!e164) { err.textContent = 'Enter a valid 10-digit US phone number.'; err.classList.add('show'); return; }
+
   btn.textContent = 'Sending…'; btn.disabled = true;
 
-  const { error } = await db.auth.signInWithOtp({
-    email,
-    options: { shouldCreateUser: false }  // drivers must already exist
-  });
+  const { error } = await db.auth.signInWithOtp({ phone: e164 });
 
   if (error) {
     err.textContent = error.message; err.classList.add('show');
-    btn.textContent = 'Send Sign-In Link'; btn.disabled = false;
+    btn.textContent = 'Send Code →'; btn.disabled = false;
     return;
   }
 
-  // Show "sent" state
-  document.getElementById('magic-form').style.display = 'none';
-  document.getElementById('magic-sent-email').textContent = email;
-  document.getElementById('magic-sent').classList.add('show');
+  _driverPhoneSent = e164;
+  document.getElementById('phone-otp-display').textContent = raw;
+  document.getElementById('phone-otp-form').style.display   = 'none';
+  document.getElementById('phone-otp-verify').style.display = 'block';
 }
 
-function resetMagicLink() {
-  document.getElementById('magic-sent').classList.remove('show');
-  document.getElementById('magic-form').style.display = 'block';
-  document.getElementById('btn-magic').textContent = 'Send Sign-In Link';
-  document.getElementById('btn-magic').disabled = false;
-  document.getElementById('magic-email').value = '';
+async function doDriverOTPVerify() {
+  const token = document.getElementById('driver-otp-input').value.trim();
+  const btn   = document.getElementById('btn-verify-otp');
+  const err   = document.getElementById('phone-verify-err');
+  err.classList.remove('show');
+  if (token.length < 6) { err.textContent = 'Enter the 6-digit code.'; err.classList.add('show'); return; }
+
+  btn.textContent = 'Verifying…'; btn.disabled = true;
+  showLoading(true);
+
+  const { error } = await db.auth.verifyOtp({ phone: _driverPhoneSent, token, type: 'sms' });
+
+  if (error) {
+    showLoading(false);
+    err.textContent = error.message; err.classList.add('show');
+    btn.textContent = 'Verify →'; btn.disabled = false;
+    return;
+  }
+  // On success: onAuthStateChange fires and handles navigation
+}
+
+async function resendDriverOTP() {
+  const btn = document.getElementById('btn-resend-otp');
+  btn.textContent = 'Sending…'; btn.disabled = true;
+  const { error } = await db.auth.signInWithOtp({ phone: _driverPhoneSent });
+  if (error) {
+    showToast('Could not resend code — please try again.', 'error');
+  } else {
+    showToast('Code resent!', 'success');
+  }
+  btn.textContent = 'Resend code'; btn.disabled = false;
+}
+
+function resetDriverPhone() {
+  _driverPhoneSent = '';
+  document.getElementById('phone-otp-form').style.display   = 'block';
+  document.getElementById('phone-otp-verify').style.display = 'none';
+  document.getElementById('driver-phone-input').value       = '';
+  document.getElementById('driver-otp-input').value         = '';
+  document.getElementById('btn-phone-otp').textContent      = 'Send Code →';
+  document.getElementById('btn-phone-otp').disabled         = false;
+  document.getElementById('phone-otp-err').classList.remove('show');
+  document.getElementById('phone-verify-err').classList.remove('show');
 }
 
 async function doSignOut() {
@@ -1139,7 +1193,7 @@ async function doSignOut() {
   document.getElementById('auth-pass').value = '';
   document.getElementById('btn-login').textContent = 'Sign In →';
   document.getElementById('btn-login').disabled = false;
-  resetMagicLink();
+  resetDriverPhone();
   switchAuthTab('password');
 }
 
@@ -1156,8 +1210,35 @@ async function loadDriverData() {
   ]);
   currentProfile = prof;
 
+  // ── Phone OTP account linking ──
+  // When a driver logs in via phone OTP, Supabase creates a new auth user with a new UUID.
+  // Their existing driver record is linked to an older email-based profile UUID.
+  // link_phone_auth_driver re-points the drivers row to the new phone-auth profile UUID.
+  let linkedDrv = null;
+  if (currentUser.phone) {
+    try {
+      const { data: linked, error: linkErr } = await db.rpc('link_phone_auth_driver', {
+        p_phone_digits:   currentUser.phone,
+        p_new_profile_id: currentUser.id
+      });
+      if (linkErr?.message?.includes('MULTIPLE_MATCHES')) {
+        showToast('Multiple driver accounts share this number — contact admin.', 'error');
+        setTimeout(() => db.auth.signOut(), 2500);
+        return;
+      }
+      if (linked?.length > 0) {
+        // Re-fetch profile — it's now updated with the driver's real name/email
+        const { data: refreshedProf } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
+        currentProfile = refreshedProf;
+        linkedDrv = linked[0];
+      }
+    } catch (e) {
+      console.warn('Driver phone account link check failed:', e.message);
+    }
+  }
+
   // Auto-create driver record on first login (sequential — depends on group 1 result)
-  let drv = drv0;
+  let drv = linkedDrv || drv0;
   if (!drv) {
     const { data: nd } = await db.from('drivers').insert({ profile_id: currentUser.id, is_active: true }).select().single();
     drv = nd;
@@ -2600,6 +2681,9 @@ async function _handleDriverSession(event, session) {
           showLoading(false);
           if (btn) { btn.textContent = 'Sign In →'; btn.disabled = false; }
           err.textContent = 'Connection timed out — please try again.'; err.classList.add('show');
+          // Also reset phone OTP panel in case driver came in via phone auth
+          resetDriverPhone();
+          switchAuthTab('password');
         }
       }, 15000);
       showLoading(true);
