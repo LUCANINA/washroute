@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>WashRoute POS</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --accent:       #635bff;
+    --accent-light: #ede9fe;
+    --green:        #059669;
+    --green-light:  #d1fae5;
+    --red:          #ef4444;
+    --gray-50:      #f9fafb;
+    --gray-100:     #f3f4f6;
+    --gray-200:     #e5e7eb;
+    --gray-300:     #d1d5db;
+    --gray-400:     #9ca3af;
+    --gray-500:     #6b7280;
+    --gray-700:     #374151;
+    --gray-900:     #111827;
+    --radius:       16px;
+  }
+
+  html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--gray-50);
+    color: var(--gray-900);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ── TOAST ── */
+  #toast {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--gray-900); color: #fff; padding: 12px 22px; border-radius: 40px;
+    font-size: 14px; font-weight: 500; z-index: 9999; transition: transform .25s ease;
+    white-space: nowrap; pointer-events: none;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.error { background: var(--red); }
+  #toast.success { background: var(--green); }
+
+  /* ── LAYOUT ── */
+  .screen {
+    display: none; flex-direction: column; align-items: center;
+    min-height: 100vh; padding: 0 0 40px;
+  }
+  .screen.active { display: flex; }
+
+  /* ── HEADER ── */
+  .pos-header {
+    width: 100%; background: white; border-bottom: 1px solid var(--gray-200);
+    padding: 16px 24px; display: flex; align-items: center; gap: 14px;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .pos-logo {
+    width: 36px; height: 36px; background: var(--accent); border-radius: 9px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .pos-logo svg { width: 20px; height: 20px; }
+  .pos-header-title { font-size: 18px; font-weight: 700; color: var(--gray-900); }
+  .pos-header-sub   { font-size: 13px; color: var(--gray-400); margin-top: 1px; }
+  .pos-back-btn {
+    margin-left: auto; padding: 8px 18px; border-radius: 10px; border: 1.5px solid var(--gray-200);
+    background: white; font-size: 14px; font-weight: 600; color: var(--gray-700);
+    cursor: pointer; display: flex; align-items: center; gap: 6px;
+  }
+  .pos-back-btn:active { background: var(--gray-100); }
+
+  /* ── CARD ── */
+  .pos-card {
+    width: 100%; max-width: 600px; background: white;
+    border-radius: var(--radius); border: 1.5px solid var(--gray-200);
+    padding: 28px; margin: 24px 16px 0;
+  }
+  .pos-card-title {
+    font-size: 16px; font-weight: 700; color: var(--gray-900); margin-bottom: 20px;
+  }
+
+  /* ── STEP INDICATOR ── */
+  .pos-steps {
+    display: flex; align-items: center; gap: 0; width: 100%; max-width: 600px;
+    padding: 20px 16px 0;
+  }
+  .pos-step {
+    flex: 1; text-align: center; font-size: 12px; font-weight: 600;
+    color: var(--gray-400); position: relative;
+  }
+  .pos-step.active { color: var(--accent); }
+  .pos-step.done   { color: var(--green); }
+  .pos-step-dot {
+    width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--gray-300);
+    background: white; display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 6px; font-size: 12px; font-weight: 700;
+  }
+  .pos-step.active .pos-step-dot { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+  .pos-step.done   .pos-step-dot { border-color: var(--green); background: var(--green-light); color: var(--green); }
+  .pos-step-line {
+    position: absolute; top: 14px; left: 50%; width: 100%;
+    height: 2px; background: var(--gray-200); z-index: -1;
+  }
+  .pos-step.done .pos-step-line { background: var(--green); }
+
+  /* ── INPUTS ── */
+  .pos-label {
+    display: block; font-size: 13px; font-weight: 600;
+    color: var(--gray-500); margin-bottom: 8px;
+  }
+  .pos-input {
+    width: 100%; padding: 14px 16px; border-radius: 12px;
+    border: 1.5px solid var(--gray-200); font-size: 16px; font-family: inherit;
+    color: var(--gray-900); background: white; outline: none;
+    transition: border-color .15s;
+  }
+  .pos-input:focus  { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.1); }
+  .pos-input.large  { font-size: 28px; font-weight: 700; text-align: center; padding: 18px; }
+  .pos-input-group  { margin-bottom: 18px; }
+
+  /* ── BUTTONS ── */
+  .pos-btn {
+    width: 100%; padding: 18px; border-radius: 14px; border: none;
+    font-size: 17px; font-weight: 700; font-family: inherit;
+    cursor: pointer; transition: all .12s; display: flex;
+    align-items: center; justify-content: center; gap: 10px;
+  }
+  .pos-btn-primary  { background: var(--accent); color: white; }
+  .pos-btn-primary:active { opacity: .88; }
+  .pos-btn-primary:disabled { background: var(--gray-300); cursor: not-allowed; }
+  .pos-btn-green    { background: var(--green); color: white; }
+  .pos-btn-green:active { opacity: .88; }
+  .pos-btn-outline  {
+    background: white; color: var(--gray-700);
+    border: 1.5px solid var(--gray-200) !important;
+  }
+  .pos-btn-outline:active { background: var(--gray-100); }
+  .pos-btn-sm {
+    padding: 12px 20px; font-size: 14px; border-radius: 10px; width: auto;
+  }
+
+  /* ── HOME SCREEN ── */
+  .home-hero {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 48px 24px 32px; text-align: center;
+  }
+  .home-logo {
+    width: 72px; height: 72px; background: var(--accent); border-radius: 20px;
+    display: flex; align-items: center; justify-content: center; margin-bottom: 20px;
+  }
+  .home-logo svg { width: 40px; height: 40px; }
+  .home-title { font-size: 28px; font-weight: 800; color: var(--gray-900); }
+  .home-sub   { font-size: 15px; color: var(--gray-400); margin-top: 6px; }
+  .home-new-btn {
+    width: 100%; max-width: 440px; padding: 22px; border-radius: 16px;
+    background: var(--accent); color: white; font-size: 20px; font-weight: 800;
+    border: none; cursor: pointer; margin-top: 32px;
+    box-shadow: 0 4px 24px rgba(99,91,255,.3); transition: all .12s;
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+  }
+  .home-new-btn:active { transform: scale(.98); opacity: .9; }
+
+  /* ── RECENT ORDERS ── */
+  .recent-section {
+    width: 100%; max-width: 600px; padding: 0 16px; margin-top: 32px;
+  }
+  .recent-title {
+    font-size: 13px; font-weight: 700; color: var(--gray-400);
+    text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px;
+  }
+  .recent-row {
+    background: white; border: 1.5px solid var(--gray-200); border-radius: 12px;
+    padding: 14px 18px; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .recent-badge {
+    background: var(--accent-light); color: var(--accent);
+    font-size: 11px; font-weight: 700; padding: 3px 9px;
+    border-radius: 20px; white-space: nowrap;
+  }
+  .recent-badge.ready {
+    background: var(--green-light); color: var(--green);
+  }
+  .recent-name  { font-size: 14px; font-weight: 600; }
+  .recent-meta  { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+  .recent-amt   { margin-left: auto; font-size: 15px; font-weight: 700; color: var(--gray-900); }
+
+  /* ── CUSTOMER RESULT ── */
+  .cust-result {
+    border: 2px solid var(--green); border-radius: 12px; padding: 16px;
+    background: var(--green-light); margin-bottom: 18px; display: none;
+  }
+  .cust-result-name { font-size: 16px; font-weight: 700; color: var(--gray-900); }
+  .cust-result-meta { font-size: 13px; color: var(--gray-500); margin-top: 3px; }
+  .cust-new-form { display: none; }
+
+  /* ── PRICE DISPLAY ── */
+  .price-display {
+    background: var(--accent-light); border-radius: 14px; padding: 24px;
+    text-align: center; margin: 20px 0;
+  }
+  .price-display-label { font-size: 13px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
+  .price-display-amount { font-size: 48px; font-weight: 800; color: var(--accent); line-height: 1; }
+  .price-display-breakdown { font-size: 13px; color: var(--gray-500); margin-top: 8px; }
+
+  /* ── ORDER SUMMARY ── */
+  .summary-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 0; border-bottom: 1px solid var(--gray-100); font-size: 15px;
+  }
+  .summary-row:last-child { border-bottom: none; }
+  .summary-row-label { color: var(--gray-500); }
+  .summary-row-value { font-weight: 600; color: var(--gray-900); }
+  .summary-total .summary-row-label { font-weight: 700; font-size: 16px; color: var(--gray-900); }
+  .summary-total .summary-row-value { font-size: 22px; font-weight: 800; color: var(--accent); }
+
+  /* ── SUCCESS ── */
+  .success-icon {
+    width: 80px; height: 80px; background: var(--green-light); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin: 40px auto 20px; font-size: 40px;
+  }
+  .success-title { font-size: 24px; font-weight: 800; text-align: center; color: var(--gray-900); }
+  .success-sub   { font-size: 15px; color: var(--gray-400); text-align: center; margin-top: 8px; }
+  .success-order { font-size: 13px; color: var(--gray-400); text-align: center; margin-top: 4px; }
+
+  /* ── SERVICE CARDS ── */
+  .svc-card {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-radius: 12px; border: 1.5px solid var(--gray-200);
+    background: white; margin-bottom: 10px; transition: border-color .12s, background .12s;
+  }
+  .svc-card.selected { border-color: var(--accent); background: var(--accent-light); }
+  .svc-info { flex: 1; }
+  .svc-name  { font-size: 15px; font-weight: 600; color: var(--gray-900); }
+  .svc-price { font-size: 13px; color: var(--gray-500); margin-top: 2px; }
+  .svc-qty   { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .qty-btn {
+    width: 34px; height: 34px; border-radius: 8px; border: 1.5px solid var(--gray-300);
+    background: white; font-size: 20px; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--gray-700); line-height: 1; transition: all .1s;
+  }
+  .qty-btn:active { background: var(--gray-100); }
+  .qty-val { font-size: 17px; font-weight: 700; min-width: 22px; text-align: center; color: var(--gray-900); }
+  .svc-empty {
+    text-align: center; padding: 28px 16px; color: var(--gray-400);
+    font-size: 14px; border: 1.5px dashed var(--gray-200); border-radius: 12px;
+  }
+
+  /* ── PAYMENT METHOD CHIPS ── */
+  .pay-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .pay-chip {
+    padding: 16px; border-radius: 12px; border: 2px solid var(--gray-200);
+    background: white; font-size: 15px; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: all .12s; color: var(--gray-700);
+  }
+  .pay-chip:active, .pay-chip.selected { border-color: var(--accent); background: var(--accent-light); color: var(--accent); }
+  .pay-chip-stripe {
+    grid-column: 1 / -1; border-style: dashed; color: var(--gray-400);
+    font-size: 13px;
+  }
+  .pay-chip-stripe.selected { border-style: solid; }
+
+  .spinner-sm {
+    width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.4);
+    border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<!-- ══════════════════════════════════════════════
+     SCREEN 1 — HOME
+══════════════════════════════════════════════ -->
+<div class="screen active" id="screen-home">
+  <div class="pos-header">
+    <div class="pos-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    </div>
+    <div>
+      <div class="pos-header-title">WashRoute POS</div>
+      <div class="pos-header-sub">Retail drop-off</div>
+    </div>
+  </div>
+
+  <div class="home-hero">
+    <div class="home-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="3"/></svg>
+    </div>
+    <div class="home-title">Walk-In Drop-Off</div>
+    <div class="home-sub">Weigh, bill, and send to processing</div>
+    <button class="home-new-btn" onclick="startNewOrder()">
+      ＋ New Order
+    </button>
+  </div>
+
+  <div class="recent-section">
+    <div class="recent-title">Recent Walk-In Orders</div>
+    <div id="recent-list">
+      <div style="text-align:center;color:var(--gray-400);font-size:13px;padding:24px 0">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SCREEN 2 — CUSTOMER
+══════════════════════════════════════════════ -->
+<div class="screen" id="screen-customer">
+  <div class="pos-header">
+    <div class="pos-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    </div>
+    <div>
+      <div class="pos-header-title">Customer</div>
+      <div class="pos-header-sub">Step 1 of 3</div>
+    </div>
+    <button class="pos-back-btn" onclick="goHome()">✕ Cancel</button>
+  </div>
+
+  <div class="pos-steps" style="max-width:600px;width:100%">
+    <div class="pos-step active">
+      <div class="pos-step-dot">1</div>
+      Customer
+      <div class="pos-step-line"></div>
+    </div>
+    <div class="pos-step" id="step2-dot">
+      <div class="pos-step-dot">2</div>
+      Order
+      <div class="pos-step-line"></div>
+    </div>
+    <div class="pos-step" id="step3-dot">
+      <div class="pos-step-dot">3</div>
+      Payment
+    </div>
+  </div>
+
+  <div class="pos-card">
+    <div class="pos-card-title">👤 Find or Add Customer</div>
+
+    <!-- Phone lookup -->
+    <div class="pos-input-group">
+      <label class="pos-label">Phone Number</label>
+      <div style="display:flex;gap:10px">
+        <input class="pos-input" id="cust-phone" type="tel" placeholder="(555) 000-0000"
+               oninput="formatPhone(this)" onkeydown="if(event.key==='Enter')lookupCustomer()" />
+        <button class="pos-btn pos-btn-primary pos-btn-sm" onclick="lookupCustomer()" id="lookup-btn">Search</button>
+      </div>
+    </div>
+
+    <!-- Found customer -->
+    <div class="cust-result" id="cust-found">
+      <div class="cust-result-name" id="cust-found-name">—</div>
+      <div class="cust-result-meta" id="cust-found-meta">—</div>
+    </div>
+
+    <!-- New customer form -->
+    <div class="cust-new-form" id="cust-new-form">
+      <div style="color:var(--gray-500);font-size:13px;margin-bottom:16px">
+        No customer found — enter their details to create a new profile.
+      </div>
+      <div class="pos-input-group">
+        <label class="pos-label">First Name</label>
+        <input class="pos-input" id="cust-first" type="text" placeholder="First name" />
+      </div>
+      <div class="pos-input-group">
+        <label class="pos-label">Last Name</label>
+        <input class="pos-input" id="cust-last" type="text" placeholder="Last name" />
+      </div>
+    </div>
+
+    <button class="pos-btn pos-btn-primary" id="cust-next-btn" onclick="confirmCustomer()" disabled style="margin-top:8px">
+      Continue →
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SCREEN 3 — ORDER (weight + notes)
+══════════════════════════════════════════════ -->
+<div class="screen" id="screen-order">
+  <div class="pos-header">
+    <div class="pos-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    </div>
+    <div>
+      <div class="pos-header-title" id="order-header-name">Order</div>
+      <div class="pos-header-sub">Step 2 of 3</div>
+    </div>
+    <button class="pos-back-btn" onclick="showScreen('screen-customer')">← Back</button>
+  </div>
+
+  <div class="pos-steps" style="max-width:600px;width:100%">
+    <div class="pos-step done">
+      <div class="pos-step-dot">✓</div>
+      Customer
+      <div class="pos-step-line"></div>
+    </div>
+    <div class="pos-step active">
+      <div class="pos-step-dot">2</div>
+      Order
+      <div class="pos-step-line"></div>
+    </div>
+    <div class="pos-step">
+      <div class="pos-step-dot">3</div>
+      Payment
+    </div>
+  </div>
+
+  <div class="pos-card">
+    <div class="pos-card-title">🧺 Select Services</div>
+    <div id="service-cards">
+      <div class="svc-empty">Loading services…</div>
+    </div>
+
+    <div class="price-display" id="price-display" style="display:none;margin-top:8px">
+      <div class="price-display-label">Total Due</div>
+      <div class="price-display-amount" id="price-amount">$0.00</div>
+      <div class="price-display-breakdown" id="price-breakdown"></div>
+    </div>
+  </div>
+
+  <div class="pos-card" style="margin-top:12px">
+    <div class="pos-card-title" style="margin-bottom:16px">📋 Order Details</div>
+
+    <div class="pos-input-group">
+      <label class="pos-label">Weight (lbs) — optional, for records</label>
+      <input class="pos-input" id="order-weight" type="number" step="0.1" min="0" placeholder="0.0" />
+    </div>
+
+    <div class="pos-input-group">
+      <label class="pos-label">Special Instructions (optional)</label>
+      <textarea class="pos-input" id="order-notes" rows="3" placeholder="E.g. delicate items, separate colours…"
+                style="resize:none;font-size:15px"></textarea>
+    </div>
+
+    <button class="pos-btn pos-btn-primary" id="order-next-btn" onclick="goToPayment()" disabled>
+      Continue →
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SCREEN 4 — PAYMENT
+══════════════════════════════════════════════ -->
+<div class="screen" id="screen-payment">
+  <div class="pos-header">
+    <div class="pos-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    </div>
+    <div>
+      <div class="pos-header-title">Payment</div>
+      <div class="pos-header-sub">Step 3 of 3</div>
+    </div>
+    <button class="pos-back-btn" onclick="showScreen('screen-order')">← Back</button>
+  </div>
+
+  <div class="pos-steps" style="max-width:600px;width:100%">
+    <div class="pos-step done">
+      <div class="pos-step-dot">✓</div>
+      Customer
+      <div class="pos-step-line"></div>
+    </div>
+    <div class="pos-step done">
+      <div class="pos-step-dot">✓</div>
+      Order
+      <div class="pos-step-line"></div>
+    </div>
+    <div class="pos-step active">
+      <div class="pos-step-dot">3</div>
+      Payment
+    </div>
+  </div>
+
+  <div class="pos-card">
+    <div class="pos-card-title">🧾 Order Summary</div>
+    <div class="summary-row">
+      <span class="summary-row-label">Customer</span>
+      <span class="summary-row-value" id="pay-cust-name">—</span>
+    </div>
+    <div class="summary-row" id="pay-weight-row">
+      <span class="summary-row-label">Weight</span>
+      <span class="summary-row-value" id="pay-weight">—</span>
+    </div>
+    <div id="pay-services-list"><!-- service line items injected here --></div>
+    <div class="summary-row summary-total" style="margin-top:8px;padding-top:16px;border-top:2px solid var(--gray-200);border-bottom:none">
+      <span class="summary-row-label">Total</span>
+      <span class="summary-row-value" id="pay-total">—</span>
+    </div>
+  </div>
+
+  <div class="pos-card" style="margin-top:12px">
+    <div class="pos-card-title">💳 Payment Method</div>
+    <div class="pay-methods">
+      <button class="pay-chip selected" id="pm-cash" onclick="selectPayMethod('cash')">💵 Cash</button>
+      <button class="pay-chip" id="pm-card-manual" onclick="selectPayMethod('card_manual')">💳 Card (manual)</button>
+      <button class="pay-chip pay-chip-stripe" id="pm-stripe" onclick="selectPayMethod('stripe_terminal')">
+        🔌 Stripe Terminal — coming in Phase 2
+      </button>
+    </div>
+
+    <button class="pos-btn pos-btn-green" id="charge-btn" onclick="collectPayment()">
+      ✓ Collect Payment &amp; Create Order
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SCREEN 5 — SUCCESS
+══════════════════════════════════════════════ -->
+<div class="screen" id="screen-success">
+  <div class="pos-header">
+    <div class="pos-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    </div>
+    <div>
+      <div class="pos-header-title">Done!</div>
+      <div class="pos-header-sub">Order sent to processing</div>
+    </div>
+  </div>
+
+  <div class="success-icon">✅</div>
+  <div class="success-title" id="success-title">Order Created!</div>
+  <div class="success-sub"  id="success-sub">The order is now in the Cleaning queue.</div>
+  <div class="success-order" id="success-order-num"></div>
+
+  <div style="width:100%;max-width:440px;padding:0 16px;margin-top:40px;display:flex;flex-direction:column;gap:12px">
+    <button class="pos-btn pos-btn-primary" onclick="startNewOrder()">＋ New Order</button>
+    <button class="pos-btn pos-btn-outline" onclick="goHome()">↩ Back to Home</button>
+  </div>
+</div>
+
+<script>
+  // ── SUPABASE ──
+  const { createClient } = supabase;
+  const db = createClient(
+    'https://umjpbuxrdydwejqtensq.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY'
+  );
+
+  // ── STATE ──
+  let currentCust      = null;  // { id, first_name_cache, last_name_cache, phone_cache, is_new }
+  let currentWeight    = 0;
+  let currentTotal     = 0;
+  let payMethod        = 'cash';
+  let retailServices   = [];    // loaded from DB once on init
+  let selectedServices = {};    // { fee_id: { fee, qty } }
+
+  // ── TOAST ──
+  let _toastTimer;
+  function showToast(msg, type = 'info') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
+    el.classList.add('show');
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+  }
+
+  function fmtMoney(n) {
+    return '$' + Number(n).toFixed(2);
+  }
+
+  // ── SCREEN NAVIGATION ──
+  function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    window.scrollTo(0, 0);
+  }
+
+  function goHome() {
+    currentCust   = null;
+    currentWeight = 0;
+    currentTotal  = 0;
+    payMethod     = 'cash';
+    // Reset customer screen
+    document.getElementById('cust-phone').value = '';
+    document.getElementById('cust-first').value = '';
+    document.getElementById('cust-last').value  = '';
+    document.getElementById('cust-found').style.display    = 'none';
+    document.getElementById('cust-new-form').style.display = 'none';
+    document.getElementById('cust-next-btn').disabled      = true;
+    // Reset order screen
+    selectedServices = {};
+    renderServiceCards();   // resets all qty counters + selected styles
+    document.getElementById('order-weight').value = '';
+    document.getElementById('order-notes').value  = '';
+    document.getElementById('price-display').style.display = 'none';
+    document.getElementById('order-next-btn').disabled = true;
+    showScreen('screen-home');
+    loadRecent();
+  }
+
+  function startNewOrder() { showScreen('screen-customer'); }
+
+  // ── INIT ──
+  async function init() {
+    await loadRetailServices();
+    await loadRecent();
+  }
+
+  // ── RETAIL SERVICES ──
+  async function loadRetailServices() {
+    const { data, error } = await db.from('service_fees')
+      .select('id, name, amount, unit_label, fee_type')
+      .eq('category', 'Retail')
+      .eq('is_active', true)
+      .order('sort_order');
+    if (error) { console.warn('Failed to load retail services:', error.message); }
+    retailServices = data || [];
+    renderServiceCards();
+  }
+
+  function renderServiceCards() {
+    const container = document.getElementById('service-cards');
+    if (!retailServices.length) {
+      container.innerHTML = `<div class="svc-empty">No Retail services configured yet.<br>Go to Admin → Services & Pricing to add them.</div>`;
+      return;
+    }
+    container.innerHTML = retailServices.map(s => `
+      <div class="svc-card" id="svc-card-${s.id}">
+        <div class="svc-info">
+          <div class="svc-name">${s.name}</div>
+          <div class="svc-price">${fmtMoney(s.amount)} / ${s.unit_label || 'each'}</div>
+        </div>
+        <div class="svc-qty">
+          <button class="qty-btn" onclick="adjustQty('${s.id}', -1)">−</button>
+          <span class="qty-val" id="qty-${s.id}">0</span>
+          <button class="qty-btn" onclick="adjustQty('${s.id}', 1)">+</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function adjustQty(feeId, delta) {
+    const fee = retailServices.find(s => s.id === feeId);
+    if (!fee) return;
+    const current = selectedServices[feeId]?.qty || 0;
+    const newQty  = Math.max(0, current + delta);
+    if (newQty === 0) {
+      delete selectedServices[feeId];
+      document.getElementById(`svc-card-${feeId}`)?.classList.remove('selected');
+    } else {
+      selectedServices[feeId] = { fee, qty: newQty };
+      document.getElementById(`svc-card-${feeId}`)?.classList.add('selected');
+    }
+    document.getElementById(`qty-${feeId}`).textContent = newQty;
+    calcPrice();
+  }
+
+  async function loadRecent() {
+    const list = document.getElementById('recent-list');
+    const { data } = await db.from('orders')
+      .select('id, order_number, status, total_amount, total_bags, weight_lbs, created_at, customers(first_name_cache, last_name_cache)')
+      .eq('source', 'walk_in')
+      .order('created_at', { ascending: false })
+      .limit(8);
+    if (!data || !data.length) {
+      list.innerHTML = `<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:24px 0">No walk-in orders yet.</div>`;
+      return;
+    }
+    const statusLabel = { processing:'Cleaning', folding:'Folding', assembled:'Ready ✓', delivered:'Picked Up' };
+    const statusClass = { assembled:'ready' };
+    list.innerHTML = data.map(o => {
+      const fn   = o.customers?.first_name_cache || '';
+      const ln   = o.customers?.last_name_cache  || '';
+      const name = `${fn} ${ln}`.trim() || 'Unknown';
+      const lbl  = statusLabel[o.status] || o.status;
+      const cls  = statusClass[o.status] || '';
+      const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
+      return `<div class="recent-row">
+        <span class="recent-badge ${cls}">${lbl}</span>
+        <div>
+          <div class="recent-name">${name}</div>
+          <div class="recent-meta">#${o.order_number || '—'} · ${lbs}</div>
+        </div>
+        <div class="recent-amt">${fmtMoney(o.total_amount || 0)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── PHONE FORMAT ──
+  function formatPhone(input) {
+    let v = input.value.replace(/\D/g, '').slice(0, 10);
+    if (v.length >= 7)      input.value = `(${v.slice(0,3)}) ${v.slice(3,6)}-${v.slice(6)}`;
+    else if (v.length >= 4) input.value = `(${v.slice(0,3)}) ${v.slice(3)}`;
+    else if (v.length >= 1) input.value = `(${v}`;
+    document.getElementById('cust-found').style.display    = 'none';
+    document.getElementById('cust-new-form').style.display = 'none';
+    document.getElementById('cust-next-btn').disabled      = true;
+    currentCust = null;
+  }
+
+  // Normalize phone to plain 10-digit string (how the DB stores it)
+  function normalizePhone(val) {
+    return val.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1'); // strip leading country code if present
+  }
+
+  // ── CUSTOMER LOOKUP ──
+  async function lookupCustomer() {
+    const phoneRaw = document.getElementById('cust-phone').value.trim();
+    if (!phoneRaw) { showToast('Enter a phone number first', 'error'); return; }
+    const btn = document.getElementById('lookup-btn');
+    btn.disabled = true; btn.textContent = '…';
+
+    const digits = normalizePhone(phoneRaw); // plain 10-digit string matching DB format
+    const { data } = await db.from('customers')
+      .select('id, first_name_cache, last_name_cache, phone_cache, email_cache')
+      .eq('phone_cache', digits)
+      .limit(1).maybeSingle();
+
+    btn.disabled = false; btn.textContent = 'Search';
+
+    if (data) {
+      // Found existing customer
+      currentCust = { ...data, is_new: false };
+      const name = `${data.first_name_cache || ''} ${data.last_name_cache || ''}`.trim();
+      document.getElementById('cust-found-name').textContent = name || 'Customer';
+      document.getElementById('cust-found-meta').textContent =
+        [data.email_cache, data.phone_cache].filter(Boolean).join(' · ');
+      document.getElementById('cust-found').style.display    = 'flex';
+      document.getElementById('cust-new-form').style.display = 'none';
+      document.getElementById('cust-next-btn').disabled      = false;
+    } else {
+      // New customer — show create form
+      currentCust = { phone_cache: digits, is_new: true };
+      document.getElementById('cust-found').style.display    = 'none';
+      document.getElementById('cust-new-form').style.display = 'block';
+      document.getElementById('cust-next-btn').disabled      = false;
+      document.getElementById('cust-first').focus();
+    }
+  }
+
+  async function confirmCustomer() {
+    if (!currentCust) return;
+    if (currentCust.is_new) {
+      const first = document.getElementById('cust-first').value.trim();
+      const last  = document.getElementById('cust-last').value.trim();
+      if (!first) { showToast('Enter a first name', 'error'); return; }
+      // Create the customer
+      const { data, error } = await db.from('customers').insert({
+        first_name_cache: first,
+        last_name_cache:  last || null,
+        phone_cache:      currentCust.phone_cache,
+        customer_type:    'retail',
+      }).select().single();
+      if (error) { showToast(error.message, 'error'); return; }
+      currentCust = { ...data, is_new: false };
+    }
+    const name = `${currentCust.first_name_cache || ''} ${currentCust.last_name_cache || ''}`.trim();
+    document.getElementById('order-header-name').textContent = name || 'Order';
+    showScreen('screen-order');
+    document.getElementById('order-weight').focus();
+  }
+
+  // ── PRICE CALC ──
+  function calcPrice() {
+    // Sum selected services
+    currentTotal = 0;
+    Object.values(selectedServices).forEach(({ fee, qty }) => {
+      currentTotal += parseFloat(fee.amount) * qty;
+    });
+    currentTotal = Math.round(currentTotal * 100) / 100;
+
+    const display = document.getElementById('price-display');
+    const nextBtn = document.getElementById('order-next-btn');
+
+    if (currentTotal > 0) {
+      const lines = Object.values(selectedServices)
+        .map(({ fee, qty }) => `${qty}× ${fee.name}`)
+        .join(' · ');
+      document.getElementById('price-amount').textContent     = fmtMoney(currentTotal);
+      document.getElementById('price-breakdown').textContent  = lines;
+      display.style.display = 'block';
+      nextBtn.disabled = false;
+    } else {
+      display.style.display = 'none';
+      nextBtn.disabled = true;
+    }
+  }
+
+  function goToPayment() {
+    if (!currentTotal) return;
+    currentWeight = parseFloat(document.getElementById('order-weight').value) || 0;
+    const name = `${currentCust.first_name_cache || ''} ${currentCust.last_name_cache || ''}`.trim();
+    document.getElementById('pay-cust-name').textContent = name || '—';
+
+    // Weight row — hide if not entered
+    const weightRow = document.getElementById('pay-weight-row');
+    if (currentWeight > 0) {
+      document.getElementById('pay-weight').textContent = `${currentWeight.toFixed(1)} lbs`;
+      weightRow.style.display = '';
+    } else {
+      weightRow.style.display = 'none';
+    }
+
+    // Service line items
+    const serviceLines = Object.values(selectedServices).map(({ fee, qty }) => `
+      <div class="summary-row">
+        <span class="summary-row-label">${fee.name} ×${qty}</span>
+        <span class="summary-row-value">${fmtMoney(parseFloat(fee.amount) * qty)}</span>
+      </div>
+    `).join('');
+    document.getElementById('pay-services-list').innerHTML = serviceLines;
+
+    document.getElementById('pay-total').textContent = fmtMoney(currentTotal);
+    showScreen('screen-payment');
+  }
+
+  // ── PAYMENT METHOD ──
+  function selectPayMethod(method) {
+    payMethod = method;
+    ['cash','card_manual','stripe_terminal'].forEach(m => {
+      const el = document.getElementById(`pm-${m.replace('_','-')}`);
+      if (el) el.classList.toggle('selected', m === method);
+    });
+  }
+
+  // ── COLLECT PAYMENT + CREATE ORDER ──
+  async function collectPayment() {
+    if (payMethod === 'stripe_terminal') {
+      showToast('Stripe Terminal coming in Phase 2 — use cash or manual card for now', 'error');
+      return;
+    }
+    const btn = document.getElementById('charge-btn');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-sm"></span> Creating order…`;
+
+    try {
+      // Generate next order number
+      const { count } = await db.from('orders').select('*', { count: 'exact', head: true });
+      const orderNum = `WR-${String((count || 0) + 1).padStart(4, '0')}`;
+
+      // Create the order — goes straight to 'processing' (Cleaning column)
+      const { data: order, error } = await db.from('orders').insert({
+        customer_id:    currentCust.id,
+        source:         'walk_in',
+        status:         'processing',
+        weight_lbs:     currentWeight,
+        total_bags:     Math.ceil(currentWeight / 10) || 1,
+        total_amount:   currentTotal,
+        order_number:   orderNum,
+        special_instructions: document.getElementById('order-notes').value.trim() || null,
+        paid_at:        new Date().toISOString(),
+        actual_pickup_at: new Date().toISOString(),
+      }).select().single();
+
+      if (error) throw new Error(error.message);
+
+      // Success
+      const name = `${currentCust.first_name_cache || ''} ${currentCust.last_name_cache || ''}`.trim();
+      document.getElementById('success-title').textContent    = `${fmtMoney(currentTotal)} collected!`;
+      document.getElementById('success-sub').textContent      = `${name}'s order is now in the Cleaning queue.`;
+      document.getElementById('success-order-num').textContent = `Order ${order.order_number}`;
+      showScreen('screen-success');
+    } catch (err) {
+      showToast(err.message, 'error');
+      btn.disabled = false;
+      btn.innerHTML = '✓ Collect Payment &amp; Create Order';
+    }
+  }
+
+  // ── START ──
+  init();
+</script>
+</body>
+</html>

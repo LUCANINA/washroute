@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WashRoute Architecture Map</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f4f6f9;
+    color: #1a2233;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ── Header ── */
+  .page-header {
+    background: linear-gradient(135deg, #1a2233 0%, #2d3f5e 100%);
+    color: #fff;
+    padding: 40px 48px 32px;
+  }
+  .page-header h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+  .page-header p  { font-size: 14px; color: #a8b8d0; margin-top: 6px; }
+
+  /* ── Layout ── */
+  .page-body { padding: 32px 48px 64px; max-width: 1100px; margin: 0 auto; }
+
+  /* ── Section titles ── */
+  h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1a2233;
+    margin: 40px 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #e0e7ef;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h2 .icon { font-size: 20px; }
+  h3 { font-size: 14px; font-weight: 700; color: #344055; margin: 20px 0 8px; }
+
+  /* ── App pill badges ── */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+  }
+  .badge-admin    { background: #dbeafe; color: #1d4ed8; }
+  .badge-driver   { background: #dcfce7; color: #166534; }
+  .badge-customer { background: #fef3c7; color: #92400e; }
+  .badge-shared   { background: #ede9fe; color: #5b21b6; }
+  .badge-unused   { background: #fee2e2; color: #991b1b; }
+  .badge-edge     { background: #f0fdf4; color: #14532d; border: 1px solid #bbf7d0; }
+
+  /* ── Overview cards ── */
+  .app-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .app-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    border-top: 4px solid;
+  }
+  .app-card.admin    { border-top-color: #3b82f6; }
+  .app-card.driver   { border-top-color: #22c55e; }
+  .app-card.customer { border-top-color: #f59e0b; }
+  .app-card h3 { margin-top: 0; font-size: 16px; color: #1a2233; }
+  .app-card .stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+    font-size: 13px;
+    color: #4a5568;
+    border-top: 1px solid #f0f4f8;
+    padding-top: 8px;
+  }
+  .app-card .stat span:last-child { font-weight: 700; color: #1a2233; }
+
+  /* ── Table ── */
+  .matrix-wrap {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    overflow: hidden;
+    margin: 16px 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  thead th {
+    background: #f8fafc;
+    padding: 10px 12px;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #64748b;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  tbody tr:nth-child(even) { background: #fafbfc; }
+  tbody tr:hover { background: #f0f7ff; }
+  tbody td {
+    padding: 9px 12px;
+    border-bottom: 1px solid #f0f2f5;
+    vertical-align: middle;
+    font-size: 13px;
+  }
+  td.table-name {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12.5px;
+    color: #2d3748;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  td.center { text-align: center; }
+  .dot-r { color: #ef4444; font-size: 16px; }
+  .dot-w { color: #3b82f6; font-size: 16px; }
+  .dot-rw { color: #8b5cf6; font-size: 16px; }
+  .dot-x { color: #d1d5db; font-size: 16px; }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    background: #fff;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    font-size: 12px;
+    color: #4a5568;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+
+  /* ── Issue / warning cards ── */
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .issue-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    border-left: 4px solid;
+  }
+  .issue-card.warn  { border-left-color: #f59e0b; }
+  .issue-card.info  { border-left-color: #3b82f6; }
+  .issue-card.dead  { border-left-color: #ef4444; }
+  .issue-card.ok    { border-left-color: #22c55e; }
+  .issue-card h3 { margin-top: 0; margin-bottom: 8px; font-size: 13px; }
+  .issue-card ul { padding-left: 18px; color: #4a5568; font-size: 13px; }
+  .issue-card ul li { margin-bottom: 5px; }
+  .issue-card p { font-size: 13px; color: #4a5568; }
+
+  .field-tag {
+    display: inline-block;
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: monospace;
+    font-size: 11.5px;
+    color: #374151;
+    margin: 2px 2px;
+  }
+
+  /* ── Data flow ── */
+  .flow-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: #fff;
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin: 8px 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  }
+  .flow-row .flow-label {
+    font-weight: 700;
+    font-size: 12px;
+    color: #1d4ed8;
+    min-width: 90px;
+    padding-top: 2px;
+  }
+  .flow-row .flow-detail { font-size: 13px; color: #374151; flex: 1; }
+  .flow-row .flow-detail code {
+    background: #f3f4f6;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 11.5px;
+    color: #1a2233;
+  }
+
+  /* ── Recommendation ── */
+  .rec-list { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
+  .rec-item {
+    background: #fff;
+    border-radius: 10px;
+    padding: 14px 18px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    font-size: 13px;
+    color: #374151;
+  }
+  .rec-item .rec-num {
+    background: #1a2233;
+    color: #fff;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .rec-item strong { display: block; color: #1a2233; margin-bottom: 3px; }
+
+  /* ── Footer ── */
+  .page-footer {
+    text-align: center;
+    color: #9ca3af;
+    font-size: 12px;
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: 1px solid #e5e7eb;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>WashRoute — Architecture Map</h1>
+  <p>Database usage across all three apps &nbsp;·&nbsp; Generated March 2026</p>
+</div>
+
+<div class="page-body">
+
+  <!-- ═══════════════════════════════════════════════════════
+       1. OVERVIEW
+  ═══════════════════════════════════════════════════════ -->
+  <h2><span class="icon">🗺️</span> How the Apps Connect</h2>
+
+  <p style="color:#4a5568; margin-bottom:16px;">
+    All three WashRoute apps share a <strong>single Supabase database</strong>. There is no direct app-to-app communication — they all read and write the same tables. The database is the source of truth for everything.
+  </p>
+
+  <div class="app-cards">
+    <div class="app-card admin">
+      <h3>🖥️ Admin Dashboard</h3>
+      <div class="stat"><span>Tables used</span><span>28 of 30</span></div>
+      <div class="stat"><span>DB operations</span><span>170+</span></div>
+      <div class="stat"><span>Realtime subscriptions</span><span>3</span></div>
+      <div class="stat"><span>Stored procedures (RPCs)</span><span>9</span></div>
+      <div class="stat"><span>Edge functions called</span><span>7</span></div>
+    </div>
+    <div class="app-card driver">
+      <h3>📦 Driver App</h3>
+      <div class="stat"><span>Tables used</span><span>5</span></div>
+      <div class="stat"><span>DB operations</span><span>~30</span></div>
+      <div class="stat"><span>Realtime subscriptions</span><span>1</span></div>
+      <div class="stat"><span>File storage (photos)</span><span>Yes</span></div>
+      <div class="stat"><span>Edge functions called</span><span>2</span></div>
+    </div>
+    <div class="app-card customer">
+      <h3>📱 Customer App</h3>
+      <div class="stat"><span>Tables used</span><span>10</span></div>
+      <div class="stat"><span>DB operations</span><span>~50</span></div>
+      <div class="stat"><span>Realtime subscriptions</span><span>None</span></div>
+      <div class="stat"><span>Stored procedures (RPCs)</span><span>1</span></div>
+      <div class="stat"><span>Edge functions called</span><span>5</span></div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       2. TABLE USAGE MATRIX
+  ═══════════════════════════════════════════════════════ -->
+  <h2><span class="icon">📊</span> Table Usage Matrix</h2>
+
+  <div class="legend">
+    <div class="legend-item"><span class="dot-rw">●</span> Read &amp; Write</div>
+    <div class="legend-item"><span class="dot-r">●</span> Read only</div>
+    <div class="legend-item"><span class="dot-w">●</span> Write only</div>
+    <div class="legend-item"><span class="dot-x">●</span> Not used</div>
+    <div style="margin-left:auto; font-size:12px; color:#9ca3af;">30 total tables in database</div>
+  </div>
+
+  <div class="matrix-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Table</th>
+          <th style="text-align:center">Admin</th>
+          <th style="text-align:center">Driver</th>
+          <th style="text-align:center">Customer</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Core operations -->
+        <tr>
+          <td class="table-name">orders</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td>Central table — all 3 apps use it. Admin & driver update <code>status</code>.</td>
+        </tr>
+        <tr>
+          <td class="table-name">routes</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>Admin creates/manages; driver reads and updates <code>status</code>.</td>
+        </tr>
+        <tr>
+          <td class="table-name">route_stops</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>Admin builds stops; driver updates completion, photos, signatures.</td>
+        </tr>
+        <tr>
+          <td class="table-name">customers</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td>Admin manages all fields; customer updates preferences, contact info.</td>
+        </tr>
+        <tr>
+          <td class="table-name">profiles</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td>Supabase auth link table. Every user has a profile.</td>
+        </tr>
+        <tr>
+          <td class="table-name">drivers</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>Admin manages driver assignments; driver reads own row, updates <code>is_active</code>.</td>
+        </tr>
+        <!-- Communication -->
+        <tr>
+          <td class="table-name">sms_messages</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>Admin-only SMS inbox (Twilio inbound). Read in realtime.</td>
+        </tr>
+        <tr>
+          <td class="table-name">email_messages</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>Admin-only email inbox. Pausing/deletion managed here.</td>
+        </tr>
+        <tr>
+          <td class="table-name">driver_messages</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>In-app chat between admin and driver. Both ends read/write realtime.</td>
+        </tr>
+        <!-- Configuration -->
+        <tr>
+          <td class="table-name">preferences</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td>Global preferences (UUID IDs). Now the single source of truth after recent fix.</td>
+        </tr>
+        <tr>
+          <td class="table-name">services</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td>Admin configures services. Customer reads for order flow. Contains embedded <code>preferences</code> JSONB (legacy — now only used for price add-ons).</td>
+        </tr>
+        <tr>
+          <td class="table-name">zones</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td>Admin creates service zones. Customer checks if address is in zone via RPC.</td>
+        </tr>
+        <tr>
+          <td class="table-name">pricing_rules</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td>Admin sets pricing; customer reads to calculate order cost.</td>
+        </tr>
+        <tr>
+          <td class="table-name">pickup_windows</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td>Admin configures; customer reads to show available time slots.</td>
+        </tr>
+        <!-- Payments -->
+        <tr>
+          <td class="table-name">payment_methods</td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td>Stripe card tokens. Customer adds/removes; admin views.</td>
+        </tr>
+        <tr>
+          <td class="table-name">invoices</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td>Admin manages billing; customer reads own invoice history.</td>
+        </tr>
+        <tr>
+          <td class="table-name">transactions</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td>Payment ledger. Admin manages; customer reads own history.</td>
+        </tr>
+        <!-- Loyalty / Referrals -->
+        <tr>
+          <td class="table-name">referrals</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td>Referral program. Both admin and customer read/write.</td>
+        </tr>
+        <tr>
+          <td class="table-name">loyalty_points</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td>Admin manages; customer reads balance.</td>
+        </tr>
+        <!-- Admin-only / config tables -->
+        <tr>
+          <td class="table-name">service_areas</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>Admin-only geographic configuration.</td>
+        </tr>
+        <tr>
+          <td class="table-name">bag_types</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td>Bag options for order. Admin configures; customer reads.</td>
+        </tr>
+        <tr>
+          <td class="table-name">promo_codes</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td>Admin creates codes; customer applies them at checkout.</td>
+        </tr>
+        <tr>
+          <td class="table-name">feedback</td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-w">●</span></td>
+          <td>Customer submits ratings; admin reads.</td>
+        </tr>
+        <tr>
+          <td class="table-name">announcements</td>
+          <td class="center"><span class="dot-rw">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td>Admin pushes notices; customer reads banners.</td>
+        </tr>
+        <tr>
+          <td class="table-name">webhook_events</td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>Stripe/Twilio webhook log. Admin reads for debugging.</td>
+        </tr>
+        <tr>
+          <td class="table-name">audit_log</td>
+          <td class="center"><span class="dot-r">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>Admin-only system activity log.</td>
+        </tr>
+        <!-- Planned / future tables -->
+        <tr style="opacity:.65;">
+          <td class="table-name">notifications <span class="badge" style="background:#fef9c3;color:#854d0e;">planned</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>Outbound notification log (SMS, email, push). Not yet wired up — edge functions would write here on every send. Useful for audit trail.</td>
+        </tr>
+        <tr style="opacity:.65;">
+          <td class="table-name">order_items <span class="badge" style="background:#fef9c3;color:#854d0e;">planned</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>Line-item breakdown per order. Reserved for future multi-service orders or itemized receipts.</td>
+        </tr>
+        <tr style="opacity:.65;">
+          <td class="table-name">daily_stats <span class="badge" style="background:#fef9c3;color:#854d0e;">planned</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>Daily rollup of orders, revenue, new customers, completed stops. Needs a scheduled job to populate. Will power reporting dashboard.</td>
+        </tr>
+        <tr style="opacity:.65;">
+          <td class="table-name">subscriptions <span class="badge" style="background:#fef9c3;color:#854d0e;">planned</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td>Recurring subscription plans with Stripe billing periods and preferred pickup day/window. To be built when subscription offering launches.</td>
+        </tr>
+        <!-- Dropped -->
+        <tr style="opacity:.4;">
+          <td class="table-name">messages <span class="badge badge-unused">dropped</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td class="center"><span class="dot-x">●</span></td>
+          <td><em>Removed March 2026.</em> Superseded by <code>sms_messages</code>, <code>email_messages</code>, and <code>driver_messages</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       3. ORPHANED / DUPLICATE FIELDS
+  ═══════════════════════════════════════════════════════ -->
+  <h2><span class="icon">⚠️</span> Orphaned &amp; Duplicate Fields</h2>
+  <p style="color:#4a5568; margin-bottom:16px;">These columns exist in the database but are either never written, superseded by newer fields, or duplicated across tables.</p>
+
+  <div class="issue-grid">
+    <div class="issue-card warn">
+      <h3>routes — Legacy driver column</h3>
+      <p><span class="field-tag">routes.driver_id</span> is a leftover from before routes had separate pickup and delivery drivers. It's never written by any app today. The active fields are <span class="field-tag">pickup_driver_id</span> and <span class="field-tag">delivery_driver_id</span>.</p>
+    </div>
+
+    <div class="issue-card warn">
+      <h3>route_stops — Duplicate photo fields</h3>
+      <p>Two columns do the same thing: <span class="field-tag">photo_url</span> (old) and <span class="field-tag">proof_photo_url</span> (new). The driver app writes to <span class="field-tag">proof_photo_url</span> only. <span class="field-tag">photo_url</span> is written by admin in some flows. These should be unified.</p>
+    </div>
+
+    <div class="issue-card warn">
+      <h3>customers — Fields never written</h3>
+      <ul>
+        <li><span class="field-tag">address_cache</span> — JSONB column, never populated by any app</li>
+        <li><span class="field-tag">ambassador_code</span> — never set by any app</li>
+        <li><span class="field-tag">total_orders</span> — written by admin only; customer app doesn't increment it when placing orders</li>
+      </ul>
+    </div>
+
+    <div class="issue-card warn">
+      <h3>drivers — Live location never tracked</h3>
+      <p><span class="field-tag">drivers.current_lat</span> and <span class="field-tag">drivers.current_lng</span> exist for real-time location tracking. The driver app never writes to them. If live tracking was planned, it's not implemented.</p>
+    </div>
+
+    <div class="issue-card warn">
+      <h3>orders — Duplicate address tracking</h3>
+      <p>Customer address stored in multiple places: <span class="field-tag">orders.pickup_address</span>, <span class="field-tag">orders.delivery_address</span>, and separately in <span class="field-tag">customers.address</span>. They can drift out of sync if a customer updates their address.</p>
+    </div>
+
+    <div class="issue-card warn">
+      <h3>services — Embedded legacy preferences</h3>
+      <p><span class="field-tag">services.preferences</span> (JSONB with short IDs like <code>ch0z4vu</code>) was the old preference system. The real system is the global <span class="field-tag">preferences</span> table (UUID IDs). The embedded field is now only used for price add-ons — but keeping both is confusing.</p>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       4. CROSS-APP DATA FLOW
+  ═══════════════════════════════════════════════════════ -->
+  <h2><span class="icon">🔄</span> Cross-App Data Flow</h2>
+  <p style="color:#4a5568; margin-bottom:16px;">How data moves between apps through the shared database:</p>
+
+  <div class="flow-row">
+    <div class="flow-label">Customer → Admin</div>
+    <div class="flow-detail">
+      Customer places order → writes to <code>orders</code> table → admin sees it in realtime (subscribed to orders changes) → admin assigns to a route → writes to <code>routes</code> and <code>route_stops</code>.
+    </div>
+  </div>
+  <div class="flow-row">
+    <div class="flow-label">Admin → Driver</div>
+    <div class="flow-detail">
+      Admin assigns route → driver sees route_stops filtered by their <code>driver_id</code> → driver completes stops, uploads photos → writes <code>route_stops.status</code>, <code>proof_photo_url</code>, <code>signature_data</code>.
+    </div>
+  </div>
+  <div class="flow-row">
+    <div class="flow-label">Driver → Customer</div>
+    <div class="flow-detail">
+      When driver updates <code>route_stops.status</code> to <em>on-the-way</em>, edge function <code>notify-on-my-way</code> fires → sends SMS to customer. Customer sees order status updated in their app when they refresh.
+    </div>
+  </div>
+  <div class="flow-row">
+    <div class="flow-label">Admin → Customer</div>
+    <div class="flow-detail">
+      Edge function <code>send-order-notification</code> sends SMS/email on order status changes. Admin can also send direct messages via <code>sms_messages</code>/<code>email_messages</code>.
+    </div>
+  </div>
+  <div class="flow-row">
+    <div class="flow-label">Customer ↔ Admin</div>
+    <div class="flow-detail">
+      Customer updates preferences → saved to <code>customers.preferences</code> (UUID format) → admin can read on customer profile. Admin can also override preferences directly.
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       5. EDGE FUNCTIONS
+  ═══════════════════════════════════════════════════════ -->
+  <h2><span class="icon">⚡</span> Edge Functions (Server-Side Logic)</h2>
+  <p style="color:#4a5568; margin-bottom:16px;">These run on Supabase's servers — not in any browser app. They handle payments, SMS, and email.</p>
+
+  <div class="matrix-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Function</th>
+          <th style="text-align:center">Called by Admin</th>
+          <th style="text-align:center">Called by Driver</th>
+          <th style="text-align:center">Called by Customer</th>
+          <th>What it does</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="table-name">send-magic-link</td>
+          <td class="center">—</td>
+          <td class="center">—</td>
+          <td class="center"><span class="badge badge-customer">Customer</span></td>
+          <td>Sends passwordless login link via email</td>
+        </tr>
+        <tr>
+          <td class="table-name">send-order-notification</td>
+          <td class="center"><span class="badge badge-admin">Admin</span></td>
+          <td class="center">—</td>
+          <td class="center">—</td>
+          <td>Sends SMS/email when order status changes</td>
+        </tr>
+        <tr>
+          <td class="table-name">notify-on-my-way</td>
+          <td class="center">—</td>
+          <td class="center"><span class="badge badge-driver">Driver</span></td>
+          <td class="center">—</td>
+          <td>Texts customer "driver is on the way"</td>
+        </tr>
+        <tr>
+          <td class="table-name">charge-order</td>
+          <td class="center"><span class="badge badge-admin">Admin</span></td>
+          <td class="center">—</td>
+          <td class="center">—</td>
+          <td>Runs Stripe charge on customer's saved card</td>
+        </tr>
+        <tr>
+          <td class="table-name">create-checkout</td>
+          <td class="center">—</td>
+          <td class="center">—</td>
+          <td class="center"><span class="badge badge-customer">Customer</span></td>
+          <td>Creates Stripe setup session for saving card</td>
+        </tr>
+        <tr>
+          <td class="table-name">remove-card</td>
+          <td class="center">—</td>
+          <td class="center">—</td>
+          <td class="center"><span class="badge badge-customer">Customer</span></td>
+          <td>Deletes saved payment method from Stripe</td>
+        </tr>
+        <tr>
+          <td class="table-name">send-email</td>
+          <td class="center"><span class="badge badge-admin">Admin</span></td>
+          <td class="center">—</td>
+          <td class="center"><span class="badge badge-customer">Customer</span></td>
+          <td>Generic email sender (confirmations, receipts)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       6. RISKS
+  ═══════════════════════════════════════════════════════ -->
+  <h2><span class="icon">🚨</span> Shared Write Risks</h2>
+  <p style="color:#4a5568; margin-bottom:16px;">Tables that multiple apps write to can conflict if not carefully managed:</p>
+
+  <div class="issue-grid">
+    <div class="issue-card dead">
+      <h3>orders.status — 3-way writes</h3>
+      <p>Admin, driver, and customer all update order status. There's no locking or conflict check. If an admin and driver update the same order simultaneously, one write silently wins. Low risk today (small volume), but worth monitoring as you scale.</p>
+    </div>
+    <div class="issue-card dead">
+      <h3>route_stops — Admin + driver writes</h3>
+      <p>Admin builds and edits stops; driver marks them complete and uploads photos. If admin edits a stop while a driver is actively working it, data could be overwritten. No version checking in place.</p>
+    </div>
+    <div class="issue-card info">
+      <h3>customers — Admin + customer writes</h3>
+      <p>Admin can edit any customer field; customer can edit their own profile and preferences. Low risk since they're generally editing different fields, but admin overwrites of customer data will not notify the customer.</p>
+    </div>
+    <div class="issue-card ok">
+      <h3>driver_messages — Safe two-way chat</h3>
+      <p>Both admin and driver write to this table, but they're always <em>inserting</em> new rows (not updating), so there's no conflict risk here. ✓</p>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       7. RECOMMENDATIONS
+  ═══════════════════════════════════════════════════════ -->
+  <h2><span class="icon">✅</span> Cleanup Recommendations</h2>
+  <p style="color:#4a5568; margin-bottom:16px;">Ordered from easiest/highest value to more involved. None of these are urgent, but they'll reduce confusion as the platform grows.</p>
+
+  <div class="rec-list">
+    <div class="rec-item">
+      <div class="rec-num">1</div>
+      <div>
+        <strong>messages table — dropped ✓</strong>
+        Removed March 2026. Was superseded by <span class="field-tag">sms_messages</span>, <span class="field-tag">email_messages</span>, and <span class="field-tag">driver_messages</span>. The remaining 4 tables (<span class="field-tag">notifications</span>, <span class="field-tag">order_items</span>, <span class="field-tag">daily_stats</span>, <span class="field-tag">subscriptions</span>) are intentionally kept — they'll be wired up as those features are built.
+      </div>
+    </div>
+    <div class="rec-item">
+      <div class="rec-num">2</div>
+      <div>
+        <strong>Deprecate routes.driver_id</strong>
+        The column <span class="field-tag">routes.driver_id</span> is never written. The real columns are <span class="field-tag">pickup_driver_id</span> and <span class="field-tag">delivery_driver_id</span>. If it's truly unused, it can be removed safely.
+      </div>
+    </div>
+    <div class="rec-item">
+      <div class="rec-num">3</div>
+      <div>
+        <strong>Unify route_stops photo field</strong>
+        Decide on one field — recommend <span class="field-tag">proof_photo_url</span> — and update admin to write there consistently. Then <span class="field-tag">photo_url</span> can be retired.
+      </div>
+    </div>
+    <div class="rec-item">
+      <div class="rec-num">4</div>
+      <div>
+        <strong>Fix customers.total_orders counter</strong>
+        Currently only admin increments this, not the customer app. Either remove it (it can be derived by counting orders) or make the customer app update it on order submission.
+      </div>
+    </div>
+    <div class="rec-item">
+      <div class="rec-num">5</div>
+      <div>
+        <strong>Implement driver location tracking (if desired)</strong>
+        The DB has <span class="field-tag">drivers.current_lat</span> and <span class="field-tag">drivers.current_lng</span> ready to go. The driver app just needs to write GPS coordinates. This would enable live map tracking on the admin side.
+      </div>
+    </div>
+    <div class="rec-item">
+      <div class="rec-num">6</div>
+      <div>
+        <strong>Clarify services.preferences (embedded) vs. preferences table (global)</strong>
+        Long-term, consider removing the embedded <span class="field-tag">services.preferences</span> JSONB entirely and moving any price-modifier logic to the global <span class="field-tag">preferences</span> table. This eliminates the dual-system confusion that caused the recent preference sync bug.
+      </div>
+    </div>
+  </div>
+
+
+  <div class="page-footer">
+    WashRoute Architecture Map &nbsp;·&nbsp; March 2026 &nbsp;·&nbsp; Generated by Claude
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,1838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Family Laundry</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
+  <style>
+    :root {
+      --navy:     #0f2744;
+      --navy-mid: #1a3a5c;
+      --accent:   #2a6fc9;
+      --text:     #1a1a2e;
+      --gray-50:  #f8f9fa;
+      --gray-100: #f0f2f5;
+      --gray-200: #e2e8f0;
+      --gray-300: #cbd5e1;
+      --gray-400: #94a3b8;
+      --gray-600: #64748b;
+      --success:  #22c55e;
+      --radius:   12px;
+      --shadow:   0 2px 16px rgba(0,0,0,.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #e8ecf0; color: var(--text);
+      min-height: 100vh; display: flex; justify-content: center;
+    }
+    #app {
+      width: 100%; max-width: 430px; background: white;
+      min-height: 100vh; position: relative; overflow-x: hidden;
+      box-shadow: 0 0 60px rgba(0,0,0,.15);
+    }
+    .screen { display: none; flex-direction: column; min-height: 100vh; }
+    .screen.active { display: flex; }
+    .main-content { flex: 1; overflow-y: auto; padding-bottom: 84px; -webkit-overflow-scrolling: touch; }
+
+    /* ── AUTH ── */
+    .auth-hero { background: var(--navy); padding: 52px 32px 44px; text-align: center; }
+    .auth-logo { height: 56px; object-fit: contain; }
+    .auth-tagline { color: rgba(255,255,255,.55); font-size: 14px; margin-top: 10px; }
+    .auth-body { padding: 28px 24px 24px; flex: 1; }
+    .auth-tabs { display: flex; background: var(--gray-100); border-radius: 10px; padding: 4px; margin-bottom: 26px; }
+    .auth-tab { flex: 1; padding: 9px; border: none; background: transparent; border-radius: 7px; font-size: 14px; font-weight: 500; cursor: pointer; color: var(--gray-600); transition: all .2s; }
+    .auth-tab.active { background: white; color: var(--navy); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+    .auth-form { display: none; flex-direction: column; gap: 14px; }
+    .auth-form.active { display: flex; }
+    .field label { display: block; font-size: 11.5px; font-weight: 700; color: var(--gray-600); margin-bottom: 5px; letter-spacing: .5px; text-transform: uppercase; }
+    .field input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 15px; outline: none; transition: border-color .2s; background: white; color: var(--text); }
+    .field input:focus { border-color: var(--navy); }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .auth-error { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 10px 14px; border-radius: 8px; font-size: 13.5px; display: none; }
+    .auth-error.show { display: block; }
+
+    /* ── BUTTONS ── */
+    .btn-primary { width: 100%; padding: 14px; background: var(--navy); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity .2s; }
+    .btn-primary:hover { opacity: .88; }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-secondary { width: 100%; padding: 13px; background: white; color: var(--navy); border: 2px solid var(--navy); border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all .2s; }
+    .btn-secondary:hover { background: var(--gray-50); }
+    .btn-sm { padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; }
+
+    /* ── TOPBAR ── */
+    .topbar { background: var(--navy); padding: 14px 20px 12px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; flex-shrink: 0; }
+    .topbar-logo { height: 28px; object-fit: contain; }
+    .topbar-title { color: white; font-size: 15px; font-weight: 600; }
+
+    /* ── BOTTOM NAV ── */
+    .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 430px; background: white; border-top: 1px solid var(--gray-200); display: flex; z-index: 100; padding-bottom: env(safe-area-inset-bottom, 0px); }
+    .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 10px 0 8px; border: none; background: transparent; cursor: pointer; gap: 3px; color: var(--gray-400); transition: color .15s; font-size: 10.5px; font-weight: 500; }
+    .nav-btn svg { width: 22px; height: 22px; stroke-width: 1.8; fill: none; stroke: currentColor; }
+    .nav-btn.active { color: var(--navy); }
+    .nav-btn.active svg { stroke-width: 2.3; }
+
+    /* ── HOME ── */
+    .home-hero { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); padding: 22px 20px 28px; color: white; flex-shrink: 0; }
+    .home-greeting { font-size: 22px; font-weight: 800; }
+    .home-sub { font-size: 13.5px; color: rgba(255,255,255,.6); margin-top: 3px; }
+    .stats-row { display: flex; gap: 10px; margin-top: 18px; }
+    .stat-chip { flex: 1; background: rgba(255,255,255,.12); border-radius: 10px; padding: 12px 8px; text-align: center; }
+    .stat-num { font-size: 20px; font-weight: 800; color: white; }
+    .stat-label { font-size: 10.5px; color: rgba(255,255,255,.55); margin-top: 2px; }
+    .section { padding: 18px 18px 0; }
+    .section-title { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--gray-400); margin-bottom: 12px; }
+    .active-order-card { background: white; border-radius: var(--radius); border: 1.5px solid var(--gray-200); padding: 16px; box-shadow: var(--shadow); cursor: pointer; transition: box-shadow .15s; }
+    .active-order-card:hover { box-shadow: 0 4px 24px rgba(0,0,0,.12); }
+    .aoc-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+    .aoc-num { font-size: 11px; font-family: monospace; color: var(--gray-400); margin-bottom: 2px; }
+    .aoc-svc { font-size: 15px; font-weight: 700; }
+
+    /* Status badges */
+    .status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .s-scheduled            { background: #f1f5f9; color: #475569; }
+    .s-scheduled .status-dot            { background: #94a3b8; }
+    .s-ready_for_pickup     { background: #fef3c7; color: #92400e; }
+    .s-ready_for_pickup .status-dot     { background: #f59e0b; }
+    .s-picked_up            { background: #dbeafe; color: #1e40af; }
+    .s-picked_up .status-dot            { background: #3b82f6; }
+    .s-processing           { background: #e0f2fe; color: #0369a1; }
+    .s-processing .status-dot           { background: #0ea5e9; }
+    .s-assembled            { background: #fdf4ff; color: #6b21a8; }
+    .s-assembled .status-dot            { background: #a855f7; }
+    .s-ready_for_delivery   { background: #d1fae5; color: #065f46; }
+    .s-ready_for_delivery .status-dot   { background: #10b981; }
+    .s-out_for_delivery     { background: #ede9fe; color: #4c1d95; }
+    .s-out_for_delivery .status-dot     { background: #7c3aed; }
+    .s-delivered            { background: #d1fae5; color: #065f46; }
+    .s-delivered .status-dot            { background: #22c55e; }
+    .s-pickup_missed        { background: #fef2f2; color: #991b1b; }
+    .s-pickup_missed .status-dot        { background: #ef4444; }
+    .s-delivery_missed      { background: #fef2f2; color: #991b1b; }
+    .s-delivery_missed .status-dot      { background: #ef4444; }
+    .s-on_hold              { background: #fffbeb; color: #92400e; }
+    .s-on_hold .status-dot              { background: #f59e0b; }
+    .s-cancelled            { background: #fee2e2; color: #7f1d1d; }
+    .s-cancelled .status-dot            { background: #ef4444; }
+
+    /* Progress track */
+    .progress-wrap { display: flex; align-items: center; margin: 14px 0 8px; }
+    .p-step { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+    .p-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gray-200); position: relative; z-index: 1; flex-shrink: 0; }
+    .p-step.done .p-dot    { background: var(--navy); }
+    .p-step.current .p-dot { background: var(--navy); box-shadow: 0 0 0 3px rgba(15,39,68,.18); }
+    .p-line { flex: 1; height: 2px; background: var(--gray-200); }
+    .p-line.done { background: var(--navy); }
+    .p-label { font-size: 9px; color: var(--gray-400); white-space: nowrap; }
+    .p-step.done .p-label, .p-step.current .p-label { color: var(--navy); font-weight: 700; }
+    .aoc-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+    .aoc-hint { font-size: 12px; color: var(--gray-400); }
+    .aoc-total { font-size: 15px; font-weight: 700; }
+
+    /* CTA card */
+    .cta-card { background: linear-gradient(135deg, var(--navy), var(--accent)); border-radius: var(--radius); padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; margin-top: 12px; transition: opacity .15s; }
+    .cta-card:hover { opacity: .92; }
+    .cta-card h3 { color: white; font-size: 15px; font-weight: 700; }
+    .cta-card p  { color: rgba(255,255,255,.65); font-size: 12.5px; margin-top: 2px; }
+    .cta-arrow { width: 36px; height: 36px; background: rgba(255,255,255,.18); border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .nudge-card { background: var(--gray-50); border: 1.5px dashed var(--gray-300); border-radius: var(--radius); padding: 24px; text-align: center; }
+    .nudge-card p { font-size: 14px; color: var(--gray-600); margin-bottom: 14px; }
+    .nudge-btn { display: inline-block; padding: 10px 24px; background: var(--navy); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+
+    /* ── NEW ORDER ── */
+    .order-topbar { background: var(--navy); padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+    .back-btn { background: rgba(255,255,255,.15); border: none; border-radius: 8px; padding: 7px 10px; cursor: pointer; display: flex; align-items: center; }
+    .back-btn svg { width: 18px; height: 18px; stroke: white; stroke-width: 2.2; fill: none; }
+    .order-step-title { color: white; font-size: 15px; font-weight: 700; flex: 1; }
+    .step-indicator { display: flex; gap: 6px; padding: 12px 18px 0; }
+    .sdot { flex: 1; height: 3px; border-radius: 2px; background: var(--gray-200); }
+    .sdot.active { background: var(--navy); }
+    .step-content { padding: 18px; }
+    .step-sub { font-size: 13.5px; color: var(--gray-600); margin-bottom: 18px; }
+
+    /* Service cards */
+    .service-grid { display: flex; flex-direction: column; gap: 10px; }
+    .service-card { border: 2px solid var(--gray-200); border-radius: var(--radius); padding: 14px 16px; cursor: pointer; display: flex; align-items: center; gap: 14px; transition: all .15s; }
+    .service-card:hover { border-color: var(--navy); background: #f8faff; }
+    .service-card.selected { border-color: var(--navy); background: #eef3ff; }
+    .svc-icon { width: 44px; height: 44px; border-radius: 10px; background: var(--gray-100); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+    .service-card.selected .svc-icon { background: var(--navy); }
+    .svc-name { font-size: 15px; font-weight: 600; }
+    .svc-desc { font-size: 12.5px; color: var(--gray-600); margin-top: 1px; }
+    .svc-price { margin-left: auto; font-size: 15px; font-weight: 700; color: var(--navy); flex-shrink: 0; text-align: right; }
+
+    /* Bags counter */
+    .bags-counter { display: flex; align-items: center; justify-content: center; gap: 24px; padding: 20px 0; }
+    .bags-btn { width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--navy); background: white; color: var(--navy); font-size: 22px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; line-height: 1; }
+    .bags-btn:hover { background: var(--navy); color: white; }
+    .bags-num { font-size: 48px; font-weight: 800; color: var(--navy); min-width: 64px; text-align: center; line-height: 1; }
+    .bags-label { font-size: 14px; color: var(--gray-600); text-align: center; margin-top: 4px; }
+
+    /* Recurring selector */
+    .recurring-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
+    .recur-btn { padding: 12px 8px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; text-align: center; font-size: 13px; font-weight: 500; transition: all .15s; }
+    .recur-btn:hover { border-color: var(--navy); }
+    .recur-btn.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
+    .recur-icon { font-size: 18px; margin-bottom: 4px; }
+
+    /* Time slots */
+    .slot-group { margin-bottom: 20px; }
+    .slot-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 10px; }
+    .slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .slot-btn { padding: 11px 8px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; text-align: center; font-size: 13px; font-weight: 500; transition: all .15s; line-height: 1.3; }
+    .slot-btn:hover { border-color: var(--navy); }
+    .slot-btn.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
+    .slot-date { font-size: 10px; opacity: .65; margin-top: 2px; }
+
+    /* Confirm summary */
+    .confirm-card { background: var(--gray-50); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+    .confirm-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--gray-200); }
+    .confirm-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .confirm-key { font-size: 13.5px; color: var(--gray-600); }
+    .confirm-val { font-size: 13.5px; font-weight: 600; text-align: right; max-width: 58%; }
+    .confirm-total { font-size: 16px !important; font-weight: 800 !important; color: var(--navy); }
+    .recurring-badge { display: inline-flex; align-items: center; gap: 5px; background: #eef3ff; color: var(--navy); padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+
+    /* ── ORDERS ── */
+    .orders-list { padding: 14px 18px; }
+    .order-item { border: 1.5px solid var(--gray-200); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; cursor: pointer; transition: box-shadow .15s; }
+    .order-item:hover { box-shadow: var(--shadow); }
+    .oi-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .oi-num { font-size: 12.5px; font-weight: 700; color: var(--navy); font-family: monospace; }
+    .oi-date { font-size: 12px; color: var(--gray-400); }
+    .oi-svc { font-size: 14px; color: var(--gray-600); margin-bottom: 10px; }
+    .oi-bottom { display: flex; justify-content: space-between; align-items: center; }
+    .oi-total { font-size: 15px; font-weight: 700; }
+    .oi-recur { font-size: 11px; color: var(--accent); font-weight: 600; margin-top: 4px; }
+
+    /* ── ORDER DETAIL ── */
+    .detail-hero { background: var(--navy); color: white; padding: 18px 20px 24px; flex-shrink: 0; }
+    .detail-back { background: rgba(255,255,255,.15); border: none; color: white; padding: 7px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; }
+    .detail-back svg { width: 14px; height: 14px; stroke: white; stroke-width: 2.2; fill: none; }
+    .d-num  { font-size: 12px; color: rgba(255,255,255,.55); font-family: monospace; margin-bottom: 4px; }
+    .d-svc  { font-size: 21px; font-weight: 800; }
+    .d-date { font-size: 13px; color: rgba(255,255,255,.55); margin-top: 4px; }
+    .detail-body { padding: 18px; }
+    .d-section { margin-bottom: 24px; }
+    .d-section-title { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 12px; }
+    .d-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--gray-100); }
+    .d-row:last-child { border-bottom: none; }
+    .d-key { font-size: 14px; color: var(--gray-600); }
+    .d-val { font-size: 14px; font-weight: 600; text-align: right; max-width: 58%; }
+
+    /* ── ACCOUNT ── */
+    .acct-hero { background: var(--navy); padding: 24px 20px 20px; color: white; flex-shrink: 0; }
+    .acct-top { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+    .acct-avatar { width: 56px; height: 56px; background: rgba(255,255,255,.15); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800; flex-shrink: 0; }
+    .acct-name  { font-size: 18px; font-weight: 800; }
+    .acct-email { font-size: 13px; color: rgba(255,255,255,.55); margin-top: 2px; }
+
+    /* Subscription plan badge in hero */
+    .plan-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.25); border-radius: 999px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; color: white; }
+    .plan-dot { width: 7px; height: 7px; border-radius: 50%; }
+
+    /* Subscription plans */
+    .plan-cards { display: flex; flex-direction: column; gap: 10px; padding: 0 18px 18px; }
+    .plan-card { border: 2px solid var(--gray-200); border-radius: var(--radius); padding: 16px; position: relative; cursor: pointer; transition: all .15s; }
+    .plan-card:hover { border-color: var(--navy); }
+    .plan-card.current { border-color: var(--navy); background: #eef3ff; }
+    .plan-card.popular { border-color: var(--accent); }
+    .popular-tag { position: absolute; top: -10px; right: 16px; background: var(--accent); color: white; font-size: 10.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: .4px; }
+    .plan-name { font-size: 15px; font-weight: 800; margin-bottom: 4px; }
+    .plan-price { font-size: 22px; font-weight: 800; color: var(--navy); margin-bottom: 6px; }
+    .plan-price span { font-size: 13px; font-weight: 500; color: var(--gray-600); }
+    .plan-perks { font-size: 12.5px; color: var(--gray-600); line-height: 1.7; }
+    .plan-perks li { list-style: none; display: flex; align-items: center; gap: 6px; }
+    .plan-perks li::before { content: '✓'; color: var(--success); font-weight: 700; }
+    .plan-select-btn { margin-top: 12px; width: 100%; padding: 10px; border-radius: 8px; font-size: 13.5px; font-weight: 600; border: 2px solid var(--navy); background: white; color: var(--navy); cursor: pointer; transition: all .15s; }
+    .plan-select-btn:hover { background: var(--navy); color: white; }
+    .plan-card.current .plan-select-btn { background: var(--navy); color: white; }
+
+    /* Preferences */
+    .pref-section { padding: 0 18px 18px; }
+    .pref-title { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 14px; padding-top: 4px; }
+    .pref-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--gray-100); }
+    .pref-row:last-child { border-bottom: none; }
+    .pref-left { display: flex; align-items: center; gap: 10px; }
+    .pref-icon { font-size: 18px; width: 28px; text-align: center; flex-shrink: 0; }
+    .pref-name { font-size: 14px; font-weight: 500; }
+    .pref-sub { font-size: 12px; color: var(--gray-400); margin-top: 1px; }
+    .pref-select { padding: 6px 10px; border: 1.5px solid var(--gray-200); border-radius: 8px; font-size: 13px; background: white; color: var(--text); outline: none; cursor: pointer; appearance: none; -webkit-appearance: none; padding-right: 24px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
+    .pref-toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+    .pref-toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; inset: 0; background: var(--gray-200); border-radius: 12px; cursor: pointer; transition: background .2s; }
+    .toggle-slider::before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: transform .2s; }
+    .pref-toggle input:checked + .toggle-slider { background: var(--navy); }
+    .pref-toggle input:checked + .toggle-slider::before { transform: translateX(20px); }
+    .pref-save-btn { margin-top: 8px; width: 100%; padding: 12px; background: var(--navy); color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity .2s; }
+    .pref-save-btn:hover { opacity: .88; }
+
+    /* Account menu */
+    .acct-menu { padding: 10px 18px; }
+    .menu-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); padding: 14px 0 8px; }
+    .menu-item { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--gray-100); cursor: pointer; }
+    .menu-item:last-child { border-bottom: none; }
+    .mi-left { display: flex; align-items: center; gap: 12px; }
+    .mi-icon { width: 36px; height: 36px; border-radius: 9px; background: var(--gray-100); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .mi-icon svg { width: 18px; height: 18px; stroke: var(--navy); stroke-width: 1.8; fill: none; }
+    .mi-label { font-size: 15px; font-weight: 500; }
+    .mi-chev svg { width: 16px; height: 16px; stroke: var(--gray-300); stroke-width: 2; fill: none; }
+    .signout-btn { margin: 6px 18px 20px; width: calc(100% - 36px); padding: 13px; background: #fef2f2; color: #dc2626; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .signout-btn:hover { opacity: .8; }
+
+    /* Divider */
+    .section-divider { height: 8px; background: var(--gray-50); border-top: 1px solid var(--gray-100); border-bottom: 1px solid var(--gray-100); margin: 4px 0; }
+
+    /* ── SUCCESS ── */
+    .success-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 40px; text-align: center; }
+    .success-circle { width: 80px; height: 80px; background: #d1fae5; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+    .success-circle svg { width: 40px; height: 40px; stroke: #22c55e; stroke-width: 2.5; fill: none; }
+    .success-h { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+    .success-sub { font-size: 15px; color: var(--gray-600); margin-bottom: 6px; }
+    .success-detail { font-size: 13.5px; color: var(--gray-400); margin-bottom: 8px; }
+    .success-recur { display: inline-flex; align-items: center; gap: 6px; background: #eef3ff; color: var(--navy); padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; margin-bottom: 28px; }
+
+    /* ── SHARED ── */
+    .empty-state { text-align: center; padding: 60px 20px; }
+    .empty-icon  { font-size: 48px; margin-bottom: 12px; }
+    .empty-title { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+    .empty-sub   { font-size: 14px; color: var(--gray-400); margin-bottom: 20px; }
+    .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,.85); display: none; align-items: center; justify-content: center; z-index: 200; }
+    .loading-overlay.show { display: flex; }
+    .spinner { width: 36px; height: 36px; border: 3px solid var(--gray-200); border-top-color: var(--navy); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(16px); background: #1a1a2e; color: white; padding: 11px 20px; border-radius: 999px; font-size: 14px; font-weight: 500; opacity: 0; transition: all .28s; z-index: 999; white-space: nowrap; max-width: 340px; text-align: center; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    textarea.field-input { width: 100%; padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 14px; font-family: inherit; resize: none; outline: none; min-height: 72px; transition: border-color .2s; }
+    textarea.field-input:focus { border-color: var(--navy); }
+    /* ── FREQUENCY DROPDOWN ── */
+    .freq-select { width: 100%; padding: 14px 16px; border: 2px solid var(--gray-200); border-radius: 10px; font-size: 15px; font-weight: 500; background: white; color: var(--text); outline: none; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%230f2744' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 16px center; margin-bottom: 20px; transition: border-color .15s; }
+    .freq-select:focus { border-color: var(--navy); }
+
+    /* ── ORDER HELP LINE ── */
+    .order-help { margin-top: 18px; text-align: center; font-size: 13.5px; color: var(--gray-400); }
+    .order-help a { color: var(--navy); font-weight: 600; text-decoration: none; }
+    .order-help a:hover { text-decoration: underline; }
+
+    /* ── ORDERS TABS ── */
+    .orders-tab-bar { display: flex; padding: 14px 18px 0; gap: 0; border-bottom: 1.5px solid var(--gray-200); }
+    .otab { flex: 1; padding: 10px; background: none; border: none; border-bottom: 2.5px solid transparent; margin-bottom: -1.5px; font-size: 14px; font-weight: 600; color: var(--gray-400); cursor: pointer; transition: all .15s; }
+    .otab.active { color: var(--navy); border-bottom-color: var(--navy); }
+
+    /* ── CALENDAR ── */
+    .cal-wrap { margin-bottom: 24px; }
+    .cal-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 12px; }
+    .cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .cal-title { font-size: 15px; font-weight: 700; color: var(--navy); }
+    .cal-nav { width: 36px; height: 36px; border: none; background: var(--gray-100); border-radius: 8px; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--navy); font-weight: 700; line-height: 1; transition: background .15s; }
+    .cal-nav:hover { background: var(--gray-200); }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .cal-dow { text-align: center; font-size: 11px; font-weight: 700; color: var(--gray-400); padding: 6px 0; }
+    .cal-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all .12s; }
+    .cal-day:hover:not(.past):not(.empty) { background: var(--gray-100); }
+    .cal-day.past, .cal-day.empty { color: var(--gray-300); cursor: default; pointer-events: none; }
+    .cal-day.selected { background: var(--navy) !important; color: white !important; font-weight: 700; }
+    .cal-selected-label { font-size: 14px; font-weight: 600; color: var(--navy); text-align: center; margin-top: 10px; min-height: 22px; }
+
+    /* ── MAGIC LINK ── */
+    .magic-divider { display: flex; align-items: center; gap: 10px; margin: 18px 0 14px; }
+    .magic-divider::before, .magic-divider::after { content: ''; flex: 1; height: 1px; background: var(--gray-200); }
+    .magic-divider span { font-size: 12px; color: var(--gray-400); white-space: nowrap; }
+    .magic-link-btn { width: 100%; padding: 13px; background: white; color: var(--navy); border: 1.5px solid var(--gray-300); border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s; }
+    .magic-link-btn:hover { border-color: var(--navy); }
+    .magic-sent { background: #d1fae5; border-radius: var(--radius); padding: 18px; text-align: center; margin-top: 12px; }
+    .magic-sent h4 { font-size: 15px; font-weight: 700; color: #065f46; margin-bottom: 6px; }
+    .magic-sent p { font-size: 13px; color: #047857; line-height: 1.5; }
+
+    /* ── STRIPE PAYMENT ── */
+    .pay-now-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 16px; padding: 14px; background: var(--navy); color: white; border: none; border-radius: var(--radius); font-size: 15px; font-weight: 700; cursor: pointer; letter-spacing: -.01em; transition: background .15s; }
+    .pay-now-btn:hover { background: #1a3a7a; }
+    .pay-now-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .payment-paid { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 16px; padding: 12px; background: #d1fae5; border-radius: var(--radius); color: #065f46; font-size: 13.5px; font-weight: 600; }
+    .payment-success-banner { background: #d1fae5; border: 1.5px solid #6ee7b7; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: #065f46; font-weight: 600; }
+
+    /* ── CARD ON FILE ── */
+    .card-section { padding: 0 18px 18px; }
+    .card-box { display: flex; align-items: center; justify-content: space-between; background: var(--gray-50); border: 1.5px solid var(--gray-200); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+    .card-left { display: flex; align-items: center; gap: 12px; }
+    .card-chip { background: var(--navy); color: white; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 6px; text-transform: uppercase; letter-spacing: .4px; flex-shrink: 0; }
+    .card-info { font-size: 14.5px; font-weight: 600; }
+    .card-sub  { font-size: 12px; color: var(--gray-400); margin-top: 1px; }
+    .card-actions { display: flex; gap: 8px; }
+    .card-btn { padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--gray-200); background: white; color: var(--navy); transition: all .15s; }
+    .card-btn:hover { border-color: var(--navy); }
+    .card-btn.danger { color: #dc2626; border-color: #fecaca; }
+    .card-btn.danger:hover { background: #fef2f2; border-color: #dc2626; }
+    .no-card-box { background: #fffbeb; border: 1.5px dashed #fbbf24; border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 12px; }
+    .no-card-box p { font-size: 13.5px; color: #92400e; margin-bottom: 10px; line-height: 1.5; }
+    .charged-after { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 16px; padding: 12px; background: #f0f9ff; border-radius: var(--radius); border: 1px solid #bae6fd; color: #0369a1; font-size: 13.5px; font-weight: 600; }
+    .card-prompt-banner { margin: 14px 18px 4px; background: #fffbeb; border: 1.5px solid #fde68a; border-radius: var(--radius); padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .card-prompt-banner p { font-size: 13px; color: #92400e; line-height: 1.45; flex: 1; }
+    .card-prompt-banner .cpb-add { padding: 9px 14px; background: var(--navy); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+
+    /* ── ADDRESS CHECK ── */
+    .addr-outer { position: relative; margin-bottom: 14px; }
+    .addr-wrap { display: flex; gap: 10px; }
+    .addr-input { flex: 1; padding: 14px 16px; border: 2px solid var(--gray-200); border-radius: 10px; font-size: 15px; font-family: inherit; outline: none; transition: border-color .15s; color: var(--text); }
+    .addr-input:focus { border-color: var(--navy); }
+    .addr-btn { padding: 14px 20px; background: var(--navy); color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: opacity .15s; }
+    .addr-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .zone-result { padding: 14px 16px; border-radius: 10px; font-size: 14px; font-weight: 500; line-height: 1.5; }
+    .zone-ok  { background: #d1fae5; color: #065f46; border: 1.5px solid #6ee7b7; }
+    .zone-err { background: #fef2f2; color: #991b1b; border: 1.5px solid #fecaca; }
+    /* ── ADDRESS AUTOCOMPLETE DROPDOWN ── */
+    .addr-suggestions { position: absolute; top: calc(100% - 3px); left: 0; right: 60px; background: white; border: 2px solid var(--navy); border-top: none; border-radius: 0 0 10px 10px; z-index: 100; max-height: 220px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+    .addr-sug-item { padding: 12px 14px; font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--gray-100); line-height: 1.3; transition: background .1s; }
+    .addr-sug-item:last-child { border-bottom: none; }
+    .addr-sug-item:hover { background: var(--gray-50); }
+    .addr-sug-main { font-weight: 500; color: var(--text); }
+    .addr-sug-sub { font-size: 12px; color: var(--gray-600); margin-top: 2px; }
+
+    /* ── FREQUENCY PILLS ── */
+    .freq-pills { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+    .freq-pill { width: 100%; padding: 15px 18px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; font-family: inherit; font-size: 15px; font-weight: 500; color: var(--text); text-align: left; display: flex; align-items: center; gap: 10px; transition: all .15s; }
+    .freq-pill:hover { border-color: var(--navy); }
+    .freq-pill.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
+    .freq-pill-rec { margin-left: auto; font-size: 11px; font-weight: 700; background: var(--navy); color: white; padding: 2px 9px; border-radius: 999px; }
+
+    /* ── ORDER PREFERENCES ── */
+    .order-pref-group { margin-bottom: 22px; }
+    .order-pref-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 10px; }
+    .order-pref-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .order-pref-btn { padding: 12px 14px; border: 2px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; font-family: inherit; font-size: 13.5px; font-weight: 500; color: var(--text); text-align: center; transition: all .15s; line-height: 1.3; }
+    .order-pref-btn:hover { border-color: var(--navy); }
+    .order-pref-btn.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
+
+    /* ── ESTIMATE CARD ── */
+    .estimate-card { background: linear-gradient(135deg, var(--navy) 0%, var(--accent) 100%); border-radius: var(--radius); padding: 22px 24px; text-align: center; margin: 16px 0 20px; }
+    .estimate-amount { font-size: 48px; font-weight: 800; color: white; line-height: 1; }
+    .estimate-label  { font-size: 14px; color: rgba(255,255,255,.65); margin-top: 4px; }
+    .estimate-note   { font-size: 12px; color: rgba(255,255,255,.5); margin-top: 8px; line-height: 1.5; }
+
+    /* ── CONFIRM AUTH INLINE ── */
+    .confirm-auth-section { background: var(--gray-50); border-radius: var(--radius); padding: 18px 16px; margin-bottom: 16px; }
+    .confirm-auth-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .confirm-auth-sub { font-size: 13px; color: var(--gray-600); margin-bottom: 16px; }
+    .confirm-auth-fields { display: flex; flex-direction: column; gap: 12px; }
+    .confirm-or { text-align: center; font-size: 12.5px; color: var(--gray-400); margin: 14px 0 10px; }
+    .confirm-signin-link { width: 100%; padding: 12px; background: white; border: 1.5px solid var(--gray-300); border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--navy); cursor: pointer; transition: border-color .15s; font-family: inherit; }
+    .confirm-signin-link:hover { border-color: var(--navy); }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ═══ AUTH ═══ -->
+  <div class="screen active" id="screen-auth">
+    <div class="auth-hero">
+      <img class="auth-logo" src="../assets/logo.png" alt="Family Laundry"
+           onerror="this.outerHTML='<div style=\'color:white;font-size:22px;font-weight:800\'>Family Laundry</div>'">
+      <div class="auth-tagline">Pickup & delivery laundry service</div>
+    </div>
+    <div class="auth-body">
+      <div class="auth-tabs">
+        <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
+        <button class="auth-tab"        onclick="switchTab('signup')">Sign Up</button>
+      </div>
+      <form class="auth-form active" id="form-login" onsubmit="handleLogin(event)">
+        <div class="auth-error" id="login-err"></div>
+        <div class="field"><label>Email</label><input type="email" id="l-email" placeholder="you@email.com" autocomplete="email" required></div>
+        <div class="field"><label>Password</label><input type="password" id="l-pass" placeholder="••••••••" autocomplete="current-password" required></div>
+        <button class="btn-primary" type="submit" id="btn-login">Sign In</button>
+
+        <!-- Magic link -->
+        <div class="magic-divider"><span>forgot your password?</span></div>
+        <button type="button" class="magic-link-btn" onclick="showMagicLink()">📧 Email me a sign-in link instead</button>
+        <div id="magic-section" style="display:none; margin-top:12px;">
+          <div class="field"><label>Your Email</label><input type="email" id="ml-email" placeholder="you@email.com" autocomplete="email"></div>
+          <button type="button" class="btn-primary" id="btn-magic" onclick="handleMagicLink()" style="margin-top:10px">Send Magic Link</button>
+        </div>
+        <div id="magic-sent" class="magic-sent" style="display:none">
+          <h4>✉️ Check your inbox!</h4>
+          <p>We sent a sign-in link to your email.<br>Tap it to log in instantly — no password needed.</p>
+        </div>
+      </form>
+      <form class="auth-form" id="form-signup" onsubmit="handleSignup(event)">
+        <div class="auth-error" id="signup-err"></div>
+        <div class="field-row">
+          <div class="field"><label>First Name</label><input type="text" id="s-first" placeholder="Jane" required></div>
+          <div class="field"><label>Last Name</label><input type="text" id="s-last" placeholder="Doe" required></div>
+        </div>
+        <div class="field"><label>Email</label><input type="email" id="s-email" placeholder="you@email.com" autocomplete="email" required></div>
+        <div class="field"><label>Phone</label><input type="tel" id="s-phone" placeholder="(415) 555-0100" required></div>
+        <div class="field"><label>Password</label><input type="password" id="s-pass" placeholder="Min. 8 characters" autocomplete="new-password" minlength="8" required></div>
+        <button class="btn-primary" type="submit" id="btn-signup">Create Account</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══ HOME ═══ -->
+  <div class="screen" id="screen-home">
+    <div class="home-hero">
+      <div class="home-greeting" id="home-greeting">Hello 👋</div>
+    </div>
+    <div class="main-content">
+      <!-- Card-on-file nudge (hidden until loaded) -->
+      <div id="home-card-prompt" class="card-prompt-banner" style="display:none">
+        <p>💳 Add a card on file so we can charge you automatically after each order.</p>
+        <button class="cpb-add" onclick="startCardSetup()">Add Card</button>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Active Order</div>
+        <div id="home-active"></div>
+      </div>
+      <div class="section" style="padding-top:14px;padding-bottom:24px">
+        <button class="btn-primary" onclick="goTo('new-order')" style="font-size:16px;padding:16px">
+          + Schedule a Pickup
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ NEW ORDER ═══ -->
+  <div class="screen" id="screen-new-order">
+    <div class="order-topbar">
+      <button class="back-btn" onclick="handleOrderBack()">
+        <svg viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      </button>
+      <span class="order-step-title" id="order-title">Your Address</span>
+      <div style="width:44px"></div>
+    </div>
+    <div class="step-indicator">
+      <div class="sdot active" id="sd0"></div>
+      <div class="sdot" id="sd1"></div>
+      <div class="sdot" id="sd2"></div>
+      <div class="sdot" id="sd3"></div>
+      <div class="sdot" id="sd4"></div>
+    </div>
+    <div class="main-content">
+
+      <!-- Step 0 — Address + Zone Check -->
+      <div class="step-content" id="o-step-0">
+        <div class="step-sub">Enter your pickup address to confirm we serve your area.</div>
+        <div class="addr-wrap">
+          <input type="text" class="addr-input" id="addr-input"
+                 placeholder="123 Main St, Oakland, CA"
+                 onkeydown="if(event.key==='Enter')checkAddress()" />
+          <button class="addr-btn" id="addr-btn" onclick="checkAddress()">Check →</button>
+        </div>
+        <div id="zone-result" class="zone-result" style="display:none"></div>
+        <div style="height:16px"></div>
+        <button class="btn-primary" id="btn-addr-next" style="display:none" onclick="goOrderStep(1)">Continue →</button>
+      </div>
+
+      <!-- Step 1 — Schedule -->
+      <div class="step-content" id="o-step-1" style="display:none">
+        <div class="step-sub">Pick a day. We'll set up the rest.</div>
+
+        <!-- Pickup day calendar -->
+        <div class="cal-wrap">
+          <div class="cal-label">First Pickup Day</div>
+          <div class="cal-header">
+            <button class="cal-nav" type="button" onclick="shiftMonth(-1)">‹</button>
+            <span class="cal-title" id="cal-month-title"></span>
+            <button class="cal-nav" type="button" onclick="shiftMonth(1)">›</button>
+          </div>
+          <div class="cal-grid" id="cal-grid"></div>
+          <div class="cal-selected-label" id="cal-selected-label"></div>
+        </div>
+
+        <!-- Frequency pills (recurring = default) -->
+        <div class="slot-label" style="margin-bottom:10px">How often?</div>
+        <div class="freq-pills" id="freq-pills">
+          <button class="freq-pill selected" data-val="weekly" onclick="selectFreq('weekly',this)">
+            🔁 Every week <span class="freq-pill-rec">Most popular</span>
+          </button>
+          <button class="freq-pill" data-val="biweekly" onclick="selectFreq('biweekly',this)">
+            📅 Every 2 weeks
+          </button>
+          <button class="freq-pill" data-val="" onclick="selectFreq('',this)">
+            ☝️ Just this one time
+          </button>
+        </div>
+
+        <button class="btn-primary" onclick="goOrderStep(2)">Next →</button>
+      </div>
+
+      <!-- Step 2 — Preferences -->
+      <div class="step-content" id="o-step-2" style="display:none">
+        <div class="step-sub">Any care instructions? We'll apply these to every order.</div>
+        <div id="order-pref-groups"></div>
+        <button class="btn-primary" onclick="goOrderStep(3)">Looks good →</button>
+      </div>
+
+      <!-- Step 3 — Bags + Estimate -->
+      <div class="step-content" id="o-step-3" style="display:none">
+        <div class="step-sub">How many bags are you sending in?</div>
+
+        <div class="bags-counter">
+          <button class="bags-btn" onclick="changeBags(-1)">−</button>
+          <div>
+            <div class="bags-num" id="bags-display">1</div>
+            <div class="bags-label">bag(s)</div>
+          </div>
+          <button class="bags-btn" onclick="changeBags(1)">+</button>
+        </div>
+
+        <div class="estimate-card" id="estimate-card">
+          <div class="estimate-amount" id="estimate-amount">$0</div>
+          <div class="estimate-label">estimated total</div>
+          <div class="estimate-note" id="estimate-note">Weight overages billed at pickup if bags exceed 25 lbs each</div>
+        </div>
+
+        <button class="btn-primary" onclick="goOrderStep(4)">Continue →</button>
+      </div>
+
+      <!-- Step 4 — Confirm + Account -->
+      <div class="step-content" id="o-step-4" style="display:none">
+        <div class="step-sub">Review your order and confirm.</div>
+        <div class="confirm-card" id="confirm-summary"></div>
+
+        <!-- Shown only when not logged in -->
+        <div id="confirm-auth-section" style="display:none">
+          <div class="confirm-auth-section">
+            <div class="confirm-auth-title">Create your account</div>
+            <div class="confirm-auth-sub">We'll send SMS updates about your order.</div>
+            <div class="confirm-auth-fields">
+              <div class="auth-error" id="confirm-err"></div>
+              <div class="field-row">
+                <div class="field"><label>First Name</label><input type="text" id="c-first" placeholder="Jane"></div>
+                <div class="field"><label>Last Name</label><input type="text" id="c-last" placeholder="Doe"></div>
+              </div>
+              <div class="field"><label>Phone</label><input type="tel" id="c-phone" placeholder="(415) 555-0100"></div>
+              <div class="field"><label>Email</label><input type="email" id="c-email" placeholder="you@email.com"></div>
+              <div class="field"><label>Password</label><input type="password" id="c-pass" placeholder="Min. 8 characters" minlength="8"></div>
+            </div>
+            <div class="confirm-or">or</div>
+            <button class="confirm-signin-link" onclick="showScreen('auth');switchTab('login')">Sign in to an existing account</button>
+          </div>
+        </div>
+
+        <button class="btn-primary" id="btn-place" onclick="placeOrder()">Place Order</button>
+        <div style="height:12px"></div>
+        <button class="btn-secondary" onclick="goOrderStep(3)">← Edit</button>
+        <div class="order-help">Need help? Call us: <a href="tel:5108423560">(510) 842-3560</a></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ ORDERS ═══ -->
+  <div class="screen" id="screen-orders">
+    <div class="topbar">
+      <img class="topbar-logo" src="../assets/logo.png" alt="Family Laundry" onerror="this.style.display='none'">
+      <span class="topbar-title">My Orders</span>
+      <div style="width:28px"></div>
+    </div>
+    <div class="orders-tab-bar">
+      <button class="otab active" id="otab-current" onclick="switchOrderTab('current')">Current</button>
+      <button class="otab"        id="otab-past"    onclick="switchOrderTab('past')">Past</button>
+    </div>
+    <div class="main-content">
+      <div class="orders-list" id="orders-list">
+        <div class="empty-state"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ORDER DETAIL ═══ -->
+  <div class="screen" id="screen-detail">
+    <div class="detail-hero">
+      <button class="detail-back" onclick="showScreen('orders')">
+        <svg viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+        Orders
+      </button>
+      <div class="d-num"  id="d-num">—</div>
+      <div class="d-svc"  id="d-svc">—</div>
+      <div class="d-date" id="d-date">—</div>
+    </div>
+    <div class="detail-body main-content" style="padding-bottom:20px">
+      <div class="d-section"><div class="d-section-title">Status</div><div id="d-badge"></div><div id="d-track" style="margin-top:14px"></div></div>
+      <div class="d-section"><div class="d-section-title">Order Details</div><div id="d-rows"></div><div id="d-pay-section"></div></div>
+    </div>
+  </div>
+
+  <!-- ═══ ACCOUNT ═══ -->
+  <div class="screen" id="screen-account">
+    <div class="acct-hero">
+      <div class="acct-top">
+        <div class="acct-avatar" id="acct-avatar">?</div>
+        <div>
+          <div class="acct-name"  id="acct-name">—</div>
+          <div class="acct-email" id="acct-email">—</div>
+        </div>
+      </div>
+      <div id="acct-plan-badge"></div>
+    </div>
+    <div class="main-content">
+
+      <!-- Quick links -->
+      <div class="acct-menu">
+        <div class="menu-section-title">Account</div>
+        <div class="menu-item" onclick="goTo('orders')">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><path d="M9 12h6M9 16h4"/></svg></div>
+            <span class="mi-label">Order History</span>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+      </div>
+
+      <!-- Payment Method -->
+      <div id="payment-method-section"></div>
+
+      <div class="section-divider"></div>
+
+      <!-- Laundry Preferences -->
+      <div class="pref-section">
+        <div class="pref-title">Laundry Preferences</div>
+        <div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-icon">🧴</div>
+            <div><div class="pref-name">Detergent</div><div class="pref-sub">Type of detergent</div></div>
+          </div>
+          <select class="pref-select" id="pref-detergent">
+            <option value="regular">Regular</option>
+            <option value="fragrance_free">Fragrance-free</option>
+            <option value="hypoallergenic">Hypoallergenic</option>
+            <option value="eco">Eco-friendly</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-icon">💧</div>
+            <div><div class="pref-name">Water Temperature</div><div class="pref-sub">For washing</div></div>
+          </div>
+          <select class="pref-select" id="pref-water-temp">
+            <option value="cold">Cold</option>
+            <option value="warm">Warm</option>
+            <option value="hot">Hot</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-icon">🌀</div>
+            <div><div class="pref-name">Dryer Heat</div><div class="pref-sub">For drying</div></div>
+          </div>
+          <select class="pref-select" id="pref-dryer-heat">
+            <option value="low">Low heat</option>
+            <option value="medium">Medium heat</option>
+            <option value="high">High heat</option>
+          </select>
+        </div>
+        <div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-icon">🪝</div>
+            <div><div class="pref-name">Fabric Softener</div><div class="pref-sub">Add to wash</div></div>
+          </div>
+          <label class="pref-toggle">
+            <input type="checkbox" id="pref-softener" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-icon">👗</div>
+            <div><div class="pref-name">Hang Dry Delicates</div><div class="pref-sub">When possible</div></div>
+          </div>
+          <label class="pref-toggle">
+            <input type="checkbox" id="pref-hang-dry">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="pref-row">
+          <div class="pref-left">
+            <div class="pref-icon">🚫</div>
+            <div><div class="pref-name">No Bleach</div><div class="pref-sub">Even on whites</div></div>
+          </div>
+          <label class="pref-toggle">
+            <input type="checkbox" id="pref-no-bleach">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <button class="pref-save-btn" onclick="savePreferences()">Save Preferences</button>
+      </div>
+
+      <div class="section-divider"></div>
+
+      <!-- Subscription Plans -->
+      <div style="padding: 18px 18px 8px;">
+        <div class="pref-title" style="margin-bottom:14px">My Plan</div>
+      </div>
+      <div class="plan-cards" id="plan-cards">
+        <!-- Rendered by JS -->
+      </div>
+
+      <div class="section-divider"></div>
+      <button class="signout-btn" onclick="handleSignOut()">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- ═══ SUCCESS ═══ -->
+  <div class="screen" id="screen-success">
+    <div class="success-wrap">
+      <div class="success-circle">
+        <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+      </div>
+      <div class="success-h">Order Placed! 🎉</div>
+      <div class="success-sub">We'll see you at pickup.</div>
+      <div class="success-detail" id="success-info"></div>
+      <div id="success-recur-wrap"></div>
+      <button class="btn-primary" style="max-width:280px" onclick="afterSuccess()">Back to Home</button>
+    </div>
+  </div>
+
+  <!-- ═══ BOTTOM NAV ═══ -->
+  <nav class="bottom-nav" id="bottom-nav" style="display:none">
+    <button class="nav-btn active" id="nav-home" onclick="goTo('home')">
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
+      Home
+    </button>
+    <button class="nav-btn" id="nav-new-order" onclick="goTo('new-order')">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
+      New Order
+    </button>
+    <button class="nav-btn" id="nav-orders" onclick="goTo('orders')">
+      <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="2"/><path d="M9 12h6M9 16h4"/></svg>
+      Orders
+    </button>
+    <button class="nav-btn" id="nav-account" onclick="goTo('account')">
+      <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Account
+    </button>
+  </nav>
+
+  <div class="loading-overlay" id="loading"><div class="spinner"></div></div>
+  <div class="toast" id="toast"></div>
+
+</div>
+
+<script>
+/* ── SUPABASE ── */
+const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
+let db;
+try {
+  db = supabase.createClient(SUPA_URL, SUPA_KEY);
+} catch (initErr) {
+  document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;color:#cc0000">App failed to start. Please reload the page.<br><small>' + initErr.message + '</small></div>';
+  throw initErr;
+}
+
+/* ── STATE ── */
+let currentUser     = null;
+let currentProfile  = null;
+let currentCustomer = null;
+let allServices     = [];
+let dbPlans         = [];
+let defaultService  = null; // the single W&F service
+
+let draft = {
+  address: '', lat: null, lng: null, zoneId: null,
+  bags: 1, pickupDate: null, recurring: 'weekly',
+  prefs: {} // { groupId: { optId, label, priceMod } }
+};
+let orderStep = 0;
+let calMonth  = new Date();
+let ordersTab = 'current';
+
+/* ── ROUTING ── */
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById('screen-' + id);
+  if (el) el.classList.add('active');
+  el?.querySelector('.main-content')?.scrollTo(0, 0);
+}
+
+function goTo(page) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const navId = { home: 'nav-home', 'new-order': 'nav-new-order', orders: 'nav-orders', account: 'nav-account' }[page];
+  if (navId) document.getElementById(navId)?.classList.add('active');
+  if      (page === 'home')      { showScreen('home');      loadHome(); }
+  else if (page === 'new-order') { startNewOrder(); }
+  else if (page === 'orders')    { showScreen('orders');    loadOrders(); }
+  else if (page === 'account')   { showScreen('account');   loadAccount(); }
+}
+
+/* ── UTILS ── */
+let loadingTimer;
+function showLoading(on) {
+  document.getElementById('loading').classList.toggle('show', on);
+  clearTimeout(loadingTimer);
+  if (on) loadingTimer = setTimeout(() => showLoading(false), 8000);
+}
+
+let toastTimer;
+function toast(msg, dur = 3200) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), dur);
+}
+
+function $m(n) { return '$' + (+(n || 0)).toFixed(2); }
+function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'; }
+function daysFromNow(n) { const d = new Date(); d.setDate(d.getDate() + n); return d; }
+function fmtDay(d) { return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
+
+/* ── AUTH ── */
+function switchTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach((t, i) =>
+    t.classList.toggle('active', (tab === 'login' && i === 0) || (tab === 'signup' && i === 1)));
+  document.querySelectorAll('.auth-form').forEach((f, i) =>
+    f.classList.toggle('active', (tab === 'login' && i === 0) || (tab === 'signup' && i === 1)));
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('btn-login');
+  const errEl = document.getElementById('login-err');
+  errEl.classList.remove('show');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  const { error } = await db.auth.signInWithPassword({
+    email: document.getElementById('l-email').value.trim(),
+    password: document.getElementById('l-pass').value
+  });
+  btn.disabled = false; btn.textContent = 'Sign In';
+  if (error) { errEl.textContent = error.message; errEl.classList.add('show'); }
+}
+
+async function handleSignup(e) {
+  e.preventDefault();
+  const first = document.getElementById('s-first').value.trim();
+  const last  = document.getElementById('s-last').value.trim();
+  const email = document.getElementById('s-email').value.trim();
+  const phone = document.getElementById('s-phone').value.trim();
+  const pass  = document.getElementById('s-pass').value;
+  const btn = document.getElementById('btn-signup');
+  const errEl = document.getElementById('signup-err');
+  errEl.classList.remove('show');
+  btn.disabled = true; btn.textContent = 'Creating account…';
+  const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone } } });
+  btn.disabled = false; btn.textContent = 'Create Account';
+  if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
+  if (data.user) await ensureProfile(data.user, first, last, email, phone);
+}
+
+async function ensureProfile(user, first, last, email, phone) {
+  await db.from('profiles').upsert({ id: user.id, first_name: first || user.user_metadata?.first_name || '', last_name: last || user.user_metadata?.last_name || '', email: email || user.email, phone: phone || user.user_metadata?.phone || '' }, { onConflict: 'id' });
+  const { data: ec } = await db.from('customers').select('id').eq('profile_id', user.id).maybeSingle();
+  if (!ec) await db.from('customers').insert({ profile_id: user.id, is_active: true });
+}
+
+async function handleSignOut() { await db.auth.signOut(); }
+
+function showMagicLink() {
+  const sec = document.getElementById('magic-section');
+  sec.style.display = sec.style.display === 'none' ? '' : 'none';
+  // Pre-fill email if already typed in the main login field
+  const mainEmail = document.getElementById('l-email').value.trim();
+  if (mainEmail) document.getElementById('ml-email').value = mainEmail;
+}
+
+async function handleMagicLink() {
+  const email = document.getElementById('ml-email').value.trim();
+  if (!email) { toast('Please enter your email address'); return; }
+  const btn = document.getElementById('btn-magic');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  const { error } = await db.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.origin + window.location.pathname }
+  });
+  btn.disabled = false; btn.textContent = 'Send Magic Link';
+  if (error) { toast(error.message); return; }
+  document.getElementById('magic-section').style.display = 'none';
+  document.getElementById('magic-sent').style.display = '';
+}
+
+/* ── AUTH STATE ── */
+let appReady = false;
+
+db.auth.onAuthStateChange(async (event, session) => {
+  if (session?.user) {
+    if (appReady && event === 'TOKEN_REFRESHED') return;
+    currentUser = session.user;
+    showLoading(true);
+    try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }
+    appReady = true;
+    document.getElementById('bottom-nav').style.display = 'flex';
+
+    // Check if returning from Stripe payment
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('payment') === 'success') {
+      const returnedOrder = urlParams.get('order');
+      const returnedPlan  = urlParams.get('plan');
+      const returnedSetup = urlParams.get('setup');
+      history.replaceState({}, '', window.location.pathname); // clean URL
+      if (returnedSetup) {
+        // Card was saved — reload customer data so we have the new card info
+        try { await loadUserData(); } catch (_) {}
+        goTo('account');
+        setTimeout(() => toast('💳 Card saved successfully!'), 400);
+      } else if (returnedOrder) {
+        goTo('orders');
+        setTimeout(() => {
+          const banner = document.createElement('div');
+          banner.className = 'payment-success-banner';
+          banner.innerHTML = '✓ Payment received — your order is confirmed and being processed.';
+          document.getElementById('screen-orders')?.prepend(banner);
+        }, 300);
+      } else if (returnedPlan) {
+        goTo('account');
+        setTimeout(() => toast('Subscription activated! 🎉'), 400);
+      } else {
+        goTo('home');
+        setTimeout(() => toast('Payment successful! ✓'), 400);
+      }
+    } else {
+      goTo('home');
+    }
+    loadServices();
+  } else {
+    appReady = false;
+    currentUser = currentProfile = currentCustomer = null;
+    document.getElementById('bottom-nav').style.display = 'none';
+    showScreen('auth');
+  }
+});
+
+async function loadUserData() {
+  const [{ data: prof }, { data: cust }] = await Promise.all([
+    db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle(),
+    db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle()
+  ]);
+  currentProfile  = prof;
+  currentCustomer = cust;
+  if (!currentProfile) {
+    const m = currentUser.user_metadata || {};
+    const { error: pe } = await db.from('profiles').upsert({ id: currentUser.id, first_name: m.first_name || '', last_name: m.last_name || '', email: currentUser.email, phone: m.phone || '' }, { onConflict: 'id' });
+    if (pe) console.warn('Profile:', pe.message);
+    const { data } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
+    currentProfile = data;
+  }
+  if (!currentCustomer) {
+    await db.from('customers').insert({ profile_id: currentUser.id, is_active: true });
+    const { data } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
+    currentCustomer = data;
+  }
+}
+
+/* ── SERVICES ── */
+async function loadServices() {
+  const { data } = await db.from('services').select('*').eq('is_active', true).order('sort_order');
+  allServices = data || [];
+  // Default service = first active service (Wash & Fold)
+  defaultService = allServices[0] || null;
+}
+
+/* ── HOME ── */
+const STATUS_STEPS  = ['scheduled','ready_for_pickup','picked_up','processing','assembled','ready_for_delivery','out_for_delivery'];
+const STATUS_LABELS = {
+  scheduled:          'Scheduled',
+  ready_for_pickup:   'Ready for Pickup',
+  picked_up:          'Picked Up',
+  processing:         'Processing',
+  assembled:          'Assembled',
+  ready_for_delivery: 'Ready for Delivery',
+  out_for_delivery:   'Out for Delivery',
+  delivered:          'Delivered',
+  pickup_missed:      'Pickup Missed',
+  delivery_missed:    'Delivery Missed',
+  on_hold:            'On Hold',
+  cancelled:          'Cancelled',
+};
+const STEP_LABELS = ['Scheduled','Ready','Picked Up','Processing','Assembled','Ready','Delivery'];
+
+function buildStatusBadge(status) {
+  return `<div class="status-badge s-${status}"><div class="status-dot"></div>${STATUS_LABELS[status] || status}</div>`;
+}
+
+function buildProgressTrack(status) {
+  const idx = STATUS_STEPS.indexOf(status);
+  if (idx < 0) return '';
+  let html = '<div class="progress-wrap">';
+  STATUS_STEPS.forEach((s, i) => {
+    const done = i < idx, cur = i === idx;
+    if (i > 0) html += `<div class="p-line ${done || cur ? 'done' : ''}"></div>`;
+    html += `<div class="p-step ${done ? 'done' : cur ? 'current' : ''}"><div class="p-dot"></div><div class="p-label">${STEP_LABELS[i]}</div></div>`;
+  });
+  return html + '</div>';
+}
+
+async function loadHome() {
+  if (!currentProfile) return;
+  document.getElementById('home-greeting').textContent = `Hello, ${currentProfile.first_name || 'there'} 👋`;
+
+  // Show card-on-file nudge if no card saved
+  const cardPrompt = document.getElementById('home-card-prompt');
+  if (cardPrompt) cardPrompt.style.display = (currentCustomer && !currentCustomer.card_last4) ? '' : 'none';
+
+  if (!currentCustomer) { renderNoActive(); return; }
+  const { data: orders } = await db.from('orders')
+    .select('*, services(name)')
+    .eq('customer_id', currentCustomer.id)
+    .not('status', 'in', '(delivered,cancelled)')
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  const active = orders || [];
+  if (!active.length) { renderNoActive(); return; }
+  document.getElementById('home-active').innerHTML = buildActiveCard(active[0]);
+}
+
+function renderNoActive() {
+  document.getElementById('home-active').innerHTML = `<div class="nudge-card"><p>No active orders right now.<br>Use the button below to get started!</p></div>`;
+}
+
+function buildActiveCard(o) {
+  const svc = o.services?.name || '—';
+  const bags = o.total_bags || 1;
+  const recLabel = { weekly: '🔁 Weekly', biweekly: '🔁 Every 2 weeks', monthly: '🔁 Monthly' }[o.recurring_interval] || '';
+  return `<div class="active-order-card" onclick="openDetail('${o.id}')">
+    <div class="aoc-top">
+      <div><div class="aoc-num">#${o.order_number || '—'}</div><div class="aoc-svc">${svc}</div>
+      ${recLabel ? `<div style="font-size:11.5px;color:var(--accent);font-weight:600;margin-top:3px">${recLabel}</div>` : ''}
+      </div>
+      ${buildStatusBadge(o.status)}
+    </div>
+    ${buildProgressTrack(o.status)}
+    <div class="aoc-footer">
+      <div class="aoc-hint">${bags} bag${bags !== 1 ? 's' : ''} · Tap for details →</div>
+      <div class="aoc-total">${$m(o.total_amount)}</div>
+    </div>
+  </div>`;
+}
+
+/* ── NEW ORDER ── */
+const STEP_TITLES = ['Your Address','Pick a Day','Preferences','Bag Count','Confirm Order'];
+
+function startNewOrder() {
+  draft = { address: '', lat: null, lng: null, zoneId: null, bags: 1, pickupDate: null, recurring: 'weekly', prefs: {} };
+  orderStep = 0;
+  calMonth  = new Date();
+  // Reset address UI
+  const inp = document.getElementById('addr-input');
+  if (inp) inp.value = '';
+  const zr = document.getElementById('zone-result');
+  if (zr) { zr.style.display = 'none'; zr.className = 'zone-result'; zr.textContent = ''; }
+  const nextBtn = document.getElementById('btn-addr-next');
+  if (nextBtn) nextBtn.style.display = 'none';
+  // Reset freq pills
+  document.querySelectorAll('.freq-pill').forEach(p => {
+    p.classList.toggle('selected', p.dataset.val === 'weekly');
+  });
+  showScreen('new-order');
+  renderStep(0);
+}
+
+/* ── ADDRESS CHECK ── */
+async function checkAddress() {
+  const inp = document.getElementById('addr-input');
+  const btn = document.getElementById('addr-btn');
+  const zr  = document.getElementById('zone-result');
+  const addr = inp?.value.trim();
+  if (!addr) { toast('Enter your address first'); return; }
+
+  btn.disabled = true; btn.textContent = 'Checking…';
+  zr.style.display = 'none';
+
+  try {
+    // Geocode via Nominatim (free, no key needed)
+    const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1&countrycodes=us`;
+    const geoRes  = await fetch(geoUrl, { headers: { 'Accept-Language': 'en' } });
+    const geoData = await geoRes.json();
+
+    if (!geoData.length) {
+      zr.className  = 'zone-result zone-err';
+      zr.textContent = "We couldn't find that address. Try adding your city or zip code.";
+      zr.style.display = '';
+      document.getElementById('btn-addr-next').style.display = 'none';
+      return;
+    }
+
+    const lat = parseFloat(geoData[0].lat);
+    const lng = parseFloat(geoData[0].lon);
+
+    // Check zone via PostGIS RPC
+    const { data: zones } = await db.rpc('check_point_in_zone', { lat, lng });
+    const zone = zones?.[0];
+
+    if (!zone) {
+      zr.className  = 'zone-result zone-err';
+      zr.innerHTML  = "Sorry, we don't serve that area yet. <br><span style='font-size:13px;font-weight:400'>We're expanding — check back soon or call (510) 842-3560.</span>";
+      zr.style.display = '';
+      document.getElementById('btn-addr-next').style.display = 'none';
+    } else {
+      draft.address = geoData[0].display_name.split(',').slice(0,3).join(',');
+      draft.lat     = lat;
+      draft.lng     = lng;
+      draft.zoneId  = zone.zone_id;
+      zr.className  = 'zone-result zone-ok';
+      zr.innerHTML  = `✅ <strong>Great news — we serve your area!</strong><br><span style="font-size:13px;font-weight:400">${draft.address}</span>`;
+      zr.style.display = '';
+      document.getElementById('btn-addr-next').style.display = '';
+    }
+  } catch (err) {
+    zr.className  = 'zone-result zone-err';
+    zr.textContent = 'Address lookup failed. Please try again.';
+    zr.style.display = '';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Check →';
+  }
+}
+
+/* ── FREQUENCY ── */
+function selectFreq(val, btn) {
+  draft.recurring = val;
+  document.querySelectorAll('.freq-pill').forEach(p => p.classList.remove('selected'));
+  btn?.classList.add('selected');
+}
+
+/* ── PREFERENCES (order flow) ── */
+function renderOrderPrefs() {
+  const el = document.getElementById('order-pref-groups');
+  if (!el) return;
+  const prefs = defaultService?.preferences;
+  if (!prefs?.length) {
+    el.innerHTML = '<p style="color:var(--gray-400);font-size:14px;text-align:center;padding:20px 0">No preference options configured yet.</p>';
+    return;
+  }
+  el.innerHTML = prefs.map(group => {
+    return `<div class="order-pref-group">
+      <div class="order-pref-label">${group.name}</div>
+      <div class="order-pref-grid">
+        ${group.options.map(opt => {
+          const sel = draft.prefs[group.id]?.optId === opt.id;
+          return `<button class="order-pref-btn${sel?' selected':''}"
+            onclick="selectOrderPref('${group.id}','${opt.id}','${opt.label.replace(/'/g,"\\'")}',${opt.price_mod||0},this)">
+            ${opt.label}${opt.price_mod ? `<div style="font-size:11px;margin-top:2px;opacity:.7">${opt.price_mod>0?'+':''}\$${Math.abs(opt.price_mod).toFixed(2)}</div>` : ''}
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function selectOrderPref(groupId, optId, label, priceMod, btn) {
+  // Toggle — clicking same option deselects it
+  if (draft.prefs[groupId]?.optId === optId) {
+    delete draft.prefs[groupId];
+  } else {
+    draft.prefs[groupId] = { optId, label, priceMod };
+  }
+  renderOrderPrefs();
+}
+
+/* ── BAGS + ESTIMATE ── */
+function changeBags(delta) {
+  draft.bags = Math.max(1, Math.min(20, (draft.bags || 1) + delta));
+  document.getElementById('bags-display').textContent = draft.bags;
+  updateEstimate();
+}
+
+function updateEstimate() {
+  const svc        = defaultService;
+  const pricePerBag = parseFloat(svc?.base_price || 0);
+  const bags        = draft.bags;
+  const addonsTotal = Object.values(draft.prefs).reduce((s, p) => s + (p.priceMod || 0), 0);
+  const base        = pricePerBag * bags;
+  const total       = base + addonsTotal;
+
+  const amtEl  = document.getElementById('estimate-amount');
+  const noteEl = document.getElementById('estimate-note');
+  if (amtEl)  amtEl.textContent  = $m(total);
+  if (noteEl) noteEl.textContent =
+    `${bags} bag${bags!==1?'s':''} × ${$m(pricePerBag)}/bag${addonsTotal ? ' + add-ons' : ''} · Overages billed at pickup`;
+}
+
+/* ── STEP NAVIGATION ── */
+function goOrderStep(step) {
+  if (step === 1 && !draft.zoneId)    { toast('Please check your address first'); return; }
+  if (step === 2 && !draft.pickupDate){ toast('Please choose a pickup day');      return; }
+  if (step === 3) renderOrderPrefs();
+  if (step === 4) { buildConfirmSummary(); renderConfirmAuth(); }
+  orderStep = step;
+  renderStep(step);
+}
+
+function renderStep(step) {
+  [0,1,2,3,4].forEach(i => {
+    const el = document.getElementById(`o-step-${i}`);
+    if (el) el.style.display = i === step ? '' : 'none';
+    const dot = document.getElementById(`sd${i}`);
+    if (dot) dot.classList.toggle('active', i <= step);
+  });
+  document.getElementById('order-title').textContent = STEP_TITLES[step];
+  if (step === 1) {
+    document.getElementById('bags-display').textContent = draft.bags;
+    buildCalendar();
+  }
+  if (step === 3) {
+    document.getElementById('bags-display').textContent = draft.bags;
+    updateEstimate();
+  }
+}
+
+function buildCalendar() {
+  const year  = calMonth.getFullYear();
+  const month = calMonth.getMonth();
+  const monthName = calMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  document.getElementById('cal-month-title').textContent = monthName;
+
+  // Earliest selectable date = tomorrow
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+  const minStr = tomorrow.toISOString().split('T')[0];
+
+  const firstDayOfWeek = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth    = new Date(year, month + 1, 0).getDate();
+
+  let html = '<div class="cal-dow">Su</div><div class="cal-dow">Mo</div><div class="cal-dow">Tu</div><div class="cal-dow">We</div><div class="cal-dow">Th</div><div class="cal-dow">Fr</div><div class="cal-dow">Sa</div>';
+  for (let i = 0; i < firstDayOfWeek; i++) html += '<div class="cal-day empty"></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso  = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const past = iso < minStr;
+    const sel  = draft.pickupDate === iso;
+    html += `<div class="cal-day${past?' past':''}${sel?' selected':''}" ${past?'':'onclick="selectDay(\''+iso+'\')"'}>${d}</div>`;
+  }
+  document.getElementById('cal-grid').innerHTML = html;
+
+  const labelEl = document.getElementById('cal-selected-label');
+  if (draft.pickupDate) {
+    const d = new Date(draft.pickupDate + 'T12:00:00');
+    labelEl.textContent = '✓ Pickup: ' + d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+  } else {
+    labelEl.textContent = '';
+  }
+}
+
+function shiftMonth(delta) {
+  calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + delta, 1);
+  buildCalendar();
+}
+
+function selectDay(iso) {
+  draft.pickupDate = iso;
+  buildCalendar();
+}
+
+function buildConfirmSummary() {
+  const svc     = defaultService;
+  const bags    = draft.bags;
+  const addonsTotal = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
+  const total   = Math.round(((svc?.base_price||0)*bags + addonsTotal)*100)/100;
+
+  const pickup   = new Date(draft.pickupDate + 'T12:00:00');
+  const delivery = new Date(pickup); delivery.setDate(pickup.getDate() + 1);
+  const fmt = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  const freqLabels = { weekly:'Every week 🔁', biweekly:'Every 2 weeks 🔁', monthly:'Every month 🔁' };
+  const freqLabel  = freqLabels[draft.recurring] || 'One-time pickup';
+
+  const addonRows = Object.values(draft.prefs).map(p =>
+    `<div class="confirm-row"><span class="confirm-key">${p.label}</span><span class="confirm-val">+${$m(p.priceMod)}</span></div>`
+  ).join('');
+
+  document.getElementById('confirm-summary').innerHTML = `
+    <div class="confirm-row"><span class="confirm-key">Address</span><span class="confirm-val" style="font-size:12px">${draft.address||'—'}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Pickup</span><span class="confirm-val">${fmt(pickup)}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Delivery</span><span class="confirm-val">${fmt(delivery)}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Frequency</span><span class="confirm-val">${freqLabel}</span></div>
+    <div class="confirm-row"><span class="confirm-key">Bags</span><span class="confirm-val">${bags} bag${bags!==1?'s':''}</span></div>
+    ${addonRows}
+    <div class="confirm-row"><span class="confirm-key" style="font-weight:700">Estimated Total</span><span class="confirm-val confirm-total">${$m(total)}</span></div>`;
+}
+
+function renderConfirmAuth() {
+  const authSection = document.getElementById('confirm-auth-section');
+  if (!authSection) return;
+  authSection.style.display = currentCustomer ? 'none' : '';
+  const btn = document.getElementById('btn-place');
+  if (btn) btn.textContent = currentCustomer ? 'Place Order' : 'Create Account & Place Order';
+}
+
+function handleOrderBack() {
+  if (orderStep > 0) goOrderStep(orderStep - 1);
+  else goTo('home');
+}
+
+async function placeOrder() {
+  const btn    = document.getElementById('btn-place');
+  const errEl  = document.getElementById('confirm-err');
+  if (errEl) errEl.classList.remove('show');
+
+  // If not logged in, create account first
+  if (!currentCustomer) {
+    const first = document.getElementById('c-first')?.value.trim();
+    const last  = document.getElementById('c-last')?.value.trim();
+    const phone = document.getElementById('c-phone')?.value.trim();
+    const email = document.getElementById('c-email')?.value.trim();
+    const pass  = document.getElementById('c-pass')?.value;
+    if (!first || !email || !pass || !phone) {
+      if (errEl) { errEl.textContent = 'Please fill in all fields.'; errEl.classList.add('show'); }
+      return;
+    }
+    btn.disabled = true; btn.textContent = 'Creating account…';
+    const { data: authData, error: authErr } = await db.auth.signUp({
+      email, password: pass, options: { data: { first_name: first, last_name: last, phone } }
+    });
+    if (authErr) {
+      btn.disabled = false; btn.textContent = 'Create Account & Place Order';
+      if (errEl) { errEl.textContent = authErr.message; errEl.classList.add('show'); }
+      return;
+    }
+    if (authData.user) await ensureProfile(authData.user, first, last, email, phone);
+  }
+
+  if (!currentCustomer) { toast('Account error — please try again'); btn.disabled = false; return; }
+
+  btn.disabled = true; btn.textContent = 'Placing order…';
+
+  const svc   = defaultService;
+  const bags  = draft.bags;
+  const addonsTotal = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0),0);
+  const total = Math.round(((svc?.base_price||0)*bags + addonsTotal)*100)/100;
+
+  const pickupDate   = draft.pickupDate;
+  const deliveryDate = (() => { const d = new Date(pickupDate+'T12:00:00'); d.setDate(d.getDate()+1); return d.toISOString().split('T')[0]; })();
+
+  // Build line_items from prefs
+  const lineItems = [
+    { type:'base', label:`${bags} bag${bags!==1?'s':''} × ${$m(svc?.base_price||0)}`, amount:(svc?.base_price||0)*bags },
+    ...Object.values(draft.prefs).filter(p=>p.priceMod).map(p=>({ type:'addon', label:p.label, amount:p.priceMod }))
+  ];
+
+  const { data: order, error } = await db.from('orders').insert({
+    customer_id:        currentCustomer.id,
+    service_id:         svc?.id || null,
+    status:             'scheduled',
+    total_bags:         bags,
+    total_amount:       total,
+    pickup_date:        pickupDate,
+    delivery_date:      deliveryDate,
+    recurring_interval: draft.recurring || null,
+    line_items:         lineItems,
+    special_instructions: draft.address || null,
+    order_number:       Math.floor(1000 + Math.random() * 9000)
+  }).select().single();
+
+  btn.disabled = false; btn.textContent = currentCustomer ? 'Place Order' : 'Create Account & Place Order';
+  if (error) { toast('Error: ' + error.message); return; }
+
+  // Update customer stats
+  await db.from('customers').update({
+    total_orders:  (currentCustomer.total_orders||0)+1,
+    total_bags:    (currentCustomer.total_bags||0)+bags,
+    last_order_at: new Date().toISOString()
+  }).eq('id', currentCustomer.id);
+  currentCustomer.total_orders = (currentCustomer.total_orders||0)+1;
+  currentCustomer.total_bags   = (currentCustomer.total_bags||0)+bags;
+
+  // Fire order confirmed SMS (best-effort, don't block)
+  fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
+    body: JSON.stringify({ orderId: order.id, event: 'confirmed' })
+  }).catch(() => {});
+
+  // Success screen
+  const pickupFmt = new Date(pickupDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+  document.getElementById('success-info').textContent = `First pickup: ${pickupFmt}`;
+  const recurLabels = { weekly:'Every week', biweekly:'Every 2 weeks', monthly:'Every month' };
+  document.getElementById('success-recur-wrap').innerHTML = draft.recurring
+    ? `<div class="success-recur">🔁 ${recurLabels[draft.recurring]} · Auto-scheduled</div>`
+    : '<div style="height:20px"></div>';
+  showScreen('success');
+}
+
+function afterSuccess() {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('nav-home').classList.add('active');
+  showScreen('home');
+  loadHome();
+}
+
+/* ── ORDERS LIST ── */
+const PAST_STATUSES = ['delivered', 'cancelled'];
+
+function switchOrderTab(tab) {
+  ordersTab = tab;
+  document.getElementById('otab-current').classList.toggle('active', tab === 'current');
+  document.getElementById('otab-past').classList.toggle('active', tab === 'past');
+  renderOrdersList(window._cachedOrders || []);
+}
+
+function renderOrdersList(orders) {
+  const el = document.getElementById('orders-list');
+  const isPast  = ordersTab === 'past';
+  const filtered = orders.filter(o => isPast ? PAST_STATUSES.includes(o.status) : !PAST_STATUSES.includes(o.status));
+  const RLABELS  = { weekly:'🔁 Weekly', biweekly:'🔁 Every 2 weeks', monthly:'🔁 Monthly' };
+
+  if (!filtered.length) {
+    const msg = isPast
+      ? 'No completed orders yet.'
+      : 'No active orders right now.';
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🧺</div><div class="empty-title">${msg}</div>${!isPast ? `<div class="empty-sub">Ready for your first pickup?</div><button class="nudge-btn" onclick="goTo('new-order')">Schedule Pickup</button>` : ''}</div>`;
+    return;
+  }
+
+  el.innerHTML = filtered.map(o => `
+    <div class="order-item" onclick="openDetail('${o.id}')">
+      <div class="oi-top"><span class="oi-num">#${o.order_number || '—'}</span><span class="oi-date">${fmtDate(o.created_at)}</span></div>
+      <div class="oi-svc">${o.services?.name || '—'} · ${o.total_bags || 1} bag${(o.total_bags || 1) !== 1 ? 's' : ''}</div>
+      ${o.recurring_interval ? `<div class="oi-recur">${RLABELS[o.recurring_interval] || ''}</div>` : ''}
+      <div class="oi-bottom">${buildStatusBadge(o.status)}<div class="oi-total">${o.total_amount ? $m(o.total_amount) : 'TBD'}</div></div>
+    </div>`).join('');
+}
+
+async function loadOrders() {
+  if (!currentCustomer) return;
+  const el = document.getElementById('orders-list');
+  el.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+
+  const { data } = await db.from('orders')
+    .select('*, services(name)')
+    .eq('customer_id', currentCustomer.id)
+    .order('created_at', { ascending: false });
+
+  window._cachedOrders = data || [];
+  // Reset to current tab when loading fresh
+  ordersTab = 'current';
+  document.getElementById('otab-current').classList.add('active');
+  document.getElementById('otab-past').classList.remove('active');
+  renderOrdersList(window._cachedOrders);
+}
+
+/* ── ORDER DETAIL ── */
+async function openDetail(orderId) {
+  showScreen('detail');
+  const { data: o } = await db.from('orders').select('*, services(name)').eq('id', orderId).single();
+  if (!o) { toast('Order not found'); return; }
+
+  document.getElementById('d-num').textContent  = '#' + (o.order_number || '—');
+  document.getElementById('d-svc').textContent  = o.services?.name || '—';
+  document.getElementById('d-date').textContent = 'Placed ' + fmtDate(o.created_at);
+  document.getElementById('d-badge').innerHTML  = buildStatusBadge(o.status);
+  document.getElementById('d-track').innerHTML  = (o.status === 'delivered' || o.status === 'cancelled') ? '' : buildProgressTrack(o.status);
+
+  const bags = o.total_bags || 1;
+  const RLABELS = { weekly:'Every Week', biweekly:'Every 2 Weeks', monthly:'Every Month' };
+  document.getElementById('d-rows').innerHTML = `
+    <div class="d-row"><span class="d-key">Service</span><span class="d-val">${o.services?.name || '—'}</span></div>
+    <div class="d-row"><span class="d-key">Bags</span><span class="d-val">${bags} bag${bags !== 1 ? 's' : ''}</span></div>
+    <div class="d-row"><span class="d-key">Schedule</span><span class="d-val">${o.recurring_interval ? '🔁 ' + RLABELS[o.recurring_interval] : 'One-time'}</span></div>
+    <div class="d-row"><span class="d-key">Pickup Date</span><span class="d-val">${fmtDate(o.pickup_date)}</span></div>
+    <div class="d-row"><span class="d-key">Delivery Date</span><span class="d-val">${fmtDate(o.delivery_date)}</span></div>
+    ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${o.special_instructions}</span></div>` : ''}
+    <div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${o.total_amount ? $m(o.total_amount) : 'Confirmed at pickup'}</span></div>`;
+
+  // Payment status
+  const payEl = document.getElementById('d-pay-section');
+  if (o.stripe_payment_intent_id) {
+    payEl.innerHTML = `<div class="payment-paid">✓ Payment received</div>`;
+  } else if (o.status === 'cancelled') {
+    payEl.innerHTML = '';
+  } else {
+    payEl.innerHTML = `<div class="charged-after">💳 Charged automatically after delivery</div>`;
+  }
+}
+
+/* ── STRIPE PAYMENT ── */
+async function startOrderPayment(orderId) {
+  const btn = document.querySelector('.pay-now-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        type: 'order',
+        orderId,
+        userId: currentUser.id,
+        successUrl: window.location.origin + window.location.pathname,
+        cancelUrl:  window.location.origin + window.location.pathname,
+      }),
+    });
+    const { url, error } = await res.json();
+    if (error) throw new Error(error);
+    window.location.href = url;
+  } catch (e) {
+    toast('Payment error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '💳 Pay Now'; }
+  }
+}
+
+async function startSubscription(planId) {
+  const btn = document.querySelector(`[data-plan-id="${planId}"] .plan-select-btn`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        type: 'subscription',
+        planId,
+        userId: currentUser.id,
+        successUrl: window.location.origin + window.location.pathname,
+        cancelUrl:  window.location.origin + window.location.pathname,
+      }),
+    });
+    const { url, error } = await res.json();
+    if (error) throw new Error(error);
+    window.location.href = url;
+  } catch (e) {
+    toast('Subscription error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Choose Plan'; }
+  }
+}
+
+/* ── CARD MANAGEMENT ── */
+async function startCardSetup() {
+  const btn = document.getElementById('btn-add-card') || document.querySelector('.cpb-add');
+  if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        type: 'setup',
+        userId: currentUser.id,
+        successUrl: window.location.origin + window.location.pathname,
+        cancelUrl:  window.location.origin + window.location.pathname,
+      }),
+    });
+    const { url, error } = await res.json();
+    if (error) throw new Error(error);
+    window.location.href = url;
+  } catch (e) {
+    toast('Error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '+ Add Card'; }
+  }
+}
+
+async function removeCard() {
+  if (!currentCustomer) return;
+  if (!confirm('Remove your saved card? You can add a new one any time.')) return;
+  const { error } = await db.from('customers').update({
+    stripe_default_payment_method_id: null,
+    card_last4:      null,
+    card_brand:      null,
+    card_exp_month:  null,
+    card_exp_year:   null,
+  }).eq('id', currentCustomer.id);
+  if (error) { toast('Error removing card'); return; }
+  currentCustomer.stripe_default_payment_method_id = null;
+  currentCustomer.card_last4 = currentCustomer.card_brand = currentCustomer.card_exp_month = currentCustomer.card_exp_year = null;
+  renderPaymentSection();
+  const cardPrompt = document.getElementById('home-card-prompt');
+  if (cardPrompt) cardPrompt.style.display = '';
+  toast('Card removed');
+}
+
+function renderPaymentSection() {
+  const el = document.getElementById('payment-method-section');
+  if (!el) return;
+  const c = currentCustomer;
+  if (c?.card_last4) {
+    const brand = (c.card_brand || 'card').charAt(0).toUpperCase() + (c.card_brand || 'card').slice(1);
+    const exp   = `${String(c.card_exp_month).padStart(2,'0')}/${String(c.card_exp_year).slice(-2)}`;
+    el.innerHTML = `
+      <div class="card-section">
+        <div class="pref-title" style="padding-top:18px">Payment Method</div>
+        <div class="card-box">
+          <div class="card-left">
+            <div class="card-chip">${brand}</div>
+            <div>
+              <div class="card-info">•••• •••• •••• ${c.card_last4}</div>
+              <div class="card-sub">Expires ${exp}</div>
+            </div>
+          </div>
+        </div>
+        <div class="card-actions">
+          <button class="card-btn" id="btn-add-card" onclick="startCardSetup()">Replace Card</button>
+          <button class="card-btn danger" onclick="removeCard()">Remove</button>
+        </div>
+      </div>`;
+  } else {
+    el.innerHTML = `
+      <div class="card-section">
+        <div class="pref-title" style="padding-top:18px">Payment Method</div>
+        <div class="no-card-box">
+          <p>No card on file. Add one and we'll charge you automatically after each order.</p>
+          <button class="card-btn" id="btn-add-card" onclick="startCardSetup()" style="background:var(--navy);color:white;border-color:var(--navy);margin-top:2px">+ Add Card</button>
+        </div>
+      </div>`;
+  }
+}
+
+/* ── ACCOUNT ── */
+const PLANS = [
+  {
+    key: 'paygo', name: 'Pay As You Go', price: 'No monthly fee',
+    perks: ['Standard per-order pricing', 'No commitment', 'Full service access'],
+    dotColor: '#94a3b8'
+  },
+  {
+    key: 'standard', name: 'Standard', price: '$39', period: '/month',
+    perks: ['Up to 6 bags/month included', '10% off additional bags', 'Priority scheduling'],
+    dotColor: '#2a6fc9', popular: true
+  },
+  {
+    key: 'premium', name: 'Premium', price: '$69', period: '/month',
+    perks: ['Up to 12 bags/month included', '15% off additional bags', 'Priority pickup & delivery', 'Free express turnaround'],
+    dotColor: '#f59e0b'
+  }
+];
+
+async function loadAccount() {
+  if (!currentProfile) return;
+  const first = currentProfile.first_name || '';
+  const last  = currentProfile.last_name  || '';
+  document.getElementById('acct-avatar').textContent = (first[0] || '?').toUpperCase();
+  document.getElementById('acct-name').textContent   = `${first} ${last}`.trim() || 'You';
+  document.getElementById('acct-email').textContent  = currentProfile.email || currentUser?.email || '';
+
+  // Load plans from DB
+  const { data: plans } = await db.from('subscription_plans')
+    .select('*').eq('is_active', true).order('price_monthly');
+  if (plans?.length) dbPlans = plans;
+
+  // Active plan
+  const activePlanId = currentCustomer?.subscription_plan_id;
+  const activePlan = dbPlans.find(p => p.id === activePlanId);
+  const dotColor = activePlan?.price_monthly > 39 ? '#f59e0b' : activePlan?.price_monthly > 0 ? '#2a6fc9' : '#94a3b8';
+  document.getElementById('acct-plan-badge').innerHTML = `
+    <div class="plan-badge" style="margin-top:12px">
+      <div class="plan-dot" style="background:${dotColor}"></div>
+      ${activePlan?.name || 'Pay As You Go'} Plan
+    </div>`;
+
+  // Preferences
+  const prefs = currentCustomer?.preferences || {};
+  document.getElementById('pref-detergent').value  = prefs.detergent  || 'regular';
+  document.getElementById('pref-water-temp').value = prefs.water_temp || 'cold';
+  document.getElementById('pref-dryer-heat').value = prefs.dryer_heat || 'medium';
+  document.getElementById('pref-softener').checked  = prefs.softener  !== false;
+  document.getElementById('pref-hang-dry').checked  = prefs.hang_dry  === true;
+  document.getElementById('pref-no-bleach').checked = prefs.no_bleach === true;
+
+  // Plan cards
+  renderPlanCards(activePlanId);
+
+  // Payment method card
+  renderPaymentSection();
+}
+
+function renderPlanCards(activePlanId) {
+  // Use DB plans if loaded, otherwise fall back to hardcoded
+  const source = dbPlans.length ? dbPlans : PLANS.map(p => ({
+    id: p.key, name: p.name,
+    price_monthly: p.key === 'paygo' ? 0 : p.key === 'standard' ? 39 : 69,
+    features: p.perks, description: ''
+  }));
+
+  document.getElementById('plan-cards').innerHTML = source.map(p => {
+    const isCurrent = p.id === activePlanId;
+    const isFree    = Number(p.price_monthly) === 0;
+    const isPopular = Number(p.price_monthly) === 39;
+    const dotColor  = Number(p.price_monthly) > 39 ? '#f59e0b' : Number(p.price_monthly) > 0 ? '#2a6fc9' : '#94a3b8';
+    const priceDisplay = isFree
+      ? '<div class="plan-price">Free<span> · pay per order</span></div>'
+      : `<div class="plan-price">$${Number(p.price_monthly).toFixed(0)}<span>/month</span></div>`;
+    const perks = Array.isArray(p.features)
+      ? p.features.map(f => `<li>${f}</li>`).join('')
+      : '';
+
+    return `
+    <div class="plan-card ${isCurrent ? 'current' : ''} ${isPopular ? 'popular' : ''}" data-plan-id="${p.id}">
+      ${isPopular ? '<div class="popular-tag">Most Popular</div>' : ''}
+      <div class="plan-name" style="color:${dotColor}">${p.name}</div>
+      ${priceDisplay}
+      <ul class="plan-perks">${perks}</ul>
+      <button class="plan-select-btn" onclick="selectPlan('${p.id}', ${isFree})" ${isCurrent ? 'disabled' : ''}>
+        ${isCurrent ? '✓ Current Plan' : isFree ? 'Switch to Pay As You Go' : 'Subscribe — $' + Number(p.price_monthly).toFixed(0) + '/mo'}
+      </button>
+    </div>`;
+  }).join('');
+}
+
+async function selectPlan(planId, isFree) {
+  if (!currentCustomer) return;
+  if (planId === currentCustomer.subscription_plan_id) {
+    toast('You\'re already on this plan'); return;
+  }
+  // Free / pay-as-you-go: just update the DB, no Stripe needed
+  if (isFree) {
+    const { error } = await db.from('customers')
+      .update({ subscription_plan_id: null, subscription_plan: 'paygo' })
+      .eq('id', currentCustomer.id);
+    if (error) { toast('Error updating plan'); return; }
+    currentCustomer.subscription_plan_id = null;
+    renderPlanCards(null);
+    toast('Switched to Pay As You Go');
+    return;
+  }
+  // Paid plan: redirect to Stripe Checkout
+  await startSubscription(planId);
+}
+
+async function savePreferences() {
+  if (!currentCustomer) return;
+  const prefs = {
+    detergent:  document.getElementById('pref-detergent').value,
+    water_temp: document.getElementById('pref-water-temp').value,
+    dryer_heat: document.getElementById('pref-dryer-heat').value,
+    softener:   document.getElementById('pref-softener').checked,
+    hang_dry:   document.getElementById('pref-hang-dry').checked,
+    no_bleach:  document.getElementById('pref-no-bleach').checked
+  };
+  const { error } = await db.from('customers').update({ preferences: prefs }).eq('id', currentCustomer.id);
+  if (error) { toast('Error saving preferences'); return; }
+  currentCustomer.preferences = prefs;
+  toast('Preferences saved ✓');
+}
+
+/* ── EXPOSE EVENT HANDLERS TO GLOBAL SCOPE ── */
+// Belt-and-suspenders: explicitly attach all functions called from HTML attributes
+window.switchTab         = switchTab;
+window.handleLogin       = handleLogin;
+window.handleSignup      = handleSignup;
+window.handleSignOut     = handleSignOut;
+window.showMagicLink     = showMagicLink;
+window.handleMagicLink   = handleMagicLink;
+window.goTo              = goTo;
+window.startNewOrder     = startNewOrder;
+window.selectService     = selectService;
+window.changeBags        = changeBags;
+window.selectFreq        = selectFreq;
+window.goOrderStep       = goOrderStep;
+window.switchOrderTab    = switchOrderTab;
+window.handleOrderBack   = handleOrderBack;
+window.shiftMonth        = shiftMonth;
+window.selectDay         = selectDay;
+window.placeOrder        = placeOrder;
+window.afterSuccess      = afterSuccess;
+window.openDetail        = openDetail;
+window.startOrderPayment = startOrderPayment;
+window.startSubscription = startSubscription;
+window.startCardSetup    = startCardSetup;
+window.removeCard        = removeCard;
+window.selectPlan        = selectPlan;
+window.savePreferences   = savePreferences;
+</script>
+</body>
+</html>
