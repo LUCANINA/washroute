@@ -3471,6 +3471,37 @@ async function placeOrder() {
   }
 
   const pw = draft.pickupWindow;
+
+  // Resolve the effective delivery window:
+  // - For same-day orders: use draft.deliveryWindow first, then fall back to
+  //   _sameDayWindows[0]. NEVER fall back to pw (the pickup window) — that would
+  //   produce an impossible same-time delivery.
+  // - For standard orders: use draft.deliveryWindow (custom), or null (no explicit window).
+  const _effectiveDW = draft.isSameDay
+    ? (draft.deliveryWindow || (draft._sameDayWindows.length ? draft._sameDayWindows[0] : null))
+    : (draft.deliveryWindow || null);
+
+  // Turnaround guard: if this is a same-day order and we still can't find a valid
+  // delivery window that's after pickup end, block the submission.
+  if (draft.isSameDay && pw && _effectiveDW) {
+    const pickupEndMs  = new Date(pw.slotEnd).getTime();
+    const delivStartMs = new Date(
+      `${deliveryDate}T${String(Math.floor(_effectiveDW.startMins/60)).padStart(2,'0')}:${String(_effectiveDW.startMins%60).padStart(2,'0')}:00`
+    ).getTime();
+    if (delivStartMs <= pickupEndMs) {
+      btn.disabled = false; btn.textContent = 'Place Order';
+      toast('Delivery time must be after your pickup window. Please go back and update your schedule.', 'error');
+      return;
+    }
+  }
+  // Hard stop: no same-day delivery window available at all
+  if (draft.isSameDay && !_effectiveDW) {
+    btn.disabled = false; btn.textContent = 'Place Order';
+    toast('Same-day delivery is not available for this pickup window. Please choose a different pickup time.', 'error');
+    return;
+  }
+
+  const pad2 = n => String(n).padStart(2,'0');
   const { data: order, error } = await db.from('orders').insert({
     customer_id:          currentCustomer.id,
     service_id:           svc?.id || null,
@@ -3481,18 +3512,16 @@ async function placeOrder() {
     pickup_window_end:    pw?.slotEnd   || null,
     delivery_window_start: (() => {
       if (!deliveryDate) return null;
-      const dw = draft.deliveryWindow || pw; // custom or same as pickup
+      const dw = _effectiveDW || pw; // _effectiveDW is null only for standard orders with no custom window
       if (dw?.startMins !== undefined) {
-        const pad2 = n => String(n).padStart(2,'0');
         return new Date(`${deliveryDate}T${pad2(Math.floor(dw.startMins/60))}:${pad2(dw.startMins%60)}:00`).toISOString();
       }
       return new Date(deliveryDate + 'T08:00:00').toISOString();
     })(),
     delivery_window_end: (() => {
       if (!deliveryDate) return null;
-      const dw = draft.deliveryWindow || pw;
+      const dw = _effectiveDW || pw;
       if (dw?.endMins !== undefined) {
-        const pad2 = n => String(n).padStart(2,'0');
         return new Date(`${deliveryDate}T${pad2(Math.floor(dw.endMins/60))}:${pad2(dw.endMins%60)}:00`).toISOString();
       }
       return new Date(deliveryDate + 'T18:00:00').toISOString();
@@ -3544,14 +3573,15 @@ async function placeOrder() {
   const _emailAddr = currentCustomer.email_cache;
   if (_emailAddr) {
     const _fmtD = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
-    const _pickupLine = pw?.label ? `${_fmtD(pickupDate)} · ${pw.label}` : _fmtD(pickupDate);
+    const _pickupLine   = pw?.label          ? `${_fmtD(pickupDate)}   · ${pw.label}`           : _fmtD(pickupDate);
+    const _deliveryLine = _effectiveDW?.label ? `${_fmtD(deliveryDate)} · ${_effectiveDW.label}` : _fmtD(deliveryDate);
     const _recurLabel = draft.recurring ? ({weekly:'Every week',biweekly:'Every 2 weeks',monthly:'Every month'})[draft.recurring] : null;
     const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const _rows = [
       ['Order','#'+order.order_number],
       ['Bags', bags + ' bag' + (bags!==1?'s':'')],
       ['Pickup', _pickupLine],
-      ['Est. Delivery', _fmtD(deliveryDate)],
+      ['Est. Delivery', _deliveryLine],
       _recurLabel ? ['Recurring', _recurLabel] : null,
       ['Est. Total', '$'+total.toFixed(2)]
     ].filter(Boolean);
