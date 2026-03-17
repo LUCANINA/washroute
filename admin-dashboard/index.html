@@ -11952,6 +11952,21 @@ ${totalLinesXml}
     (overrides||[]).forEach(o => { overMap[`${o.template_id}-${o.day_of_week}-${o.driver_type}`] = o.driver_id; });
     const driverMap = Object.fromEntries(allDriversCache.map(d => [d.id, d.name]));
 
+    // Compute week dates early so we can fetch actual route records for the whole week
+    const weekDates = getWeekDates(schedWeekOffset);
+    schedWeekDates = weekDates;
+    const weekStartStr = weekDates[0].toISOString().split('T')[0];
+    const weekEndStr   = weekDates[6].toISOString().split('T')[0];
+
+    // Fetch actual route records — past/today cells show the real driver, not the current schedule
+    const { data: weekRouteRows } = await db.from('routes')
+      .select('template_id, run_date, driver_id')
+      .gte('run_date', weekStartStr)
+      .lte('run_date', weekEndStr)
+      .in('template_id', allTemplates.map(t => t.id));
+    const routeRecordMap = {}; // `${template_id}-${run_date}` → driver_id
+    (weekRouteRows || []).forEach(r => { routeRecordMap[`${r.template_id}-${r.run_date}`] = r.driver_id; });
+
     const editSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="9" height="9" style="flex-shrink:0"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
 
     // ── Pre-fetch today's stop counts for in-progress / complete badges ──
@@ -11997,25 +12012,51 @@ ${totalLinesXml}
       return m ? `${h12}:${String(m).padStart(2,'0')}${ap}` : `${h12}${ap}`;
     }
 
-    // Build a driver chip for a given template + day (route name shown separately in its own column)
-    const makeChip = (t, day) => {
+    // Build a driver chip for a given template + day + date
+    const makeChip = (t, day, date) => {
       const runs = (t.schedule_days||[]).includes(day);
       if (!runs) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
-      const drvId = overMap[`${t.id}-${day}-pickup`] || null;
-      const drvName = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
+
+      const dateStr = date.toISOString().split('T')[0];
+      const todayDateStr = new Date().toISOString().split('T')[0];
+      const isPast   = dateStr < todayDateStr;
+      const isToday  = dateStr === todayDateStr;
+
+      // Past/today: show the actual driver from the route record so that editing the
+      // recurring schedule doesn't retroactively change historical display.
+      const recKey   = `${t.id}-${dateStr}`;
+      const hasRecord = recKey in routeRecordMap;
+      const drvId    = (isPast || isToday) && hasRecord
+        ? routeRecordMap[recKey]
+        : (overMap[`${t.id}-${day}-pickup`] || null);
+      const drvName  = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
       const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
       const fg = drvId ? 'white' : '#9ca3af';
 
-      const isToday = schedWeekOffset === 0 && day === (new Date().getDay() + 6) % 7;
+      // Status badge (today only)
       let statusBadgeHtml = '';
-      if (isToday && todayStopStatus[t.id]) {
-        const sc = todayStopStatus[t.id];
-        if (sc.total > 0 && sc.done === sc.total) {
+      const sc = isToday ? (todayStopStatus[t.id] || null) : null;
+      const isComplete = sc && sc.total > 0 && sc.done === sc.total;
+      if (sc) {
+        if (isComplete) {
           statusBadgeHtml = `<span title="Route complete" style="font-size:10px;line-height:1;opacity:.9;">🔒</span>`;
         } else if (sc.done > 0) {
           statusBadgeHtml = `<span title="${sc.done} of ${sc.total} stops done" style="width:7px;height:7px;border-radius:50%;background:#fbbf24;display:inline-block;flex-shrink:0;box-shadow:0 0 0 2px rgba(251,191,36,.4);"></span>`;
         }
+      }
+
+      // Lock past days and completed-today routes — no onclick, show 🔒
+      const isLocked = isPast || isComplete;
+      if (isLocked) {
+        const badge = isPast
+          ? `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`
+          : statusBadgeHtml;
+        return `<div class="sched-cell"
+          style="background:${bg};color:${fg};padding:4px 10px;display:inline-flex;align-items:center;gap:5px;opacity:${isPast?'0.45':'1'};cursor:default;"
+          title="${t.name} · ${drvName} (locked)">
+          ${badge}${drvFirst}
+        </div>`;
       }
 
       return `<div class="sched-cell"
@@ -12043,9 +12084,7 @@ ${totalLinesXml}
       band.routes.push(t);
     });
 
-    // Compute week dates and update label
-    const weekDates = getWeekDates(schedWeekOffset);
-    schedWeekDates = weekDates;
+    // weekDates + schedWeekDates already set above; just build display helpers here
     const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
     const todayStr = todayMidnight.toDateString();
     const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -12085,7 +12124,7 @@ ${totalLinesXml}
             </td>
             ${[0,1,2,3,4,5,6].map(day => `
               <td style="text-align:center;vertical-align:middle;padding:5px 4px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
-                ${makeChip(t, day)}
+                ${makeChip(t, day, weekDates[day])}
               </td>`).join('')}
           </tr>`;
         }).join('');
@@ -12112,6 +12151,21 @@ ${totalLinesXml}
     const overMap = {};
     (overrides||[]).forEach(o => { overMap[`${o.template_id}-${o.day_of_week}-${o.driver_type}`] = o.driver_id; });
     const driverMap = Object.fromEntries(allDriversCache.map(d => [d.id, d.name]));
+
+    // Compute week dates early so we can fetch actual route records for the whole week
+    const weekDates = getWeekDates(schedWeekOffset);
+    schedWeekDates = weekDates;
+    const weekStartStr = weekDates[0].toISOString().split('T')[0];
+    const weekEndStr   = weekDates[6].toISOString().split('T')[0];
+
+    // Fetch actual route records — past/today cells show the real driver, not the current schedule
+    const { data: weekRouteRows } = await db.from('routes')
+      .select('template_id, run_date, driver_id')
+      .gte('run_date', weekStartStr)
+      .lte('run_date', weekEndStr)
+      .in('template_id', allTemplates.map(t => t.id));
+    const routeRecordMap = {}; // `${template_id}-${run_date}` → driver_id
+    (weekRouteRows || []).forEach(r => { routeRecordMap[`${r.template_id}-${r.run_date}`] = r.driver_id; });
 
     // ── Pre-fetch today's stop counts so grid cells can show in-progress / complete badges ──
     // Only fetch when viewing the current week (schedWeekOffset === 0).
@@ -12157,27 +12211,50 @@ ${totalLinesXml}
       return m ? `${h12}:${String(m).padStart(2,'0')}${ap}` : `${h12}${ap}`;
     }
 
-    const makeChip = (t, day) => {
+    const makeChip = (t, day, date) => {
       const runs = (t.schedule_days||[]).includes(day);
       if (!runs) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
-      const drvId = overMap[`${t.id}-${day}-pickup`] || null;
-      const drvName = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
+
+      const dateStr = date.toISOString().split('T')[0];
+      const todayDateStr = new Date().toISOString().split('T')[0];
+      const isPast   = dateStr < todayDateStr;
+      const isToday  = dateStr === todayDateStr;
+
+      // Past/today: show the actual driver from the route record so that editing the
+      // recurring schedule doesn't retroactively change historical display.
+      const recKey   = `${t.id}-${dateStr}`;
+      const hasRecord = recKey in routeRecordMap;
+      const drvId    = (isPast || isToday) && hasRecord
+        ? routeRecordMap[recKey]
+        : (overMap[`${t.id}-${day}-pickup`] || null);
+      const drvName  = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
       const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
       const fg = drvId ? 'white' : '#9ca3af';
 
-      // Status badge for today's column only
-      const isToday = schedWeekOffset === 0 && day === (new Date().getDay() + 6) % 7;
+      // Status badge (today only)
       let statusBadgeHtml = '';
-      if (isToday && todayStopStatus[t.id]) {
-        const sc = todayStopStatus[t.id];
-        if (sc.total > 0 && sc.done === sc.total) {
-          // All done — show lock icon
+      const sc = isToday ? (todayStopStatus[t.id] || null) : null;
+      const isComplete = sc && sc.total > 0 && sc.done === sc.total;
+      if (sc) {
+        if (isComplete) {
           statusBadgeHtml = `<span title="Route complete" style="font-size:10px;line-height:1;opacity:.9;">🔒</span>`;
         } else if (sc.done > 0) {
-          // In progress — show pulsing dot
           statusBadgeHtml = `<span title="${sc.done} of ${sc.total} stops done" style="width:7px;height:7px;border-radius:50%;background:#fbbf24;display:inline-block;flex-shrink:0;box-shadow:0 0 0 2px rgba(251,191,36,.4);"></span>`;
         }
+      }
+
+      // Lock past days and completed-today routes — no onclick, show 🔒
+      const isLocked = isPast || isComplete;
+      if (isLocked) {
+        const badge = isPast
+          ? `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`
+          : statusBadgeHtml;
+        return `<div class="sched-cell"
+          style="background:${bg};color:${fg};padding:4px 10px;display:inline-flex;align-items:center;gap:5px;opacity:${isPast?'0.45':'1'};cursor:default;"
+          title="${t.name} · ${drvName} (locked)">
+          ${badge}${drvFirst}
+        </div>`;
       }
 
       return `<div class="sched-cell"
@@ -12203,8 +12280,7 @@ ${totalLinesXml}
       band.routes.push(t);
     });
 
-    const weekDates = getWeekDates(schedWeekOffset);
-    schedWeekDates = weekDates;
+    // weekDates + schedWeekDates already set above; just build display helpers here
     const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
     const todayStr = todayMidnight.toDateString();
     const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -12243,7 +12319,7 @@ ${totalLinesXml}
             </td>
             ${[0,1,2,3,4,5,6].map(day => `
               <td style="text-align:center;vertical-align:middle;padding:5px 4px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
-                ${makeChip(t, day)}
+                ${makeChip(t, day, weekDates[day])}
               </td>`).join('')}
           </tr>`;
         }).join('');
