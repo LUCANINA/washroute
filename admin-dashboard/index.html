@@ -7607,7 +7607,7 @@ ${totalLinesXml}
       <div class="inbox-item-actions">
         ${c.status === 'resolved'
           ? `<button class="inbox-quick-btn resolve resolved" title="Reopen" onclick="event.stopPropagation();${reopenFn}">↩ Reopen</button>`
-          : `<button class="inbox-quick-btn resolve" title="Resolve" onclick="event.stopPropagation();${resolveFn}">✓ Resolve</button>
+          : `<button class="inbox-quick-btn resolve" title="Archive" onclick="event.stopPropagation();${resolveFn}">✓ Archive</button>
              <button class="inbox-quick-btn" title="Create Issue" onclick="event.stopPropagation();${issueFn}">⚑ Issue</button>`
         }
       </div>
@@ -7721,7 +7721,7 @@ ${totalLinesXml}
     }
 
     const isResolved = convMeta.status === 'resolved';
-    const resolveLabel = isResolved ? '↩ Reopen' : '✓ Resolve';
+    const resolveLabel = isResolved ? '↩ Reopen' : '✓ Archive';
     const resolveClass = isResolved ? 'resolved' : '';
 
     document.getElementById('inbox-thread').innerHTML = `
@@ -7828,7 +7828,7 @@ ${totalLinesXml}
     const btn = document.getElementById('btn-resolve-thread');
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
     const convId = await _upsertConvStatus(currentConv.conv_id, currentConv.customer_id, currentConv.phone, newStatus);
-    if (!convId) { if (btn) { btn.disabled = false; btn.textContent = isResolved ? '↩ Reopen' : '✓ Resolve'; } return; }
+    if (!convId) { if (btn) { btn.disabled = false; btn.textContent = isResolved ? '↩ Reopen' : '✓ Archive'; } return; }
     showToast(newStatus === 'resolved' ? 'Conversation resolved ✓' : 'Conversation reopened', 'success');
     currentConv = { ...currentConv, status: newStatus, conv_id: convId };
     if (btn) { btn.disabled = false; btn.textContent = newStatus === 'resolved' ? '↩ Reopen' : '✓ Resolve'; btn.classList.toggle('resolved', newStatus === 'resolved'); }
@@ -7840,7 +7840,7 @@ ${totalLinesXml}
     const cached = _allConvs.find(c => c.key === key);
     const convId = await _upsertConvStatus(cached?.conv_id || null, customerId || null, phone, newStatus);
     if (!convId) return;
-    showToast(newStatus === 'resolved' ? 'Resolved ✓' : 'Reopened ✓', 'success');
+    showToast(newStatus === 'resolved' ? 'Archived ✓' : 'Reopened ✓', 'success');
     if (currentConv && currentConv.key === key) {
       currentConv = { ...currentConv, status: newStatus, conv_id: convId };
       const btn = document.getElementById('btn-resolve-thread');
