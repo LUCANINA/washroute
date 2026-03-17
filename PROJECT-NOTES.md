@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 17, 2026 (session 30 — design overhaul)*
+*Last updated: Mar 17, 2026 (session 30 — receipt + auth fixes)*
 
 ---
 
@@ -134,6 +134,9 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Browser popup print (2 copies, auto-prints on intake save + 🖨 Print button in order panel + 🖨 Reprint on kanban cards)
 - **CloudPRNT automatic printing (session 22):** Star TSP654II prints automatically, no tap required. Admin queues a `print_jobs` row; printer polls `cloudprnt` Edge Function every few seconds and prints Star Document Markup receipt. Configured via Admin → **Printer** (dedicated sidebar nav item). Falls back to browser popup when no token is set. `buildStarMarkup()` handles the full receipt layout including customer name, schedule, add-ons, invoice lines, barcode, and footer.
 
+### Processing / Racking
+- **Auto-send email receipt on Folding → Rack (session 30, commit `6068c8a`):** `saveRacking()` now fires a fire-and-forget `send-receipt` call after successfully charging the card and advancing status to `ready_for_delivery`. Previously, the receipt was only auto-sent in the POS intake flow — moving an order through the Folding → Rack kanban step charged the card silently with no email to the customer.
+
 ### Settings
 - **Sidebar nav reorganized (session 23):** "Timezone" nav item renamed to **"Printer"** (printer icon) → shows only the Receipt Printer card. Business Timezone moved into **Routes → Settings tab** (new 3rd tab in the Maps/Routes page alongside Zones and Route Templates). Topbar CTA hides on the Settings tab (no action button needed there).
 
@@ -175,6 +178,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Customer-initiated skip button on recurring orders (pre-pickup only)
 - Referral source captured at signup
 - **Phone OTP login (session 20/21):** SMS code login via Twilio. `link_phone_auth_account` RPC (SECURITY DEFINER) re-points existing customer records to the new phone-auth UUID on first login — customers with existing email accounts don't lose their history. Multiple-account collision handled with a graceful error + auto sign-out.
+- **Cross-method auth re-linking (session 30, commit `778e9d8`):** `ensureProfile()` step 2b — if a customer signs in via email magic link but their account was originally created via phone OTP (or vice versa), the function now detects the existing customer record by `email_cache` even if it already has a `profile_id`, and re-points it to the current auth user. Previously, this created a blank duplicate customer record. Two orphaned records from the first occurrence were deleted from the DB. Note: Supabase creates a new auth UUID per sign-in method; `profile_id` flips to whichever method was used most recently — harmless in practice.
 
 ---
 
@@ -516,6 +520,19 @@ There are actually **two separate hang points** that must both be covered:
   1. Test RCC in browser with real data — open 2+ routes, drag a stop, verify DB update + re-optimization
   2. Test CloudPRNT end-to-end with physical printer on-site
   3. Xero accounting sync (backlog)
+
+---
+
+### Mar 17, 2026 (session 30c) — Email receipt + auth re-linking fixes
+
+- **Fix: email receipt not sent on Folding → Rack (commit `6068c8a`):** `saveRacking()` in admin dashboard charged the card and advanced the order to `ready_for_delivery` but never called `send-receipt`. The only auto-receipt trigger was the POS intake flow. Added a fire-and-forget `send-receipt` fetch identical to the POS pattern. Delivery customers now receive their receipt automatically when their order is racked.
+
+- **Fix: magic link sign-in creating blank customer account (commit `778e9d8`):** `ensureProfile()` had two lookup steps — find customer by `profile_id`, or find an orphan with matching `email_cache` and `profile_id IS NULL`. If a customer originally signed up via phone OTP (giving them a phone-auth UUID as `profile_id`), signing in via email magic link (a different UUID) hit neither case and created a fresh blank customer record. Added step 2b: check for existing customer with matching `email_cache` regardless of `profile_id` status; if found, re-point `profile_id` to the current auth user. Deleted two orphaned duplicate records that had been created for `dmacquart@gmail.com`. Note: a partial unique index on `profile_id WHERE NOT NULL` would prevent the race condition that created two duplicates simultaneously — low priority but worth adding as a future migration.
+
+- **Next session priorities:**
+  1. Test full stop detail flow end-to-end as Davey Crockett (en route → I've Arrived → bags → photo → complete)
+  2. Investigate `optimize-route` v12 stop reordering issue (from session 28)
+  3. Test CloudPRNT with physical printer
 
 ---
 
