@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 16, 2026 (session 28)*
+*Last updated: Mar 17, 2026 (session 29)*
 
 ---
 
@@ -154,10 +154,14 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **📲 On My Way button** → marks stop `en_route` + sends customer an SMS automatically
 - Undo complete (within same session)
 - Skip stop (with 12-second undo window, requires confirmation)
-- **Realtime stop reassignment:** If admin reassigns a stop to another driver while they're en route, the stop disappears from the original driver's app with a toast. If a stop is newly assigned to a driver, their app triggers a reload to pick it up.
+- **Realtime stop reassignment:** If admin reassigns a stop to another driver while they're en route, the stop disappears from the original driver's app with a toast. If a stop is newly assigned to a driver, their app triggers a reload to pick it up. Handles `driver_id = NULL` stops correctly (stop appears/disappears based on route ownership, not just explicit driver_id match).
 - **Live GPS always current (session 24):** `_driverLat`/`_driverLng` module-level variables updated on every `watchPosition` fix — not throttled like the DB write. Always reflect the driver's actual current position for re-optimization.
 - **Dynamic route re-optimization (session 24):** After marking any stop complete, failed, or skipped, `reoptimizeRoute(routeId)` fires automatically (non-blocking). Sends driver GPS to `optimize-route` edge function; re-orders pending stops from where the driver actually is; re-sorts `allStops` and re-renders the home screen. Silent fail — driver experience unaffected if optimization fails.
 - **Phone OTP login (session 21):** Magic Link tab replaced with Phone Code tab. Two-step flow: enter phone → enter SMS code. E.164 normalisation handles 10-digit US numbers automatically. `link_phone_auth_driver` RPC re-points existing driver records to the new phone-auth UUID on first login — drivers don't lose their history. Requires drivers to have a phone number stored in their profile.
+- **Later Today strip (session 29):** Upcoming routes (window > 2h away) shown as a collapsed strip at the bottom of the home screen rather than a full route card. Prevents drivers from seeing and acting on routes that aren't relevant yet. Tapping expands to preview route names and start times.
+- **Stop detail — En Route stage (session 29):** Tapping "I'm On My Way" now keeps the driver on Phase 1 (showing a green "Customer notified" chip + Maps button + big green "I've Arrived" CTA). Previously jumped directly to bags/notes. Driver must tap "I've Arrived" to advance to the at-stop flow. Handles page reloads correctly — `en_route` status shows the en-route state, not bags.
+- **Stop detail — Back button (session 29):** Photo screen (sub-phase 2) now has a "← Back" button that returns to bags/notes (sub-phase 1) so drivers can correct bag count or notes before completing.
+- **Stop detail — Text Customer button (session 29):** "💬 Text Customer" SMS link shown in the customer section on all active stops with a phone on file. Opens the driver's native SMS app pre-filled with the customer's number.
 
 ---
 
@@ -170,6 +174,20 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Customer-initiated skip button on recurring orders (pre-pickup only)
 - Referral source captured at signup
 - **Phone OTP login (session 20/21):** SMS code login via Twilio. `link_phone_auth_account` RPC (SECURITY DEFINER) re-points existing customer records to the new phone-auth UUID on first login — customers with existing email accounts don't lose their history. Multiple-account collision handled with a graceful error + auto sign-out.
+
+---
+
+## Design Principles
+
+These are standing decisions that guide how features are built. When in doubt, defer to these.
+
+| Principle | Rationale |
+|---|---|
+| **Automation over manual input** | Every time data needs to stay in sync across two places, use a DB trigger, RLS policy, or Edge Function — never require the admin to take an extra step. If adding a feature creates a new place where data could go stale, automate the sync before shipping. |
+| **`driver_id` is the source of truth for route assignment** | `pickup_driver_id` / `delivery_driver_id` are legacy fields. App code always reads `driver_id`. RLS policies check both, but the trigger `trg_sync_route_driver` keeps the legacy fields cleared automatically. |
+| **`driver_id = NULL` on stops means inherit from route** | Stops get `NULL` by default; explicit UUIDs are overrides only. All queries and RLS policies must handle both cases — never assume a non-null driver_id. |
+| **Single-file SPAs, no build step** | All three apps are pure HTML/CSS/JS in one file. No npm, no bundler, no framework. Keep it that way. |
+| **Time windows are client-side** | Route visibility (`isRouteVisible`, `isUpcomingRoute`) is computed in the browser using the device's local time. `window_start`/`window_end` in the DB are naive times (no timezone) interpreted as the driver's local timezone. |
 
 ---
 
@@ -186,8 +204,8 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 | `customers` | `phone_cache` stores phone in any format (e.g. `(415) 608-5446`) |
 | `orders` | Status pipeline: scheduled → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. (`ready_for_pickup` was removed session 6 — never auto-set, redundant.) `source`: scheduled, walk_in, customer_app, recurring. `cancelled_by`: 'customer', 'driver', 'admin', 'system' (nullable) — set on skip/cancel to distinguish who initiated |
 | `route_templates` | Recurring route definitions: zone, schedule_days (0=Mon..5=Sat), window_start/end, turnaround_days, default drivers, stop_limit |
-| `routes` | Dated route instances (auto-created from templates by `auto_route_order()`). Links to template_id, date, single `driver_id`. Legacy `pickup_driver_id`/`delivery_driver_id` columns still exist in DB but are unused by app code |
-| `route_stops` | Each stop has explicit `driver_id` (auto-filled from parent route on INSERT by `trg_fill_stop_driver`). No more NULL-inherit pattern |
+| `routes` | Dated route instances (auto-created from templates by `auto_route_order()`). Links to template_id, date, single `driver_id`. `pickup_driver_id`/`delivery_driver_id` columns exist but are not used by app code — auto-cleared by `trg_sync_route_driver` whenever `driver_id` changes, keeping RLS policies consistent |
+| `route_stops` | Stops may have `driver_id = NULL` (inherits from parent route's `driver_id`) or an explicit UUID override. `trg_fill_stop_driver` auto-fills on INSERT. RLS policies handle both cases |
 | `route_driver_schedule` | Per-day driver assignments: (template_id, day_of_week, driver_type) → driver_id. Sole source of truth for driver scheduling (no template defaults) |
 | `driver_locations` | Live GPS: one row per driver (UPSERT on driver_id), updated every 12s from driver app. Realtime-enabled |
 | `sms_messages` | All SMS in/out. `direction`: inbound/outbound. Linked to `customers` by phone matching |
@@ -206,6 +224,7 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 | `auto_fail_expired_orders()` | Function (pg_cron every 30min) | Fails **`scheduled`** orders 2h past their window (session 6: no longer targets `ready_for_pickup`), sends SMS, stamps `cancelled_by = 'system'` |
 | `trg_sync_stops_on_order_terminal` | Trigger (AFTER UPDATE on orders) | When order reaches terminal status, cascades to route_stops: delivered→complete, cancelled→skipped, pickup_failed→failed+skipped, skipped→skipped |
 | `trg_route_stops_updated_at` | Trigger (BEFORE UPDATE on route_stops) | Auto-sets `updated_at = now()` on every route_stop write |
+| `trg_sync_route_driver` | Trigger (BEFORE UPDATE OF driver_id ON routes) | When a route's primary driver changes, auto-clears `pickup_driver_id`/`delivery_driver_id` to NULL. Ensures RLS policies always derive driver access from `driver_id` — no manual cleanup needed when reassigning via the schedule |
 | `find_customer_by_phone(digits)` | Function | Matches phone by last 10 digits |
 
 ---
@@ -496,6 +515,33 @@ There are actually **two separate hang points** that must both be covered:
   1. Test RCC in browser with real data — open 2+ routes, drag a stop, verify DB update + re-optimization
   2. Test CloudPRNT end-to-end with physical printer on-site
   3. Xero accounting sync (backlog)
+
+---
+
+### Mar 17, 2026 (session 29) — Driver app stop detail overhaul + RLS driver fix
+
+- **Stop detail — En Route intermediate stage (commit `a2c40f5`):** "I'm On My Way" no longer auto-advances to bags/notes. Driver stays on Phase 1 with a green en-route chip, Maps button, and a prominent "I've Arrived" CTA. `openStop()` always starts at Phase 1 — QA caught that the old auto-advance to Phase 2 for `en_route` stops would skip the arrival screen if a driver closed and reopened a stop mid-drive.
+
+- **Stop detail — Back button on photo screen (commit `a2c40f5`):** Sub-phase 2 (photo) now has "← Back" to return to sub-phase 1 (bags/notes). `prevSubPhase()` function added.
+
+- **Stop detail — Text Customer SMS button (commit `a2c40f5`):** "💬 Text Customer" link added to customer section on all active stops with a phone. Opens native SMS app. Shown only on active (not completed/skipped/failed) stops.
+
+- **Home screen — Later Today strip:** Upcoming routes shown collapsed with route names + start times. Only routes within the 2-hour pre-window show as full cards.
+
+- **Home screen — removed Next Stop section:** Home only shows route summary cards. Spacing and top padding increased.
+
+- **RLS fix — driver_id IS NULL stops invisible (migration `fix_driver_rls_null_driver_id`):** Root cause: `driver_read_assigned_orders`, `driver_update_assigned_orders`, and `driver_update_assigned_stops` policies only matched stops with an explicit `driver_id`. Stops with `driver_id = NULL` (inheriting from route) were silently blocked. Drivers saw "No Stops Today" even with correctly assigned routes. Fixed all three policies to add `(rs.driver_id IS NULL AND r.driver_id = current_driver_id())` branch.
+
+- **Automation trigger — trg_sync_route_driver (migration `trg_sync_route_driver_on_reassign`):** DB trigger that fires BEFORE UPDATE on `routes`. When `driver_id` changes, auto-clears `pickup_driver_id`/`delivery_driver_id` to NULL. Prevents stale legacy fields from blocking RLS checks after any schedule reassignment — no admin manual cleanup needed.
+
+- **Admin fix — rccMoveStop resets driver_id to NULL:** When dragging a stop between routes in the RCC, `driver_id` is now explicitly reset to NULL so the stop inherits the destination route's default driver rather than keeping the old explicit assignment.
+
+- **Design principle added:** Always prefer automation triggers over manual process. When data needs to stay in sync, use DB triggers/RLS — never require an extra admin step.
+
+- **Next session priorities:**
+  1. Test full stop detail flow end-to-end as Davey Crockett (en route → I've Arrived → bags → photo → complete)
+  2. Investigate `optimize-route` v12 stop reordering issue (from session 28)
+  3. Test CloudPRNT with physical printer
 
 ---
 
