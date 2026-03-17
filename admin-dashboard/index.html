@@ -12566,6 +12566,24 @@ ${totalLinesXml}
 
     rccRenderChips();
     rccUpdateOptimizeBtn();
+    // Auto-open every route that has a run in the current slot
+    rccAutoOpenSlotRoutes();
+  }
+
+  // ── RCC: Auto-open all routes in the current slot (fire-and-forget) ──
+  async function rccAutoOpenSlotRoutes() {
+    const slot = _rccSlot || 'AM';
+    const toOpen = _dsTemplates
+      .filter(t => {
+        if (!t.window_start) return true;
+        const h = parseInt(t.window_start);
+        return slot === 'AM' ? h < 12 : h >= 12;
+      })
+      .map(t => _dsRoutes.find(r => r.template_id === t.id))
+      .filter(r => r && !_rccActiveRoutes.has(r.id));
+    for (const route of toOpen) {
+      await rccToggleRoute(route.id);
+    }
   }
 
   // ── RCC: Render route chip strip (with AM/PM toggle) ──
@@ -12651,6 +12669,8 @@ ${totalLinesXml}
     rccRenderMap();
     rccUpdatePanelWidth();
     rccUpdateOptimizeBtn();
+    // Auto-open all routes in the newly selected slot
+    rccAutoOpenSlotRoutes();
   }
 
   // ── RCC: Toggle a route column open/closed ──
