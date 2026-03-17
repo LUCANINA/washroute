@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 16, 2026 (session 20)*
+*Last updated: Mar 16, 2026 (session 23)*
 
 ---
 
@@ -15,13 +15,17 @@
 ### Current printing setup (WiFi / AirPrint)
 Connect TSP654II to WiFi network → add as AirPrint printer on iPad (Settings → Printers) → WashRoute's popup print works via browser print dialog. Manual tap required.
 
-### CloudPRNT (backlog — automatic printing)
-Goal: receipt prints automatically when intake saves, no user tap required. Planned build:
-- `print_jobs` DB table — intake save inserts a row with receipt HTML
-- `cloudprnt-server` Supabase Edge Function — printer polls every ~5s, fetches job, marks done
-- Configure printer CloudPRNT URL → `https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/cloudprnt-server`
-- Remove `window.open()` popup from `saveIntake()` and `printBagTag()` — replace with DB queue insert
-- Note: receipt HTML uses JsBarcode from CDN — printer needs internet access to render barcode (should be fine since it's already online for polling)
+### ✅ CloudPRNT — Live (session 22)
+Receipt prints automatically — no user tap required. Full handshake built and deployed.
+
+**Printer setup (one-time):**
+1. Connect TSP654II to WiFi, navigate to its IP in a browser → CloudPRNT settings
+2. Set **Server URL** → `https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/cloudprnt`
+3. Note the **Token** (default = printer MAC address)
+4. In Admin → Settings → Receipt Printer → paste token → Save
+5. Click **🖨 Test Print** to verify
+
+**How it works:** When `🖨 Print` is clicked (order panel or kanban Reprint) or intake is saved, the admin queues a job in the `print_jobs` table. The printer polls the `cloudprnt` Edge Function every few seconds, claims the job, prints Star Document Markup content, and reports back done. Falls back to browser popup if no token is configured.
 
 ---
 
@@ -60,10 +64,8 @@ Three connected web apps, one shared database. Focused on **delivery first** (re
 | Xero | Accounting sync | 🔲 Pending |
 | Vercel | App hosting | ✅ Auto-deploys on push to main |
 
-### ⚠️ Twilio — Action Required Before SMS Works
-Outbound SMS is built and tested end-to-end but messages are stuck in `queued` status because:
-- **If on a trial account:** Verify the recipient number at Twilio Console → Phone Numbers → Verified Caller IDs
-- **If on a paid account:** Register for A2P 10DLC at Twilio Console → Messaging → Regulatory Compliance (required by US carriers)
+### ✅ Twilio A2P 10DLC — Approved (2026-03-16)
+Outbound SMS is fully live. A2P 10DLC registration was approved by US carriers on 2026-03-16. Messages no longer stuck in `queued` status.
 
 Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no longer hardcoded):
 - Account SID: `AC57c50cec278e5987a7a0d8d9443d1851`
@@ -85,6 +87,8 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `notify-on-my-way` | Driver "On My Way" button → customer SMS | Off |
 | `charge-order` | Stripe payment charge | On |
 | `send-order-notification` | Status-change notifications | On |
+| `cloudprnt` | CloudPRNT server — printer polls for jobs, gets Star Markup, marks done | Off |
+| `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. When GPS provided: driver is origin, last pending stop is destination. Renumbers pending stops preserving done stop numbers. v10 deployed session 24. | Off |
 
 ---
 
@@ -98,17 +102,22 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Clickable pickup/delivery route cells for rescheduling → "Reschedule Route" modal
 - "+ Assign" shown instead of "—" for unassigned reschedulable orders
 - **Batch SMS:** select orders → Send SMS → compose message → sends to all customer phones
-- **Order Schedule sub-view:** accessible via the "Order Schedule" tab button at the top of the Orders page; shows live map + driver schedule grid for the day
+- **Order Schedule → Route Command Center (session 25):** "Order Schedule" tab now opens the Route Command Center — a chip-strip + map + draggable columns interface for managing all day's routes at once. See Routes Page notes below.
 - **URL hash persistence:** browser URL updates as you navigate (e.g. `#orders/in_process`, `#orders/schedule`). Refreshing the browser restores the exact page + sub-tab you were on.
 
 ### Routes Page
 - Route template editor (create/edit recurring routes)
-- **Daily Schedule** — template-driven zone pills (All | Berkeley | Oakland) + AM/PM toggle with NOW/NEXT badges. Auto-selects most relevant route. Stops show name, address, bags with "Assign" link.
-- **All Routes map** — shows every route for the date on one map, each in its template color
-- Live map view (1040px tall) with pins and polylines matching route template colors
-- Stop reassignment: "Assign" link on each stop row opens driver picker. Picking route's default driver clears override (sets NULL, not explicit UUID)
+- **Route Command Center — Order Schedule (session 25):** Replaces the old zone-pill + AM/PM Daily Schedule. Full-screen chip-strip + map + draggable columns layout:
+  - **Chip strip:** One chip per route template. Click to open/close that route's column. Chips show stop count badge, time window, and dim if no run exists for the date.
+  - **Draggable stop cards:** Drag a card from one column to another to reassign the stop to a different route instantly. UI updates optimistically; DB write + `autoOptimizeRoute` on both routes follows async.
+  - **Cards:** 3 colors max — route color on stop-number circle, dark gray for customer name, gray for address/type/bag count.
+  - **Map:** Full-width by default (empty state overlay). Shrinks as columns open. Shows colored pins + polylines for all open routes simultaneously; legend appears when 2+ routes are open. Click a card to fly-to its pin; hover highlights it.
+  - **Column header:** Driver initials avatar (route color), driver name, route name, stop/pickup/delivery counts, completion progress bar.
+  - **Optimize button:** Optimizes all currently open routes at once.
+  - **Realtime:** Stop completions/skips/reassignments refresh the column automatically via `rccRefreshRoute`.
 - Weekly Schedule: time-banded rows (morning/evening slots), one row per route, chips show driver name
-- **Route optimization** via Google Maps API (Optimize button on Daily Schedule)
+- **Auto-optimization (session 24):** Routes re-optimize silently in the background whenever a stop is added (schedule picker, new order creation, drag-and-drop reassign). `autoOptimizeRoute(routeId)` fire-and-forget; refreshes open RCC column if route is active.
+- **Manual Optimize button:** Optimizes all currently open RCC route columns at once (replaces old single-route Optimize).
 - **Drivers > Schedule page — smart reassignment rules:** Driver chips show 🔒 (complete) or amber dot (in-progress) badges for today's column. Clicking a chip for an in-progress route shows a warning banner and reassigns only the remaining `pending`/`en_route` stops (completed stops stay attributed to the driver who did them). Clicking a chip for a complete route is a no-op with an explanatory toast. Future-week changes apply freely with no restriction.
 - **Route-status badges on both schedule grids:** 🔒 (route fully complete) and amber pulsing dot (in progress) badges appear in both the Routes > Weekly Schedule grid and the Orders > Order Schedule > Driver Schedule grid for today's routes.
 - **URL hash sub-tab persistence:** Maps (`#maps/routes`, `#maps/zones`), Team (`#team/permissions`), and Routes (`#routes/templates`) tabs all write to the URL hash — refresh returns you to the correct tab.
@@ -120,6 +129,16 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - "Compose" button (top right) to start a new SMS to any number
 - Blue dot badge shows unread inbound count
 - Customer auto-matched by last 10 digits of phone (handles any formatting)
+
+### Receipt Printing
+- Browser popup print (2 copies, auto-prints on intake save + 🖨 Print button in order panel + 🖨 Reprint on kanban cards)
+- **CloudPRNT automatic printing (session 22):** Star TSP654II prints automatically, no tap required. Admin queues a `print_jobs` row; printer polls `cloudprnt` Edge Function every few seconds and prints Star Document Markup receipt. Configured via Admin → **Printer** (dedicated sidebar nav item). Falls back to browser popup when no token is set. `buildStarMarkup()` handles the full receipt layout including customer name, schedule, add-ons, invoice lines, barcode, and footer.
+
+### Settings
+- **Sidebar nav reorganized (session 23):** "Timezone" nav item renamed to **"Printer"** (printer icon) → shows only the Receipt Printer card. Business Timezone moved into **Routes → Settings tab** (new 3rd tab in the Maps/Routes page alongside Zones and Route Templates). Topbar CTA hides on the Settings tab (no action button needed there).
+
+### New Order Modal
+- **Pickup date bug fixed (session 23):** When admin picked an evening slot (e.g. 6–8pm PT on Mon Mar 16), the UTC ISO string (`2026-03-17T01:00Z`) caused `split('T')[0]` to return the next day (`2026-03-17`). This made the summary show "Tue Mar 17" and pushed the delivery calculation one day late. Fix: `selectNoDay()` now passes the local `iso` date explicitly as a 5th parameter to `selectNoSlot()`, bypassing UTC extraction entirely.
 
 ### Other
 - Customer management, driver management, services & pricing, reports (all built)
@@ -136,6 +155,9 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Undo complete (within same session)
 - Skip stop (with 12-second undo window, requires confirmation)
 - **Realtime stop reassignment:** If admin reassigns a stop to another driver while they're en route, the stop disappears from the original driver's app with a toast. If a stop is newly assigned to a driver, their app triggers a reload to pick it up.
+- **Live GPS always current (session 24):** `_driverLat`/`_driverLng` module-level variables updated on every `watchPosition` fix — not throttled like the DB write. Always reflect the driver's actual current position for re-optimization.
+- **Dynamic route re-optimization (session 24):** After marking any stop complete, failed, or skipped, `reoptimizeRoute(routeId)` fires automatically (non-blocking). Sends driver GPS to `optimize-route` edge function; re-orders pending stops from where the driver actually is; re-sorts `allStops` and re-renders the home screen. Silent fail — driver experience unaffected if optimization fails.
+- **Phone OTP login (session 21):** Magic Link tab replaced with Phone Code tab. Two-step flow: enter phone → enter SMS code. E.164 normalisation handles 10-digit US numbers automatically. `link_phone_auth_driver` RPC re-points existing driver records to the new phone-auth UUID on first login — drivers don't lose their history. Requires drivers to have a phone number stored in their profile.
 
 ---
 
@@ -147,6 +169,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Account management: name, email, password change, address book, laundry preferences, recurring plan, order history
 - Customer-initiated skip button on recurring orders (pre-pickup only)
 - Referral source captured at signup
+- **Phone OTP login (session 20/21):** SMS code login via Twilio. `link_phone_auth_account` RPC (SECURITY DEFINER) re-points existing customer records to the new phone-auth UUID on first login — customers with existing email accounts don't lose their history. Multiple-account collision handled with a graceful error + auto sign-out.
 
 ---
 
@@ -338,6 +361,17 @@ There are actually **two separate hang points** that must both be covered:
 | 7 | P0 → Fixed | driver app realtime handler | ~~Stops reassigned to another driver stayed in original driver's list — **FIXED commit 7916331**~~ |
 | 8 | ~~P3 → Fixed~~ | driver app "skip notification" | ~~Banner read "Customer notified · Safe travels!" even when no SMS was sent~~ — **FIXED commit 0930719**: `notified` flag now checks only `stop.on_my_way_sent_at`, not `isEnRoute`. Banner correctly shows "Arrived at stop" when driver skipped notification. |
 | 9 | ~~P0 → Fixed~~ | `send-sms`, `notify-on-my-way` edge functions | ~~Hardcoded Twilio auth token as `\|\| 'cdfc2502...'` fallback~~ — **FIXED session 8**: Token rotated in Twilio. Both functions redeployed reading from Supabase Secrets only. `create-test-user` unauthenticated endpoint also neutralized (returns 404). |
+| 10 | ~~P0 → Fixed~~ | RLS — `customer_payment_methods` | ~~Policy `cpm_anon_all` grants ALL to anon.~~ **FIXED session 21b** (migration `rls_security_hardening`): `cpm_anon_all` dropped. Only `cpm_auth_all` (authenticated) remains. |
+| 11 | ~~P0 → Fixed~~ | RLS — `sms_messages` | ~~`anon_all_sms_messages` exposes all SMS conversations to anyone.~~ **FIXED session 21b**: Policy dropped. Only `admin_all_sms_messages` (is_admin()) remains. Edge functions use service role. |
+| 12 | ~~P1 → Fixed~~ | RLS — `customers` | ~~`anon_write_customers` + `Admin anon read customers` — unauthenticated read/write of all customer PII.~~ **FIXED session 21b**: Both dropped. Scoped per-customer + admin policies remain. |
+| 13 | ~~P1 → Fixed~~ | RLS — `orders` | ~~`anon_write_orders` + `Admin anon read orders`.~~ **FIXED session 21b**: Both dropped. Scoped per-customer, per-driver, and admin policies remain. |
+| 14 | ~~P1 → Fixed~~ | RLS — `discounts` | ~~`anon_all_discounts` — anyone could create or delete discount codes.~~ **FIXED session 21b**: Replaced with `anon_read_discounts` (SELECT only). `admin_all_discounts` handles writes. |
+| 15 | ~~P1 → Fixed~~ | RLS — `settings` | ~~`anon_all_settings` — anyone could modify business config.~~ **FIXED session 21b**: Replaced with `anon_read_settings` (SELECT only). `admin_all_settings` handles writes. |
+| 16 | ~~P2 → Fixed~~ | RLS — `driver_locations` | ~~Anyone could spoof driver GPS coordinates.~~ **FIXED session 21b**: Replaced with `authenticated_read_driver_locations` (SELECT) + `driver_insert_own_location` + `driver_update_own_location` (scoped to own driver_id). |
+| 17 | ~~P2 → Fixed~~ | RLS — `message_templates` | ~~`anon_all_message_templates` — anyone could edit SMS templates.~~ **FIXED session 21b**: Dropped. `admin_all_message_templates` + edge functions (service role) cover all access. |
+| 18 | ~~P2 → Fixed~~ | RLS — `route_driver_overrides` | ~~`Allow all access` with no conditions.~~ **FIXED session 21b**: Replaced with `admin_all_route_driver_overrides` + `auth_read_route_driver_overrides`. |
+| 19 | ~~P2 → Fixed~~ | Google Maps API key | ~~Key `AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc` unrestricted in customer app source.~~ **FIXED session 21b**: David restricted key to `*.washroute.vercel.app/*` referrer in GCP Console on 2026-03-16. |
+| 20 | ~~Fixed~~ | RLS — 10 additional tables | ~~Broad anon write/read on `routes`, `route_stops`, `addresses`, `profiles`, `drivers`, `driver_messages`, `route_templates`, `preferences`, `notifications`, `cs_issues`, `conversations`, `launderers`, `racks`, `order_items`, `subscriptions`, `customer_transactions`, `services`, `service_fees`, `service_categories`~~ **FIXED session 21b**: All anon write policies dropped; scoped authenticated policies retained. Migrations: `rls_security_hardening`, `rls_security_hardening_services_v2`. |
 
 ---
 
@@ -360,7 +394,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. ~~Receipt printing~~ ✅ Done session 13
   2. Add `price_mod` for Double Wash and remaining add-on prefs
-  3. Twilio A2P 10DLC registration (David action required)
+  3. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
 
 ---
 
@@ -382,7 +416,7 @@ There are actually **two separate hang points** that must both be covered:
   1. ~~Email receipt fixes~~ ✅ Done session 14
   2. ~~Kanban reprint button~~ ✅ Done session 14
   3. Add `price_mod` for Double Wash and remaining add-on prefs
-  4. Twilio A2P 10DLC registration (David action required)
+  4. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   5. SMS/email automation Phase 1 — status check auto-replies ("Where's my driver?")
 
 ---
@@ -400,7 +434,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. ~~UX audit + top 5 fixes~~ ✅ Done session 15
   2. Add `price_mod` for Double Wash and remaining add-on prefs
-  3. Twilio A2P 10DLC registration (David action required)
+  3. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   4. SMS/email automation Phase 1 — status check auto-replies ("Where's my driver?")
 
 ---
@@ -428,7 +462,141 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. ~~Add Double Wash price_mod~~ ✅ Done session 16
   2. ~~SMS automation Phase 1~~ ✅ Done session 16
-  3. Twilio A2P 10DLC registration (David action required)
+  3. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
+
+---
+
+### Mar 16, 2026 (session 25) — Route Command Center (RCC)
+
+- **Route Command Center built into admin dashboard (commit `28c33c1`):** Completely replaced the old zone-pill / AM-PM Order Schedule with a new full-screen interface. The `orders-schedule-view` container is now a flex column: date bar → chip strip (`#rcc-chips`) → workspace (map pane left, columns panel right).
+
+- **Chip strip:** `rccRenderChips()` renders one chip per route template for the selected date. Chips show route color dot, name, time window, and stop count badge. Active chips get the `rcc-on` class + `--rcc-color` CSS variable for per-chip theming. Clicking an inactive chip calls `rccToggleRoute(routeId)` which fetches stops + addresses async and opens the column. Clicking an active chip closes it.
+
+- **Draggable columns:** `rccRenderColumns()` builds one `.rcc-col` per active route. Column header: driver initials avatar (route color background), driver name, route name, P/D/total stop counts, completion progress bar. Column body (`.rcc-body`, scrollable flex) contains `rcc-popin` animated stop cards. Close button (×) at top-right deactivates the route.
+
+- **Stop cards (`rccBuildCard`):** 3-color design: route-colored `.rcc-stop-num` circle (position:absolute left:8px), dark `.rcc-card-name`, gray `.rcc-card-addr` + `.rcc-card-foot`. P/D type badge uses blue tint for pickup, gray for delivery. ✓/✗ status marks for complete/failed/skipped. Click flies map to pin. Hover highlights map pin via existing `highlightStopPin`.
+
+- **Drag-and-drop reassignment:** `rccDragStart` → `rccDragOver` → `rccDrop`. On drop: optimistic local state mutation (splice stop from source, push to dest) → `rccRenderColumns()` + `rccRenderMap()` + `rccRenderChips()` immediately → async DB write (`route_stops.route_id` + `stop_number` + `routes.total_stops` on both) → `autoOptimizeRoute` on both routes → silent error toast if DB write fails.
+
+- **Map:** `rccRenderMap()` clears all `_isStopLayer` layers and redraws polylines + numbered pins for every active route. Colors per route, stop_number shown on pin. Legend overlay (`#rcc-legend`) shown when 2+ routes are open. `rccUpdatePanelWidth()` sets panel width to `min(n × 290px, 55vw)` and calls `routeLiveMap.invalidateSize()` after the CSS transition.
+
+- **Optimize button:** Now calls `optimizeRoute()` which iterates `[..._rccActiveRoutes]` and fires the edge function for each, then calls `rccRefreshRoute` on all. Hidden when no routes are open.
+
+- **`autoOptimizeRoute` updated:** Now checks `_rccActiveRoutes.has(routeId)` instead of `routeLiveRouteId === routeId` and calls `rccRefreshRoute(routeId)` on success.
+
+- **Realtime handler updated:** Stop completion/skip events now call `rccRefreshRoute(stop.route_id)` if the route is open, instead of the old `selectRunOnMap` pattern.
+
+- **QA fixes caught during review:**
+  - `display:none;display:flex` double inline style on `orders-schedule-view` — second value always won; `switchOrdersView` setting `style.display = ''` would then show the container as `block` not `flex`. Fixed by removing the inline `display:flex` and updating `switchOrdersView` to set `display = 'flex'`.
+  - `min-height:0` added to `.rcc-body` for correct flex overflow scrolling within the column.
+
+- **Commit:** `28c33c1`
+
+- **Next session priorities:**
+  1. Test RCC in browser with real data — open 2+ routes, drag a stop, verify DB update + re-optimization
+  2. Test CloudPRNT end-to-end with physical printer on-site
+  3. Xero accounting sync (backlog)
+
+---
+
+### Mar 16, 2026 (session 24) — Dynamic route re-optimization system
+
+- **`optimize-route` Edge Function v10 deployed:** Enhanced to accept optional `driver_lat`/`driver_lng` in request body. Separates stops into `done` (complete/failed/skipped) and `pending` per group (pickups and deliveries handled independently). Only pending stops are passed to Google Maps for re-ordering. Done stops keep their original `stop_number` values; pending stops are renumbered starting from `maxDone+1`. When driver GPS provided: driver position is origin, last pending stop is fixed destination, all other pending stops are reorderable waypoints. When no GPS: first pending stop is fixed origin, last is fixed destination, middle stops are reorderable. Returns `driver_origin_used: boolean`.
+
+- **Admin — `autoOptimizeRoute(routeId)` helper added:** Silent fire-and-forget function. Calls `optimize-route` edge function with no spinner, no toast. If the user currently has the optimized route open in the Order Schedule view, it refreshes automatically. Hooked into **4 trigger points**: `opSaveRouteAndSlot` (schedule picker), new order creation (`saveOrder`), and `confirmMoveStop` (both source and destination routes).
+
+- **Driver app — GPS position always current:** Added `_driverLat` / `_driverLng` module-level variables. Updated on *every* `watchPosition` callback fix — *before* the 12-second DB-write throttle check. Ensures re-optimization always has a fresh position even between DB writes.
+
+- **Driver app — `reoptimizeRoute(routeId)` added:** Async function called automatically (non-blocking) after `completeStop`, `failStop`, and `skipStop`. Sends current driver GPS to `optimize-route` edge function. On success: re-fetches `stop_number` values from DB, patches `allStops` in-place, re-sorts by stop_number, and re-renders the home screen. Silent fail — driver sees their current stop list unchanged if optimization fails or network is slow. Skipped for `completeStop` when route status is already `complete` (no pending stops to re-order).
+
+- **QA blast-radius fixes:** Found and fixed two additional places that insert route stops without triggering optimization — new order creation and `confirmMoveStop`. All 4 stop-insertion paths now consistently trigger `autoOptimizeRoute`.
+
+- **Commit:** `fd781d8`
+
+- **Next session priorities:**
+  1. Test CloudPRNT end-to-end with physical printer on-site
+  2. Route picker fine-tuning (backlog)
+  3. Xero accounting sync (backlog)
+
+---
+
+### Mar 16, 2026 (session 23) — Settings reorganization, New Order date bug fix
+
+- **Settings nav reorganized (commit `b795b92`):** "Timezone" sidebar nav item renamed to **"Printer"** with a printer icon — shows only the Receipt Printer configuration card (server URL, token, Save, Test Print). Business Timezone moved into a new **Settings** tab inside the Routes/Maps page (alongside existing Zones and Route Templates tabs). The topbar CTA button hides itself on the Settings tab since there's no relevant action. `renderMapsSettingsTab()` added to render the timezone card on demand; `setMapsTab()` updated to handle the new tab.
+
+- **Safe git commit helper (commit `c82e3b2`):** Created `.git-commit.sh` at repo root — the correct bindfs FUSE workaround. Seeds a temp index with `git read-tree HEAD` before adding changed files, guaranteeing the full tree is included in every commit. Prevents the sparse-tree bug that caused the site outage. **Always use this script for commits on this machine.** Usage: `./.git-commit.sh "message" file1 file2 ...`
+
+- **Bug fix — New Order pickup date off by one day for evening slots (commit `ef58ceb`):** When admin picked e.g. 6–8pm on Mon Mar 16 (PT), `buildSlots()` stored the window as `2026-03-17T01:00Z` (UTC). Then `selectNoSlot()` was extracting the date via `startIso.split('T')[0]` → `'2026-03-17'`, so the pickup summary showed "Tue Mar 17" and `initDeliverySection()` was seeded with the wrong date (delivery landed one extra day late). Fix: `selectNoDay()` now passes the locally-selected `iso` as an explicit 5th argument to `selectNoSlot()`, which uses it directly for display and delivery calculation. UTC timestamps stored in DB are still correct — only the display and delivery seeding were affected.
+
+- **Pickup Failed (Auto) explained:** `auto_fail_expired_orders()` pg_cron function (every 30 min) marks `scheduled` orders as `pickup_failed` with `cancelled_by = 'system'` if the pickup window closed more than 2 hours ago. Badge shows "(Auto)" when `cancelled_by = 'system'`. Reschedule from Issues tab resets back to `scheduled`.
+
+- **Next session priorities:**
+  1. Test CloudPRNT end-to-end with physical printer on-site (setup guide in `TSP654II-CloudPRNT-Setup.md`)
+  2. Route picker fine-tuning (backlog)
+  3. Xero accounting sync (backlog)
+
+---
+
+### Mar 16, 2026 (session 22) — CloudPRNT integration (Star TSP654II)
+
+- **`print_jobs` table created** (migration `cloudprnt_print_jobs`): `id`, `printer_token`, `order_id` (FK → orders, ON DELETE SET NULL), `content` (Star Markup text), `status` (pending → claimed → done), `created_at`, `claimed_at`, `completed_at`. Composite index on `(printer_token, status, created_at)` for fast polling. RLS: `admin_all_print_jobs` (authenticated + `is_admin()`); Edge Function uses service_role (bypasses RLS).
+
+- **`settings.printer_token` column added**: Nullable TEXT. Stores the printer's CloudPRNT token. Loaded into `BIZ_PRINTER_TOKEN` global at startup alongside timezone.
+
+- **`cloudprnt` Edge Function deployed** (JWT off — public, printer has no auth token): Handles full CloudPRNT handshake: GET `?ctoken=TOKEN` → `{ jobReady: true/false, mediaTypes: ["text/vnd.star.markup"] }`. POST with form body → returns pending job's Star Markup content and marks it `claimed`. POST with `jobDone=true` → marks it `done`. Uses service_role key to read/update `print_jobs`.
+
+- **Admin → Settings → Receipt Printer card added**: Displays the CloudPRNT server URL with a Copy button. Printer token input (monospace, placeholder `AA-BB-CC-DD-EE-FF`). Save button + "✓ Printer connected" badge when token is set. **🖨 Test Print** button queues a test job with basic Star Markup (business name, "TEST PRINT", timestamp).
+
+- **`buildStarMarkup(data)` function**: Converts the same data shape as `_openReceiptWindow()` into Star Document Markup Language (SDM) for the TSP654II. Sections: centered business header (size 2:2), customer name (size 2:1), address, order number + weight, pickup/delivery schedule, stop/route, add-ons, invoice line items (38-char label + 8-char right-aligned amount), subtotal/fees/credits, amount due (size 1:2), Code128 barcode, footer. XML-safe via `_escXml()`.
+
+- **`queueCloudPRNTJob(data)` function**: Inserts a `print_jobs` row with the Star Markup. Shows "✓ Sent to printer" toast on success.
+
+- **Both print paths updated**: `printBagTag()` (order panel + kanban Reprint) and `_autoPrintIntake()` (intake save → processing) now check `BIZ_PRINTER_TOKEN`. When set: skip popup, queue CloudPRNT job. When unset: original browser popup behavior unchanged.
+
+- **Commits this session:** `bb7255a` (CloudPRNT integration), `202e80b` (tree repair — see below)
+
+- **⚠ Site outage + fix (commit `202e80b`):**
+  - **Root cause:** The bindfs FUSE git workaround was seeding a *temp index from scratch* instead of from `HEAD`. Every docs-only commit after `a19d206` deployed a Vercel repo containing only the changed file (e.g., just `PROJECT-NOTES.md`). No `admin-dashboard/`, `customer-app/`, `driver-app/`, or `vercel.json` → 404 on all routes. Affected commits: `a19d206`, `4e62cf9`, `aecf9e3`.
+  - **Fix:** Rebuilt full tree from `d928bd0` (last good commit) using `git read-tree d928bd0` to seed the temp index, then layered on current `admin-dashboard/index.html`, `PROJECT-NOTES.md`, and `TSP654II-CloudPRNT-Setup.md`. Committed as `202e80b`, Vercel deployed immediately.
+  - **Prevention:** Created `.git-commit.sh` helper script at repo root. Uses `git read-tree HEAD` to seed temp index before adding any files — guarantees full tree on every commit. **Always use this script for future commits on this machine.**
+
+- **Next session priorities:**
+  1. Test CloudPRNT end-to-end with physical printer (David picking up TSP654II tonight — setup guide in `TSP654II-CloudPRNT-Setup.md`)
+  2. Route picker fine-tuning (backlog)
+  3. Xero accounting sync (backlog)
+
+---
+
+### Mar 16, 2026 (session 21) — Driver app phone OTP login
+
+- **Driver app: Magic Link replaced with Phone Code SMS OTP (commit `a743a3b`):** The "Magic Link" auth tab (email → sign-in link) has been removed and replaced with a "Phone Code" tab. Two-step flow: driver enters mobile number → receives SMS code → enters 6-digit code. E.164 normalisation handles any 10-digit US number format. Functions added: `doDriverPhoneOTP()`, `doDriverOTPVerify()`, `resendDriverOTP()`, `resetDriverPhone()`. `switchAuthTab()` updated from `'magic'` to `'phone'`. Load-timeout handler updated to also reset the phone OTP panel if it fires mid-verification.
+
+- **Driver phone account linking (commit `a743a3b`):** `link_phone_auth_driver` Postgres SECURITY DEFINER function (applied session 20) is called from `loadDriverData()` when `currentUser.phone` is set. It finds the existing driver record by matching last 10 phone digits in `profiles` (where `role = 'driver'`), re-points `drivers.profile_id` to the new phone-auth UUID, and patches the new profile row with the driver's real name/email. On first phone login, the driver's full history and route assignments transfer automatically. `MULTIPLE_MATCHES` (two drivers share a number) shows a toast and auto-signs out.
+
+- **Note for David:** Drivers must have a phone number stored in their profile for account linking to work. When setting up new drivers in the admin, make sure their mobile number is saved to the profile. Existing drivers can be verified in Admin → Team → Drivers.
+
+- **Commits this session:** `a743a3b` (driver phone OTP)
+
+- **Next session priorities:**
+  1. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
+  2. CloudPRNT integration (backlog)
+  3. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 16, 2026 (session 21b) — Security audit + full RLS hardening
+
+- **Full security audit run across all 3 apps + database.** No hardcoded Twilio/SendGrid/Stripe secret keys found in app files. XSS in SMS inbox is correctly handled. All 34 tables have RLS enabled. Stripe secret key absent (publishable key only). Twilio/SendGrid credentials in Supabase Secrets only.
+
+- **27 dangerous RLS policies removed across 18 tables** (migrations `rls_security_hardening` + `rls_security_hardening_services_v2`). The two critical ones — `cpm_anon_all` (payment method data) and `anon_all_sms_messages` (full SMS history) — are gone. All tables now require authentication for any write access. Key policy changes:
+  - `customer_payment_methods`: `cpm_anon_all` dropped
+  - `sms_messages`: `anon_all_sms_messages` dropped
+  - `customers`, `orders`, `routes`, `route_stops`, `addresses`, `profiles`, `drivers`: all anon read/write blanket policies dropped; scoped per-user + admin policies retained
+  - `driver_locations`: open-to-anyone upsert replaced with driver-scoped insert/update + authenticated read
+  - `discounts`, `settings`: ALL-for-public replaced with SELECT-only for public
+  - `message_templates`, `route_driver_overrides`, `route_templates`, `preferences`, `driver_messages`, `notifications`, `cs_issues`, `conversations`, `launderers`, `racks`, `order_items`, `subscriptions`, `customer_transactions`, `services`, `service_fees`, `service_categories`: all anon write policies dropped
+
+- **Google Maps API key** — David restricted to `*.washroute.vercel.app/*` referrer in GCP Console on 2026-03-16. ✅ Done.
 
 ---
 
@@ -447,7 +615,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Commits this session:** `9c714ae` (route badges), `56529f6` (UX + Delivered tab), `e3b8ee2` (Delivered tab 24h scope), `9546d02` (hash routing)
 
 - **Next session priorities:**
-  1. Twilio A2P 10DLC registration (David action required — SMS deliverability for non-OTP messages)
+  1. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   2. CloudPRNT integration (backlog)
   3. Route picker fine-tuning
 
@@ -480,7 +648,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Commits:** `8882c52` (sign-out fix), `f213c99` + `f859f38` (turnaround enforcement), `f461017` (smart reassignment), `72f17b8` (QA: toast fix)
 
 - **Next session priorities:**
-  1. Twilio A2P 10DLC registration (David action required — SMS deliverability)
+  1. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   2. CloudPRNT integration (backlog)
   3. Route picker fine-tuning
 
@@ -503,7 +671,7 @@ There are actually **two separate hang points** that must both be covered:
   The `'Est. Delivery'` row in the booking confirmation email used `_fmtD(deliveryDate)` (date only). Pickup row correctly used `pw.label`. Fixed to use `_effectiveDW.label` (the same resolved delivery window used for the order) — email now shows e.g. "Monday, March 16 · 8pm – 10pm".
 
 - **Next session priorities:**
-  1. Twilio A2P 10DLC registration (David action required — SMS deliverability)
+  1. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   2. CloudPRNT integration (backlog)
   3. Route picker fine-tuning
 
@@ -521,7 +689,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Admin unaffected:** Admin dashboard never used `defaultService` — it always looks up service by `service_id` on existing orders.
 
 - **Next session priorities:**
-  1. Twilio A2P 10DLC registration (David action required — SMS deliverability)
+  1. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   2. CloudPRNT integration (backlog)
   3. Route picker fine-tuning
 
@@ -551,7 +719,7 @@ There are actually **two separate hang points** that must both be covered:
   - SKIP handler fixed to set `cancelled_by: 'customer'` (was missing) and now logs outbound confirmation.
 
 - **Next session priorities:**
-  1. Twilio A2P 10DLC registration (David action required — SMS deliverability)
+  1. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
   2. CloudPRNT integration (backlog)
   3. Route picker fine-tuning
 
@@ -570,7 +738,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. Add `price_mod` for Double Wash and remaining add-on prefs
   2. Receipt printing — thermal 80mm bag tag (mockup at `receipt-mockup.html`)
-  3. Twilio A2P 10DLC registration (David action required)
+  3. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
 
 ---
 
@@ -593,7 +761,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. Add `price_mod` for Double Wash and remaining add-on prefs
   2. Receipt printing — thermal 80mm bag tag (mockup at `receipt-mockup.html`)
-  3. Twilio A2P 10DLC registration (David action required)
+  3. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
 
 ---
 
@@ -972,13 +1140,13 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Pending / Next Up
-- ⚠️ Twilio verification / A2P 10DLC registration (SMS delivery fix — David action required)
+- ~~Twilio A2P 10DLC registration~~ ✅ — Approved 2026-03-16. SMS fully live.
 - ~~Receipt printing~~ ✅ — thermal 80mm, 2 copies, auto-prints on intake save + 🖨 Print button on order panel (session 13)
 - ~~UX audit top 5 fixes~~ ✅ — double-tap, res.ok guard, batch button disable, stop card styling, slot CSS (session 15)
 - ~~How did you find us? referral source~~ ✅ — both signup flows + admin dropdown (session 15)
 - ~~Add Double Wash price_mod~~ ✅ — $15/bag, linked addon service, live in DB (session 16)
 - ~~SMS automation Phase 1~~ ✅ — PICKUP, STATUS, SKIP, HELP keywords live in twilio-webhook v14 (session 16)
-- CloudPRNT integration (backlog) — `print_jobs` table + `cloudprnt-server` edge function; printer polls automatically
+- ~~CloudPRNT integration~~ ✅ — `print_jobs` table + `cloudprnt` edge function live (session 22). Configure via Admin → Settings → Receipt Printer.
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - Xero accounting sync
 - Klaviyo marketing integration
