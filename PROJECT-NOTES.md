@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 16, 2026 (session 27)*
+*Last updated: Mar 16, 2026 (session 28)*
 
 ---
 
@@ -496,6 +496,20 @@ There are actually **two separate hang points** that must both be covered:
   1. Test RCC in browser with real data — open 2+ routes, drag a stop, verify DB update + re-optimization
   2. Test CloudPRNT end-to-end with physical printer on-site
   3. Xero accounting sync (backlog)
+
+---
+
+### Mar 16, 2026 (session 28) — RCC time-window section dividers
+
+- **RCC column split by 2-hour booking window (commit `51cc2b8`):** Routes with `arrival_window_hours > 0` (e.g., Berkeley PM with 2-hour slots) now display a labelled section header between each time window group in the RCC column. Example: Berkeley PM shows a "6–8 PM" divider above the 6–8 PM customers and an "8–10 PM" divider above the 8–10 PM customers. Stops within each section remain in their original `stop_number` order.
+
+- **Implementation details:** `arrival_window_hours` added to the `_dsTemplates` SELECT in `loadDailyRuns()`. In `rccRenderColumns()`, stops are grouped by extracting the UTC hour+minute from `orders.pickup_window_start` (or `delivery_window_start` as fallback). Unique UTC-minute buckets are sorted ascending; each maps to a local-time slot label computed from the template's `window_start` + `arrival_window_hours`. Label format: `"6–8 PM"`, `"8–10 PM"` etc. Routes with only one time window (or `arrival_window_hours = 0`) fall through to the original plain render with no dividers — no regression. CSS class `.rcc-window-divider` added; `.rcc-first-div` removes top margin on the first divider per column.
+
+- **No template changes** — David confirmed templates are correctly structured (6–10 PM, 2-hour slots). This was a pure front-end display enhancement.
+
+- **Next session priorities:**
+  1. Investigate why `optimize-route` v12 isn't reordering stops (Marcus=1, Priya=2, Sam=3, Alex=4, Jake=5 unchanged). Google may be returning the same waypoint_order as input; may need more detailed edge function logging or a direct DB check immediately after an optimize press.
+  2. Test CloudPRNT end-to-end with physical printer
 
 ---
 
