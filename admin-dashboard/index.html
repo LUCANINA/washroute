@@ -7549,7 +7549,7 @@ ${totalLinesXml}
     const sections = [
       { id: 'needs',    label: 'Needs Reply', statuses: ['open'],     cntClass: 'cnt-needs',   items: [] },
       { id: 'waiting',  label: 'Waiting',     statuses: ['waiting'],  cntClass: 'cnt-waiting', items: [] },
-      { id: 'resolved', label: 'Resolved',    statuses: ['resolved'], cntClass: 'cnt-resolved', items: [], collapsed: true },
+      { id: 'resolved', label: 'Archived',    statuses: ['resolved'], cntClass: 'cnt-resolved', items: [], collapsed: true },
     ];
 
     convs.forEach(c => {
@@ -7829,9 +7829,9 @@ ${totalLinesXml}
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
     const convId = await _upsertConvStatus(currentConv.conv_id, currentConv.customer_id, currentConv.phone, newStatus);
     if (!convId) { if (btn) { btn.disabled = false; btn.textContent = isResolved ? '↩ Reopen' : '✓ Archive'; } return; }
-    showToast(newStatus === 'resolved' ? 'Conversation resolved ✓' : 'Conversation reopened', 'success');
+    showToast(newStatus === 'resolved' ? 'Archived ✓' : 'Reopened ✓', 'success');
     currentConv = { ...currentConv, status: newStatus, conv_id: convId };
-    if (btn) { btn.disabled = false; btn.textContent = newStatus === 'resolved' ? '↩ Reopen' : '✓ Resolve'; btn.classList.toggle('resolved', newStatus === 'resolved'); }
+    if (btn) { btn.disabled = false; btn.textContent = newStatus === 'resolved' ? '↩ Reopen' : '✓ Archive'; btn.classList.toggle('resolved', newStatus === 'resolved'); }
     loadInbox();
   }
 
@@ -7844,7 +7844,7 @@ ${totalLinesXml}
     if (currentConv && currentConv.key === key) {
       currentConv = { ...currentConv, status: newStatus, conv_id: convId };
       const btn = document.getElementById('btn-resolve-thread');
-      if (btn) { btn.textContent = newStatus === 'resolved' ? '↩ Reopen' : '✓ Resolve'; btn.classList.toggle('resolved', newStatus === 'resolved'); }
+      if (btn) { btn.textContent = newStatus === 'resolved' ? '↩ Reopen' : '✓ Archive'; btn.classList.toggle('resolved', newStatus === 'resolved'); }
     }
     loadInbox();
   }
