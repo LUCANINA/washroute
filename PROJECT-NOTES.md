@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 17, 2026 (session 30 — receipt + auth fixes)*
+*Last updated: Mar 17, 2026 (session 30d — route driver sync fix)*
 
 ---
 
@@ -520,6 +520,21 @@ There are actually **two separate hang points** that must both be covered:
   1. Test RCC in browser with real data — open 2+ routes, drag a stop, verify DB update + re-optimization
   2. Test CloudPRNT end-to-end with physical printer on-site
   3. Xero accounting sync (backlog)
+
+---
+
+### Mar 17, 2026 (session 30d) — Route driver sync fix
+
+- **Fix: RCC showed wrong driver for Oakland PM (migration `fix_generate_route_runs_set_driver_id`):** The nightly `generate_route_runs` cron function was correctly reading `route_driver_schedule` and setting `pickup_driver_id` / `delivery_driver_id` on new route records, but never populated `driver_id`. The RCC displays driver name from `routes.driver_id`, so it showed a stale/wrong driver (Marcus Williams) instead of the scheduled one (David). Root cause: an older version of the function only used `driver_id`; when it was refactored to use the per-leg fields, `driver_id` was accidentally dropped from the INSERT. Fixed `generate_route_runs` to also set `driver_id = pickup_drv` at INSERT time. All three fields now stay in sync at route creation.
+
+- **Data fix for today's Oakland PM route:** Updated the route record directly — set `driver_id`, `pickup_driver_id`, and `delivery_driver_id` all to David (UUID `7d84e3e9`). Had to use two separate UPDATEs because the `trg_sync_route_driver` trigger fires BEFORE UPDATE and clears `pickup/delivery_driver_id` whenever `driver_id` changes — so the first UPDATE set `driver_id`, and the second (which didn't change `driver_id`) restored the per-leg fields. The `cascade_route_driver_to_stops` trigger automatically updated the delivery stop to David as well.
+
+- **⚠️ Note on `trg_sync_route_driver` trigger:** This BEFORE UPDATE trigger clears `pickup_driver_id` and `delivery_driver_id` any time `driver_id` is changed via the admin Driver Schedule UI. This is defensively correct (prevents stale per-leg overrides after a manual reassignment), but means `pickup/delivery_driver_id` will be NULL after any UI-driven reassignment. The RCC only reads `driver_id` so this is fine in practice — but worth keeping in mind if we ever add logic that reads the per-leg fields in the UI.
+
+- **Next session priorities:**
+  1. Test full stop detail flow end-to-end as Davey Crockett (en route → I've Arrived → bags → photo → complete)
+  2. Investigate `optimize-route` v12 stop reordering issue (from session 28)
+  3. Test CloudPRNT with physical printer
 
 ---
 
