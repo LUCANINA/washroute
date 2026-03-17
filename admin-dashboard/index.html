@@ -12868,30 +12868,50 @@ ${totalLinesXml}
       const valid = stops.filter(s => s._addr?.lat && s._addr?.lng);
       if (!valid.length) return;
 
-      // Deduplicate coords (pickup + delivery at same address = one pin)
-      const seen = new Set();
-      const unique = valid.filter(s => {
-        const k = `${s._addr.lat},${s._addr.lng}`;
-        if (seen.has(k)) return false;
-        seen.add(k); return true;
-      });
+      // Separate pickups and deliveries — draw as two distinct polylines
+      // so the optimized order of each type is clearly visible
+      const pickupStops   = valid.filter(s => s.stop_type === 'pickup')
+                                  .sort((a,b) => a.stop_number - b.stop_number);
+      const deliveryStops = valid.filter(s => s.stop_type === 'delivery')
+                                  .sort((a,b) => a.stop_number - b.stop_number);
 
-      const coords = unique.map(s => [s._addr.lat, s._addr.lng]);
-      allCoords.push(...coords);
-
-      // Route polyline
-      if (coords.length > 1) {
-        const line = L.polyline(coords, { color, weight: 3, opacity: 0.5, dashArray: '6 4' });
+      // Pickup polyline — solid line
+      if (pickupStops.length > 1) {
+        const coords = pickupStops.map(s => [s._addr.lat, s._addr.lng]);
+        const line = L.polyline(coords, { color, weight: 3, opacity: 0.65 });
+        line._isStopLayer = true;
+        line.addTo(routeLiveMap);
+      }
+      // Delivery polyline — dashed line (visually distinct)
+      if (deliveryStops.length > 1) {
+        const coords = deliveryStops.map(s => [s._addr.lat, s._addr.lng]);
+        const line = L.polyline(coords, { color, weight: 3, opacity: 0.55, dashArray: '8 5' });
         line._isStopLayer = true;
         line.addTo(routeLiveMap);
       }
 
-      // Stop pins numbered by stop_number
-      unique.forEach(s => {
+      // Collect all coords for map bounds
+      valid.forEach(s => allCoords.push([s._addr.lat, s._addr.lng]));
+
+      // Stop pins — deduplicated by address so overlapping pickup+delivery shows one pin
+      // Pin label: show pickup number (P#) or delivery number (D#) — prefer pickup if both
+      const pinMap = {};
+      valid.forEach(s => {
+        const k = `${s._addr.lat},${s._addr.lng}`;
+        if (!pinMap[k]) {
+          pinMap[k] = { s, hasBoth: false };
+        } else if (pinMap[k].s.stop_type !== s.stop_type) {
+          // Both pickup and delivery at same address — prefer showing pickup stop
+          pinMap[k] = { s: s.stop_type === 'pickup' ? s : pinMap[k].s, hasBoth: true };
+        }
+      });
+
+      Object.values(pinMap).forEach(({ s, hasBoth }) => {
         const cust = s.orders?.customers || {};
         const custName = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
-        const m = L.marker([s._addr.lat, s._addr.lng], { icon: makePin(color, String(s.stop_number||'?')) })
-          .bindPopup(`<strong>${custName}</strong><br>${s._addr.line1||''}<br><span style="font-size:11px;color:#888">${rd.templateName}</span>`);
+        const label = String(s.stop_number || '?');
+        const m = L.marker([s._addr.lat, s._addr.lng], { icon: makePin(color, label) })
+          .bindPopup(`<strong>${custName}</strong><br>${s._addr.line1||''}${hasBoth ? '<br><span style="font-size:10px;color:#888">📦 pickup + 🏠 delivery</span>' : ''}<br><span style="font-size:11px;color:#888">${rd.templateName}</span>`);
         m._isStopLayer = true;
         m.addTo(routeLiveMap);
       });
