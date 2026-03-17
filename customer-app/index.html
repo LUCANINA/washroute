@@ -3705,7 +3705,7 @@ async function placeOrder() {
       ['Order','#'+order.order_number],
       ['Bags', bags + ' bag' + (bags!==1?'s':'')],
       ['Pickup', _pickupLine],
-      ['Est. Delivery', _deliveryLine],
+      ['Delivery', _deliveryLine],
       _recurLabel ? ['Recurring', _recurLabel] : null,
       ['Est. Total', '$'+total.toFixed(2)]
     ].filter(Boolean);
