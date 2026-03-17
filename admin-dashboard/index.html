@@ -12440,6 +12440,7 @@ ${totalLinesXml}
     _rccActiveRoutes = new Set();
     _rccRouteData = {};
     _rccReassigned = {};
+    rccLoadReassigned(); // restore any reassignments saved before last refresh
 
     // Clear columns panel
     const colsPanel = document.getElementById('rcc-cols-panel');
@@ -12562,6 +12563,28 @@ ${totalLinesXml}
     rccRenderMap();
     rccUpdatePanelWidth();
     rccUpdateOptimizeBtn();
+  }
+
+  // ── RCC: Persist / restore reassignment badges across page refreshes ──
+  function rccSaveReassigned() {
+    try {
+      const key = `wr_reassigned_${_dsDateStr}`;
+      localStorage.setItem(key, JSON.stringify(_rccReassigned));
+      // Clean up entries older than 7 days
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7);
+      Object.keys(localStorage).forEach(k => {
+        if (!k.startsWith('wr_reassigned_')) return;
+        const d = new Date(k.replace('wr_reassigned_', ''));
+        if (!isNaN(d) && d < cutoff) localStorage.removeItem(k);
+      });
+    } catch(e) { /* storage unavailable — silent */ }
+  }
+
+  function rccLoadReassigned() {
+    try {
+      const raw = localStorage.getItem(`wr_reassigned_${_dsDateStr}`);
+      if (raw) _rccReassigned = JSON.parse(raw);
+    } catch(e) { /* corrupt or unavailable — start fresh */ }
   }
 
   // ── RCC: Toggle a route column open/closed ──
@@ -12772,8 +12795,9 @@ ${totalLinesXml}
     const toData = _rccRouteData[toRouteId];
     if (!fromData || !toData) return;
 
-    // Record the reassignment so the card can show "↩ from [route]" badge
+    // Record the reassignment so the card can show "↩ from [route]" badge (persisted across refreshes)
     _rccReassigned[stopId] = { fromRouteName: fromData.templateName, fromColor: fromData.color };
+    rccSaveReassigned();
 
     // Optimistically move in local state first (instant UI feedback)
     const stopIdx = fromData.stops.findIndex(s => s.id === stopId);
