@@ -14482,6 +14482,12 @@ ${totalLinesXml}
     allCleanOrders = allCleanOrders.filter(o => o.id !== movedId);
     showToast(`Order #${orderNum} racked on ${rackName}! Ready for delivery.`, 'success');
     reloadColumns('folding', 'rack');
+    // Auto-send email receipt — fire-and-forget (silent fail so racking isn't blocked)
+    fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+      body: JSON.stringify({ order_id: movedId }),
+    }).catch(e => console.warn('Auto email receipt failed:', e));
     // Auto-SMS for walk-in orders: notify customer their laundry is ready for pickup
     if (isWalkIn && custPhone) {
       // Normalize to E.164 — DB stores plain digits (e.g. 4156085446), Twilio needs +14156085446
