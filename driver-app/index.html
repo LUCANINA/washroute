@@ -2522,7 +2522,7 @@ async function failStop(stopId) {
         await fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
-          body: JSON.stringify({ order_id: stop.orders.id, event: 'pickup_failed' })
+          body: JSON.stringify({ orderId: stop.orders.id, event: 'pickup_failed' })
         });
       } catch(e) { console.warn('Notification failed:', e); }
     }
