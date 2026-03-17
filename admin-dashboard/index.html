@@ -5943,6 +5943,9 @@
       }
     }
 
+    // Silently re-optimize the route in the background now that a new stop was added
+    autoOptimizeRoute(routeId);
+
     // Close picker and refresh
     const picker = document.getElementById(`op-${leg}-picker`);
     picker.style.display = 'none';
@@ -9720,10 +9723,12 @@ ${totalLinesXml}
       if (pickupRunId) {
         const { data: maxS } = await db.from('route_stops').select('stop_number').eq('route_id', pickupRunId).order('stop_number',{ascending:false}).limit(1);
         await db.from('route_stops').insert({ route_id: pickupRunId, order_id: newOrderId, stop_type:'pickup', stop_number:(maxS?.[0]?.stop_number||0)+1, address_id: addressId, status:'pending' });
+        autoOptimizeRoute(pickupRunId);
       }
       if (delivRunId) {
         const { data: maxD } = await db.from('route_stops').select('stop_number').eq('route_id', delivRunId).order('stop_number',{ascending:false}).limit(1);
         await db.from('route_stops').insert({ route_id: delivRunId, order_id: newOrderId, stop_type:'delivery', stop_number:(maxD?.[0]?.stop_number||0)+1, address_id: addressId, status:'pending' });
+        autoOptimizeRoute(delivRunId);
       }
     }
 
@@ -12881,6 +12886,29 @@ ${totalLinesXml}
   }
 
   // ── OPTIMIZE ROUTE (Google Maps Directions API) ──
+  // ── AUTO-OPTIMIZE (silent, fire-and-forget) ──
+  // Called automatically after a stop is assigned to a route.
+  // No spinner, no toast — just silently re-orders pending stops in the background.
+  // If the user currently has this route open in the schedule view, it refreshes.
+  async function autoOptimizeRoute(routeId) {
+    if (!routeId) return;
+    try {
+      const resp = await fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ route_id: routeId })
+      });
+      if (!resp.ok) return; // fail silently — admin can still use manual Optimize button
+      // If this route is currently open in the Order Schedule view, refresh it
+      if (routeLiveRouteId === routeId) {
+        const activeBtn = document.querySelector('.run-toggle-btn[data-rid="'+routeId+'"]');
+        if (activeBtn) selectRunOnMap(routeId, activeBtn, null);
+      }
+    } catch(e) {
+      // Silent fail — background optimization is best-effort
+    }
+  }
+
   async function optimizeRoute() {
     if (!routeLiveRouteId) return;
     const btn = document.getElementById('btn-optimize');
@@ -12925,15 +12953,19 @@ ${totalLinesXml}
       const { data: tgt } = await db.from('route_stops')
         .select('stop_number').eq('route_id', targetRouteId).order('stop_number', {ascending:false}).limit(1);
       const nextNum = (tgt?.[0]?.stop_number || 0) + 1;
+      const sourceRouteId = routeLiveRouteId; // capture before any state change
       await db.from('route_stops').update({ route_id: targetRouteId, stop_number: nextNum }).eq('id', routeStopMoving.stopId);
       const [{ count: srcCnt }, { count: dstCnt }] = await Promise.all([
-        db.from('route_stops').select('*', {count:'exact',head:true}).eq('route_id', routeLiveRouteId),
+        db.from('route_stops').select('*', {count:'exact',head:true}).eq('route_id', sourceRouteId),
         db.from('route_stops').select('*', {count:'exact',head:true}).eq('route_id', targetRouteId),
       ]);
       await Promise.all([
-        db.from('routes').update({ total_stops: srcCnt||0 }).eq('id', routeLiveRouteId),
+        db.from('routes').update({ total_stops: srcCnt||0 }).eq('id', sourceRouteId),
         db.from('routes').update({ total_stops: dstCnt||0 }).eq('id', targetRouteId),
       ]);
+      // Re-optimize both routes — source lost a stop, destination gained one
+      autoOptimizeRoute(sourceRouteId);
+      autoOptimizeRoute(targetRouteId);
       showToast('Stop moved successfully');
       const activeBtn = document.querySelector('.run-toggle-btn[data-rid="'+routeLiveRouteId+'"]');
       if (activeBtn) selectRunOnMap(routeLiveRouteId, activeBtn, null);

@@ -872,6 +872,8 @@ let _gpsWatchId = null;
 let _gpsInterval = null;
 let _lastGpsSend = 0;
 const GPS_SEND_INTERVAL = 12000; // send position every 12 seconds
+let _driverLat = null;  // always current — updated on every GPS fix (not throttled)
+let _driverLng = null;
 
 function startGpsTracking() {
   if (_gpsWatchId !== null) return; // already tracking
@@ -886,8 +888,12 @@ function startGpsTracking() {
 
   _gpsWatchId = navigator.geolocation.watchPosition(
     (pos) => {
+      // Always keep latest position — re-optimization uses this regardless of send throttle
+      _driverLat = pos.coords.latitude;
+      _driverLng = pos.coords.longitude;
+
       const now = Date.now();
-      if (now - _lastGpsSend < GPS_SEND_INTERVAL) return; // throttle
+      if (now - _lastGpsSend < GPS_SEND_INTERVAL) return; // throttle DB writes
       _lastGpsSend = now;
 
       const payload = {
@@ -923,6 +929,49 @@ function stopGpsTracking() {
   if (_gpsInterval) {
     clearInterval(_gpsInterval);
     _gpsInterval = null;
+  }
+}
+
+/* ──────────────────────────────
+   ROUTE RE-OPTIMIZATION
+────────────────────────────── */
+// Called automatically after driver marks a stop complete/failed/skipped.
+// Sends current GPS position to the optimize-route edge function so pending
+// stops get re-ordered from where the driver actually is right now.
+// Silent fail — if it doesn't work, the original order stands.
+async function reoptimizeRoute(routeId) {
+  if (!routeId) return;
+  try {
+    const body = { route_id: routeId };
+    if (_driverLat !== null && _driverLng !== null) {
+      body.driver_lat = _driverLat;
+      body.driver_lng = _driverLng;
+    }
+    const resp = await fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) return; // silent fail — driver experience unaffected
+
+    // Pull fresh stop_numbers from DB and update local order
+    const { data: updated } = await db.from('route_stops')
+      .select('id, stop_number')
+      .eq('route_id', routeId);
+    if (updated?.length) {
+      const numMap = {};
+      updated.forEach(s => { numMap[s.id] = s.stop_number; });
+      allStops = allStops.map(s =>
+        (s.route_id === routeId && numMap[s.id] !== undefined)
+          ? { ...s, stop_number: numMap[s.id] }
+          : s
+      );
+      // Re-sort so the home screen reflects the new order
+      allStops.sort((a, b) => (a.stop_number || 0) - (b.stop_number || 0));
+      renderHome();
+    }
+  } catch(e) {
+    // Silent fail — re-optimization is best-effort
   }
 }
 
@@ -2264,6 +2313,11 @@ async function completeStop(stopId, stopType) {
     prevStopStatus: 'pending',
     prevOrderStatus,
   });
+
+  // Re-optimize remaining stops from driver's current location (fire-and-forget)
+  if (routeId && route?.status !== 'complete') {
+    reoptimizeRoute(routeId);
+  }
 }
 
 /* ──────────────────────────────
@@ -2327,6 +2381,9 @@ async function failStop(stopId) {
 
   goTo('route');
   toast('Stop marked as failed');
+
+  // Re-optimize remaining stops from driver's current location (fire-and-forget)
+  if (stop?.route_id) reoptimizeRoute(stop.route_id);
 }
 
 /* ──────────────────────────────
@@ -2360,6 +2417,9 @@ async function skipStop(stopId) {
     prevStopStatus,
     prevOrderStatus,
   });
+
+  // Re-optimize remaining stops from driver's current location (fire-and-forget)
+  if (stop?.route_id) reoptimizeRoute(stop.route_id);
 }
 
 /* ──────────────────────────────
