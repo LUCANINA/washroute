@@ -320,8 +320,8 @@
 
     /* Directions button */
     .btn-maps {
-      width: 100%; background: #1a73e8; color: var(--white); border: none;
-      border-radius: 12px; font-size: 16px; font-weight: 700; padding: 14px;
+      width: 100%; background: var(--accent); color: var(--white); border: none;
+      border-radius: 14px; font-size: 16px; font-weight: 700; padding: 15px;
       cursor: pointer; display: flex; align-items: center; justify-content: center;
       gap: 8px; margin-bottom: 10px; text-decoration: none;
     }
@@ -374,12 +374,6 @@
       color: var(--muted); border-radius: 12px; font-size: 14px; font-weight: 600;
       padding: 12px; cursor: pointer; margin-top: 9px;
     }
-    .btn-fail-stop {
-      width: 100%; background: none; border: 1px solid rgba(239,68,68,0.35);
-      color: var(--danger); border-radius: 12px; font-size: 14px; font-weight: 600;
-      padding: 12px; cursor: pointer; margin-top: 6px;
-    }
-
     .notes-box {
       width: 100%; border: 1px solid var(--border); border-radius: 11px;
       font-size: 14px; padding: 12px 14px; font-family: inherit; color: var(--dark);
@@ -611,7 +605,7 @@
       padding: 20px 20px 8px;
     }
     .btn-notify-big {
-      width: 100%; background: var(--dark); color: var(--white); border: none;
+      width: 100%; background: var(--accent); color: var(--white); border: none;
       border-radius: 14px; font-size: 17px; font-weight: 800; padding: 18px;
       cursor: pointer; display: flex; align-items: center; justify-content: center;
       gap: 10px; transition: all .2s;
@@ -631,8 +625,8 @@
     .btn-arrive-text:hover { color: var(--dark); }
     /* En-route notified chip */
     .enroute-notified-chip {
-      background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0;
-      border-radius: 12px; padding: 12px 16px; font-size: 14px; font-weight: 700;
+      background: #f9fafb; color: var(--muted); border: 1px solid var(--border);
+      border-radius: 10px; padding: 9px 16px; font-size: 13px; font-weight: 600;
       text-align: center; margin-bottom: 2px;
     }
     /* Big "I've Arrived" CTA */
@@ -641,25 +635,24 @@
       border-radius: 14px; font-size: 18px; font-weight: 800; padding: 18px;
       margin-top: 12px; cursor: pointer;
       display: flex; align-items: center; justify-content: center; gap: 10px;
-      transition: all .2s; box-shadow: 0 4px 16px rgba(16,185,129,.35);
+      transition: all .2s;
     }
     .btn-arrived-cta:active { transform: scale(0.97); opacity: 0.88; }
-    /* Back button on photo screen */
+    /* Back button on photo screen — text link style */
     .btn-back-subphase {
-      width: 100%; background: none; border: 1.5px solid var(--border);
-      color: var(--muted); font-size: 14px; font-weight: 700;
-      border-radius: 12px; padding: 12px; cursor: pointer;
-      text-align: center; transition: all .15s; margin-bottom: 6px;
+      background: none; border: none;
+      color: var(--muted); font-size: 13px; font-weight: 600;
+      padding: 12px 0 4px; cursor: pointer; display: block;
+      transition: opacity .15s;
     }
-    .btn-back-subphase:active { background: var(--bg); }
-    /* Text Customer SMS button */
+    .btn-back-subphase:active { opacity: 0.6; }
+    /* Text Customer SMS inline link */
     .btn-sms-customer {
-      display: inline-flex; align-items: center; gap: 6px;
-      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
-      border-radius: 10px; padding: 9px 14px; font-size: 13px; font-weight: 700;
-      text-decoration: none; cursor: pointer; transition: all .15s;
+      display: inline-flex; align-items: center; gap: 4px;
+      color: var(--accent); font-size: 13px; font-weight: 600;
+      text-decoration: none; cursor: pointer; transition: opacity .15s;
     }
-    .btn-sms-customer:active { background: #dbeafe; }
+    .btn-sms-customer:active { opacity: 0.6; }
 
     /* ══════════════════════════════
        PHASE 2 — AT STOP / BAG STEPPER
@@ -1722,8 +1715,9 @@ function renderRoute() {
     const isFailed  = stop.status === 'failed';
     const isEnRoute = stop.status === 'en_route';
     const numClass   = isDone ? 'sn-done' : isSkip ? 'sn-skip' : isFailed ? 'sn-fail' : isEnRoute ? 'sn-enroute' : `sn-${stop.stop_type}`;
-    const badgeClass = isDone ? 'sb-done' : isSkip ? 'sb-skipped' : isFailed ? 'sb-failed' : isEnRoute ? 'sb-enroute' : `sb-${stop.stop_type}`;
-    const badgeText  = isDone ? 'DONE' : isSkip ? 'SKIPPED' : isFailed ? 'FAILED' : isEnRoute ? 'EN ROUTE' : stop.stop_type.toUpperCase();
+    const showBadge  = isDone || isSkip || isFailed || isEnRoute;
+    const badgeClass = isDone ? 'sb-done' : isSkip ? 'sb-skipped' : isFailed ? 'sb-failed' : 'sb-enroute';
+    const badgeText  = isDone ? 'Done' : isSkip ? 'Skipped' : isFailed ? 'Failed' : 'En Route';
     const cardClass  = isDone || isSkip || isFailed ? ' done' : isEnRoute ? ' en-route' : '';
     const reassignedTag = stop._reassigned
       ? `<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:2px 7px;border-radius:5px;margin-left:5px">↗ reassigned</span>`
@@ -1731,14 +1725,14 @@ function renderRoute() {
     return `<div class="stop-card${cardClass}" onclick="openStop('${stop.id}')">
       <div class="stop-num ${numClass}">${isDone ? '✓' : isSkip ? '⤷' : isFailed ? '✕' : isEnRoute ? '↑' : stop.stop_number}</div>
       <div class="stop-body">
-        <div><span class="stop-badge ${badgeClass}">${badgeText}</span>${reassignedTag}</div>
+        ${(showBadge || stop._reassigned) ? `<div>${showBadge ? `<span class="stop-badge ${badgeClass}">${badgeText}</span>` : ''}${reassignedTag}</div>` : ''}
         <div class="stop-name">${custName}</div>
         <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
         <div class="stop-meta">${stop.orders?.total_bags||1} bag${(stop.orders?.total_bags||1)!==1?'s':''} · ${stop.orders?.services?.name||'Service'}${isDone && stop.completed_at ? ' · ' + fmtTime(stop.completed_at) : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
         ${addr ? `<a href="${mapsLink(addr)}" target="_blank" onclick="event.stopPropagation()"
-          style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:#e8f0fe;color:#1a73e8;text-decoration:none;flex-shrink:0"
+          style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:var(--bg);color:var(--muted);text-decoration:none;flex-shrink:0"
           title="Open in Maps">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
         </a>` : ''}
@@ -1909,20 +1903,14 @@ function renderStopDetail(stop) {
 
   // ── Customer info (always visible) ──
   h += `<div class="dsection">
-    <div class="dsection-title">Customer</div>
-    <div class="drow">${icon('person')}<div class="dtext">${custName || '—'}</div></div>
-    ${hasPhone ? `<div class="drow">${icon('phone')}<div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a></div></div>` : ''}
     <div class="drow">${icon('pin')}<div class="dtext">${fmtAddr(addr)}</div></div>
+    ${hasPhone ? `<div class="drow">${icon('phone')}<div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a>${!isDone && !isSkip && !isFailed ? `&ensp;<a href="sms:${cust.phone_cache}" class="btn-sms-customer">Text</a>` : ''}</div></div>` : ''}
     ${addr?.delivery_instructions ? `<div class="drow">${icon('lock')}<div><div class="dtext" style="font-size:13px;color:var(--muted)">${addr.delivery_instructions}</div></div></div>` : ''}
-    ${hasPhone && !isDone && !isSkip && !isFailed ? `<div style="margin-top:10px"><a href="sms:${cust.phone_cache}" class="btn-sms-customer">💬&nbsp; Text Customer</a></div>` : ''}
   </div>`;
 
   // ── Order info (always visible) ──
   h += `<div class="dsection">
-    <div class="dsection-title">Order Details</div>
-    <div class="drow">${icon('receipt')}<div class="dtext">Order #${order?.order_number || '—'}</div></div>
     <div class="drow">${icon('bag')}<div class="dtext">${order?.total_bags||1} bag${(order?.total_bags||1)!==1?'s':''} expected</div></div>
-    <div class="drow">${icon('shirt')}<div class="dtext">${svc?.name || 'Service'}</div></div>
     ${renderPrefTags(cust?.preferences)}
   </div>`;
 
@@ -1936,30 +1924,25 @@ function renderStopDetail(stop) {
       h += `<div class="phase1-actions">`;
       if (!alreadySent) {
         h += `<button class="btn-notify-big" id="btn-notify-cust" onclick="sendOnMyWay('${stop.id}')">
-          📲&nbsp; I'm On My Way
-        </button>
-        <div class="phase1-hint">Notifies the customer you're en route</div>`;
-        // Navigate button
+          I'm On My Way
+        </button>`;
         if (mapsHref) {
-          h += `<a href="${mapsHref}" target="_blank" class="btn-maps" style="margin-top:10px;border-radius:14px;font-size:16px;font-weight:700;padding:15px;gap:8px;text-decoration:none">
+          h += `<a href="${mapsHref}" target="_blank" class="btn-maps" style="margin-top:10px;text-decoration:none">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
             Open in Maps
           </a>`;
         }
-        h += `<button class="btn-arrive-text" onclick="arrivedAtStop('${stop.id}')">Skip notification — I'm Already Here →</button>`;
+        h += `<button class="btn-arrive-text" onclick="arrivedAtStop('${stop.id}')">I'm already here</button>`;
       } else {
         // En route state — show notified chip, Maps, then big "I've Arrived" CTA
-        h += `<div class="enroute-notified-chip">✓&nbsp; Customer notified — they're expecting you</div>`;
+        h += `<div class="enroute-notified-chip">✓&nbsp; Customer notified</div>`;
         if (mapsHref) {
-          h += `<a href="${mapsHref}" target="_blank" class="btn-maps" style="margin-top:10px;border-radius:14px;font-size:16px;font-weight:700;padding:15px;gap:8px;text-decoration:none">
+          h += `<a href="${mapsHref}" target="_blank" class="btn-maps" style="margin-top:10px;text-decoration:none">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
             Open in Maps
           </a>`;
         }
-        h += `<button class="btn-arrived-cta" onclick="arrivedAtStop('${stop.id}')">
-          ✅&nbsp; I've Arrived
-        </button>
-        <div class="phase1-hint" style="color:var(--muted)">Tap when you're at the customer's address</div>`;
+        h += `<button class="btn-arrived-cta" onclick="arrivedAtStop('${stop.id}')">I've Arrived</button>`;
       }
       h += `</div>`;
 
@@ -1973,11 +1956,8 @@ function renderStopDetail(stop) {
       // Arrival chip (shown on both sub-phases) + small navigate link
       const p2mapsHref = stop._addr ? mapsLink(stop._addr) : null;
       const navLink = p2mapsHref
-        ? `<a href="${p2mapsHref}" target="_blank" style="margin-left:10px;font-size:12px;font-weight:700;color:#1a73e8;text-decoration:none;white-space:nowrap">↗ Maps</a>`
+        ? `<a href="${p2mapsHref}" target="_blank" style="font-size:12px;font-weight:700;color:var(--accent);text-decoration:none;white-space:nowrap">↗ Maps</a>`
         : '';
-      h += `<div class="arrival-chip ${notified ? 'notified' : 'arrived'}" style="display:flex;align-items:center;justify-content:space-between">
-        <span>${notified ? 'Customer notified · Safe travels!' : 'Arrived at stop'}</span>${navLink}
-      </div>`;
 
       if (currentStopSubPhase === 1) {
         // ── SUB-PHASE 1: Confirm bags + notes ──
@@ -1985,7 +1965,7 @@ function renderStopDetail(stop) {
         // Bag count stepper
         const bagLabel = isPickup ? 'Bags to pick up' : 'Bags to deliver';
         h += `<div class="dsection">
-          <div class="dsection-title">${bagLabel}</div>
+          <div class="dsection-title" style="display:flex;align-items:center;justify-content:space-between">${bagLabel}${navLink}</div>
           <div class="bag-stepper-wrap">
             <div class="bag-stepper">
               <button class="bag-stepper-btn" id="bag-minus-btn" onclick="adjustBags(-1)" ${bagCount <= 0 ? 'disabled' : ''}>−</button>
@@ -2004,7 +1984,7 @@ function renderStopDetail(stop) {
 
         // NEXT button
         h += `<div class="detail-actions">
-          <button class="btn-complete" id="btn-next-subphase" onclick="nextSubPhase('${stop.id}')">Next →</button>
+          <button class="btn-complete" id="btn-next-subphase" onclick="nextSubPhase('${stop.id}')">Continue</button>
         </div>`;
 
       } else {
@@ -2029,11 +2009,12 @@ function renderStopDetail(stop) {
         const cls   = isPickup ? '' : 'delivery';
         const label = isPickup ? 'Mark Picked Up' : 'Mark Delivered';
         h += `<div class="detail-actions">
-          <button class="btn-back-subphase" onclick="prevSubPhase('${stop.id}')">← Back</button>
           <button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')" ${!hasPhoto ? 'disabled' : ''}>${label}</button>
           ${!hasPhoto ? `<div style="text-align:center;font-size:13px;color:var(--muted);margin-top:8px">Photo required to continue</div>` : ''}
+          <button class="btn-back-subphase" onclick="prevSubPhase('${stop.id}')">← Back</button>
+          <div style="height:1px;background:var(--border);margin:4px 0 2px"></div>
           <button class="btn-skip-stop" onclick="skipStop('${stop.id}')">Skip This Stop</button>
-          ${isPickup ? `<button class="btn-fail-stop" onclick="failStop('${stop.id}')">Failed Pickup</button>` : ''}
+          ${isPickup ? `<button class="btn-skip-stop" style="color:var(--danger);border-color:rgba(239,68,68,0.25)" onclick="failStop('${stop.id}')">Failed Pickup</button>` : ''}
         </div>`;
       }
     }
