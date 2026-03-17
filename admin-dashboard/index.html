@@ -636,8 +636,9 @@
     .rcc-stop-num { position:absolute;left:8px;top:50%;transform:translateY(-50%);width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff; }
     .rcc-card-name { font-size:12.5px;font-weight:700;color:var(--gray-900);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
     .rcc-card-addr { font-size:11px;color:var(--gray-400);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-    .rcc-card-foot { font-size:10.5px;color:var(--gray-400);display:flex;gap:5px;align-items:center; }
+    .rcc-card-foot { font-size:10.5px;color:var(--gray-400);display:flex;gap:5px;align-items:center;flex-wrap:wrap; }
     .rcc-card-dot  { width:3px;height:3px;border-radius:50%;background:var(--gray-300);flex-shrink:0; }
+    .rcc-moved-badge { display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border-radius:4px;font-size:9.5px;font-weight:700;letter-spacing:.01em;flex-shrink:0;background:color-mix(in srgb,var(--badge-color) 10%,#fff);color:color-mix(in srgb,var(--badge-color) 85%,#000);border:1px solid color-mix(in srgb,var(--badge-color) 30%,#fff); }
     .pin-done { background: var(--green); }
     .pin-now  { background: var(--blue); animation: ppulse 1.4s infinite; }
     .pin-next { background: var(--gray-400); }
@@ -12423,6 +12424,7 @@ ${totalLinesXml}
   let _rccStopMarkers  = {};          // stopId → L.marker (for hover)
   let _rccPolylines    = {};          // routeId → L.polyline
   let _rccSlot         = null;        // 'AM' | 'PM' — chip strip filter
+  let _rccReassigned   = {};          // stopId → { fromRouteName, fromColor } — cleared on date change
 
   // ── ROUTE COMMAND CENTER — load date data + render chips ──
   async function loadDailyRuns() {
@@ -12437,6 +12439,7 @@ ${totalLinesXml}
     // Reset active state
     _rccActiveRoutes = new Set();
     _rccRouteData = {};
+    _rccReassigned = {};
 
     // Clear columns panel
     const colsPanel = document.getElementById('rcc-cols-panel');
@@ -12703,6 +12706,12 @@ ${totalLinesXml}
       ? ' <span style="color:#ef4444;font-size:10px;font-weight:700;">✗</span>'
       : '';
 
+    // Reassignment badge — shows if this stop was moved from another route this session
+    const moved = _rccReassigned[s.id];
+    const movedBadge = moved
+      ? `<span class="rcc-card-dot"></span><span class="rcc-moved-badge" style="--badge-color:${moved.fromColor};" title="Moved from ${moved.fromRouteName}">↩ ${moved.fromRouteName}</span>`
+      : '';
+
     return `<div class="rcc-card rcc-popin" draggable="true"
       data-stop-id="${s.id}" data-route-id="${routeId}"
       ondragstart="rccDragStart(event,'${s.id}','${routeId}')"
@@ -12715,6 +12724,7 @@ ${totalLinesXml}
         <span style="font-size:9.5px;font-weight:600;padding:1px 5px;border-radius:4px;${typeBg}">${typeLabel}</span>
         <span class="rcc-card-dot"></span>
         <span>${bags} bag${bags!==1?'s':''}</span>
+        ${movedBadge}
       </div>
     </div>`;
   }
@@ -12761,6 +12771,9 @@ ${totalLinesXml}
     const fromData = _rccRouteData[fromRouteId];
     const toData = _rccRouteData[toRouteId];
     if (!fromData || !toData) return;
+
+    // Record the reassignment so the card can show "↩ from [route]" badge
+    _rccReassigned[stopId] = { fromRouteName: fromData.templateName, fromColor: fromData.color };
 
     // Optimistically move in local state first (instant UI feedback)
     const stopIdx = fromData.stops.findIndex(s => s.id === stopId);
