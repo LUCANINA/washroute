@@ -9148,11 +9148,13 @@ ${totalLinesXml}
   let _noPickupStart  = null;
   let _noPickupEnd    = null;
   let _noPickupLabel  = null;   // time-window label for pickup slot (e.g. "7am – 9am")
+  let _noPickupDate   = null;   // LOCAL date (YYYY-MM-DD) — avoids UTC shift for evening slots
   let _noTipType      = 'dollar';
   let _noDayLimit     = 28;   // how many days the pickup day picker shows
   let _noDelivStart   = null;
   let _noDelivEnd     = null;
   let _noDelivLabel   = null;   // time-window label for delivery slot
+  let _noDelivDate    = null;   // LOCAL date (YYYY-MM-DD) for delivery
   let _noAddressCity  = '';   // city of selected address — used to filter routes by zone
 
   // ── CUSTOMER COMBOBOX (New Order modal) ──
@@ -9230,9 +9232,11 @@ ${totalLinesXml}
     _noPickupStart  = null;
     _noPickupEnd    = null;
     _noPickupLabel  = null;
+    _noPickupDate   = null;
     _noDelivStart   = null;
     _noDelivEnd     = null;
     _noDelivLabel   = null;
+    _noDelivDate    = null;
     _noDayLimit     = 28;
     _noTipType      = 'dollar';
     _noAddressCity  = '';
@@ -9383,6 +9387,7 @@ ${totalLinesXml}
     _noPickupStart  = null;
     _noPickupEnd    = null;
     _noPickupLabel  = null;
+    _noPickupDate   = null;
 
     // Collapse route to chip
     document.getElementById('no-route-expanded').style.display = 'none';
@@ -9410,8 +9415,8 @@ ${totalLinesXml}
     document.getElementById('no-slot-section').style.display     = 'none';
     document.getElementById('no-pickup-summary').style.display   = 'none';
     document.getElementById('no-delivery-section').style.display = 'none';
-    _noSelectedTmpl = null; _noPickupStart = null; _noPickupEnd = null; _noPickupLabel = null;
-    _noDelivStart   = null; _noDelivEnd    = null; _noDelivLabel  = null;
+    _noSelectedTmpl = null; _noPickupStart = null; _noPickupEnd = null; _noPickupLabel = null; _noPickupDate = null;
+    _noDelivStart   = null; _noDelivEnd    = null; _noDelivLabel  = null; _noDelivDate  = null;
   }
 
   function expandNoDay() {
@@ -9421,8 +9426,8 @@ ${totalLinesXml}
     document.getElementById('no-slot-section').style.display     = 'none';
     document.getElementById('no-pickup-summary').style.display   = 'none';
     document.getElementById('no-delivery-section').style.display = 'none';
-    _noPickupStart = null; _noPickupEnd = null; _noPickupLabel = null;
-    _noDelivStart  = null; _noDelivEnd  = null; _noDelivLabel  = null;
+    _noPickupStart = null; _noPickupEnd = null; _noPickupLabel = null; _noPickupDate = null;
+    _noDelivStart  = null; _noDelivEnd  = null; _noDelivLabel  = null; _noDelivDate  = null;
   }
 
   // Shared helper: build time-slot array from a route template + ISO date
@@ -9510,6 +9515,7 @@ ${totalLinesXml}
     _noPickupStart = null;
     _noPickupEnd   = null;
     _noPickupLabel = null;
+    _noPickupDate  = null;
 
     // Collapse day grid to chip
     const [yr, mo, dy] = iso.split('-').map(Number);
@@ -9545,6 +9551,7 @@ ${totalLinesXml}
     // string, which would give the UTC date and shift display/delivery by a day
     // for evening pickups in timezones west of UTC (e.g. Pacific Time).
     if (!pickupDateIso) pickupDateIso = startIso.slice(0, 10); // legacy fallback
+    _noPickupDate = pickupDateIso; // store local date for route-run lookup in saveOrder()
     const [yr, mo, dy] = pickupDateIso.split('-').map(Number);
     const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
 
@@ -9585,6 +9592,7 @@ ${totalLinesXml}
         _noDelivStart = slots[0].start;
         _noDelivEnd   = slots[0].end;
         _noDelivLabel = slots[0].label;
+        _noDelivDate  = nextIso; // nextIso is already a local YYYY-MM-DD date string
         const [yr, mo, dy] = nextIso.split('-').map(Number);
         const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
         document.getElementById('nd-delivery-summary').innerHTML =
@@ -9628,9 +9636,12 @@ ${totalLinesXml}
     }).join('');
   }
 
+  let _noDelivDayIso = null; // local YYYY-MM-DD of currently-selected delivery day
+
   function selectNdDay(iso) {
     document.querySelectorAll('#nd-days .sp-day-btn').forEach(b =>
       b.classList.toggle('selected', b.dataset.ndIso === iso));
+    _noDelivDayIso = iso; // capture local date before any UTC shift happens
     _noDelivStart = null; _noDelivEnd = null; _noDelivLabel = null;
     const slots = buildSlots(_noSelectedTmpl, iso);
     document.getElementById('nd-slots').innerHTML = !slots.length
@@ -9648,7 +9659,8 @@ ${totalLinesXml}
     _noDelivStart = startIso;
     _noDelivEnd   = endIso;
     _noDelivLabel = label;
-    const [yr, mo, dy] = startIso.split('T')[0].split('-').map(Number);
+    _noDelivDate  = _noDelivDayIso || startIso.slice(0, 10); // use local date; fallback to UTC slice
+    const [yr, mo, dy] = (_noDelivDayIso || startIso.split('T')[0]).split('-').map(Number);
     const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
     document.getElementById('nd-delivery-summary').innerHTML =
       `<span style="color:var(--accent);font-weight:700">✓</span> ${_noSelectedTmpl?.name || ''} · ${dayFmt} · ${label}`;
@@ -9762,13 +9774,15 @@ ${totalLinesXml}
     // immediately and the route names show in the orders table without manual assignment.
     let pickupRunId = null, delivRunId = null;
     if (_noSelectedTmpl?.id && _noPickupStart) {
-      const pickupDate = _noPickupStart.split('T')[0];
+      // Use stored local date (_noPickupDate) — NOT split from the UTC ISO string,
+      // which would give the wrong date for evening slots (e.g. 6pm PT = next day UTC)
+      const pickupDate = _noPickupDate || _noPickupStart.split('T')[0];
       const { data: pr } = await db.from('routes')
         .select('id').eq('template_id', _noSelectedTmpl.id).eq('run_date', pickupDate).maybeSingle();
       if (pr) pickupRunId = pr.id;
     }
     if (_noSelectedTmpl?.id && _noDelivStart) {
-      const delivDate = _noDelivStart.split('T')[0];
+      const delivDate = _noDelivDate || _noDelivStart.split('T')[0];
       const { data: dr } = await db.from('routes')
         .select('id').eq('template_id', _noSelectedTmpl.id).eq('run_date', delivDate).maybeSingle();
       if (dr) delivRunId = dr.id;
