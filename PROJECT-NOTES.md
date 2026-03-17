@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 17, 2026 (session 30d — route driver sync fix)*
+*Last updated: Mar 17, 2026 (session 31 — driver app stop badges + rack check; fix phantom time band)*
 
 ---
 
@@ -143,6 +143,9 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 ### New Order Modal
 - **Pickup date bug fixed (session 23):** When admin picked an evening slot (e.g. 6–8pm PT on Mon Mar 16), the UTC ISO string (`2026-03-17T01:00Z`) caused `split('T')[0]` to return the next day (`2026-03-17`). This made the summary show "Tue Mar 17" and pushed the delivery calculation one day late. Fix: `selectNoDay()` now passes the local `iso` date explicitly as a 5th parameter to `selectNoSlot()`, bypassing UTC extraction entirely.
 
+### Order Schedule (Route Command Center)
+- **Phantom time band bug fixed (session 31, commit `a522084`):** The RCC column's time-window section dividers grouped stops by `pickup_window_start` for all stop types. When a delivery stop's order was originally picked up on a different route (e.g. Oakland AM at 9am), its `pickup_window_start` was the morning AM slot (16:00 UTC), which created a spurious 3rd bucket that got labeled "10–12 PM" even though Oakland PM only runs 6–10 PM. Fix: `getUtcMins()` in `rccRenderColumns()` now uses `delivery_window_start` for delivery stops and `pickup_window_start` for pickup stops. Root cause: same-day turnaround orders have pickup on one route and delivery on another — bucketing must use the stop-type-appropriate window.
+
 ### Other
 - Customer management, driver management, services & pricing, reports (all built)
 - Driver Messages tab (in-app driver ↔ admin chat, separate from SMS)
@@ -166,6 +169,9 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **Stop detail — Back button (session 29):** Photo screen (sub-phase 2) now has a "← Back" button that returns to bags/notes (sub-phase 1) so drivers can correct bag count or notes before completing.
 - **Stop detail — Text Customer button (session 29):** "💬 Text Customer" SMS link shown in the customer section on all active stops with a phone on file. Opens the driver's native SMS app pre-filled with the customer's number.
 - **Driver app design overhaul — "Jony Ive" pass (session 30, commit `a9b04a7`):** Full visual redesign. Unified all action blues to `var(--accent)` (removed 6 hardcoded `#1a73e8` instances). Simplified to 3 button levels: primary filled, skip/fail outlined, back/sms text links. Removed decorative noise: arrival chip, emoji, hint text, order# and service name rows from stop detail. Stop cards hide PICKUP/DELIVERY type badge for pending stops (only show status badges: Done/Skipped/Failed/En Route). Phone + SMS collapsed to one row in customer section. Phase 2 button order: Complete → Back (text link) → hairline separator → Skip → Fail. En-route chip changed from green to neutral gray. Dead `.btn-fail-stop` CSS removed.
+- **Stop type pills always visible (session 31, commit `a522084`):** Every stop card now shows a permanent 🧺 Pickup or 📦 Delivery pill badge (using existing `sb-pickup`/`sb-delivery` CSS classes). Status badges (Done/Skipped/etc.) appear alongside when applicable. Previously, type was only implied by the circle color — unclear for drivers scanning a list quickly.
+- **Full time window display (session 31):** Route header subtitle shows "1 pickup · 1 delivery" breakdown in planning view (was "2 stops · not started yet"). Home screen peek cards and planning view banner now show the full window range e.g. "6:00 PM – 8:00 PM" (was "Starts at 6:00 PM"). Uses new `fmtWindowRange(tmpl)` helper.
+- **Rack Check pre-departure checklist (session 31):** In the planning view (before the route window opens), a 📋 Bag Check section appears above the stop list for all delivery stops. Driver taps "✓ On Rack" or "Missing" for each bag. Progress counter updates live; all-green shows a "ready to go" banner; any missing bags show a red "contact dispatch" warning. State persists to `localStorage` keyed by route+date so it survives a page reload. Scroll position preserved across re-renders so tapping a check button doesn't jump to the top of the list. Note: rack check is currently in the planning view only (visible 2h before route opens). Future: add `rack_checked_at` to `route_stops` for admin visibility.
 
 ---
 
@@ -520,6 +526,24 @@ There are actually **two separate hang points** that must both be covered:
   1. Test RCC in browser with real data — open 2+ routes, drag a stop, verify DB update + re-optimization
   2. Test CloudPRNT end-to-end with physical printer on-site
   3. Xero accounting sync (backlog)
+
+---
+
+### Mar 17, 2026 (session 31) — Driver app stop badges, time windows, rack check; fix phantom time band
+
+- **Pickup/delivery pill badges on stop cards (commit `a522084`):** Every stop card now shows a permanent 🧺 Pickup or 📦 Delivery pill alongside the status badge (Done/Skipped/etc.). Previously pending stops showed no type indicator — drivers had to infer from the circle color. Used existing `sb-pickup`/`sb-delivery` CSS classes. Guard added for stops missing `stop_type`.
+
+- **Full time window display:** Route header subtitle changed from "2 stops · not started yet" to "1 pickup · 1 delivery · not started yet" in the planning view. Home screen peek cards and planning view banner now show the full window range "6:00 PM – 8:00 PM" instead of "Starts at 6:00 PM". New `fmtWindowTime()` and `fmtWindowRange(tmpl)` helpers added above `fmtDate()`.
+
+- **Rack Check pre-departure checklist:** A 📋 Bag Check section now appears in the planning view (2 hours before route opens) for all delivery stops. Drivers tap "✓ On Rack" or "Missing" per bag; progress counter updates live; all-clear shows green "ready to go" banner; missing bags show red "contact dispatch" warning. State stored in `localStorage` keyed by `wr-rack-{routeId}-{date}`. Scroll position preserved in `renderRoute()` so tapping check buttons doesn't jump to top. Note: rack check is intentionally in planning view only for now; a future iteration could add `rack_checked_at` to `route_stops` for admin visibility.
+
+- **Fix: phantom "10–12 PM" time band in Order Schedule (commit `a522084`):** The RCC column's `getUtcMins()` bucketing function used `pickup_window_start` for all stops. For same-day turnaround orders (picked up AM, delivered PM on a different route), the delivery stop's `pickup_window_start` was the morning AM slot (e.g. 16:00 UTC = 9 AM PDT). This created a 3rd spurious bucket that the position-based label formula called "10–12 PM". Fix: delivery stops now bucket by `delivery_window_start`; pickup stops bucket by `pickup_window_start`. The phantom band disappears and delivery stops group correctly with their delivery time window.
+
+- **Next session priorities:**
+  1. Continue hunting and fixing Order Schedule bugs David spotted
+  2. Test full stop detail flow end-to-end as Davey Crockett (en route → I've Arrived → bags → photo → complete)
+  3. Test CloudPRNT with physical printer
+  4. Investigate `optimize-route` v12 stop reordering issue (from session 28)
 
 ---
 
