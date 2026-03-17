@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 16, 2026 (session 26)*
+*Last updated: Mar 16, 2026 (session 27)*
 
 ---
 
@@ -88,7 +88,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `charge-order` | Stripe payment charge | On |
 | `send-order-notification` | Status-change notifications | On |
 | `cloudprnt` | CloudPRNT server — printer polls for jobs, gets Star Markup, marks done | Off |
-| `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. When GPS provided: driver is origin, last pending stop is destination. Renumbers pending stops preserving done stop numbers. v10 deployed session 24. | Off |
+| `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. Pickups and deliveries optimized independently. **v12 (session 27):** No-GPS path now uses geographic-extremes algorithm — northernmost and southernmost stops become fixed endpoints; tries both N→S and S→N directions with 2 Google API calls; picks shorter road distance. Eliminates U-shaped routes caused by pinning stop_number extremes as endpoints. When GPS provided: driver position is origin, last pending stop is destination (unchanged). | Off |
 
 ---
 
@@ -496,6 +496,20 @@ There are actually **two separate hang points** that must both be covered:
   1. Test RCC in browser with real data — open 2+ routes, drag a stop, verify DB update + re-optimization
   2. Test CloudPRNT end-to-end with physical printer on-site
   3. Xero accounting sync (backlog)
+
+---
+
+### Mar 16, 2026 (session 27) — Route optimization fix + RCC map visualization
+
+- **`optimize-route` v12 — geographic-extremes algorithm (commit `f242eda`):** Replaced the fixed-endpoint approach (pin stop #1 as origin, last stop as destination by stop_number order) with a geographic-extremes method. Northernmost and southernmost stops (by actual latitude) become the natural endpoints. Two Google API calls are made (N→S and S→N direction), and the shorter total road distance wins. Also extracted a shared `callGoogle()` helper for cleaner code. Fixes U-shaped routes that occurred when stop_number endpoints happened to be in the same geographic area (e.g., two north Berkeley stops as start/end forcing a south-sweep-and-return). v11 (circular trick) was also tried but produced same ordering in some cases; v12 geographic approach is more reliable.
+
+- **RCC map — separate pickup/delivery polylines (commit `f242eda`):** The RCC map now draws pickups and deliveries as two distinct polylines (solid for pickups, dashed for deliveries), each sorted by their own `stop_number`. Previously all stops were merged into one combined polyline which always looked tangled regardless of route quality. Pin deduplication preserved — same-address stops (customer with both pickup and delivery) show one pin with a "📦 pickup + 🏠 delivery" popup note.
+
+- **RCC — reassignment badge via DB (commits `f237ef9`, `95f2917`):** Added `moved_from_route_id` UUID column (FK, ON DELETE SET NULL) to `route_stops`. Badge data now persists in the DB instead of `localStorage` — consistent across all browsers and users. Logic: set on first drag to a different route; cleared if stop is moved back to its original route. Badge shows the route COLOR + name it came from. SELECT queries updated to fetch `moved_from_route_id` in both `rccToggleRoute` and `rccRefreshRoute`.
+
+- **RCC — ghost stops filtered (commit `9233254`):** Added `'skipped'` to the order status exclusion filter in 3 places. Deleted 20 dangling `route_stops` rows whose linked orders had status `skipped` (cancelled orders that weren't cleaned up). Renumbered remaining stops sequentially using `ROW_NUMBER() OVER (PARTITION BY route_id ORDER BY stop_number)`. Fixed misassigned stop (Alex Rivera was on Oakland PM, moved to Berkeley PM).
+
+- **Orders table — Pickup/Delivery Route sort fixed (commit `257a043`):** Added missing `case 'pickup_run_id'` and `case 'delivery_run_id'` branches to the sort switch in `renderOrders()`. Now sorts alphabetically by route name (lowercased) from the joined `pickup_run`/`delivery_run` objects.
 
 ---
 
