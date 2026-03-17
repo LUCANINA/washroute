@@ -199,6 +199,46 @@
     .btn-big:active { transform: scale(0.98); }
     .btn-big.green { background: var(--deliver); }
 
+    /* Later Today collapsible strip */
+    .later-today-wrap {
+      margin-top: 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.10);
+      overflow: hidden;
+    }
+    .later-today-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 11px 14px; cursor: pointer;
+      background: rgba(255,255,255,0.05);
+      user-select: none; -webkit-user-select: none;
+    }
+    .later-today-header:active { background: rgba(255,255,255,0.09); }
+    .later-today-left { display: flex; align-items: center; gap: 7px; }
+    .later-today-label {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.6px; color: rgba(255,255,255,0.38);
+    }
+    .later-today-names {
+      font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.65);
+    }
+    .later-today-chevron {
+      font-size: 13px; color: rgba(255,255,255,0.30);
+      transition: transform .2s ease;
+      flex-shrink: 0;
+    }
+    .later-today-chevron.open { transform: rotate(90deg); }
+    .later-today-body { display: none; padding: 0 12px 12px; }
+    .later-today-body.open { display: block; }
+    .later-route-peek {
+      background: rgba(255,255,255,0.06); border-radius: 10px;
+      padding: 12px 14px; margin-top: 9px;
+      cursor: pointer; display: flex; align-items: center; justify-content: space-between;
+    }
+    .later-route-peek:active { background: rgba(255,255,255,0.10); }
+    .later-route-peek-name { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.80); }
+    .later-route-peek-time { font-size: 12px; color: rgba(255,255,255,0.40); margin-top: 2px; }
+    .later-route-peek-arrow { font-size: 16px; color: rgba(255,255,255,0.25); }
+
     .home-section { padding: 18px 16px 4px; }
     .section-label {
       font-size: 12px; font-weight: 700; text-transform: uppercase;
@@ -852,7 +892,7 @@ const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 const db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'wr-driver-auth', autoRefreshToken: true, persistSession: true } });
 
 let currentUser = null, currentProfile = null, currentDriver = null;
-let todayRoutes = [], allStops = [], pendingOrders = [];
+let todayRoutes = [], allStops = [], pendingOrders = [], upcomingRoutes = [];
 let activeRouteFilter = null;  // null = all | routeId = one route | 'extra' = reassigned stops
 let _dataLoading = false; // prevents realtime events from corrupting allStops mid-load
 let currentStopId = null;
@@ -872,6 +912,8 @@ let _gpsWatchId = null;
 let _gpsInterval = null;
 let _lastGpsSend = 0;
 const GPS_SEND_INTERVAL = 12000; // send position every 12 seconds
+let _driverLat = null;  // always current — updated on every GPS fix (not throttled)
+let _driverLng = null;
 
 function startGpsTracking() {
   if (_gpsWatchId !== null) return; // already tracking
@@ -886,8 +928,12 @@ function startGpsTracking() {
 
   _gpsWatchId = navigator.geolocation.watchPosition(
     (pos) => {
+      // Always keep latest position — re-optimization uses this regardless of send throttle
+      _driverLat = pos.coords.latitude;
+      _driverLng = pos.coords.longitude;
+
       const now = Date.now();
-      if (now - _lastGpsSend < GPS_SEND_INTERVAL) return; // throttle
+      if (now - _lastGpsSend < GPS_SEND_INTERVAL) return; // throttle DB writes
       _lastGpsSend = now;
 
       const payload = {
@@ -923,6 +969,49 @@ function stopGpsTracking() {
   if (_gpsInterval) {
     clearInterval(_gpsInterval);
     _gpsInterval = null;
+  }
+}
+
+/* ──────────────────────────────
+   ROUTE RE-OPTIMIZATION
+────────────────────────────── */
+// Called automatically after driver marks a stop complete/failed/skipped.
+// Sends current GPS position to the optimize-route edge function so pending
+// stops get re-ordered from where the driver actually is right now.
+// Silent fail — if it doesn't work, the original order stands.
+async function reoptimizeRoute(routeId) {
+  if (!routeId) return;
+  try {
+    const body = { route_id: routeId };
+    if (_driverLat !== null && _driverLng !== null) {
+      body.driver_lat = _driverLat;
+      body.driver_lng = _driverLng;
+    }
+    const resp = await fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) return; // silent fail — driver experience unaffected
+
+    // Pull fresh stop_numbers from DB and update local order
+    const { data: updated } = await db.from('route_stops')
+      .select('id, stop_number')
+      .eq('route_id', routeId);
+    if (updated?.length) {
+      const numMap = {};
+      updated.forEach(s => { numMap[s.id] = s.stop_number; });
+      allStops = allStops.map(s =>
+        (s.route_id === routeId && numMap[s.id] !== undefined)
+          ? { ...s, stop_number: numMap[s.id] }
+          : s
+      );
+      // Re-sort so the home screen reflects the new order
+      allStops.sort((a, b) => (a.stop_number || 0) - (b.stop_number || 0));
+      renderHome();
+    }
+  } catch(e) {
+    // Silent fail — re-optimization is best-effort
   }
 }
 
@@ -1016,6 +1105,15 @@ function mapsLink(a) {
 function greet() {
   const h = new Date().getHours();
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+}
+
+// Toggle the "Later Today" collapsible section on the home screen
+function toggleLaterToday() {
+  const body    = document.getElementById('later-body');
+  const chevron = document.getElementById('later-chevron');
+  if (!body || !chevron) return;
+  const open = body.classList.toggle('open');
+  chevron.classList.toggle('open', open);
 }
 
 function fmtTime(ts) {
@@ -1184,7 +1282,7 @@ async function doSignOut() {
   await db.auth.signOut();
   appReady = false;
   currentUser = currentProfile = currentDriver = null;
-  todayRoutes = []; allStops = []; pendingOrders = []; activeRouteFilter = null;
+  todayRoutes = []; allStops = []; pendingOrders = []; upcomingRoutes = []; activeRouteFilter = null;
   allMessages = []; unreadCount = 0;
   document.getElementById('bottom-nav').style.display = 'none';
   showScreen('auth');
@@ -1281,7 +1379,21 @@ async function loadDriverData() {
     return _now >= showFrom && _now <= hideAt;
   }
 
-  todayRoutes = allRoutesForToday.filter(isRouteVisible);
+  // A route is "upcoming" if its window hasn't opened yet (not even the pre-buffer)
+  // and it isn't already in progress. These get shown as a "Later Today" strip instead
+  // of a full route card, to avoid confusing drivers about what to work on right now.
+  function isUpcomingRoute(r) {
+    if (r.status === 'in_progress') return false; // always treat as current
+    const tmpl = r.route_templates;
+    if (!tmpl || !tmpl.window_start) return false; // no window info → can't tell, treat as current
+    const winStart = new Date(`${_todayStr}T${tmpl.window_start}`);
+    const showFrom = new Date(winStart.getTime() - PRE_WINDOW_HOURS * 60 * 60 * 1000);
+    return _now < showFrom;
+  }
+
+  // Split: upcoming routes (shown collapsed) vs current routes (shown as full cards)
+  upcomingRoutes = allRoutesForToday.filter(r => isUpcomingRoute(r));
+  todayRoutes = allRoutesForToday.filter(r => isRouteVisible(r) && !isUpcomingRoute(r));
 
   // ── Group 3: route stops (needs routeIds from group 2) ──
   let routeStops = [];
@@ -1301,7 +1413,9 @@ async function loadDriverData() {
 
   // ── Carry forward: check hidden (past-window) routes for incomplete stops ──
   // If a morning route has un-done stops, show those stops even if the window passed
-  const hiddenRoutes = allRoutesForToday.filter(r => !isRouteVisible(r));
+  // Exclude upcoming routes — they haven't started yet and should NOT be treated
+  // as overdue carry-forwards. Only past-window routes need the carry-forward check.
+  const hiddenRoutes = allRoutesForToday.filter(r => !isRouteVisible(r) && !isUpcomingRoute(r));
   if (hiddenRoutes.length > 0) {
     const hiddenIds = hiddenRoutes.map(r => r.id);
     const { data: carryStops } = await db.from('route_stops')
@@ -1347,6 +1461,21 @@ async function loadDriverData() {
   );
   allStops = [...routeStops, ...tagged];
 
+  // ── Fetch stops for upcoming (later-today) routes so drivers can preview them ──
+  // These stops are tagged _upcoming:true so renderRoute() can show a "planning only" banner.
+  if (upcomingRoutes.length > 0) {
+    const upcomingIds = upcomingRoutes.map(r => r.id);
+    const { data: uStops } = await db.from('route_stops')
+      .select(stopFields)
+      .in('route_id', upcomingIds)
+      .or(`driver_id.eq.${currentDriver.id},driver_id.is.null`)
+      .order('stop_number', { ascending: true });
+    const taggedUpcoming = (uStops || [])
+      .filter(s => s.orders && !['delivered','cancelled'].includes(s.orders.status))
+      .map(s => ({ ...s, _upcoming: true }));
+    allStops = [...allStops, ...taggedUpcoming];
+  }
+
   // ── Resolve addresses through customers' default addresses ──
   // (address_id on route_stops is often null; look up via customer instead)
   const custIds = [...new Set(allStops.map(s => s.orders?.customer_id).filter(Boolean))];
@@ -1384,8 +1513,10 @@ function renderHome() {
   const body = document.getElementById('home-body');
   const name = currentProfile?.first_name || 'Driver';
   const dateStr = new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
-  const doneAll  = allStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
-  const totalAll = allStops.length;
+  // Exclude upcoming (later-today) stops from the progress counts on the home screen
+  const currentStops = allStops.filter(s => !s._upcoming);
+  const doneAll  = currentStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+  const totalAll = currentStops.length;
   const multiRoute = todayRoutes.length > 1;
 
   let h = `<div class="home-hero">
@@ -1409,7 +1540,7 @@ function renderHome() {
     // Primary route cards (one per assigned route)
     if (todayRoutes.length > 1) {
       todayRoutes.forEach(route => {
-        const rStops = allStops.filter(s => s.route_id === route.id);
+        const rStops = allStops.filter(s => s.route_id === route.id && !s._upcoming);
         const rDone  = rStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
         const rTotal = rStops.length;
         const rPct   = rTotal > 0 ? Math.round((rDone / rTotal) * 100) : 0;
@@ -1452,6 +1583,50 @@ function renderHome() {
       <div style="font-size:13px;color:rgba(255,255,255,0.45)">No stops have been assigned to you yet.</div>
     </div>`;
   }
+
+  // ── Later Today strip ────────────────────────────────────────────────
+  // Upcoming routes (window hasn't opened yet) get a small collapsible
+  // section instead of a full card, so drivers aren't confused about
+  // what to work on right now.
+  if (upcomingRoutes.length > 0) {
+    const names = upcomingRoutes.map(r => r.name).join(', ');
+
+    const peekCards = upcomingRoutes.map(r => {
+      const tmpl = r.route_templates;
+      let timeStr = '';
+      if (tmpl?.window_start) {
+        // Format "18:00:00" → "6:00 PM"
+        const [hh, mm] = tmpl.window_start.split(':').map(Number);
+        const suffix = hh >= 12 ? 'PM' : 'AM';
+        const h12 = hh > 12 ? hh - 12 : (hh === 0 ? 12 : hh);
+        timeStr = `Starts at ${h12}:${String(mm).padStart(2,'0')} ${suffix}`;
+      }
+      return `
+        <div class="later-route-peek" onclick="setRouteFilter('${r.id}')">
+          <div>
+            <div class="later-route-peek-name">${r.name}</div>
+            <div class="later-route-peek-time">${timeStr || 'Scheduled later today'}</div>
+          </div>
+          <div class="later-route-peek-arrow">›</div>
+        </div>`;
+    }).join('');
+
+    h += `
+      <div class="later-today-wrap">
+        <div class="later-today-header" onclick="toggleLaterToday()">
+          <div class="later-today-left">
+            <span class="later-today-label">Later today</span>
+            <span class="later-today-names">${names}</span>
+          </div>
+          <span class="later-today-chevron" id="later-chevron">›</span>
+        </div>
+        <div class="later-today-body" id="later-body">
+          ${peekCards}
+        </div>
+      </div>`;
+  }
+  // ────────────────────────────────────────────────────────────────────
+
   h += '</div>';
 
   // Next stop section — respects activeRouteFilter when set.
@@ -1524,17 +1699,22 @@ function renderRoute() {
   }
 
   // Determine which stops to show based on activeRouteFilter
-  let visibleStops, viewTitle, isFiltered = false;
+  let visibleStops, viewTitle, isFiltered = false, isUpcomingView = false;
   if (activeRouteFilter === 'extra') {
     visibleStops = allStops.filter(s => s._reassigned);
     viewTitle    = 'Extra Stops';
     isFiltered   = true;
   } else if (activeRouteFilter) {
-    visibleStops = allStops.filter(s => s.route_id === activeRouteFilter);
-    viewTitle    = todayRoutes.find(r => r.id === activeRouteFilter)?.name || 'Route';
-    isFiltered   = true;
+    visibleStops  = allStops.filter(s => s.route_id === activeRouteFilter);
+    // Look up name in both current and upcoming routes
+    viewTitle     = todayRoutes.find(r => r.id === activeRouteFilter)?.name
+                 || upcomingRoutes.find(r => r.id === activeRouteFilter)?.name
+                 || 'Route';
+    isFiltered    = true;
+    isUpcomingView = upcomingRoutes.some(r => r.id === activeRouteFilter);
   } else {
-    visibleStops = allStops;
+    // Unfiltered view: only show current-route stops (not upcoming ones)
+    visibleStops = allStops.filter(s => !s._upcoming);
     viewTitle    = todayRoutes.length > 1 ? "Today's Routes" : (todayRoutes[0]?.name || "Today's Route");
   }
 
@@ -1543,7 +1723,9 @@ function renderRoute() {
   const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
 
   document.getElementById('rh-title').textContent = viewTitle;
-  document.getElementById('rh-sub').textContent   = `${done} of ${total} stop${total !== 1 ? 's' : ''} complete`;
+  document.getElementById('rh-sub').textContent   = isUpcomingView
+    ? `${total} stop${total !== 1 ? 's' : ''} · not started yet`
+    : `${done} of ${total} stop${total !== 1 ? 's' : ''} complete`;
   document.getElementById('rh-bar').style.width   = pct + '%';
 
   // Render a single stop card
@@ -1595,10 +1777,25 @@ function renderRoute() {
     if (sorted.length === 0) {
       h += `<div style="text-align:center;padding:32px 0;color:var(--gray-400);font-size:14px">No stops in this route.</div>`;
     } else {
+      // Banner for upcoming-route preview
+      if (isUpcomingView) {
+        const uRoute = upcomingRoutes.find(r => r.id === activeRouteFilter);
+        const tmpl = uRoute?.route_templates;
+        let startStr = 'later today';
+        if (tmpl?.window_start) {
+          const [hh, mm] = tmpl.window_start.split(':').map(Number);
+          const suffix = hh >= 12 ? 'PM' : 'AM';
+          const h12 = hh > 12 ? hh - 12 : (hh === 0 ? 12 : hh);
+          startStr = `at ${h12}:${String(mm).padStart(2,'0')} ${suffix}`;
+        }
+        h += `<div style="background:#fef9c3;border:1px solid #fde047;border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:13px;color:#713f12;font-weight:600">
+          🕐 Planning view — this route starts ${startStr}. Stops shown for reference only.
+        </div>`;
+      }
       sorted.forEach(stop => { h += renderStopCard(stop); });
     }
-    // "Route complete" banner when all done
-    if (total > 0 && done === total) {
+    // "Route complete" banner when all done (skip for upcoming routes)
+    if (!isUpcomingView && total > 0 && done === total) {
       h += `<div class="completed-banner" style="margin-top:16px">All stops done — great work!</div>`;
     }
   } else if (todayRoutes.length > 1) {
@@ -1632,7 +1829,8 @@ function renderRoute() {
     }
   } else {
     // Single route: all stops sorted by stop_number, no section header
-    const sorted = [...allStops].sort((a, b) => a.stop_number - b.stop_number);
+    // Use visibleStops (already filtered to exclude upcoming) not raw allStops
+    const sorted = [...visibleStops].sort((a, b) => a.stop_number - b.stop_number);
     sorted.forEach(stop => { h += renderStopCard(stop); });
   }
 
@@ -2264,6 +2462,11 @@ async function completeStop(stopId, stopType) {
     prevStopStatus: 'pending',
     prevOrderStatus,
   });
+
+  // Re-optimize remaining stops from driver's current location (fire-and-forget)
+  if (routeId && route?.status !== 'complete') {
+    reoptimizeRoute(routeId);
+  }
 }
 
 /* ──────────────────────────────
@@ -2327,6 +2530,9 @@ async function failStop(stopId) {
 
   goTo('route');
   toast('Stop marked as failed');
+
+  // Re-optimize remaining stops from driver's current location (fire-and-forget)
+  if (stop?.route_id) reoptimizeRoute(stop.route_id);
 }
 
 /* ──────────────────────────────
@@ -2360,6 +2566,9 @@ async function skipStop(stopId) {
     prevStopStatus,
     prevOrderStatus,
   });
+
+  // Re-optimize remaining stops from driver's current location (fire-and-forget)
+  if (stop?.route_id) reoptimizeRoute(stop.route_id);
 }
 
 /* ──────────────────────────────
