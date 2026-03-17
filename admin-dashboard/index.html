@@ -7498,10 +7498,13 @@ ${totalLinesXml}
     });
 
     // Determine effective status
+    const _24hAgo = Date.now() - 24 * 60 * 60 * 1000;
     const convs = Object.values(convMap).map(c => {
       const latestIsInbound = c.latest.direction === 'inbound';
       let status = c.db_status || 'open';
       if (latestIsInbound && status === 'waiting') status = 'open'; // re-open only if waiting (not if explicitly archived)
+      // Auto-archive conversations with no activity in the last 24 hours
+      if (status !== 'resolved' && new Date(c.latest.created_at).getTime() < _24hAgo) status = 'resolved';
       return { ...c, status };
     }).sort((a, b) => new Date(b.latest.created_at) - new Date(a.latest.created_at));
 
