@@ -629,6 +629,37 @@
       transition: color .15s;
     }
     .btn-arrive-text:hover { color: var(--dark); }
+    /* En-route notified chip */
+    .enroute-notified-chip {
+      background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0;
+      border-radius: 12px; padding: 12px 16px; font-size: 14px; font-weight: 700;
+      text-align: center; margin-bottom: 2px;
+    }
+    /* Big "I've Arrived" CTA */
+    .btn-arrived-cta {
+      width: 100%; background: #10b981; color: #fff; border: none;
+      border-radius: 14px; font-size: 18px; font-weight: 800; padding: 18px;
+      margin-top: 12px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      transition: all .2s; box-shadow: 0 4px 16px rgba(16,185,129,.35);
+    }
+    .btn-arrived-cta:active { transform: scale(0.97); opacity: 0.88; }
+    /* Back button on photo screen */
+    .btn-back-subphase {
+      width: 100%; background: none; border: 1.5px solid var(--border);
+      color: var(--muted); font-size: 14px; font-weight: 700;
+      border-radius: 12px; padding: 12px; cursor: pointer;
+      text-align: center; transition: all .15s; margin-bottom: 6px;
+    }
+    .btn-back-subphase:active { background: var(--bg); }
+    /* Text Customer SMS button */
+    .btn-sms-customer {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;
+      border-radius: 10px; padding: 9px 14px; font-size: 13px; font-weight: 700;
+      text-decoration: none; cursor: pointer; transition: all .15s;
+    }
+    .btn-sms-customer:active { background: #dbeafe; }
 
     /* ══════════════════════════════
        PHASE 2 — AT STOP / BAG STEPPER
@@ -1821,8 +1852,8 @@ function openStop(stopId) {
   currentStopId = stopId;
   const stop = allStops.find(s => s.id === stopId);
   if (!stop) return;
-  // Auto-advance to Phase 2 if already en_route or already notified
-  currentStopPhase = (stop.status === 'en_route' || stop.on_my_way_sent_at) ? 2 : 1;
+  // Always start at Phase 1 — driver taps "I've Arrived" to advance to bags/notes
+  currentStopPhase = 1;
   currentStopSubPhase = 1;
   adjustedBagCount = null;
   draftNotes = null;
@@ -1883,6 +1914,7 @@ function renderStopDetail(stop) {
     ${hasPhone ? `<div class="drow">${icon('phone')}<div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a></div></div>` : ''}
     <div class="drow">${icon('pin')}<div class="dtext">${fmtAddr(addr)}</div></div>
     ${addr?.delivery_instructions ? `<div class="drow">${icon('lock')}<div><div class="dtext" style="font-size:13px;color:var(--muted)">${addr.delivery_instructions}</div></div></div>` : ''}
+    ${hasPhone && !isDone && !isSkip && !isFailed ? `<div style="margin-top:10px"><a href="sms:${cust.phone_cache}" class="btn-sms-customer">💬&nbsp; Text Customer</a></div>` : ''}
   </div>`;
 
   // ── Order info (always visible) ──
@@ -1907,18 +1939,28 @@ function renderStopDetail(stop) {
           📲&nbsp; I'm On My Way
         </button>
         <div class="phase1-hint">Notifies the customer you're en route</div>`;
+        // Navigate button
+        if (mapsHref) {
+          h += `<a href="${mapsHref}" target="_blank" class="btn-maps" style="margin-top:10px;border-radius:14px;font-size:16px;font-weight:700;padding:15px;gap:8px;text-decoration:none">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            Open in Maps
+          </a>`;
+        }
+        h += `<button class="btn-arrive-text" onclick="arrivedAtStop('${stop.id}')">Skip notification — I'm Already Here →</button>`;
       } else {
-        h += `<button class="btn-notify-big sent" disabled>✓&nbsp; Customer Notified</button>
-        <div class="phase1-hint" style="color:#10b981">Customer is expecting you — open Maps to navigate</div>`;
+        // En route state — show notified chip, Maps, then big "I've Arrived" CTA
+        h += `<div class="enroute-notified-chip">✓&nbsp; Customer notified — they're expecting you</div>`;
+        if (mapsHref) {
+          h += `<a href="${mapsHref}" target="_blank" class="btn-maps" style="margin-top:10px;border-radius:14px;font-size:16px;font-weight:700;padding:15px;gap:8px;text-decoration:none">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            Open in Maps
+          </a>`;
+        }
+        h += `<button class="btn-arrived-cta" onclick="arrivedAtStop('${stop.id}')">
+          ✅&nbsp; I've Arrived
+        </button>
+        <div class="phase1-hint" style="color:var(--muted)">Tap when you're at the customer's address</div>`;
       }
-      // Navigate button — always visible, blue, below the notification button
-      if (mapsHref) {
-        h += `<a href="${mapsHref}" target="_blank" class="btn-maps" style="margin-top:10px;border-radius:14px;font-size:16px;font-weight:700;padding:15px;gap:8px;text-decoration:none">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
-          Open in Maps
-        </a>`;
-      }
-      h += `<button class="btn-arrive-text" onclick="arrivedAtStop('${stop.id}')">${alreadySent ? "I'm Here Now →" : "Skip notification — I'm Already Here →"}</button>`;
       h += `</div>`;
 
     } else {
@@ -1987,6 +2029,7 @@ function renderStopDetail(stop) {
         const cls   = isPickup ? '' : 'delivery';
         const label = isPickup ? 'Mark Picked Up' : 'Mark Delivered';
         h += `<div class="detail-actions">
+          <button class="btn-back-subphase" onclick="prevSubPhase('${stop.id}')">← Back</button>
           <button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')" ${!hasPhoto ? 'disabled' : ''}>${label}</button>
           ${!hasPhoto ? `<div style="text-align:center;font-size:13px;color:var(--muted);margin-top:8px">Photo required to continue</div>` : ''}
           <button class="btn-skip-stop" onclick="skipStop('${stop.id}')">Skip This Stop</button>
@@ -2082,12 +2125,8 @@ async function sendOnMyWay(stopId) {
       allStops[idx].status = 'en_route';
     }
 
-    // Transition to Phase 2, sub-phase 1
+    // Stay on Phase 1 — driver must tap "I've Arrived" to proceed to bags/notes
     const stop = allStops.find(s => s.id === stopId);
-    currentStopPhase = 2;
-    currentStopSubPhase = 1;
-    draftNotes = null;
-    if (adjustedBagCount === null) adjustedBagCount = stop?.orders?.total_bags || 1;
 
     const smsOk = result.sms?.ok;
     if (smsOk) {
@@ -2141,6 +2180,16 @@ function nextSubPhase(stopId) {
   const notesEl = document.getElementById('stop-notes');
   if (notesEl) draftNotes = notesEl.value.trim() || null;
   currentStopSubPhase = 2;
+  const stop = allStops.find(s => s.id === stopId);
+  if (stop) renderStopDetail(stop);
+  document.getElementById('stop-body').scrollTop = 0;
+}
+
+/* ──────────────────────────────
+   BACK: PHOTO → BAGS
+────────────────────────────── */
+function prevSubPhase(stopId) {
+  currentStopSubPhase = 1;
   const stop = allStops.find(s => s.id === stopId);
   if (stop) renderStopDetail(stop);
   document.getElementById('stop-body').scrollTop = 0;
