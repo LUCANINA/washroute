@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 17, 2026 (session 29)*
+*Last updated: Mar 17, 2026 (session 30)*
 
 ---
 
@@ -515,6 +515,25 @@ There are actually **two separate hang points** that must both be covered:
   1. Test RCC in browser with real data — open 2+ routes, drag a stop, verify DB update + re-optimization
   2. Test CloudPRNT end-to-end with physical printer on-site
   3. Xero accounting sync (backlog)
+
+---
+
+### Mar 17, 2026 (session 30) — Driver first name in SMS + notification blast-radius fixes
+
+- **Driver name personalization in "On My Way" SMS (commit `62657b0`):** Updated `driver_on_way_pickup` and `driver_on_way_delivery` templates in `message_templates` DB to use `{{customer_first_name}}` and `{{driver_first_name}}` tags. Example: "Hi Sarah! Davey is on the way to pick up your laundry…" instead of the generic "Family Laundry Update: your driver is on the way…"
+
+- **`notify-on-my-way` v20 — template-driven + driver first name:** Rewrote edge function to read message body from `message_templates` table (was hardcoded). Supports `{{customer_first_name}}`, `{{driver_first_name}}`, `{{action_word}}` interpolation. Driver app previously passed full name (`David Macquart-Moulin`); fixed `sendOnMyWay()` to pass only `currentProfile?.first_name`.
+
+- **`send-scheduled-reminders` v11 — morning reminder timing fix:** `runDayOf()` used `pickup_window_start >= now` which missed pickups whose window started exactly at cron fire time (7am cron, 7am window → `>= now` at 14:00:03 UTC, window_start = 14:00:00 UTC). Fixed to `pickup_window_end >= now` so any order whose window hasn't closed yet is included.
+
+- **`send-order-notification` v15 — blast radius fix for driver name (commit `62657b0`):** QA caught that `send-order-notification` also fires the `driver_on_way_delivery` template (when admin advances `out_for_delivery` status) but had `driver_first_name: ''` in its vars. SMS would read "Hi Sarah! is on the way with your clean laundry…". Fixed: function now fetches the delivery stop's assigned driver (explicit `driver_id` or route default) and populates `driver_first_name` from their profile. Also added `customer_first_name` as an alias for `first_name` for consistency. v15 deployed.
+
+- **Admin Notifications merge tags updated:** Replaced `{{driver_name}}` (was populated as empty string) with `{{driver_first_name}}` and `{{customer_first_name}}` in the tag picker. Old templates using `{{driver_name}}` still work (maps to same value via `driver_name` alias in the vars object).
+
+- **Next session priorities:**
+  1. Test full stop detail flow end-to-end as Davey Crockett (en route → I've Arrived → bags → photo → complete)
+  2. Investigate `optimize-route` v12 stop reordering issue (from session 28)
+  3. Test CloudPRNT with physical printer
 
 ---
 
