@@ -12439,8 +12439,7 @@ ${totalLinesXml}
     // Reset active state
     _rccActiveRoutes = new Set();
     _rccRouteData = {};
-    _rccReassigned = {};
-    rccLoadReassigned(); // restore any reassignments saved before last refresh
+    _rccReassigned = {}; // legacy in-memory map — kept for safety but no longer the source of truth
 
     // Clear columns panel
     const colsPanel = document.getElementById('rcc-cols-panel');
@@ -12565,28 +12564,6 @@ ${totalLinesXml}
     rccUpdateOptimizeBtn();
   }
 
-  // ── RCC: Persist / restore reassignment badges across page refreshes ──
-  function rccSaveReassigned() {
-    try {
-      const key = `wr_reassigned_${_dsDateStr}`;
-      localStorage.setItem(key, JSON.stringify(_rccReassigned));
-      // Clean up entries older than 7 days
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7);
-      Object.keys(localStorage).forEach(k => {
-        if (!k.startsWith('wr_reassigned_')) return;
-        const d = new Date(k.replace('wr_reassigned_', ''));
-        if (!isNaN(d) && d < cutoff) localStorage.removeItem(k);
-      });
-    } catch(e) { /* storage unavailable — silent */ }
-  }
-
-  function rccLoadReassigned() {
-    try {
-      const raw = localStorage.getItem(`wr_reassigned_${_dsDateStr}`);
-      if (raw) _rccReassigned = JSON.parse(raw);
-    } catch(e) { /* corrupt or unavailable — start fresh */ }
-  }
-
   // ── RCC: Toggle a route column open/closed ──
   async function rccToggleRoute(routeId) {
     if (!routeId) return;
@@ -12609,7 +12586,7 @@ ${totalLinesXml}
     const color = tpl?.color || '#635bff';
 
     const { data: stops } = await db.from('route_stops')
-      .select(`id, route_id, stop_number, stop_type, status, driver_id,
+      .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id,
                orders(id, status, total_bags, customer_id,
                  pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                  customers(first_name_cache, last_name_cache))`)
@@ -12729,11 +12706,15 @@ ${totalLinesXml}
       ? ' <span style="color:#ef4444;font-size:10px;font-weight:700;">✗</span>'
       : '';
 
-    // Reassignment badge — shows if this stop was moved from another route this session
-    const moved = _rccReassigned[s.id];
-    const movedBadge = moved
-      ? `<span class="rcc-card-dot"></span><span class="rcc-moved-badge" style="--badge-color:${moved.fromColor};" title="Moved from ${moved.fromRouteName}">↩ ${moved.fromRouteName}</span>`
-      : '';
+    // Reassignment badge — sourced from DB column, persists across refreshes and browsers
+    let movedBadge = '';
+    if (s.moved_from_route_id) {
+      const origRoute = _dsRoutes.find(r => r.id === s.moved_from_route_id);
+      const origTpl   = origRoute ? _dsTemplates.find(t => t.id === origRoute.template_id) : null;
+      const origName  = origTpl?.name || 'another route';
+      const origColor = origTpl?.color || '#94a3b8';
+      movedBadge = `<span class="rcc-card-dot"></span><span class="rcc-moved-badge" style="--badge-color:${origColor};" title="Moved from ${origName}">↩ ${origName}</span>`;
+    }
 
     return `<div class="rcc-card rcc-popin" draggable="true"
       data-stop-id="${s.id}" data-route-id="${routeId}"
@@ -12795,15 +12776,20 @@ ${totalLinesXml}
     const toData = _rccRouteData[toRouteId];
     if (!fromData || !toData) return;
 
-    // Record the reassignment so the card can show "↩ from [route]" badge (persisted across refreshes)
-    _rccReassigned[stopId] = { fromRouteName: fromData.templateName, fromColor: fromData.color };
-    rccSaveReassigned();
+    // Determine the "original" route for this stop:
+    // - If it was already moved before, moved_from_route_id holds the original
+    // - Otherwise the original is wherever it sits right now (fromRouteId)
+    const stopObj = fromData.stops.find(s => s.id === stopId);
+    const originalRouteId = stopObj?.moved_from_route_id || fromRouteId;
+    // If being moved back to its original route → clear the badge; otherwise record the original
+    const newMovedFrom = (toRouteId === originalRouteId) ? null : originalRouteId;
 
-    // Optimistically move in local state first (instant UI feedback)
+    // Optimistically update local state (instant UI feedback)
     const stopIdx = fromData.stops.findIndex(s => s.id === stopId);
     if (stopIdx === -1) return;
     const [stop] = fromData.stops.splice(stopIdx, 1);
     stop.route_id = toRouteId;
+    stop.moved_from_route_id = newMovedFrom;
     toData.stops.push(stop);
     _dsCountMap[fromRouteId] = Math.max(0, (_dsCountMap[fromRouteId]||1) - 1);
     _dsCountMap[toRouteId] = (_dsCountMap[toRouteId]||0) + 1;
@@ -12816,7 +12802,9 @@ ${totalLinesXml}
       const { data: tgt } = await db.from('route_stops')
         .select('stop_number').eq('route_id', toRouteId).order('stop_number', {ascending:false}).limit(1);
       const nextNum = (tgt?.[0]?.stop_number || 0) + 1;
-      await db.from('route_stops').update({ route_id: toRouteId, stop_number: nextNum }).eq('id', stopId);
+      await db.from('route_stops')
+        .update({ route_id: toRouteId, stop_number: nextNum, moved_from_route_id: newMovedFrom })
+        .eq('id', stopId);
       const [{ count: srcCnt }, { count: dstCnt }] = await Promise.all([
         db.from('route_stops').select('*', {count:'exact',head:true}).eq('route_id', fromRouteId),
         db.from('route_stops').select('*', {count:'exact',head:true}).eq('route_id', toRouteId),
@@ -12938,7 +12926,7 @@ ${totalLinesXml}
     if (!rd) return;
 
     const { data: stops } = await db.from('route_stops')
-      .select(`id, route_id, stop_number, stop_type, status, driver_id,
+      .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id,
                orders(id, status, total_bags, customer_id,
                  pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                  customers(first_name_cache, last_name_cache))`)
