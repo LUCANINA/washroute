@@ -638,6 +638,8 @@
     .rcc-card-addr { font-size:11px;color:var(--gray-400);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
     .rcc-card-foot { font-size:10.5px;color:var(--gray-400);display:flex;gap:5px;align-items:center;flex-wrap:wrap; }
     .rcc-card-dot  { width:3px;height:3px;border-radius:50%;background:var(--gray-300);flex-shrink:0; }
+    .rcc-window-divider { font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--gray-400);padding:5px 4px 3px;border-bottom:1px solid var(--gray-200);margin-bottom:2px;margin-top:4px;user-select:none; }
+    .rcc-window-divider.rcc-first-div { margin-top:0; }
     .rcc-moved-badge { display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border-radius:4px;font-size:9.5px;font-weight:700;letter-spacing:.01em;flex-shrink:0;background:color-mix(in srgb,var(--badge-color) 10%,#fff);color:color-mix(in srgb,var(--badge-color) 85%,#000);border:1px solid color-mix(in srgb,var(--badge-color) 30%,#fff); }
     .pin-done { background: var(--green); }
     .pin-now  { background: var(--blue); animation: ppulse 1.4s infinite; }
@@ -12468,7 +12470,7 @@ ${totalLinesXml}
 
     // Load route templates + routes for this date
     const [{ data: templates }, { data: routes }] = await Promise.all([
-      db.from('route_templates').select('id, name, window_start, window_end, color').order('name'),
+      db.from('route_templates').select('id, name, window_start, window_end, arrival_window_hours, color').order('name'),
       db.from('routes').select('id, name, status, template_id, driver_id').eq('run_date', _dsDateStr)
     ]);
     _dsTemplates = templates || [];
@@ -12656,8 +12658,64 @@ ${totalLinesXml}
       const doneCount = stops.filter(s => s.status === 'complete').length;
       const pct = cnt > 0 ? Math.round((doneCount / cnt) * 100) : 0;
 
+      // ── Time-window section dividers ──
+      // If the template has arrival_window_hours (e.g. 2), group stop cards by
+      // their booked time slot (6–8 PM, 8–10 PM, etc.) with a visual header.
+      const tpl = _dsTemplates.find(t => t.id === rd.route.template_id);
+      const arrWinHrs = tpl?.arrival_window_hours || 0;
+
       let cardsHtml = '';
-      stops.forEach(s => { cardsHtml += rccBuildCard(s, routeId, color); });
+      const getUtcMins = s => {
+        const ts = s.orders?.pickup_window_start || s.orders?.delivery_window_start;
+        if (!ts) return null;
+        const d = new Date(ts);
+        return d.getUTCHours() * 60 + d.getUTCMinutes();
+      };
+
+      // Collect distinct UTC-minute buckets that actually appear in this route
+      const bucketSet = new Set();
+      stops.forEach(s => { const m = getUtcMins(s); if (m !== null) bucketSet.add(m); });
+      const sortedBuckets = [...bucketSet].sort((a, b) => a - b);
+
+      if (arrWinHrs > 0 && sortedBuckets.length > 1) {
+        // Build slot labels from template local window_start + arrival_window_hours
+        const toM = t => { const p = (t || '00:00').split(':'); return parseInt(p[0]) * 60 + parseInt(p[1] || 0); };
+        const fmtH = mins => {
+          const h = Math.floor(mins / 60) % 24, m = mins % 60;
+          return m ? `${h % 12 || 12}:${String(m).padStart(2, '0')}` : `${h % 12 || 12}`;
+        };
+        const fmtSlotLbl = (startM, endM) => {
+          const sSuf = startM >= 720 ? 'PM' : 'AM', eSuf = endM >= 720 ? 'PM' : 'AM';
+          return sSuf === eSuf ? `${fmtH(startM)}–${fmtH(endM)} ${eSuf}` : `${fmtH(startM)} ${sSuf}–${fmtH(endM)} ${eSuf}`;
+        };
+        const tmplStartM = toM(tpl?.window_start || '00:00');
+        const bucketLabel = {};
+        sortedBuckets.forEach((bucket, i) => {
+          bucketLabel[bucket] = fmtSlotLbl(tmplStartM + i * arrWinHrs * 60, tmplStartM + (i + 1) * arrWinHrs * 60);
+        });
+
+        // Group stops by bucket (preserving stop_number order within each group)
+        const groups = {};
+        sortedBuckets.forEach(b => { groups[b] = []; });
+        const noWindow = [];
+        stops.forEach(s => {
+          const m = getUtcMins(s);
+          if (m !== null && groups[m] !== undefined) groups[m].push(s);
+          else noWindow.push(s);
+        });
+
+        let firstDiv = true;
+        sortedBuckets.forEach(bucket => {
+          const grp = groups[bucket];
+          if (!grp.length) return;
+          cardsHtml += `<div class="rcc-window-divider${firstDiv ? ' rcc-first-div' : ''}">${bucketLabel[bucket]}</div>`;
+          firstDiv = false;
+          grp.forEach(s => { cardsHtml += rccBuildCard(s, routeId, color); });
+        });
+        noWindow.forEach(s => { cardsHtml += rccBuildCard(s, routeId, color); });
+      } else {
+        stops.forEach(s => { cardsHtml += rccBuildCard(s, routeId, color); });
+      }
 
       html += `<div class="rcc-col" data-route-id="${routeId}"
         ondragover="rccDragOver(event)"
