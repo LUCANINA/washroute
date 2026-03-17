@@ -5010,6 +5010,14 @@
           av = a.status || '';
           bv = b.status || '';
           break;
+        case 'pickup_run_id':
+          av = (a.pickup_run?.name || '').toLowerCase();
+          bv = (b.pickup_run?.name || '').toLowerCase();
+          break;
+        case 'delivery_run_id':
+          av = (a.delivery_run?.name || '').toLowerCase();
+          bv = (b.delivery_run?.name || '').toLowerCase();
+          break;
         case 'order_number':
           av = Number(a.order_number || 0);
           bv = Number(b.order_number || 0);
