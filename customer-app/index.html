@@ -1868,6 +1868,32 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
     }
   }
 
+  // 2b. Still nothing — check if an existing customer has this email but is already
+  //     linked to a DIFFERENT auth user (e.g. signed up via phone, now using magic link).
+  //     Re-point profile_id to the current auth user so they land on their real account.
+  if (!ec) {
+    const userEmail = email || user.email;
+    if (userEmail) {
+      const { data: existing } = await db.from('customers')
+        .select('*')
+        .eq('email_cache', userEmail)
+        .not('profile_id', 'is', null)
+        .maybeSingle();
+      if (existing) {
+        await db.from('customers').update({ profile_id: user.id }).eq('id', existing.id);
+        // Also update the profiles table so the new auth user has a name/email record
+        await db.from('profiles').upsert({
+          id: user.id,
+          first_name: existing.first_name_cache || '',
+          last_name:  existing.last_name_cache  || '',
+          email:      userEmail,
+          phone:      existing.phone_cache      || ''
+        }, { onConflict: 'id' });
+        ec = { ...existing, profile_id: user.id };
+      }
+    }
+  }
+
   // 3. Still nothing — create a fresh customer record
   if (!ec) {
     await db.from('customers').insert({
