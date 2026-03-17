@@ -288,6 +288,49 @@
     .stop-chevron { color: #d1d5db; font-size: 20px; flex-shrink: 0; }
 
     /* ══════════════════════════════
+       RACK CHECK
+    ══════════════════════════════ */
+    .rack-check-wrap {
+      background: #f8faff; border: 1.5px solid #c7d2fe;
+      border-radius: 12px; padding: 14px; margin-bottom: 14px;
+    }
+    .rack-check-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .rack-check-title { font-size: 13px; font-weight: 800; color: #3730a3; text-transform: uppercase; letter-spacing: 0.4px; }
+    .rack-check-progress { font-size: 12px; font-weight: 600; color: #6366f1; }
+    .rack-check-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 0; border-bottom: 1px solid #e0e7ff;
+    }
+    .rack-check-row:last-child { border-bottom: none; }
+    .rack-check-info { flex: 1; min-width: 0; }
+    .rack-check-name { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rack-check-order { font-size: 11px; color: #6b7280; margin-top: 1px; }
+    .rack-check-btns { display: flex; gap: 6px; flex-shrink: 0; }
+    .rack-btn {
+      border: none; border-radius: 8px; font-size: 12px; font-weight: 700;
+      padding: 6px 11px; cursor: pointer; transition: all .15s;
+    }
+    .rack-btn-ok            { background: #e0e7ff; color: #3730a3; }
+    .rack-btn-ok.active     { background: #4f46e5; color: #fff; }
+    .rack-btn-miss          { background: #fee2e2; color: #991b1b; }
+    .rack-btn-miss.active   { background: #dc2626; color: #fff; }
+    .rack-all-good {
+      background: #dcfce7; border: 1px solid #86efac;
+      border-radius: 10px; padding: 10px 14px;
+      text-align: center; font-size: 13px; font-weight: 700;
+      color: #166534; margin-bottom: 14px;
+    }
+    .rack-has-missing {
+      background: #fef2f2; border: 1px solid #fca5a5;
+      border-radius: 10px; padding: 10px 14px;
+      text-align: center; font-size: 13px; font-weight: 700;
+      color: #991b1b; margin-bottom: 14px;
+    }
+
+    /* ══════════════════════════════
        STOP DETAIL SCREEN
     ══════════════════════════════ */
     .detail-hdr {
@@ -918,6 +961,7 @@ const db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'wr-d
 let currentUser = null, currentProfile = null, currentDriver = null;
 let todayRoutes = [], allStops = [], pendingOrders = [], upcomingRoutes = [];
 let activeRouteFilter = null;  // null = all | routeId = one route | 'extra' = reassigned stops
+let _rackCheckState = {};      // { [stopId]: 'ok' | 'missing' } — cleared per route/day
 let _dataLoading = false; // prevents realtime events from corrupting allStops mid-load
 let currentStopId = null;
 let currentStopPhase = 1;    // 1 = pre-arrival, 2 = at-stop
@@ -1131,6 +1175,33 @@ function greet() {
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 }
 
+// ── Rack Check helpers ─────────────────────────────────────────────────────
+// Saves check state per route/day in localStorage so it survives a page reload.
+function _rackCheckKey(routeId) {
+  return `wr-rack-${routeId}-${today()}`;
+}
+function _rackCheckLoad(routeId) {
+  try { return JSON.parse(localStorage.getItem(_rackCheckKey(routeId)) || '{}'); }
+  catch { return {}; }
+}
+function _rackCheckSave(routeId) {
+  try { localStorage.setItem(_rackCheckKey(routeId), JSON.stringify(_rackCheckState)); }
+  catch {}
+}
+// Called when driver taps ✓ or "Missing" on a bag check row.
+// val = 'ok' | 'missing' — tapping the same value again clears it (toggle off).
+function rackCheckToggle(stopId, val) {
+  const routeId = activeRouteFilter;
+  if (!routeId) return;
+  if (_rackCheckState[stopId] === val) {
+    delete _rackCheckState[stopId];   // tap same button again → un-check
+  } else {
+    _rackCheckState[stopId] = val;
+  }
+  _rackCheckSave(routeId);
+  renderRoute();   // re-render to update progress counter and banners
+}
+
 // Toggle the "Later Today" collapsible section on the home screen
 function toggleLaterToday() {
   const body    = document.getElementById('later-body');
@@ -1143,6 +1214,23 @@ function toggleLaterToday() {
 function fmtTime(ts) {
   if (!ts) return '';
   return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+// Format a "HH:MM:SS" time string (from route_templates) → "6:00 PM"
+function fmtWindowTime(timeStr) {
+  if (!timeStr) return '';
+  const [hh, mm] = timeStr.split(':').map(Number);
+  const suffix = hh >= 12 ? 'PM' : 'AM';
+  const h12 = hh > 12 ? hh - 12 : (hh === 0 ? 12 : hh);
+  return `${h12}:${String(mm).padStart(2,'0')} ${suffix}`;
+}
+
+// Format a route window as "6:00 PM – 8:00 PM" (or just "6:00 PM" if no end)
+function fmtWindowRange(tmpl) {
+  if (!tmpl?.window_start) return '';
+  const start = fmtWindowTime(tmpl.window_start);
+  const end   = tmpl.window_end ? fmtWindowTime(tmpl.window_end) : '';
+  return end ? `${start} – ${end}` : start;
 }
 
 function fmtDate(ts) {
@@ -1617,19 +1705,13 @@ function renderHome() {
 
     const peekCards = upcomingRoutes.map(r => {
       const tmpl = r.route_templates;
-      let timeStr = '';
-      if (tmpl?.window_start) {
-        // Format "18:00:00" → "6:00 PM"
-        const [hh, mm] = tmpl.window_start.split(':').map(Number);
-        const suffix = hh >= 12 ? 'PM' : 'AM';
-        const h12 = hh > 12 ? hh - 12 : (hh === 0 ? 12 : hh);
-        timeStr = `Starts at ${h12}:${String(mm).padStart(2,'0')} ${suffix}`;
-      }
+      const windowRange = fmtWindowRange(tmpl);
+      const timeStr = windowRange || 'Scheduled later today';
       return `
         <div class="later-route-peek" onclick="setRouteFilter('${r.id}')">
           <div>
             <div class="later-route-peek-name">${r.name}</div>
-            <div class="later-route-peek-time">${timeStr || 'Scheduled later today'}</div>
+            <div class="later-route-peek-time">${timeStr}</div>
           </div>
           <div class="later-route-peek-arrow">›</div>
         </div>`;
@@ -1699,9 +1781,17 @@ function renderRoute() {
   const total = visibleStops.length;
   const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
 
+  const pickupCount   = visibleStops.filter(s => s.stop_type === 'pickup').length;
+  const delivCount    = visibleStops.filter(s => s.stop_type === 'delivery').length;
+  const typeParts     = [
+    pickupCount   ? `${pickupCount} pickup${pickupCount !== 1 ? 's' : ''}`       : '',
+    delivCount    ? `${delivCount} deliver${delivCount !== 1 ? 'ies' : 'y'}`     : '',
+  ].filter(Boolean);
+  const typeBreakdown = typeParts.length ? typeParts.join(' · ') : `${total} stop${total !== 1 ? 's' : ''}`;
+
   document.getElementById('rh-title').textContent = viewTitle;
   document.getElementById('rh-sub').textContent   = isUpcomingView
-    ? `${total} stop${total !== 1 ? 's' : ''} · not started yet`
+    ? `${typeBreakdown} · not started yet`
     : `${done} of ${total} stop${total !== 1 ? 's' : ''} complete`;
   document.getElementById('rh-bar').style.width   = pct + '%';
 
@@ -1719,13 +1809,17 @@ function renderRoute() {
     const badgeClass = isDone ? 'sb-done' : isSkip ? 'sb-skipped' : isFailed ? 'sb-failed' : 'sb-enroute';
     const badgeText  = isDone ? 'Done' : isSkip ? 'Skipped' : isFailed ? 'Failed' : 'En Route';
     const cardClass  = isDone || isSkip || isFailed ? ' done' : isEnRoute ? ' en-route' : '';
+    const isPickup   = stop.stop_type === 'pickup';
+    const typePill   = stop.stop_type
+      ? `<span class="stop-badge ${isPickup ? 'sb-pickup' : 'sb-delivery'}">${isPickup ? '🧺 Pickup' : '📦 Delivery'}</span>`
+      : '';
     const reassignedTag = stop._reassigned
       ? `<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:2px 7px;border-radius:5px;margin-left:5px">↗ reassigned</span>`
       : '';
     return `<div class="stop-card${cardClass}" onclick="openStop('${stop.id}')">
       <div class="stop-num ${numClass}">${isDone ? '✓' : isSkip ? '⤷' : isFailed ? '✕' : isEnRoute ? '↑' : stop.stop_number}</div>
       <div class="stop-body">
-        ${(showBadge || stop._reassigned) ? `<div>${showBadge ? `<span class="stop-badge ${badgeClass}">${badgeText}</span>` : ''}${reassignedTag}</div>` : ''}
+        <div>${typePill}${showBadge ? ` <span class="stop-badge ${badgeClass}">${badgeText}</span>` : ''}${reassignedTag}</div>
         <div class="stop-name">${custName}</div>
         <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
         <div class="stop-meta">${stop.orders?.total_bags||1} bag${(stop.orders?.total_bags||1)!==1?'s':''} · ${stop.orders?.services?.name||'Service'}${isDone && stop.completed_at ? ' · ' + fmtTime(stop.completed_at) : ''}</div>
@@ -1759,16 +1853,61 @@ function renderRoute() {
       if (isUpcomingView) {
         const uRoute = upcomingRoutes.find(r => r.id === activeRouteFilter);
         const tmpl = uRoute?.route_templates;
-        let startStr = 'later today';
-        if (tmpl?.window_start) {
-          const [hh, mm] = tmpl.window_start.split(':').map(Number);
-          const suffix = hh >= 12 ? 'PM' : 'AM';
-          const h12 = hh > 12 ? hh - 12 : (hh === 0 ? 12 : hh);
-          startStr = `at ${h12}:${String(mm).padStart(2,'0')} ${suffix}`;
-        }
+        const windowRange = fmtWindowRange(tmpl);
+        const windowLabel = windowRange ? windowRange : 'later today';
         h += `<div style="background:#fef9c3;border:1px solid #fde047;border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:13px;color:#713f12;font-weight:600">
-          🕐 Planning view — this route starts ${startStr}. Stops shown for reference only.
+          🕐 Planning view — this route runs ${windowLabel}. Stops shown for reference only.
         </div>`;
+
+        // ── Rack Check ──────────────────────────────────────────────────────
+        // Show only for delivery stops — driver needs to physically verify
+        // each bag is on the rack before leaving the processing center.
+        // Pickup stops are excluded (those bags don't exist yet).
+        const delivStops = sorted.filter(s => s.stop_type === 'delivery');
+        if (delivStops.length > 0) {
+          // Load saved state from localStorage for this route+day
+          _rackCheckState = _rackCheckLoad(activeRouteFilter);
+          const checkedCount = delivStops.filter(s => _rackCheckState[s.id] === 'ok').length;
+          const missingCount = delivStops.filter(s => _rackCheckState[s.id] === 'missing').length;
+          const allChecked   = checkedCount + missingCount === delivStops.length;
+
+          // Summary banner
+          if (allChecked && missingCount === 0) {
+            h += `<div class="rack-all-good">✅ All ${checkedCount} bag${checkedCount !== 1 ? 's' : ''} confirmed on rack — ready to go!</div>`;
+          } else if (allChecked && missingCount > 0) {
+            h += `<div class="rack-has-missing">⚠️ ${missingCount} bag${missingCount !== 1 ? 's' : ''} missing — contact dispatch before leaving!</div>`;
+          }
+
+          // Checklist rows
+          let rackRows = '';
+          delivStops.forEach(s => {
+            const cust    = s.orders?.customers;
+            const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
+            const orderNum = s.orders?.order_number ? `#${s.orders.order_number}` : '';
+            const state    = _rackCheckState[s.id] || null;
+            rackRows += `
+              <div class="rack-check-row">
+                <div class="rack-check-info">
+                  <div class="rack-check-name">${custName}</div>
+                  ${orderNum ? `<div class="rack-check-order">${orderNum}</div>` : ''}
+                </div>
+                <div class="rack-check-btns">
+                  <button class="rack-btn rack-btn-ok${state === 'ok' ? ' active' : ''}"
+                    onclick="event.stopPropagation();rackCheckToggle('${s.id}','ok')">✓ On Rack</button>
+                  <button class="rack-btn rack-btn-miss${state === 'missing' ? ' active' : ''}"
+                    onclick="event.stopPropagation();rackCheckToggle('${s.id}','missing')">Missing</button>
+                </div>
+              </div>`;
+          });
+          h += `<div class="rack-check-wrap">
+            <div class="rack-check-header">
+              <span class="rack-check-title">📋 Bag Check</span>
+              <span class="rack-check-progress">${checkedCount + missingCount} of ${delivStops.length} checked</span>
+            </div>
+            ${rackRows}
+          </div>`;
+        }
+        // ── End Rack Check ──────────────────────────────────────────────────
       }
       sorted.forEach(stop => { h += renderStopCard(stop); });
     }
@@ -1813,7 +1952,10 @@ function renderRoute() {
   }
 
   h += '</div>';
+  // Preserve scroll position across re-renders (e.g. rack check taps, realtime updates)
+  const _prevScroll = body.scrollTop;
   body.innerHTML = h;
+  if (_prevScroll > 0) body.scrollTop = _prevScroll;
 }
 
 /* ──────────────────────────────

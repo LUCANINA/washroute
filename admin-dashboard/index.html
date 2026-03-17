@@ -12815,7 +12815,12 @@ ${totalLinesXml}
 
       let cardsHtml = '';
       const getUtcMins = s => {
-        const ts = s.orders?.pickup_window_start || s.orders?.delivery_window_start;
+        // Use delivery_window_start for delivery stops — their pickup_window_start
+        // may be from a different route/time (e.g. morning AM pickup → evening PM delivery)
+        // and would create a phantom time band if used for bucketing here.
+        const ts = s.stop_type === 'delivery'
+          ? (s.orders?.delivery_window_start || s.orders?.pickup_window_start)
+          : (s.orders?.pickup_window_start   || s.orders?.delivery_window_start);
         if (!ts) return null;
         const d = new Date(ts);
         return d.getUTCHours() * 60 + d.getUTCMinutes();
