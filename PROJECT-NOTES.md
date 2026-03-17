@@ -530,6 +530,10 @@ There are actually **two separate hang points** that must both be covered:
 
 - **Admin Notifications merge tags updated:** Replaced `{{driver_name}}` (was populated as empty string) with `{{driver_first_name}}` and `{{customer_first_name}}` in the tag picker. Old templates using `{{driver_name}}` still work (maps to same value via `driver_name` alias in the vars object).
 
+- **Fix: "Est. Delivery" → "Delivery" in confirmation emails (commit `17b2122`):** Label updated in both the customer app booking confirmation email and the admin dashboard "New Order" email.
+
+- **Fix: pickup_failed SMS never sending (commit `5c294ea`):** Driver app was passing `order_id` (snake_case) to `send-order-notification` but the edge function expects `orderId` (camelCase). The "Pickup Failed" SMS had silently never sent since the feature was built. Fixed to `orderId`.
+
 - **Next session priorities:**
   1. Test full stop detail flow end-to-end as Davey Crockett (en route → I've Arrived → bags → photo → complete)
   2. Investigate `optimize-route` v12 stop reordering issue (from session 28)
