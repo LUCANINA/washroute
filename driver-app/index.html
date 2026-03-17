@@ -2753,24 +2753,32 @@ function subscribeToRouteStopUpdates() {
   if (_stopSub || !currentDriver) return;
   _stopSub = db.channel('driver-stop-updates')
 
-    // Route stop changed by admin (reassignment, address edit, cancellation)
+    // Route stop changed by admin (reassignment, route move, address edit, cancellation)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'route_stops' }, payload => {
       if (_dataLoading) return;
       const updated = payload.new;
       const idx = allStops.findIndex(s => s.id === updated.id);
 
+      // Helper: is this route_id one of this driver's own routes (current or upcoming)?
+      const isMyRoute = r => todayRoutes.some(t => t.id === r) || upcomingRoutes.some(t => t.id === r);
+      // Helper: is this stop intended for this driver (explicit match or inherited via null)?
+      const isMyDriver = d => d === currentDriver?.id || d === null;
+
       if (idx < 0) {
-        // Stop not currently in our list — check if it was just assigned to us
-        if (updated.driver_id === currentDriver?.id) {
-          // A stop from another route was just reassigned to us — reload to pick it up
-          loadRouteData();
+        // Stop not in our list — check if it just became ours (explicit assignment or
+        // moved onto one of our routes with driver_id = null)
+        if (isMyDriver(updated.driver_id) && isMyRoute(updated.route_id)) {
+          loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
         }
         return;
       }
 
-      // Stop IS in our list — check if it was just reassigned to someone else
-      const reassignedAway = updated.driver_id !== null && updated.driver_id !== currentDriver?.id;
-      if (reassignedAway) {
+      // Stop IS in our list — check if it was just moved/reassigned away from us:
+      // (a) explicit assignment to a different driver, OR
+      // (b) driver_id cleared to null but route moved to someone else's route
+      const movedToOtherDriver = updated.driver_id !== null && updated.driver_id !== currentDriver?.id;
+      const movedToOtherRoute  = updated.driver_id === null && !isMyRoute(updated.route_id);
+      if (movedToOtherDriver || movedToOtherRoute) {
         allStops.splice(idx, 1);
         renderHome();
         renderRoute();
@@ -2786,6 +2794,18 @@ function subscribeToRouteStopUpdates() {
       renderHome();
       renderRoute();
       if (currentStopId === updated.id) renderStopDetail(updated.id);
+    })
+
+    // Route stop INSERTED (new stop added to one of this driver's routes by admin)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'route_stops' }, payload => {
+      if (_dataLoading) return;
+      const inserted = payload.new;
+      const isMyRoute = todayRoutes.some(t => t.id === inserted.route_id) || upcomingRoutes.some(t => t.id === inserted.route_id);
+      const isMyDriver = inserted.driver_id === currentDriver?.id || inserted.driver_id === null;
+      if (isMyRoute && isMyDriver) {
+        // Reload fully so we get the joined order/customer data for the new stop
+        loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
+      }
     })
 
     // Route stop DELETED (admin deleted order, or rollback detached stops)
