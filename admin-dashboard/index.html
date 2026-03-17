@@ -9866,7 +9866,7 @@ ${totalLinesXml}
         body: JSON.stringify({
           customer_id: customerId,
           to_email:    _toEmail,
-          subject:     `Booking Confirmed — Family Laundry Order #${newOrder?.order_number || ''}`,
+          subject:     `Booking Confirmed — Family Laundry${newOrder?.order_number ? ` Order #${newOrder.order_number}` : ''}`,
           body:        _htmlBody
         })
       }).catch(() => {});
