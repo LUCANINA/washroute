@@ -9379,6 +9379,7 @@ ${totalLinesXml}
     _noSelectedTmpl = _noTemplates.find(t => t.id === tmplId);
     _noPickupStart  = null;
     _noPickupEnd    = null;
+    _noPickupLabel  = null;
 
     // Collapse route to chip
     document.getElementById('no-route-expanded').style.display = 'none';
@@ -9505,6 +9506,7 @@ ${totalLinesXml}
   function selectNoDay(iso) {
     _noPickupStart = null;
     _noPickupEnd   = null;
+    _noPickupLabel = null;
 
     // Collapse day grid to chip
     const [yr, mo, dy] = iso.split('-').map(Number);
@@ -9626,7 +9628,7 @@ ${totalLinesXml}
   function selectNdDay(iso) {
     document.querySelectorAll('#nd-days .sp-day-btn').forEach(b =>
       b.classList.toggle('selected', b.dataset.ndIso === iso));
-    _noDelivStart = null; _noDelivEnd = null;
+    _noDelivStart = null; _noDelivEnd = null; _noDelivLabel = null;
     const slots = buildSlots(_noSelectedTmpl, iso);
     document.getElementById('nd-slots').innerHTML = !slots.length
       ? '<span style="color:var(--gray-400);font-size:13px">No slots — check route window times.</span>'
