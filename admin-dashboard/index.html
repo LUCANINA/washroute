@@ -7775,12 +7775,14 @@ ${totalLinesXml}
         </div>
       </div>
       <div class="inbox-messages" id="msg-thread">
-        ${(msgs||[]).map(m => `
-          <div style="display:flex;flex-direction:column;align-items:${m.direction==='outbound'?'flex-end':'flex-start'}">
-            <div class="message-bubble message-${m.direction}">${esc(m.body)}</div>
-            <div class="msg-ts">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}</div>
-          </div>`).join('')}
-        ${(!msgs||msgs.length===0)?'<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:20px">No messages yet</div>':''}
+        <div style="width:100%;max-width:580px;margin:0 auto;display:flex;flex-direction:column;gap:12px">
+          ${(msgs||[]).map(m => `
+            <div style="display:flex;flex-direction:column;align-items:${m.direction==='outbound'?'flex-end':'flex-start'}">
+              <div class="message-bubble message-${m.direction}">${esc(m.body)}</div>
+              <div class="msg-ts">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}</div>
+            </div>`).join('')}
+          ${(!msgs||msgs.length===0)?'<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:20px">No messages yet</div>':''}
+        </div>
       </div>
       <div class="inbox-composer">
         <textarea class="inbox-composer-input" id="compose-input" rows="1"
@@ -15821,7 +15823,7 @@ ${totalLinesXml}
       return;
     }
 
-    thread.innerHTML = msgs.map(m => {
+    thread.innerHTML = `<div style="max-width:580px;margin:0 auto">` + msgs.map(m => {
       const isAdmin = m.sender_type === 'admin';
       const timeStr = new Date(m.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
       return `<div style="display:flex;flex-direction:${isAdmin ? 'row-reverse' : 'row'};gap:10px;align-items:flex-end;margin-bottom:14px">
@@ -15838,7 +15840,7 @@ ${totalLinesXml}
           <div style="font-size:11px;color:var(--gray-400);margin-top:4px;padding:0 4px">${timeStr}</div>
         </div>
       </div>`;
-    }).join('');
+    }).join('') + `</div>`;
 
     setTimeout(() => { thread.scrollTop = thread.scrollHeight; }, 50);
   }
