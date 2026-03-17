@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 17, 2026 (session 30)*
+*Last updated: Mar 17, 2026 (session 30 — design overhaul)*
 
 ---
 
@@ -162,6 +162,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **Stop detail — En Route stage (session 29):** Tapping "I'm On My Way" now keeps the driver on Phase 1 (showing a green "Customer notified" chip + Maps button + big green "I've Arrived" CTA). Previously jumped directly to bags/notes. Driver must tap "I've Arrived" to advance to the at-stop flow. Handles page reloads correctly — `en_route` status shows the en-route state, not bags.
 - **Stop detail — Back button (session 29):** Photo screen (sub-phase 2) now has a "← Back" button that returns to bags/notes (sub-phase 1) so drivers can correct bag count or notes before completing.
 - **Stop detail — Text Customer button (session 29):** "💬 Text Customer" SMS link shown in the customer section on all active stops with a phone on file. Opens the driver's native SMS app pre-filled with the customer's number.
+- **Driver app design overhaul — "Jony Ive" pass (session 30, commit `a9b04a7`):** Full visual redesign. Unified all action blues to `var(--accent)` (removed 6 hardcoded `#1a73e8` instances). Simplified to 3 button levels: primary filled, skip/fail outlined, back/sms text links. Removed decorative noise: arrival chip, emoji, hint text, order# and service name rows from stop detail. Stop cards hide PICKUP/DELIVERY type badge for pending stops (only show status badges: Done/Skipped/Failed/En Route). Phone + SMS collapsed to one row in customer section. Phase 2 button order: Complete → Back (text link) → hairline separator → Skip → Fail. En-route chip changed from green to neutral gray. Dead `.btn-fail-stop` CSS removed.
 
 ---
 
@@ -533,6 +534,17 @@ There are actually **two separate hang points** that must both be covered:
 - **Fix: "Est. Delivery" → "Delivery" in confirmation emails (commit `17b2122`):** Label updated in both the customer app booking confirmation email and the admin dashboard "New Order" email.
 
 - **Fix: pickup_failed SMS never sending (commit `5c294ea`):** Driver app was passing `order_id` (snake_case) to `send-order-notification` but the edge function expects `orderId` (camelCase). The "Pickup Failed" SMS had silently never sent since the feature was built. Fixed to `orderId`.
+
+- **Driver app design overhaul — "Jony Ive" pass (commit `a9b04a7`):** Full visual redesign requested with emphasis on "less colors, only relevant information, same-size buttons, compact, beautiful." QA pass found one Low issue (dead `.btn-fail-stop` CSS) which was fixed before commit. Changes:
+  - Unified all action blues to `var(--accent)` — removed 6 hardcoded `#1a73e8` values
+  - Button hierarchy: primary filled → outlined skip/fail → text link back/sms (3 levels vs previous 10+)
+  - Stop cards: removed PICKUP/DELIVERY type badge for pending stops; neutral gray map icon (was blue)
+  - Stop detail customer section: removed redundant name row (name is in header); collapsed phone + SMS into one row
+  - Stop detail order section: removed order # and service name rows; kept only bag count + preference tags
+  - Phase 1 (pre-arrival): removed 📲 emoji, removed hint text; simplified "Skip notification" → "I'm already here"
+  - Phase 1 (en-route): en-route chip changed from green (#f0fdf4) to neutral gray; removed ✅ emoji and hint text from "I've Arrived"
+  - Phase 2 both sub-phases: removed arrival chip entirely; Maps link moved to bag section title as small ↗ text link (sub-phase 1 only)
+  - Phase 2 sub-phase 2: reordered buttons (Complete first, Back as text link, separator, Skip, Fail); Fail unified to skip style with red overrides
 
 - **Next session priorities:**
   1. Test full stop detail flow end-to-end as Davey Crockett (en route → I've Arrived → bags → photo → complete)
