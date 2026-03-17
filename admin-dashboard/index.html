@@ -7501,7 +7501,7 @@ ${totalLinesXml}
     const convs = Object.values(convMap).map(c => {
       const latestIsInbound = c.latest.direction === 'inbound';
       let status = c.db_status || 'open';
-      if (latestIsInbound && (status === 'waiting' || status === 'resolved')) status = 'open';
+      if (latestIsInbound && status === 'waiting') status = 'open'; // re-open only if waiting (not if explicitly archived)
       return { ...c, status };
     }).sort((a, b) => new Date(b.latest.created_at) - new Date(a.latest.created_at));
 
