@@ -12422,11 +12422,17 @@ ${totalLinesXml}
   let _rccDragStopId   = null;        // stop id being dragged
   let _rccStopMarkers  = {};          // stopId → L.marker (for hover)
   let _rccPolylines    = {};          // routeId → L.polyline
+  let _rccSlot         = null;        // 'AM' | 'PM' — chip strip filter
 
   // ── ROUTE COMMAND CENTER — load date data + render chips ──
   async function loadDailyRuns() {
     const dp = document.getElementById('runs-date-picker');
     _dsDateStr = (dp && dp.value) ? dp.value : today();
+
+    // Auto-select AM/PM slot based on current time (only on first load)
+    if (_rccSlot === null) {
+      _rccSlot = new Date().getHours() < 12 ? 'AM' : 'PM';
+    }
 
     // Reset active state
     _rccActiveRoutes = new Set();
@@ -12470,19 +12476,45 @@ ${totalLinesXml}
     rccUpdateOptimizeBtn();
   }
 
-  // ── RCC: Render route chip strip ──
+  // ── RCC: Render route chip strip (with AM/PM toggle) ──
   function rccRenderChips() {
     const el = document.getElementById('rcc-chips');
     if (!el) return;
 
+    const slot = _rccSlot || 'AM';
+    const btnBase = 'padding:3px 11px;border:none;border-radius:5px;font-size:12px;font-weight:600;cursor:pointer;transition:all .12s;';
+    const btnOn  = btnBase + 'background:#fff;color:var(--gray-800);box-shadow:0 1px 3px rgba(0,0,0,.12);';
+    const btnOff = btnBase + 'background:transparent;color:var(--gray-400);';
+
+    // AM/PM pill toggle
+    let html = `<div style="display:flex;gap:2px;flex-shrink:0;background:var(--gray-100);border-radius:7px;padding:3px;margin-right:4px;">
+      <button onclick="rccSetSlot('AM')" style="${slot==='AM'?btnOn:btnOff}">AM</button>
+      <button onclick="rccSetSlot('PM')" style="${slot==='PM'?btnOn:btnOff}">PM</button>
+    </div>
+    <div style="width:1px;height:20px;background:var(--gray-200);flex-shrink:0;margin-right:4px;"></div>`;
+
     if (!_dsTemplates.length) {
-      el.innerHTML = '<span style="font-size:12.5px;color:var(--gray-400);">No route templates configured</span>';
+      html += '<span style="font-size:12.5px;color:var(--gray-400);">No route templates configured</span>';
+      el.innerHTML = html;
       return;
     }
 
     const fmtH = hr => { const p = hr >= 12 ? 'PM' : 'AM'; return `${hr > 12 ? hr-12 : (hr===0?12:hr)}${p}`; };
-    let html = '';
-    _dsTemplates.forEach(t => {
+
+    // Filter by current slot
+    const filtered = _dsTemplates.filter(t => {
+      if (!t.window_start) return true;
+      const h = parseInt(t.window_start);
+      return slot === 'AM' ? h < 12 : h >= 12;
+    });
+
+    if (!filtered.length) {
+      html += `<span style="font-size:12.5px;color:var(--gray-400);">No ${slot} routes</span>`;
+      el.innerHTML = html;
+      return;
+    }
+
+    filtered.forEach(t => {
       const route = _dsRoutes.find(r => r.template_id === t.id) || null;
       const routeId = route?.id || null;
       const isActive = routeId && _rccActiveRoutes.has(routeId);
@@ -12503,6 +12535,30 @@ ${totalLinesXml}
       </button>`;
     });
     el.innerHTML = html;
+  }
+
+  // ── RCC: Switch AM/PM slot ──
+  function rccSetSlot(slot) {
+    if (_rccSlot === slot) return;
+    _rccSlot = slot;
+    // Close any open columns whose route doesn't match the new slot
+    [..._rccActiveRoutes].forEach(routeId => {
+      const rd = _rccRouteData[routeId];
+      if (!rd) return;
+      const tpl = _dsTemplates.find(t => t.id === rd.route?.template_id);
+      if (!tpl || !tpl.window_start) return;
+      const h = parseInt(tpl.window_start);
+      const routeSlot = h < 12 ? 'AM' : 'PM';
+      if (routeSlot !== slot) {
+        _rccActiveRoutes.delete(routeId);
+        delete _rccRouteData[routeId];
+      }
+    });
+    rccRenderChips();
+    rccRenderColumns();
+    rccRenderMap();
+    rccUpdatePanelWidth();
+    rccUpdateOptimizeBtn();
   }
 
   // ── RCC: Toggle a route column open/closed ──
@@ -12594,14 +12650,14 @@ ${totalLinesXml}
 
       html += `<div class="rcc-col" data-route-id="${routeId}"
         ondragover="rccDragOver(event)"
-        ondragleave="this.classList.remove('rcc-drop-over')"
+        ondragleave="rccDragLeave(event)"
         ondrop="rccDrop(event,'${routeId}')">
         <div class="rcc-col-hdr" style="border-top:3px solid ${color};">
           <div class="rcc-col-top">
             <div class="rcc-avatar" style="background:${color};">${driverInitials}</div>
             <div style="flex:1;min-width:0;">
-              <div class="rcc-d-name">${driverName}</div>
-              <div class="rcc-d-route">${templateName}</div>
+              <div class="rcc-d-name">${templateName}</div>
+              <div class="rcc-d-route">${driverName}</div>
             </div>
             <button onclick="rccToggleRoute('${routeId}')" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:16px;line-height:1;padding:0 2px;flex-shrink:0;" title="Close">×</button>
           </div>
@@ -12618,8 +12674,8 @@ ${totalLinesXml}
           </div>
           ${cnt > 0 ? `<div class="rcc-col-bar"><div class="rcc-col-fill" style="width:${pct}%;background:${color};"></div></div>` : ''}
         </div>
-        <div class="rcc-body">
-          <div class="rcc-drop-hint">Drop here → ${driverName}</div>
+        <div class="rcc-body" ondragover="rccDragOver(event)" ondrop="rccDrop(event,'${routeId}')">
+          <div class="rcc-drop-hint">Drop here → ${templateName}</div>
           ${cardsHtml || '<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:12px;">No active stops</div>'}
         </div>
       </div>`;
@@ -12675,13 +12731,27 @@ ${totalLinesXml}
 
   function rccDragOver(event) {
     event.preventDefault();
+    event.stopPropagation();
     event.dataTransfer.dropEffect = 'move';
-    event.currentTarget.classList.add('rcc-drop-over');
+    // Walk up to find the .rcc-col ancestor and highlight it
+    const col = event.currentTarget.closest('.rcc-col') || event.currentTarget;
+    col.classList.add('rcc-drop-over');
+  }
+
+  function rccDragLeave(event) {
+    // Only remove the highlight if the cursor is truly leaving the column,
+    // not just moving into a child element (cards, text, etc.)
+    const col = event.currentTarget;
+    if (!col.contains(event.relatedTarget)) {
+      col.classList.remove('rcc-drop-over');
+    }
   }
 
   async function rccDrop(event, toRouteId) {
     event.preventDefault();
-    const col = event.currentTarget;
+    event.stopPropagation(); // prevent bubbling to parent .rcc-col (which also has ondrop)
+    // Clear highlight from the .rcc-col (works whether drop fired on col or rcc-body)
+    const col = event.currentTarget.closest('.rcc-col') || event.currentTarget;
     col.classList.remove('rcc-drop-over');
     let payload;
     try { payload = JSON.parse(event.dataTransfer.getData('text/plain')); } catch(e) { return; }
