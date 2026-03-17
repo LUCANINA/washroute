@@ -9144,10 +9144,12 @@ ${totalLinesXml}
   let _noSelectedTmpl = null;
   let _noPickupStart  = null;
   let _noPickupEnd    = null;
+  let _noPickupLabel  = null;   // time-window label for pickup slot (e.g. "7am – 9am")
   let _noTipType      = 'dollar';
   let _noDayLimit     = 28;   // how many days the pickup day picker shows
   let _noDelivStart   = null;
   let _noDelivEnd     = null;
+  let _noDelivLabel   = null;   // time-window label for delivery slot
   let _noAddressCity  = '';   // city of selected address — used to filter routes by zone
 
   // ── CUSTOMER COMBOBOX (New Order modal) ──
@@ -9224,8 +9226,10 @@ ${totalLinesXml}
     _noSelectedTmpl = null;
     _noPickupStart  = null;
     _noPickupEnd    = null;
+    _noPickupLabel  = null;
     _noDelivStart   = null;
     _noDelivEnd     = null;
+    _noDelivLabel   = null;
     _noDayLimit     = 28;
     _noTipType      = 'dollar';
     _noAddressCity  = '';
@@ -9388,7 +9392,7 @@ ${totalLinesXml}
     document.getElementById('no-slot-section').style.display     = 'none';
     document.getElementById('no-pickup-summary').style.display   = 'none';
     document.getElementById('no-delivery-section').style.display = 'none';
-    _noDelivStart = null; _noDelivEnd = null;
+    _noDelivStart = null; _noDelivEnd = null; _noDelivLabel = null;
 
     renderNoDays();
     document.getElementById('no-day-section').style.display = '';
@@ -9402,8 +9406,8 @@ ${totalLinesXml}
     document.getElementById('no-slot-section').style.display     = 'none';
     document.getElementById('no-pickup-summary').style.display   = 'none';
     document.getElementById('no-delivery-section').style.display = 'none';
-    _noSelectedTmpl = null; _noPickupStart = null; _noPickupEnd = null;
-    _noDelivStart   = null; _noDelivEnd    = null;
+    _noSelectedTmpl = null; _noPickupStart = null; _noPickupEnd = null; _noPickupLabel = null;
+    _noDelivStart   = null; _noDelivEnd    = null; _noDelivLabel  = null;
   }
 
   function expandNoDay() {
@@ -9413,8 +9417,8 @@ ${totalLinesXml}
     document.getElementById('no-slot-section').style.display     = 'none';
     document.getElementById('no-pickup-summary').style.display   = 'none';
     document.getElementById('no-delivery-section').style.display = 'none';
-    _noPickupStart = null; _noPickupEnd = null;
-    _noDelivStart  = null; _noDelivEnd  = null;
+    _noPickupStart = null; _noPickupEnd = null; _noPickupLabel = null;
+    _noDelivStart  = null; _noDelivEnd  = null; _noDelivLabel  = null;
   }
 
   // Shared helper: build time-slot array from a route template + ISO date
@@ -9512,7 +9516,7 @@ ${totalLinesXml}
     // Reset downstream
     document.getElementById('no-pickup-summary').style.display   = 'none';
     document.getElementById('no-delivery-section').style.display = 'none';
-    _noDelivStart = null; _noDelivEnd = null;
+    _noDelivStart = null; _noDelivEnd = null; _noDelivLabel = null;
 
     // Render slot buttons — pass iso explicitly so selectNoSlot uses the local
     // date the admin picked, not the UTC-shifted date from the ISO timestamp
@@ -9531,6 +9535,7 @@ ${totalLinesXml}
   function selectNoSlot(btn, startIso, endIso, label, pickupDateIso) {
     _noPickupStart = startIso;
     _noPickupEnd   = endIso;
+    _noPickupLabel = label;
     // Use the explicitly-passed local date rather than extracting from the ISO
     // string, which would give the UTC date and shift display/delivery by a day
     // for evening pickups in timezones west of UTC (e.g. Pacific Time).
@@ -9555,6 +9560,7 @@ ${totalLinesXml}
     const tmpl = _noSelectedTmpl; if (!tmpl) return;
     _noDelivStart  = null;
     _noDelivEnd    = null;
+    _noDelivLabel  = null;
     _ndDaysVisible = false;
     document.getElementById('nd-day-section').style.display  = 'none';
     document.getElementById('nd-slot-section').style.display = 'none';
@@ -9573,6 +9579,7 @@ ${totalLinesXml}
       if (slots.length) {
         _noDelivStart = slots[0].start;
         _noDelivEnd   = slots[0].end;
+        _noDelivLabel = slots[0].label;
         const [yr, mo, dy] = nextIso.split('-').map(Number);
         const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
         document.getElementById('nd-delivery-summary').innerHTML =
@@ -9635,6 +9642,7 @@ ${totalLinesXml}
     btn.classList.add('selected');
     _noDelivStart = startIso;
     _noDelivEnd   = endIso;
+    _noDelivLabel = label;
     const [yr, mo, dy] = startIso.split('T')[0].split('-').map(Number);
     const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
     document.getElementById('nd-delivery-summary').innerHTML =
@@ -9778,7 +9786,7 @@ ${totalLinesXml}
       tip_type:              _noTipType,
       discount_id:           discountId,
       total_amount:          0,             // set properly when weighed / charged
-    }).select('id').single();
+    }).select('id, order_number').single();
 
     if (btn) { btn.disabled = false; btn.textContent = 'Create Order'; }
     if (error) { err.textContent = error.message; err.style.display='block'; return; }
@@ -9807,12 +9815,35 @@ ${totalLinesXml}
     const _cust = allCustomers?.find(c => c.id === customerId);
     const _toEmail = _cust?.email_cache;
     if (_toEmail) {
-      const _fmtD = s => new Date(s).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+      // Fetch address text if an address was selected
+      let _addrText = null;
+      if (addressId) {
+        const { data: _addr } = await db.from('addresses')
+          .select('line1, line2, city, state, zip').eq('id', addressId).maybeSingle();
+        if (_addr) {
+          _addrText = [_addr.line1, _addr.line2, _addr.city && _addr.state ? `${_addr.city}, ${_addr.state}` : (_addr.city || _addr.state), _addr.zip]
+            .filter(Boolean).join(', ');
+        }
+      }
+      const _fmtD = s => {
+        // Parse as local date (YYYY-MM-DD portion) to avoid UTC-shift day-off-by-one
+        const d = s.includes('T') ? new Date(s) : new Date(s + 'T12:00:00');
+        return d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+      };
       const _esc  = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      // Build pickup / delivery display with time window label when available
+      const _pickupDisplay   = _noPickupStart
+        ? (_noPickupLabel ? `${_fmtD(_noPickupStart)} · ${_noPickupLabel}` : _fmtD(_noPickupStart))
+        : null;
+      const _deliveryDisplay = _noDelivStart
+        ? (_noDelivLabel  ? `${_fmtD(_noDelivStart)} · ${_noDelivLabel}`  : _fmtD(_noDelivStart))
+        : null;
       const _rows = [
-        _noPickupStart ? ['Pickup',       _fmtD(_noPickupStart)] : null,
-        _noDelivStart  ? ['Delivery', _fmtD(_noDelivStart)] : null,
-        notes          ? ['Notes',         notes]                : null,
+        newOrder?.order_number ? ['Order',    '#' + newOrder.order_number]  : null,
+        _addrText              ? ['Address',  _addrText]                    : null,
+        _pickupDisplay         ? ['Pickup',   _pickupDisplay]               : null,
+        _deliveryDisplay       ? ['Delivery', _deliveryDisplay]             : null,
+        notes                  ? ['Notes',    notes]                        : null,
       ].filter(Boolean);
       const _htmlBody = `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#111827;max-width:520px;margin:0 auto;padding:32px 20px">
         <div style="font-size:22px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Family Laundry</div>
@@ -9833,7 +9864,7 @@ ${totalLinesXml}
         body: JSON.stringify({
           customer_id: customerId,
           to_email:    _toEmail,
-          subject:     'Your laundry pickup has been scheduled — Family Laundry',
+          subject:     `Booking Confirmed — Family Laundry Order #${newOrder?.order_number || ''}`,
           body:        _htmlBody
         })
       }).catch(() => {});
