@@ -2101,9 +2101,7 @@ async function sendOnMyWay(stopId) {
   const btn = document.getElementById('btn-notify-cust');
   if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
 
-  const driverName = currentProfile
-    ? `${currentProfile.first_name || ''} ${currentProfile.last_name || ''}`.trim()
-    : 'Your WashRoute driver';
+  const driverName = currentProfile?.first_name || 'Your driver';
 
   try {
     const { data: { session } } = await db.auth.getSession();
