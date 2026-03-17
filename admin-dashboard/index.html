@@ -12856,6 +12856,7 @@ ${totalLinesXml}
     const [stop] = fromData.stops.splice(stopIdx, 1);
     stop.route_id = toRouteId;
     stop.moved_from_route_id = newMovedFrom;
+    stop.driver_id = null; // clear driver override — inherits destination route's default driver
     toData.stops.push(stop);
     _dsCountMap[fromRouteId] = Math.max(0, (_dsCountMap[fromRouteId]||1) - 1);
     _dsCountMap[toRouteId] = (_dsCountMap[toRouteId]||0) + 1;
@@ -12869,8 +12870,10 @@ ${totalLinesXml}
         .select('stop_number').eq('route_id', toRouteId).order('stop_number', {ascending:false}).limit(1);
       const nextNum = (tgt?.[0]?.stop_number || 0) + 1;
       await db.from('route_stops')
-        .update({ route_id: toRouteId, stop_number: nextNum, moved_from_route_id: newMovedFrom })
+        .update({ route_id: toRouteId, stop_number: nextNum, moved_from_route_id: newMovedFrom, driver_id: null })
         .eq('id', stopId);
+      // driver_id reset to NULL so the stop inherits the destination route's default driver.
+      // If a specific driver override is needed, use the Reassign Driver button after moving.
       const [{ count: srcCnt }, { count: dstCnt }] = await Promise.all([
         db.from('route_stops').select('*', {count:'exact',head:true}).eq('route_id', fromRouteId),
         db.from('route_stops').select('*', {count:'exact',head:true}).eq('route_id', toRouteId),
