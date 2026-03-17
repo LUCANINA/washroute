@@ -12809,8 +12809,9 @@ ${totalLinesXml}
       // Show reassignment tag if stop's driver differs from route's default driver
       const isReassigned = s.driver_id && s.driver_id !== routeLiveDefaultDriverId;
       const reassignedName = isReassigned ? (allDriversCache.find(d => d.id === s.driver_id)?.name || 'Driver') : null;
-      const reassignTag = reassignedName
-        ? `<span style="font-size:9px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:1px 6px;border-radius:6px;white-space:nowrap;margin-left:4px;">→ ${reassignedName}</span>`
+      const reassignedShort = reassignedName ? (() => { const p = reassignedName.trim().split(' '); return p[0] + (p[1] ? ' ' + p[1][0] + '.' : ''); })() : null;
+      const reassignTag = reassignedShort
+        ? `<span style="font-size:9px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:1px 6px;border-radius:6px;white-space:nowrap;margin-left:4px;">→ ${reassignedShort}</span>`
         : '';
 
       return `<div class="rsl-item" style="${bg}cursor:pointer;padding:7px 12px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:10px;" onclick="${lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.6})` : ''}" ${lat ? `onmouseenter="highlightStopPin(${lat},${lng})" onmouseleave="unhighlightStopPin()"` : ''}>
