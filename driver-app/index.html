@@ -1629,56 +1629,9 @@ function renderHome() {
 
   h += '</div>';
 
-  // Next stop section — respects activeRouteFilter when set.
-  // If a driver has tapped into a specific route, only suggest stops from that route.
-  if (totalAll > 0) {
-    const next = (() => {
-      if (activeRouteFilter === 'extra') {
-        // Filtered to reassigned stops only
-        return allStops
-          .filter(s => s._reassigned && (s.status === 'pending' || s.status === 'en_route'))
-          .sort((a, b) => a.stop_number - b.stop_number)[0] || null;
-      }
-      if (activeRouteFilter) {
-        // Filtered to one specific primary route
-        return allStops
-          .filter(s => s.route_id === activeRouteFilter && (s.status === 'pending' || s.status === 'en_route'))
-          .sort((a, b) => a.stop_number - b.stop_number)[0] || null;
-      }
-      // No filter — walk primary routes in order, first pending stop wins
-      for (const route of todayRoutes) {
-        const pending = allStops
-          .filter(s => s.route_id === route.id && (s.status === 'pending' || s.status === 'en_route'))
-          .sort((a, b) => a.stop_number - b.stop_number)[0];
-        if (pending) return pending;
-      }
-      return null;
-    })();
-    if (next) {
-      const addr = next._addr;
-      const cust = next.orders?.customers;
-      const custName = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : 'Customer';
-      const isEnRoute = next.status === 'en_route';
-      const routeName = todayRoutes.find(r => r.id === next.route_id)?.name;
-      const routeTag  = multiRoute && routeName
-        ? `<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:2px 7px;border-radius:5px;margin-left:5px">${routeName}</span>`
-        : '';
-      h += `<div class="home-section">
-        <div class="section-label">${isEnRoute ? 'En Route To' : 'Next Stop'}</div>
-        <div class="stop-card${isEnRoute ? ' en-route' : ''}" onclick="openStop('${next.id}')">
-          <div class="stop-num ${isEnRoute ? 'sn-enroute' : 'sn-' + next.stop_type}">${isEnRoute ? '↑' : next.stop_number}</div>
-          <div class="stop-body">
-            <div><span class="stop-badge ${isEnRoute ? 'sb-enroute' : 'sb-' + next.stop_type}">${isEnRoute ? 'EN ROUTE' : next.stop_type.toUpperCase()}</span>${routeTag}</div>
-            <div class="stop-name">${custName}</div>
-            <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
-            <div class="stop-meta">${next.orders?.total_bags||1} bag${(next.orders?.total_bags||1)!==1?'s':''} · ${next.orders?.services?.name||'Service'}</div>
-          </div>
-          <span class="stop-chevron">›</span>
-        </div>
-      </div>`;
-    } else if (doneAll === totalAll) {
-      h += `<div class="home-section"><div class="completed-banner">All stops done — great work today!</div></div>`;
-    }
+  // All-done banner when every stop is complete
+  if (totalAll > 0 && doneAll === totalAll) {
+    h += `<div class="home-section"><div class="completed-banner">All stops done — great work today!</div></div>`;
   }
 
   body.innerHTML = h;
