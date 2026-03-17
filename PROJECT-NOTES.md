@@ -88,6 +88,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `charge-order` | Stripe payment charge | On |
 | `send-order-notification` | Status-change notifications | On |
 | `cloudprnt` | CloudPRNT server — printer polls for jobs, gets Star Markup, marks done | Off |
+| `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. When GPS provided: driver is origin, last pending stop is destination. Renumbers pending stops preserving done stop numbers. v10 deployed session 24. | Off |
 
 ---
 
@@ -112,6 +113,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Stop reassignment: "Assign" link on each stop row opens driver picker. Picking route's default driver clears override (sets NULL, not explicit UUID)
 - Weekly Schedule: time-banded rows (morning/evening slots), one row per route, chips show driver name
 - **Route optimization** via Google Maps API (Optimize button on Daily Schedule)
+- **Auto-optimization (session 24):** Routes re-optimize silently in the background whenever a stop is added (schedule picker, new order creation, move stop). No admin action needed. `autoOptimizeRoute(routeId)` fire-and-forget helper calls the `optimize-route` edge function; if the route view is open it refreshes automatically.
 - **Drivers > Schedule page — smart reassignment rules:** Driver chips show 🔒 (complete) or amber dot (in-progress) badges for today's column. Clicking a chip for an in-progress route shows a warning banner and reassigns only the remaining `pending`/`en_route` stops (completed stops stay attributed to the driver who did them). Clicking a chip for a complete route is a no-op with an explanatory toast. Future-week changes apply freely with no restriction.
 - **Route-status badges on both schedule grids:** 🔒 (route fully complete) and amber pulsing dot (in progress) badges appear in both the Routes > Weekly Schedule grid and the Orders > Order Schedule > Driver Schedule grid for today's routes.
 - **URL hash sub-tab persistence:** Maps (`#maps/routes`, `#maps/zones`), Team (`#team/permissions`), and Routes (`#routes/templates`) tabs all write to the URL hash — refresh returns you to the correct tab.
@@ -149,6 +151,8 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Undo complete (within same session)
 - Skip stop (with 12-second undo window, requires confirmation)
 - **Realtime stop reassignment:** If admin reassigns a stop to another driver while they're en route, the stop disappears from the original driver's app with a toast. If a stop is newly assigned to a driver, their app triggers a reload to pick it up.
+- **Live GPS always current (session 24):** `_driverLat`/`_driverLng` module-level variables updated on every `watchPosition` fix — not throttled like the DB write. Always reflect the driver's actual current position for re-optimization.
+- **Dynamic route re-optimization (session 24):** After marking any stop complete, failed, or skipped, `reoptimizeRoute(routeId)` fires automatically (non-blocking). Sends driver GPS to `optimize-route` edge function; re-orders pending stops from where the driver actually is; re-sorts `allStops` and re-renders the home screen. Silent fail — driver experience unaffected if optimization fails.
 - **Phone OTP login (session 21):** Magic Link tab replaced with Phone Code tab. Two-step flow: enter phone → enter SMS code. E.164 normalisation handles 10-digit US numbers automatically. `link_phone_auth_driver` RPC re-points existing driver records to the new phone-auth UUID on first login — drivers don't lose their history. Requires drivers to have a phone number stored in their profile.
 
 ---
@@ -455,6 +459,27 @@ There are actually **two separate hang points** that must both be covered:
   1. ~~Add Double Wash price_mod~~ ✅ Done session 16
   2. ~~SMS automation Phase 1~~ ✅ Done session 16
   3. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
+
+---
+
+### Mar 16, 2026 (session 24) — Dynamic route re-optimization system
+
+- **`optimize-route` Edge Function v10 deployed:** Enhanced to accept optional `driver_lat`/`driver_lng` in request body. Separates stops into `done` (complete/failed/skipped) and `pending` per group (pickups and deliveries handled independently). Only pending stops are passed to Google Maps for re-ordering. Done stops keep their original `stop_number` values; pending stops are renumbered starting from `maxDone+1`. When driver GPS provided: driver position is origin, last pending stop is fixed destination, all other pending stops are reorderable waypoints. When no GPS: first pending stop is fixed origin, last is fixed destination, middle stops are reorderable. Returns `driver_origin_used: boolean`.
+
+- **Admin — `autoOptimizeRoute(routeId)` helper added:** Silent fire-and-forget function. Calls `optimize-route` edge function with no spinner, no toast. If the user currently has the optimized route open in the Order Schedule view, it refreshes automatically. Hooked into **4 trigger points**: `opSaveRouteAndSlot` (schedule picker), new order creation (`saveOrder`), and `confirmMoveStop` (both source and destination routes).
+
+- **Driver app — GPS position always current:** Added `_driverLat` / `_driverLng` module-level variables. Updated on *every* `watchPosition` callback fix — *before* the 12-second DB-write throttle check. Ensures re-optimization always has a fresh position even between DB writes.
+
+- **Driver app — `reoptimizeRoute(routeId)` added:** Async function called automatically (non-blocking) after `completeStop`, `failStop`, and `skipStop`. Sends current driver GPS to `optimize-route` edge function. On success: re-fetches `stop_number` values from DB, patches `allStops` in-place, re-sorts by stop_number, and re-renders the home screen. Silent fail — driver sees their current stop list unchanged if optimization fails or network is slow. Skipped for `completeStop` when route status is already `complete` (no pending stops to re-order).
+
+- **QA blast-radius fixes:** Found and fixed two additional places that insert route stops without triggering optimization — new order creation and `confirmMoveStop`. All 4 stop-insertion paths now consistently trigger `autoOptimizeRoute`.
+
+- **Commit:** `fd781d8`
+
+- **Next session priorities:**
+  1. Test CloudPRNT end-to-end with physical printer on-site
+  2. Route picker fine-tuning (backlog)
+  3. Xero accounting sync (backlog)
 
 ---
 
