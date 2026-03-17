@@ -1042,7 +1042,7 @@
       <div class="nav-item" data-page="drivers" data-section="ops" onclick="showPage('drivers',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M17 11l1.5 1.5L21 10"/></svg>
         Drivers
-        <span id="admin-msg-badge" style="display:none;background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:auto">0</span>
+        <span class="nav-badge" id="admin-msg-badge" style="display:none;background:var(--red)">0</span>
       </div>
       <div class="sidebar-section-label" data-section="analytics">Analytics</div>
       <div id="nav-reports" class="nav-item" data-page="reports" data-section="analytics" onclick="showPage('reports',this)">
@@ -4296,7 +4296,7 @@
     ]);
     allAddonServicesCache = addonSvcs || [];
     allPreferencesCache   = globalPrefs || [];
-    const results = await Promise.allSettled([loadSettings(), loadOverview(), loadCustomers(), loadOrders(), loadRoutes(), loadDiscounts()]);
+    const results = await Promise.allSettled([loadSettings(), loadOverview(), loadCustomers(), loadOrders(), loadRoutes(), loadDiscounts(), initDriverMsgBadge()]);
     const failed = results.filter(r => r.status === 'rejected');
     if (failed.length) {
       console.error('loadAll failures:', failed.map(r => r.reason));
@@ -15711,6 +15711,31 @@ ${totalLinesXml}
     if (!badge) return;
     badge.textContent = unread;
     badge.style.display = unread > 0 ? 'inline-flex' : 'none';
+  }
+
+  // Lightweight on-load init — fetches unread count and starts realtime subscription
+  // without loading the full driver list (that happens lazily when you visit Drivers page).
+  let _driverMsgBadgeSub = null;
+  async function initDriverMsgBadge() {
+    const { data: msgs } = await db.from('driver_messages')
+      .select('id, sender_type, read_at, driver_id, created_at')
+      .eq('sender_type', 'driver')
+      .is('read_at', null);
+    // Merge into adminMsgAllMessages so updateAdminMsgBadge works correctly
+    // (avoid duplicates if Drivers page was already visited)
+    (msgs || []).forEach(m => {
+      if (!adminMsgAllMessages.find(x => x.id === m.id)) adminMsgAllMessages.push(m);
+    });
+    updateAdminMsgBadge();
+
+    if (_driverMsgBadgeSub) return; // subscription already running
+    _driverMsgBadgeSub = db.channel('driver-msg-badge')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'driver_messages' }, payload => {
+        const m = payload.new;
+        if (!adminMsgAllMessages.find(x => x.id === m.id)) adminMsgAllMessages.push(m);
+        updateAdminMsgBadge();
+      })
+      .subscribe();
   }
 
   function renderAdminDriverList() {
