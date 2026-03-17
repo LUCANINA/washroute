@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 16, 2026 (session 23)*
+*Last updated: Mar 16, 2026 (session 26)*
 
 ---
 
@@ -107,7 +107,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 
 ### Routes Page
 - Route template editor (create/edit recurring routes)
-- **Route Command Center — Order Schedule (session 25):** Replaces the old zone-pill + AM/PM Daily Schedule. Full-screen chip-strip + map + draggable columns layout:
+- **Route Command Center — Order Schedule (sessions 25–26):** Replaces the old zone-pill + AM/PM Daily Schedule. Full-screen chip-strip + map + draggable columns layout:
   - **Chip strip:** One chip per route template. Click to open/close that route's column. Chips show stop count badge, time window, and dim if no run exists for the date.
   - **Draggable stop cards:** Drag a card from one column to another to reassign the stop to a different route instantly. UI updates optimistically; DB write + `autoOptimizeRoute` on both routes follows async.
   - **Cards:** 3 colors max — route color on stop-number circle, dark gray for customer name, gray for address/type/bag count.
@@ -496,6 +496,18 @@ There are actually **two separate hang points** that must both be covered:
   1. Test RCC in browser with real data — open 2+ routes, drag a stop, verify DB update + re-optimization
   2. Test CloudPRNT end-to-end with physical printer on-site
   3. Xero accounting sync (backlog)
+
+---
+
+### Mar 16, 2026 (session 26) — RCC polish: AM/PM toggle, header swap, drag-and-drop fix
+
+- **AM/PM pill toggle added to chip strip (commit `4ee5217`):** Small segmented control rendered at the left edge of `#rcc-chips`. State stored in `_rccSlot` (`'AM'|'PM'`). Auto-selects based on current hour (`< 12 → AM`) on first `loadDailyRuns()` call; persists user choice when navigating between dates. `rccRenderChips()` filters `_dsTemplates` by slot before rendering chips: AM = `window_start < 12`, PM = `window_start >= 12`. Templates with no `window_start` always show. `rccSetSlot(slot)` closes any currently-open columns whose routes belong to the other time window, then re-renders everything.
+
+- **Column header layout swapped:** Route template name is now the large primary heading; driver name sits underneath as the gray subtitle. Previously it was the other way around. Drop hint also updated to say the route name instead of driver name.
+
+- **Drag-and-drop reassignment fixed:** The previous `ondragleave="this.classList.remove('rcc-drop-over')"` inline handler fired every time the cursor entered a child element (a stop card, text, etc.), making the column lose its drop highlight and breaking the visual feedback. Fixed by replacing with `rccDragLeave(event)` which checks `event.currentTarget.contains(event.relatedTarget)` before removing the class. Also added `ondragover`/`ondrop` directly on `.rcc-body` (scrollable card area) so drops work even when the cursor is over a card rather than empty column space. Added `event.stopPropagation()` to both `rccDragOver` and `rccDrop` to prevent double-firing when both `.rcc-col` and its child `.rcc-body` handle the same event.
+
+- **QA catch:** `rccDrop` was using `event.currentTarget` to clear `.rcc-drop-over`, but `currentTarget` could be `.rcc-body` after the body handler was added. Fixed with `event.currentTarget.closest('.rcc-col') || event.currentTarget`.
 
 ---
 
