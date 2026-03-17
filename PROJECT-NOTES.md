@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 16, 2026 (session 22 — outage fix)*
+*Last updated: Mar 16, 2026 (session 23)*
 
 ---
 
@@ -126,7 +126,13 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 
 ### Receipt Printing
 - Browser popup print (2 copies, auto-prints on intake save + 🖨 Print button in order panel + 🖨 Reprint on kanban cards)
-- **CloudPRNT automatic printing (session 22):** Star TSP654II prints automatically, no tap required. Admin queues a `print_jobs` row; printer polls `cloudprnt` Edge Function every few seconds and prints Star Document Markup receipt. Configured via Admin → Settings → Receipt Printer. Falls back to browser popup when no token is set. `buildStarMarkup()` handles the full receipt layout including customer name, schedule, add-ons, invoice lines, barcode, and footer.
+- **CloudPRNT automatic printing (session 22):** Star TSP654II prints automatically, no tap required. Admin queues a `print_jobs` row; printer polls `cloudprnt` Edge Function every few seconds and prints Star Document Markup receipt. Configured via Admin → **Printer** (dedicated sidebar nav item). Falls back to browser popup when no token is set. `buildStarMarkup()` handles the full receipt layout including customer name, schedule, add-ons, invoice lines, barcode, and footer.
+
+### Settings
+- **Sidebar nav reorganized (session 23):** "Timezone" nav item renamed to **"Printer"** (printer icon) → shows only the Receipt Printer card. Business Timezone moved into **Routes → Settings tab** (new 3rd tab in the Maps/Routes page alongside Zones and Route Templates). Topbar CTA hides on the Settings tab (no action button needed there).
+
+### New Order Modal
+- **Pickup date bug fixed (session 23):** When admin picked an evening slot (e.g. 6–8pm PT on Mon Mar 16), the UTC ISO string (`2026-03-17T01:00Z`) caused `split('T')[0]` to return the next day (`2026-03-17`). This made the summary show "Tue Mar 17" and pushed the delivery calculation one day late. Fix: `selectNoDay()` now passes the local `iso` date explicitly as a 5th parameter to `selectNoSlot()`, bypassing UTC extraction entirely.
 
 ### Other
 - Customer management, driver management, services & pricing, reports (all built)
@@ -449,6 +455,23 @@ There are actually **two separate hang points** that must both be covered:
   1. ~~Add Double Wash price_mod~~ ✅ Done session 16
   2. ~~SMS automation Phase 1~~ ✅ Done session 16
   3. ~~Twilio A2P 10DLC registration~~ ✅ Approved 2026-03-16
+
+---
+
+### Mar 16, 2026 (session 23) — Settings reorganization, New Order date bug fix
+
+- **Settings nav reorganized (commit `b795b92`):** "Timezone" sidebar nav item renamed to **"Printer"** with a printer icon — shows only the Receipt Printer configuration card (server URL, token, Save, Test Print). Business Timezone moved into a new **Settings** tab inside the Routes/Maps page (alongside existing Zones and Route Templates tabs). The topbar CTA button hides itself on the Settings tab since there's no relevant action. `renderMapsSettingsTab()` added to render the timezone card on demand; `setMapsTab()` updated to handle the new tab.
+
+- **Safe git commit helper (commit `c82e3b2`):** Created `.git-commit.sh` at repo root — the correct bindfs FUSE workaround. Seeds a temp index with `git read-tree HEAD` before adding changed files, guaranteeing the full tree is included in every commit. Prevents the sparse-tree bug that caused the site outage. **Always use this script for commits on this machine.** Usage: `./.git-commit.sh "message" file1 file2 ...`
+
+- **Bug fix — New Order pickup date off by one day for evening slots (commit `ef58ceb`):** When admin picked e.g. 6–8pm on Mon Mar 16 (PT), `buildSlots()` stored the window as `2026-03-17T01:00Z` (UTC). Then `selectNoSlot()` was extracting the date via `startIso.split('T')[0]` → `'2026-03-17'`, so the pickup summary showed "Tue Mar 17" and `initDeliverySection()` was seeded with the wrong date (delivery landed one extra day late). Fix: `selectNoDay()` now passes the locally-selected `iso` as an explicit 5th argument to `selectNoSlot()`, which uses it directly for display and delivery calculation. UTC timestamps stored in DB are still correct — only the display and delivery seeding were affected.
+
+- **Pickup Failed (Auto) explained:** `auto_fail_expired_orders()` pg_cron function (every 30 min) marks `scheduled` orders as `pickup_failed` with `cancelled_by = 'system'` if the pickup window closed more than 2 hours ago. Badge shows "(Auto)" when `cancelled_by = 'system'`. Reschedule from Issues tab resets back to `scheduled`.
+
+- **Next session priorities:**
+  1. Test CloudPRNT end-to-end with physical printer on-site (setup guide in `TSP654II-CloudPRNT-Setup.md`)
+  2. Route picker fine-tuning (backlog)
+  3. Xero accounting sync (backlog)
 
 ---
 
