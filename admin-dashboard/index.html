@@ -12547,50 +12547,43 @@ ${totalLinesXml}
       }, { onConflict: 'template_id,day_of_week,driver_type' });
     }
 
-    // ── Propagate to existing route runs (today only) ──
+    // ── Propagate to ALL existing route runs for this template + day-of-week ──
+    // Covers today AND future dates so the Order Schedule always reflects the schedule grid.
     // Rules:
-    //   - Route not started or partially done → update only pending/en_route stops
-    //   - Route fully complete → skip stop updates (no-op, route is done)
+    //   - Today's route: reassign pending/en_route stops to new driver
+    //   - Future routes: update driver_id on route record (stops will inherit on start)
+    //   - Fully completed route: update route record driver but skip stop reassignment
     {
       const todayDate = today();
-      const todayDow  = (new Date().getDay() + 6) % 7; // 0=Mon..6=Sun
-      if (Number(day) === todayDow) {
-        const routeStatus = popoverCtx.routeStatus; // set by openDriverPopover for today's column
-        // If route is fully complete, skip stop propagation but still update the route record's driver
-        if (routeStatus && routeStatus.done === routeStatus.total && routeStatus.total > 0) {
-          const { data: existing } = await db.from('routes')
-            .select('id').eq('template_id', templateId).eq('run_date', todayDate);
-          if (existing?.length) {
-            await db.from('routes').update({ driver_id: newDriverId || null })
-              .in('id', existing.map(r => r.id));
-          }
-          showToast('Schedule updated. Route is already complete — no stops to reassign.', '');
-          const driversView = document.getElementById('drv-panel-schedule');
-          if (driversView && driversView.style.display !== 'none') {
-            renderDriverSchedule();
-          } else {
-            renderWeeklySchedule();
-          }
-          return;
-        }
+      // Find all existing routes for this template from today onward
+      const { data: allMatching } = await db.from('routes')
+        .select('id, run_date, driver_id, status')
+        .eq('template_id', templateId)
+        .gte('run_date', todayDate);
 
-        const { data: existing } = await db.from('routes')
-          .select('id, driver_id')
-          .eq('template_id', templateId).eq('run_date', todayDate);
-        if (existing?.length) {
-          const oldDriverId = existing[0].driver_id;
-          const routeIds = existing.map(r => r.id);
-          // Update route's default driver
-          await db.from('routes').update({ driver_id: newDriverId || null })
-            .in('id', routeIds);
-          // Only reassign stops that haven't been started yet.
-          // Completed, skipped, or failed stops stay attributed to the driver who did them.
+      // Filter to only routes whose day-of-week matches the schedule day
+      const matching = (allMatching || []).filter(r => {
+        const [y, m, d2] = r.run_date.split('-').map(Number);
+        const routeDow = (new Date(y, m - 1, d2).getDay() + 6) % 7; // 0=Mon..6=Sun
+        return routeDow === Number(day);
+      });
+
+      if (matching.length) {
+        const routeIds = matching.map(r => r.id);
+        // Update driver_id on all matching route records
+        await db.from('routes').update({ driver_id: newDriverId || null })
+          .in('id', routeIds);
+
+        // For today's route(s), also reassign pending/en_route stops
+        const todaysRoutes = matching.filter(r => r.run_date === todayDate);
+        if (todaysRoutes.length) {
+          const todayIds = todaysRoutes.map(r => r.id);
+          const oldDriverId = todaysRoutes[0].driver_id;
           let q = db.from('route_stops')
             .update({ driver_id: newDriverId || null })
-            .in('route_id', routeIds)
+            .in('route_id', todayIds)
             .in('status', ['pending', 'en_route']);
           if (oldDriverId) {
-            // Further narrow to stops that were assigned to the old driver (not manually overridden)
             q = q.eq('driver_id', oldDriverId);
           }
           await q;
@@ -12636,6 +12629,7 @@ ${totalLinesXml}
 
   // RCC state
   let _dsTemplates = [], _dsRoutes = [], _dsCountMap = {}, _dsDateStr = '';
+  let _rccDriverSched = {};            // `${template_id}-${dow}` → driver_id (for RCC fallback)
   let _dsActiveZone = null, _dsActiveSlot = null; // kept for backward-compat with autoOptimizeRoute refresh
   let _rccActiveRoutes = new Set();   // routeId → open column
   let _rccRouteData    = {};          // routeId → { route, color, driverName, stops, routeWindow }
@@ -12677,13 +12671,17 @@ ${totalLinesXml}
     const legendEl = document.getElementById('rcc-legend');
     if (legendEl) legendEl.style.display = 'none';
 
-    // Load route templates + routes for this date
-    const [{ data: templates }, { data: routes }] = await Promise.all([
+    // Load route templates + routes + driver schedule for this date
+    const [{ data: templates }, { data: routes }, { data: schedRows }] = await Promise.all([
       db.from('route_templates').select('id, name, window_start, window_end, arrival_window_hours, color').order('name'),
-      db.from('routes').select('id, name, status, template_id, driver_id').eq('run_date', _dsDateStr)
+      db.from('routes').select('id, name, status, template_id, driver_id').eq('run_date', _dsDateStr),
+      db.from('route_driver_schedule').select('template_id, day_of_week, driver_id')
     ]);
     _dsTemplates = templates || [];
     _dsRoutes = routes || [];
+    // Build schedule lookup so RCC can resolve driver even when routes.driver_id is null
+    _rccDriverSched = {};
+    (schedRows || []).forEach(r => { _rccDriverSched[`${r.template_id}-${r.day_of_week}`] = r.driver_id; });
 
     // Get live stop counts per route (exclude delivered/cancelled)
     _dsCountMap = {};
@@ -12849,7 +12847,20 @@ ${totalLinesXml}
       ...s, _addr: s.orders?.customer_id ? (addrMap[s.orders.customer_id] || null) : null
     }));
 
-    const drvInfo = route.driver_id ? allDriversCache.find(d => d.id === route.driver_id) : null;
+    // Resolve driver: route record first, then fall back to schedule grid
+    let effectiveDriverId = route.driver_id;
+    if (!effectiveDriverId && route.template_id && _dsDateStr) {
+      const [y, m, d2] = _dsDateStr.split('-').map(Number);
+      const dow = (new Date(y, m - 1, d2).getDay() + 6) % 7; // 0=Mon..6=Sun
+      effectiveDriverId = _rccDriverSched[`${route.template_id}-${dow}`] || null;
+      // Backfill the route record so it stays in sync going forward
+      if (effectiveDriverId) {
+        db.from('routes').update({ driver_id: effectiveDriverId }).eq('id', routeId).then(() => {
+          route.driver_id = effectiveDriverId;
+        });
+      }
+    }
+    const drvInfo = effectiveDriverId ? allDriversCache.find(d => d.id === effectiveDriverId) : null;
     const driverName = drvInfo?.name || 'Unassigned';
     const driverInitials = driverName === 'Unassigned' ? '?'
       : driverName.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2);
