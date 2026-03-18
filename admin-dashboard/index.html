@@ -12823,8 +12823,8 @@ ${totalLinesXml}
     const color = tpl?.color || '#635bff';
 
     const { data: stops } = await db.from('route_stops')
-      .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id,
-               orders(id, status, total_bags, customer_id,
+      .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id,
+               orders(id, status, total_bags, customer_id, pickup_address_id, delivery_address_id,
                  pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                  customers(first_name_cache, last_name_cache))`)
       .eq('route_id', routeId)
@@ -12832,20 +12832,32 @@ ${totalLinesXml}
 
     const activeStops = (stops||[]).filter(s => s.orders && !['delivered','cancelled','skipped','pickup_failed','delivery_failed','on_hold'].includes(s.orders.status));
 
-    // Resolve customer addresses
+    // Resolve addresses: use the stop's address_id or order's address, falling back to customer default
+    const addrIds = [...new Set(activeStops.map(s => {
+      return s.address_id
+        || (s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id)
+        || null;
+    }).filter(Boolean))];
     const custIds = [...new Set(activeStops.map(s => s.orders?.customer_id).filter(Boolean))];
-    let addrMap = {};
-    if (custIds.length) {
-      const { data: addrs } = await db.from('addresses')
-        .select('customer_id, line1, city, lat, lng')
-        .in('customer_id', custIds)
-        .eq('is_default', true);
-      (addrs||[]).forEach(a => { addrMap[a.customer_id] = a; });
+    let addrById = {}, defaultAddrByCust = {};
+    const addrFetches = [];
+    if (addrIds.length) {
+      addrFetches.push(db.from('addresses').select('id, customer_id, line1, city, lat, lng').in('id', addrIds));
     }
+    if (custIds.length) {
+      addrFetches.push(db.from('addresses').select('id, customer_id, line1, city, lat, lng').in('customer_id', custIds).eq('is_default', true));
+    }
+    const addrResults = await Promise.all(addrFetches);
+    if (addrIds.length && addrResults[0]?.data) addrResults[0].data.forEach(a => { addrById[a.id] = a; });
+    const defIdx = addrIds.length ? 1 : 0;
+    if (custIds.length && addrResults[defIdx]?.data) addrResults[defIdx].data.forEach(a => { defaultAddrByCust[a.customer_id] = a; });
 
-    const enriched = activeStops.map(s => ({
-      ...s, _addr: s.orders?.customer_id ? (addrMap[s.orders.customer_id] || null) : null
-    }));
+    const enriched = activeStops.map(s => {
+      const stopAddrId = s.address_id
+        || (s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id);
+      const addr = (stopAddrId && addrById[stopAddrId]) || defaultAddrByCust[s.orders?.customer_id] || null;
+      return { ...s, _addr: addr };
+    });
 
     // Resolve driver: route record first, then fall back to schedule grid
     let effectiveDriverId = route.driver_id;
@@ -13261,26 +13273,29 @@ ${totalLinesXml}
     if (!rd) return;
 
     const { data: stops } = await db.from('route_stops')
-      .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id,
-               orders(id, status, total_bags, customer_id,
+      .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id,
+               orders(id, status, total_bags, customer_id, pickup_address_id, delivery_address_id,
                  pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                  customers(first_name_cache, last_name_cache))`)
       .eq('route_id', routeId)
       .order('stop_number');
 
     const activeStops = (stops||[]).filter(s => s.orders && !['delivered','cancelled','skipped','pickup_failed','delivery_failed','on_hold'].includes(s.orders.status));
-    const custIds = [...new Set(activeStops.map(s => s.orders?.customer_id).filter(Boolean))];
-    let addrMap = {};
-    if (custIds.length) {
-      const { data: addrs } = await db.from('addresses')
-        .select('customer_id, line1, city, lat, lng')
-        .in('customer_id', custIds)
-        .eq('is_default', true);
-      (addrs||[]).forEach(a => { addrMap[a.customer_id] = a; });
-    }
-    rd.stops = activeStops.map(s => ({
-      ...s, _addr: s.orders?.customer_id ? (addrMap[s.orders.customer_id] || null) : null
-    }));
+    // Resolve addresses: stop address_id → order address → customer default
+    const _addrIds = [...new Set(activeStops.map(s => s.address_id || (s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id)).filter(Boolean))];
+    const _custIds = [...new Set(activeStops.map(s => s.orders?.customer_id).filter(Boolean))];
+    let _aById = {}, _aDefault = {};
+    const _af = [];
+    if (_addrIds.length) _af.push(db.from('addresses').select('id, customer_id, line1, city, lat, lng').in('id', _addrIds));
+    if (_custIds.length) _af.push(db.from('addresses').select('id, customer_id, line1, city, lat, lng').in('customer_id', _custIds).eq('is_default', true));
+    const _ar = await Promise.all(_af);
+    if (_addrIds.length && _ar[0]?.data) _ar[0].data.forEach(a => { _aById[a.id] = a; });
+    const _di = _addrIds.length ? 1 : 0;
+    if (_custIds.length && _ar[_di]?.data) _ar[_di].data.forEach(a => { _aDefault[a.customer_id] = a; });
+    rd.stops = activeStops.map(s => {
+      const sid = s.address_id || (s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id);
+      return { ...s, _addr: (sid && _aById[sid]) || _aDefault[s.orders?.customer_id] || null };
+    });
     rccRenderColumns();
     rccRenderMap();
   }

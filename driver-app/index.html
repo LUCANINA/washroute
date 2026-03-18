@@ -1669,19 +1669,27 @@ async function loadDriverData() {
     allStops = [...allStops, ...taggedUpcoming];
   }
 
-  // ── Resolve addresses through customers' default addresses ──
-  // (address_id on route_stops is often null; look up via customer instead)
+  // ── Resolve addresses: use stop/order address_id, fall back to customer default ──
+  const stopAddrIds = [...new Set(allStops.map(s =>
+    s.address_id || (s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id)
+  ).filter(Boolean))];
   const custIds = [...new Set(allStops.map(s => s.orders?.customer_id).filter(Boolean))];
+  let _addrById = {}, _defaultByCust = {};
+  const addrFetches = [];
+  if (stopAddrIds.length) {
+    addrFetches.push(db.from('addresses').select('id, customer_id, line1, line2, city, state, zip, lat, lng, delivery_instructions').in('id', stopAddrIds));
+  }
   if (custIds.length) {
-    const { data: addrs } = await db.from('addresses')
-      .select('customer_id, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default')
-      .in('customer_id', custIds)
-      .eq('is_default', true);
-    const addrMap = {};
-    (addrs || []).forEach(a => { addrMap[a.customer_id] = a; });
+    addrFetches.push(db.from('addresses').select('id, customer_id, line1, line2, city, state, zip, lat, lng, delivery_instructions').in('customer_id', custIds).eq('is_default', true));
+  }
+  if (addrFetches.length) {
+    const results = await Promise.all(addrFetches);
+    if (stopAddrIds.length && results[0]?.data) results[0].data.forEach(a => { _addrById[a.id] = a; });
+    const defIdx = stopAddrIds.length ? 1 : 0;
+    if (custIds.length && results[defIdx]?.data) results[defIdx].data.forEach(a => { _defaultByCust[a.customer_id] = a; });
     allStops = allStops.map(s => {
-      const cid = s.orders?.customer_id;
-      return { ...s, _addr: (cid && addrMap[cid]) || null };
+      const sid = s.address_id || (s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id);
+      return { ...s, _addr: (sid && _addrById[sid]) || _defaultByCust[s.orders?.customer_id] || null };
     });
   }
 
