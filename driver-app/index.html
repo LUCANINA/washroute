@@ -2797,6 +2797,7 @@ function renderProfile() {
 let allAdminMessages = [], allCustomerSms = [], msgSubscription = null, smsMsgSubscription = null, unreadCount = 0;
 let _msgActiveThread = null; // null = conversation list, 'admin' = admin thread, customer_id = customer thread
 let _msgCustomerMap = {};    // customer_id → { name, phone, stopType }
+let _smsSessionStart = null; // timestamp when driver data loaded — only show SMS after this
 
 async function loadDriverMessages() {
   if (!currentDriver) return;
@@ -2810,6 +2811,8 @@ async function loadDriverMessages() {
 
 async function loadCustomerSms() {
   if (!currentDriver) return;
+  // Record session start — driver thread only shows messages from this point forward
+  if (!_smsSessionStart) _smsSessionStart = new Date().toISOString();
   // RLS policy ensures we only get SMS for customers on today's routes
   const { data } = await db.from('sms_messages')
     .select('*')
@@ -2835,10 +2838,9 @@ async function loadCustomerSms() {
 
 function updateMsgBadge() {
   const adminUnread = allAdminMessages.filter(m => m.sender_type === 'admin' && !m.read_at).length;
-  // Customer SMS: count inbound messages from today that aren't from the driver
-  const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+  // Customer SMS: count inbound messages from this session that driver hasn't read
   const custUnread = allCustomerSms.filter(m =>
-    m.direction === 'inbound' && new Date(m.created_at) >= todayStart && !m._driverRead
+    m.direction === 'inbound' && _smsSessionStart && m.created_at >= _smsSessionStart && !m._driverRead
   ).length;
   unreadCount = adminUnread + custUnread;
   const badge = document.getElementById('msg-nav-badge');
@@ -2880,9 +2882,9 @@ function renderConversationList() {
     </div>
   </div>`;
 
-  // Customer threads — only driver-sent + customer replies (not admin notifications)
+  // Customer threads — only messages from this driver session (clean thread)
   const custGroups = {};
-  allCustomerSms.filter(m => m.sent_by_driver_id || m.direction === 'inbound').forEach(m => {
+  allCustomerSms.filter(m => _smsSessionStart && m.created_at >= _smsSessionStart).forEach(m => {
     if (!m.customer_id) return;
     if (!custGroups[m.customer_id]) custGroups[m.customer_id] = [];
     custGroups[m.customer_id].push(m);
@@ -3002,9 +3004,9 @@ function renderThreadMessages() {
   if (_msgActiveThread === 'admin') {
     messages = allAdminMessages;
   } else {
-    // Only show driver-initiated messages + customer replies — not admin-sent notifications
+    // Clean thread: only messages created after this driver session started
     messages = allCustomerSms.filter(m => m.customer_id === _msgActiveThread
-      && (m.sent_by_driver_id || m.direction === 'inbound'));
+      && _smsSessionStart && m.created_at >= _smsSessionStart);
   }
 
   if (!messages.length) {
