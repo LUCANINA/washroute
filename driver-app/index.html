@@ -2899,9 +2899,10 @@ function subscribeToRouteStopUpdates() {
       const isMyDriver = d => d === currentDriver?.id || d === null;
 
       if (idx < 0) {
-        // Stop not in our list — check if it just became ours (explicit assignment or
-        // moved onto one of our routes with driver_id = null)
-        if (isMyDriver(updated.driver_id) && isMyRoute(updated.route_id)) {
+        // Stop not in our list — check if it just became ours (explicit assignment).
+        // Don't require isMyRoute — the route itself may have just been reassigned
+        // to us too, so todayRoutes won't know about it yet. Full reload handles it.
+        if (updated.driver_id === currentDriver?.id) {
           loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
         }
         return;
@@ -3006,6 +3007,18 @@ function subscribeToRouteStopUpdates() {
       if (currentStopId === removedStopId) {
         currentStopId = null;
         showScreen('route');
+      }
+    })
+
+    // Route reassigned to/from this driver (admin changed the route's default driver)
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'routes' }, payload => {
+      if (_dataLoading) return;
+      const updated = payload.new;
+      const wasMyRoute = todayRoutes.some(r => r.id === updated.id) || upcomingRoutes.some(r => r.id === updated.id);
+      const isNowMine  = updated.driver_id === currentDriver?.id || updated.driver_id === null;
+      // Route was just given to us, or taken away — full reload
+      if (wasMyRoute || isNowMine) {
+        loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
       }
     })
 
