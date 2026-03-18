@@ -13205,7 +13205,7 @@ ${totalLinesXml}
       Object.values(pinMap).forEach(({ s, hasBoth }) => {
         const cust = s.orders?.customers || {};
         const custName = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
-        const label = String(s.stop_number || '?');
+        const label = String(s._displayNum || s.stop_number || '?');
         const m = L.marker([s._addr.lat, s._addr.lng], { icon: makePin(color, label) })
           .bindPopup(`<strong>${custName}</strong><br>${s._addr.line1||''}${hasBoth ? '<br><span style="font-size:10px;color:#888">📦 pickup + 🏠 delivery</span>' : ''}<br><span style="font-size:11px;color:#888">${rd.templateName}</span>`);
         m._isStopLayer = true;
