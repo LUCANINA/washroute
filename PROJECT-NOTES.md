@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 17, 2026 (session 31 — driver app stop badges + rack check; fix phantom time band)*
+*Last updated: Mar 18, 2026 (session 32 — SMS notification pipeline fixed: 3 edge functions + template consolidation)*
 
 ---
 
@@ -526,6 +526,39 @@ There are actually **two separate hang points** that must both be covered:
   1. Test RCC in browser with real data — open 2+ routes, drag a stop, verify DB update + re-optimization
   2. Test CloudPRNT end-to-end with physical printer on-site
   3. Xero accounting sync (backlog)
+
+---
+
+### Mar 18, 2026 (session 32) — SMS notification pipeline fixed: 3 edge functions + message template consolidation
+
+- **Root cause: wrong Twilio secret name in all 3 notification functions.** `Deno.env.get('TWILIO_FROM_PHONE')` returned `undefined` — the actual Supabase secret is named `TWILIO_PHONE_NUMBER`. This caused `TWILIO_FROM = ''` silently, and Twilio rejected every outbound SMS request without throwing an exception visible in logs. Fixed in `send-order-notification`, `send-scheduled-reminders`, and `on-customer-created` — all now use `Deno.env.get('TWILIO_PHONE_NUMBER') ?? Deno.env.get('TWILIO_FROM_PHONE') ?? ''` (fallback chain keeps backward compatibility).
+
+- **`send-order-notification` v16 deployed — 404 bug fixed (3 compounding issues):**
+  1. **Embedded resource query failing:** `.select('id, ..., customers(id, ...)')` PostgREST join was returning 404 silently in the service-role edge function context. Fixed by splitting into two separate Supabase queries: orders first, then customers by `order.customer_id`. More robust and debuggable regardless of root cause.
+  2. **Wrong Twilio secret name** (see above).
+  3. **Phone not E.164 formatted:** `phone_cache` stores plain digits (`4156085446`); Twilio requires `+14156085446`. `sendSms()` now normalizes: strips non-digit/non-`+` chars, prepends `+1` for US 10-digit numbers if no `+` prefix. This was silently discarding every SMS.
+  - Added detailed `console.error` logging before any 404 return so future errors are diagnosable in Supabase logs.
+
+- **`send-scheduled-reminders` v13 deployed — Twilio fix + template simplification:**
+  - Same `TWILIO_PHONE_NUMBER` fix.
+  - v12 intermediate: added `recurring_interval` to order select and added branching logic for recurring vs one-time customers to pick different templates.
+  - v13 final: after DB template consolidation (see below), all branching removed — `runDayBefore()` now uses a single `pickup_reminder_recurring` template for all orders. Cleaner and easier to maintain.
+
+- **`on-customer-created` v10 deployed:** Same `TWILIO_PHONE_NUMBER` fix. No functional changes.
+
+- **`message_templates` DB — template consolidation (14 templates now, down from 15):**
+  - Deleted `pickup_reminder_one_time` row — redundant with the recurring variant.
+  - Renamed `pickup_reminder_recurring` label from "Pickup Reminder — Recurring (Day Before)" → **"Day-Before Pickup Reminder"** and set `sort_order = 15`. This is the canonical day-before reminder for all customers.
+  - Confirmed that `send-scheduled-reminders` was already reading from the `message_templates` DB table via `getTemplate()` — it was never hardcoded. David's concern that the scheduler used a different source was a misunderstanding; all 15 (now 14) templates are fully editable from Admin → Notifications → Message Templates.
+  - Canonical template list (14 total): account: `customer_registered`; order: `order_confirmed`, `driver_on_way_pickup`, `order_picked_up`, `driver_on_way_delivery`, `order_delivered`, `skip_confirmation`, `pickup_failed`; payment: `payment_received`, `payment_failed`; marketing: `review_request`, `reorder_reminder`; reminders: `pickup_reminder_recurring` (day-before, all customers), `pickup_day_reminder` (morning-of). Note: `review_request` has no trigger yet — future feature.
+
+- **No local file commits this session** — all changes were Supabase edge function deploys and one DB mutation via Supabase MCP. No `git add` needed for app code.
+
+- **Next session priorities:**
+  1. Test order confirmation SMS end-to-end — place a new order from the customer app, verify SMS arrives. Note: if Twilio trial account, David's number must be verified at twilio.com/console → Verified Caller IDs.
+  2. Continue Order Schedule (RCC) bug hunting (session 31 carried forward)
+  3. Test CloudPRNT with physical printer
+  4. Investigate `optimize-route` v12 stop reordering issue (session 28 backlog)
 
 ---
 
