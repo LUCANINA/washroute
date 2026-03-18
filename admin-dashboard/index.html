@@ -1888,8 +1888,8 @@
               <!-- Online driver list -->
               <div style="border-right:1px solid var(--gray-200);display:flex;flex-direction:column;overflow:hidden">
                 <div style="padding:14px 16px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;justify-content:space-between">
-                  <span style="font-size:13px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:0.5px">Online Now</span>
-                  <span id="online-driver-count" style="font-size:11px;font-weight:700;color:var(--green);background:var(--green-light);padding:2px 8px;border-radius:10px">0</span>
+                  <span style="font-size:13px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:0.5px">Drivers</span>
+                  <span id="online-driver-count" style="font-size:11px;font-weight:700;color:var(--green);background:var(--green-light);padding:2px 8px;border-radius:10px">0 online</span>
                 </div>
                 <div id="admin-driver-list" style="flex:1;overflow-y:auto">
                   <div style="padding:32px;text-align:center;color:var(--gray-400)">Loading…</div>
@@ -12541,8 +12541,8 @@ ${totalLinesXml}
         .in('route_id', todayRoutes.map(r => r.id));
 
       if (!stops?.length) return;
-      // Exclude stops whose orders are cancelled, failed, or skipped at the order level
-      const DEAD_ORDER = ['cancelled', 'pickup_failed', 'delivery_failed'];
+      // Exclude stops whose orders are no longer active (match RCC chip count exclusion list)
+      const DEAD_ORDER = ['delivered', 'cancelled', 'skipped', 'pickup_failed', 'delivery_failed', 'on_hold'];
       const liveStops = stops.filter(s => !DEAD_ORDER.includes(s.orders?.status));
       if (!liveStops.length) return;
       const total   = liveStops.length;
@@ -15972,7 +15972,7 @@ ${totalLinesXml}
 
     // Update online counter badge
     const countEl = document.getElementById('online-driver-count');
-    if (countEl) countEl.textContent = _onlineDriverIds.size;
+    if (countEl) countEl.textContent = _onlineDriverIds.size + ' online';
 
     // Subscribe to new incoming driver replies
     if (!adminMsgSub) {
@@ -15997,7 +15997,7 @@ ${totalLinesXml}
               _onlineDriverIds.add(loc.driver_id);
               renderAdminDriverList();
               const countEl = document.getElementById('online-driver-count');
-              if (countEl) countEl.textContent = _onlineDriverIds.size;
+              if (countEl) countEl.textContent = _onlineDriverIds.size + ' online';
             }
           }
         })
@@ -16048,25 +16048,32 @@ ${totalLinesXml}
     const el = document.getElementById('admin-driver-list');
     if (!el) return;
 
-    // Messages tab: show only online drivers (with GPS ping in last 15 min)
-    const onlineDrivers = adminMsgDrivers.filter(d => _onlineDriverIds.has(d.id));
-
-    if (!onlineDrivers.length) {
+    if (!adminMsgDrivers.length) {
       el.innerHTML = `<div style="padding:32px 16px;text-align:center">
         <div style="font-size:32px;margin-bottom:10px">📡</div>
-        <div style="font-size:13px;font-weight:600;color:var(--gray-500);margin-bottom:4px">No drivers online</div>
-        <div style="font-size:12px;color:var(--gray-400);line-height:1.5">Drivers appear here when<br>they're actively on a route</div>
+        <div style="font-size:13px;font-weight:600;color:var(--gray-500);margin-bottom:4px">No drivers</div>
+        <div style="font-size:12px;color:var(--gray-400);line-height:1.5">Add drivers on the All Drivers tab</div>
       </div>`;
       return;
     }
 
-    el.innerHTML = onlineDrivers.map(drv => {
+    // Sort: online first, then by name
+    const sorted = [...adminMsgDrivers].sort((a, b) => {
+      const aOn = _onlineDriverIds.has(a.id) ? 0 : 1;
+      const bOn = _onlineDriverIds.has(b.id) ? 0 : 1;
+      if (aOn !== bOn) return aOn - bOn;
+      return adminDriverName(a).localeCompare(adminDriverName(b));
+    });
+
+    el.innerHTML = sorted.map(drv => {
+      const isOnline = _onlineDriverIds.has(drv.id);
       const msgs   = adminMsgAllMessages.filter(m => m.driver_id === drv.id);
       const unread = msgs.filter(m => m.sender_type === 'driver' && !m.read_at).length;
       const last   = msgs[msgs.length - 1];
       const lastText = last ? last.body.slice(0, 38) + (last.body.length > 38 ? '…' : '') : 'No messages yet';
       const lastTime = last ? new Date(last.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
       const isActive = adminMsgActiveDriver?.id === drv.id;
+      const dotColor = isOnline ? 'var(--green)' : 'var(--gray-300)';
 
       return `<div onclick="selectAdminDriver('${drv.id}')"
         style="padding:12px 16px;cursor:pointer;border-bottom:1px solid var(--gray-100);
@@ -16075,8 +16082,8 @@ ${totalLinesXml}
                transition:background .1s">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
           <div style="display:flex;align-items:center;gap:6px">
-            <span style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></span>
-            <span style="font-size:14px;font-weight:700;color:var(--gray-800)">${adminDriverName(drv)}</span>
+            <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};flex-shrink:0"></span>
+            <span style="font-size:14px;font-weight:700;color:${isOnline ? 'var(--gray-800)' : 'var(--gray-500)'}">${adminDriverName(drv)}</span>
           </div>
           ${unread > 0 ? `<span style="background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:800;padding:1px 7px">${unread}</span>` : `<span style="font-size:11px;color:var(--gray-400)">${lastTime}</span>`}
         </div>
