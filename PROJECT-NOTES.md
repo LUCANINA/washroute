@@ -580,8 +580,8 @@ There are actually **two separate hang points** that must both be covered:
     | `order_delivered` | `send-order-notification` called from driver app `completeStop()` | ✅ |
     | `skip_confirmation` | `twilio-webhook` SKIP keyword handler | ✅ |
     | `pickup_failed` | `send-order-notification` called from driver app `failStop()` | ✅ |
-    | `payment_received` | `send-order-notification` called from admin `charge-order` flow | ✅ |
-    | `payment_failed` | `send-order-notification` called from admin `charge-order` flow | ✅ |
+    | `payment_received` | `charge-order` v23 calls `send-order-notification` on successful charge | ✅ Wired session 32b |
+    | `payment_failed` | `charge-order` v23 calls `send-order-notification` when all cards declined | ✅ Wired session 32b |
     | `review_request` | `send-scheduled-reminders` v14 `runReviewRequest()` — 2 days after delivery | ✅ Wired session 32b |
     | `reorder_reminder` | `send-scheduled-reminders` v14 `runReorder()` — 18-25 days after delivery | ✅ |
     | `pickup_reminder_recurring` | `send-scheduled-reminders` v14 `runDayBefore()` — evening before pickup | ✅ |
@@ -602,6 +602,12 @@ There are actually **two separate hang points** that must both be covered:
 - **Review link setting added to admin Settings:**
   - New `review_link TEXT` column on `settings` table (migration `add_review_link_to_settings`). Seeded with the Yelp "Write a Review" URL.
   - New card in Admin → Settings below the Printer card: "Review Link" with a URL input, save button, and a hint explaining it maps to `{{review_link}}` in the Review Request template. Editable at any time — change from Yelp to Google or anything else without touching code.
+
+- **`charge-order` v23 deployed — payment notifications wired:**
+  - Added `notifyCustomer(orderId, event)` helper — fire-and-forget call to `send-order-notification` using the service role key.
+  - On successful charge: fires `payment_received` → customer gets "Payment of $XX.XX received for order #YYY" SMS.
+  - When all cards fail: fires `payment_failed` → customer gets "we couldn't process your payment… Please update your card in the app" SMS.
+  - Both templates were already in `message_templates` and editable in Notifications — they just had no trigger until now.
 
 - **DB migrations this session:**
   - `add_review_link_to_settings` — `ALTER TABLE settings ADD COLUMN review_link TEXT DEFAULT ''`
