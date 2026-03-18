@@ -2816,9 +2816,10 @@ async function loadCustomerSms() {
     .order('created_at', { ascending: true });
   allCustomerSms = data || [];
 
-  // Build customer map from today's stops for display names
+  // Build customer map from today's + upcoming stops for display names + phone
   _msgCustomerMap = {};
-  const allActiveStops = [...(todayRoutes.flatMap(r => allStops.filter(s => s.route_id === r.id)))];
+  const allRouteIds = [...todayRoutes, ...upcomingRoutes].map(r => r.id);
+  const allActiveStops = allStops.filter(s => allRouteIds.includes(s.route_id));
   allActiveStops.forEach(s => {
     const cust = s.orders?.customers;
     const custId = s.orders?.customer_id;
@@ -2879,9 +2880,10 @@ function renderConversationList() {
     </div>
   </div>`;
 
-  // Customer threads — group SMS by customer_id, only show customers with messages
+  // Customer threads — group today's SMS by customer_id
+  const todayMsgStart = new Date(); todayMsgStart.setHours(0,0,0,0);
   const custGroups = {};
-  allCustomerSms.forEach(m => {
+  allCustomerSms.filter(m => new Date(m.created_at) >= todayMsgStart).forEach(m => {
     if (!m.customer_id) return;
     if (!custGroups[m.customer_id]) custGroups[m.customer_id] = [];
     custGroups[m.customer_id].push(m);
@@ -3001,7 +3003,9 @@ function renderThreadMessages() {
   if (_msgActiveThread === 'admin') {
     messages = allAdminMessages;
   } else {
-    messages = allCustomerSms.filter(m => m.customer_id === _msgActiveThread);
+    // Only show today's messages — driver doesn't need full SMS history
+    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+    messages = allCustomerSms.filter(m => m.customer_id === _msgActiveThread && new Date(m.created_at) >= todayStart);
   }
 
   if (!messages.length) {
