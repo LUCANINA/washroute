@@ -12537,12 +12537,16 @@ ${totalLinesXml}
       if (!todayRoutes?.length) return; // No route run yet — fine to reassign freely
 
       const { data: stops } = await db.from('route_stops')
-        .select('status')
+        .select('status, orders!inner(status)')
         .in('route_id', todayRoutes.map(r => r.id));
 
       if (!stops?.length) return;
-      const total   = stops.length;
-      const done    = stops.filter(s => s.status === 'complete' || s.status === 'skipped' || s.status === 'failed').length;
+      // Exclude stops whose orders are cancelled, failed, or skipped at the order level
+      const DEAD_ORDER = ['cancelled', 'pickup_failed', 'delivery_failed'];
+      const liveStops = stops.filter(s => !DEAD_ORDER.includes(s.orders?.status));
+      if (!liveStops.length) return;
+      const total   = liveStops.length;
+      const done    = liveStops.filter(s => s.status === 'complete' || s.status === 'skipped' || s.status === 'failed').length;
       const pending = total - done;
 
       // Store counts so assignDriverOverride can use them
