@@ -2496,6 +2496,12 @@ async function completeStop(stopId, stopType) {
   const now   = new Date().toISOString();
   const stop  = allStops.find(s => s.id === stopId);
   if (!stop) { toast('Stop no longer exists'); goTo('route'); return; }
+  // Safety guard: proof photo required before completing
+  if (!stop.proof_photo_url) {
+    toast('Please take a photo before completing');
+    if (btn) { btn.disabled = true; btn.textContent = stopType === 'pickup' ? 'Mark Picked Up' : 'Mark Delivered'; }
+    return;
+  }
   const prevOrderStatus = stop?.orders?.status || null;
 
   const { error: stopErr } = await db.from('route_stops').update({

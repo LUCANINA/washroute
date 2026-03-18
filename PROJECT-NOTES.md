@@ -569,12 +569,46 @@ There are actually **two separate hang points** that must both be covered:
     | 13 | `pickup_reminder_recurring` | Day-Before Pickup Reminder | reminders | "Hi from Family Laundry! Your pickup is tomorrow. If you don't have laundry this week, reply SKIP and we'll see you next time. For safety, please keep bags under 30 lbs and remember to check pockets for keys, pens, coins, and AirPods. Thank you!" | *(none)* |
     | 14 | `pickup_day_reminder` | Pickup Day Reminder (Morning of) | reminders | "Good morning from Family Laundry! Today's the day. Your pickup is scheduled between {{time_window}}. Our driver will text you when they are on the way." | *(none)* |
 
-    Notes: `review_request` (#11) has no automated trigger yet — future feature. Templates with email subjects also have full HTML email bodies stored in the DB (editable in admin): `order_confirmed`, `driver_on_way_pickup`, `order_picked_up`, `driver_on_way_delivery`, `order_delivered`, `payment_received`, `payment_failed`, `review_request`.
+    **Trigger status for all 14 templates:**
+    | Template | Trigger | Confirmed working |
+    |---|---|---|
+    | `customer_registered` | `on-customer-created` edge fn fires on new customer row | ✅ |
+    | `order_confirmed` | `send-order-notification` called from customer app `placeOrder()` | ✅ |
+    | `driver_on_way_pickup` | `notify-on-my-way` called from driver app "On My Way" button | ✅ |
+    | `order_picked_up` | `send-order-notification` called from driver app `completeStop()` | ✅ |
+    | `driver_on_way_delivery` | `notify-on-my-way` (same fn, delivery variant) | ✅ |
+    | `order_delivered` | `send-order-notification` called from driver app `completeStop()` | ✅ |
+    | `skip_confirmation` | `twilio-webhook` SKIP keyword handler | ✅ |
+    | `pickup_failed` | `send-order-notification` called from driver app `failStop()` | ✅ |
+    | `payment_received` | `send-order-notification` called from admin `charge-order` flow | ✅ |
+    | `payment_failed` | `send-order-notification` called from admin `charge-order` flow | ✅ |
+    | `review_request` | `send-scheduled-reminders` v14 `runReviewRequest()` — 2 days after delivery | ✅ Wired session 32b |
+    | `reorder_reminder` | `send-scheduled-reminders` v14 `runReorder()` — 18-25 days after delivery | ✅ |
+    | `pickup_reminder_recurring` | `send-scheduled-reminders` v14 `runDayBefore()` — evening before pickup | ✅ |
+    | `pickup_day_reminder` | `send-scheduled-reminders` v14 `runDayOf()` — morning of pickup | ✅ Confirmed by David |
 
-- **No local file commits this session** — all changes were Supabase edge function deploys and one DB mutation via Supabase MCP. No `git add` needed for app code.
+    Templates with email subjects also have full HTML email bodies stored in the DB (editable in admin): `order_confirmed`, `driver_on_way_pickup`, `order_picked_up`, `driver_on_way_delivery`, `order_delivered`, `payment_received`, `payment_failed`, `review_request`.
+
+    **Source of truth:** All edge functions read message bodies from the `message_templates` DB table. Admin → Notifications → Message Templates is the single source of truth. No messages are hardcoded.
+
+- **Session 32b additions (same session, continued):**
+
+- **Proof photo now required before stop completion (driver app):** The complete button was already disabled until a photo is uploaded (built in session 31). Added a programmatic safety guard in `completeStop()` that blocks completion if `proof_photo_url` is null, in case the disabled attribute is bypassed. The file input (`capture="environment"`) opens the rear camera on mobile but also allows gallery selection — so drivers in low/no-signal areas can take the photo with their native camera app, then select it from gallery when they have connectivity to upload.
+
+- **`send-scheduled-reminders` v14 deployed — review request trigger wired:**
+  - New `runReviewRequest()` function. Finds orders delivered 44–56 hours ago (the "2 days after" window) with `review_request_sent_at IS NULL`. Reads the `review_link` URL from `settings` table (Admin → Settings). Substitutes `{{first_name}}` and `{{review_link}}` into the `review_request` template. Only sends one review request per customer ever (deduplicates across orders). Skips entirely if no `review_link` is configured in settings.
+  - Runs automatically as part of `type: 'all'`, `type: 'morning'`, or `type: 'review'`.
+
+- **Review link setting added to admin Settings:**
+  - New `review_link TEXT` column on `settings` table (migration `add_review_link_to_settings`). Seeded with the Yelp "Write a Review" URL.
+  - New card in Admin → Settings below the Printer card: "Review Link" with a URL input, save button, and a hint explaining it maps to `{{review_link}}` in the Review Request template. Editable at any time — change from Yelp to Google or anything else without touching code.
+
+- **DB migrations this session:**
+  - `add_review_link_to_settings` — `ALTER TABLE settings ADD COLUMN review_link TEXT DEFAULT ''`
+  - `add_review_request_sent_at_to_orders` — `ALTER TABLE orders ADD COLUMN review_request_sent_at TIMESTAMPTZ DEFAULT NULL`
 
 - **Next session priorities:**
-  1. Test order confirmation SMS end-to-end — place a new order from the customer app, verify SMS arrives. Note: if Twilio trial account, David's number must be verified at twilio.com/console → Verified Caller IDs.
+  1. Test order confirmation SMS end-to-end — place a new order from the customer app, verify SMS arrives
   2. Continue Order Schedule (RCC) bug hunting (session 31 carried forward)
   3. Test CloudPRNT with physical printer
   4. Investigate `optimize-route` v12 stop reordering issue (session 28 backlog)

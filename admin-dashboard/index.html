@@ -3410,6 +3410,7 @@
   // ── STATE ──
   let BIZ_TZ            = 'America/Los_Angeles'; // loaded from settings table at startup
   let BIZ_PRINTER_TOKEN = '';                     // loaded from settings table at startup
+  let BIZ_REVIEW_LINK   = '';                     // loaded from settings table at startup
   let currentPage = 'overview';
   let allCustomers = [];
   let allOrders = [];
@@ -4194,9 +4195,10 @@
 
   // ── SETTINGS ──
   async function loadSettings() {
-    const { data } = await db.from('settings').select('timezone, printer_token').eq('id', 1).single();
+    const { data } = await db.from('settings').select('timezone, printer_token, review_link').eq('id', 1).single();
     if (data?.timezone)       BIZ_TZ            = data.timezone;
     if (data?.printer_token)  BIZ_PRINTER_TOKEN = data.printer_token;
+    if (data?.review_link !== undefined) BIZ_REVIEW_LINK = data.review_link || '';
   }
 
   async function saveSettings() {
@@ -4215,6 +4217,14 @@
     BIZ_PRINTER_TOKEN = token;
     showToast(token ? '✓ Printer token saved' : 'Printer token cleared', 'success');
     renderSettingsTab(); // re-render to show/hide the ✓ connected badge
+  }
+
+  async function saveReviewLink() {
+    const link = (document.getElementById('settings-review-link')?.value || '').trim();
+    const { error } = await db.from('settings').update({ review_link: link }).eq('id', 1);
+    if (error) { showToast('Failed to save review link', 'error'); return; }
+    BIZ_REVIEW_LINK = link;
+    showToast(link ? '✓ Review link saved' : 'Review link cleared', 'success');
   }
 
   async function testPrint() {
@@ -4283,6 +4293,25 @@
             <button class="btn" id="btn-test-print" onclick="testPrint()" style="font-size:13.5px;padding:8px 16px;color:var(--gray-700)">🖨 Test Print</button>
           </div>
           ${BIZ_PRINTER_TOKEN ? `<div style="margin-top:12px;font-size:12px;color:#16a34a;font-weight:600">✓ Printer connected — token saved</div>` : ''}
+        </div>
+      </div>
+
+      <div class="card" style="max-width:540px;margin-top:20px">
+        <div class="card-header">
+          <div class="card-title">⭐ Review Link</div>
+          <div class="card-sub">Where customers are sent when they receive the automated review request SMS (2 days after delivery).</div>
+        </div>
+        <div style="padding:20px 24px 24px">
+          <div style="margin-bottom:16px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Review URL (Yelp, Google, etc.)</div>
+            <input id="settings-review-link" class="form-input" type="url"
+              placeholder="https://www.yelp.com/writeareview/biz/..."
+              value="${BIZ_REVIEW_LINK.replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+              style="width:100%;font-size:13.5px;margin-bottom:4px">
+            <div style="font-size:11px;color:var(--gray-400)">This URL is substituted into the <strong>{{review_link}}</strong> tag in the Review Request template (Notifications → Message Templates).</div>
+          </div>
+          <button class="btn btn-primary" onclick="saveReviewLink()" style="font-size:13.5px;padding:8px 20px">Save</button>
+          ${BIZ_REVIEW_LINK ? `<div style="margin-top:12px;font-size:12px;color:#16a34a;font-weight:600">✓ Review link set</div>` : `<div style="margin-top:12px;font-size:12px;color:var(--gray-400)">No review link set — review request SMS will not include a link.</div>`}
         </div>
       </div>`;
   }
