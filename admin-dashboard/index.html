@@ -12110,11 +12110,14 @@ ${totalLinesXml}
 
       // Past/today: show the actual driver from the route record so that editing the
       // recurring schedule doesn't retroactively change historical display.
+      // Past days with no route record show null — we don't know who drove.
       const recKey   = `${t.id}-${dateStr}`;
       const hasRecord = recKey in routeRecordMap;
-      const drvId    = (isPast || isToday) && hasRecord
-        ? routeRecordMap[recKey]
-        : (overMap[`${t.id}-${day}-pickup`] || null);
+      const drvId    = isPast
+        ? (hasRecord ? routeRecordMap[recKey] : null)
+        : isToday && hasRecord
+          ? routeRecordMap[recKey]
+          : (overMap[`${t.id}-${day}-pickup`] || null);
       const drvName  = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
       const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
@@ -12317,11 +12320,14 @@ ${totalLinesXml}
 
       // Past/today: show the actual driver from the route record so that editing the
       // recurring schedule doesn't retroactively change historical display.
+      // Past days with no route record show null — we don't know who drove.
       const recKey   = `${t.id}-${dateStr}`;
       const hasRecord = recKey in routeRecordMap;
-      const drvId    = (isPast || isToday) && hasRecord
-        ? routeRecordMap[recKey]
-        : (overMap[`${t.id}-${day}-pickup`] || null);
+      const drvId    = isPast
+        ? (hasRecord ? routeRecordMap[recKey] : null)
+        : isToday && hasRecord
+          ? routeRecordMap[recKey]
+          : (overMap[`${t.id}-${day}-pickup`] || null);
       const drvName  = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
       const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
