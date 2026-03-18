@@ -2456,17 +2456,15 @@
         </div>
       </div>
 
-      <!-- Bags + Service -->
+      <!-- Bags -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group" style="margin:0">
           <label class="form-label">Bags</label>
           <input class="form-input" id="o-bags" type="number" min="1" step="1" value="1" style="width:100%" />
         </div>
-        <div class="form-group" style="margin:0">
-          <label class="form-label">Service</label>
-          <select class="form-select" id="o-service"></select>
-        </div>
+        <div></div>
       </div>
+      <input type="hidden" id="o-service" />
 
       <!-- Tip + Coupon -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -9302,15 +9300,10 @@ ${totalLinesXml}
     document.getElementById('o-bags').value  = '1';
     document.getElementById('o-error').style.display = 'none';
 
-    // Populate service dropdown (non-addon services only)
+    // Auto-select default service (first non-addon = Wash & Fold Delivery)
     if (!allServices.length) await loadServices();
-    const svcSel = document.getElementById('o-service');
-    const nonAddon = allServices.filter(s => !s.is_addon);
-    svcSel.innerHTML = nonAddon.map(s =>
-      `<option value="${s.id}">${s.name} — $${parseFloat(s.base_price).toFixed(2)}/bag</option>`
-    ).join('');
-    // Default to first non-addon (Wash & Fold Delivery)
-    if (nonAddon.length) svcSel.value = nonAddon[0].id;
+    const defaultSvc = allServices.find(s => !s.is_addon && s.category === 'Delivery') || allServices.find(s => !s.is_addon);
+    document.getElementById('o-service').value = defaultSvc?.id || '';
 
     // Customers — if loadAll() hasn't finished yet, wait up to 3 s then reload
     if (!allCustomers.length) {
