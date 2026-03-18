@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 18, 2026 (session 34 — unified messaging, auto-fail buffer fix, sequential stop numbers)*
+*Last updated: Mar 18, 2026 (session 35 — route driver propagation fix, RCC cleanup)*
 
 ---
 
@@ -543,6 +543,26 @@ There are actually **two separate hang points** that must both be covered:
   1. Test RCC in browser with real data — open 2+ routes, drag a stop, verify DB update + re-optimization
   2. Test CloudPRNT end-to-end with physical printer on-site
   3. Xero accounting sync (backlog)
+
+---
+
+### Mar 18, 2026 (session 35) — Route driver propagation fix, RCC cleanup
+
+- **Bug fix — driver schedule changes not propagating to future routes (commit `49e8f6e`):**
+  - **Problem:** `assignDriverOverride()` only updated `routes.driver_id` for today's route records. Any route records that already existed for future dates kept their null `driver_id`, causing the Order Schedule to show "Unassigned" even when the Drivers > Schedule grid showed a driver assigned. Berkeley AM and PM for Mar 19 were affected — Oakland routes happened to work because they were created after the schedule was set.
+  - **Root cause:** The propagation block checked `if (Number(day) === todayDow)` — restricting updates to today only.
+  - **Fix:** Now queries all existing routes for the template from today onward, filters by matching day-of-week, and updates `driver_id` on all of them. Today's routes also get their pending/en_route stops reassigned (same as before). Future routes just get the route-level `driver_id` updated.
+  - **Belt-and-suspenders — RCC schedule fallback:** When `rccToggleRoute` opens a column and finds `route.driver_id` is null, it now checks `route_driver_schedule` for the matching template + day-of-week. If found, it displays the correct driver name AND backfills the route record (fire-and-forget DB update). This catches any routes that were created before the fix.
+  - **Data loaded in `loadDailyRuns`:** Added `route_driver_schedule` to the parallel fetch so the fallback lookup is instant.
+  - **Backfilled:** Berkeley AM + PM for Mar 19, Berkeley AM + PM for Mar 20 — all now have correct `driver_id`.
+  - **Design principle reinforced:** "The Drivers Schedule and Order Schedule must always agree. A change in one must propagate to the other."
+- **RCC — exclude failed/on-hold orders from chip counts (commit `945517c`, carried from session 34):**
+  - `_dsCountMap` builder now uses the same exclusion list as `activeStops`: `pickup_failed`, `delivery_failed`, `on_hold`, `delivered`, `cancelled`, `skipped`. Route chip badges no longer count problem orders.
+- **File changed:** `admin-dashboard/index.html` (`assignDriverOverride`, `loadDailyRuns`, `rccToggleRoute`, `_dsCountMap` builder)
+- **Next session priorities:**
+  1. Test full order lifecycle end-to-end as driver (pickup → delivery)
+  2. Test unified messaging with live orders
+  3. Route picker fine-tuning (backlog)
 
 ---
 
