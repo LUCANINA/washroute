@@ -728,15 +728,15 @@
       transition: opacity .15s;
     }
     .btn-back-subphase:active { opacity: 0.6; }
-    /* Text Customer inline button */
-    .btn-sms-customer {
-      display: inline-flex; align-items: center; gap: 4px;
-      color: var(--accent); font-size: 13px; font-weight: 600;
-      text-decoration: none; cursor: pointer; transition: opacity .15s;
-      margin-left: 12px; background: none; border: none; padding: 0;
+    /* Call / Text CTA buttons on stop detail */
+    .cta-contact {
+      flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 12px 0; border-radius: 10px; font-size: 14px; font-weight: 700;
+      background: var(--gray-100, #f3f4f6); color: var(--gray-800, #1f2937);
+      border: 1px solid var(--gray-200, #e5e7eb); cursor: pointer;
+      text-decoration: none; transition: background .15s;
     }
-    .btn-sms-customer:disabled { opacity: 0.5; cursor: default; }
-    .btn-sms-customer:active { opacity: 0.6; }
+    .cta-contact:active { background: var(--gray-200, #e5e7eb); }
 
     /* ══════════════════════════════
        PHASE 2 — AT STOP / BAG STEPPER
@@ -2111,9 +2111,23 @@ function renderStopDetail(stop) {
   // ── Customer info (always visible) ──
   h += `<div class="dsection">
     <div class="drow">${icon('pin')}<div class="dtext">${fmtAddr(addr)}</div></div>
-    ${hasPhone ? `<div class="drow">${icon('phone')}<div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a>${!isDone && !isSkip && !isFailed && stop.orders?.customer_id ? `<button class="btn-sms-customer" onclick="openCustomerThread('${stop.orders.customer_id}')">Text</button>` : ''}</div></div>` : ''}
+    ${hasPhone ? `<div class="drow">${icon('phone')}<div class="dtext">${cust.phone_cache}</div></div>` : ''}
     ${addr?.delivery_instructions ? `<div class="drow">${icon('lock')}<div><div class="dtext" style="font-size:13px;color:var(--muted)">${addr.delivery_instructions}</div></div></div>` : ''}
   </div>`;
+
+  // ── Call / Text CTA buttons (only for active stops with a phone) ──
+  if (hasPhone && !isDone && !isSkip && !isFailed) {
+    h += `<div style="display:flex;gap:10px;padding:0 20px 4px;">
+      <a href="tel:${cust.phone_cache}" class="cta-contact">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+        Call Customer
+      </a>
+      <button onclick="openCustomerThread('${stop.orders?.customer_id}')" class="cta-contact">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        Send Text
+      </button>
+    </div>`;
+  }
 
   // ── Order info (always visible) ──
   h += `<div class="dsection">
