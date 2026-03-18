@@ -2880,10 +2880,9 @@ function renderConversationList() {
     </div>
   </div>`;
 
-  // Customer threads — group today's SMS by customer_id
-  const todayMsgStart = new Date(); todayMsgStart.setHours(0,0,0,0);
+  // Customer threads — only driver-sent + customer replies (not admin notifications)
   const custGroups = {};
-  allCustomerSms.filter(m => new Date(m.created_at) >= todayMsgStart).forEach(m => {
+  allCustomerSms.filter(m => m.sent_by_driver_id || m.direction === 'inbound').forEach(m => {
     if (!m.customer_id) return;
     if (!custGroups[m.customer_id]) custGroups[m.customer_id] = [];
     custGroups[m.customer_id].push(m);
@@ -3003,9 +3002,9 @@ function renderThreadMessages() {
   if (_msgActiveThread === 'admin') {
     messages = allAdminMessages;
   } else {
-    // Only show today's messages — driver doesn't need full SMS history
-    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-    messages = allCustomerSms.filter(m => m.customer_id === _msgActiveThread && new Date(m.created_at) >= todayStart);
+    // Only show driver-initiated messages + customer replies — not admin-sent notifications
+    messages = allCustomerSms.filter(m => m.customer_id === _msgActiveThread
+      && (m.sent_by_driver_id || m.direction === 'inbound'));
   }
 
   if (!messages.length) {
