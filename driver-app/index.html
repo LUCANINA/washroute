@@ -1822,7 +1822,7 @@ function renderRoute() {
       ? `<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;padding:2px 7px;border-radius:5px;margin-left:5px">↗ reassigned</span>`
       : '';
     return `<div class="stop-card${cardClass}" onclick="openStop('${stop.id}')">
-      <div class="stop-num ${numClass}">${isDone ? '✓' : isSkip ? '⤷' : isFailed ? '✕' : isEnRoute ? '↑' : stop.stop_number}</div>
+      <div class="stop-num ${numClass}">${isDone ? '✓' : isSkip ? '⤷' : isFailed ? '✕' : isEnRoute ? '↑' : (stop._displayNum || stop.stop_number)}</div>
       <div class="stop-body">
         <div>${typePill}${showBadge ? ` <span class="stop-badge ${badgeClass}">${badgeText}</span>` : ''}${reassignedTag}</div>
         <div class="stop-name">${custName}</div>
@@ -1914,7 +1914,7 @@ function renderRoute() {
         }
         // ── End Rack Check ──────────────────────────────────────────────────
       }
-      sorted.forEach(stop => { h += renderStopCard(stop); });
+      sorted.forEach((stop, i) => { stop._displayNum = i + 1; h += renderStopCard(stop); });
     }
     // "Route complete" banner when all done (skip for upcoming routes)
     if (!isUpcomingView && total > 0 && done === total) {
@@ -1936,7 +1936,7 @@ function renderRoute() {
         <span class="stop-section-pill" style="background:#f3f0ff;color:#7c3aed"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#7c3aed;margin-right:5px;vertical-align:middle"></span>${route.name}${carryTag}</span>
         <span class="stop-section-count">${rDone} of ${rStops.length} done</span>
       </div>`;
-      rStops.forEach(stop => { h += renderStopCard(stop); });
+      rStops.forEach((stop, i) => { stop._displayNum = i + 1; h += renderStopCard(stop); });
     });
     // Extra Stops section (reassigned) at the bottom
     const extraStops = allStops.filter(s => s._reassigned).sort((a, b) => a.stop_number - b.stop_number);
@@ -1947,13 +1947,13 @@ function renderRoute() {
           <span class="stop-section-pill" style="background:#f5f3ff;color:#7c3aed"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#7c3aed;margin-right:5px;vertical-align:middle"></span>Extra Stops</span>
           <span class="stop-section-count">${eDone} of ${extraStops.length} done</span>
         </div>`;
-      extraStops.forEach(stop => { h += renderStopCard(stop); });
+      extraStops.forEach((stop, i) => { stop._displayNum = i + 1; h += renderStopCard(stop); });
     }
   } else {
     // Single route: all stops sorted by stop_number, no section header
     // Use visibleStops (already filtered to exclude upcoming) not raw allStops
     const sorted = [...visibleStops].sort((a, b) => a.stop_number - b.stop_number);
-    sorted.forEach(stop => { h += renderStopCard(stop); });
+    sorted.forEach((stop, i) => { stop._displayNum = i + 1; h += renderStopCard(stop); });
   }
 
   h += '</div>';
