@@ -1827,7 +1827,7 @@ function renderRoute() {
         <div>${typePill}${showBadge ? ` <span class="stop-badge ${badgeClass}">${badgeText}</span>` : ''}${reassignedTag}</div>
         <div class="stop-name">${custName}</div>
         <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
-        <div class="stop-meta">${stop.orders?.total_bags||1} bag${(stop.orders?.total_bags||1)!==1?'s':''} · ${stop.orders?.services?.name||'Service'}${isDone && stop.completed_at ? ' · ' + fmtTime(stop.completed_at) : ''}</div>
+        <div class="stop-meta">${stop.orders?.total_bags||1} bag${(stop.orders?.total_bags||1)!==1?'s':''} · ${stop.orders?.services?.name||'Service'}${(() => { const w = stopWindow(stop); return w.start ? ' · ' + fmtSlot(w.start, w.end) : ''; })()}${isDone && stop.completed_at ? ' · ' + fmtTime(stop.completed_at) : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
         ${addr ? `<a href="${mapsLink(addr)}" target="_blank" onclick="event.stopPropagation()"
