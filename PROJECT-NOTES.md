@@ -559,6 +559,16 @@ There are actually **two separate hang points** that must both be covered:
   - **Problem:** For past days where no route record existed in the DB, the chip fell back to `route_driver_schedule` (current schedule). Changing today's driver to Marcus made all past Wednesdays without records also show Marcus.
   - **Fix:** Past days with no route record now show null/Unassigned instead of the current schedule. Only actual route records are shown as historical truth.
 - **File changed:** `admin-dashboard/index.html` (both `renderWeeklySchedule` and `renderDriverSchedule` makeChip functions + `assignDriverOverride` + `opCreateRouteAndSelect` + `opPrefetchRoutes`)
+- **Driver app — hide skipped/failed stops:**
+  - Skipped and failed stops are now filtered out of the driver's route view entirely. Driver only sees `pending`, `en_route`, and `complete` stops. Applied to main route stops, override (reassigned) stops, and upcoming stops.
+  - Progress counts ("Done" / "Left") now count only `complete` — skipped no longer inflates progress.
+  - **File changed:** `driver-app/index.html` (3 filter locations + 4 done-count locations)
+- **Driver app — realtime refresh on route reassignment:**
+  - **Problem:** When admin reassigned a route to a different driver, the original driver's app didn't update until manual refresh.
+  - **Root cause 1:** The `route_stops` UPDATE handler required `isMyRoute()` to be true before reloading — but when a whole route was reassigned, it wasn't in the driver's `todayRoutes` yet. Fixed by reloading whenever `driver_id` matches the current driver, regardless of route ownership.
+  - **Root cause 2:** The `routes` table was NOT in the `supabase_realtime` publication. Added a `routes` UPDATE listener to detect route-level driver changes, but events were never broadcast. Fixed with `ALTER PUBLICATION supabase_realtime ADD TABLE routes`.
+  - **File changed:** `driver-app/index.html` (realtime subscription in `subscribeToRouteStopUpdates`)
+  - **DB change:** `routes` added to `supabase_realtime` publication
 
 ### Mar 18, 2026 (session 33) — Schedule lock fix: routes stay open until window_end + 2hr buffer
 
