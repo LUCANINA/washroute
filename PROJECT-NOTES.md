@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 18, 2026 (session 34 — driver assignment fix: completed routes + historical schedule display)*
+*Last updated: Mar 18, 2026 (session 34 — driver app polish, sequential stop numbers, auto-fail buffer fix)*
 
 ---
 
@@ -546,7 +546,7 @@ There are actually **two separate hang points** that must both be covered:
 
 ---
 
-### Mar 18, 2026 (session 34) — Driver assignment fix + historical schedule display
+### Mar 18, 2026 (session 34) — Driver assignment fix, driver app polish, sequential stop numbers, auto-fail buffer fix
 
 - **Repo migration:** Project moved from Cowork sandbox to `~/Projects/WashRoute`. Standard git commands work normally. WashRoute skill updated to reflect new path.
 - **Bug fix — driver assignment not saving for completed routes (commit `f21cb9c`):**
@@ -559,16 +559,35 @@ There are actually **two separate hang points** that must both be covered:
   - **Problem:** For past days where no route record existed in the DB, the chip fell back to `route_driver_schedule` (current schedule). Changing today's driver to Marcus made all past Wednesdays without records also show Marcus.
   - **Fix:** Past days with no route record now show null/Unassigned instead of the current schedule. Only actual route records are shown as historical truth.
 - **File changed:** `admin-dashboard/index.html` (both `renderWeeklySchedule` and `renderDriverSchedule` makeChip functions + `assignDriverOverride` + `opCreateRouteAndSelect` + `opPrefetchRoutes`)
-- **Driver app — hide skipped/failed stops:**
+- **Driver app — hide skipped/failed stops (commit `88ad89d`):**
   - Skipped and failed stops are now filtered out of the driver's route view entirely. Driver only sees `pending`, `en_route`, and `complete` stops. Applied to main route stops, override (reassigned) stops, and upcoming stops.
   - Progress counts ("Done" / "Left") now count only `complete` — skipped no longer inflates progress.
+  - **Design principle:** "The driver should only see what is relevant to them at that given time. Any non-actionable item is unnecessary clutter."
   - **File changed:** `driver-app/index.html` (3 filter locations + 4 done-count locations)
-- **Driver app — realtime refresh on route reassignment:**
+- **Driver app — realtime refresh on route reassignment (commit `6de9a60`):**
   - **Problem:** When admin reassigned a route to a different driver, the original driver's app didn't update until manual refresh.
   - **Root cause 1:** The `route_stops` UPDATE handler required `isMyRoute()` to be true before reloading — but when a whole route was reassigned, it wasn't in the driver's `todayRoutes` yet. Fixed by reloading whenever `driver_id` matches the current driver, regardless of route ownership.
   - **Root cause 2:** The `routes` table was NOT in the `supabase_realtime` publication. Added a `routes` UPDATE listener to detect route-level driver changes, but events were never broadcast. Fixed with `ALTER PUBLICATION supabase_realtime ADD TABLE routes`.
   - **File changed:** `driver-app/index.html` (realtime subscription in `subscribeToRouteStopUpdates`)
   - **DB change:** `routes` added to `supabase_realtime` publication
+- **Driver app — time window on stop cards (commit `4b76d89`):**
+  - Stop cards now show the pickup or delivery time window (e.g. "7–9 AM") in the metadata line, using the `stopWindow()` helper + `fmtSlot()`.
+  - Completed stops also show the completion time.
+- **Sequential stop numbers — both admin RCC and driver app (commit `e0c5ed6`):**
+  - **Problem:** After skipping/filtering stops, the DB `stop_number` (e.g. #5) was displayed even when it was the only visible stop. Confusing for drivers.
+  - **Fix:** Both the admin RCC and driver app now assign `_displayNum` sequentially (1, 2, 3...) after filtering/sorting. The DB `stop_number` is still used for ordering — only the display number changes. Applied to all 4 rendering paths in the driver app and the RCC column renderer.
+  - **Design principle:** "Admin RCC and driver app are two views of the same truth — stop numbers must always match."
+- **DB migration — `auto_fail_expired_orders()` buffer fix (migrations `auto_fail_use_route_window_end` + `auto_fail_fix_timezone_in_route_window`):**
+  - **Problem:** The pg_cron auto-fail function used `order.pickup_window_end + 2 hours` as the cutoff. But the order's window is the **customer-facing slot** (e.g. 7–9 AM), which is narrower than the route's operational window (7–11 AM). Order #131 on Oakland AM (slot 7–9 AM) was auto-failed at 11 AM while the driver was still on the route.
+  - **Fix:** Function now joins through `route_stops → routes → route_templates` to get the route's `window_end`, uses `GREATEST(order slot end, route window end) + 2 hours`. Route template times correctly converted with `AT TIME ZONE 'America/Los_Angeles'` (DB runs in UTC, route times are stored as plain TIME in Pacific).
+  - **Result:** Oakland AM orders now auto-fail at 1 PM Pacific (route end 11 AM + 2hr buffer) instead of 11 AM. Driver app visibility already used `window_end + 2hr` — now the cron job matches.
+  - **Order #131 rescued:** Reset from `pickup_failed` back to `scheduled` / `pending`.
+  - **Delivery failures:** Same GREATEST logic applied to the delivery failure loop.
+- **Commits:** `f21cb9c`, `4edb133`, `88ad89d`, `6de9a60`, `4b76d89`, `15bca45`, `e0c5ed6`, `8918bfe` (docs), `c0b9e7d` (docs)
+- **Next session priorities:**
+  1. Test full order lifecycle end-to-end as driver (pickup → delivery)
+  2. Test CloudPRNT with physical printer
+  3. Route picker fine-tuning (backlog)
 
 ### Mar 18, 2026 (session 33) — Schedule lock fix: routes stay open until window_end + 2hr buffer
 
@@ -872,7 +891,7 @@ There are actually **two separate hang points** that must both be covered:
 
 - **Bug fix — New Order pickup date off by one day for evening slots (commit `ef58ceb`):** When admin picked e.g. 6–8pm on Mon Mar 16 (PT), `buildSlots()` stored the window as `2026-03-17T01:00Z` (UTC). Then `selectNoSlot()` was extracting the date via `startIso.split('T')[0]` → `'2026-03-17'`, so the pickup summary showed "Tue Mar 17" and `initDeliverySection()` was seeded with the wrong date (delivery landed one extra day late). Fix: `selectNoDay()` now passes the locally-selected `iso` as an explicit 5th argument to `selectNoSlot()`, which uses it directly for display and delivery calculation. UTC timestamps stored in DB are still correct — only the display and delivery seeding were affected.
 
-- **Pickup Failed (Auto) explained:** `auto_fail_expired_orders()` pg_cron function (every 30 min) marks `scheduled` orders as `pickup_failed` with `cancelled_by = 'system'` if the pickup window closed more than 2 hours ago. Badge shows "(Auto)" when `cancelled_by = 'system'`. Reschedule from Issues tab resets back to `scheduled`.
+- **Pickup Failed (Auto) explained:** `auto_fail_expired_orders()` pg_cron function (every 30 min) marks `scheduled` orders as `pickup_failed` with `cancelled_by = 'system'` if `GREATEST(order.pickup_window_end, route.window_end) + 2 hours` has passed (updated session 34 — previously only used order slot, now also considers route operational window). Badge shows "(Auto)" when `cancelled_by = 'system'`. Reschedule from Issues tab resets back to `scheduled`.
 
 - **Next session priorities:**
   1. Test CloudPRNT end-to-end with physical printer on-site (setup guide in `TSP654II-CloudPRNT-Setup.md`)
