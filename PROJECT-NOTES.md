@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 18, 2026 (session 33 — repo migrated to ~/Projects/WashRoute; standard git now works normally)*
+*Last updated: Mar 18, 2026 (session 34 — driver assignment fix: completed routes + historical schedule display)*
 
 ---
 
@@ -545,6 +545,20 @@ There are actually **two separate hang points** that must both be covered:
   3. Xero accounting sync (backlog)
 
 ---
+
+### Mar 18, 2026 (session 34) — Driver assignment fix + historical schedule display
+
+- **Repo migration:** Project moved from Cowork sandbox to `~/Projects/WashRoute`. Standard git commands work normally. WashRoute skill updated to reflect new path.
+- **Bug fix — driver assignment not saving for completed routes (commit `f21cb9c`):**
+  - **Problem:** In the Drivers > Schedule grid, clicking a driver on a route where all stops were done (but window still open) would update `route_driver_schedule` but NOT the live `routes.driver_id`. The chip reads from `routes.driver_id` for today, so it kept showing the old driver even though the underlying save ran.
+  - **Fix:** The early-return path in `assignDriverOverride()` now also updates `routes.driver_id` before re-rendering.
+- **Bug fix — new routes created without driver_id:**
+  - **Problem:** `opCreateRouteAndSelect()` was inserting route records with `driver_id = null` because it didn't consult `route_driver_schedule`.
+  - **Fix:** Added `_opDriverSched` cache (populated in `opPrefetchRoutes`). New routes now get the correct driver for the template + day_of_week on insert.
+- **Bug fix — past weeks reflecting current schedule changes:**
+  - **Problem:** For past days where no route record existed in the DB, the chip fell back to `route_driver_schedule` (current schedule). Changing today's driver to Marcus made all past Wednesdays without records also show Marcus.
+  - **Fix:** Past days with no route record now show null/Unassigned instead of the current schedule. Only actual route records are shown as historical truth.
+- **File changed:** `admin-dashboard/index.html` (both `renderWeeklySchedule` and `renderDriverSchedule` makeChip functions + `assignDriverOverride` + `opCreateRouteAndSelect` + `opPrefetchRoutes`)
 
 ### Mar 18, 2026 (session 33) — Schedule lock fix: routes stay open until window_end + 2hr buffer
 
