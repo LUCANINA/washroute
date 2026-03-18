@@ -594,6 +594,45 @@
     .msg-empty-icon { width: 48px; height: 48px; margin: 0 auto 14px; color: var(--border); }
     .msg-empty-icon svg { width: 100%; height: 100%; }
 
+    /* Conversation list */
+    .msg-conv-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .msg-conv-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 18px; border-bottom: 1px solid var(--border);
+      cursor: pointer; transition: background .1s;
+    }
+    .msg-conv-item:active { background: var(--bg); }
+    .msg-conv-avatar {
+      width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 800; color: var(--white);
+    }
+    .msg-conv-info { flex: 1; min-width: 0; }
+    .msg-conv-name { font-size: 15px; font-weight: 700; color: var(--dark); }
+    .msg-conv-preview {
+      font-size: 13px; color: var(--muted); margin-top: 2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .msg-conv-meta { flex-shrink: 0; text-align: right; }
+    .msg-conv-time { font-size: 11px; color: var(--muted); }
+    .msg-conv-badge {
+      background: var(--danger); color: var(--white); font-size: 11px; font-weight: 800;
+      border-radius: 10px; padding: 1px 7px; margin-top: 4px; display: inline-block;
+    }
+    .msg-conv-label {
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.3px;
+      padding: 10px 18px 4px; background: var(--bg);
+    }
+    /* Thread back button */
+    .msg-back {
+      background: none; border: none; color: rgba(255,255,255,0.8);
+      font-size: 14px; font-weight: 600; cursor: pointer; padding: 0;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .msg-back:active { opacity: 0.6; }
+    .avatar-customer { background: #059669; }
+
     .msg-compose {
       padding: 10px 14px;
       padding-bottom: calc(var(--nav-h) + 10px + env(safe-area-inset-bottom));
@@ -912,19 +951,31 @@
 </div>
 
 <!-- ════════════════════════════
-     MESSAGES
+     MESSAGES — Conversation list
 ════════════════════════════ -->
 <div class="screen" id="screen-messages">
   <div class="msg-hdr">
     <div class="msg-hdr-title">Messages</div>
-    <div class="msg-hdr-sub">Chat with the WashRoute team</div>
+    <div class="msg-hdr-sub">Team &amp; customers</div>
+  </div>
+  <div class="msg-conv-list" id="msg-conv-list"></div>
+</div>
+
+<!-- ════════════════════════════
+     MESSAGES — Thread view
+════════════════════════════ -->
+<div class="screen" id="screen-msg-thread" style="display:flex;flex-direction:column;">
+  <div class="msg-hdr">
+    <button class="msg-back" onclick="closeMessageThread()">‹ Back</button>
+    <div class="msg-hdr-title" id="msg-thread-title"></div>
+    <div class="msg-hdr-sub" id="msg-thread-sub"></div>
   </div>
   <div class="msg-thread" id="msg-thread"></div>
   <div class="msg-compose">
-    <textarea class="msg-input" id="msg-input" placeholder="Reply to the team…" rows="1"
-      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendDriverReply();}"
+    <textarea class="msg-input" id="msg-input" placeholder="Type a message…" rows="1"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessageInThread();}"
       oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'"></textarea>
-    <button class="btn-msg-send" id="btn-msg-send" onclick="sendDriverReply()">↑</button>
+    <button class="btn-msg-send" id="btn-msg-send" onclick="sendMessageInThread()">↑</button>
   </div>
 </div>
 
@@ -1133,6 +1184,10 @@ function toast(msg, dur = 2600) {
 
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  // Also hide the message thread overlay when navigating away
+  const threadScreen = document.getElementById('screen-msg-thread');
+  if (threadScreen) { threadScreen.classList.remove('active'); threadScreen.style.display = 'none'; }
+  if (typeof _msgActiveThread !== 'undefined') _msgActiveThread = null;
   document.getElementById('screen-' + id)?.classList.add('active');
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   const nb = document.getElementById('nav-' + id);
@@ -1144,7 +1199,7 @@ function goTo(id) {
   if (id === 'home')     renderHome();
   if (id === 'route')    renderRoute();
   if (id === 'profile')  renderProfile();
-  if (id === 'messages') { renderMessages(); markMessagesRead(); }
+  if (id === 'messages') { renderConversationList(); }
 }
 
 // Navigate to Route tab filtered to a specific route (or 'extra' for reassigned stops).
@@ -1397,7 +1452,7 @@ async function doSignOut() {
   appReady = false;
   currentUser = currentProfile = currentDriver = null;
   todayRoutes = []; allStops = []; pendingOrders = []; upcomingRoutes = []; activeRouteFilter = null;
-  allMessages = []; unreadCount = 0;
+  allAdminMessages = []; allCustomerSms = []; unreadCount = 0; _msgActiveThread = null; _msgCustomerMap = {};
   document.getElementById('bottom-nav').style.display = 'none';
   showScreen('auth');
   // Reset auth form
@@ -1613,6 +1668,9 @@ async function loadDriverData() {
 
   // Persist to localStorage so next app open is instant
   saveDriverCache(currentUser.id, currentProfile, currentDriver, todayRoutes, allStops);
+
+  // Load customer SMS now that we have stop/customer data
+  loadCustomerSms().catch(console.error);
   } finally {
     _dataLoading = false;
   }
@@ -2053,7 +2111,7 @@ function renderStopDetail(stop) {
   // ── Customer info (always visible) ──
   h += `<div class="dsection">
     <div class="drow">${icon('pin')}<div class="dtext">${fmtAddr(addr)}</div></div>
-    ${hasPhone ? `<div class="drow">${icon('phone')}<div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a>${!isDone && !isSkip && !isFailed ? `<button class="btn-sms-customer" onclick="quickTextCustomer('${stop.id}')">Text</button>` : ''}</div></div>` : ''}
+    ${hasPhone ? `<div class="drow">${icon('phone')}<div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a>${!isDone && !isSkip && !isFailed && stop.orders?.customer_id ? `<button class="btn-sms-customer" onclick="openCustomerThread('${stop.orders.customer_id}')">Text</button>` : ''}</div></div>` : ''}
     ${addr?.delivery_instructions ? `<div class="drow">${icon('lock')}<div><div class="dtext" style="font-size:13px;color:var(--muted)">${addr.delivery_instructions}</div></div></div>` : ''}
   </div>`;
 
@@ -2275,46 +2333,6 @@ async function sendOnMyWay(stopId) {
     if (btn) { btn.disabled = false; btn.textContent = 'Notify Customer'; }
   } finally {
     _onMyWaySending = false;
-  }
-}
-
-/* ──────────────────────────────
-   QUICK TEXT CUSTOMER (via company Twilio number)
-────────────────────────────── */
-async function quickTextCustomer(stopId) {
-  const stop = allStops.find(s => s.id === stopId);
-  if (!stop) return;
-  const cust = stop.orders?.customers;
-  const phone = cust?.phone_cache;
-  if (!phone) { toast('No phone number on file'); return; }
-
-  const driverName = currentProfile?.first_name || 'Your driver';
-  const custFirst = cust?.first_name_cache || 'there';
-  const isPickup = stop.stop_type === 'pickup';
-  const msg = isPickup
-    ? `Hi ${custFirst}! ${driverName} from Family Laundry is heading to your area for pickup. Please have your bags ready!`
-    : `Hi ${custFirst}! ${driverName} from Family Laundry is on the way with your clean laundry.`;
-
-  // Disable button while sending
-  const btn = event?.target?.closest('.btn-sms-customer');
-  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-
-  try {
-    const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPA_KEY}`,
-      },
-      body: JSON.stringify({ to: phone, body: msg, customer_id: cust.id }),
-    });
-    if (!res.ok) throw new Error(`Server error ${res.status}`);
-    toast('Text sent from Family Laundry ✓');
-    if (btn) { btn.textContent = 'Sent ✓'; }
-  } catch (e) {
-    console.error('quickTextCustomer error:', e);
-    toast('Could not send text — try again');
-    if (btn) { btn.disabled = false; btn.textContent = 'Text'; }
   }
 }
 
@@ -2776,7 +2794,9 @@ function renderProfile() {
 /* ──────────────────────────────
    MESSAGING
 ────────────────────────────── */
-let allMessages = [], msgSubscription = null, unreadCount = 0;
+let allAdminMessages = [], allCustomerSms = [], msgSubscription = null, smsMsgSubscription = null, unreadCount = 0;
+let _msgActiveThread = null; // null = conversation list, 'admin' = admin thread, customer_id = customer thread
+let _msgCustomerMap = {};    // customer_id → { name, phone, stopType }
 
 async function loadDriverMessages() {
   if (!currentDriver) return;
@@ -2784,60 +2804,237 @@ async function loadDriverMessages() {
     .select('*')
     .eq('driver_id', currentDriver.id)
     .order('created_at', { ascending: true });
-  allMessages = data || [];
+  allAdminMessages = data || [];
   updateMsgBadge();
 }
 
+async function loadCustomerSms() {
+  if (!currentDriver) return;
+  // RLS policy ensures we only get SMS for customers on today's routes
+  const { data } = await db.from('sms_messages')
+    .select('*')
+    .order('created_at', { ascending: true });
+  allCustomerSms = data || [];
+
+  // Build customer map from today's stops for display names
+  _msgCustomerMap = {};
+  const allActiveStops = [...(todayRoutes.flatMap(r => allStops.filter(s => s.route_id === r.id)))];
+  allActiveStops.forEach(s => {
+    const cust = s.orders?.customers;
+    const custId = s.orders?.customer_id;
+    if (custId && cust && !_msgCustomerMap[custId]) {
+      _msgCustomerMap[custId] = {
+        name: `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() || 'Customer',
+        phone: cust.phone_cache,
+        stopType: s.stop_type,
+      };
+    }
+  });
+}
+
 function updateMsgBadge() {
-  unreadCount = allMessages.filter(m => m.sender_type === 'admin' && !m.read_at).length;
+  const adminUnread = allAdminMessages.filter(m => m.sender_type === 'admin' && !m.read_at).length;
+  // Customer SMS: count inbound messages from today that aren't from the driver
+  const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+  const custUnread = allCustomerSms.filter(m =>
+    m.direction === 'inbound' && new Date(m.created_at) >= todayStart && !m._driverRead
+  ).length;
+  unreadCount = adminUnread + custUnread;
   const badge = document.getElementById('msg-nav-badge');
   if (!badge) return;
   badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
   badge.style.display = unreadCount > 0 ? 'flex' : 'none';
 }
 
-async function markMessagesRead() {
-  const unread = allMessages.filter(m => m.sender_type === 'admin' && !m.read_at);
+async function markAdminMessagesRead() {
+  const unread = allAdminMessages.filter(m => m.sender_type === 'admin' && !m.read_at);
   if (!unread.length) return;
   const ids = unread.map(m => m.id);
   const now = new Date().toISOString();
   await db.from('driver_messages').update({ read_at: now }).in('id', ids);
-  allMessages.forEach(m => { if (ids.includes(m.id)) m.read_at = now; });
+  allAdminMessages.forEach(m => { if (ids.includes(m.id)) m.read_at = now; });
   updateMsgBadge();
 }
 
-function renderMessages() {
+// ── Conversation list (main Messages tab) ──
+function renderConversationList() {
+  const el = document.getElementById('msg-conv-list');
+  if (!el) return;
+
+  let h = '';
+
+  // Admin thread (always shown)
+  const lastAdmin = allAdminMessages.length ? allAdminMessages[allAdminMessages.length - 1] : null;
+  const adminUnread = allAdminMessages.filter(m => m.sender_type === 'admin' && !m.read_at).length;
+  h += `<div class="msg-conv-label">Team</div>`;
+  h += `<div class="msg-conv-item" onclick="openMessageThread('admin')">
+    <div class="msg-conv-avatar avatar-admin">FL</div>
+    <div class="msg-conv-info">
+      <div class="msg-conv-name">Family Laundry</div>
+      <div class="msg-conv-preview">${lastAdmin ? lastAdmin.body.substring(0, 50) : 'Send a message to the team'}</div>
+    </div>
+    <div class="msg-conv-meta">
+      ${lastAdmin ? `<div class="msg-conv-time">${fmtMsgTime(lastAdmin.created_at)}</div>` : ''}
+      ${adminUnread > 0 ? `<div class="msg-conv-badge">${adminUnread}</div>` : ''}
+    </div>
+  </div>`;
+
+  // Customer threads — group SMS by customer_id, only show customers with messages
+  const custGroups = {};
+  allCustomerSms.forEach(m => {
+    if (!m.customer_id) return;
+    if (!custGroups[m.customer_id]) custGroups[m.customer_id] = [];
+    custGroups[m.customer_id].push(m);
+  });
+
+  // Also add customers from today's stops who have NO messages yet (so driver can initiate)
+  Object.keys(_msgCustomerMap).forEach(cid => {
+    if (!custGroups[cid]) custGroups[cid] = [];
+  });
+
+  const custEntries = Object.entries(custGroups)
+    .filter(([cid]) => _msgCustomerMap[cid]) // only show customers on today's routes
+    .sort((a, b) => {
+      const aLast = a[1].length ? new Date(a[1][a[1].length-1].created_at) : new Date(0);
+      const bLast = b[1].length ? new Date(b[1][b[1].length-1].created_at) : new Date(0);
+      return bLast - aLast;
+    });
+
+  if (custEntries.length > 0) {
+    h += `<div class="msg-conv-label">Customers</div>`;
+    custEntries.forEach(([custId, msgs]) => {
+      const info = _msgCustomerMap[custId] || { name: 'Customer' };
+      const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
+      const initials = info.name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2);
+      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      const newInbound = msgs.filter(m => m.direction === 'inbound' && new Date(m.created_at) >= todayStart && !m._driverRead).length;
+      const typeBadge = info.stopType === 'pickup'
+        ? '<span style="color:#3b82f6;font-size:10px;font-weight:700;margin-left:6px">P</span>'
+        : info.stopType === 'delivery'
+        ? '<span style="color:#10b981;font-size:10px;font-weight:700;margin-left:6px">D</span>'
+        : '';
+
+      h += `<div class="msg-conv-item" onclick="openMessageThread('${custId}')">
+        <div class="msg-conv-avatar avatar-customer">${initials}</div>
+        <div class="msg-conv-info">
+          <div class="msg-conv-name">${info.name}${typeBadge}</div>
+          <div class="msg-conv-preview">${lastMsg ? (lastMsg.direction === 'outbound' ? 'You: ' : '') + lastMsg.body.substring(0, 45) : 'Tap to send a message'}</div>
+        </div>
+        <div class="msg-conv-meta">
+          ${lastMsg ? `<div class="msg-conv-time">${fmtMsgTime(lastMsg.created_at)}</div>` : ''}
+          ${newInbound > 0 ? `<div class="msg-conv-badge">${newInbound}</div>` : ''}
+        </div>
+      </div>`;
+    });
+  }
+
+  if (!allAdminMessages.length && !custEntries.length) {
+    h += `<div class="msg-empty">
+      <div class="msg-empty-icon">${ICONS.msg}</div>
+      <div style="font-size:18px;font-weight:800;margin-bottom:8px">No Messages Yet</div>
+      <div style="font-size:14px;color:var(--muted);line-height:1.6">Messages with the team and customers will appear here.</div>
+    </div>`;
+  }
+
+  el.innerHTML = h;
+}
+
+function fmtMsgTime(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  return isToday
+    ? d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' })
+    : d.toLocaleString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// ── Open a thread ──
+function openMessageThread(threadId) {
+  _msgActiveThread = threadId;
+
+  // Show thread screen, hide conversation list
+  document.getElementById('screen-messages').classList.remove('active');
+  const threadScreen = document.getElementById('screen-msg-thread');
+  threadScreen.style.display = 'flex';
+  threadScreen.classList.add('active');
+
+  if (threadId === 'admin') {
+    document.getElementById('msg-thread-title').textContent = 'Family Laundry';
+    document.getElementById('msg-thread-sub').textContent = 'Team chat';
+    document.getElementById('msg-input').placeholder = 'Reply to the team…';
+    markAdminMessagesRead();
+  } else {
+    const info = _msgCustomerMap[threadId] || { name: 'Customer' };
+    document.getElementById('msg-thread-title').textContent = info.name;
+    document.getElementById('msg-thread-sub').textContent = info.stopType === 'pickup' ? 'Pickup customer' : info.stopType === 'delivery' ? 'Delivery customer' : 'Customer';
+    document.getElementById('msg-input').placeholder = `Message ${info.name.split(' ')[0]}…`;
+    // Mark customer inbound as read for this driver
+    allCustomerSms.forEach(m => { if (m.customer_id === threadId && m.direction === 'inbound') m._driverRead = true; });
+    updateMsgBadge();
+  }
+
+  renderThreadMessages();
+  const input = document.getElementById('msg-input');
+  if (input) input.value = '';
+}
+
+function closeMessageThread() {
+  _msgActiveThread = null;
+  document.getElementById('screen-msg-thread').classList.remove('active');
+  document.getElementById('screen-msg-thread').style.display = 'none';
+  showScreen('messages');
+  renderConversationList();
+}
+
+// Open a customer thread from the stop detail "Text" button
+function openCustomerThread(customerId) {
+  goTo('messages');
+  setTimeout(() => openMessageThread(customerId), 50);
+}
+
+// ── Render messages inside a thread ──
+function renderThreadMessages() {
   const thread = document.getElementById('msg-thread');
   if (!thread) return;
 
-  if (!allMessages.length) {
+  let messages = [];
+  if (_msgActiveThread === 'admin') {
+    messages = allAdminMessages;
+  } else {
+    messages = allCustomerSms.filter(m => m.customer_id === _msgActiveThread);
+  }
+
+  if (!messages.length) {
+    const placeholder = _msgActiveThread === 'admin'
+      ? 'Send a message to the team below.'
+      : 'Send a message — it will be delivered from the Family Laundry number.';
     thread.innerHTML = `<div class="msg-empty">
       <div class="msg-empty-icon">${ICONS.msg}</div>
-      <div style="font-size:18px;font-weight:800;margin-bottom:8px">No Messages Yet</div>
-      <div style="font-size:14px;color:var(--muted);line-height:1.6">Need help or have a question? Send a message below and the team will respond.</div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:8px">No messages yet</div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.5">${placeholder}</div>
     </div>`;
     return;
   }
 
   let h = '';
-  let shownUnreadDivider = false;
+  messages.forEach(m => {
+    let isFromMe, avatarClass, avatarText, senderName;
 
-  allMessages.forEach(m => {
-    const isDriver = m.sender_type === 'driver';
-    const isUnread = !isDriver && !m.read_at;
-
-    // Show "New Messages" divider before first unread
-    if (isUnread && !shownUnreadDivider) {
-      h += `<div class="msg-unread-indicator">New Messages</div>`;
-      shownUnreadDivider = true;
+    if (_msgActiveThread === 'admin') {
+      isFromMe = m.sender_type === 'driver';
+      avatarClass = isFromMe ? 'avatar-driver' : 'avatar-admin';
+      avatarText = isFromMe ? (currentProfile?.first_name?.[0] || 'D').toUpperCase() : 'FL';
+      senderName = isFromMe ? 'You' : 'Family Laundry';
+    } else {
+      isFromMe = m.direction === 'outbound';
+      avatarClass = isFromMe ? 'avatar-admin' : 'avatar-customer';
+      const custInfo = _msgCustomerMap[_msgActiveThread] || { name: 'Customer' };
+      avatarText = isFromMe ? 'FL' : custInfo.name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2);
+      senderName = isFromMe ? 'Family Laundry' : custInfo.name.split(' ')[0];
     }
 
-    const wrapClass   = isDriver ? 'from-driver' : 'from-admin';
-    const avatarClass = isDriver ? 'avatar-driver' : 'avatar-admin';
-    const avatarText  = isDriver
-      ? (currentProfile?.first_name?.[0] || 'D').toUpperCase()
-      : 'CS';
-    const senderName  = isDriver ? 'You' : 'WashRoute Team';
+    const wrapClass = isFromMe ? 'from-driver' : 'from-admin';
+    const isUnread = _msgActiveThread === 'admin' && !isFromMe && !m.read_at;
     const d = new Date(m.created_at);
     const timeStr = d.toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
 
@@ -2854,65 +3051,123 @@ function renderMessages() {
   });
 
   thread.innerHTML = h;
-  // Scroll to bottom after render
   setTimeout(() => { thread.scrollTop = thread.scrollHeight; }, 50);
 }
 
-async function sendDriverReply() {
+// ── Send message (works for both admin and customer threads) ──
+async function sendMessageInThread() {
   const input = document.getElementById('msg-input');
   const btn   = document.getElementById('btn-msg-send');
   const body  = input?.value.trim();
   if (!body || !currentDriver) return;
 
-  btn.disabled   = true;
+  btn.disabled = true;
   input.disabled = true;
 
-  const { data, error } = await db.from('driver_messages').insert({
-    driver_id:   currentDriver.id,
-    sender_type: 'driver',
-    body,
-  }).select().single();
+  try {
+    if (_msgActiveThread === 'admin') {
+      // Send to admin via driver_messages
+      const { data, error } = await db.from('driver_messages').insert({
+        driver_id: currentDriver.id,
+        sender_type: 'driver',
+        body,
+      }).select().single();
+      if (error) throw error;
+      allAdminMessages.push(data);
+    } else {
+      // Send to customer via Twilio (company number)
+      const custInfo = _msgCustomerMap[_msgActiveThread];
+      if (!custInfo?.phone) { toast('No phone number on file'); return; }
 
-  if (error) {
+      const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPA_KEY}`,
+        },
+        body: JSON.stringify({
+          to: custInfo.phone,
+          body: body,
+          customer_id: _msgActiveThread,
+          sent_by_driver_id: currentDriver.id,
+        }),
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      // Add to local cache (the realtime subscription will also catch this)
+      const fakeSms = {
+        id: crypto.randomUUID(),
+        customer_id: _msgActiveThread,
+        direction: 'outbound',
+        body: body,
+        from_number: '',
+        to_number: custInfo.phone,
+        created_at: new Date().toISOString(),
+        sent_by_driver_id: currentDriver.id,
+      };
+      allCustomerSms.push(fakeSms);
+    }
+
+    input.value = '';
+    input.style.height = 'auto';
+    renderThreadMessages();
+    input.focus();
+  } catch (e) {
+    console.error('sendMessageInThread error:', e);
     toast('Could not send — check your connection');
-    btn.disabled = false; input.disabled = false;
-    return;
+  } finally {
+    btn.disabled = false;
+    input.disabled = false;
   }
-
-  allMessages.push(data);
-  input.value = '';
-  input.style.height = 'auto';
-  btn.disabled   = false;
-  input.disabled = false;
-  renderMessages();
-  input.focus();
 }
 
+// ── Realtime subscriptions ──
 function subscribeToDriverMessages() {
   if (!currentDriver || msgSubscription) return;
-  // No server-side filter — filter client-side for reliability with UUIDs
   msgSubscription = db.channel('driver-msgs-all')
     .on('postgres_changes', {
       event: 'INSERT', schema: 'public', table: 'driver_messages'
     }, payload => {
-      // Only care about messages for this driver
       if (payload.new.driver_id !== currentDriver.id) return;
-      if (allMessages.find(m => m.id === payload.new.id)) return;
-      allMessages.push(payload.new);
-      if (document.getElementById('screen-messages')?.classList.contains('active')) {
-        renderMessages();
-        markMessagesRead();
-      } else if (payload.new.sender_type === 'admin') {
+      if (allAdminMessages.find(m => m.id === payload.new.id)) return;
+      allAdminMessages.push(payload.new);
+      if (_msgActiveThread === 'admin') {
+        renderThreadMessages();
+        markAdminMessagesRead();
+      } else if (document.getElementById('screen-messages')?.classList.contains('active')) {
+        renderConversationList();
+      }
+      if (payload.new.sender_type === 'admin') {
         updateMsgBadge();
-        toast('New message from the team', 3500);
+        if (_msgActiveThread !== 'admin') toast('New message from the team', 3500);
+      }
+    })
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'sms_messages'
+    }, payload => {
+      const msg = payload.new;
+      // Only care about inbound messages for customers on our routes
+      if (msg.direction !== 'inbound') return;
+      if (!msg.customer_id || !_msgCustomerMap[msg.customer_id]) return;
+      if (allCustomerSms.find(m => m.id === msg.id)) return;
+      allCustomerSms.push(msg);
+      const custName = _msgCustomerMap[msg.customer_id]?.name?.split(' ')[0] || 'Customer';
+      if (_msgActiveThread === msg.customer_id) {
+        msg._driverRead = true;
+        renderThreadMessages();
+      } else if (document.getElementById('screen-messages')?.classList.contains('active')) {
+        renderConversationList();
+      }
+      updateMsgBadge();
+      if (_msgActiveThread !== msg.customer_id) {
+        toast(`New message from ${custName}`, 3500);
       }
     })
     .subscribe(status => {
-      console.log('Driver messages channel:', status);
-      // Reload messages after reconnection to catch anything we missed
-      if (status === 'SUBSCRIBED' && allMessages.length > 0) {
+      console.log('Messages channel:', status);
+      if (status === 'SUBSCRIBED' && allAdminMessages.length > 0) {
         loadDriverMessages().then(() => {
-          if (document.getElementById('screen-messages')?.classList.contains('active')) renderMessages();
+          if (_msgActiveThread === 'admin') renderThreadMessages();
+          else if (document.getElementById('screen-messages')?.classList.contains('active')) renderConversationList();
           updateMsgBadge();
         }).catch(console.error);
       }
