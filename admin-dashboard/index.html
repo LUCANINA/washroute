@@ -5213,6 +5213,7 @@
   let _opPreSameDayDeliveryEnd     = null;   // saved delivery_window_end before same-day shift
   let _opRoutes        = [];   // upcoming route runs cache
   let _opTemplates     = [];   // route_templates cache
+  let _opDriverSched   = {};   // route_driver_schedule: `${template_id}-${day_of_week}` → driver_id
 
   function openOrderPanel(orderId) {
     const o = allOrders.find(x => x.id === orderId);
@@ -5508,12 +5509,15 @@
 
   async function opPrefetchRoutes() {
     if (_opRoutes.length && _opTemplates.length) return;
-    const [rRes, tRes] = await Promise.all([
+    const [rRes, tRes, dsRes] = await Promise.all([
       db.from('routes').select('id, name, run_date, status').neq('status','cancelled').gte('run_date', today()).order('run_date').limit(40),
-      db.from('route_templates').select('id, name, color, schedule_days, window_start, window_end, arrival_window_hours, zone_id, service_zones(name, cities)').eq('is_active', true)
+      db.from('route_templates').select('id, name, color, schedule_days, window_start, window_end, arrival_window_hours, zone_id, service_zones(name, cities)').eq('is_active', true),
+      db.from('route_driver_schedule').select('template_id, day_of_week, driver_id')
     ]);
     _opRoutes    = rRes.data  || [];
     _opTemplates = tRes.data  || [];
+    _opDriverSched = {};
+    (dsRes.data || []).forEach(r => { _opDriverSched[`${r.template_id}-${r.day_of_week}`] = r.driver_id; });
   }
 
   function opSwitchTab(tab, btn) {
@@ -5883,8 +5887,11 @@
     rowEl.style.opacity = '0.5';
     rowEl.style.pointerEvents = 'none';
     const tmpl = _opTemplates.find(t => t.id === templateId) || {};
+    const routeDate = new Date(dateStr + 'T12:00:00');
+    const routeDow  = (routeDate.getDay() + 6) % 7; // 0=Mon..6=Sun
+    const schedDriverId = _opDriverSched[`${templateId}-${routeDow}`] || null;
     const { data: newRoute, error } = await db.from('routes')
-      .insert({ name: templateName, date: dateStr, run_date: dateStr, status: 'scheduled', template_id: templateId, color: tmpl.color || '#635bff' })
+      .insert({ name: templateName, date: dateStr, run_date: dateStr, status: 'scheduled', template_id: templateId, color: tmpl.color || '#635bff', driver_id: schedDriverId })
       .select('id, name, run_date, status')
       .single();
     rowEl.style.opacity = '';
@@ -12543,8 +12550,14 @@ ${totalLinesXml}
       const todayDow  = (new Date().getDay() + 6) % 7; // 0=Mon..6=Sun
       if (Number(day) === todayDow) {
         const routeStatus = popoverCtx.routeStatus; // set by openDriverPopover for today's column
-        // If route is fully complete, skip stop propagation
+        // If route is fully complete, skip stop propagation but still update the route record's driver
         if (routeStatus && routeStatus.done === routeStatus.total && routeStatus.total > 0) {
+          const { data: existing } = await db.from('routes')
+            .select('id').eq('template_id', templateId).eq('run_date', todayDate);
+          if (existing?.length) {
+            await db.from('routes').update({ driver_id: newDriverId || null })
+              .in('id', existing.map(r => r.id));
+          }
           showToast('Schedule updated. Route is already complete — no stops to reassign.', '');
           const driversView = document.getElementById('drv-panel-schedule');
           if (driversView && driversView.style.display !== 'none') {
