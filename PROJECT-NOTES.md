@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 18, 2026 (session 34 — driver app polish, sequential stop numbers, auto-fail buffer fix)*
+*Last updated: Mar 18, 2026 (session 34 — unified messaging, auto-fail buffer fix, sequential stop numbers)*
 
 ---
 
@@ -546,7 +546,25 @@ There are actually **two separate hang points** that must both be covered:
 
 ---
 
-### Mar 18, 2026 (session 34) — Driver assignment fix, driver app polish, sequential stop numbers, auto-fail buffer fix
+### Mar 18, 2026 (session 34) — Driver assignment fix, driver app polish, sequential stop numbers, auto-fail buffer fix, unified messaging
+
+**Late-session additions (unified messaging + map pins):**
+
+- **Driver app — unified messaging system (Team + Customer threads):**
+  - **Messages tab rewritten** from a flat admin-only chat into a conversation list. Two sections: "Team" (admin ↔ driver via `driver_messages`) and "Customers" (driver ↔ customer via Twilio SMS).
+  - **Customer threads**: driver types a message → sent via `send-sms` edge function → Twilio delivers from Family Laundry's number (+15105884102). Customer replies arrive via Twilio webhook → stored in `sms_messages` → surfaced to driver via realtime. Customer never sees the driver's personal phone number.
+  - **"Text" button** on stop detail now opens the customer's conversation thread instead of the native SMS app.
+  - **Realtime**: subscribed to both `driver_messages` INSERT and `sms_messages` INSERT. Unread badges on both conversation list and nav tab.
+  - **RLS policy** `driver_read_customer_sms`: drivers can only read SMS for customers on their today's routes. Uses `current_driver_id()` helper.
+  - **DB migration** `sms_messages_driver_access`: added `sent_by_driver_id UUID` (FK → drivers, ON DELETE SET NULL) + RLS policy.
+  - **Edge function** `send-sms` v16: now accepts and stores `sent_by_driver_id`.
+  - **Design principle**: "Drivers never text from their personal phone. All customer communication flows through the business number."
+- **Admin RCC — map pins use sequential stop numbers:** Pin labels now read `_displayNum` (1, 2, 3...) instead of raw DB `stop_number`. Consistent with the card numbers in the column view.
+- **Driver app — stop detail header** shows sequential number ("STOP 1") instead of DB stop_number ("STOP 5").
+
+---
+
+**Earlier in session 34:**
 
 - **Repo migration:** Project moved from Cowork sandbox to `~/Projects/WashRoute`. Standard git commands work normally. WashRoute skill updated to reflect new path.
 - **Bug fix — driver assignment not saving for completed routes (commit `f21cb9c`):**
