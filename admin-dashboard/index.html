@@ -12894,6 +12894,7 @@ ${totalLinesXml}
       const arrWinHrs = tpl?.arrival_window_hours || 0;
 
       let cardsHtml = '';
+      let _displayIdx = 0;
       const getUtcMins = s => {
         // Use delivery_window_start for delivery stops — their pickup_window_start
         // may be from a different route/time (e.g. morning AM pickup → evening PM delivery)
@@ -12944,11 +12945,11 @@ ${totalLinesXml}
           if (!grp.length) return;
           cardsHtml += `<div class="rcc-window-divider${firstDiv ? ' rcc-first-div' : ''}">${bucketLabel[bucket]}</div>`;
           firstDiv = false;
-          grp.forEach(s => { cardsHtml += rccBuildCard(s, routeId, color); });
+          grp.forEach(s => { s._displayNum = ++_displayIdx; cardsHtml += rccBuildCard(s, routeId, color); });
         });
-        noWindow.forEach(s => { cardsHtml += rccBuildCard(s, routeId, color); });
+        noWindow.forEach(s => { s._displayNum = ++_displayIdx; cardsHtml += rccBuildCard(s, routeId, color); });
       } else {
-        stops.forEach(s => { cardsHtml += rccBuildCard(s, routeId, color); });
+        stops.forEach(s => { s._displayNum = ++_displayIdx; cardsHtml += rccBuildCard(s, routeId, color); });
       }
 
       html += `<div class="rcc-col" data-route-id="${routeId}"
@@ -13021,7 +13022,7 @@ ${totalLinesXml}
       ondragstart="rccDragStart(event,'${s.id}','${routeId}')"
       onclick="${flyClick}"
       ${hoverIn} ${hoverOut}>
-      <div class="rcc-stop-num" style="background:${color};">${s.stop_number||'?'}</div>
+      <div class="rcc-stop-num" style="background:${color};">${s._displayNum||s.stop_number||'?'}</div>
       <div class="rcc-card-name">${name}${statusMark}</div>
       <div class="rcc-card-addr">${addr}</div>
       <div class="rcc-card-foot">
