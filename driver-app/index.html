@@ -1561,15 +1561,19 @@ async function loadDriverData() {
       .order('stop_number', { ascending: true });
     overrideStops = (otherStops || []).filter(s =>
       s.orders && !['delivered','cancelled'].includes(s.orders.status)
+      && !['skipped','failed'].includes(s.status)
     );
   }
 
   // Merge — mark override stops so they appear in the "Extra Stops" card
   const tagged = overrideStops.map(s => ({ ...s, _reassigned: true }));
 
-  // Also filter out delivered/cancelled from route stops
+  // Filter out stops that aren't actionable for the driver:
+  // - Order delivered/cancelled = nothing to do
+  // - Stop skipped/failed = admin already handled it
   routeStops = routeStops.filter(s =>
     s.orders && !['delivered','cancelled'].includes(s.orders.status)
+    && !['skipped','failed'].includes(s.status)
   );
   allStops = [...routeStops, ...tagged];
 
@@ -1583,7 +1587,8 @@ async function loadDriverData() {
       .or(`driver_id.eq.${currentDriver.id},driver_id.is.null`)
       .order('stop_number', { ascending: true });
     const taggedUpcoming = (uStops || [])
-      .filter(s => s.orders && !['delivered','cancelled'].includes(s.orders.status))
+      .filter(s => s.orders && !['delivered','cancelled'].includes(s.orders.status)
+        && !['skipped','failed'].includes(s.status))
       .map(s => ({ ...s, _upcoming: true }));
     allStops = [...allStops, ...taggedUpcoming];
   }
@@ -1627,7 +1632,7 @@ function renderHome() {
   const dateStr = new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
   // Exclude upcoming (later-today) stops from the progress counts on the home screen
   const currentStops = allStops.filter(s => !s._upcoming);
-  const doneAll  = currentStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+  const doneAll  = currentStops.filter(s => s.status === 'complete').length;
   const totalAll = currentStops.length;
   const multiRoute = todayRoutes.length > 1;
 
@@ -1653,7 +1658,7 @@ function renderHome() {
     if (todayRoutes.length > 1) {
       todayRoutes.forEach(route => {
         const rStops = allStops.filter(s => s.route_id === route.id && !s._upcoming);
-        const rDone  = rStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+        const rDone  = rStops.filter(s => s.status === 'complete').length;
         const rTotal = rStops.length;
         const rPct   = rTotal > 0 ? Math.round((rDone / rTotal) * 100) : 0;
         const statusLabel = route.status === 'in_progress' ? 'In Progress'
@@ -1683,7 +1688,7 @@ function renderHome() {
     // Extra Stops card — always shown when reassigned stops exist (regardless of primary route count)
     const extraStops = allStops.filter(s => s._reassigned);
     if (extraStops.length > 0) {
-      const eDone  = extraStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+      const eDone  = extraStops.filter(s => s.status === 'complete').length;
       const eTotal = extraStops.length;
       const ePct   = eTotal > 0 ? Math.round((eDone / eTotal) * 100) : 0;
       h += routeCard('Extra Stops', 'Reassigned', eTotal, eDone, ePct, `setRouteFilter('extra')`,
@@ -1777,7 +1782,7 @@ function renderRoute() {
     viewTitle    = todayRoutes.length > 1 ? "Today's Routes" : (todayRoutes[0]?.name || "Today's Route");
   }
 
-  const done  = visibleStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+  const done  = visibleStops.filter(s => s.status === 'complete').length;
   const total = visibleStops.length;
   const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
 
