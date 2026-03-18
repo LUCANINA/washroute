@@ -689,12 +689,14 @@
       transition: opacity .15s;
     }
     .btn-back-subphase:active { opacity: 0.6; }
-    /* Text Customer SMS inline link */
+    /* Text Customer inline button */
     .btn-sms-customer {
       display: inline-flex; align-items: center; gap: 4px;
       color: var(--accent); font-size: 13px; font-weight: 600;
       text-decoration: none; cursor: pointer; transition: opacity .15s;
+      margin-left: 12px; background: none; border: none; padding: 0;
     }
+    .btn-sms-customer:disabled { opacity: 0.5; cursor: default; }
     .btn-sms-customer:active { opacity: 0.6; }
 
     /* ══════════════════════════════
@@ -2017,7 +2019,7 @@ function renderStopDetail(stop) {
 
   // Update header with type-colored eyebrow
   const eyebrowEl = document.getElementById('stop-eyebrow');
-  eyebrowEl.textContent = `${stop.stop_type.toUpperCase()} · STOP ${stop.stop_number}`;
+  eyebrowEl.textContent = `${stop.stop_type.toUpperCase()} · STOP ${stop._displayNum || stop.stop_number}`;
   eyebrowEl.style.color = isPickup ? '#93c5fd' : '#6ee7b7';
   eyebrowEl.style.opacity = '1';
   document.getElementById('stop-title').textContent = custName || 'Customer';
@@ -2051,7 +2053,7 @@ function renderStopDetail(stop) {
   // ── Customer info (always visible) ──
   h += `<div class="dsection">
     <div class="drow">${icon('pin')}<div class="dtext">${fmtAddr(addr)}</div></div>
-    ${hasPhone ? `<div class="drow">${icon('phone')}<div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a>${!isDone && !isSkip && !isFailed ? `&ensp;<a href="sms:${cust.phone_cache}" class="btn-sms-customer">Text</a>` : ''}</div></div>` : ''}
+    ${hasPhone ? `<div class="drow">${icon('phone')}<div class="dtext"><a href="tel:${cust.phone_cache}">${cust.phone_cache}</a>${!isDone && !isSkip && !isFailed ? `<button class="btn-sms-customer" onclick="quickTextCustomer('${stop.id}')">Text</button>` : ''}</div></div>` : ''}
     ${addr?.delivery_instructions ? `<div class="drow">${icon('lock')}<div><div class="dtext" style="font-size:13px;color:var(--muted)">${addr.delivery_instructions}</div></div></div>` : ''}
   </div>`;
 
@@ -2273,6 +2275,46 @@ async function sendOnMyWay(stopId) {
     if (btn) { btn.disabled = false; btn.textContent = 'Notify Customer'; }
   } finally {
     _onMyWaySending = false;
+  }
+}
+
+/* ──────────────────────────────
+   QUICK TEXT CUSTOMER (via company Twilio number)
+────────────────────────────── */
+async function quickTextCustomer(stopId) {
+  const stop = allStops.find(s => s.id === stopId);
+  if (!stop) return;
+  const cust = stop.orders?.customers;
+  const phone = cust?.phone_cache;
+  if (!phone) { toast('No phone number on file'); return; }
+
+  const driverName = currentProfile?.first_name || 'Your driver';
+  const custFirst = cust?.first_name_cache || 'there';
+  const isPickup = stop.stop_type === 'pickup';
+  const msg = isPickup
+    ? `Hi ${custFirst}! ${driverName} from Family Laundry is heading to your area for pickup. Please have your bags ready!`
+    : `Hi ${custFirst}! ${driverName} from Family Laundry is on the way with your clean laundry.`;
+
+  // Disable button while sending
+  const btn = event?.target?.closest('.btn-sms-customer');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+  try {
+    const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPA_KEY}`,
+      },
+      body: JSON.stringify({ to: phone, body: msg, customer_id: cust.id }),
+    });
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    toast('Text sent from Family Laundry ✓');
+    if (btn) { btn.textContent = 'Sent ✓'; }
+  } catch (e) {
+    console.error('quickTextCustomer error:', e);
+    toast('Could not send text — try again');
+    if (btn) { btn.disabled = false; btn.textContent = 'Text'; }
   }
 }
 
