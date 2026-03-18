@@ -12832,7 +12832,7 @@ ${totalLinesXml}
       .eq('route_id', routeId)
       .order('stop_number');
 
-    const activeStops = (stops||[]).filter(s => s.orders && !['delivered','cancelled','skipped'].includes(s.orders.status));
+    const activeStops = (stops||[]).filter(s => s.orders && !['delivered','cancelled','skipped','pickup_failed','delivery_failed','on_hold'].includes(s.orders.status));
 
     // Resolve customer addresses
     const custIds = [...new Set(activeStops.map(s => s.orders?.customer_id).filter(Boolean))];
@@ -13257,7 +13257,7 @@ ${totalLinesXml}
       .eq('route_id', routeId)
       .order('stop_number');
 
-    const activeStops = (stops||[]).filter(s => s.orders && !['delivered','cancelled','skipped'].includes(s.orders.status));
+    const activeStops = (stops||[]).filter(s => s.orders && !['delivered','cancelled','skipped','pickup_failed','delivery_failed','on_hold'].includes(s.orders.status));
     const custIds = [...new Set(activeStops.map(s => s.orders?.customer_id).filter(Boolean))];
     let addrMap = {};
     if (custIds.length) {
