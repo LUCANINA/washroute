@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 18, 2026 (session 35 — route driver propagation fix, RCC cleanup)*
+*Last updated: Mar 18, 2026 (session 35b — admin order creation fix, address resolution, driver app redesign, customer_type migration)*
 
 ---
 
@@ -559,10 +559,30 @@ There are actually **two separate hang points** that must both be covered:
 - **RCC — exclude failed/on-hold orders from chip counts (commit `945517c`, carried from session 34):**
   - `_dsCountMap` builder now uses the same exclusion list as `activeStops`: `pickup_failed`, `delivery_failed`, `on_hold`, `delivered`, `cancelled`, `skipped`. Route chip badges no longer count problem orders.
 - **File changed:** `admin-dashboard/index.html` (`assignDriverOverride`, `loadDailyRuns`, `rccToggleRoute`, `_dsCountMap` builder)
+- **Bug fix — driver SMS "no phone on file" for upcoming routes (commit `10ca98a`):**
+  - `_msgCustomerMap` was only built from `todayRoutes`. Customers on upcoming routes had no entry, causing "No phone number on file" when the driver tried to text them. Fixed by including `upcomingRoutes` in the map builder.
+- **Driver SMS thread filtering — session-based clean start (commits `9911495`, `208c245`):**
+  - **Problem:** Driver's customer SMS thread showed full message history including admin-sent notifications. Three iterations of filtering: (1) today-only → still showed admin texts, (2) driver-sent + inbound only → still showed old customer replies, (3) session-based `_smsSessionStart` timestamp.
+  - **Final fix:** `_smsSessionStart` is set when driver data loads. Only messages created after this timestamp appear in the conversation list and thread view. Clean slate every time the driver opens the app.
+- **Driver app — Call Customer + Send Text CTA buttons (commit `07ae964`):**
+  - Two prominent action buttons added to stop detail view: "Call Customer" (tel: link) and "Send Text" (opens SMS thread). Uses space previously wasted.
+- **Driver app — stop detail card redesign (commits `120755e`, `61485d6`):**
+  - Removed phone number display (redundant with Call button). Elevated delivery instructions into a yellow callout card. Card-based layout for address, instructions, bags/preferences. Action buttons pushed to bottom of scroll area using flexbox `margin-top: auto`.
+- **Bug fix — address resolution showing wrong address on map + schedule (commit `f390c62`):**
+  - **Problem:** Both RCC and driver app fetched addresses via `.eq('is_default', true)` on the customer, ignoring the actual `address_id` on route_stops and order `pickup_address_id`/`delivery_address_id`. Orders placed at non-default addresses (Berkeley) showed the customer's default address (Oakland) on the map and in cards.
+  - **Fix:** Three locations updated (admin `rccToggleRoute`, `rccRefreshRoute`, driver `loadDriverData`). Now fetches addresses by ID first from the stop/order, falls back to customer default only if no specific address is set.
+- **Bug fix — admin order creation missing service, bags, pricing (commit `6ee028b`):**
+  - **Problem:** Admin dashboard's `saveOrder()` didn't set `service_id`, `total_bags`, or `total_amount`. Orders created from admin showed "—" for service name and "$0.00" in the customer app.
+  - **Fix:** Added Bags input + Service dropdown to the New Order modal. `saveOrder()` now includes `service_id`, `total_bags`, `total_amount`, and `line_items`. Service dropdown defaults to Wash & Fold ($59/bag). Also patched order #138 in DB directly.
+- **Migration — `customer_type` default changed to 'Delivery' (migration `default_customer_type_to_delivery`):**
+  - DB default was `'individual'`, now `'Delivery'`. All 13 existing customers with `'individual'` backfilled to `'Delivery'`. Processing code already normalized this, but data is now clean.
+  - **Design note:** The Price List field (customer_type) determines which service prices apply at processing intake. All customers default to Delivery pricing. Commercial customers get Commercial pricing. Retail (walk-in POS) is a future build — pricing should be tied to the transaction channel, not the customer profile.
+- **Files changed:** `admin-dashboard/index.html` (New Order modal, `saveOrder`, `populateOrderModal`, `rccToggleRoute`, `rccRefreshRoute`), `driver-app/index.html` (SMS filtering, stop detail redesign, address resolution, CTA buttons)
 - **Next session priorities:**
   1. Test full order lifecycle end-to-end as driver (pickup → delivery)
   2. Test unified messaging with live orders
-  3. Route picker fine-tuning (backlog)
+  3. Dedicated Retail POS screen (future — iPad at counter, Retail pricing by transaction not customer)
+  4. Route picker fine-tuning (backlog)
 
 ---
 
