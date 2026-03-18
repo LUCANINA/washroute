@@ -3838,7 +3838,8 @@ function afterSuccess() {
 }
 
 /* ── ORDERS LIST ── */
-const PAST_STATUSES = ['delivered', 'cancelled', 'skipped', 'pickup_failed'];
+const PAST_STATUSES = ['delivered'];
+const HIDDEN_STATUSES = ['cancelled', 'skipped', 'pickup_failed', 'delivery_failed'];
 
 function switchOrderTab(tab) {
   ordersTab = tab;
@@ -3850,7 +3851,8 @@ function switchOrderTab(tab) {
 function renderOrdersList(orders) {
   const el = document.getElementById('orders-list');
   const isPast  = ordersTab === 'past';
-  const filtered = orders.filter(o => isPast ? PAST_STATUSES.includes(o.status) : !PAST_STATUSES.includes(o.status));
+  const visible  = orders.filter(o => !HIDDEN_STATUSES.includes(o.status));
+  const filtered = visible.filter(o => isPast ? PAST_STATUSES.includes(o.status) : !PAST_STATUSES.includes(o.status));
   const RLABELS  = { weekly:'🔁 Weekly', biweekly:'🔁 Every 2 weeks', monthly:'🔁 Monthly' };
 
   if (!filtered.length) {
