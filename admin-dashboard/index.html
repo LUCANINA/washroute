@@ -4575,7 +4575,7 @@
   async function loadCustomers() {
     const [{ data, error }, { data: templates }] = await Promise.all([
       db.from('customers')
-        .select('id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
+        .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
         .order('created_at', { ascending: false }),
       db.from('route_templates').select('id, name').order('name')
     ]);
@@ -9209,15 +9209,17 @@ ${totalLinesXml}
   function custComboFilter(term) {
     const t = term.trim().toLowerCase();
     const list = document.getElementById('o-customer-list');
+    // Exclude drivers and admins from the order customer picker
+    const realCustomers = allCustomers.filter(c => !c.profiles?.role || c.profiles.role === 'customer');
     const filtered = t
-      ? allCustomers.filter(c => {
+      ? realCustomers.filter(c => {
           const p  = custProfile(c);
           const fn = (p.first_name || c.first_name_cache || '').toLowerCase();
           const ln = (p.last_name  || c.last_name_cache  || '').toLowerCase();
           const ph = (c.phone_cache || '').toLowerCase();
           return (fn + ' ' + ln).includes(t) || ph.includes(t);
         })
-      : allCustomers;
+      : realCustomers;
     _custComboHighlight = -1;
     if (!filtered.length) {
       list.innerHTML = `<div class="cust-combo-opt" style="color:var(--gray-400);cursor:default">No customers found</div>`;
@@ -9311,11 +9313,13 @@ ${totalLinesXml}
       if (!allCustomers.length) await loadCustomers();
     }
 
-    // Init combobox — use prefilled customer if provided, otherwise first
-    if (allCustomers.length) {
+    // Init combobox — use prefilled customer if provided, otherwise first real customer
+    // Exclude drivers and admins from the default selection
+    const _orderableCustomers = allCustomers.filter(c => !c.profiles?.role || c.profiles.role === 'customer');
+    if (_orderableCustomers.length) {
       const target = prefillCustomerId
-        ? (allCustomers.find(c => c.id === prefillCustomerId) || allCustomers[0])
-        : allCustomers[0];
+        ? (allCustomers.find(c => c.id === prefillCustomerId) || _orderableCustomers[0])
+        : _orderableCustomers[0];
       const p  = custProfile(target);
       const fn = p.first_name || target.first_name_cache || '';
       const ln = p.last_name  || target.last_name_cache  || '';
@@ -11577,17 +11581,20 @@ ${totalLinesXml}
 
   async function loadAllDriversCache() {
     const { data, error } = await db.from('drivers')
-      .select('id, profiles(first_name, last_name)')
+      .select('id, profiles(first_name, last_name, role)')
       .eq('is_active', true);
     if (error) {
       console.warn('drivers table unavailable:', error.message);
       allDriversCache = [];
       return;
     }
-    allDriversCache = (data||[]).map(d => ({
-      id: d.id,
-      name: `${d.profiles?.first_name||''} ${d.profiles?.last_name||''}`.trim() || 'Driver'
-    }));
+    // Only include actual drivers (and admins who also drive) — exclude laundry_tech etc.
+    allDriversCache = (data||[])
+      .filter(d => !d.profiles?.role || d.profiles.role === 'driver' || d.profiles.role === 'admin')
+      .map(d => ({
+        id: d.id,
+        name: `${d.profiles?.first_name||''} ${d.profiles?.last_name||''}`.trim() || 'Driver'
+      }));
   }
 
   // ── DRIVERS PAGE ──
@@ -11598,7 +11605,7 @@ ${totalLinesXml}
     if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
 
     const { data, error } = await db.from('drivers')
-      .select('id, is_active, license_number, license_expiry, created_at, profiles(id, first_name, last_name, email, phone)')
+      .select('id, is_active, license_number, license_expiry, created_at, profiles(id, first_name, last_name, email, phone, role)')
       .order('created_at', { ascending: true });
 
     if (error) {
@@ -11607,7 +11614,8 @@ ${totalLinesXml}
       return;
     }
 
-    allDriversList = (data||[]).map(d => ({
+    // Exclude non-driver roles (laundry_tech etc.) from the drivers list
+    allDriversList = (data||[]).filter(d => !d.profiles?.role || d.profiles.role === 'driver' || d.profiles.role === 'admin').map(d => ({
       id:         d.id,
       profileId:  d.profiles?.id,
       firstName:  d.profiles?.first_name || '',
@@ -15941,10 +15949,11 @@ ${totalLinesXml}
     // Load all active drivers with their profiles
     const { data: drivers } = await db
       .from('drivers')
-      .select('id, profile_id, profiles(first_name, last_name, email)')
+      .select('id, profile_id, profiles(first_name, last_name, email, role)')
       .eq('is_active', true)
       .order('created_at', { ascending: true });
-    adminMsgDrivers = drivers || [];
+    // Exclude non-driver roles (laundry_tech etc.)
+    adminMsgDrivers = (drivers || []).filter(d => !d.profiles?.role || d.profiles.role === 'driver' || d.profiles.role === 'admin');
 
     // Load all messages for all drivers at once
     const { data: msgs } = await db
