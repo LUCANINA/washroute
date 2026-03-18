@@ -550,7 +550,26 @@ There are actually **two separate hang points** that must both be covered:
   - Deleted `pickup_reminder_one_time` row — redundant with the recurring variant.
   - Renamed `pickup_reminder_recurring` label from "Pickup Reminder — Recurring (Day Before)" → **"Day-Before Pickup Reminder"** and set `sort_order = 15`. This is the canonical day-before reminder for all customers.
   - Confirmed that `send-scheduled-reminders` was already reading from the `message_templates` DB table via `getTemplate()` — it was never hardcoded. David's concern that the scheduler used a different source was a misunderstanding; all 15 (now 14) templates are fully editable from Admin → Notifications → Message Templates.
-  - Canonical template list (14 total): account: `customer_registered`; order: `order_confirmed`, `driver_on_way_pickup`, `order_picked_up`, `driver_on_way_delivery`, `order_delivered`, `skip_confirmation`, `pickup_failed`; payment: `payment_received`, `payment_failed`; marketing: `review_request`, `reorder_reminder`; reminders: `pickup_reminder_recurring` (day-before, all customers), `pickup_day_reminder` (morning-of). Note: `review_request` has no trigger yet — future feature.
+  - **Canonical template list — 14 templates (all editable in Admin → Notifications → Message Templates):**
+
+    | # | `trigger_key` | Label | Cat | SMS body | Email subject |
+    |---|---|---|---|---|---|
+    | 1 | `customer_registered` | Customer Registration | account | "Hi {{first_name}}, Welcome to Family Laundry! We'll send you important order updates via SMS like "Your laundry is ready." Text STOP to unsubscribe." | *(none)* |
+    | 2 | `order_confirmed` | Order Confirmed | order | "Thank you, {{first_name}}! Your pickup at {{address}} is scheduled for {{pickup_date}} between {{time_window}}." | "Your Family Laundry Order is Confirmed 🧺" |
+    | 3 | `driver_on_way_pickup` | Driver On the Way (Pickup) | order | "Hi {{customer_first_name}}! {{driver_first_name}} is on the way to pick up your laundry and should arrive within 15 minutes. Please place your bags outside." | "Your Driver is On the Way" |
+    | 4 | `order_picked_up` | Bags Picked Up | order | "Family Laundry Update: Our driver has picked up your laundry! {{pickup_picture}}" | "Your Bags are In — We're On It!" |
+    | 5 | `driver_on_way_delivery` | Driver On the Way (Delivery) | order | "Hi {{customer_first_name}}! {{driver_first_name}} is on the way with your clean laundry and should arrive within 15 minutes. Feel free to leave your next order out for us." | "Your Clean Laundry is On the Way!" |
+    | 6 | `order_delivered` | Order Delivered | order | "Family Laundry: Your clean laundry has been delivered. Send back your paper string in your next order and we'll reuse it. Enjoy one less chore this week. Thank you! {{dropoff_picture}}" | "Your Laundry Has Been Delivered ✅" |
+    | 7 | `skip_confirmation` | Skip Confirmation | order | "Thanks for letting us know! We will skip your pickup on {{pickup_date}}. See you on your next pickup date." | *(none)* |
+    | 8 | `pickup_failed` | Pickup Failed | order | "Hello from Family Laundry. Our driver was unable to complete your pickup. We will see you at your next scheduled pickup." | *(none)* |
+    | 9 | `payment_received` | Payment Received | payment | "Payment of ${{amount}} received for order #{{order_number}}. Thanks, {{first_name}}!" | "Payment Confirmed — Thank You!" |
+    | 10 | `payment_failed` | Payment Failed | payment | "Hi {{first_name}}, we couldn't process your payment for order #{{order_number}}. Please update your card in the app." | "Action Required: Payment Failed" |
+    | 11 | `review_request` | Review Request | marketing | "Hi {{first_name}}, how did we do? Leave us a quick review — it means a lot! {{review_link}}" | "How Did We Do? Leave Us a Review ⭐" |
+    | 12 | `reorder_reminder` | Reorder Reminder | marketing | "Hi from Family Laundry! Running low on clean clothes? Schedule your next pickup here: {{order_link}}" | *(none)* |
+    | 13 | `pickup_reminder_recurring` | Day-Before Pickup Reminder | reminders | "Hi from Family Laundry! Your pickup is tomorrow. If you don't have laundry this week, reply SKIP and we'll see you next time. For safety, please keep bags under 30 lbs and remember to check pockets for keys, pens, coins, and AirPods. Thank you!" | *(none)* |
+    | 14 | `pickup_day_reminder` | Pickup Day Reminder (Morning of) | reminders | "Good morning from Family Laundry! Today's the day. Your pickup is scheduled between {{time_window}}. Our driver will text you when they are on the way." | *(none)* |
+
+    Notes: `review_request` (#11) has no automated trigger yet — future feature. Templates with email subjects also have full HTML email bodies stored in the DB (editable in admin): `order_confirmed`, `driver_on_way_pickup`, `order_picked_up`, `driver_on_way_delivery`, `order_delivered`, `payment_received`, `payment_failed`, `review_request`.
 
 - **No local file commits this session** — all changes were Supabase edge function deploys and one DB mutation via Supabase MCP. No `git add` needed for app code.
 
