@@ -2456,6 +2456,18 @@
         </div>
       </div>
 
+      <!-- Bags + Service -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Bags</label>
+          <input class="form-input" id="o-bags" type="number" min="1" step="1" value="1" style="width:100%" />
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Service</label>
+          <select class="form-select" id="o-service"></select>
+        </div>
+      </div>
+
       <!-- Tip + Coupon -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group" style="margin:0">
@@ -9287,7 +9299,18 @@ ${totalLinesXml}
     setNoTipType('dollar');
     document.getElementById('o-notes').value = '';
     document.getElementById('o-tip').value   = '';
+    document.getElementById('o-bags').value  = '1';
     document.getElementById('o-error').style.display = 'none';
+
+    // Populate service dropdown (non-addon services only)
+    if (!allServices.length) await loadServices();
+    const svcSel = document.getElementById('o-service');
+    const nonAddon = allServices.filter(s => !s.is_addon);
+    svcSel.innerHTML = nonAddon.map(s =>
+      `<option value="${s.id}">${s.name} — $${parseFloat(s.base_price).toFixed(2)}/bag</option>`
+    ).join('');
+    // Default to first non-addon (Wash & Fold Delivery)
+    if (nonAddon.length) svcSel.value = nonAddon[0].id;
 
     // Customers — if loadAll() hasn't finished yet, wait up to 3 s then reload
     if (!allCustomers.length) {
@@ -9799,9 +9822,24 @@ ${totalLinesXml}
     const notes      = document.getElementById('o-notes').value.trim();
     const tipRaw     = parseFloat(document.getElementById('o-tip').value) || 0;
     const discountId = document.getElementById('o-coupon').value || null;
+    const bags       = parseInt(document.getElementById('o-bags').value) || 1;
+    const serviceId  = document.getElementById('o-service').value || null;
 
     if (!customerId)    { err.textContent='Please select a customer.';     err.style.display='block'; return; }
     if (!_noPickupStart){ err.textContent='Please select a pickup slot.';  err.style.display='block'; return; }
+
+    // Calculate total from service base price × bags
+    const svc = allServices.find(s => s.id === serviceId);
+    const basePrice = svc ? parseFloat(svc.base_price || 0) : 0;
+    const subtotal  = basePrice * bags;
+    // Apply discount if selected
+    let discountAmt = 0;
+    if (discountId) {
+      const couponSel = document.getElementById('o-coupon');
+      const discOpt = couponSel?.querySelector(`option[value="${discountId}"]`);
+      // We'll keep total_amount as the base estimate — billing adjustments happen later
+    }
+    const totalAmount = subtotal + tipRaw;
 
     const btn = document.querySelector('#modal-add-order .btn-primary');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -9827,6 +9865,9 @@ ${totalLinesXml}
     const { data: newOrder, error } = await db.from('orders').insert({
       customer_id:           customerId,
       status:                'scheduled',
+      service_id:            serviceId,
+      total_bags:            bags,
+      total_amount:          totalAmount,
       zone_id:               _noSelectedTmpl?.zone_id || null,
       pickup_address_id:     addressId,
       delivery_address_id:   addressId,     // same address by default
@@ -9840,7 +9881,8 @@ ${totalLinesXml}
       tip_amount:            tipRaw,
       tip_type:              _noTipType,
       discount_id:           discountId,
-      total_amount:          0,             // set properly when weighed / charged
+      line_items:            [{ service_id: serviceId, name: svc?.name || 'Wash & Fold', qty: bags, unit_price: basePrice, total: subtotal }],
+      source:                'scheduled',
     }).select('id, order_number').single();
 
     if (btn) { btn.disabled = false; btn.textContent = 'Create Order'; }
