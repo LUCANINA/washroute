@@ -1,5 +1,11 @@
 # WashRoute — Project Notes
-*Last updated: Mar 18, 2026 (session 32 — SMS notification pipeline fixed: 3 edge functions + template consolidation)*
+*Last updated: Mar 18, 2026 (session 32 — SMS pipeline fixed, full trigger audit, system cleanup)*
+
+---
+
+## Guiding Principle
+
+Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no dead references, no hardcoded strings that should be configurable. Whether the customer sees it or not — the system must be tidy. Clean up after every job.
 
 ---
 
@@ -609,15 +615,37 @@ There are actually **two separate hang points** that must both be covered:
   - When all cards fail: fires `payment_failed` → customer gets "we couldn't process your payment… Please update your card in the app" SMS.
   - Both templates were already in `message_templates` and editable in Notifications — they just had no trigger until now.
 
-- **DB migrations this session:**
+- **Session 32c — Full trigger audit and system cleanup:**
+
+- **`auto_fail_expired_orders()` rewritten — no more hardcoded SMS (migration `auto_fail_use_templates_v2`):**
+  The cron function that auto-fails expired pickups/deliveries every 30 minutes was the last place with hardcoded SMS message text (bypassing `message_templates`). Rewritten to read the `pickup_failed` template from `message_templates` at the start of each run, interpolate `{{first_name}}`, and send via `send-sms`. Now 100% of outbound SMS in the system goes through editable templates.
+
+- **Redundant `create_recurring_orders()` cron job removed (migration `cleanup_orphan_cron_and_dead_code`):**
+  Cron job #2 (`0 8 * * *`) was calling `create_recurring_orders()` daily — an older approach that scanned all recurring customers and created next orders. This was made redundant by the DB trigger `trg_create_recurring_order_fn` (session 5) which fires instantly on order delivery/skip. The cron and its function (`create_recurring_orders()`) were both removed (migration `drop_redundant_create_recurring_orders_fn`).
+
+- **Orphan function `trg_create_recurring_order()` dropped (migration `cleanup_orphan_cron_and_dead_code`):**
+  Old version of the recurring order trigger function, replaced by `trg_create_recurring_order_fn` in session 5 (added `cancelled_by = 'customer'` guard). No trigger referenced it. Dropped.
+
+- **Dead `ready_for_pickup` reference removed from `sync_order_status_from_stops()` (migration `cleanup_orphan_cron_and_dead_code`):**
+  Status `ready_for_pickup` was removed from the system in session 6, but this trigger function still checked for it. The branch was unreachable (DB constraint prevents the status from existing). Removed for clarity.
+
+- **`create-test-user` edge function:** Already neutralized (returns 404). Cannot delete via MCP — David should delete from Supabase dashboard: Edge Functions → create-test-user → Delete.
+
+- **Post-audit state:** Zero orphan trigger functions. Zero orphan cron jobs. Zero hardcoded SMS messages. All 14 notification templates read from `message_templates` DB. 4 active cron jobs (route generation, day-before reminders, morning reminders, auto-fail). 22 active edge functions (23 minus `create-test-user` pending manual deletion).
+
+- **DB migrations this session (all 32a/b/c combined):**
   - `add_review_link_to_settings` — `ALTER TABLE settings ADD COLUMN review_link TEXT DEFAULT ''`
   - `add_review_request_sent_at_to_orders` — `ALTER TABLE orders ADD COLUMN review_request_sent_at TIMESTAMPTZ DEFAULT NULL`
+  - `auto_fail_use_templates_v2` — rewrote `auto_fail_expired_orders()` to use template system
+  - `cleanup_orphan_cron_and_dead_code` — removed cron #2, dropped orphan function, cleaned dead code
+  - `drop_redundant_create_recurring_orders_fn` — dropped `create_recurring_orders()` function
 
 - **Next session priorities:**
   1. Test order confirmation SMS end-to-end — place a new order from the customer app, verify SMS arrives
-  2. Continue Order Schedule (RCC) bug hunting (session 31 carried forward)
-  3. Test CloudPRNT with physical printer
-  4. Investigate `optimize-route` v12 stop reordering issue (session 28 backlog)
+  2. Delete `create-test-user` edge function from Supabase dashboard
+  3. Continue Order Schedule (RCC) bug hunting (session 31 carried forward)
+  4. Test CloudPRNT with physical printer
+  5. Investigate `optimize-route` v12 stop reordering issue (session 28 backlog)
 
 ---
 
