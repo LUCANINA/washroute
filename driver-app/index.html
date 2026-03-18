@@ -96,6 +96,7 @@
     .scroll-body {
       flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
       padding-bottom: calc(var(--nav-h) + 20px + env(safe-area-inset-bottom));
+      display: flex; flex-direction: column;
     }
 
     /* ══════════════════════════════
@@ -355,6 +356,23 @@
     .dtext { font-size: 15px; font-weight: 500; flex: 1; }
     .dtext a { color: var(--accent); text-decoration: none; }
     .dsub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+    /* Stop detail — spaced card layout */
+    .stop-info-section { display: flex; flex-direction: column; gap: 16px; padding: 20px 0; }
+    .stop-info-card {
+      margin: 0 20px; padding: 16px 18px;
+      background: var(--white); border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+    .stop-info-label {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--muted); margin-bottom: 6px;
+    }
+    .stop-info-value { font-size: 17px; font-weight: 600; line-height: 1.4; color: var(--gray-800, #1f2937); }
+    .stop-instructions-card {
+      margin: 0 20px; padding: 16px 18px;
+      background: #fef9c3; border-radius: 12px; border: 1px solid #fde68a;
+    }
 
     .pref-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     .pref-tag { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 7px; background: #fef3c7; color: #92400e; }
@@ -684,7 +702,8 @@
        PHASE 1 — PRE-ARRIVAL
     ══════════════════════════════ */
     .phase1-actions {
-      padding: 20px 20px 8px;
+      padding: 8px 20px 8px;
+      margin-top: auto; /* push to bottom of available space */
     }
     .btn-notify-big {
       width: 100%; background: var(--accent); color: var(--white); border: none;
@@ -2108,24 +2127,35 @@ function renderStopDetail(stop) {
     </div>`;
   }
 
-  // ── Address + bags ──
-  h += `<div class="dsection">
-    <div class="drow">${icon('pin')}<div class="dtext" style="font-size:16px">${fmtAddr(addr)}</div></div>
-    <div class="drow">${icon('bag')}<div class="dtext">${order?.total_bags||1} bag${(order?.total_bags||1)!==1?'s':''} expected</div></div>
-    ${renderPrefTags(cust?.preferences)}
+  // ── Info section — spaced out for mobile readability ──
+  h += `<div class="stop-info-section">`;
+
+  // Address card
+  h += `<div class="stop-info-card">
+    <div class="stop-info-label">Address</div>
+    <div class="stop-info-value">${fmtAddr(addr)}</div>
   </div>`;
 
-  // ── Delivery instructions callout (prominent) ──
+  // Instructions callout (prominent yellow card)
   if (addr?.delivery_instructions) {
-    h += `<div style="margin:0 20px 0;padding:14px 16px;background:#fef9c3;border-radius:10px;border:1px solid #fde68a;">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#92400e;margin-bottom:4px">📌 Instructions</div>
-      <div style="font-size:15px;font-weight:600;color:#78350f;line-height:1.4">${addr.delivery_instructions}</div>
+    h += `<div class="stop-instructions-card">
+      <div class="stop-info-label" style="color:#92400e">📌 Instructions</div>
+      <div class="stop-info-value" style="color:#78350f">${addr.delivery_instructions}</div>
     </div>`;
   }
 
-  // ── Call / Text CTA buttons (only for active stops with a phone) ──
+  // Bags + preferences
+  const bagText = `${order?.total_bags||1} bag${(order?.total_bags||1)!==1?'s':''} expected`;
+  const prefHtml = renderPrefTags(cust?.preferences);
+  h += `<div class="stop-info-card">
+    <div class="stop-info-label">Order</div>
+    <div class="stop-info-value">${bagText}</div>
+    ${prefHtml || ''}
+  </div>`;
+
+  // Call / Text CTA buttons (only for active stops with a phone)
   if (hasPhone && !isDone && !isSkip && !isFailed) {
-    h += `<div style="display:flex;gap:10px;padding:16px 20px 0;">
+    h += `<div style="display:flex;gap:10px;padding:0 20px;">
       <a href="tel:${cust.phone_cache}" class="cta-contact">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
         Call Customer
@@ -2136,6 +2166,8 @@ function renderStopDetail(stop) {
       </button>
     </div>`;
   }
+
+  h += `</div>`; // end stop-info-section
 
   // ── Active stop phases ──
   if (!isDone && !isSkip && !isFailed) {
