@@ -12690,7 +12690,7 @@ ${totalLinesXml}
     const routeIds = _dsRoutes.map(r => r.id);
     if (routeIds.length) {
       const { data: sc } = await db.from('route_stops').select('route_id, orders(status)').in('route_id', routeIds);
-      (sc||[]).filter(s => s.orders && !['delivered','cancelled','skipped'].includes(s.orders.status))
+      (sc||[]).filter(s => s.orders && !['delivered','cancelled','skipped','pickup_failed','delivery_failed','on_hold'].includes(s.orders.status))
         .forEach(s => { _dsCountMap[s.route_id] = (_dsCountMap[s.route_id]||0) + 1; });
     }
 
