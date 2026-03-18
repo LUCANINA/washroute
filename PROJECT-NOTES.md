@@ -1,5 +1,15 @@
 # WashRoute — Project Notes
-*Last updated: Mar 18, 2026 (session 33 — schedule lock fix: routes stay open until window closes + 2hr buffer)*
+*Last updated: Mar 18, 2026 (session 33 — repo migrated to ~/Projects/WashRoute; standard git now works normally)*
+
+---
+
+## 📁 Repo Location (updated Mar 18, 2026)
+
+Project moved from the old Cowork sandbox path to a proper local git repo:
+
+- **New path:** `~/Projects/WashRoute`
+- **Git:** Standard git commands (`git status`, `git diff`, `git log`, `git commit`, `git push`) all work normally — no workarounds needed.
+- **Vercel:** Still auto-deploys on push to `main` (no change to hosting setup).
 
 ---
 
