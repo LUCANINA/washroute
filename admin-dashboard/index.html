@@ -9737,7 +9737,7 @@ ${totalLinesXml}
     err.style.display = 'none';
 
     // Collect all fields
-    const customerType = document.querySelector('input[name="c-type"]:checked')?.value || 'individual';
+    const accountType = document.querySelector('input[name="c-type"]:checked')?.value || 'individual';
     const first  = document.getElementById('c-first').value.trim();
     const last   = document.getElementById('c-last').value.trim();
     const email  = document.getElementById('c-email').value.trim();
@@ -9771,7 +9771,8 @@ ${totalLinesXml}
         referral_source:      source || null,
         ambassador_code:      ambassador,
         subscription_plan_id: planId || null,
-        customer_type:        customerType,
+        customer_type:        'Delivery',
+        account_type:         accountType,
         first_name_cache:     first,
         last_name_cache:      last || null,
         email_cache:          email || null,
