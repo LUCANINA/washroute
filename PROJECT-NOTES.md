@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 18, 2026 (session 32 — SMS pipeline fixed, full trigger audit, system cleanup)*
+*Last updated: Mar 18, 2026 (session 33 — schedule lock fix: routes stay open until window closes + 2hr buffer)*
 
 ---
 
@@ -205,6 +205,7 @@ These are standing decisions that guide how features are built. When in doubt, d
 | **`driver_id = NULL` on stops means inherit from route** | Stops get `NULL` by default; explicit UUIDs are overrides only. All queries and RLS policies must handle both cases — never assume a non-null driver_id. |
 | **Single-file SPAs, no build step** | All three apps are pure HTML/CSS/JS in one file. No npm, no bundler, no framework. Keep it that way. |
 | **Time windows are client-side** | Route visibility (`isRouteVisible`, `isUpcomingRoute`) is computed in the browser using the device's local time. `window_start`/`window_end` in the DB are naive times (no timezone) interpreted as the driver's local timezone. |
+| **Routes stay open until window_end + 2hr buffer** | Orders can be added throughout the day, even during an active route. The schedule view must not lock a route just because all *current* stops are resolved — new stops may still arrive. A route only locks after the time window ends plus a 2-hour buffer. This applies to both the schedule grid chips and the driver reassignment popover. |
 
 ---
 
@@ -534,6 +535,18 @@ There are actually **two separate hang points** that must both be covered:
   3. Xero accounting sync (backlog)
 
 ---
+
+### Mar 18, 2026 (session 33) — Schedule lock fix: routes stay open until window_end + 2hr buffer
+
+- **Problem:** The Drivers > Schedule view locked today's route chips (showing 🔒 and disabling driver reassignment) as soon as all current stops were in a terminal state (completed/skipped/failed). This prevented assigning drivers to routes where all existing stops were skipped but new orders could still be added throughout the day. Example: Berkeley PM (6–10pm) showed locked at 7am because its 2 skipped stops = "all done."
+- **Root cause:** Lock logic was `isLocked = isPast || isComplete` — it didn't consider whether the route's time window had actually passed.
+- **Fix:** Changed to `isLocked = isPast || (isToday && isComplete && windowClosed)` where `windowClosed` = current time ≥ `window_end + 2 hours`. Applied to all 3 places: pickup schedule `makeChip`, delivery schedule `makeChip`, and the driver reassignment popover.
+- **UX changes:**
+  - Today's routes with all stops done but window still open: show ✓ checkmark (not 🔒), remain clickable for driver reassignment
+  - Popover shows blue info banner: "All N current stops done — route window still open, new orders can still be added"
+  - Routes only truly lock after window_end + 2hr buffer passes AND all stops are done
+- **Design principle added:** "Routes stay open until window_end + 2hr buffer" — orders can arrive throughout the day, so schedule flexibility must be preserved.
+- **File changed:** `admin-dashboard/index.html` (3 locations)
 
 ### Mar 18, 2026 (session 32) — SMS notification pipeline fixed: 3 edge functions + message template consolidation
 

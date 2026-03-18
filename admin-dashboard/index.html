@@ -12119,14 +12119,23 @@ ${totalLinesXml}
       const isComplete = sc && sc.total > 0 && sc.done === sc.total;
       if (sc) {
         if (isComplete) {
-          statusBadgeHtml = `<span title="Route complete" style="font-size:10px;line-height:1;opacity:.9;">🔒</span>`;
+          statusBadgeHtml = `<span title="Route complete" style="font-size:10px;line-height:1;opacity:.9;">✓</span>`;
         } else if (sc.done > 0) {
           statusBadgeHtml = `<span title="${sc.done} of ${sc.total} stops done" style="width:7px;height:7px;border-radius:50%;background:#fbbf24;display:inline-block;flex-shrink:0;box-shadow:0 0 0 2px rgba(251,191,36,.4);"></span>`;
         }
       }
 
-      // Lock past days and completed-today routes — no onclick, show 🔒
-      const isLocked = isPast || isComplete;
+      // Lock logic: past days always lock. Today's routes only lock after
+      // window_end + 2hr buffer (orders can be added throughout the day).
+      let windowClosed = false;
+      if (isToday && t.window_end) {
+        const [eh, em] = t.window_end.split(':').map(Number);
+        const bufferMs = (eh * 60 + em + 120) * 60 * 1000; // window_end + 2hrs in ms from midnight
+        const now = new Date();
+        const msSinceMidnight = (now.getHours() * 60 + now.getMinutes()) * 60 * 1000 + now.getSeconds() * 1000;
+        windowClosed = msSinceMidnight >= bufferMs;
+      }
+      const isLocked = isPast || (isToday && isComplete && windowClosed);
       if (isLocked) {
         const badge = isPast
           ? `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`
@@ -12317,14 +12326,23 @@ ${totalLinesXml}
       const isComplete = sc && sc.total > 0 && sc.done === sc.total;
       if (sc) {
         if (isComplete) {
-          statusBadgeHtml = `<span title="Route complete" style="font-size:10px;line-height:1;opacity:.9;">🔒</span>`;
+          statusBadgeHtml = `<span title="Route complete" style="font-size:10px;line-height:1;opacity:.9;">✓</span>`;
         } else if (sc.done > 0) {
           statusBadgeHtml = `<span title="${sc.done} of ${sc.total} stops done" style="width:7px;height:7px;border-radius:50%;background:#fbbf24;display:inline-block;flex-shrink:0;box-shadow:0 0 0 2px rgba(251,191,36,.4);"></span>`;
         }
       }
 
-      // Lock past days and completed-today routes — no onclick, show 🔒
-      const isLocked = isPast || isComplete;
+      // Lock logic: past days always lock. Today's routes only lock after
+      // window_end + 2hr buffer (orders can be added throughout the day).
+      let windowClosed = false;
+      if (isToday && t.window_end) {
+        const [eh, em] = t.window_end.split(':').map(Number);
+        const bufferMs = (eh * 60 + em + 120) * 60 * 1000; // window_end + 2hrs in ms from midnight
+        const now = new Date();
+        const msSinceMidnight = (now.getHours() * 60 + now.getMinutes()) * 60 * 1000 + now.getSeconds() * 1000;
+        windowClosed = msSinceMidnight >= bufferMs;
+      }
+      const isLocked = isPast || (isToday && isComplete && windowClosed);
       if (isLocked) {
         const badge = isPast
           ? `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`
@@ -12475,11 +12493,25 @@ ${totalLinesXml}
       // Store counts so assignDriverOverride can use them
       popoverCtx.routeStatus = { total, done, pending };
 
-      if (done === total) {
-        // Route fully complete — disable reassignment, show lock banner
+      // Only truly lock if window_end + 2hr buffer has passed
+      let windowClosed = false;
+      if (tmpl?.window_end) {
+        const [eh, em] = tmpl.window_end.split(':').map(Number);
+        const bufferMs = (eh * 60 + em + 120) * 60 * 1000;
+        const now = new Date();
+        const msSinceMidnight = (now.getHours() * 60 + now.getMinutes()) * 60 * 1000 + now.getSeconds() * 1000;
+        windowClosed = msSinceMidnight >= bufferMs;
+      }
+
+      if (done === total && windowClosed) {
+        // Route fully complete AND window has passed — disable reassignment
         renderOptions(true);
         statusBanner.style.cssText = 'display:block;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;border-radius:7px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
-        statusBanner.innerHTML = `🔒 <strong>Route complete</strong><br>All ${total} stops are done. No remaining stops to reassign.`;
+        statusBanner.innerHTML = `🔒 <strong>Route complete</strong><br>All ${total} stops are done and the route window has passed.`;
+      } else if (done === total) {
+        // All current stops done but window still open — allow reassignment, show info
+        statusBanner.style.cssText = 'display:block;background:#eff6ff;color:#1e40af;border:1px solid #93c5fd;border-radius:7px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
+        statusBanner.innerHTML = `✓ <strong>All ${total} current stops done</strong><br>Route window still open — new orders can still be added.`;
       } else if (done > 0) {
         // Route in progress — warn but allow reassigning the remaining stops
         statusBanner.style.cssText = 'display:block;background:#fffbeb;color:#92400e;border:1px solid #fcd34d;border-radius:7px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
