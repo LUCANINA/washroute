@@ -6408,11 +6408,11 @@
       total += bagTotal;
     }
     if (overageAmt > 0) {
-      html += `<div style="display:flex;justify-content:space-between"><span>Overage: ${overageLbs.toFixed(1)} lbs × ${fmtMoney(ovgRate)}/lb</span><span>${fmtMoney(overageAmt)}</span></div>`;
+      html += `<div style="display:flex;justify-content:space-between"><span>${overageLbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb</span><span>${fmtMoney(overageAmt)}</span></div>`;
       total += overageAmt;
     }
     if (deliveryFee > 0) {
-      html += `<div style="display:flex;justify-content:space-between"><span>Delivery Fee</span><span>${fmtMoney(deliveryFee)}</span></div>`;
+      html += `<div style="display:flex;justify-content:space-between"><span>Delivery fee</span><span>${fmtMoney(deliveryFee)}</span></div>`;
       total += deliveryFee;
     }
     if (sameDaySurcharge > 0) {
@@ -6471,8 +6471,8 @@
     let addonTotal = 0;
 
     if (bags > 0 && basePrice > 0) newLineItems.push({ type: 'base', label: `${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}`, amount: bagTotal });
-    if (overageAmt > 0) newLineItems.push({ type: 'overage', label: `Overage: ${overageLbs.toFixed(1)} lbs × ${fmtMoney(ovgRate)}/lb`, amount: overageAmt });
-    if (deliveryFee > 0) newLineItems.push({ type: 'fee', label: 'Delivery Fee', amount: deliveryFee });
+    if (overageAmt > 0) newLineItems.push({ type: 'overage', label: `${overageLbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb`, amount: overageAmt });
+    if (deliveryFee > 0) newLineItems.push({ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee });
     if (sameDaySurcharge > 0) newLineItems.push({ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge });
 
     // Only include add-ons that are toggled ON
@@ -6872,7 +6872,7 @@ ${totalLinesXml}
       }
     } catch (e) { /* no route info — print without it */ }
 
-    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const lineItems = _dedupeLineItems(o.line_items);
     const total     = Number(o.total_amount || 0);
     // Add-on tags: extract service name from "Vinegar × 3 bags" → "Vinegar"
     const addonTags = lineItems
