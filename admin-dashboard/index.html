@@ -14894,8 +14894,8 @@ ${totalLinesXml}
     // Kick off all 4 columns in parallel
     const [{ data: pickedUp }] = await Promise.all([
       db.from('orders')
-        .select(`id, order_number, status, total_bags, special_instructions, service_id,
-                 pickup_window_start, delivery_window_start, total_amount, line_items,
+        .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
+                 stripe_payment_intent_id, pickup_window_start, delivery_window_start, total_amount, line_items,
                  customers(id, first_name_cache, last_name_cache, customer_type, preferences),
                  services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
         .eq('status', 'picked_up')
@@ -14936,8 +14936,8 @@ ${totalLinesXml}
 
   async function loadIntakeCol() {
     const { data } = await db.from('orders')
-      .select(`id, order_number, status, total_bags, special_instructions, service_id,
-               customers(id, first_name_cache, last_name_cache, customer_type, preferences),
+      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
+               stripe_payment_intent_id, customers(id, first_name_cache, last_name_cache, customer_type, preferences),
                services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
       .eq('status', 'picked_up')
       .order('actual_pickup_at', { ascending: true });
@@ -15029,26 +15029,32 @@ ${totalLinesXml}
       const ln   = o.customers?.last_name_cache  || '';
       const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
       const bags = o.total_bags || 1;
+      const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : null;
       const svcName = o.services?.name || '—';
+      const alreadyPaid = !!o.stripe_payment_intent_id;
       const prefs   = o.services?.preferences || [];
       // Show chips for pref options that have a price mod (non-standard selections)
       const premiumOpts = [];
       prefs.forEach(g => { const d = (g.options||[]).find(opt=>opt.is_default); if(d&&d.price_mod>0) premiumOpts.push(d.label); });
       return `<div class="proc-card" id="proc-card-${o.id}"
         style="cursor:pointer"
-        onclick="openIntakePanel('${o.id}')"
+        onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openIntakePanel('${o.id}')`}"
         draggable="true"
         ondragstart="dragStartOrder(event,'${o.id}')"
         ondragend="dragEndOrder('${o.id}')"
         ontouchstart="touchStartOrder(event,'${o.id}')"
         ontouchmove="touchMoveOrder(event)"
         ontouchend="touchEndOrder(event)">
-        <div>
-          <div class="proc-card-order">#${o.order_number||'—'}</div>
-          <div class="proc-card-name">${name}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+          <div>
+            <div class="proc-card-order">#${o.order_number||'—'}</div>
+            <div class="proc-card-name">${name}</div>
+          </div>
+          ${alreadyPaid?`<span style="font-size:10px;font-weight:700;color:#059669">✅ Paid</span>`:''}
         </div>
         <div class="proc-card-meta">
           <span>📦 ${bags} bag${bags!==1?'s':''}</span>
+          ${lbs ? `<span>⚖️ ${lbs}</span>` : ''}
           <span>${svcName}</span>
         </div>
         ${premiumOpts.length ? `<div class="proc-card-prefs">${premiumOpts.map(l=>`<span class="proc-card-pref-chip">${l}</span>`).join('')}</div>` : ''}
