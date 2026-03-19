@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 19, 2026 — Claude AI SMS replies live (twilio-webhook v22)*
+*Last updated: Mar 19, 2026 — Phone numbers removed from all apps; twilio-webhook v26 live*
 
 ---
 
@@ -266,7 +266,7 @@ Postgres function: `find_customer_by_phone(digits TEXT)`.
 
 ## SMS Automation — Status
 
-### ✅ Phase 1 — Live (twilio-webhook v22, session 36)
+### ✅ Phase 1 — Live (twilio-webhook v26, session 36–37)
 
 **Keyword actions (deterministic):**
 - `PICKUP` — Books next evening pickup using last order as template (zone, address, bags). Blocks if active order already exists. Falls back to default address + zone lookup for new customers.
@@ -749,6 +749,27 @@ There are actually **two separate hang points** that must both be covered:
 - **`ANTHROPIC_API_KEY` added to Supabase Secrets** — required for Claude AI handler. Without it, all non-keyword messages route silently to human inbox.
 - **Twilio A2P 10DLC confirmed fully live** — David confirmed messaging works end-to-end. Removed from pending list.
 - **Xero and Klaviyo removed from backlog** — deprioritised by David.
+- **Next session priorities:**
+  1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
+  2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 19, 2026 (session 37) — Phone numbers removed from all apps; twilio-webhook v26
+
+- **Decision: remove all phone number references from apps (commit `4a35422`):** David decided not to list any phone numbers in the customer or admin apps. A Google search surfaces the voicemail number if needed. All `(510) 842-3560` and `(510) 588-4102` references replaced with `familylaundry.com` across:
+  - `customer-app/index.html`: footer, "Prefer to call?" link (removed entirely), "Need help?" order-step link, service-area error messages, email template footer.
+  - `admin-dashboard/index.html`: receipt printer footer line, thermal receipt print footer, email receipt footer, invoice address block.
+- **`twilio-webhook` upgraded to v26:** All "call (510) 842-3560" references in error SMS messages and the Claude AI system prompt replaced with `familylaundry.com`. STATUS keyword references and HELP menu were also cleaned up in v22–v25 (session 36 continued):
+  - STATUS keyword removed from HELP menu and Claude system prompt — natural language handles status questions.
+  - "Call (510) 588-4102 for anything else." removed from HELP message.
+- **HELP message (current, v26):**
+  ```
+  Family Laundry 🧺
+  PICKUP — Book a pickup
+  SKIP — Skip your next pickup
+  Or just text us anything — "where's my order?", "is my laundry done?" — we'll understand!
+  ```
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
