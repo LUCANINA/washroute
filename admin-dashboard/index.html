@@ -14792,6 +14792,7 @@ ${totalLinesXml}
     }).join('');
     const notesHTML = o.special_instructions
       ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${o.special_instructions}"</div>` : '';
+    const folderName = o.folded_by_id ? (allLaunCache.find(l => l.id === o.folded_by_id)?.name || null) : null;
     document.getElementById('fold-body').innerHTML = `
       <div class="intake-section">
         <div class="intake-section-label">Order Summary</div>
@@ -14801,6 +14802,7 @@ ${totalLinesXml}
           <div class="fold-order-row"><span>Service</span><strong>${o.services?.name||'—'}</strong></div>
           <div class="fold-order-row"><span>Bags</span><strong>${bags} bag${bags!==1?'s':''}</strong></div>
           <div class="fold-order-row"><span>Weight</span><strong>${lbs}</strong></div>
+          ${folderName ? `<div class="fold-order-row"><span>Processed by</span><strong>👤 ${folderName}</strong></div>` : ''}
           ${liHTML ? `<div style="margin-top:8px;border-top:1px solid var(--gray-100);padding-top:8px">${liHTML}</div>` : ''}
           <div class="fold-order-row" style="margin-top:6px;border-top:1px solid var(--gray-200);padding-top:6px"><span style="font-weight:700">Total</span><strong style="color:var(--accent);font-size:15px">${fmtMoney(o.total_amount||0)}</strong></div>
           ${notesHTML}
@@ -14858,7 +14860,7 @@ ${totalLinesXml}
       allRacksCache = data || [];
     }
     const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, rack_id, source,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, rack_id, folded_by_id, source,
                customers(id, first_name_cache, last_name_cache, phone_cache), services(name)`)
       .eq('status', 'ready_for_delivery')
       .order('racked_at', { ascending: false })
@@ -14950,6 +14952,7 @@ ${totalLinesXml}
     }).join('');
     const notesHTML = o.special_instructions
       ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${o.special_instructions}"</div>` : '';
+    const folderName = o.folded_by_id ? (allLaunCache.find(l => l.id === o.folded_by_id)?.name || null) : null;
     document.getElementById('rack-body').innerHTML = `
       <div class="intake-section">
         <div class="intake-section-label">Order Summary</div>
@@ -14959,6 +14962,7 @@ ${totalLinesXml}
           <div class="fold-order-row"><span>Service</span><strong>${o.services?.name||'—'}</strong></div>
           <div class="fold-order-row"><span>Bags</span><strong>${bags} bag${bags!==1?'s':''}</strong></div>
           <div class="fold-order-row"><span>Weight</span><strong>${lbs}</strong></div>
+          ${folderName ? `<div class="fold-order-row"><span>Processed by</span><strong>👤 ${folderName}</strong></div>` : ''}
           ${liHTML ? `<div style="margin-top:8px;border-top:1px solid var(--gray-100);padding-top:8px">${liHTML}</div>` : ''}
           <div class="fold-order-row" style="margin-top:6px;border-top:1px solid var(--gray-200);padding-top:6px"><span style="font-weight:700">Total</span><strong style="color:var(--accent);font-size:15px">${fmtMoney(o.total_amount||0)}</strong></div>
           ${notesHTML}
@@ -15188,7 +15192,7 @@ ${totalLinesXml}
     const wrap = document.getElementById('clean-queue-wrap');
     if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
     const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, special_instructions, source, rack_id,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id,
                customers(id, first_name_cache, last_name_cache, phone_cache), services(name)`)
       .eq('status', 'processing')
       .order('updated_at', { ascending: true });
