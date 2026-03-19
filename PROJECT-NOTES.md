@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 19, 2026 — On Account billing, schedule lock fix, QA hardening (session 40 cont'd)*
+*Last updated: Mar 19, 2026 — Schedule lock visual fix, QA hardening (session 40 cont'd)*
 
 ---
 
@@ -783,6 +783,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Schedule lock fix (commit `a9d88c5`):** Lock logic required `isComplete && windowClosed` — incomplete routes (with failed stops) never locked. Changed to lock on `windowClosed` alone (`isPast || (isToday && windowClosed)`). Applied to pickup cells, delivery cells, and driver reassignment popover.
 - **Orders page tab rename (commit `a278fcd`):** "Orders" → "List", "Order Schedule" → "Map".
 - **QA fixes (commit `5c160d4`):** Fixed `loadOrders()` race condition at 2 additional call sites (retryChargeFromIssues, add-order). Escaped single quotes in email/name interpolations in onclick attributes to prevent XSS via malformed DB values.
+- **Schedule lock visual fix (commit `7f7b44c`):** Today's locked cells (window_end + 2hr passed) had no visual indicator — no 🔒 icon, no dimming, only `cursor:default`. Looked identical to unlocked cells. Now all locked cells show 🔒 and reduced opacity (0.7 for today, 0.45 for past). Applied to both Drivers page and Orders page schedule grids.
 - **Next session priorities:**
   1. David creating final Zones and Route templates for testing
   2. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
@@ -1871,6 +1872,7 @@ fc94f6c  Simplify system: single driver model, status sync, routing errors
 5661355  Remove Default Driver — Driver Schedule is sole source of truth
 fd28b94  Move Driver Schedule to Orders page, unify driver assignment
 764d05c  Add live driver GPS tracking
+7f7b44c  fix: locked schedule cells now show lock icon + dimming for today too
 5c160d4  fix: QA — loadOrders race condition + XSS escaping in onclick handlers
 a9d88c5  fix: schedule cells lock on window_end + 2hr regardless of completion
 a278fcd  ux: rename Orders page tabs to List and Map
