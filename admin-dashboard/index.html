@@ -4204,7 +4204,6 @@
       clearNewOrderBadge();
       switchOrdersView('orders');
       if (!allServices.length || !allFees.length) { loadFees(); loadServices(); }
-      loadOrders(currentOrderFilter);
     }
     if (id === 'inbox')   loadInbox();
     if (id === 'maps')    {
@@ -4369,7 +4368,7 @@
     ]);
     allAddonServicesCache = addonSvcs || [];
     allPreferencesCache   = globalPrefs || [];
-    const results = await Promise.allSettled([loadSettings(), loadOverview(), loadCustomers(), loadOrders(), loadRoutes(), loadDiscounts(), initDriverMsgBadge()]);
+    const results = await Promise.allSettled([loadSettings(), loadOverview(), loadCustomers(), loadOrders(currentOrderFilter), loadRoutes(), loadDiscounts(), initDriverMsgBadge()]);
     const failed = results.filter(r => r.status === 'rejected');
     if (failed.length) {
       console.error('loadAll failures:', failed.map(r => r.reason));
@@ -7928,7 +7927,7 @@ ${totalLinesXml}
       document.getElementById('topbar-cta-label').textContent = 'New Order';
       document.getElementById('topbar-cta').style.display = '';
       loadOrders(currentOrderFilter);
-      try { history.replaceState(null, '', '#orders/orders'); } catch(_) {}
+      try { history.replaceState(null, '', '#orders/' + (currentOrderFilter || 'scheduled')); } catch(_) {}
     } else if (view === 'schedule') {
       scheduleView.style.display = 'flex';
       ovtSchedule.classList.add('active');
