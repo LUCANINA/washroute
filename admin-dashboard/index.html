@@ -6198,9 +6198,9 @@
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
     const notes = o.special_instructions || '';
 
-    // Add-on chips (read-only)
+    // Add-on chips (read-only) — only show items with a charge
     const addonItems = lineItems.filter(li =>
-      li.type === 'addon_service' || li.type === 'addon' || li.type === 'pref_service');
+      (li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && parseFloat(li.amount||0) > 0)));
     const addonChips = addonItems.length
       ? `<div style="margin-top:10px">
           <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400)">Add-ons</span>
@@ -6531,7 +6531,7 @@
 
     // Partition line items (same logic as _openReceiptWindow)
     const displayItems = (lineItems || []).filter(li =>
-      li.type === 'base' || li.type === 'overage' || li.type === 'addon_service');
+      li.type === 'base' || li.type === 'overage' || li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && parseFloat(li.amount||0) > 0));
     const delivFeeItem = (lineItems || []).find(li => li.type === 'delivery_fee');
     const sameDayItem  = (lineItems || []).find(li => li.type === 'same_day_surcharge');
     const creditItem   = (lineItems || []).find(li => li.type === 'credit');
@@ -6662,7 +6662,7 @@ ${totalLinesXml}
 
     // Partition line items — only show meaningful service lines in the invoice body
     const displayItems = (lineItems || []).filter(li =>
-      li.type === 'base' || li.type === 'overage' || li.type === 'addon_service');
+      li.type === 'base' || li.type === 'overage' || li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && parseFloat(li.amount||0) > 0));
     const delivFeeItem = (lineItems || []).find(li => li.type === 'delivery_fee');
     const sameDayItem  = (lineItems || []).find(li => li.type === 'same_day_surcharge');
     const creditItem   = (lineItems || []).find(li => li.type === 'credit');
@@ -6835,7 +6835,7 @@ ${totalLinesXml}
     const total     = Number(o.total_amount || 0);
     // Add-on tags: extract service name from "Vinegar × 3 bags" → "Vinegar"
     const addonTags = lineItems
-      .filter(li => li.type === 'addon_service')
+      .filter(li => li.type === 'addon_service' || li.type === 'pref_service')
       .map(li => (li.label || '').replace(/\s*×.*$/, '').trim())
       .filter(Boolean);
 
@@ -14785,7 +14785,11 @@ ${totalLinesXml}
       : `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No active launderers — add some in Settings → Launderers.</div>`;
     // Line items breakdown
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
-    const liHTML = lineItems.map(li => {
+    const liHTML = lineItems.filter(li => {
+      const amt = parseFloat(li.amount || 0);
+      if (li.type === 'addon' && amt === 0) return false; // skip $0 preference flags
+      return true;
+    }).map(li => {
       const amt = parseFloat(li.amount || 0);
       if (li.type === 'credit') return `<div style="display:flex;justify-content:space-between;font-size:12px;color:#059669"><span>${li.label||'Credit'}</span><span>−${fmtMoney(Math.abs(amt))}</span></div>`;
       return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-600)"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
@@ -14945,7 +14949,11 @@ ${totalLinesXml}
       : `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No racks set up yet — add them in Settings → Racks.</div>`;
     // Line items breakdown
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
-    const liHTML = lineItems.map(li => {
+    const liHTML = lineItems.filter(li => {
+      const amt = parseFloat(li.amount || 0);
+      if (li.type === 'addon' && amt === 0) return false; // skip $0 preference flags
+      return true;
+    }).map(li => {
       const amt = parseFloat(li.amount || 0);
       if (li.type === 'credit') return `<div style="display:flex;justify-content:space-between;font-size:12px;color:#059669"><span>${li.label||'Credit'}</span><span>−${fmtMoney(Math.abs(amt))}</span></div>`;
       return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-600)"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
@@ -15737,19 +15745,25 @@ ${totalLinesXml}
     ];
     if (bd.overage_charge > 0)
       lineItems.push({ type:'overage', label:`${bd.overage_lbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb`, amount: bd.overage_charge });
-    Object.values(procAddons).forEach(a =>
-      lineItems.push({ type:'addon', label: a.label, amount: a.price_mod||0 })
-    );
+    // Preference selections: only include as line items if they have a price > $0,
+    // and label them with the preference group name (not just "Yes"/"No").
+    // Also add linked services (e.g. Vinegar, Oxi) as separate addon_service items.
     allPreferencesCache.forEach(g => {
-      const selId  = procAddons[g.id]?.id;
-      if (!selId) return;
-      const selOpt = (g.options || []).find(o => o.id === selId);
+      const sel = procAddons[g.id];
+      if (!sel) return;
+      const selOpt = (g.options || []).find(o => o.id === sel.id);
+      // Charged preference option (e.g. "Fabric Softener: Yes" at $3)
+      const priceMod = parseFloat(sel.price_mod || 0);
+      if (priceMod > 0) {
+        lineItems.push({ type:'addon', label: `${g.name}: ${sel.label}`, amount: priceMod });
+      }
+      // Linked service (e.g. Vinegar × 2 bags) — only if non-default option selected
       if (!selOpt || selOpt.is_default) return;
       const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
       if (linkedSvc) {
         const price   = parseFloat(linkedSvc.base_price) || 0;
         const lineAmt = price * bd.bags;
-        lineItems.push({ type:'addon_service', service_id: linkedSvc.id,
+        lineItems.push({ type:'pref_service', service_id: linkedSvc.id,
           label: `${linkedSvc.name} × ${bd.bags} bag${bd.bags!==1?'s':''}`, amount: lineAmt });
       }
     });
@@ -15878,9 +15892,9 @@ ${totalLinesXml}
       }
     } catch (e) { /* print without route info */ }
 
-    // Add-on tags from addon_service line items — extract name before " × N"
+    // Add-on tags from addon_service / pref_service line items — extract name before " × N"
     const addonTags = (lineItems || [])
-      .filter(li => li.type === 'addon_service')
+      .filter(li => li.type === 'addon_service' || li.type === 'pref_service')
       .map(li => (li.label || '').replace(/\s*×.*$/, '').trim())
       .filter(Boolean);
 
