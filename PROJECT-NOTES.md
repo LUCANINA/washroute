@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 19, 2026 — Kanban tap-to-edit, paid order protection, iPad/Safari touch fix (session 38)*
+*Last updated: Mar 19, 2026 — Phone numbers removed from all apps; twilio-webhook v26 live*
 
 ---
 
@@ -152,9 +152,6 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 
 ### Processing / Racking
 - **Auto-send email receipt on Folding → Rack (session 30, commit `6068c8a`):** `saveRacking()` now fires a fire-and-forget `send-receipt` call after successfully charging the card and advancing status to `ready_for_delivery`. Previously, the receipt was only auto-sent in the POS intake flow — moving an order through the Folding → Rack kanban step charged the card silently with no email to the customer.
-- **Tap-to-edit kanban cards (session 38):** Clicking/tapping any kanban card opens the edit/action panel (no more separate buttons on cards). Each step has a single context-aware action button: "Save & Start Processing" (Intake), "Save & Assign to Folder" (Cleaning), "Save & Charge → Rack" (Folding). Order details (weight, bags, add-ons, notes) are editable at every pre-charge step via `openIntakePanel(orderId, editMode)`. Shared `_buildIntakeLineItems()` helper builds line_items consistently.
-- **Paid order protection (session 38):** Orders with `stripe_payment_intent_id` show a ✅ Paid badge in ALL kanban columns (Intake, Cleaning, Folding, Rack). Tapping a paid card opens the rack assignment panel directly — no edit panel. Details are read-only after charge.
-- **iPad/Safari touch fix (session 38, commit `6b9ecdf`):** Refactored touch handlers with tap-vs-drag detection (10px movement threshold). `touchStartOrder()` no longer calls `event.preventDefault()` immediately, which was blocking `onclick` on iOS Safari. Taps now trigger `card.click()` on `touchEnd`; drags only initiate after sufficient finger movement.
 
 ### Settings
 - **Sidebar nav reorganized (session 23):** "Timezone" nav item renamed to **"Printer"** (printer icon) → shows only the Receipt Printer card. Business Timezone moved into **Routes → Settings tab** (new 3rd tab in the Maps/Routes page alongside Zones and Route Templates). Topbar CTA hides on the Settings tab (no action button needed there).
@@ -755,22 +752,6 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
-
----
-
-### Mar 19, 2026 (session 38) — Kanban tap-to-edit UX overhaul + paid order protection + iPad Safari fix
-
-- **Tap-to-edit kanban cards (commits `2fe09d7`, `4fc8d4e`, `c801c68`):** Removed all action buttons from kanban cards. Tapping any card now opens the intake/edit panel. Each step has a single context-aware button that saves changes AND advances the order: Intake → "Save & Start Processing", Cleaning → "Save & Assign to Folder", Folding → "Save & Charge → Rack". `openIntakePanel(orderId, editMode)` accepts an `editMode` flag for re-editing from Cleaning/Folding columns.
-- **Shared `_buildIntakeLineItems()` helper:** Extracted line_items builder into a reusable function used by both `saveIntake()` and `intakeNextStep()`. Handles base bags, overage, add-ons, preference-linked services, delivery fees, and credits.
-- **`intakeNextStep()` context-aware handler:** Reads `procActiveOrder.status` to determine behavior — `picked_up` runs the full `saveIntake()` flow (save + print tag + receipt); `processing` saves changes then opens fold panel; `folding` saves changes then opens rack panel.
-- **Paid order protection (commits `4fc8d4e`, `2c0eb00`, `075fce3`):** Orders with `stripe_payment_intent_id` show ✅ Paid badge in ALL columns. Tapping a paid card goes straight to `openRackPanel()` — no edit panel. Both intake queries (`loadProcessing` and `loadIntakeCol`) now include `stripe_payment_intent_id` and `weight_lbs` in the SELECT.
-- **Removed functions:** `intakeSaveOnly()`, `_intakeSaveChanges()` — no longer needed after removing "Save Changes Only" button.
-- **Simplified `updateIntakeSaveBtn()`:** Now just checks weight > 0 to enable the single action button.
-- **iPad/Safari touch fix (commit `6b9ecdf`):** `touchStartOrder()` was calling `event.preventDefault()` immediately, blocking `onclick` from firing on iOS Safari. Refactored to tap-vs-drag pattern: touchstart records position only, touchmove checks 10px threshold before initiating drag, touchend calls `card.click()` if no drag occurred. New state vars: `_tdTapStart`, `_tdDragStarted`.
-- **Next session priorities:**
-  1. SMS Phase 2 — natural-language cancellations ("cancel Thursday")
-  2. Launderer reporting Phase 2 — date range mode
-  3. Route picker fine-tuning (backlog)
 
 ---
 
@@ -1780,12 +1761,6 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
-6b9ecdf  fix: iPad/Safari tap-to-open on kanban cards
-075fce3  fix: show Paid badge on Intake cards and block editing for charged orders
-2c0eb00  fix: show Paid badge and block editing on all columns for charged orders
-c801c68  refactor: simplify intake panel — single action button per step
-4fc8d4e  fix: already-charged orders skip edit panel, go straight to rack assignment
-2fe09d7  feat: tap-to-edit kanban cards — unified edit panel for all processing steps
 0706362  feat: customer app — Skip this pickup button for recurring orders
 7d7a09e  ux: Issues tab — issue type labels, one-click actions, retry charge
 d884169  feat: cancelled_by field — distinguish customer vs driver vs admin skips

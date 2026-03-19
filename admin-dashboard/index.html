@@ -2807,10 +2807,15 @@
         <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);width:80px;flex-shrink:0">Bags</span>
         <input id="op-bags-input" type="number" min="0" step="1" style="flex:1;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;color:var(--gray-800)" placeholder="—" oninput="opRecalcEstimate()">
       </div>
-      <div id="op-weight-row" style="display:none;align-items:center;gap:8px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);width:80px;flex-shrink:0">Weight</span>
-        <span id="op-weight-display" style="font-size:13px;font-weight:600;color:var(--gray-800)">—</span>
+        <div style="flex:1;display:flex;align-items:center;gap:6px">
+          <input id="op-weight-input" type="number" min="0" step="0.1" style="flex:1;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;color:var(--gray-800)" placeholder="—" oninput="opRecalcEstimate()">
+          <span style="font-size:12px;color:var(--gray-400)">lbs</span>
+        </div>
       </div>
+      <!-- Add-ons section (dynamically rendered from line_items + preferences) -->
+      <div id="op-addons-section" style="margin-bottom:10px"></div>
       <div id="op-cost-breakdown" style="margin-top:6px;font-size:12.5px;color:var(--gray-600);line-height:2"></div>
     </div>
 
@@ -3354,7 +3359,7 @@
   </div>
   <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
     <div id="rack-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
-    <button class="proc-save-btn" id="rack-save-btn" onclick="saveRacking()" disabled style="background:#7c3aed">🗂️ Rack &amp; Mark Assembled</button>
+    <div id="rack-charging" style="display:none;text-align:center;font-size:13px;color:var(--gray-500)"><div class="spinner" style="margin:0 auto 6px"></div>Charging & racking…</div>
   </div>
 </div>
 
@@ -5292,18 +5297,11 @@
     if (_daWrap) _daWrap.style.display = _diffAddr ? '' : 'none';
 
     // Details tab
-    document.getElementById('op-bags-input').value = o.total_bags != null ? o.total_bags : (o.weight_lbs != null ? Number(o.weight_lbs) : '');
+    document.getElementById('op-bags-input').value = o.total_bags != null ? o.total_bags : '';
+    document.getElementById('op-weight-input').value = o.weight_lbs != null ? Number(o.weight_lbs) : '';
     document.getElementById('op-notes-input').value = o.special_instructions || '';
     document.getElementById('op-details-msg').style.display = 'none';
-    // Weight row — show only when weight has been recorded (set during processing)
-    const _wRow = document.getElementById('op-weight-row');
-    const _wEl  = document.getElementById('op-weight-display');
-    if (o.weight_lbs && _wRow && _wEl) {
-      _wEl.textContent = o.weight_lbs + ' lbs';
-      _wRow.style.display = 'flex';
-    } else if (_wRow) {
-      _wRow.style.display = 'none';
-    }
+    opRenderAddons(o);
     opRecalcEstimate();
 
     // Billing tab
@@ -6174,31 +6172,52 @@
   }
 
   // ── DETAILS TAB ──
+
+  // Render add-on chips from saved line_items so the manager sees what was selected at intake
+  function opRenderAddons(o) {
+    const el = document.getElementById('op-addons-section');
+    if (!el) return;
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const addonItems = lineItems.filter(li => li.type === 'addon_service' || li.type === 'addon' || li.type === 'pref_service');
+    if (!addonItems.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `
+      <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400)">Add-ons</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+        ${addonItems.map(li => `<span style="font-size:12px;padding:3px 10px;border-radius:20px;background:var(--accent-light);color:var(--accent);font-weight:600">${li.label} ${parseFloat(li.amount||0)>0 ? fmtMoney(li.amount) : ''}</span>`).join('')}
+      </div>`;
+  }
+
   function opRecalcEstimate() {
     const el = document.getElementById('op-cost-breakdown');
     if (!el) return;
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) { el.innerHTML = ''; return; }
 
-    const bags = parseInt(document.getElementById('op-bags-input').value) || 0;
+    const bags   = parseInt(document.getElementById('op-bags-input').value) || 0;
+    const weight = parseFloat(document.getElementById('op-weight-input').value) || 0;
     const svc = allServices.find(s => s.id === o.service_id);
-    const basePrice = svc ? parseFloat(svc.base_price || 0) : 0;
+    const basePrice  = svc ? parseFloat(svc.base_price || 0) : 0;
+    const lbsPerBag  = svc ? parseFloat(svc.lbs_per_bag || 25) : 25;
+    const ovgRate    = svc ? parseFloat(svc.overage_rate_per_lb || 3) : 3;
 
     // Delivery fee from allFees
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
 
-    // Same-day surcharge (controlled by toggle — always live)
+    // Same-day surcharge
     const sameDayFeeObj = allFees.find(f => (f.category === 'Surcharge' || f.category === 'surcharge') && (f.name || '').toLowerCase().includes('same'));
     const sameDaySurcharge = opIsSameDay ? (sameDayFeeObj ? parseFloat(sameDayFeeObj.amount || 0) : 10) : 0;
 
     const bagTotal = bags * basePrice;
 
-    // Saved line items — show add-on services and overages from processing.
-    // Whitelist only: 'addon' type has raw option labels ("Yes", "Hot") that are either $0
-    // noise or already covered by the matching addon_service line — exclude them.
+    // Overage: weight beyond (bags × lbs_per_bag)
+    const allowedLbs = bags * lbsPerBag;
+    const overageLbs = weight > 0 && weight > allowedLbs ? weight - allowedLbs : 0;
+    const overageAmt = overageLbs > 0 ? overageLbs * ovgRate : 0;
+
+    // Saved line items — show add-on services and preference-linked services
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
-    const extraTypes = new Set(['addon_service', 'overage']);
+    const extraTypes = new Set(['addon_service', 'pref_service']);
     const extraItems = lineItems.filter(li => extraTypes.has(li.type));
     const creditItem = lineItems.find(li => li.type === 'credit');
     const creditAmt  = creditItem ? Math.abs(parseFloat(creditItem.amount || 0)) : 0;
@@ -6210,6 +6229,10 @@
       html += `<div style="display:flex;justify-content:space-between"><span>${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}</span><span>${fmtMoney(bagTotal)}</span></div>`;
       total += bagTotal;
     }
+    if (overageAmt > 0) {
+      html += `<div style="display:flex;justify-content:space-between"><span>Overage: ${overageLbs.toFixed(1)} lbs × ${fmtMoney(ovgRate)}/lb</span><span>${fmtMoney(overageAmt)}</span></div>`;
+      total += overageAmt;
+    }
     if (deliveryFee > 0) {
       html += `<div style="display:flex;justify-content:space-between"><span>Delivery Fee</span><span>${fmtMoney(deliveryFee)}</span></div>`;
       total += deliveryFee;
@@ -6218,7 +6241,7 @@
       html += `<div style="display:flex;justify-content:space-between"><span>⚡ Same-day surcharge</span><span>${fmtMoney(sameDaySurcharge)}</span></div>`;
       total += sameDaySurcharge;
     }
-    // Extra line items from processing (add-on services, overages, etc.)
+    // Add-on services from processing
     extraItems.forEach(li => {
       const amt = parseFloat(li.amount || 0);
       html += `<div style="display:flex;justify-content:space-between"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
@@ -6230,7 +6253,8 @@
     }
 
     total = Math.max(0, total);
-    const totalLabel = extraItems.length > 0 ? 'Total' : 'Estimated Total';
+    const hasWeight = weight > 0;
+    const totalLabel = hasWeight ? 'Total' : 'Estimated Total';
     html += `<div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--gray-200);padding-top:4px;margin-top:4px;font-size:13.5px;color:var(--gray-800)"><span>${totalLabel}</span><span>${fmtMoney(total)}</span></div>`;
     el.innerHTML = html;
   }
@@ -6238,37 +6262,52 @@
   async function opSaveDetails() {
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
-    const bags  = parseInt(document.getElementById('op-bags-input').value) || 0;
-    const notes = document.getElementById('op-notes-input').value.trim();
+    const bags   = parseInt(document.getElementById('op-bags-input').value) || 0;
+    const weight = parseFloat(document.getElementById('op-weight-input').value) || 0;
+    const notes  = document.getElementById('op-notes-input').value.trim();
 
-    // Recalculate total based on bags + delivery fee + same-day surcharge
     const svc = allServices.find(s => s.id === o.service_id);
-    const basePrice = svc ? parseFloat(svc.base_price || 0) : 0;
+    const basePrice  = svc ? parseFloat(svc.base_price || 0) : 0;
+    const lbsPerBag  = svc ? parseFloat(svc.lbs_per_bag || 25) : 25;
+    const ovgRate    = svc ? parseFloat(svc.overage_rate_per_lb || 3) : 3;
+
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     const bagTotal = bags * basePrice;
+
+    // Overage
+    const allowedLbs = bags * lbsPerBag;
+    const overageLbs = weight > 0 && weight > allowedLbs ? weight - allowedLbs : 0;
+    const overageAmt = overageLbs > 0 ? overageLbs * ovgRate : 0;
 
     // Same-day surcharge
     const sameDayFeeObj = allFees.find(f => (f.category === 'Surcharge' || f.category === 'surcharge') && (f.name || '').toLowerCase().includes('same'));
     const sameDaySurcharge = opIsSameDay ? (sameDayFeeObj ? parseFloat(sameDayFeeObj.amount || 0) : 10) : 0;
 
-    // Preserve credits if already applied
-    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
-    const creditItem = lineItems.find(li => li.type === 'credit');
-    const creditAmt = creditItem ? Math.abs(parseFloat(creditItem.amount || 0)) : 0;
+    // Preserve existing add-on/pref line items and credits
+    const existingLineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const addonItems  = existingLineItems.filter(li => li.type === 'addon_service' || li.type === 'pref_service' || li.type === 'addon');
+    const creditItem  = existingLineItems.find(li => li.type === 'credit');
+    const creditAmt   = creditItem ? Math.abs(parseFloat(creditItem.amount || 0)) : 0;
 
-    const newTotal = Math.max(0, bagTotal + deliveryFee + sameDaySurcharge - creditAmt);
+    let addonTotal = 0;
+    addonItems.forEach(li => addonTotal += parseFloat(li.amount || 0));
+
+    const newTotal = Math.max(0, bagTotal + overageAmt + deliveryFee + sameDaySurcharge + addonTotal - creditAmt);
 
     // Build line items
     const newLineItems = [];
     if (bags > 0 && basePrice > 0) newLineItems.push({ type: 'base', label: `${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}`, amount: bagTotal });
+    if (overageAmt > 0) newLineItems.push({ type: 'overage', label: `Overage: ${overageLbs.toFixed(1)} lbs × ${fmtMoney(ovgRate)}/lb`, amount: overageAmt });
     if (deliveryFee > 0) newLineItems.push({ type: 'fee', label: 'Delivery Fee', amount: deliveryFee });
     if (sameDaySurcharge > 0) newLineItems.push({ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge });
-    if (creditItem) newLineItems.push(creditItem); // keep existing credit
+    addonItems.forEach(li => newLineItems.push(li)); // preserve add-ons from processing
+    if (creditItem) newLineItems.push(creditItem);
 
     const update = {
       special_instructions: notes || null,
       total_bags: bags || null,
+      weight_lbs: weight > 0 ? weight : null,
       total_amount: newTotal,
       line_items: newLineItems,
       updated_at: new Date().toISOString(),
@@ -6278,12 +6317,13 @@
     if (error) { showToast('Failed to save', 'error'); return; }
     Object.assign(o, update);
     document.getElementById('op-bill-total').textContent = fmtMoney(newTotal);
-    opPopulateBilling(o); // refresh Charge button label with updated total
+    opPopulateBilling(o);
     showToast(`Order #${o.order_number} updated — ${fmtMoney(newTotal)}`, 'success');
     const msg = document.getElementById('op-details-msg');
     msg.style.display = ''; setTimeout(() => msg.style.display = 'none', 2500);
-    // Refresh orders list
+    // Refresh orders list + kanban if Processing tab is open
     renderOrders(getFilteredOrders());
+    if (typeof reloadColumns === 'function') reloadColumns('intake','cleaning','folding','rack');
   }
 
   // ── BILLING TAB ──
@@ -14542,7 +14582,7 @@ ${totalLinesXml}
       const alreadyPaid = !!o.stripe_payment_intent_id;
       return `<div class="proc-card" id="fold-card-${o.id}"
         style="cursor:pointer"
-        onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openIntakePanel('${o.id}',true)`}"
+        onclick="openRackPanel('${o.id}')"
         draggable="true"
         ondragstart="dragStartOrder(event,'${o.id}')"
         ondragend="dragEndOrder('${o.id}')"
@@ -14599,6 +14639,15 @@ ${totalLinesXml}
             👤 ${l.name}
           </button>`).join('')}</div>`
       : `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No active launderers — add some in Settings → Launderers.</div>`;
+    // Line items breakdown
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const liHTML = lineItems.map(li => {
+      const amt = parseFloat(li.amount || 0);
+      if (li.type === 'credit') return `<div style="display:flex;justify-content:space-between;font-size:12px;color:#059669"><span>${li.label||'Credit'}</span><span>−${fmtMoney(Math.abs(amt))}</span></div>`;
+      return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-600)"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
+    }).join('');
+    const notesHTML = o.special_instructions
+      ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${o.special_instructions}"</div>` : '';
     document.getElementById('fold-body').innerHTML = `
       <div class="intake-section">
         <div class="intake-section-label">Order Summary</div>
@@ -14608,7 +14657,9 @@ ${totalLinesXml}
           <div class="fold-order-row"><span>Service</span><strong>${o.services?.name||'—'}</strong></div>
           <div class="fold-order-row"><span>Bags</span><strong>${bags} bag${bags!==1?'s':''}</strong></div>
           <div class="fold-order-row"><span>Weight</span><strong>${lbs}</strong></div>
-          <div class="fold-order-row"><span>Total</span><strong style="color:var(--accent)">${fmtMoney(o.total_amount||0)}</strong></div>
+          ${liHTML ? `<div style="margin-top:8px;border-top:1px solid var(--gray-100);padding-top:8px">${liHTML}</div>` : ''}
+          <div class="fold-order-row" style="margin-top:6px;border-top:1px solid var(--gray-200);padding-top:6px"><span style="font-weight:700">Total</span><strong style="color:var(--accent);font-size:15px">${fmtMoney(o.total_amount||0)}</strong></div>
+          ${notesHTML}
         </div>
       </div>
       <div class="intake-section">
@@ -14726,10 +14777,9 @@ ${totalLinesXml}
       ? `${`${fn} ${ln}`.trim()||'Order'} — Change Rack`
       : `${`${fn} ${ln}`.trim()||'Order'} — Assign Rack`;
     document.getElementById('rack-subtitle').textContent = `Order #${order.order_number||'—'} · ${order.services?.name||''}`;
-    // Enable save immediately if re-racking (current rack is pre-selected)
-    document.getElementById('rack-save-btn').disabled    = !isRerack;
-    document.getElementById('rack-save-btn').textContent = isRerack ? '🗂️ Move to Rack' : '🗂️ Rack & Mark Ready for Delivery';
     document.getElementById('rack-error').style.display  = 'none';
+    const chargingEl = document.getElementById('rack-charging');
+    if (chargingEl) chargingEl.style.display = 'none';
     renderRackPanel();
     document.getElementById('rack-panel').classList.add('open');
   }
@@ -14747,6 +14797,15 @@ ${totalLinesXml}
             <span>${r.name}</span>
           </button>`).join('')}</div>`
       : `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No racks set up yet — add them in Settings → Racks.</div>`;
+    // Line items breakdown
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const liHTML = lineItems.map(li => {
+      const amt = parseFloat(li.amount || 0);
+      if (li.type === 'credit') return `<div style="display:flex;justify-content:space-between;font-size:12px;color:#059669"><span>${li.label||'Credit'}</span><span>−${fmtMoney(Math.abs(amt))}</span></div>`;
+      return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-600)"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
+    }).join('');
+    const notesHTML = o.special_instructions
+      ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${o.special_instructions}"</div>` : '';
     document.getElementById('rack-body').innerHTML = `
       <div class="intake-section">
         <div class="intake-section-label">Order Summary</div>
@@ -14756,6 +14815,9 @@ ${totalLinesXml}
           <div class="fold-order-row"><span>Service</span><strong>${o.services?.name||'—'}</strong></div>
           <div class="fold-order-row"><span>Bags</span><strong>${bags} bag${bags!==1?'s':''}</strong></div>
           <div class="fold-order-row"><span>Weight</span><strong>${lbs}</strong></div>
+          ${liHTML ? `<div style="margin-top:8px;border-top:1px solid var(--gray-100);padding-top:8px">${liHTML}</div>` : ''}
+          <div class="fold-order-row" style="margin-top:6px;border-top:1px solid var(--gray-200);padding-top:6px"><span style="font-weight:700">Total</span><strong style="color:var(--accent);font-size:15px">${fmtMoney(o.total_amount||0)}</strong></div>
+          ${notesHTML}
         </div>
       </div>
       <div class="intake-section">
@@ -14767,9 +14829,8 @@ ${totalLinesXml}
   function selectRack(rackId) {
     selectedRackId = rackId;
     renderRackPanel();
-    const btn = document.getElementById('rack-save-btn');
-    btn.disabled = false;
-    btn.textContent = rackActiveOrder?.rack_id ? '🗂️ Move to Rack' : '🗂️ Rack & Mark Ready for Delivery';
+    // Auto-advance: selecting a rack immediately triggers charge + rack
+    saveRacking();
   }
 
   function closeRackPanel() {
@@ -14779,9 +14840,10 @@ ${totalLinesXml}
 
   async function saveRacking() {
     if (!rackActiveOrder || !selectedRackId) return;
-    const btn = document.getElementById('rack-save-btn');
     const errEl = document.getElementById('rack-error');
-    btn.disabled = true; btn.textContent = 'Charging…';
+    const chargingEl = document.getElementById('rack-charging');
+    if (chargingEl) chargingEl.style.display = '';
+    errEl.style.display = 'none';
 
     const isRerack = !!rackActiveOrder.rack_id; // re-racking = just moving racks, no charge
     const alreadyCharged = !!rackActiveOrder.stripe_payment_intent_id;
@@ -14811,12 +14873,11 @@ ${totalLinesXml}
         // Payment failed — keep order in Folding
         errEl.textContent = '⚠️ Payment failed: ' + e.message + ' — order stays in Folding.';
         errEl.style.display = '';
-        btn.disabled = false; btn.textContent = '🗂️ Rack & Mark Ready for Delivery';
+        if (chargingEl) chargingEl.style.display = 'none';
         return; // do NOT advance to ready_for_delivery
       }
     }
 
-    btn.textContent = 'Saving…';
     const { error } = await db.from('orders').update({
       status: 'ready_for_delivery', rack_id: selectedRackId,
       racked_at: new Date().toISOString(), updated_at: new Date().toISOString()
@@ -14824,7 +14885,7 @@ ${totalLinesXml}
     if (error) {
       errEl.textContent = error.message;
       errEl.style.display = '';
-      btn.disabled = false; btn.textContent = rackActiveOrder?.rack_id ? '🗂️ Move to Rack' : '🗂️ Rack & Mark Ready for Delivery';
+      if (chargingEl) chargingEl.style.display = 'none';
       return;
     }
     const rackName   = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
@@ -14907,7 +14968,7 @@ ${totalLinesXml}
   let procIsSameDay = false;  // true when pickup date === delivery date
   let procCustomerCredits = 0; // customer's available credit balance
   let procCustomerId = null;   // customer ID for credit deduction
-  let _intakeEditMode = false; // true when editing from Cleaning/Folding (not new intake)
+  // _intakeEditMode removed — intake panel is only used for Intake column now
   let allAddonServicesCache = []; // active is_addon services with pricelist + linked_preference_id
   let allPreferencesCache  = []; // global preferences table (for pre-fill logic)
 
@@ -15012,7 +15073,7 @@ ${totalLinesXml}
       const alreadyPaid = !!o.stripe_payment_intent_id;
       return `<div class="proc-card" id="clean-card-${o.id}"
         style="cursor:pointer"
-        onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openIntakePanel('${o.id}',true)`}"
+        onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openFoldPanel('${o.id}')`}"
         draggable="true"
         ondragstart="dragStartOrder(event,'${o.id}')"
         ondragend="dragEndOrder('${o.id}')"
@@ -15092,8 +15153,7 @@ ${totalLinesXml}
     }).join('');
   }
 
-  async function openIntakePanel(orderId, editMode) {
-    _intakeEditMode = !!editMode;
+  async function openIntakePanel(orderId) {
     // Fresh-fetch the order so bags/notes/dates are always current
     // (admin may have changed them in the order panel since the proc queue last loaded)
     const { data: freshOrder } = await db.from('orders')
@@ -15119,27 +15179,19 @@ ${totalLinesXml}
     procActiveOrder = order;
     procSvc         = order.services;
     procBags        = order.total_bags || 1;
-    // In edit mode, pre-fill existing weight; in new intake, start blank
-    procWeight      = _intakeEditMode && order.weight_lbs ? String(Number(order.weight_lbs)) : '';
+    // Start weight blank for new intake (user must weigh the order)
+    procWeight      = '';
     procNotes       = order.special_instructions || '';
 
     // Show panel immediately so there's no delay (add-ons resolved after fresh fetch below)
     const fn = order.customers?.first_name_cache || '';
     const ln = order.customers?.last_name_cache  || '';
-    const titleText = _intakeEditMode ? 'Edit Order' : 'Process Order';
-    document.getElementById('intake-title').textContent    = `${fn} ${ln}`.trim() || titleText;
+    document.getElementById('intake-title').textContent    = `${fn} ${ln}`.trim() || 'Process Order';
     document.getElementById('intake-subtitle').textContent = `Order #${order.order_number||'—'} · ${procSvc?.name||''}`;
-    // Configure footer button based on order status / mode
-    const nextBtn     = document.getElementById('intake-next-btn');
-    const orderStatus = order.status;
-    // Next-step button label depends on which column the order is in
-    const nextLabels = {
-      picked_up:  '⚖️ Save & Start Processing',
-      processing: '👕 Save & Assign to Folder',
-      folding:    '💳 Save & Charge → Rack'
-    };
-    nextBtn.textContent = nextLabels[orderStatus] || '⚖️ Save & Start Processing';
-    nextBtn.disabled = !_intakeEditMode; // new intake requires weight first
+    // Configure footer button — Intake only
+    const nextBtn = document.getElementById('intake-next-btn');
+    nextBtn.textContent = '⚖️ Save & Start Processing';
+    nextBtn.disabled = true; // requires weight first
     document.getElementById('intake-error').style.display  = 'none';
     procAddons = {};
     procAddonServices = {};
@@ -15521,43 +15573,13 @@ ${totalLinesXml}
     document.getElementById('intake-panel').classList.remove('open');
     procActiveOrder = null; procSvc = null;
     procFeeExempt = false; procIsSameDay = false;
-    _intakeEditMode = false;
   }
 
   // ── INTAKE: "Next Step" button — advances order to the next column ──
   async function intakeNextStep() {
     if (!procActiveOrder) return;
-    const status = procActiveOrder.status;
-    if (status === 'picked_up') {
-      // Intake → Cleaning: original saveIntake() flow (saves weight, prints tag, sends receipt)
-      await saveIntake();
-    } else if (status === 'processing' || status === 'folding') {
-      // Save order changes, then open the next panel
-      const weight = parseFloat(procWeight);
-      if (!weight || weight <= 0) { showToast('Please enter the order weight.', 'error'); return; }
-      const btn = document.getElementById('intake-next-btn');
-      btn.disabled = true; btn.textContent = 'Saving…';
-      const svc = procSvc || {};
-      const bd  = calcProcTotal();
-      const lineItems = _buildIntakeLineItems(bd, parseFloat(svc.base_price||0), parseFloat(svc.overage_rate_per_lb||3));
-      const { error } = await db.from('orders').update({
-        weight_lbs: weight, total_bags: bd.bags,
-        total_amount: bd.total, line_items: lineItems,
-        is_same_day: procIsSameDay,
-        special_instructions: procNotes || null,
-        updated_at: new Date().toISOString()
-      }).eq('id', procActiveOrder.id);
-      if (error) {
-        const errEl = document.getElementById('intake-error');
-        errEl.textContent = error.message; errEl.style.display = '';
-        btn.disabled = false; btn.textContent = status === 'processing' ? '👕 Save & Assign to Folder' : '💳 Save & Charge → Rack';
-        return;
-      }
-      const orderId = procActiveOrder.id;
-      closeIntakePanel();
-      if (status === 'processing') openFoldPanel(orderId);
-      else openRackPanel(orderId);
-    }
+    // Intake is the only column that opens this panel now
+    await saveIntake();
   }
 
   // ── Build line_items array from current panel state ──
