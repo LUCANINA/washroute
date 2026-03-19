@@ -2801,30 +2801,45 @@
   <!-- ── DETAILS TAB ── -->
   <div class="op-tab-body" id="op-tab-details" style="display:none">
 
-    <div class="op-sec-head">Order Details</div>
-    <div class="op-sched-card">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);width:80px;flex-shrink:0">Bags</span>
-        <input id="op-bags-input" type="number" min="0" step="1" style="flex:1;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;color:var(--gray-800)" placeholder="—" oninput="opRecalcEstimate()">
-      </div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);width:80px;flex-shrink:0">Weight</span>
-        <div style="flex:1;display:flex;align-items:center;gap:6px">
-          <input id="op-weight-input" type="number" min="0" step="0.1" style="flex:1;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;color:var(--gray-800)" placeholder="—" oninput="opRecalcEstimate()">
-          <span style="font-size:12px;color:var(--gray-400)">lbs</span>
-        </div>
-      </div>
-      <!-- Add-ons section (dynamically rendered from line_items + preferences) -->
-      <div id="op-addons-section" style="margin-bottom:10px"></div>
-      <div id="op-cost-breakdown" style="margin-top:6px;font-size:12.5px;color:var(--gray-600);line-height:2"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div class="op-sec-head" style="margin:0">Order Details</div>
+      <button class="btn btn-ghost" id="op-details-edit-btn" onclick="opToggleDetailsEdit()" style="font-size:12px;padding:4px 12px;color:var(--accent);font-weight:600">✏️ Edit</button>
     </div>
 
-    <div class="op-sec-head" style="margin-top:14px">Special Instructions</div>
-    <div class="op-sched-card" style="padding:10px 14px">
-      <textarea id="op-notes-input" rows="4" style="width:100%;border:none;outline:none;font-size:13px;color:var(--gray-800);resize:vertical;font-family:inherit;background:transparent;line-height:1.5" placeholder="No special instructions…"></textarea>
+    <!-- ── READ-ONLY VIEW ── -->
+    <div id="op-details-readonly" class="op-sched-card" style="margin-top:8px">
+      <div id="op-details-ro-content"></div>
     </div>
-    <button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="opSaveDetails()">Save Details</button>
-    <div id="op-details-msg" style="font-size:12px;color:var(--green);margin-top:6px;text-align:center;display:none">✓ Saved</div>
+
+    <!-- ── EDIT VIEW (hidden by default) ── -->
+    <div id="op-details-editview" style="display:none;margin-top:8px">
+      <div class="op-sched-card">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);width:80px;flex-shrink:0">Bags</span>
+          <input id="op-bags-input" type="number" min="0" step="1" style="flex:1;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;color:var(--gray-800)" placeholder="—" oninput="opRecalcEstimate()">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400);width:80px;flex-shrink:0">Weight</span>
+          <div style="flex:1;display:flex;align-items:center;gap:6px">
+            <input id="op-weight-input" type="number" min="0" step="0.1" style="flex:1;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;color:var(--gray-800)" placeholder="—" oninput="opRecalcEstimate()">
+            <span style="font-size:12px;color:var(--gray-400)">lbs</span>
+          </div>
+        </div>
+        <!-- Toggleable add-ons -->
+        <div id="op-addons-edit-section" style="margin-bottom:10px"></div>
+        <div id="op-cost-breakdown" style="margin-top:6px;font-size:12.5px;color:var(--gray-600);line-height:2"></div>
+      </div>
+
+      <div class="op-sec-head" style="margin-top:14px">Special Instructions</div>
+      <div class="op-sched-card" style="padding:10px 14px">
+        <textarea id="op-notes-input" rows="4" style="width:100%;border:none;outline:none;font-size:13px;color:var(--gray-800);resize:vertical;font-family:inherit;background:transparent;line-height:1.5" placeholder="No special instructions…"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn" style="flex:1;padding:10px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:13px;font-weight:600;color:var(--gray-600);background:white" onclick="opCancelDetailsEdit()">Cancel</button>
+        <button class="btn btn-primary" style="flex:2;padding:10px" onclick="opSaveDetails()">Save Details</button>
+      </div>
+      <div id="op-details-msg" style="font-size:12px;color:var(--green);margin-top:6px;text-align:center;display:none">✓ Saved</div>
+    </div>
 
     <!-- Proof photos from driver app (populated dynamically) -->
     <div id="op-proof-section" style="display:none;margin-top:18px">
@@ -4119,7 +4134,9 @@
           if (opCurrentOrderId === updated.id) {
             document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(updated.status);
             opRefreshAdvanceBtn(allOrders[idx]);
-            opRecalcEstimate();   // refresh Details tab with latest line_items + total
+            // Refresh Details tab — if in edit mode, recalc; if read-only, re-render
+            if (_opDetailsEditing) opRecalcEstimate();
+            else opRenderDetailsReadonly(allOrders[idx]);
             opPopulateBilling(allOrders[idx]); // refresh Billing tab charge button
           }
         }
@@ -5296,13 +5313,10 @@
     if (_daChk)  _daChk.checked = _diffAddr;
     if (_daWrap) _daWrap.style.display = _diffAddr ? '' : 'none';
 
-    // Details tab
-    document.getElementById('op-bags-input').value = o.total_bags != null ? o.total_bags : '';
-    document.getElementById('op-weight-input').value = o.weight_lbs != null ? Number(o.weight_lbs) : '';
-    document.getElementById('op-notes-input').value = o.special_instructions || '';
-    document.getElementById('op-details-msg').style.display = 'none';
-    opRenderAddons(o);
-    opRecalcEstimate();
+    // Details tab — always start in read-only mode
+    _opDetailsEditing = false;
+    opRenderDetailsReadonly(o);
+    opHideDetailsEdit();
 
     // Billing tab
     opPopulateBilling(o);
@@ -6172,53 +6186,176 @@
   }
 
   // ── DETAILS TAB ──
+  let _opDetailsEditing = false;
+  let _opEditAddons = {}; // { lineItemIndex: true/false } — tracks which add-ons are toggled on/off in edit mode
 
-  // Render add-on chips from saved line_items so the manager sees what was selected at intake
-  function opRenderAddons(o) {
-    const el = document.getElementById('op-addons-section');
+  // ── READ-ONLY VIEW ──
+  function opRenderDetailsReadonly(o) {
+    const el = document.getElementById('op-details-ro-content');
+    if (!el) return;
+    const bags = o.total_bags || 0;
+    const lbs  = o.weight_lbs ? Number(o.weight_lbs) : null;
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const notes = o.special_instructions || '';
+
+    // Add-on chips (read-only)
+    const addonItems = lineItems.filter(li =>
+      li.type === 'addon_service' || li.type === 'addon' || li.type === 'pref_service');
+    const addonChips = addonItems.length
+      ? `<div style="margin-top:10px">
+          <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400)">Add-ons</span>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+            ${addonItems.map(li => {
+              const amt = parseFloat(li.amount||0);
+              return `<span style="font-size:12px;padding:3px 10px;border-radius:20px;background:var(--accent-light);color:var(--accent);font-weight:600">${li.label}${amt>0 ? ' '+fmtMoney(amt) : ''}</span>`;
+            }).join('')}
+          </div>
+        </div>` : '';
+
+    // Cost breakdown
+    let breakdownHTML = '';
+    let total = 0;
+    lineItems.forEach(li => {
+      const amt = parseFloat(li.amount || 0);
+      if (li.type === 'credit') {
+        breakdownHTML += `<div style="display:flex;justify-content:space-between;font-size:12.5px;color:#059669"><span>${li.label||'Credit'}</span><span>−${fmtMoney(Math.abs(amt))}</span></div>`;
+        total -= Math.abs(amt);
+      } else if (li.type !== 'addon' || amt > 0) {
+        breakdownHTML += `<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--gray-600)"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
+        total += amt;
+      }
+    });
+    // Fallback if no line_items but has total_amount
+    if (!lineItems.length && Number(o.total_amount) > 0) {
+      total = Number(o.total_amount);
+    }
+    total = Math.max(0, total);
+    const totalLine = `<div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--gray-200);padding-top:4px;margin-top:4px;font-size:14px;color:var(--gray-800)"><span>Total</span><span>${fmtMoney(total)}</span></div>`;
+
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:var(--gray-700)">
+        <span style="font-weight:600;color:var(--gray-400);font-size:12px;text-transform:uppercase;letter-spacing:.04em">Bags</span>
+        <strong>${bags || '—'}</strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:var(--gray-700)">
+        <span style="font-weight:600;color:var(--gray-400);font-size:12px;text-transform:uppercase;letter-spacing:.04em">Weight</span>
+        <strong>${lbs ? lbs + ' lbs' : '—'}</strong>
+      </div>
+      ${addonChips}
+      <div style="margin-top:12px;line-height:2">${breakdownHTML}${totalLine}</div>
+      ${notes ? `<div style="margin-top:12px;border-top:1px solid var(--gray-100);padding-top:10px">
+        <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400)">Special Instructions</span>
+        <div style="font-size:13px;color:var(--gray-700);margin-top:4px;font-style:italic">"${notes}"</div>
+      </div>` : ''}`;
+  }
+
+  // ── TOGGLE EDIT MODE ──
+  function opToggleDetailsEdit() {
+    if (_opDetailsEditing) {
+      opCancelDetailsEdit();
+    } else {
+      opEnterDetailsEdit();
+    }
+  }
+
+  function opEnterDetailsEdit() {
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+    _opDetailsEditing = true;
+    document.getElementById('op-details-readonly').style.display = 'none';
+    document.getElementById('op-details-editview').style.display = '';
+    document.getElementById('op-details-edit-btn').innerHTML = '✕ Cancel';
+    document.getElementById('op-details-edit-btn').style.color = 'var(--gray-500)';
+
+    // Populate edit fields
+    document.getElementById('op-bags-input').value = o.total_bags != null ? o.total_bags : '';
+    document.getElementById('op-weight-input').value = o.weight_lbs != null ? Number(o.weight_lbs) : '';
+    document.getElementById('op-notes-input').value = o.special_instructions || '';
+    document.getElementById('op-details-msg').style.display = 'none';
+
+    // Build toggleable add-ons from line_items
+    _opEditAddons = {};
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    lineItems.forEach((li, idx) => {
+      if (li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && parseFloat(li.amount||0) > 0)) {
+        _opEditAddons[idx] = true; // on by default
+      }
+    });
+    opRenderEditAddons(o);
+    opRecalcEstimate();
+  }
+
+  function opHideDetailsEdit() {
+    document.getElementById('op-details-readonly').style.display = '';
+    document.getElementById('op-details-editview').style.display = 'none';
+    document.getElementById('op-details-edit-btn').innerHTML = '✏️ Edit';
+    document.getElementById('op-details-edit-btn').style.color = 'var(--accent)';
+    _opDetailsEditing = false;
+  }
+
+  function opCancelDetailsEdit() {
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (o) opRenderDetailsReadonly(o);
+    opHideDetailsEdit();
+  }
+
+  // ── TOGGLEABLE ADD-ON CHIPS (edit mode) ──
+  function opRenderEditAddons(o) {
+    const el = document.getElementById('op-addons-edit-section');
     if (!el) return;
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
-    const addonItems = lineItems.filter(li => li.type === 'addon_service' || li.type === 'addon' || li.type === 'pref_service');
-    if (!addonItems.length) { el.innerHTML = ''; return; }
+    const addonIdxs = [];
+    lineItems.forEach((li, idx) => {
+      if (li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && parseFloat(li.amount||0) > 0)) {
+        addonIdxs.push(idx);
+      }
+    });
+    if (!addonIdxs.length) { el.innerHTML = ''; return; }
     el.innerHTML = `
-      <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400)">Add-ons</span>
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-400)">Add-ons <span style="font-weight:400;text-transform:none;font-size:10px">(tap to toggle)</span></span>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
-        ${addonItems.map(li => `<span style="font-size:12px;padding:3px 10px;border-radius:20px;background:var(--accent-light);color:var(--accent);font-weight:600">${li.label} ${parseFloat(li.amount||0)>0 ? fmtMoney(li.amount) : ''}</span>`).join('')}
+        ${addonIdxs.map(idx => {
+          const li = lineItems[idx];
+          const on = !!_opEditAddons[idx];
+          const amt = parseFloat(li.amount||0);
+          return `<button onclick="opToggleAddon(${idx})" style="font-size:12px;padding:4px 12px;border-radius:20px;font-weight:600;cursor:pointer;transition:all .15s;border:1.5px solid ${on?'var(--accent)':'var(--gray-200)'};background:${on?'var(--accent-light)':'var(--gray-50)'};color:${on?'var(--accent)':'var(--gray-400)'};${on?'':'text-decoration:line-through;opacity:0.6'}">${li.label}${amt>0 ? ' '+fmtMoney(amt) : ''}</button>`;
+        }).join('')}
       </div>`;
   }
 
+  function opToggleAddon(idx) {
+    _opEditAddons[idx] = !_opEditAddons[idx];
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (o) opRenderEditAddons(o);
+    opRecalcEstimate();
+  }
+
+  // ── RECALC (edit mode only) ──
   function opRecalcEstimate() {
     const el = document.getElementById('op-cost-breakdown');
     if (!el) return;
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) { el.innerHTML = ''; return; }
 
-    const bags   = parseInt(document.getElementById('op-bags-input').value) || 0;
-    const weight = parseFloat(document.getElementById('op-weight-input').value) || 0;
+    const bags   = parseInt(document.getElementById('op-bags-input')?.value) || 0;
+    const weight = parseFloat(document.getElementById('op-weight-input')?.value) || 0;
     const svc = allServices.find(s => s.id === o.service_id);
     const basePrice  = svc ? parseFloat(svc.base_price || 0) : 0;
     const lbsPerBag  = svc ? parseFloat(svc.lbs_per_bag || 25) : 25;
     const ovgRate    = svc ? parseFloat(svc.overage_rate_per_lb || 3) : 3;
 
-    // Delivery fee from allFees
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
-
-    // Same-day surcharge
     const sameDayFeeObj = allFees.find(f => (f.category === 'Surcharge' || f.category === 'surcharge') && (f.name || '').toLowerCase().includes('same'));
     const sameDaySurcharge = opIsSameDay ? (sameDayFeeObj ? parseFloat(sameDayFeeObj.amount || 0) : 10) : 0;
 
     const bagTotal = bags * basePrice;
-
-    // Overage: weight beyond (bags × lbs_per_bag)
     const allowedLbs = bags * lbsPerBag;
     const overageLbs = weight > 0 && weight > allowedLbs ? weight - allowedLbs : 0;
     const overageAmt = overageLbs > 0 ? overageLbs * ovgRate : 0;
 
-    // Saved line items — show add-on services and preference-linked services
+    // Active add-ons (only the ones toggled on in _opEditAddons)
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
-    const extraTypes = new Set(['addon_service', 'pref_service']);
-    const extraItems = lineItems.filter(li => extraTypes.has(li.type));
     const creditItem = lineItems.find(li => li.type === 'credit');
     const creditAmt  = creditItem ? Math.abs(parseFloat(creditItem.amount || 0)) : 0;
 
@@ -6241,8 +6378,9 @@
       html += `<div style="display:flex;justify-content:space-between"><span>⚡ Same-day surcharge</span><span>${fmtMoney(sameDaySurcharge)}</span></div>`;
       total += sameDaySurcharge;
     }
-    // Add-on services from processing
-    extraItems.forEach(li => {
+    // Add-on line items that are toggled ON
+    lineItems.forEach((li, idx) => {
+      if (!_opEditAddons[idx]) return;
       const amt = parseFloat(li.amount || 0);
       html += `<div style="display:flex;justify-content:space-between"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
       total += amt;
@@ -6259,6 +6397,7 @@
     el.innerHTML = html;
   }
 
+  // ── SAVE (edit mode) ──
   async function opSaveDetails() {
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
@@ -6275,34 +6414,36 @@
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     const bagTotal = bags * basePrice;
 
-    // Overage
     const allowedLbs = bags * lbsPerBag;
     const overageLbs = weight > 0 && weight > allowedLbs ? weight - allowedLbs : 0;
     const overageAmt = overageLbs > 0 ? overageLbs * ovgRate : 0;
 
-    // Same-day surcharge
     const sameDayFeeObj = allFees.find(f => (f.category === 'Surcharge' || f.category === 'surcharge') && (f.name || '').toLowerCase().includes('same'));
     const sameDaySurcharge = opIsSameDay ? (sameDayFeeObj ? parseFloat(sameDayFeeObj.amount || 0) : 10) : 0;
 
-    // Preserve existing add-on/pref line items and credits
+    // Build new line items from current state (base + overage + fees + active add-ons + credit)
     const existingLineItems = Array.isArray(o.line_items) ? o.line_items : [];
-    const addonItems  = existingLineItems.filter(li => li.type === 'addon_service' || li.type === 'pref_service' || li.type === 'addon');
-    const creditItem  = existingLineItems.find(li => li.type === 'credit');
-    const creditAmt   = creditItem ? Math.abs(parseFloat(creditItem.amount || 0)) : 0;
+    const creditItem = existingLineItems.find(li => li.type === 'credit');
+    const creditAmt  = creditItem ? Math.abs(parseFloat(creditItem.amount || 0)) : 0;
 
-    let addonTotal = 0;
-    addonItems.forEach(li => addonTotal += parseFloat(li.amount || 0));
-
-    const newTotal = Math.max(0, bagTotal + overageAmt + deliveryFee + sameDaySurcharge + addonTotal - creditAmt);
-
-    // Build line items
     const newLineItems = [];
+    let addonTotal = 0;
+
     if (bags > 0 && basePrice > 0) newLineItems.push({ type: 'base', label: `${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}`, amount: bagTotal });
     if (overageAmt > 0) newLineItems.push({ type: 'overage', label: `Overage: ${overageLbs.toFixed(1)} lbs × ${fmtMoney(ovgRate)}/lb`, amount: overageAmt });
     if (deliveryFee > 0) newLineItems.push({ type: 'fee', label: 'Delivery Fee', amount: deliveryFee });
     if (sameDaySurcharge > 0) newLineItems.push({ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge });
-    addonItems.forEach(li => newLineItems.push(li)); // preserve add-ons from processing
+
+    // Only include add-ons that are toggled ON
+    existingLineItems.forEach((li, idx) => {
+      if (_opEditAddons[idx]) {
+        newLineItems.push(li);
+        addonTotal += parseFloat(li.amount || 0);
+      }
+    });
     if (creditItem) newLineItems.push(creditItem);
+
+    const newTotal = Math.max(0, bagTotal + overageAmt + deliveryFee + sameDaySurcharge + addonTotal - creditAmt);
 
     const update = {
       special_instructions: notes || null,
@@ -6319,8 +6460,11 @@
     document.getElementById('op-bill-total').textContent = fmtMoney(newTotal);
     opPopulateBilling(o);
     showToast(`Order #${o.order_number} updated — ${fmtMoney(newTotal)}`, 'success');
-    const msg = document.getElementById('op-details-msg');
-    msg.style.display = ''; setTimeout(() => msg.style.display = 'none', 2500);
+
+    // Switch back to read-only with fresh data
+    opRenderDetailsReadonly(o);
+    opHideDetailsEdit();
+
     // Refresh orders list + kanban if Processing tab is open
     renderOrders(getFilteredOrders());
     if (typeof reloadColumns === 'function') reloadColumns('intake','cleaning','folding','rack');
