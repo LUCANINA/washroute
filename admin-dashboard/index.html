@@ -15338,8 +15338,9 @@ ${totalLinesXml}
     procActiveOrder = order;
     procSvc         = order.services;
     procBags        = order.total_bags || 1;
-    // Start weight blank for new intake (user must weigh the order)
-    procWeight      = '';
+    // Prefill weight if the order already has one (e.g. moved back from Cleaning);
+    // blank only for brand-new intake where the order hasn't been weighed yet.
+    procWeight      = order.weight_lbs ? String(order.weight_lbs) : '';
     procNotes       = order.special_instructions || '';
 
     // Show panel immediately so there's no delay (add-ons resolved after fresh fetch below)
@@ -15350,7 +15351,7 @@ ${totalLinesXml}
     // Configure footer button — Intake only
     const nextBtn = document.getElementById('intake-next-btn');
     nextBtn.textContent = '⚖️ Save & Start Processing';
-    nextBtn.disabled = true; // requires weight first
+    nextBtn.disabled = !procWeight; // enable immediately if weight already exists
     document.getElementById('intake-error').style.display  = 'none';
     procAddons = {};
     procAddonServices = {};
