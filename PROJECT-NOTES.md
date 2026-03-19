@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 19, 2026 — Billing consistency audit, double-charge fix, folding status, outstanding balance fix, print buttons (session 40)*
+*Last updated: Mar 19, 2026 — On Account billing, schedule lock fix, QA hardening (session 40 cont'd)*
 
 ---
 
@@ -769,7 +769,7 @@ There are actually **two separate hang points** that must both be covered:
 
 ---
 
-### Mar 19, 2026 (session 40) — Billing audit, double-charge fix, folding status, outstanding balance, print buttons, Orders refresh fix
+### Mar 19, 2026 (session 40) — Billing audit, On Account billing, schedule lock fix, QA hardening
 
 - **Print button on all kanban panels (commit `306bd5e`):** 🖨 button added to Intake, Fold, and Rack panel headers. Calls `printBagTag(activeOrder?.id)`. Icon doubled in size (`font-size:24px`).
 - **Simplified Fold and Rack panel titles (commit `6658f33`):** Removed "— Fold & Pack" and "— Change/Assign Rack" suffixes. Panel headers now show just the customer name.
@@ -779,10 +779,15 @@ There are actually **two separate hang points** that must both be covered:
 - **Folding status in STATUS_FLOW (commit `4eb54b2`):** `folding` was missing from `STATUS_FLOW`, `statusBadge`, status dropdown, and `_OP_STATUS_LABELS`. Orders in folding status showed "Fully Delivered" as advance button and "Processing" as badge. Fixed across all four locations.
 - **Outstanding balance fix (commit `4e94375`):** Customer billing panel used `billing_status` (unused column, always null) instead of `stripe_payment_intent_id` to detect paid orders. All charged orders appeared as "unpaid". Fixed to filter by `stripe_payment_intent_id IS NULL`.
 - **Orders tab blank on refresh (commit `105d5e3`):** `loadAll()` called `loadOrders()` with no filter (defaulting to `'scheduled'`), racing against the hash-restored `loadOrders('in_process')`. If `loadAll` finished last, it overwrote `currentOrderFilter` and rendered the wrong tab — appearing blank. Fixed `loadAll()` to pass `currentOrderFilter`, removed duplicate `loadOrders` call in `showPage()`, and made `switchOrdersView` hash reflect actual filter.
+- **On Account billing (commits `5ac40f5` → `e90a73b`):** Full end-to-end `billing_type='on_account'` support. Skip Stripe auto-charge at racking — balance accumulates naturally. Guards added at all 4 automatic charge points (saveRacking, opSetOrderStatus, batchSetStatus, batchAdvanceOrders). Manual Bill Orders flow intentionally NOT guarded since admin is deliberately charging. `billing_type` added to 6 customer query selects. Visual indicators: ✔ Invoiced (blue) on Rack cards, Orders list, and panel headers; ◻ Outstanding / ✅ Paid on Billing tab rows. Paid rows dimmed + checkbox disabled to prevent double-charging. `confirmBilling()` filters out already-paid orders. Receipt email skipped at racking for on-account; sent after successful Bill Orders charge instead.
+- **Schedule lock fix (commit `a9d88c5`):** Lock logic required `isComplete && windowClosed` — incomplete routes (with failed stops) never locked. Changed to lock on `windowClosed` alone (`isPast || (isToday && windowClosed)`). Applied to pickup cells, delivery cells, and driver reassignment popover.
+- **Orders page tab rename (commit `a278fcd`):** "Orders" → "List", "Order Schedule" → "Map".
+- **QA fixes (commit `5c160d4`):** Fixed `loadOrders()` race condition at 2 additional call sites (retryChargeFromIssues, add-order). Escaped single quotes in email/name interpolations in onclick attributes to prevent XSS via malformed DB values.
 - **Next session priorities:**
-  1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
-  2. Launderer reporting Phase 2 — date range mode
-  3. Route picker fine-tuning (backlog)
+  1. David creating final Zones and Route templates for testing
+  2. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
+  3. Launderer reporting Phase 2 — date range mode
+  4. Route picker fine-tuning (backlog)
 
 ---
 
@@ -1866,6 +1871,21 @@ fc94f6c  Simplify system: single driver model, status sync, routing errors
 5661355  Remove Default Driver — Driver Schedule is sole source of truth
 fd28b94  Move Driver Schedule to Orders page, unify driver assignment
 764d05c  Add live driver GPS tracking
+5c160d4  fix: QA — loadOrders race condition + XSS escaping in onclick handlers
+a9d88c5  fix: schedule cells lock on window_end + 2hr regardless of completion
+a278fcd  ux: rename Orders page tabs to List and Map
+e90a73b  fix: only show ✔ Invoiced on orders that reached racking stage
+db2d61b  feat: send receipt email after successful Bill Orders charge
+327a0c4  fix: skip auto-receipt email for on-account orders at racking
+cf64cfa  fix: prevent double-charging on Billing tab + paid/outstanding indicators
+2b05d10  ux: show ✔ invoiced indicator on Orders list for on-account orders
+d237766  ux: on-account badge — ✔ Invoiced with check mark
+e4754c0  ux: on-account rack badge — 🧾 Invoiced in blue
+dbd534e  ux: show green 'Billed' badge on rack cards for on-account orders
+5ac40f5  feat: On Account billing — skip Stripe charge, add to customer balance
+a2a2b89  docs: update project notes — session 40 log entry
+105d5e3  fix: Orders tab blank on refresh — race condition in loadAll vs hash restore
+658443d  fix: billing audit, folding status fix, outstanding balance query
 d0f073a  fix: QA — explicit null for route color fallback, Assign link contrast
 bca66a7  ux: Assign link visible on address line instead of hidden interaction
 5995230  ux: monochrome avatars across all pages
