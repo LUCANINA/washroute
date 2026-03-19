@@ -5863,7 +5863,7 @@
       });
       const templateRows = missingTemplates.map(t => {
         const color = t.color || '#8b93a7';
-        return `<div class="op-route-row" onclick="opCreateRouteAndSelect('${leg}','${t.id}','${t.name}','${dateStr}',this)">
+        return `<div class="op-route-row" onclick="opCreateRouteAndSelect('${leg}','${t.id}','${(t.name||'').replace(/'/g,"\\'")}','${dateStr}',this)">
           <div class="op-route-dot" style="background:${color}"></div>
           <span class="op-route-name">${t.name}</span>
         </div>`;
@@ -7279,7 +7279,7 @@ ${totalLinesXml}
     }
 
     actEl.innerHTML = `
-      <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${customerId}','${email}')">📧 ${cards.length ? 'Send Card Link' : 'Send Card Setup Link'}</button>
+      <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminSendCardLink('${customerId}','${(email||'').replace(/'/g,"\\'")}')">📧 ${cards.length ? 'Send Card Link' : 'Send Card Setup Link'}</button>
       <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="adminInitCardForm('${customerId}')">💳 Add Card Manually</button>`;
   }
 
@@ -7560,7 +7560,7 @@ ${totalLinesXml}
       const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
       if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
       showToast(`✓ Order #${orderNum} charged — ${result.card || ''}`, 'success');
-      loadOrders(); // Refresh so the order moves out of Issues
+      loadOrders(currentOrderFilter); // Refresh so the order moves out of Issues
     } catch (e) {
       btn.disabled = false; btn.textContent = 'Retry charge';
       showToast(`Charge failed: ${e.message}`, 'error');
@@ -10155,7 +10155,7 @@ ${totalLinesXml}
 
     showToast('Order created!', 'success');
     closeModal('add-order');
-    loadOrders();
+    loadOrders(currentOrderFilter);
     loadOverview();
 
     // Fire booking confirmation email (best-effort, don't block)
