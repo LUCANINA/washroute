@@ -12460,7 +12460,8 @@ ${totalLinesXml}
         const msSinceMidnight = (now.getHours() * 60 + now.getMinutes()) * 60 * 1000 + now.getSeconds() * 1000;
         windowClosed = msSinceMidnight >= bufferMs;
       }
-      const isLocked = isPast || (isToday && isComplete && windowClosed);
+      // Lock if: past day, OR today + window_end + 2hr buffer has passed
+      const isLocked = isPast || (isToday && windowClosed);
       if (isLocked) {
         const badge = isPast
           ? `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`
@@ -12672,7 +12673,8 @@ ${totalLinesXml}
         const msSinceMidnight = (now.getHours() * 60 + now.getMinutes()) * 60 * 1000 + now.getSeconds() * 1000;
         windowClosed = msSinceMidnight >= bufferMs;
       }
-      const isLocked = isPast || (isToday && isComplete && windowClosed);
+      // Lock if: past day, OR today + window_end + 2hr buffer has passed
+      const isLocked = isPast || (isToday && windowClosed);
       if (isLocked) {
         const badge = isPast
           ? `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`
@@ -12836,11 +12838,13 @@ ${totalLinesXml}
         windowClosed = msSinceMidnight >= bufferMs;
       }
 
-      if (done === total && windowClosed) {
-        // Route fully complete AND window has passed — disable reassignment
+      if (windowClosed) {
+        // Window + 2hr buffer has passed — disable reassignment
         renderOptions(true);
         statusBanner.style.cssText = 'display:block;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;border-radius:7px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
-        statusBanner.innerHTML = `🔒 <strong>Route complete</strong><br>All ${total} stops are done and the route window has passed.`;
+        statusBanner.innerHTML = done === total
+          ? `🔒 <strong>Route complete</strong><br>All ${total} stops are done and the route window has passed.`
+          : `🔒 <strong>Route locked</strong><br>${done} of ${total} stops done. Route window + buffer has passed.`;
       } else if (done === total) {
         // All current stops done but window still open — allow reassignment, show info
         statusBanner.style.cssText = 'display:block;background:#eff6ff;color:#1e40af;border:1px solid #93c5fd;border-radius:7px;padding:7px 9px;margin-bottom:10px;font-size:11px;line-height:1.4;';
