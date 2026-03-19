@@ -11066,19 +11066,23 @@ ${totalLinesXml}
     }
 
     if (filter === 'billing') {
-      // Billing mode: checkboxes, billing badge, click to select
+      // Billing mode: checkboxes, paid/outstanding badge, click to select
       el.innerHTML = filtered.map(o=>{
+        const isPaid = !!o.stripe_payment_intent_id;
         const checked = cpBillingSelection.has(o.id);
         const amt = parseFloat(o.total_amount||0);
         const dateStr = fmtDate(o.pickup_window_start || o.created_at);
-        return `<div class="cp-order-row billing-row${checked?' billing-selected':''}" id="brow-${o.id}" onclick="toggleBillingOrder('${o.id}')">
-          <input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} onclick="event.stopPropagation();toggleBillingOrder('${o.id}')">
+        const paidBadge = isPaid
+          ? `<span style="font-size:11px;font-weight:600;color:#059669;white-space:nowrap">✅ Paid</span>`
+          : `<span style="font-size:11px;font-weight:600;color:#b45309;white-space:nowrap">◻ Outstanding</span>`;
+        return `<div class="cp-order-row billing-row${checked?' billing-selected':''}${isPaid?' billing-paid':''}" id="brow-${o.id}" onclick="${isPaid ? '' : `toggleBillingOrder('${o.id}')`}" style="${isPaid ? 'opacity:0.6;cursor:default' : ''}">
+          <input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} ${isPaid?'disabled':''} onclick="event.stopPropagation();${isPaid ? '' : `toggleBillingOrder('${o.id}')`}">
           <span class="cp-order-num">#${o.order_number}</span>
           <div class="cp-order-svc">
             <div style="font-weight:500">${o.services?.name||'—'}</div>
             <div style="font-size:11.5px;color:var(--gray-400)">${dateStr}${o.weight_lbs?' · '+o.weight_lbs+' lbs':''}</div>
           </div>
-          ${billingBadge(o.billing_status)}
+          ${paidBadge}
           <span class="cp-order-amt" style="margin-left:auto">${fmtMoney(amt)}</span>
         </div>`;
       }).join('');
@@ -11131,11 +11135,10 @@ ${totalLinesXml}
       bar.classList.remove('visible'); return;
     }
     bar.classList.add('visible');
-    const total = cpAllOrders
-      .filter(o => cpBillingSelection.has(o.id))
-      .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
-    document.getElementById('billing-bar-count').textContent = cpBillingSelection.size;
-    document.getElementById('billing-bar-plural').textContent = cpBillingSelection.size === 1 ? '' : 's';
+    const selectedUnpaid = cpAllOrders.filter(o => cpBillingSelection.has(o.id) && !o.stripe_payment_intent_id);
+    const total = selectedUnpaid.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
+    document.getElementById('billing-bar-count').textContent = selectedUnpaid.length;
+    document.getElementById('billing-bar-plural').textContent = selectedUnpaid.length === 1 ? '' : 's';
     document.getElementById('billing-bar-total').textContent = fmtMoney(total);
   }
 
@@ -11190,7 +11193,13 @@ ${totalLinesXml}
     const method = document.querySelector('#bill-method-btns input[type=radio]:checked')?.value || 'check';
     const notes  = document.getElementById('bill-modal-notes').value.trim();
     const btn    = document.getElementById('bill-modal-confirm-btn');
-    const ids    = [...cpBillingSelection];
+    // Filter out already-paid orders to prevent double-charging
+    const allIds = [...cpBillingSelection];
+    const ids    = allIds.filter(id => {
+      const o = cpAllOrders.find(x => x.id === id);
+      return o && !o.stripe_payment_intent_id;
+    });
+    if (!ids.length) { showToast('All selected orders are already paid.', 'warning'); closeBillModal(); return; }
 
     // ── CREDIT CARD: confirm intent then charge via Stripe ──
     if (method === 'credit_card') {
