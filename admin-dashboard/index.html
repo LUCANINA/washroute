@@ -14395,41 +14395,57 @@ ${totalLinesXml}
       .filter(z => z.el);
   }
 
+  let _tdTapStart = null;  // { x, y, time } — for distinguishing taps from drags
+  let _tdDragStarted = false;
+
   function touchStartOrder(event, id) {
     // If the touch started on a button/link, let it click normally — don't drag
     if (event.target.closest('button, a, .proc-card-btn')) return;
     _tdId = id;
-    const card = document.getElementById('proc-card-'+id)
-              || document.getElementById('clean-card-'+id)
-              || document.getElementById('fold-card-'+id);
-    if (!card) return;
-    event.preventDefault(); // block scroll from the very first touch
-    _buildDropZones();
-    // Lock all kanban column bodies so they don't scroll under the finger
-    document.querySelectorAll('.kanban-col-body').forEach(c => c.classList.add('drag-lock'));
+    _tdDragStarted = false;
     const touch = event.touches[0];
-    const rect  = card.getBoundingClientRect();
-    _tdOff = { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
-    _tdClone = card.cloneNode(true);
-    _tdClone.removeAttribute('id');
-    Object.assign(_tdClone.style, {
-      position:'fixed', pointerEvents:'none', zIndex:'9999',
-      width: rect.width+'px', opacity:'0.9',
-      boxShadow:'0 16px 48px rgba(0,0,0,.28)',
-      transform:'rotate(1.5deg) scale(1.03)',
-      border:'2px solid var(--accent)',
-      transition:'none',
-      left: (touch.clientX - _tdOff.x)+'px',
-      top:  (touch.clientY - _tdOff.y)+'px'
-    });
-    document.body.appendChild(_tdClone);
-    card.style.opacity = '0.25';
+    _tdTapStart = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+    // Don't preventDefault or start drag clone yet — wait for move
   }
 
   function touchMoveOrder(event) {
-    if (!_tdClone) return;
-    event.preventDefault();
+    if (!_tdId) return;
     const touch = event.touches[0];
+    // If drag hasn't started yet, check if finger moved enough to start one (10px threshold)
+    if (!_tdDragStarted) {
+      if (!_tdTapStart) return;
+      const dx = touch.clientX - _tdTapStart.x;
+      const dy = touch.clientY - _tdTapStart.y;
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; // not enough movement — still a tap
+      // Enough movement — start the drag
+      _tdDragStarted = true;
+      event.preventDefault();
+      const card = document.getElementById('proc-card-'+_tdId)
+                || document.getElementById('clean-card-'+_tdId)
+                || document.getElementById('fold-card-'+_tdId);
+      if (!card) return;
+      _buildDropZones();
+      document.querySelectorAll('.kanban-col-body').forEach(c => c.classList.add('drag-lock'));
+      const rect = card.getBoundingClientRect();
+      _tdOff = { x: _tdTapStart.x - rect.left, y: _tdTapStart.y - rect.top };
+      _tdClone = card.cloneNode(true);
+      _tdClone.removeAttribute('id');
+      Object.assign(_tdClone.style, {
+        position:'fixed', pointerEvents:'none', zIndex:'9999',
+        width: rect.width+'px', opacity:'0.9',
+        boxShadow:'0 16px 48px rgba(0,0,0,.28)',
+        transform:'rotate(1.5deg) scale(1.03)',
+        border:'2px solid var(--accent)',
+        transition:'none',
+        left: (touch.clientX - _tdOff.x)+'px',
+        top:  (touch.clientY - _tdOff.y)+'px'
+      });
+      document.body.appendChild(_tdClone);
+      card.style.opacity = '0.25';
+      return;
+    }
+    // Drag already active — move the clone
+    event.preventDefault();
     _tdClone.style.left = (touch.clientX - _tdOff.x)+'px';
     _tdClone.style.top  = (touch.clientY - _tdOff.y)+'px';
     _tdDropZones.forEach(z => {
@@ -14442,12 +14458,26 @@ ${totalLinesXml}
 
   function touchEndOrder(event) {
     if (!_tdId) return;
+    const id = _tdId;
     const touch = event.changedTouches[0];
+
+    // ── TAP (no drag started) — treat as a click on the card ──
+    if (!_tdDragStarted) {
+      _tdId = null; _tdTapStart = null;
+      // Find the card element and trigger its onclick
+      const card = document.getElementById('proc-card-'+id)
+                || document.getElementById('clean-card-'+id)
+                || document.getElementById('fold-card-'+id)
+                || document.getElementById('racked-card-'+id);
+      if (card) card.click();
+      return;
+    }
+
+    // ── DRAG END — handle drop ──
     if (_tdClone) { document.body.removeChild(_tdClone); _tdClone = null; }
-    // Unlock column scroll
     document.querySelectorAll('.kanban-col-body').forEach(c => c.classList.remove('drag-lock'));
     ['proc-card-','clean-card-','fold-card-'].forEach(pfx => {
-      const el = document.getElementById(pfx+_tdId);
+      const el = document.getElementById(pfx+id);
       if (el) el.style.opacity = '';
     });
     let handled = false;
@@ -14458,17 +14488,16 @@ ${totalLinesXml}
       if (touch.clientX >= r.left && touch.clientX <= r.right &&
           touch.clientY >= r.top  && touch.clientY <= r.bottom) {
         handled = true;
-        const id = _tdId;
         if (z.id === 'kanban-intake-col' && !allProcOrders.some(o=>o.id===id))  moveOrderBack(id,'picked_up');
         if (z.id === 'kanban-clean-col'  && !allCleanOrders.some(o=>o.id===id)) {
-          if (allProcOrders.some(o=>o.id===id)) { showToast('Use ⚖️ Process Order to weigh and price first',''); openIntakePanel(id); }
+          if (allProcOrders.some(o=>o.id===id)) { showToast('Tap the card to process it first',''); openIntakePanel(id); }
           else moveOrderBack(id,'processing');
         }
         if (z.id === 'kanban-fold-col'   && !allFoldOrders.some(o=>o.id===id))  openFoldPanel(id);
         if (z.id === 'kanban-rack-col'   && !allRackOrders.some(o=>o.id===id))  openRackPanel(id);
       }
     });
-    _tdId = null;
+    _tdId = null; _tdTapStart = null; _tdDragStarted = false;
   }
 
   // ── FOLDING QUEUE ──
