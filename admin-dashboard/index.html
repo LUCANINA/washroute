@@ -9202,8 +9202,8 @@ ${totalLinesXml}
   function custComboFilter(term) {
     const t = term.trim().toLowerCase();
     const list = document.getElementById('o-customer-list');
-    // Exclude drivers and admins from the order customer picker
-    const realCustomers = allCustomers.filter(c => !c.profiles?.role || c.profiles.role === 'customer');
+    // Exclude drivers and laundry techs from the order customer picker (admins can also be customers)
+    const realCustomers = allCustomers.filter(c => !c.profiles?.role || !['driver','laundry_tech'].includes(c.profiles.role));
     const filtered = t
       ? realCustomers.filter(c => {
           const p  = custProfile(c);
@@ -9307,8 +9307,8 @@ ${totalLinesXml}
     }
 
     // Init combobox — use prefilled customer if provided, otherwise first real customer
-    // Exclude drivers and admins from the default selection
-    const _orderableCustomers = allCustomers.filter(c => !c.profiles?.role || c.profiles.role === 'customer');
+    // Exclude drivers and laundry techs from the default selection (admins can also be customers)
+    const _orderableCustomers = allCustomers.filter(c => !c.profiles?.role || !['driver','laundry_tech'].includes(c.profiles.role));
     if (_orderableCustomers.length) {
       const target = prefillCustomerId
         ? (allCustomers.find(c => c.id === prefillCustomerId) || _orderableCustomers[0])
@@ -12093,6 +12093,8 @@ ${totalLinesXml}
     const editSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="9" height="9" style="flex-shrink:0"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
 
     // ── Pre-fetch today's stop counts for in-progress / complete badges ──
+    // Excludes stops whose orders are in dead statuses (delivered, cancelled, etc.)
+    const DEAD_ORDER_SCHED = ['delivered','cancelled','skipped','pickup_failed','delivery_failed','on_hold'];
     const todayStopStatus = {};
     if (schedWeekOffset === 0) {
       try {
@@ -12107,10 +12109,10 @@ ${totalLinesXml}
             .eq('run_date', today());
           if (todayRoutes?.length) {
             const { data: todayStops } = await db.from('route_stops')
-              .select('route_id, status')
+              .select('route_id, status, orders!inner(status)')
               .in('route_id', todayRoutes.map(r => r.id));
             const routeToTemplate = Object.fromEntries(todayRoutes.map(r => [r.id, r.template_id]));
-            (todayStops||[]).forEach(s => {
+            (todayStops||[]).filter(s => !DEAD_ORDER_SCHED.includes(s.orders?.status)).forEach(s => {
               const tid = routeToTemplate[s.route_id];
               if (!tid) return;
               if (!todayStopStatus[tid]) todayStopStatus[tid] = { total: 0, done: 0, pending: 0 };
@@ -12304,6 +12306,7 @@ ${totalLinesXml}
 
     // ── Pre-fetch today's stop counts so grid cells can show in-progress / complete badges ──
     // Only fetch when viewing the current week (schedWeekOffset === 0).
+    // Excludes stops whose orders are in dead statuses (delivered, cancelled, etc.)
     // todayStopStatus maps templateId → { total, done, pending }
     const todayStopStatus = {};
     if (schedWeekOffset === 0) {
@@ -12319,10 +12322,11 @@ ${totalLinesXml}
             .eq('run_date', today());
           if (todayRoutes?.length) {
             const { data: todayStops } = await db.from('route_stops')
-              .select('route_id, status')
+              .select('route_id, status, orders!inner(status)')
               .in('route_id', todayRoutes.map(r => r.id));
             const routeToTemplate = Object.fromEntries(todayRoutes.map(r => [r.id, r.template_id]));
-            (todayStops||[]).forEach(s => {
+            const DEAD_ORDER_SCHED2 = ['delivered','cancelled','skipped','pickup_failed','delivery_failed','on_hold'];
+            (todayStops||[]).filter(s => !DEAD_ORDER_SCHED2.includes(s.orders?.status)).forEach(s => {
               const tid = routeToTemplate[s.route_id];
               if (!tid) return;
               if (!todayStopStatus[tid]) todayStopStatus[tid] = { total: 0, done: 0, pending: 0 };
