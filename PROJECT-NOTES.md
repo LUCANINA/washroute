@@ -1685,6 +1685,8 @@ There are actually **two separate hang points** that must both be covered:
 - ~~CloudPRNT integration~~ ✅ — `print_jobs` table + `cloudprnt` edge function live (session 22). Configure via Admin → Settings → Receipt Printer.
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - SMS automation Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table for multi-turn state
+- **Launderer reporting Phase 2** — date range mode (week/month/custom) on the launderer history panel; data model is complete, UI-only work
+- **Launderer reporting Phase 3** — cross-folder aggregate view: side-by-side bags/lbs/orders/revenue for all active folders over a selected period (pay period reporting)
 - ~~Design decision: customer-initiated skips + `cancelled_by` field~~ ✅ — fully implemented session 5
 - ~~Customer email receipt (SendGrid)~~ ✅ — confirmed working
 - ~~Live driver tracking~~ ✅ — GPS tracking live (driver app → Supabase Realtime → admin map)
