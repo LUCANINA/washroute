@@ -14768,7 +14768,7 @@ ${totalLinesXml}
     foldSelectedLaunId = null;
     const fn = order.customers?.first_name_cache || '';
     const ln = order.customers?.last_name_cache  || '';
-    document.getElementById('fold-title').textContent    = `${`${fn} ${ln}`.trim()||'Order'} — Fold & Pack`;
+    document.getElementById('fold-title').textContent    = `${fn} ${ln}`.trim() || 'Order';
     document.getElementById('fold-subtitle').textContent = `Order #${order.order_number||'—'} · ${order.services?.name||''}`;
     document.getElementById('fold-error').style.display = 'none';
     renderFoldPanel();
@@ -14928,9 +14928,7 @@ ${totalLinesXml}
     const fn = order.customers?.first_name_cache || '';
     const ln = order.customers?.last_name_cache  || '';
     const isRerack = !!order.rack_id;
-    document.getElementById('rack-title').textContent    = isRerack
-      ? `${`${fn} ${ln}`.trim()||'Order'} — Change Rack`
-      : `${`${fn} ${ln}`.trim()||'Order'} — Assign Rack`;
+    document.getElementById('rack-title').textContent    = `${fn} ${ln}`.trim() || 'Order';
     document.getElementById('rack-subtitle').textContent = `Order #${order.order_number||'—'} · ${order.services?.name||''}`;
     document.getElementById('rack-error').style.display  = 'none';
     const chargingEl = document.getElementById('rack-charging');
