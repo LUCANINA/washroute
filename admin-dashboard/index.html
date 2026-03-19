@@ -3316,11 +3316,6 @@
   <div class="slide-over-footer" style="flex-direction:column;gap:8px;padding:16px 24px">
     <div id="intake-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
     <button class="proc-save-btn" id="intake-next-btn" onclick="intakeNextStep()" disabled>Save &amp; Start Processing</button>
-    <button id="intake-save-only-btn" onclick="intakeSaveOnly()" style="display:none;background:none;border:1.5px solid var(--gray-200);border-radius:10px;padding:10px;font-size:13.5px;font-weight:600;color:var(--gray-600);cursor:pointer;width:100%;font-family:inherit;transition:all .15s">✏️ Save Changes Only</button>
-    <div id="intake-utils" style="display:none;align-items:center;justify-content:space-between;margin-top:2px">
-      <button onclick="printBagTag(procActiveOrder?.id)" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--gray-400);padding:0;font-family:inherit">🖨 Reprint Tag</button>
-      <span id="intake-undo-link" style="font-size:11px;color:var(--gray-300);cursor:pointer;user-select:none">← undo</span>
-    </div>
   </div>
 </div>
 
@@ -15097,11 +15092,8 @@ ${totalLinesXml}
     const titleText = _intakeEditMode ? 'Edit Order' : 'Process Order';
     document.getElementById('intake-title').textContent    = `${fn} ${ln}`.trim() || titleText;
     document.getElementById('intake-subtitle').textContent = `Order #${order.order_number||'—'} · ${procSvc?.name||''}`;
-    // Configure footer buttons based on order status / mode
+    // Configure footer button based on order status / mode
     const nextBtn     = document.getElementById('intake-next-btn');
-    const saveOnlyBtn = document.getElementById('intake-save-only-btn');
-    const utilsRow    = document.getElementById('intake-utils');
-    const undoLink    = document.getElementById('intake-undo-link');
     const orderStatus = order.status;
     // Next-step button label depends on which column the order is in
     const nextLabels = {
@@ -15111,19 +15103,6 @@ ${totalLinesXml}
     };
     nextBtn.textContent = nextLabels[orderStatus] || '⚖️ Save & Start Processing';
     nextBtn.disabled = !_intakeEditMode; // new intake requires weight first
-    // Show "Save Changes Only" + utility row for orders past intake
-    saveOnlyBtn.style.display = _intakeEditMode ? '' : 'none';
-    saveOnlyBtn.disabled = false;
-    utilsRow.style.display = _intakeEditMode ? 'flex' : 'none';
-    // Undo link sends order back one column
-    const undoTargets = { processing: 'picked_up', folding: 'processing' };
-    const undoTarget  = undoTargets[orderStatus];
-    if (undoTarget) {
-      undoLink.style.display = '';
-      undoLink.onclick = () => { closeIntakePanel(); moveOrderBack(order.id, undoTarget); };
-    } else {
-      undoLink.style.display = 'none';
-    }
     document.getElementById('intake-error').style.display  = 'none';
     procAddons = {};
     procAddonServices = {};
@@ -15498,11 +15477,7 @@ ${totalLinesXml}
   function updateIntakeSaveBtn() {
     const btn = document.getElementById('intake-next-btn');
     if (!btn) return;
-    const hasWeight = procWeight && parseFloat(procWeight) > 0;
-    btn.disabled = !hasWeight;
-    // Also enable/disable Save Changes Only
-    const saveOnly = document.getElementById('intake-save-only-btn');
-    if (saveOnly && _intakeEditMode) saveOnly.disabled = !hasWeight;
+    btn.disabled = !(procWeight && parseFloat(procWeight) > 0);
   }
 
   function closeIntakePanel() {
@@ -15519,66 +15494,33 @@ ${totalLinesXml}
     if (status === 'picked_up') {
       // Intake → Cleaning: original saveIntake() flow (saves weight, prints tag, sends receipt)
       await saveIntake();
-    } else if (status === 'processing') {
-      // Cleaning → Folding: save changes first, then open the fold panel
-      await _intakeSaveChanges();
-      if (!procActiveOrder) return; // save failed
+    } else if (status === 'processing' || status === 'folding') {
+      // Save order changes, then open the next panel
+      const weight = parseFloat(procWeight);
+      if (!weight || weight <= 0) { showToast('Please enter the order weight.', 'error'); return; }
+      const btn = document.getElementById('intake-next-btn');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      const svc = procSvc || {};
+      const bd  = calcProcTotal();
+      const lineItems = _buildIntakeLineItems(bd, parseFloat(svc.base_price||0), parseFloat(svc.overage_rate_per_lb||3));
+      const { error } = await db.from('orders').update({
+        weight_lbs: weight, total_bags: bd.bags,
+        total_amount: bd.total, line_items: lineItems,
+        is_same_day: procIsSameDay,
+        special_instructions: procNotes || null,
+        updated_at: new Date().toISOString()
+      }).eq('id', procActiveOrder.id);
+      if (error) {
+        const errEl = document.getElementById('intake-error');
+        errEl.textContent = error.message; errEl.style.display = '';
+        btn.disabled = false; btn.textContent = status === 'processing' ? '👕 Save & Assign to Folder' : '💳 Save & Charge → Rack';
+        return;
+      }
       const orderId = procActiveOrder.id;
       closeIntakePanel();
-      openFoldPanel(orderId);
-    } else if (status === 'folding') {
-      // Folding → Rack: save changes first, then open the rack panel
-      await _intakeSaveChanges();
-      if (!procActiveOrder) return;
-      const orderId = procActiveOrder.id;
-      closeIntakePanel();
-      openRackPanel(orderId);
+      if (status === 'processing') openFoldPanel(orderId);
+      else openRackPanel(orderId);
     }
-  }
-
-  // ── INTAKE: "Save Changes Only" — updates order without moving it ──
-  async function intakeSaveOnly() {
-    if (!procActiveOrder) return;
-    await _intakeSaveChanges();
-  }
-
-  // ── Shared helper: save current panel values to DB without changing status ──
-  async function _intakeSaveChanges() {
-    const weight = parseFloat(procWeight);
-    if (!weight || weight <= 0) { showToast('Please enter the order weight.', 'error'); return; }
-    const btn = document.getElementById('intake-save-only-btn');
-    const nextBtn = document.getElementById('intake-next-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-    if (nextBtn) nextBtn.disabled = true;
-
-    const svc = procSvc || {};
-    const bd  = calcProcTotal();
-    const pricePerBag = parseFloat(svc.base_price || 0);
-    const ovgRate     = parseFloat(svc.overage_rate_per_lb || 3);
-
-    const lineItems = _buildIntakeLineItems(bd, pricePerBag, ovgRate);
-
-    const { error } = await db.from('orders').update({
-      weight_lbs: weight, total_bags: bd.bags,
-      total_amount: bd.total, line_items: lineItems,
-      is_same_day: procIsSameDay,
-      special_instructions: procNotes || null,
-      updated_at: new Date().toISOString()
-    }).eq('id', procActiveOrder.id);
-
-    if (error) {
-      const errEl = document.getElementById('intake-error');
-      errEl.textContent = error.message; errEl.style.display = '';
-      if (btn) { btn.disabled = false; btn.textContent = '✏️ Save Changes Only'; }
-      if (nextBtn) nextBtn.disabled = false;
-      return;
-    }
-    const orderNum = procActiveOrder.order_number;
-    const orderStatus = procActiveOrder.status;
-    closeIntakePanel();
-    showToast(`Order #${orderNum} updated!`, 'success');
-    const colMap = { processing: 'cleaning', folding: 'folding', picked_up: 'intake' };
-    reloadColumns(colMap[orderStatus] || 'cleaning', 'folding');
   }
 
   // ── Build line_items array from current panel state ──
