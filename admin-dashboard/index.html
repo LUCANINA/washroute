@@ -12463,13 +12463,11 @@ ${totalLinesXml}
       // Lock if: past day, OR today + window_end + 2hr buffer has passed
       const isLocked = isPast || (isToday && windowClosed);
       if (isLocked) {
-        const badge = isPast
-          ? `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`
-          : statusBadgeHtml;
+        const lockIcon = `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`;
         return `<div class="sched-cell"
-          style="background:${bg};color:${fg};padding:4px 10px;display:inline-flex;align-items:center;gap:5px;opacity:${isPast?'0.45':'1'};cursor:default;"
+          style="background:${bg};color:${fg};padding:4px 10px;display:inline-flex;align-items:center;gap:5px;opacity:${isPast?'0.45':'0.7'};cursor:default;"
           title="${t.name} · ${drvName} (locked)">
-          ${badge}${drvFirst}
+          ${lockIcon}${drvFirst}
         </div>`;
       }
 
@@ -12676,13 +12674,11 @@ ${totalLinesXml}
       // Lock if: past day, OR today + window_end + 2hr buffer has passed
       const isLocked = isPast || (isToday && windowClosed);
       if (isLocked) {
-        const badge = isPast
-          ? `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`
-          : statusBadgeHtml;
+        const lockIcon = `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`;
         return `<div class="sched-cell"
-          style="background:${bg};color:${fg};padding:4px 10px;display:inline-flex;align-items:center;gap:5px;opacity:${isPast?'0.45':'1'};cursor:default;"
+          style="background:${bg};color:${fg};padding:4px 10px;display:inline-flex;align-items:center;gap:5px;opacity:${isPast?'0.45':'0.7'};cursor:default;"
           title="${t.name} · ${drvName} (locked)">
-          ${badge}${drvFirst}
+          ${lockIcon}${drvFirst}
         </div>`;
       }
 
