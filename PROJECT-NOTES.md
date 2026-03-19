@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 18, 2026 (session 35d — driver stop ordering fix, map polyline fix, QA/security hardening)*
+*Last updated: Mar 19, 2026 — Twilio A2P confirmed live, Xero + Klaviyo removed from backlog*
 
 ---
 
@@ -75,11 +75,9 @@ Three connected web apps, one shared database. Focused on **delivery first** (re
 |---|---|---|
 | Supabase | Database + auth + realtime + Edge Functions | ✅ Live |
 | Stripe | Subscriptions + payments | ✅ Integrated (charge-order fn) |
-| Twilio | 2-way SMS inbox + driver notifications | ✅ Built — ⚠️ see note below |
+| Twilio | 2-way SMS inbox + driver notifications | ✅ Live — A2P 10DLC approved 2026-03-16 |
 | SendGrid | Transactional email + receipts | ✅ Done |
-| Klaviyo | Marketing broadcasts + segments | 🔲 Pending |
 | Google Maps | Driver navigation + route optimization | ✅ API key set (Edge Function secret) |
-| Xero | Accounting sync | 🔲 Pending |
 | Vercel | App hosting | ✅ Auto-deploys on push to main |
 
 ### ✅ Twilio A2P 10DLC — Approved (2026-03-16)
@@ -572,6 +570,29 @@ There are actually **two separate hang points** that must both be covered:
   - Fixed via SQL: re-pointed active driver to email profile, deleted empty duplicate driver, deleted orphan phone profile.
 - **Files changed:** `admin-dashboard/index.html`, `driver-app/index.html`
 - **⚠️ Commit pending:** Changes are staged but the VM can't delete `.git/index.lock`. David must run from terminal:
+
+---
+
+### Mar 18, 2026 (session 35e) — Fixed send-order-notification edge function (404 bug)
+
+- **Root cause found — `send-order-notification` returning 404 on every call:**
+  - **Problem:** The edge function's order query selected `pickup_date` and `delivery_date` — columns that **do not exist** in the `orders` table. The actual columns are `pickup_window_start`, `pickup_window_end`, `delivery_window_start`, `delivery_window_end`. PostgREST returns an error object (not an array) when asked for non-existent columns, so `Array.isArray(orders)` returned `false`, `order` became `null`, and the function returned 404 — "Order not found." This affected all SMS notifications sent via `send-order-notification`: pickup confirmation, delivery confirmation, pickup_failed, and order confirmed.
+  - **Fix:** Rewrote the order select clause to use the correct column names. Updated template variable interpolation to map `pickup_date` → `order.pickup_window_start` and `delivery_date` → `order.delivery_window_start`. Added console logging for all key steps (request body, template lookup, order lookup, SMS result).
+  - **Edge function:** `send-order-notification` v20 (deployed, `verify_jwt: false`)
+  - **Confirmed working:** David tested pickup from the driver app and received the SMS.
+- **Debugging steps that led to the fix:**
+  - Checked edge function logs — confirmed 404 on v16, v17, v19
+  - Previously rewrote function from Supabase JS client to raw REST (v17) — didn't help
+  - Deployed debug function with hardcoded order ID — worked (proved service role key and REST calls are fine)
+  - Set `verify_jwt: false` (v19) — didn't help
+  - Deployed debug function v2 to log request bodies — never received calls (different slug)
+  - Finally compared the order `select` clause against the actual `orders` table schema — found the non-existent columns
+- **Email vs SMS template disconnect identified (not fixed — informational):**
+  - The admin Message Templates panel has email fields (`email_subject`, `email_body`, `email_enabled`) that **nothing reads**. The `send-email` edge function is a generic pass-through that sends whatever HTML body it receives. Email content is built inline in `saveOrder()` in the admin dashboard. Only the SMS fields from `message_templates` are actually used by `send-order-notification`.
+- **Still pending:**
+  - Admin `saveOrder()` does NOT call `send-order-notification` for the `confirmed` event — only sends HTML email via `send-email`. SMS on order creation needs to be wired up.
+  - Clean up `send-order-notification-debug` edge function (no longer needed)
+  - Full end-to-end lifecycle test (on my way → picked up → out for delivery → delivered)
   ```
   cd ~/Projects/WashRoute && rm -f .git/index.lock .git/HEAD.lock && git add admin-dashboard/index.html driver-app/index.html PROJECT-NOTES.md && git commit -m "Fix driver app stop ordering, map polyline routing, and QA hardening" && git push
   ```
@@ -1643,8 +1664,6 @@ There are actually **two separate hang points** that must both be covered:
 - ~~SMS automation Phase 1~~ ✅ — PICKUP, STATUS, SKIP, HELP keywords live in twilio-webhook v14 (session 16)
 - ~~CloudPRNT integration~~ ✅ — `print_jobs` table + `cloudprnt` edge function live (session 22). Configure via Admin → Settings → Receipt Printer.
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
-- Xero accounting sync
-- Klaviyo marketing integration
 - ~~Design decision: customer-initiated skips + `cancelled_by` field~~ ✅ — fully implemented session 5
 - ~~Customer email receipt (SendGrid)~~ ✅ — confirmed working
 - ~~Live driver tracking~~ ✅ — GPS tracking live (driver app → Supabase Realtime → admin map)
