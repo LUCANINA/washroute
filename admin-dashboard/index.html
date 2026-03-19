@@ -3313,9 +3313,14 @@
   <div class="slide-over-body" id="intake-body">
     <div class="loading"><div class="spinner"></div> Loading…</div>
   </div>
-  <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
+  <div class="slide-over-footer" style="flex-direction:column;gap:8px;padding:16px 24px">
     <div id="intake-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
-    <button class="proc-save-btn" id="intake-save-btn" onclick="saveIntake()" disabled>Save &amp; Start Processing</button>
+    <button class="proc-save-btn" id="intake-next-btn" onclick="intakeNextStep()" disabled>Save &amp; Start Processing</button>
+    <button id="intake-save-only-btn" onclick="intakeSaveOnly()" style="display:none;background:none;border:1.5px solid var(--gray-200);border-radius:10px;padding:10px;font-size:13.5px;font-weight:600;color:var(--gray-600);cursor:pointer;width:100%;font-family:inherit;transition:all .15s">✏️ Save Changes Only</button>
+    <div id="intake-utils" style="display:none;align-items:center;justify-content:space-between;margin-top:2px">
+      <button onclick="printBagTag(procActiveOrder?.id)" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--gray-400);padding:0;font-family:inherit">🖨 Reprint Tag</button>
+      <span id="intake-undo-link" style="font-size:11px;color:var(--gray-300);cursor:pointer;user-select:none">← undo</span>
+    </div>
   </div>
 </div>
 
@@ -14511,6 +14516,8 @@ ${totalLinesXml}
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
       const folderName = allLaunCache.find(l => l.id === o.folded_by_id)?.name || null;
       return `<div class="proc-card" id="fold-card-${o.id}"
+        style="cursor:pointer"
+        onclick="openIntakePanel('${o.id}',true)"
         draggable="true"
         ondragstart="dragStartOrder(event,'${o.id}')"
         ondragend="dragEndOrder('${o.id}')"
@@ -14532,11 +14539,6 @@ ${totalLinesXml}
         </div>
         ${folderName ? `<div style="font-size:12px;color:var(--gray-500)">👤 Folded by <strong style="color:var(--gray-700)">${folderName}</strong></div>` : ''}
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
-        <button class="proc-card-btn" style="background:#059669;cursor:pointer;margin-top:4px" onclick="openRackPanel('${o.id}')">${o.stripe_payment_intent_id ? '🗂️ Assign Rack' : '💳 Charge & Rack'}</button>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
-          <button onclick="event.stopPropagation();printBagTag('${o.id}')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--gray-400);padding:0;font-family:inherit">🖨 Reprint</button>
-          <span style="font-size:11px;color:var(--gray-300);cursor:pointer;user-select:none" onclick="event.stopPropagation();moveOrderBack('${o.id}','processing')">← undo</span>
-        </div>
       </div>`;
     }).join('');
   }
@@ -14667,20 +14669,15 @@ ${totalLinesXml}
         : noBill
           ? ''
           : `<span style="font-size:11px;font-weight:600;color:#dc2626;display:inline-flex;align-items:center;gap:2px" title="Not yet charged">❌ Unpaid</span>`;
-      return `<div class="proc-card" id="racked-card-${o.id}">
-        <div onclick="openRackPanel('${o.id}')" style="cursor:pointer">
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <div class="proc-card-order">#${o.order_number||'—'}</div>
-            ${payBadge}
-          </div>
-          <div class="proc-card-name">${name}</div>
+      return `<div class="proc-card" id="racked-card-${o.id}" style="cursor:pointer" onclick="openRackPanel('${o.id}')">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div class="proc-card-order">#${o.order_number||'—'}</div>
+          ${payBadge}
         </div>
-        <div class="proc-card-meta" onclick="openRackPanel('${o.id}')" style="cursor:pointer">
+        <div class="proc-card-name">${name}</div>
+        <div class="proc-card-meta">
           <span>📦 ${o.total_bags||1} bag${(o.total_bags||1)!==1?'s':''}</span>
           <span style="color:#7c3aed;font-weight:600;text-decoration:underline;text-decoration-style:dotted">🗂️ ${rackLabel}</span>
-        </div>
-        <div style="text-align:right;margin-top:6px">
-          <span style="font-size:11px;color:var(--gray-300);cursor:pointer;user-select:none" onclick="moveOrderBack('${o.id}','folding')">← undo</span>
         </div>
       </div>`;
     }).join('');
@@ -14884,6 +14881,7 @@ ${totalLinesXml}
   let procIsSameDay = false;  // true when pickup date === delivery date
   let procCustomerCredits = 0; // customer's available credit balance
   let procCustomerId = null;   // customer ID for credit deduction
+  let _intakeEditMode = false; // true when editing from Cleaning/Folding (not new intake)
   let allAddonServicesCache = []; // active is_addon services with pricelist + linked_preference_id
   let allPreferencesCache  = []; // global preferences table (for pre-fill logic)
 
@@ -14986,6 +14984,8 @@ ${totalLinesXml}
       const bags = o.total_bags || 1;
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
       return `<div class="proc-card" id="clean-card-${o.id}"
+        style="cursor:pointer"
+        onclick="openIntakePanel('${o.id}',true)"
         draggable="true"
         ondragstart="dragStartOrder(event,'${o.id}')"
         ondragend="dragEndOrder('${o.id}')"
@@ -15005,11 +15005,6 @@ ${totalLinesXml}
           <span>${o.services?.name||'Walk-in'}</span>
         </div>
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
-        <button class="proc-card-btn" onclick="event.stopPropagation();openFoldPanel('${o.id}')">👕 Assign to Folder</button>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
-          <button onclick="event.stopPropagation();printBagTag('${o.id}')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--gray-400);padding:0;font-family:inherit">🖨 Reprint</button>
-          <span style="font-size:11px;color:var(--gray-300);cursor:pointer;user-select:none" onclick="event.stopPropagation();moveOrderBack('${o.id}','picked_up')">← undo</span>
-        </div>
       </div>`;
     }).join('');
   }
@@ -15041,6 +15036,8 @@ ${totalLinesXml}
       const premiumOpts = [];
       prefs.forEach(g => { const d = (g.options||[]).find(opt=>opt.is_default); if(d&&d.price_mod>0) premiumOpts.push(d.label); });
       return `<div class="proc-card" id="proc-card-${o.id}"
+        style="cursor:pointer"
+        onclick="openIntakePanel('${o.id}')"
         draggable="true"
         ondragstart="dragStartOrder(event,'${o.id}')"
         ondragend="dragEndOrder('${o.id}')"
@@ -15057,40 +15054,74 @@ ${totalLinesXml}
         </div>
         ${premiumOpts.length ? `<div class="proc-card-prefs">${premiumOpts.map(l=>`<span class="proc-card-pref-chip">${l}</span>`).join('')}</div>` : ''}
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
-        <button class="proc-card-btn" onclick="openIntakePanel('${o.id}')">⚖️ Process Order</button>
       </div>`;
     }).join('');
   }
 
-  async function openIntakePanel(orderId) {
+  async function openIntakePanel(orderId, editMode) {
+    _intakeEditMode = !!editMode;
     // Fresh-fetch the order so bags/notes/dates are always current
     // (admin may have changed them in the order panel since the proc queue last loaded)
     const { data: freshOrder } = await db.from('orders')
-      .select(`id, order_number, status, total_bags, special_instructions, service_id,
+      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
                pickup_window_start, delivery_window_start, total_amount, line_items,
                customers(id, first_name_cache, last_name_cache, customer_type, preferences),
                services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
       .eq('id', orderId)
       .single();
-    const order = freshOrder || allProcOrders.find(o => o.id === orderId);
+    const order = freshOrder || allProcOrders.find(o => o.id === orderId)
+               || allCleanOrders.find(o => o.id === orderId)
+               || allFoldOrders.find(o => o.id === orderId);
     if (!order) return;
     // Sync fresh data back into the local cache so the card also reflects updates
     if (freshOrder) {
       const idx = allProcOrders.findIndex(o => o.id === orderId);
       if (idx >= 0) allProcOrders[idx] = freshOrder;
+      const ci = allCleanOrders.findIndex(o => o.id === orderId);
+      if (ci >= 0) allCleanOrders[ci] = freshOrder;
+      const fi = allFoldOrders.findIndex(o => o.id === orderId);
+      if (fi >= 0) allFoldOrders[fi] = freshOrder;
     }
     procActiveOrder = order;
     procSvc         = order.services;
     procBags        = order.total_bags || 1;
-    procWeight      = '';
+    // In edit mode, pre-fill existing weight; in new intake, start blank
+    procWeight      = _intakeEditMode && order.weight_lbs ? String(Number(order.weight_lbs)) : '';
     procNotes       = order.special_instructions || '';
 
     // Show panel immediately so there's no delay (add-ons resolved after fresh fetch below)
     const fn = order.customers?.first_name_cache || '';
     const ln = order.customers?.last_name_cache  || '';
-    document.getElementById('intake-title').textContent    = `${fn} ${ln}`.trim() || 'Process Order';
+    const titleText = _intakeEditMode ? 'Edit Order' : 'Process Order';
+    document.getElementById('intake-title').textContent    = `${fn} ${ln}`.trim() || titleText;
     document.getElementById('intake-subtitle').textContent = `Order #${order.order_number||'—'} · ${procSvc?.name||''}`;
-    document.getElementById('intake-save-btn').disabled    = true;
+    // Configure footer buttons based on order status / mode
+    const nextBtn     = document.getElementById('intake-next-btn');
+    const saveOnlyBtn = document.getElementById('intake-save-only-btn');
+    const utilsRow    = document.getElementById('intake-utils');
+    const undoLink    = document.getElementById('intake-undo-link');
+    const orderStatus = order.status;
+    // Next-step button label depends on which column the order is in
+    const nextLabels = {
+      picked_up:  '⚖️ Save & Start Processing',
+      processing: '👕 Save & Assign to Folder',
+      folding:    '💳 Save & Charge → Rack'
+    };
+    nextBtn.textContent = nextLabels[orderStatus] || '⚖️ Save & Start Processing';
+    nextBtn.disabled = !_intakeEditMode; // new intake requires weight first
+    // Show "Save Changes Only" + utility row for orders past intake
+    saveOnlyBtn.style.display = _intakeEditMode ? '' : 'none';
+    saveOnlyBtn.disabled = false;
+    utilsRow.style.display = _intakeEditMode ? 'flex' : 'none';
+    // Undo link sends order back one column
+    const undoTargets = { processing: 'picked_up', folding: 'processing' };
+    const undoTarget  = undoTargets[orderStatus];
+    if (undoTarget) {
+      undoLink.style.display = '';
+      undoLink.onclick = () => { closeIntakePanel(); moveOrderBack(order.id, undoTarget); };
+    } else {
+      undoLink.style.display = 'none';
+    }
     document.getElementById('intake-error').style.display  = 'none';
     procAddons = {};
     procAddonServices = {};
@@ -15463,14 +15494,133 @@ ${totalLinesXml}
   }
 
   function updateIntakeSaveBtn() {
-    const btn = document.getElementById('intake-save-btn');
-    if (btn) btn.disabled = !procWeight || parseFloat(procWeight) <= 0;
+    const btn = document.getElementById('intake-next-btn');
+    if (!btn) return;
+    const hasWeight = procWeight && parseFloat(procWeight) > 0;
+    btn.disabled = !hasWeight;
+    // Also enable/disable Save Changes Only
+    const saveOnly = document.getElementById('intake-save-only-btn');
+    if (saveOnly && _intakeEditMode) saveOnly.disabled = !hasWeight;
   }
 
   function closeIntakePanel() {
     document.getElementById('intake-panel').classList.remove('open');
     procActiveOrder = null; procSvc = null;
     procFeeExempt = false; procIsSameDay = false;
+    _intakeEditMode = false;
+  }
+
+  // ── INTAKE: "Next Step" button — advances order to the next column ──
+  async function intakeNextStep() {
+    if (!procActiveOrder) return;
+    const status = procActiveOrder.status;
+    if (status === 'picked_up') {
+      // Intake → Cleaning: original saveIntake() flow (saves weight, prints tag, sends receipt)
+      await saveIntake();
+    } else if (status === 'processing') {
+      // Cleaning → Folding: save changes first, then open the fold panel
+      await _intakeSaveChanges();
+      if (!procActiveOrder) return; // save failed
+      const orderId = procActiveOrder.id;
+      closeIntakePanel();
+      openFoldPanel(orderId);
+    } else if (status === 'folding') {
+      // Folding → Rack: save changes first, then open the rack panel
+      await _intakeSaveChanges();
+      if (!procActiveOrder) return;
+      const orderId = procActiveOrder.id;
+      closeIntakePanel();
+      openRackPanel(orderId);
+    }
+  }
+
+  // ── INTAKE: "Save Changes Only" — updates order without moving it ──
+  async function intakeSaveOnly() {
+    if (!procActiveOrder) return;
+    await _intakeSaveChanges();
+  }
+
+  // ── Shared helper: save current panel values to DB without changing status ──
+  async function _intakeSaveChanges() {
+    const weight = parseFloat(procWeight);
+    if (!weight || weight <= 0) { showToast('Please enter the order weight.', 'error'); return; }
+    const btn = document.getElementById('intake-save-only-btn');
+    const nextBtn = document.getElementById('intake-next-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    if (nextBtn) nextBtn.disabled = true;
+
+    const svc = procSvc || {};
+    const bd  = calcProcTotal();
+    const pricePerBag = parseFloat(svc.base_price || 0);
+    const ovgRate     = parseFloat(svc.overage_rate_per_lb || 3);
+
+    const lineItems = _buildIntakeLineItems(bd, pricePerBag, ovgRate);
+
+    const { error } = await db.from('orders').update({
+      weight_lbs: weight, total_bags: bd.bags,
+      total_amount: bd.total, line_items: lineItems,
+      is_same_day: procIsSameDay,
+      special_instructions: procNotes || null,
+      updated_at: new Date().toISOString()
+    }).eq('id', procActiveOrder.id);
+
+    if (error) {
+      const errEl = document.getElementById('intake-error');
+      errEl.textContent = error.message; errEl.style.display = '';
+      if (btn) { btn.disabled = false; btn.textContent = '✏️ Save Changes Only'; }
+      if (nextBtn) nextBtn.disabled = false;
+      return;
+    }
+    const orderNum = procActiveOrder.order_number;
+    const orderStatus = procActiveOrder.status;
+    closeIntakePanel();
+    showToast(`Order #${orderNum} updated!`, 'success');
+    const colMap = { processing: 'cleaning', folding: 'folding', picked_up: 'intake' };
+    reloadColumns(colMap[orderStatus] || 'cleaning', 'folding');
+  }
+
+  // ── Build line_items array from current panel state ──
+  function _buildIntakeLineItems(bd, pricePerBag, ovgRate) {
+    const lineItems = [
+      { type:'base', label:`${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}`, amount: bd.base }
+    ];
+    if (bd.overage_charge > 0)
+      lineItems.push({ type:'overage', label:`${bd.overage_lbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb`, amount: bd.overage_charge });
+    Object.values(procAddons).forEach(a =>
+      lineItems.push({ type:'addon', label: a.label, amount: a.price_mod||0 })
+    );
+    allPreferencesCache.forEach(g => {
+      const selId  = procAddons[g.id]?.id;
+      if (!selId) return;
+      const selOpt = (g.options || []).find(o => o.id === selId);
+      if (!selOpt || selOpt.is_default) return;
+      const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
+      if (linkedSvc) {
+        const price   = parseFloat(linkedSvc.base_price) || 0;
+        const lineAmt = price * bd.bags;
+        lineItems.push({ type:'addon_service', service_id: linkedSvc.id,
+          label: `${linkedSvc.name} × ${bd.bags} bag${bd.bags!==1?'s':''}`, amount: lineAmt });
+      }
+    });
+    Object.values(procAddonServices).filter(a => a.selected).forEach(a => {
+      const price   = parseFloat(a.service.base_price) || 0;
+      const isItem  = a.service.pricing_type === 'per_item';
+      const units   = isItem ? (a.qty || 1) : bd.bags;
+      const unit    = isItem ? 'item' : 'bag';
+      const lineAmt = price * units;
+      lineItems.push({ type:'addon_service', service_id: a.service.id,
+        label: `${a.service.name} × ${units} ${unit}${units!==1?'s':''}`, amount: lineAmt });
+    });
+    if (!procFeeExempt) {
+      if (bd.deliveryFee > 0)
+        lineItems.push({ type: 'delivery_fee', label: 'Delivery fee', amount: bd.deliveryFee });
+      if (bd.sameDaySurcharge > 0)
+        lineItems.push({ type: 'same_day_surcharge', label: 'Same-day surcharge', amount: bd.sameDaySurcharge });
+    }
+    if (bd.creditApplied > 0) {
+      lineItems.push({ type: 'credit', label: 'Account credit applied', amount: -bd.creditApplied });
+    }
+    return lineItems;
   }
 
   // ── MOVE ORDER BACK ──
@@ -15500,57 +15650,14 @@ ${totalLinesXml}
     if (!procActiveOrder) return;
     const weight = parseFloat(procWeight);
     if (!weight || weight <= 0) { showToast('Please enter the order weight.', 'error'); return; }
-    const btn = document.getElementById('intake-save-btn');
+    const btn = document.getElementById('intake-next-btn');
     btn.disabled = true; btn.textContent = 'Saving…';
 
     const svc = procSvc || {};
     const bd  = calcProcTotal();
     const pricePerBag = parseFloat(svc.base_price || 0);
     const ovgRate     = parseFloat(svc.overage_rate_per_lb || 3);
-
-    const lineItems = [
-      { type:'base', label:`${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}`, amount: bd.base }
-    ];
-    if (bd.overage_charge > 0)
-      lineItems.push({ type:'overage', label:`${bd.overage_lbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb`, amount: bd.overage_charge });
-    Object.values(procAddons).forEach(a =>
-      lineItems.push({ type:'addon', label: a.label, amount: a.price_mod||0 })
-    );
-    // Preference-linked services (Vinegar, Oxi) — auto-billed when chip = non-default (Yes)
-    allPreferencesCache.forEach(g => {
-      const selId  = procAddons[g.id]?.id;
-      if (!selId) return;
-      const selOpt = (g.options || []).find(o => o.id === selId);
-      if (!selOpt || selOpt.is_default) return;
-      const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
-      if (linkedSvc) {
-        const price   = parseFloat(linkedSvc.base_price) || 0;
-        const lineAmt = price * bd.bags;
-        lineItems.push({ type:'addon_service', service_id: linkedSvc.id,
-          label: `${linkedSvc.name} × ${bd.bags} bag${bd.bags!==1?'s':''}`, amount: lineAmt });
-      }
-    });
-    // Additional services (Shirt Service, Air Dry, etc.)
-    Object.values(procAddonServices).filter(a => a.selected).forEach(a => {
-      const price   = parseFloat(a.service.base_price) || 0;
-      const isItem  = a.service.pricing_type === 'per_item';
-      const units   = isItem ? (a.qty || 1) : bd.bags;
-      const unit    = isItem ? 'item' : 'bag';
-      const lineAmt = price * units;
-      lineItems.push({ type:'addon_service', service_id: a.service.id,
-        label: `${a.service.name} × ${units} ${unit}${units!==1?'s':''}`, amount: lineAmt });
-    });
-    // Delivery fees
-    if (!procFeeExempt) {
-      if (bd.deliveryFee > 0)
-        lineItems.push({ type: 'delivery_fee', label: 'Delivery fee', amount: bd.deliveryFee });
-      if (bd.sameDaySurcharge > 0)
-        lineItems.push({ type: 'same_day_surcharge', label: 'Same-day surcharge', amount: bd.sameDaySurcharge });
-    }
-    // Apply customer credits (negative line item)
-    if (bd.creditApplied > 0) {
-      lineItems.push({ type: 'credit', label: 'Account credit applied', amount: -bd.creditApplied });
-    }
+    const lineItems   = _buildIntakeLineItems(bd, pricePerBag, ovgRate);
 
     // Open print popup NOW — before any await — so browsers don't block it.
     // Skip the popup entirely when CloudPRNT is configured.
@@ -15565,10 +15672,10 @@ ${totalLinesXml}
     }).eq('id', procActiveOrder.id);
 
     if (error) {
-      if (printWin) printWin.close();  // dismiss the print window we pre-opened
+      if (printWin) printWin.close();
       const errEl = document.getElementById('intake-error');
       errEl.textContent = error.message; errEl.style.display = '';
-      btn.disabled = false; btn.textContent = 'Save & Start Processing';
+      btn.disabled = false; btn.textContent = '⚖️ Save & Start Processing';
       return;
     }
     // Deduct credits from customer if applied
@@ -15584,15 +15691,14 @@ ${totalLinesXml}
     }
     const movedId  = procActiveOrder.id;
     const movedNum = procActiveOrder.order_number;
-    _autoPrintIntake(lineItems, bd, printWin);   // fire-and-forget — fills the pre-opened popup
-    // Auto-send email receipt — fire-and-forget (silent fail so intake isn't blocked)
+    _autoPrintIntake(lineItems, bd, printWin);
+    // Auto-send email receipt — fire-and-forget
     fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
       body: JSON.stringify({ order_id: movedId }),
     }).catch(e => console.warn('Auto email receipt failed:', e));
     closeIntakePanel();
-    // Instant removal from Intake column
     document.getElementById('proc-card-' + movedId)?.remove();
     allProcOrders = allProcOrders.filter(o => o.id !== movedId);
     showToast(`Order #${movedNum} → Processing!${bd.creditApplied > 0 ? ` (${fmtMoney(bd.creditApplied)} credit applied)` : ''}`, 'success');
