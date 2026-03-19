@@ -12078,8 +12078,9 @@ ${totalLinesXml}
     // Compute week dates early so we can fetch actual route records for the whole week
     const weekDates = getWeekDates(schedWeekOffset);
     schedWeekDates = weekDates;
-    const weekStartStr = weekDates[0].toISOString().split('T')[0];
-    const weekEndStr   = weekDates[6].toISOString().split('T')[0];
+    const _fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const weekStartStr = _fmt(weekDates[0]);
+    const weekEndStr   = _fmt(weekDates[6]);
 
     // Fetch actual route records — past/today cells show the real driver, not the current schedule
     const { data: weekRouteRows } = await db.from('routes')
@@ -12142,8 +12143,8 @@ ${totalLinesXml}
       const runs = (t.schedule_days||[]).includes(day);
       if (!runs) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
 
-      const dateStr = date.toISOString().split('T')[0];
-      const todayDateStr = new Date().toISOString().split('T')[0];
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+      const todayDateStr = today();
       const isPast   = dateStr < todayDateStr;
       const isToday  = dateStr === todayDateStr;
 
@@ -12292,8 +12293,9 @@ ${totalLinesXml}
     // Compute week dates early so we can fetch actual route records for the whole week
     const weekDates = getWeekDates(schedWeekOffset);
     schedWeekDates = weekDates;
-    const weekStartStr = weekDates[0].toISOString().split('T')[0];
-    const weekEndStr   = weekDates[6].toISOString().split('T')[0];
+    const _fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const weekStartStr = _fmt(weekDates[0]);
+    const weekEndStr   = _fmt(weekDates[6]);
 
     // Fetch actual route records — past/today cells show the real driver, not the current schedule
     const { data: weekRouteRows } = await db.from('routes')
@@ -12354,8 +12356,8 @@ ${totalLinesXml}
       const runs = (t.schedule_days||[]).includes(day);
       if (!runs) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
 
-      const dateStr = date.toISOString().split('T')[0];
-      const todayDateStr = new Date().toISOString().split('T')[0];
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+      const todayDateStr = today();
       const isPast   = dateStr < todayDateStr;
       const isToday  = dateStr === todayDateStr;
 
