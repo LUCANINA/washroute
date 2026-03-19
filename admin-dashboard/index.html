@@ -1217,8 +1217,8 @@
               <select id="cust-map-city" class="form-input" style="height:28px;font-size:12px;width:140px;padding:0 8px;" onchange="setCustCityFilter(this.value)">
                 <option value="all">All Cities</option>
               </select>
-              <select id="cust-map-route" class="form-input" style="height:28px;font-size:12px;width:170px;padding:0 8px;" onchange="setCustRouteFilter(this.value)">
-                <option value="all">All Routes</option>
+              <select id="cust-map-zone" class="form-input" style="height:28px;font-size:12px;width:170px;padding:0 8px;" onchange="setCustZoneFilter(this.value)">
+                <option value="all">All Zones</option>
               </select>
             </div>
             <!-- LIST VIEW -->
@@ -3424,7 +3424,6 @@
   let currentPage = 'overview';
   let allCustomers = [];
   let allOrders = [];
-  let allRoutes = [];
   let allTemplates = [], allDriversCache = [];
   let allDriversList = [];
   let currentDriverId = null;
@@ -4573,13 +4572,9 @@
   }
 
   async function loadCustomers() {
-    const [{ data, error }, { data: templates }] = await Promise.all([
-      db.from('customers')
+    const { data, error } = await db.from('customers')
         .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
-        .order('created_at', { ascending: false }),
-      db.from('route_templates').select('id, name').order('name')
-    ]);
-    allRoutes = (templates || []).map(t => ({ id: t.id, name: t.name }));
+        .order('created_at', { ascending: false });
 
     if (error) {
       console.error('loadCustomers error:', error);
@@ -4798,8 +4793,8 @@
   let custStatusFilter = 'all';
   // map-only filters
   let custCityFilter  = 'all';
-  let custRouteFilter = 'all';
-  let _routeCustomerSet = null; // Set<customerId> when a route is selected
+  let custZoneFilter = 'all';
+  let _allZones = [];  // service_zones cache for customer filtering
 
   function filterCustomers(status, btn) {
     custStatusFilter = status;
@@ -4815,7 +4810,7 @@
     applyCustomerFilters(q, custStatusFilter);
   }
 
-  function populateCustMapFilters() {
+  async function populateCustMapFilters() {
     // Cities dropdown — unique non-null cities from loaded customers
     const cityEl = document.getElementById('cust-map-city');
     if (cityEl) {
@@ -4824,12 +4819,16 @@
         + cities.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
       cityEl.value = custCityFilter;
     }
-    // Routes dropdown
-    const routeEl = document.getElementById('cust-map-route');
-    if (routeEl) {
-      routeEl.innerHTML = '<option value="all">All Routes</option>'
-        + allRoutes.map(r => `<option value="${r.id}">${esc(r.name||'Unnamed Route')}</option>`).join('');
-      routeEl.value = custRouteFilter;
+    // Zones dropdown — from service_zones table
+    const zoneEl = document.getElementById('cust-map-zone');
+    if (zoneEl) {
+      if (!_allZones.length) {
+        const { data } = await db.from('service_zones').select('id, name, cities').order('name');
+        _allZones = data || [];
+      }
+      zoneEl.innerHTML = '<option value="all">All Zones</option>'
+        + _allZones.map(z => `<option value="${z.id}">${esc(z.name)}</option>`).join('');
+      zoneEl.value = custZoneFilter;
     }
   }
 
@@ -4839,20 +4838,8 @@
     applyCustomerFilters(q, custStatusFilter);
   }
 
-  async function setCustRouteFilter(val) {
-    custRouteFilter = val;
-    if (val === 'all') {
-      _routeCustomerSet = null;
-    } else {
-      // val is a template_id — find all routes for this template, then find customers via orders
-      const { data: routes } = await db.from('routes').select('id').eq('template_id', val);
-      const routeIds = (routes || []).map(r => r.id);
-      if (!routeIds.length) { _routeCustomerSet = new Set(); } else {
-        const { data: stops, error } = await db.from('route_stops').select('orders(customer_id)').in('route_id', routeIds);
-        if (error) { showToast('Route filter error: ' + error.message, 'error'); return; }
-        _routeCustomerSet = new Set((stops || []).map(s => s.orders?.customer_id).filter(Boolean));
-      }
-    }
+  function setCustZoneFilter(val) {
+    custZoneFilter = val;
     const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
     applyCustomerFilters(q, custStatusFilter);
   }
@@ -4875,9 +4862,15 @@
           || phone.includes(q);
       });
     }
-    // map-specific filters (city + route)
+    // map-specific filters (city + zone)
     if (custCityFilter !== 'all') data = data.filter(c => c.city === custCityFilter);
-    if (custRouteFilter !== 'all' && _routeCustomerSet) data = data.filter(c => _routeCustomerSet.has(c.id));
+    if (custZoneFilter !== 'all') {
+      const zone = _allZones.find(z => z.id === custZoneFilter);
+      if (zone && Array.isArray(zone.cities)) {
+        const zoneCities = zone.cities.map(ci => ci.toLowerCase());
+        data = data.filter(c => c.city && zoneCities.includes(c.city.toLowerCase()));
+      }
+    }
     renderCustomers(data);
     // if map is visible, refresh pins too
     const mapView = document.getElementById('customers-map-view');
