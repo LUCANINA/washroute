@@ -14463,7 +14463,7 @@ ${totalLinesXml}
       allLaunCache = data || [];
     }
     const { data: orders } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, special_instructions, source, rack_id,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id,
                customers(id, first_name_cache, last_name_cache, phone_cache), services(name)`)
       .eq('status', 'folding')
       .order('updated_at', { ascending: true });
@@ -14489,6 +14489,7 @@ ${totalLinesXml}
       const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
       const bags = o.total_bags || 1;
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
+      const folderName = allLaunCache.find(l => l.id === o.folded_by_id)?.name || null;
       return `<div class="proc-card" id="fold-card-${o.id}"
         draggable="true"
         ondragstart="dragStartOrder(event,'${o.id}')"
@@ -14509,6 +14510,7 @@ ${totalLinesXml}
           <span>${o.services?.name||'Walk-in'}</span>
           ${Number(o.total_amount)>0 ? `<span style="font-weight:600;color:var(--gray-700)">${fmtMoney(o.total_amount)}</span>` : ''}
         </div>
+        ${folderName ? `<div style="font-size:12px;color:var(--gray-500)">👤 Folded by <strong style="color:var(--gray-700)">${folderName}</strong></div>` : ''}
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
         <button class="proc-card-btn" style="background:#059669;cursor:pointer;margin-top:4px" onclick="openRackPanel('${o.id}')">${o.stripe_payment_intent_id ? '🗂️ Assign Rack' : '💳 Charge & Rack'}</button>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
