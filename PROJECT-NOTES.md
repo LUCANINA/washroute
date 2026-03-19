@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 19, 2026 — Twilio A2P confirmed live, Xero + Klaviyo removed from backlog*
+*Last updated: Mar 19, 2026 — Claude AI SMS replies live (twilio-webhook v22)*
 
 ---
 
@@ -99,7 +99,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | Function | Purpose | JWT |
 |---|---|---|
 | `send-sms` | Send outbound SMS via Twilio + log to DB | Off |
-| `twilio-webhook` | Receive inbound SMS from Twilio + match customer | Off |
+| `twilio-webhook` | Receive inbound SMS — SKIP/PICKUP/HELP keywords + Claude AI for everything else | Off |
 | `notify-on-my-way` | Driver "On My Way" button → customer SMS | Off |
 | `charge-order` | Stripe payment charge | On |
 | `send-order-notification` | Status-change notifications | On |
@@ -264,45 +264,30 @@ Postgres function: `find_customer_by_phone(digits TEXT)`.
 
 ---
 
-## SMS / Email Automation — Roadmap
+## SMS Automation — Status
 
-The goal is to auto-handle common customer requests that arrive via SMS or email
-(e.g. "I'd like to book a pickup tonight") without requiring admin intervention.
+### ✅ Phase 1 — Live (twilio-webhook v22, session 36)
 
-### Pipeline overview
-1. **Ingestion** — Twilio webhook (SMS) or Postmark/SendGrid inbound parse (email)
-   fires a Supabase Edge Function when a message arrives.
-2. **Intent recognition** — Call Claude API with the message + customer context.
-   Claude classifies intent (booking, cancellation, status check, other) and
-   extracts entities (date/time, address, service type).
-3. **Customer matching** — Match inbound phone/email to a `customers` row.
-   Unknown sender → route to human inbox.
-4. **Action execution** — Write to Supabase (create order, update status, etc.)
-   and send a confirmation reply.
+**Keyword actions (deterministic):**
+- `PICKUP` — Books next evening pickup using last order as template (zone, address, bags). Blocks if active order already exists. Falls back to default address + zone lookup for new customers.
+- `SKIP` — Skips next scheduled order, fires `skip_confirmation` template.
+- `HELP` — Returns menu of available commands.
 
-### Build order (start simple, prove pipeline first)
-| Phase | What | Why |
-|-------|------|-----|
-| 1 | **Status checks** — "Where's my driver?" / "What time is my pickup?" | Read-only, zero risk, proves pipeline |
-| 2 | **Cancellations** — "Can I cancel Thursday?" | Simple write, business logic is clear |
-| 3 | **New bookings** — "Book a pickup tonight" | Complex: availability check, multi-turn conversation, order creation |
+**Claude AI — natural language (all other messages):**
+- Every inbound SMS that isn't a keyword goes to `claude-haiku-4-5-20251001` with the customer's name + active order context.
+- Claude answers status/ETA questions, guides customers to PICKUP/SKIP, handles general questions.
+- Returns `ESCALATE` for complaints, billing disputes, or anything it can't confidently answer → message silently routes to human inbox (already logged, visible in admin SMS Inbox).
+- Falls back to human inbox automatically if `ANTHROPIC_API_KEY` is missing or Claude API errors.
 
-### Key new pieces needed
-- `conversations` table — tracks state for multi-turn SMS threads
-  (which step of the booking flow a customer is currently in)
-- New Edge Function (or extend `twilio-webhook`) — orchestrates intent → action → reply
-- Admin dashboard: "Automation log" panel — shows what was auto-handled vs. escalated
+**Secrets required:** `ANTHROPIC_API_KEY` — added to Supabase Secrets 2026-03-19.
 
-### Fallback-to-human triggers
-- Claude confidence below threshold
-- Customer replies more than twice without resolution
-- Certain keywords: "speak to someone", out-of-area address, angry language
-- Any request the system has no data to answer
+### Phase 2 — Pending
+- Natural-language cancellations: "Can I cancel Thursday?" → skip with date parsing
+- Requires `conversations` table for multi-turn state tracking
 
-### Notes
-- Twilio webhook URL already exists: `twilio-webhook` Edge Function
-- Phone matching already solved: `find_customer_by_phone()` Postgres function
-- Start with Phase 1 as a contained afternoon project
+### Phase 3 — Pending
+- New bookings via SMS: "Book a pickup tonight"
+- Requires multi-turn conversation flow + availability check
 
 ---
 
@@ -753,6 +738,20 @@ There are actually **two separate hang points** that must both be covered:
   - Routes only truly lock after window_end + 2hr buffer passes AND all stops are done
 - **Design principle added:** "Routes stay open until window_end + 2hr buffer" — orders can arrive throughout the day, so schedule flexibility must be preserved.
 - **File changed:** `admin-dashboard/index.html` (3 locations)
+
+### Mar 19, 2026 (session 36) — Claude AI SMS replies + PICKUP evening default
+
+- **`twilio-webhook` upgraded to v22 (from v18):** Full inbound SMS intelligence overhaul.
+  - **PICKUP keyword** — now defaults to **evening route** (`window_start.desc`). Previously defaulted to earliest/AM route (`window_start.asc`). Books next available evening pickup using last order as template; falls back to default address + `get_zones_for_point` RPC for new customers. Blocks if active order already exists.
+  - **Claude AI handler** — all messages that aren't SKIP/PICKUP/HELP now go to `claude-haiku-4-5-20251001` with the customer's name + active order context (status label, pickup window, delivery window). Claude answers status/ETA questions naturally, guides customers to PICKUP/SKIP keywords, and escalates complaints/billing issues to the human inbox by returning `ESCALATE`. Falls back gracefully to human inbox if API key missing or Claude errors.
+  - **QA fixes applied:** Added `out_for_delivery` to `statusLabels` (Claude gets a human-readable label instead of raw snake_case); added null guard on `newOrder` destructure after order creation.
+  - **SKIP and HELP** — unchanged from v18.
+- **`ANTHROPIC_API_KEY` added to Supabase Secrets** — required for Claude AI handler. Without it, all non-keyword messages route silently to human inbox.
+- **Twilio A2P 10DLC confirmed fully live** — David confirmed messaging works end-to-end. Removed from pending list.
+- **Xero and Klaviyo removed from backlog** — deprioritised by David.
+- **Next session priorities:**
+  1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
+  2. Route picker fine-tuning (backlog)
 
 ### Mar 18, 2026 (session 32) — SMS notification pipeline fixed: 3 edge functions + message template consolidation
 
@@ -1661,9 +1660,10 @@ There are actually **two separate hang points** that must both be covered:
 - ~~UX audit top 5 fixes~~ ✅ — double-tap, res.ok guard, batch button disable, stop card styling, slot CSS (session 15)
 - ~~How did you find us? referral source~~ ✅ — both signup flows + admin dropdown (session 15)
 - ~~Add Double Wash price_mod~~ ✅ — $15/bag, linked addon service, live in DB (session 16)
-- ~~SMS automation Phase 1~~ ✅ — PICKUP, STATUS, SKIP, HELP keywords live in twilio-webhook v14 (session 16)
+- ~~SMS automation Phase 1~~ ✅ — PICKUP (evening default), SKIP, HELP + Claude AI natural language replies live in twilio-webhook v22 (session 36)
 - ~~CloudPRNT integration~~ ✅ — `print_jobs` table + `cloudprnt` edge function live (session 22). Configure via Admin → Settings → Receipt Printer.
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
+- SMS automation Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table for multi-turn state
 - ~~Design decision: customer-initiated skips + `cancelled_by` field~~ ✅ — fully implemented session 5
 - ~~Customer email receipt (SendGrid)~~ ✅ — confirmed working
 - ~~Live driver tracking~~ ✅ — GPS tracking live (driver app → Supabase Realtime → admin map)
