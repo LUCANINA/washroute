@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 19, 2026 — Order details locked after Intake, Details tab read-only/edit mode, addon label fix, paid order freeze (session 39)*
+*Last updated: Mar 19, 2026 — Billing consistency audit, double-charge fix, folding status, outstanding balance fix, print buttons (session 40)*
 
 ---
 
@@ -160,6 +160,12 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **"Processed by" folder name in summaries (session 39, commit `bce9762`):** Fold and Rack panel order summaries now show the launderer/folder name if `folded_by_id` is set.
 - **Addon label fix (session 39, commit `910de48`):** `_buildIntakeLineItems()` was saving preference option labels ("Yes", "No") without the group name, creating meaningless "Yes $3.00" line items on receipts. Fixed by iterating `allPreferencesCache` to include group name (e.g. "Vinegar: Yes") and skipping $0 items. Introduced `pref_service` line_item type to distinguish preference-linked services from manually-added `addon_service` items.
 - **Paid orders bypass fold panel (session 39, commit `7f96eac`):** `openFoldPanel()` now checks `stripe_payment_intent_id` — paid orders skip straight to `openRackPanel()`. Ensures paid order details (including folder name) are fully frozen.
+- **Print button on all kanban panels (session 40, commit `306bd5e`):** 🖨 button added to Intake, Fold, and Rack panel headers. Calls `printBagTag(activeOrder?.id)` — works with CloudPRNT or browser popup.
+- **Double-charge bug fix (session 40, commit `dae110f`):** `_buildIntakeLineItems()` was adding both a preference `price_mod` item ("Vinegar: Yes $3") AND a linked service item ("Vinegar × 1 bag $3"), doubling the charge. Now only the linked service is used when one exists. Added `_dedupeLineItems()` and `_findStaleLineItemIdxs()` helpers to filter stale "Name: Yes" entries from all display paths.
+- **Billing consistency audit (session 40, commit `183807b`):** `opSaveDetails()` used type `'fee'` (should be `'delivery_fee'`) and different overage label format. Both aligned with `_buildIntakeLineItems()`. `printBagTag()` now uses `_dedupeLineItems()`. `send-receipt` edge function v21 deployed — added `pref_service` to `DISPLAY_TYPES` and `dedupeLineItems()`.
+- **Folding status in STATUS_FLOW (session 40, commit `4eb54b2`):** `folding` was missing from `STATUS_FLOW`, `statusBadge`, status dropdown, and labels. Orders in folding status showed "Fully Delivered" as advance button and "Processing" as badge. Now shows purple "Folding" badge and "Advance to Ready For Delivery".
+- **Outstanding balance fix (session 40, commit `4e94375`):** Customer billing panel used `billing_status` (unused column) to detect paid orders. Orders with `stripe_payment_intent_id` (actually charged) were still counted as unpaid. Fixed to filter by `stripe_payment_intent_id IS NULL`.
+- **Weight prefill on Intake re-entry (session 40, commit `0f9c08e`):** When an order is dragged back to Intake from Cleaning, the weight field now prefills with the existing value instead of starting blank. Save button enables immediately if weight exists.
 
 ### Settings
 - **Sidebar nav reorganized (session 23):** "Timezone" nav item renamed to **"Printer"** (printer icon) → shows only the Receipt Printer card. Business Timezone moved into **Routes → Settings tab** (new 3rd tab in the Maps/Routes page alongside Zones and Route Templates). Topbar CTA hides on the Settings tab (no action button needed there).
@@ -760,6 +766,23 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 19, 2026 (session 40) — Billing audit, double-charge fix, folding status, outstanding balance, print buttons, Orders refresh fix
+
+- **Print button on all kanban panels (commit `306bd5e`):** 🖨 button added to Intake, Fold, and Rack panel headers. Calls `printBagTag(activeOrder?.id)`. Icon doubled in size (`font-size:24px`).
+- **Simplified Fold and Rack panel titles (commit `6658f33`):** Removed "— Fold & Pack" and "— Change/Assign Rack" suffixes. Panel headers now show just the customer name.
+- **Weight prefill on Intake re-entry (commit `0f9c08e`):** When an order is dragged back to Intake from Cleaning, the weight field now prefills with the existing `weight_lbs` instead of starting at 0. Save button enables immediately if weight exists.
+- **Double-charge bug fix (commit `dae110f`):** `_buildIntakeLineItems()` was creating both a preference `price_mod` item ("Vinegar: Yes $3") AND a linked service item ("Vinegar × 1 bag $3"), doubling the charge. Fixed to only use the linked service when one exists. Added `_dedupeLineItems()` and `_findStaleLineItemIdxs()` helpers to filter stale "Name: Yes" entries from all display paths. Cleaned up orders #147, #146, #141 in the database.
+- **Billing consistency audit (commit `183807b`):** `opSaveDetails()` used `type:'fee'` instead of `'delivery_fee'` and different overage label format — aligned with `_buildIntakeLineItems()`. `printBagTag()` now uses `_dedupeLineItems()`. `send-receipt` edge function v21 deployed: added `pref_service` to `DISPLAY_TYPES`, added `dedupeLineItems()`, tightened credit filter.
+- **Folding status in STATUS_FLOW (commit `4eb54b2`):** `folding` was missing from `STATUS_FLOW`, `statusBadge`, status dropdown, and `_OP_STATUS_LABELS`. Orders in folding status showed "Fully Delivered" as advance button and "Processing" as badge. Fixed across all four locations.
+- **Outstanding balance fix (commit `4e94375`):** Customer billing panel used `billing_status` (unused column, always null) instead of `stripe_payment_intent_id` to detect paid orders. All charged orders appeared as "unpaid". Fixed to filter by `stripe_payment_intent_id IS NULL`.
+- **Orders tab blank on refresh (commit `105d5e3`):** `loadAll()` called `loadOrders()` with no filter (defaulting to `'scheduled'`), racing against the hash-restored `loadOrders('in_process')`. If `loadAll` finished last, it overwrote `currentOrderFilter` and rendered the wrong tab — appearing blank. Fixed `loadAll()` to pass `currentOrderFilter`, removed duplicate `loadOrders` call in `showPage()`, and made `switchOrdersView` hash reflect actual filter.
+- **Next session priorities:**
+  1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
+  2. Launderer reporting Phase 2 — date range mode
+  3. Route picker fine-tuning (backlog)
 
 ---
 
