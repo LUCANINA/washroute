@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 18, 2026 (session 35b — admin order creation fix, address resolution, driver app redesign, customer_type migration)*
+*Last updated: Mar 18, 2026 (session 35d — driver stop ordering fix, map polyline fix, QA/security hardening)*
 
 ---
 
@@ -16,6 +16,8 @@ Project moved from the old Cowork sandbox path to a proper local git repo:
 ## Guiding Principle
 
 Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no dead references, no hardcoded strings that should be configurable. Whether the customer sees it or not — the system must be tidy. Clean up after every job.
+
+**⚠️ NEVER use `.toISOString()` for local date comparisons.** `toISOString()` returns UTC — after 5 PM Pacific it rolls to the next calendar day and breaks every "is this today?" check. Always use the `today()` helper or `getFullYear()/getMonth()/getDate()` formatting. This caused a critical bug where route schedule cells locked every evening. Applies to all three apps.
 
 ---
 
@@ -401,7 +403,7 @@ There are actually **two separate hang points** that must both be covered:
 |---|----------|-------|---------|
 | 1 | ~~P2 → Fixed~~ | `route_stops` | ~~Stops stay `pending` when order reaches `delivered` or `pickup_failed` via admin~~ — **FIXED session 3**: DB trigger `trg_sync_stops_on_order_terminal` now cascades order terminal status to route_stops. Backfill ran on all existing orphaned stops. |
 | 2 | ~~P2 → Fixed~~ | `route_stops` | ~~Cancelled orders retain their pending route stops~~ — **FIXED session 3**: Same trigger handles `cancelled` → stops set to `skipped`. Hard deletes handled by existing FK CASCADE DELETE. |
-| 3 | P2 Medium | admin `saveOrder()` | Admin-created orders always saved with `total_amount = 0` — intentional (price set at intake/weigh) but skews revenue reports. Estimated price shown in form is not persisted anywhere |
+| 3 | ~~P2 → Fixed~~ | admin `saveOrder()` | ~~Admin-created orders always saved with `total_amount = 0`~~ — **FIXED session 35**: `saveOrder()` now includes `service_id`, `total_bags`, `total_amount`, and `line_items`. Service always defaults to Wash & Fold Delivery ($59/bag). |
 | 4 | P2 Medium | `confirmReassignDriver` | ~~Order Schedule map/list stays stale after reassignment — **FIXED commit 7916331**~~ |
 | 5 | P3 Low → Likely non-issue | processing kanban | Price recalculated at rack step doesn't match original order total — order #84 stored $164.95 but processing showed/saved $139.95. **Investigated session 3:** `saveIntake()` correctly writes `bd.total` from `calcProcTotal()`. `saveRacking()` does NOT update `total_amount`. Discrepancy on order #84 was a legacy/pre-existing test value — not a code bug. Monitor real orders to confirm. |
 | 6 | ~~P3 → Fixed~~ | `route_stops` DB | ~~`updated_at` column not refreshed on driver reassignment or status changes~~ — **FIXED session 4**: DB trigger `trg_route_stops_updated_at` (BEFORE UPDATE) now auto-sets `updated_at = now()` on every write. Migration `route_stops_auto_updated_at` applied. |
@@ -543,6 +545,78 @@ There are actually **two separate hang points** that must both be covered:
   1. Test RCC in browser with real data — open 2+ routes, drag a stop, verify DB update + re-optimization
   2. Test CloudPRNT end-to-end with physical printer on-site
   3. Xero accounting sync (backlog)
+
+---
+
+### Mar 18, 2026 (session 35d) — Driver stop ordering fix, map polyline fix, QA/security hardening
+
+- **Bug fix — driver app showed stops in wrong order:**
+  - **Problem:** The driver app displayed stops sorted by `stop_number` (DB insertion order), not by pickup/delivery window time. This caused 8–10 PM stops to appear above 6–8 PM stops, confusing drivers about which stop to do first.
+  - **Fix:** Added `sortStopsByWindow()` helper that sorts stops by their pickup or delivery window start timestamp, then assigns sequential `_displayNum` values. Replaced all 7 `stop_number` sorts in the driver app with `_displayNum`-based sorting. Called after `loadDriverData()` address enrichment and in `renderRoute()`.
+  - **File:** `driver-app/index.html`
+- **Bug fix — RCC map polylines connecting stops out of order:**
+  - **Problem:** Route lines on the Order Schedule map connected stops in wrong sequence (stop 1 → stop 3, skipping stop 2). Same root cause as driver app — polyline coordinate arrays sorted by raw `stop_number`.
+  - **Fix:** Changed polyline sort in `rccRenderMap()` to use `(a._displayNum||a.stop_number)` instead of `a.stop_number`, so lines follow the time-window ordering.
+  - **File:** `admin-dashboard/index.html` — `rccRenderMap()` function.
+- **Security fix — XSS in customer combo filter:**
+  - Customer names were injected into innerHTML without escaping in `custComboFilter()`. A malicious name like `<script>alert(1)</script>` could execute. Fixed by wrapping `label` and `phone` values in `esc()` and escaping single quotes in onclick handlers.
+  - **File:** `admin-dashboard/index.html` — `custComboFilter()`
+- **Validation — bags and service checks in saveOrder():**
+  - `saveOrder()` now validates that bags ≥ 1 and that a service ID exists before submitting. Previously could save orders with 0 bags or no service.
+  - **File:** `admin-dashboard/index.html` — `saveOrder()`
+- **Code quality — DEAD_ORDER_STATUSES consolidated:**
+  - Replaced 6 inline copies of the dead-order status list with a single top-level `DEAD_ORDER_STATUSES` constant. Used across schedule grids, route progress banner, RCC, stop count map, and move-stop operations.
+  - Also applied ghost-stop filtering to move-stop count queries (previously overcounted available stops on source/target routes).
+- **Duplicate driver merge — Davey Crockett:**
+  - Two profiles existed (email-based login + phone-based OTP with David's number). Route assigned to phone-based driver record, but email login found different driver record → empty driver app.
+  - Fixed via SQL: re-pointed active driver to email profile, deleted empty duplicate driver, deleted orphan phone profile.
+- **Files changed:** `admin-dashboard/index.html`, `driver-app/index.html`
+- **⚠️ Commit pending:** Changes are staged but the VM can't delete `.git/index.lock`. David must run from terminal:
+  ```
+  cd ~/Projects/WashRoute && rm -f .git/index.lock .git/HEAD.lock && git add admin-dashboard/index.html driver-app/index.html PROJECT-NOTES.md && git commit -m "Fix driver app stop ordering, map polyline routing, and QA hardening" && git push
+  ```
+- **Next session priorities:**
+  1. Test full order lifecycle end-to-end as driver (pickup → delivery)
+  2. Dedicated Retail POS screen (future — iPad at counter, Retail pricing by transaction not customer)
+
+---
+
+### Mar 18, 2026 (session 35c) — UTC timezone fix, zones filter, ghost stop lock fix, role filtering
+
+- **CRITICAL BUG FIX — UTC timezone causing routes to lock after 5 PM Pacific (commit `5617793`):**
+  - **Problem:** The schedule grid used `date.toISOString().split('T')[0]` for date comparisons. `.toISOString()` returns UTC. After 5 PM Pacific (which is midnight+ UTC), the UTC date rolls forward, making "today" appear as "yesterday" — `isPast = true` — which unconditionally locks all route cells. This meant drivers couldn't be changed for evening routes.
+  - **Fix:** Replaced all `toISOString()` date comparisons in the schedule grid with local-time formatting (`getFullYear/getMonth/getDate`) consistent with the existing `today()` helper. Also fixed `weekStartStr`/`weekEndStr` which had the same UTC bug.
+  - **Files:** `admin-dashboard/index.html` — both schedule grid render functions (pickup + delivery).
+  - **⚠️ RULE — NEVER use `toISOString()` for local date comparisons.** Always use `today()` helper or manual `getFullYear()-getMonth()-getDate()` formatting. `toISOString()` is UTC and will be wrong after 5 PM Pacific. This applies everywhere in the codebase — schedule grids, route queries, banner logic, anywhere a "today" check happens.
+- **Bug fix — ghost stops falsely locking route schedule cells (commit `29de54f`):**
+  - **Problem:** `todayStopStatus` counted all route stops including those from dead orders (delivered, cancelled, skipped, etc.). Ghost stops made routes appear "complete" even when they had real pending stops, triggering the lock.
+  - **Fix:** Added `orders!inner(status)` join to the stop query and filter out stops where the order status is in `DEAD_ORDER` list (`delivered`, `cancelled`, `skipped`, `pickup_failed`, `delivery_failed`, `on_hold`). Same pattern already used in route progress banner fix.
+- **Customer Zones filter replaces Routes filter (commit `10875ec`):**
+  - Customers page filter dropdown now shows delivery zones (Oakland, Berkeley, Alameda, Hayward, San Francisco) from `service_zones` table instead of route templates.
+  - Filters customers by matching their default address city against the zone's `cities` array (case-insensitive).
+  - Removed unused `allRoutes` variable and `route_templates` query from `loadCustomers()` — slightly faster page load.
+- **account_type separated from customer_type (commit `cdba986`):**
+  - Added `account_type` column (individual/business) for reporting purposes. The Individual/Business toggle in the admin New Customer form now saves to `account_type`.
+  - `customer_type` (Price List) always defaults to 'Delivery' regardless of account type. Businesses stay on Delivery pricing by default; only manually moved to Commercial on a case-by-case basis.
+- **Role filtering across admin dashboard (commit `3a252ec`):**
+  - Customer picker (New Order): excludes `driver` and `laundry_tech` roles. Admins who are also customers remain selectable.
+  - All Drivers grid + driver cache: excludes `laundry_tech` role.
+  - Messages tab: excludes `laundry_tech` from driver list.
+- **Service selector removed from New Order (commit `39382ff`):**
+  - Hidden input auto-defaults to Wash & Fold (Delivery, $59/bag). Prevents accidentally selecting wrong pricing tier (e.g., Commercial $1.75/bag).
+- **Driver Messages fixes (commit `08aae4c`):**
+  - Badge: fixed stale unread count showing phantom messages.
+  - Driver list: now shows ALL drivers (online + offline) sorted by status, with green/gray dot indicator. Previously only showed online drivers.
+- **Customer app — past orders filter (commit `3053d32`):**
+  - Past Orders tab only shows `delivered` orders. Cancelled, skipped, and failed orders are hidden from both Active and Past tabs.
+- **Route progress banner fix (commit `2bff516`):**
+  - Banner excluded ghost stops from dead orders using same `DEAD_ORDER` list. Previously showed inflated "7 stops done" when most were cancelled.
+- **Customer app back navigation fix (commit `444a929`):**
+  - Changed `showScreen('orders')` to `goTo('orders')` so the orders list reloads when navigating back from order detail.
+- **Files changed:** `admin-dashboard/index.html`, `customer-app/index.html`
+- **Next session priorities:**
+  1. Test full order lifecycle end-to-end as driver (pickup → delivery)
+  2. Dedicated Retail POS screen (future — iPad at counter, Retail pricing by transaction not customer)
 
 ---
 

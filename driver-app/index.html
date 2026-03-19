@@ -1146,8 +1146,8 @@ async function reoptimizeRoute(routeId) {
           ? { ...s, stop_number: numMap[s.id] }
           : s
       );
-      // Re-sort so the home screen reflects the new order
-      allStops.sort((a, b) => (a.stop_number || 0) - (b.stop_number || 0));
+      // Re-sort by window time and re-number
+      sortStopsByWindow(allStops);
       renderHome();
     }
   } catch(e) {
@@ -1231,6 +1231,25 @@ function setRouteFilter(filterId) {
 function today() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Sort stops by pickup/delivery window time (earliest first), matching admin Order Schedule.
+// Falls back to stop_number for stops without time windows.
+function sortStopsByWindow(stops) {
+  stops.sort((a, b) => {
+    const tsA = a.stop_type === 'delivery'
+      ? (a.orders?.delivery_window_start || a.orders?.pickup_window_start)
+      : (a.orders?.pickup_window_start   || a.orders?.delivery_window_start);
+    const tsB = b.stop_type === 'delivery'
+      ? (b.orders?.delivery_window_start || b.orders?.pickup_window_start)
+      : (b.orders?.pickup_window_start   || b.orders?.delivery_window_start);
+    if (tsA && tsB) return new Date(tsA) - new Date(tsB);
+    if (tsA) return -1;
+    if (tsB) return 1;
+    return (a.stop_number || 0) - (b.stop_number || 0);
+  });
+  stops.forEach((s, i) => { s._displayNum = i + 1; });
+  return stops;
 }
 
 function fmtAddr(a) {
@@ -1693,6 +1712,9 @@ async function loadDriverData() {
     });
   }
 
+  // Sort stops by window time (earliest first) and assign clean display numbers
+  sortStopsByWindow(allStops);
+
   // Persist to localStorage so next app open is instant
   saveDriverCache(currentUser.id, currentProfile, currentDriver, todayRoutes, allStops);
 
@@ -1936,8 +1958,8 @@ function renderRoute() {
         <span style="font-size:17px;line-height:1">‹</span> All Routes
       </button>
     </div>`;
-    // Show all stops for this filter in stop_number order
-    const sorted = [...visibleStops].sort((a, b) => a.stop_number - b.stop_number);
+    // Show all stops for this filter in window-time order (already sorted in allStops)
+    const sorted = [...visibleStops].sort((a, b) => (a._displayNum || 0) - (b._displayNum || 0));
     if (sorted.length === 0) {
       h += `<div style="text-align:center;padding:32px 0;color:var(--gray-400);font-size:14px">No stops in this route.</div>`;
     } else {
@@ -2013,7 +2035,7 @@ function renderRoute() {
     todayRoutes.forEach((route) => {
       const rStops = allStops
         .filter(s => s.route_id === route.id)
-        .sort((a, b) => a.stop_number - b.stop_number);
+        .sort((a, b) => (a._displayNum || 0) - (b._displayNum || 0));
       if (!rStops.length) return;
       const rDone = rStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
       if (!firstSection) h += '<div style="height:10px"></div>';
@@ -2026,7 +2048,7 @@ function renderRoute() {
       rStops.forEach((stop, i) => { stop._displayNum = i + 1; h += renderStopCard(stop); });
     });
     // Extra Stops section (reassigned) at the bottom
-    const extraStops = allStops.filter(s => s._reassigned).sort((a, b) => a.stop_number - b.stop_number);
+    const extraStops = allStops.filter(s => s._reassigned).sort((a, b) => (a._displayNum || 0) - (b._displayNum || 0));
     if (extraStops.length > 0) {
       const eDone = extraStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
       h += `<div style="height:10px"></div>
@@ -2037,9 +2059,8 @@ function renderRoute() {
       extraStops.forEach((stop, i) => { stop._displayNum = i + 1; h += renderStopCard(stop); });
     }
   } else {
-    // Single route: all stops sorted by stop_number, no section header
-    // Use visibleStops (already filtered to exclude upcoming) not raw allStops
-    const sorted = [...visibleStops].sort((a, b) => a.stop_number - b.stop_number);
+    // Single route: all stops in window-time order (already sorted in allStops)
+    const sorted = [...visibleStops].sort((a, b) => (a._displayNum || 0) - (b._displayNum || 0));
     sorted.forEach((stop, i) => { stop._displayNum = i + 1; h += renderStopCard(stop); });
   }
 
@@ -2296,9 +2317,9 @@ function renderStopDetail(stop) {
   if (isDone) {
     const candidates = allStops.filter(s => s.id !== stop.id && (s.status === 'pending' || s.status === 'en_route'));
     const next = (() => {
-      if (activeRouteFilter === 'extra') return candidates.filter(s => s._reassigned).sort((a,b) => a.stop_number - b.stop_number)[0] || null;
-      if (activeRouteFilter) return candidates.filter(s => s.route_id === activeRouteFilter).sort((a,b) => a.stop_number - b.stop_number)[0] || null;
-      return candidates.sort((a,b) => a.stop_number - b.stop_number)[0] || null;
+      if (activeRouteFilter === 'extra') return candidates.filter(s => s._reassigned).sort((a,b) => (a._displayNum||0) - (b._displayNum||0))[0] || null;
+      if (activeRouteFilter) return candidates.filter(s => s.route_id === activeRouteFilter).sort((a,b) => (a._displayNum||0) - (b._displayNum||0))[0] || null;
+      return candidates.sort((a,b) => (a._displayNum||0) - (b._displayNum||0))[0] || null;
     })();
     if (next) {
       const na = next._addr;
