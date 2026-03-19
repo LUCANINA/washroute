@@ -757,7 +757,7 @@
         <img class="auth-desktop-brand-logo" src="../assets/logo_white.png" alt="Family Laundry"
              onerror="this.style.display='none'">
       </div>
-      <div class="auth-desktop-brand-footer">© Family Laundry · Oakland, CA · (510) 588-4102</div>
+      <div class="auth-desktop-brand-footer">© Family Laundry · Oakland, CA</div>
     </div>
 
     <!-- ══ AUTH PANELS WRAPPER ══ -->
@@ -788,7 +788,6 @@
         <button class="btn-primary" style="margin-top:4px" id="btn-phone" onclick="handlePhoneSubmit()">Send Code →</button>
 
         <button class="auth-text-link" style="margin-top:14px" onclick="showAuthPanel('email')">Sign in with email instead →</button>
-        <p style="text-align:center;font-size:12px;color:var(--gray-400);margin:10px 0 0">Prefer to call? <a href="tel:+15105884102" style="color:var(--accent);text-decoration:none;font-weight:600">(510) 588-4102</a></p>
       </div>
     </div>
 
@@ -1125,7 +1124,7 @@
         <button class="btn-primary" id="btn-place" onclick="placeOrder()">Place Order</button>
         <div style="height:10px"></div>
         <button class="btn-secondary" onclick="goOrderStep(1)" style="font-size:14px">← Edit Details</button>
-        <div class="order-help">Need help? Call us: <a href="tel:5108423560">(510) 842-3560</a></div>
+        <div class="order-help">Need help? Visit <a href="https://familylaundry.com" target="_blank" style="color:var(--accent)">familylaundry.com</a></div>
       </div>
 
     </div>
@@ -2516,7 +2515,7 @@ async function checkAddress(knownLat, knownLng, knownAddr) {
 
     if (!zoneId) {
       zr.className  = 'zone-result zone-err';
-      zr.innerHTML  = "Sorry, we don't serve that area yet. <br><span style='font-size:13px;font-weight:400'>We're expanding — check back soon or call (510) 842-3560.</span>";
+      zr.innerHTML  = "Sorry, we don't serve that area yet. <br><span style='font-size:13px;font-weight:400'>We're expanding — check back soon!</span>";
       zr.style.display = '';
       document.getElementById('btn-addr-next').style.display = 'none';
     } else {
@@ -3788,7 +3787,7 @@ async function placeOrder() {
       </table>
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0">
       <div style="font-size:12px;color:#9ca3af;text-align:center">
-        Questions? Reply to this email or text us at (510) 588-4102<br>
+        Questions? Reply to this email or visit familylaundry.com<br>
         Family Laundry · 2609 Foothill Blvd, Oakland CA 94601
       </div>
     </body></html>`;
@@ -4453,7 +4452,7 @@ async function _lookupZoneForSavedAddress(addr) {
       const nextBtn = document.getElementById('btn-addr-next');
       if (zr) {
         zr.className  = 'zone-result zone-err';
-        zr.innerHTML  = "Sorry, we don't serve that address yet. <br><span style='font-size:13px;font-weight:400'>We're expanding — check back soon or call (510) 842-3560.</span>";
+        zr.innerHTML  = "Sorry, we don't serve that address yet. <br><span style='font-size:13px;font-weight:400'>We're expanding — check back soon!</span>";
         zr.style.display = '';
       }
       if (nextBtn) { nextBtn.style.display = 'none'; }
