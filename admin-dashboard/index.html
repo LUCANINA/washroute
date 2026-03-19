@@ -9832,10 +9832,12 @@ ${totalLinesXml}
     if (!serviceId)     { err.textContent='Service not available. Please reload.'; err.style.display='block'; return; }
     if (!_noPickupStart){ err.textContent='Please select a pickup slot.';  err.style.display='block'; return; }
 
-    // Calculate total from service base price × bags
+    // Calculate total from service base price × bags + delivery fee
     const svc = allServices.find(s => s.id === serviceId);
     const basePrice = svc ? parseFloat(svc.base_price || 0) : 0;
     const subtotal  = basePrice * bags;
+    const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
+    const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     // Apply discount if selected
     let discountAmt = 0;
     if (discountId) {
@@ -9843,7 +9845,7 @@ ${totalLinesXml}
       const discOpt = couponSel?.querySelector(`option[value="${discountId}"]`);
       // We'll keep total_amount as the base estimate — billing adjustments happen later
     }
-    const totalAmount = subtotal + tipRaw;
+    const totalAmount = subtotal + deliveryFee + tipRaw;
 
     const btn = document.querySelector('#modal-add-order .btn-primary');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -9885,7 +9887,10 @@ ${totalLinesXml}
       tip_amount:            tipRaw,
       tip_type:              _noTipType,
       discount_id:           discountId,
-      line_items:            [{ service_id: serviceId, name: svc?.name || 'Wash & Fold', qty: bags, unit_price: basePrice, total: subtotal }],
+      line_items:            [
+        { type: 'base', label: `${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`, amount: subtotal },
+        ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : [])
+      ],
       source:                'scheduled',
     }).select('id, order_number').single();
 
@@ -14356,6 +14361,12 @@ ${totalLinesXml}
     document.getElementById('kanban-clean-col')?.classList.remove('drag-over');
     const id = event.dataTransfer.getData('text/plain');
     if (!id || allCleanOrders.some(o => o.id === id)) return; // already in cleaning
+    // If dragged from Intake (picked_up), must go through intake panel — no skipping
+    if (allProcOrders.some(o => o.id === id)) {
+      showToast('Use ⚖️ Process Order to weigh and price this order first', '');
+      openIntakePanel(id);
+      return;
+    }
     moveOrderBack(id, 'processing');
   }
 
@@ -14449,7 +14460,10 @@ ${totalLinesXml}
         handled = true;
         const id = _tdId;
         if (z.id === 'kanban-intake-col' && !allProcOrders.some(o=>o.id===id))  moveOrderBack(id,'picked_up');
-        if (z.id === 'kanban-clean-col'  && !allCleanOrders.some(o=>o.id===id)) moveOrderBack(id,'processing');
+        if (z.id === 'kanban-clean-col'  && !allCleanOrders.some(o=>o.id===id)) {
+          if (allProcOrders.some(o=>o.id===id)) { showToast('Use ⚖️ Process Order to weigh and price first',''); openIntakePanel(id); }
+          else moveOrderBack(id,'processing');
+        }
         if (z.id === 'kanban-fold-col'   && !allFoldOrders.some(o=>o.id===id))  openFoldPanel(id);
         if (z.id === 'kanban-rack-col'   && !allRackOrders.some(o=>o.id===id))  openRackPanel(id);
       }
