@@ -5105,6 +5105,7 @@
     };
     el.innerHTML = `<table style="min-width:960px"><thead><tr>
         <th style="width:36px"><input type="checkbox" id="select-all-orders" onchange="toggleSelectAllOrders(this)" title="Select all"></th>
+        ${thSort('order_number','Order #')}
         ${thSort('customer','Customer')}
         ${thSort('status','Status')}
         ${thSort('pickup_run_id','Pickup Route')}
@@ -5126,6 +5127,7 @@
         const inIssues = currentOrderFilter === 'issues';
         return `<tr style="cursor:pointer" onclick="openOrderPanel('${o.id}')">
           <td style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${o.customers?.phone_cache||''}" data-cust-name="${(o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||'')}" onchange="updateOrderBatchBar()"></td>
+          <td style="font-size:12px;color:var(--gray-400);font-weight:600;white-space:nowrap;padding-right:8px">${o.order_number ? '#'+o.order_number : '—'}</td>
           <td class="td-name">${orderCustomerCell(o)}</td>
           <td>${inIssues ? issueBadge(o) : statusBadge(o.status)}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:4px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : ''}</td>
           <td style="font-size:12.5px;white-space:nowrap">${pickupRouteCell(o)}</td>
