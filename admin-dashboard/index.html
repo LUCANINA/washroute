@@ -11262,6 +11262,14 @@ ${totalLinesXml}
       closeBillModal();
       cpBillingSelection.clear();
       showToast(`${ids.length} order${ids.length > 1 ? 's' : ''} charged & marked paid ✓`, 'success');
+      // Send receipt for each successfully charged order
+      for (const orderId of ids) {
+        fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+          body: JSON.stringify({ order_id: orderId }),
+        }).catch(e => console.warn('Receipt failed for', orderId, e));
+      }
       await loadPanelOrders(panelCustomerId);
       filterCpOrders('billing', document.getElementById('cpof-billing'));
       return;
