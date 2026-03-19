@@ -14515,9 +14515,10 @@ ${totalLinesXml}
       const bags = o.total_bags || 1;
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
       const folderName = allLaunCache.find(l => l.id === o.folded_by_id)?.name || null;
+      const alreadyPaid = !!o.stripe_payment_intent_id;
       return `<div class="proc-card" id="fold-card-${o.id}"
         style="cursor:pointer"
-        onclick="openIntakePanel('${o.id}',true)"
+        onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openIntakePanel('${o.id}',true)`}"
         draggable="true"
         ondragstart="dragStartOrder(event,'${o.id}')"
         ondragend="dragEndOrder('${o.id}')"
@@ -14530,6 +14531,7 @@ ${totalLinesXml}
             <div class="proc-card-name">${name}</div>
           </div>
           ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Walk-in</span>`:''}
+          ${alreadyPaid?`<span style="font-size:10px;font-weight:700;color:#059669">✅ Paid</span>`:''}
         </div>
         <div class="proc-card-meta">
           <span>📦 ${bags} bag${bags!==1?'s':''}</span>
