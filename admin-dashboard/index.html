@@ -10359,11 +10359,11 @@ ${totalLinesXml}
     // Balance — unpaid on-demand orders at ready_for_delivery or later
     const { data: balOrders } = await db
       .from('orders')
-      .select('total_amount')
+      .select('total_amount, stripe_payment_intent_id')
       .eq('customer_id', customerId)
       .is('recurring_interval', null)
       .in('status', ['ready_for_delivery', 'out_for_delivery', 'delivered'])
-      .or('billing_status.is.null,billing_status.neq.paid');
+      .is('stripe_payment_intent_id', null);
     const balance = (balOrders || []).reduce((s, o) => s + (Number(o.total_amount) || 0), 0);
     const balDisplay = document.getElementById('cpb-balance-display');
     const balDetail  = document.getElementById('cpb-balance-detail');
