@@ -3329,7 +3329,7 @@
       <div style="font-weight:700;font-size:15px" id="intake-title">Process Order</div>
       <div style="font-size:12px;color:var(--gray-400)" id="intake-subtitle"></div>
     </div>
-    <button class="btn btn-ghost" onclick="printBagTag(procActiveOrder?.id)" style="padding:6px 10px;font-size:12px;color:var(--gray-500)" title="Print receipt">🖨</button>
+    <button class="btn btn-ghost" onclick="printBagTag(procActiveOrder?.id)" style="padding:6px 10px;font-size:24px;color:var(--gray-500)" title="Print receipt">🖨</button>
   </div>
   <div class="slide-over-body" id="intake-body">
     <div class="loading"><div class="spinner"></div> Loading…</div>
@@ -3350,7 +3350,7 @@
       <div style="font-weight:700;font-size:15px" id="fold-title">Fold &amp; Pack</div>
       <div style="font-size:12px;color:var(--gray-400)" id="fold-subtitle"></div>
     </div>
-    <button class="btn btn-ghost" onclick="printBagTag(foldActiveOrder?.id)" style="padding:6px 10px;font-size:12px;color:var(--gray-500)" title="Print receipt">🖨</button>
+    <button class="btn btn-ghost" onclick="printBagTag(foldActiveOrder?.id)" style="padding:6px 10px;font-size:24px;color:var(--gray-500)" title="Print receipt">🖨</button>
   </div>
   <div class="slide-over-body" id="fold-body">
     <div class="loading"><div class="spinner"></div> Loading…</div>
@@ -3370,7 +3370,7 @@
       <div style="font-weight:700;font-size:15px" id="rack-title">Assign to Rack</div>
       <div style="font-size:12px;color:var(--gray-400)" id="rack-subtitle"></div>
     </div>
-    <button class="btn btn-ghost" onclick="printBagTag(rackActiveOrder?.id)" style="padding:6px 10px;font-size:12px;color:var(--gray-500)" title="Print receipt">🖨</button>
+    <button class="btn btn-ghost" onclick="printBagTag(rackActiveOrder?.id)" style="padding:6px 10px;font-size:24px;color:var(--gray-500)" title="Print receipt">🖨</button>
   </div>
   <div class="slide-over-body" id="rack-body">
     <div class="loading"><div class="spinner"></div> Loading…</div>
@@ -6193,12 +6193,46 @@
   let _opEditAddons = {}; // { lineItemIndex: true/false } — tracks which add-ons are toggled on/off in edit mode
 
   // ── READ-ONLY VIEW ──
+  // Identify indices of stale "Name: Yes" line items when a "Name × N bag" version exists.
+  function _findStaleLineItemIdxs(items) {
+    const stale = new Set();
+    if (!Array.isArray(items)) return stale;
+    const hasPerBag = new Set();
+    items.forEach(li => {
+      const m = (li.label || '').match(/^(.+?)\s*×\s*\d+/);
+      if (m) hasPerBag.add(m[1].trim().toLowerCase());
+    });
+    items.forEach((li, idx) => {
+      const m = (li.label || '').match(/^(.+?):\s*(Yes|No)$/i);
+      if (m && hasPerBag.has(m[1].trim().toLowerCase())) stale.add(idx);
+    });
+    return stale;
+  }
+
+  // Filter out stale "Name: Yes" line items when a "Name × N bag" version also exists.
+  // This handles orders saved before the label fix that have duplicate entries.
+  function _dedupeLineItems(items) {
+    if (!Array.isArray(items)) return [];
+    // Collect service names that have a "× bag/item" line item (the correct format)
+    const hasPerBag = new Set();
+    items.forEach(li => {
+      const m = (li.label || '').match(/^(.+?)\s*×\s*\d+/);
+      if (m) hasPerBag.add(m[1].trim().toLowerCase());
+    });
+    // Filter out "Name: Yes" items when a per-bag version exists
+    return items.filter(li => {
+      const m = (li.label || '').match(/^(.+?):\s*(Yes|No)$/i);
+      if (m && hasPerBag.has(m[1].trim().toLowerCase())) return false;
+      return true;
+    });
+  }
+
   function opRenderDetailsReadonly(o) {
     const el = document.getElementById('op-details-ro-content');
     if (!el) return;
     const bags = o.total_bags || 0;
     const lbs  = o.weight_lbs ? Number(o.weight_lbs) : null;
-    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const lineItems = _dedupeLineItems(o.line_items);
     const notes = o.special_instructions || '';
 
     // Add-on chips (read-only) — only show items with a charge
@@ -6276,10 +6310,12 @@
     document.getElementById('op-notes-input').value = o.special_instructions || '';
     document.getElementById('op-details-msg').style.display = 'none';
 
-    // Build toggleable add-ons from line_items
+    // Build toggleable add-ons from line_items (deduped to skip stale "Name: Yes" entries)
     _opEditAddons = {};
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const _staleIdxs = _findStaleLineItemIdxs(lineItems);
     lineItems.forEach((li, idx) => {
+      if (_staleIdxs.has(idx)) return; // skip stale duplicates
       if (li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && parseFloat(li.amount||0) > 0)) {
         _opEditAddons[idx] = true; // on by default
       }
@@ -6307,8 +6343,10 @@
     const el = document.getElementById('op-addons-edit-section');
     if (!el) return;
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const _staleIdxs = _findStaleLineItemIdxs(lineItems);
     const addonIdxs = [];
     lineItems.forEach((li, idx) => {
+      if (_staleIdxs.has(idx)) return; // skip stale duplicates
       if (li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && parseFloat(li.amount||0) > 0)) {
         addonIdxs.push(idx);
       }
@@ -14788,8 +14826,8 @@ ${totalLinesXml}
             👤 ${l.name}
           </button>`).join('')}</div>`
       : `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No active launderers — add some in Settings → Launderers.</div>`;
-    // Line items breakdown
-    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    // Line items breakdown (deduped to remove stale "Name: Yes" entries)
+    const lineItems = _dedupeLineItems(o.line_items);
     const liHTML = lineItems.filter(li => {
       const amt = parseFloat(li.amount || 0);
       if (li.type === 'addon' && amt === 0) return false; // skip $0 preference flags
@@ -14950,8 +14988,8 @@ ${totalLinesXml}
             <span>${r.name}</span>
           </button>`).join('')}</div>`
       : `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No racks set up yet — add them in Settings → Racks.</div>`;
-    // Line items breakdown
-    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    // Line items breakdown (deduped to remove stale "Name: Yes" entries)
+    const lineItems = _dedupeLineItems(o.line_items);
     const liHTML = lineItems.filter(li => {
       const amt = parseFloat(li.amount || 0);
       if (li.type === 'addon' && amt === 0) return false; // skip $0 preference flags
@@ -15756,12 +15794,9 @@ ${totalLinesXml}
       const sel = procAddons[g.id];
       if (!sel) return;
       const selOpt = (g.options || []).find(o => o.id === sel.id);
-      // Charged preference option (e.g. "Fabric Softener: Yes" at $3)
-      const priceMod = parseFloat(sel.price_mod || 0);
-      if (priceMod > 0) {
-        lineItems.push({ type:'addon', label: `${g.name}: ${sel.label}`, amount: priceMod });
-      }
-      // Linked service (e.g. Vinegar × 2 bags) — only if non-default option selected
+      // Linked service (e.g. Vinegar × 2 bags) — only if non-default option selected.
+      // When a linked service exists, it IS the charge — do NOT also add the preference
+      // price_mod, which would double-bill the customer.
       if (!selOpt || selOpt.is_default) return;
       const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
       if (linkedSvc) {
@@ -15769,6 +15804,12 @@ ${totalLinesXml}
         const lineAmt = price * bd.bags;
         lineItems.push({ type:'pref_service', service_id: linkedSvc.id,
           label: `${linkedSvc.name} × ${bd.bags} bag${bd.bags!==1?'s':''}`, amount: lineAmt });
+      } else {
+        // No linked service — use the preference price_mod directly (rare case)
+        const priceMod = parseFloat(sel.price_mod || 0);
+        if (priceMod > 0) {
+          lineItems.push({ type:'addon', label: `${g.name}: ${sel.label}`, amount: priceMod });
+        }
       }
     });
     Object.values(procAddonServices).filter(a => a.selected).forEach(a => {
