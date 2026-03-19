@@ -14759,6 +14759,8 @@ ${totalLinesXml}
                || allCleanOrders.find(o => o.id === orderId)
                || allProcOrders.find(o => o.id === orderId);
     if (!order) return;
+    // Paid/processed orders are frozen — skip fold panel, go straight to rack
+    if (order.stripe_payment_intent_id) { openRackPanel(orderId); return; }
     foldActiveOrder    = order;
     foldSelectedLaunId = null;
     const fn = order.customers?.first_name_cache || '';
