@@ -14980,9 +14980,10 @@ ${totalLinesXml}
       const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
       const bags = o.total_bags || 1;
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
+      const alreadyPaid = !!o.stripe_payment_intent_id;
       return `<div class="proc-card" id="clean-card-${o.id}"
         style="cursor:pointer"
-        onclick="openIntakePanel('${o.id}',true)"
+        onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openIntakePanel('${o.id}',true)`}"
         draggable="true"
         ondragstart="dragStartOrder(event,'${o.id}')"
         ondragend="dragEndOrder('${o.id}')"
@@ -14994,6 +14995,7 @@ ${totalLinesXml}
             <div class="proc-card-order">#${o.order_number||'—'}</div>
             <div class="proc-card-name">${name}</div>
           </div>
+          ${alreadyPaid?`<span style="font-size:10px;font-weight:700;color:#059669">✅ Paid</span>`:''}
           ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Walk-in</span>`:''}
         </div>
         <div class="proc-card-meta">
