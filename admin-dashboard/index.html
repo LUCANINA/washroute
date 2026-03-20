@@ -14230,6 +14230,7 @@ ${totalLinesXml}
   async function loadAndRenderZones() {
     const { data, error } = await db.rpc('get_service_zones_geojson');
     if (error) { console.error('[Zones] RPC error:', error); showToast('Failed to load zones — ' + error.message, 'error'); return; }
+    _custZonesData = null; // bust customer overlay cache so it re-fetches fresh data on next toggle
     drawnZones = data || [];
     const { data: templates } = await db.from('route_templates').select('zone_id').eq('is_active', true);
     const zoneCounts = {};

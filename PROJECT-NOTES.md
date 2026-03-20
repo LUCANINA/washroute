@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 20, 2026 — Zone geometry hardening complete, all zones rendering cleanly (session 44 continued)*
+*Last updated: Mar 20, 2026 — Zone geometry complete: unified territory (polygon + cities), multi-polygon editing, geometry hardening, QA fixes (session 44 final)*
 
 ---
 
@@ -818,6 +818,14 @@ There are actually **two separate hang points** that must both be covered:
   - Chain of bugs triggered by first MultiPolygon save on Concord: (1) column type `geometry(Polygon)` rejected MultiPolygon → widened to `geometry(Geometry, 4326)`; (2) `upsert_service_zone` was casting to `::geography` → removed cast; (3) drawn polygon had Z dimension → added `ST_Force2D` to `upsert_service_zone`; (4) `get_service_zones_geojson` `ST_Union` crashed on degenerate Nominatim city polygon geometry (single-point ring) → removed city polygons from union; (5) zones still didn't render — `loadAndRenderZones` was silently swallowing RPC errors → added error check with toast; (6) `fitBounds` zoomed to world because degenerate Concord MultiPolygon sub-polygon had null-island coordinates → added `ST_CollectionExtract(ST_MakeValid(...), 3)` to strip degenerate sub-polygons from `ST_AsGeoJSON` output.
   - Final state: `get_service_zones_geojson` applies `ST_CollectionExtract(ST_MakeValid(ST_Force2D(...)), 3)` for both `geojson` and `unified_geojson` — robust against any degenerate geometry in the DB. All 6 zones render cleanly in the Bay Area view.
   - **Lesson:** When allowing user-drawn polygons (Leaflet.Draw), always apply `ST_Force2D` + `ST_MakeValid` + `ST_CollectionExtract` on read, and `ST_Force2D` on write. Nominatim city boundary data can contain degenerate geometry — never trust it in a `ST_Union`.
+- **Unified territory includes cities (final DB migration, session 44 wrap-up):**
+  - After geometry hardening, city polygons had been removed from `unified_geojson` as a workaround for the crash. David confirmed: delivery zones should display BOTH the hand-drawn polygon AND all assigned cities merged together.
+  - Final fix: `get_service_zones_geojson` now sanitizes each city polygon individually with `ST_CollectionExtract(ST_MakeValid(ST_Force2D(...)), 3)` BEFORE passing to `ST_Union` — preventing the earlier GEOS crash. The outer union result is also wrapped in `ST_CollectionExtract(ST_MakeValid(...), 3)`.
+  - Result: `unified_geojson` is the true full territory (polygon + all cities merged into one shape). `geojson` remains the raw drawing-layer polygon only (for editing). Both zones maps show the correct merged territory per zone.
+  - Concord unified shape: 56,214 bytes (polygon + multiple cities). Hayward: 43,338 bytes. All 6 zones return valid Bay Area centroids.
+- **QA fix — `_custZonesData` cache stale after zone saves (session 44 QA):**
+  - `toggleCustZoneOverlay()` cached zone data in `_custZonesData` on first toggle. This cache was never cleared when zones were saved/deleted, so the customer overlay would show stale shapes after any zone edit until page reload.
+  - Fix: `loadAndRenderZones()` now sets `_custZonesData = null` immediately after a successful RPC fetch, busting the cache so the next overlay toggle always re-fetches fresh data.
 
 ---
 
