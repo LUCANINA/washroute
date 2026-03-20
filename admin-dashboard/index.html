@@ -14096,11 +14096,11 @@ ${totalLinesXml}
   let zonePolygonLayers   = {};    // { zoneId: L.FeatureGroup } static renders for saved zones
   let editingZoneId       = null;
   let zonesDrawnItems     = null;
-  // _editZonePolygonLayer: the raw Leaflet layer loaded into zonesDrawnItems while editing.
-  //   null  = no polygon loaded (zone has none, or no zone open)
-  //   false = polygon was deleted by the user during this edit session
-  //   Layer = active editable polygon (original or newly drawn replacement)
-  let _editZonePolygonLayer = null;
+  // _editZonePolygonLayers: array of raw Leaflet polygon layers in zonesDrawnItems during editing.
+  //   null  = edit session not started / untouched (preserve existing polygon in DB on save)
+  //   []    = all polygons deleted this session (clear polygon in DB on save)
+  //   [...]  = one or more polygon layers (save as Polygon or MultiPolygon)
+  let _editZonePolygonLayers = null;
   // _editZoneCities: Array<{ name: string, geojson: object|null }>
   let _editZoneCities = [];
   let _newZoneCities  = [];    // same structure, for the save bar
@@ -14182,17 +14182,15 @@ ${totalLinesXml}
     // CREATED — smart context: editing existing zone vs. drawing a brand-new one
     zonesMap.on(L.Draw.Event.CREATED, function(e) {
       if (editingZoneId) {
-        // Replace the zone's polygon — remove old editable layer, load new one
-        if (_editZonePolygonLayer && _editZonePolygonLayer !== false) {
-          zonesDrawnItems.removeLayer(_editZonePolygonLayer);
-        }
-        _editZonePolygonLayer = e.layer;
-        zonesDrawnItems.addLayer(_editZonePolygonLayer);
-        // Style it to match the zone's color
+        // Add to the zone's polygon collection (supports multiple non-contiguous areas)
+        if (_editZonePolygonLayers === null) _editZonePolygonLayers = [];
         const z = drawnZones.find(z => z.id === editingZoneId);
         const col = z?.color || '#635bff';
-        if (_editZonePolygonLayer.setStyle) _editZonePolygonLayer.setStyle({ color: col, fillColor: col, fillOpacity: 0.18, weight: 2.5 });
-        showToast('Polygon updated — click Save to apply.', 'success');
+        if (e.layer.setStyle) e.layer.setStyle({ color: col, fillColor: col, fillOpacity: 0.18, weight: 2.5 });
+        zonesDrawnItems.addLayer(e.layer);
+        _editZonePolygonLayers.push(e.layer);
+        const count = _editZonePolygonLayers.length;
+        showToast(count > 1 ? `Area ${count} added — click Save to apply.` : 'Polygon added — click Save to apply.', 'success');
       } else {
         // New zone flow — show the save bar
         if (newZoneLayer) zonesDrawnItems.removeLayer(newZoneLayer);
@@ -14208,19 +14206,21 @@ ${totalLinesXml}
       }
     });
 
-    // EDITED — geometry updated in-place; _editZonePolygonLayer already has new coords
+    // EDITED — geometry updated in-place; _editZonePolygonLayers already have new coords
     zonesMap.on(L.Draw.Event.EDITED, function(e) {
       if (editingZoneId) showToast('Polygon edited — click Save to apply.', 'success');
     });
 
-    // DELETED — mark polygon as removed so saveZoneEdit can clear it in the DB
+    // DELETED — remove deleted layers from the array
     zonesMap.on(L.Draw.Event.DELETED, function(e) {
+      if (_editZonePolygonLayers === null) _editZonePolygonLayers = [];
       e.layers.eachLayer(function(layer) {
-        if (_editZonePolygonLayer && layer === _editZonePolygonLayer) {
-          _editZonePolygonLayer = false; // sentinel: polygon deleted
-          showToast('Polygon removed — click Save to apply.', '');
-        }
+        const idx = _editZonePolygonLayers.indexOf(layer);
+        if (idx !== -1) _editZonePolygonLayers.splice(idx, 1);
       });
+      showToast(_editZonePolygonLayers.length === 0
+        ? 'All polygons removed — click Save to clear.'
+        : `${_editZonePolygonLayers.length} polygon(s) remaining — click Save to apply.`, '');
     });
 
     await loadAndRenderZones();
@@ -14317,23 +14317,23 @@ ${totalLinesXml}
 
     // ── Clear any leftover state from previous edit ──
     _clearCityLayers(_editCityLayers);
-    if (_editZonePolygonLayer && _editZonePolygonLayer !== false) {
-      try { zonesDrawnItems.removeLayer(_editZonePolygonLayer); } catch(e) {}
+    if (_editZonePolygonLayers) {
+      _editZonePolygonLayers.forEach(l => { try { zonesDrawnItems.removeLayer(l); } catch(e) {} });
     }
-    _editZonePolygonLayer = null;
+    _editZonePolygonLayers = null;
 
-    // ── Load zone's hand-drawn polygon into zonesDrawnItems so the toolbar can edit/delete it ──
+    // ── Load zone's hand-drawn polygon(s) into zonesDrawnItems so the toolbar can edit/delete ──
+    // Supports both Polygon and MultiPolygon (multiple drawn areas per zone)
     const color = z.color || '#635bff';
     if (z.geojson) {
       try {
         const g = typeof z.geojson === 'string' ? JSON.parse(z.geojson) : z.geojson;
-        // Parse via L.geoJSON, extract the raw polygon layer so leaflet-draw can edit it
-        const rawLayer = L.geoJSON(g).getLayers()[0];
-        if (rawLayer) {
+        _editZonePolygonLayers = [];
+        L.geoJSON(g).eachLayer(rawLayer => {
           rawLayer.setStyle({ color, fillColor: color, fillOpacity: 0.18, weight: 2.5 });
           zonesDrawnItems.addLayer(rawLayer);
-          _editZonePolygonLayer = rawLayer;
-        }
+          _editZonePolygonLayers.push(rawLayer);
+        });
       } catch(e) { console.warn('Could not load zone polygon into draw layer:', e); }
     }
 
@@ -14361,11 +14361,12 @@ ${totalLinesXml}
     document.getElementById('edit-zone-city-input').value = '';
 
     const hint = document.getElementById('edit-zone-polygon-hint');
-    if (z.geojson) {
-      hint.innerHTML = '<span style="color:var(--green)">✓ Hand-drawn polygon active.</span> Use the toolbar to edit or delete it. Cities expand coverage further.';
+    const polyCount = _editZonePolygonLayers ? _editZonePolygonLayers.length : 0;
+    if (polyCount > 0) {
+      hint.innerHTML = `<span style="color:var(--green)">✓ ${polyCount} polygon area${polyCount > 1 ? 's' : ''} active.</span> Draw more to add non-contiguous areas. Use the toolbar to edit or delete.`;
       hint.style.color = '';
     } else {
-      hint.innerHTML = 'No hand-drawn polygon — use the draw tool (▬) to add one, or cover the area with cities below.';
+      hint.innerHTML = 'No hand-drawn polygon — use the draw tool (▬) to add one or more areas.';
       hint.style.color = 'var(--gray-400)';
     }
 
@@ -14377,18 +14378,20 @@ ${totalLinesXml}
     const row = document.getElementById('zone-list-row-' + zoneId);
     if (row) row.classList.add('selected');
 
-    // Fit map to show the zone
+    // Fit map to show the zone — use all editable layers or fall back to static render
     const staticLayer = zonePolygonLayers[zoneId]; // may already be removed above
-    const focalLayer = _editZonePolygonLayer || staticLayer;
+    const focalLayer = (_editZonePolygonLayers && _editZonePolygonLayers.length)
+      ? L.featureGroup(_editZonePolygonLayers)
+      : staticLayer;
     if (focalLayer && zonesMap) { try { zonesMap.fitBounds(focalLayer.getBounds(), { padding: [40,40] }); } catch(e) {} }
   }
 
   function closeZoneDetail() {
-    // Remove editable polygon layer from zonesDrawnItems
-    if (_editZonePolygonLayer && _editZonePolygonLayer !== false) {
-      try { zonesDrawnItems.removeLayer(_editZonePolygonLayer); } catch(e) {}
+    // Remove all editable polygon layers from zonesDrawnItems
+    if (_editZonePolygonLayers) {
+      _editZonePolygonLayers.forEach(l => { try { zonesDrawnItems.removeLayer(l); } catch(e) {} });
     }
-    _editZonePolygonLayer = null;
+    _editZonePolygonLayers = null;
     editingZoneId = null;
     _clearCityLayers(_editCityLayers);
     document.getElementById('zone-panel-detail').style.display = 'none';
@@ -14406,13 +14409,28 @@ ${totalLinesXml}
     const cityPolygons = _editZoneCities.map(c => ({ name: c.name, geojson: c.geojson || null }));
 
     // Determine polygon changes:
-    //   _editZonePolygonLayer === null  → untouched, preserve existing (pass null)
-    //   _editZonePolygonLayer === false → deleted by user
-    //   _editZonePolygonLayer = Layer   → new or edited polygon
-    const p_clear_polygon = _editZonePolygonLayer === false;
-    const p_geojson = (_editZonePolygonLayer && _editZonePolygonLayer !== false)
-      ? _layerToGeojsonString(_editZonePolygonLayer)
-      : null;
+    //   _editZonePolygonLayers === null → untouched, preserve existing in DB
+    //   _editZonePolygonLayers === []   → all deleted by user, clear in DB
+    //   [layer]                         → single Polygon
+    //   [layer, layer, ...]             → multiple areas → save as MultiPolygon
+    let p_geojson = null;
+    let p_clear_polygon = false;
+    if (_editZonePolygonLayers !== null) {
+      if (_editZonePolygonLayers.length === 0) {
+        p_clear_polygon = true;
+      } else if (_editZonePolygonLayers.length === 1) {
+        p_geojson = _layerToGeojsonString(_editZonePolygonLayers[0]);
+      } else {
+        // Multiple areas — merge into a MultiPolygon
+        const coords = _editZonePolygonLayers.map(l => {
+          const gj = l.toGeoJSON ? l.toGeoJSON() : null;
+          if (!gj) return null;
+          const geom = gj.type === 'Feature' ? gj.geometry : gj;
+          return geom.coordinates; // array of rings for this polygon
+        }).filter(Boolean);
+        p_geojson = JSON.stringify({ type: 'MultiPolygon', coordinates: coords });
+      }
+    }
 
     const { error } = await db.rpc('upsert_service_zone', {
       p_id: editingZoneId, p_name: name, p_color: color,
@@ -14542,11 +14560,11 @@ ${totalLinesXml}
   // ── CITY-ONLY ZONE (no polygon) ──
   function openNewCityZone() {
     editingZoneId = null;
-    // Clear any residual edit-polygon layer
-    if (_editZonePolygonLayer && _editZonePolygonLayer !== false) {
-      try { zonesDrawnItems.removeLayer(_editZonePolygonLayer); } catch(e) {}
+    // Clear any residual edit-polygon layers
+    if (_editZonePolygonLayers) {
+      _editZonePolygonLayers.forEach(l => { try { zonesDrawnItems.removeLayer(l); } catch(e) {} });
     }
-    _editZonePolygonLayer = null;
+    _editZonePolygonLayers = null;
     _clearCityLayers(_editCityLayers);
     _editZoneCities = [];
     document.getElementById('zone-detail-title').textContent = 'New City Zone';
