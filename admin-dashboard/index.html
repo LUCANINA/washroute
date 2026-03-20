@@ -14030,18 +14030,25 @@ ${totalLinesXml}
       _custZonesData.forEach(z => {
         const color = z.color || '#635bff';
         const layers = [];
-        // Hand-drawn polygon
+        // Hand-drawn polygon (parse string → object just like renderZonePolygons does)
         if (z.geojson) {
-          try { layers.push(L.geoJSON(z.geojson, { style: { color, fillColor: color, fillOpacity: 0.08, weight: 2, dashArray: '6,4' } })); } catch(e) {}
+          try {
+            const g = typeof z.geojson === 'string' ? JSON.parse(z.geojson) : z.geojson;
+            layers.push(L.geoJSON(g, { style: { color, fillColor: color, fillOpacity: 0.08, weight: 2, dashArray: '6,4' } }));
+          } catch(e) {}
         }
         // City polygons
-        (z.city_polygons || []).forEach(cp => {
+        const cps = Array.isArray(z.city_polygons) ? z.city_polygons : [];
+        cps.forEach(cp => {
           if (!cp.geojson) return;
-          try { layers.push(L.geoJSON(cp.geojson, { style: { color, fillColor: color, fillOpacity: 0.06, weight: 1.5, dashArray: '5,4' } })); } catch(e) {}
+          try {
+            const g = typeof cp.geojson === 'string' ? JSON.parse(cp.geojson) : cp.geojson;
+            layers.push(L.geoJSON(g, { style: { color, fillColor: color, fillOpacity: 0.06, weight: 1.5, dashArray: '5,4' } }));
+          } catch(e) {}
         });
         if (!layers.length) return;
         const group = L.featureGroup(layers).addTo(custMap);
-        const cityNames = (z.city_polygons||[]).map(c=>c.name).join(', ');
+        const cityNames = cps.map(c=>c.name).join(', ');
         group.bindTooltip(`<strong>${z.name}</strong>${cityNames ? `<br><span style="font-size:11px;font-weight:400">${cityNames}</span>` : ''}`, { sticky: true });
         _custZoneOverlayLayers.push(group);
       });
