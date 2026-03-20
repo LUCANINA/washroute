@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 20, 2026 — Multi-polygon zone editing live (session 44 continued)*
+*Last updated: Mar 20, 2026 — Zone geometry hardening complete, all zones rendering cleanly (session 44 continued)*
 
 ---
 
@@ -814,6 +814,10 @@ There are actually **two separate hang points** that must both be covered:
   - DB migration 1: `service_zones.polygon` column widened from `geometry(Polygon, 4326)` → `geometry(Geometry, 4326)` to accept MultiPolygon.
   - DB migration 2: `upsert_service_zone` RPC fixed — removed `::geography` cast (was storing as geography into a geometry column after the type change).
   - Hint text now shows how many areas are active and invites drawing more.
+- **Zone geometry hardening (3 additional DB migrations, commits 07c5dad onwards):**
+  - Chain of bugs triggered by first MultiPolygon save on Concord: (1) column type `geometry(Polygon)` rejected MultiPolygon → widened to `geometry(Geometry, 4326)`; (2) `upsert_service_zone` was casting to `::geography` → removed cast; (3) drawn polygon had Z dimension → added `ST_Force2D` to `upsert_service_zone`; (4) `get_service_zones_geojson` `ST_Union` crashed on degenerate Nominatim city polygon geometry (single-point ring) → removed city polygons from union; (5) zones still didn't render — `loadAndRenderZones` was silently swallowing RPC errors → added error check with toast; (6) `fitBounds` zoomed to world because degenerate Concord MultiPolygon sub-polygon had null-island coordinates → added `ST_CollectionExtract(ST_MakeValid(...), 3)` to strip degenerate sub-polygons from `ST_AsGeoJSON` output.
+  - Final state: `get_service_zones_geojson` applies `ST_CollectionExtract(ST_MakeValid(ST_Force2D(...)), 3)` for both `geojson` and `unified_geojson` — robust against any degenerate geometry in the DB. All 6 zones render cleanly in the Bay Area view.
+  - **Lesson:** When allowing user-drawn polygons (Leaflet.Draw), always apply `ST_Force2D` + `ST_MakeValid` + `ST_CollectionExtract` on read, and `ST_Force2D` on write. Nominatim city boundary data can contain degenerate geometry — never trust it in a `ST_Union`.
 
 ---
 
