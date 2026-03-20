@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 20, 2026 — Zone maps now render unified ST_Union shapes (session 44 continued)*
+*Last updated: Mar 20, 2026 — Multi-polygon zone editing live (session 44 continued)*
 
 ---
 
@@ -807,6 +807,13 @@ There are actually **two separate hang points** that must both be covered:
   - Fix: `get_service_zones_geojson` RPC updated to also return `unified_geojson` — a server-side `ST_Union` of the main polygon and all city polygons merged into one geometry (DROP + recreate required due to return type change).
   - Both `renderZonePolygons()` (Zones map) and `toggleCustZoneOverlay()` (customer map overlay) now use `unified_geojson || geojson`. One clean solid-border shape per zone, no internal borders, no city clutter.
   - Style updated: `weight: 3, lineCap/lineJoin: round`, no `dashArray`. City polygon data is still stored in DB for zone-matching logic — just no longer rendered.
+- **Multi-polygon zone editing (commit 9b902a9 + 2 DB migrations):**
+  - Problem: drawing a second polygon on a zone replaced the first instead of adding to it.
+  - Fix: `_editZonePolygonLayer` (single ref) replaced with `_editZonePolygonLayers` (array). `draw:created` now pushes to the array; `draw:deleted` removes from it. On save, single polygon → `Polygon`, multiple → `MultiPolygon` GeoJSON.
+  - `openZoneDetail` uses `L.geoJSON(g).eachLayer(...)` so saved MultiPolygons load back as individually editable layers.
+  - DB migration 1: `service_zones.polygon` column widened from `geometry(Polygon, 4326)` → `geometry(Geometry, 4326)` to accept MultiPolygon.
+  - DB migration 2: `upsert_service_zone` RPC fixed — removed `::geography` cast (was storing as geography into a geometry column after the type change).
+  - Hint text now shows how many areas are active and invites drawing more.
 
 ---
 
@@ -1840,6 +1847,7 @@ There are actually **two separate hang points** that must both be covered:
 - ~~**Customer map — all addresses + zone overlay**~~ ✅ — secondary address pins (hollow rings), zone overlay toggle in legend (session 44).
 - ~~**Color coordination**~~ ✅ — zone color is single source of truth; route templates inherit zone color; driver schedule pills follow template color (session 44).
 - ~~**Zone map unified rendering**~~ ✅ — ST_Union of polygon + city areas = one clean shape per zone; both Zones map and customer map overlay updated (session 44).
+- ~~**Multi-polygon zone editing**~~ ✅ — draw multiple non-contiguous areas per zone; saved as MultiPolygon; column type widened (session 44).
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - SMS automation Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table for multi-turn state
 - **Launderer reporting Phase 2** — date range mode (week/month/custom) on the launderer history panel; data model is complete, UI-only work
