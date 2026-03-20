@@ -14012,7 +14012,7 @@ ${totalLinesXml}
 
   // ── CUSTOMER MAP: ZONE OVERLAY ──
   async function toggleCustZoneOverlay(btn) {
-    if (!custMap) return;
+    if (!custMap) { console.warn('[ZoneOverlay] custMap not initialised'); return; }
     if (_custZoneOverlayOn) {
       // Turn off — remove all overlay layers
       _custZoneOverlayLayers.forEach(l => { try { custMap.removeLayer(l); } catch(e) {} });
@@ -14024,40 +14024,39 @@ ${totalLinesXml}
       if (!_custZonesData) {
         if (btn) btn.textContent = 'Loading…';
         const { data, error } = await db.rpc('get_service_zones_geojson');
-        if (error) { showToast('Could not load zones', 'error'); if (btn) btn.textContent = 'Show Zones'; return; }
+        if (error) { console.error('[ZoneOverlay] RPC error', error); showToast('Could not load zones', 'error'); if (btn) btn.textContent = 'Show Zones'; return; }
         _custZonesData = data || [];
+        console.log('[ZoneOverlay] fetched', _custZonesData.length, 'zones');
       }
+      let n = 0;
       _custZonesData.forEach(z => {
         const color = z.color || '#635bff';
-        const layers = [];
-        // Hand-drawn polygon (parse string → object just like renderZonePolygons does)
+        // Hand-drawn polygon — add directly to map (not via featureGroup wrapper)
         if (z.geojson) {
           try {
             const g = typeof z.geojson === 'string' ? JSON.parse(z.geojson) : z.geojson;
-            layers.push(L.geoJSON(g, { style: { color, fillColor: color, fillOpacity: 0.08, weight: 2, dashArray: '6,4' } }));
-          } catch(e) {}
+            const l = L.geoJSON(g, { style: { color, fillColor: color, fillOpacity: 0.15, weight: 2.5, dashArray: '6,4' } }).addTo(custMap);
+            l.bindTooltip(`<strong>${z.name}</strong>`, { sticky: true });
+            _custZoneOverlayLayers.push(l);
+            n++;
+          } catch(e) { console.error('[ZoneOverlay] polygon err', z.name, e); }
         }
-        // City polygons
+        // City boundary polygons
         const cps = Array.isArray(z.city_polygons) ? z.city_polygons : [];
         cps.forEach(cp => {
           if (!cp.geojson) return;
           try {
             const g = typeof cp.geojson === 'string' ? JSON.parse(cp.geojson) : cp.geojson;
-            layers.push(L.geoJSON(g, { style: { color, fillColor: color, fillOpacity: 0.06, weight: 1.5, dashArray: '5,4' } }));
-          } catch(e) {}
+            const l = L.geoJSON(g, { style: { color, fillColor: color, fillOpacity: 0.10, weight: 1.5, dashArray: '5,4' } }).addTo(custMap);
+            l.bindTooltip(`<strong>${z.name}</strong><br><span style="font-size:11px;font-weight:400">${cp.name}</span>`, { sticky: true });
+            _custZoneOverlayLayers.push(l);
+            n++;
+          } catch(e) { console.error('[ZoneOverlay] city err', z.name, cp.name, e); }
         });
-        if (!layers.length) return;
-        const group = L.featureGroup(layers).addTo(custMap);
-        const cityNames = cps.map(c=>c.name).join(', ');
-        group.bindTooltip(`<strong>${z.name}</strong>${cityNames ? `<br><span style="font-size:11px;font-weight:400">${cityNames}</span>` : ''}`, { sticky: true });
-        _custZoneOverlayLayers.push(group);
       });
+      console.log('[ZoneOverlay] rendered', n, 'polygon layers on custMap');
       _custZoneOverlayOn = true;
-      if (btn) {
-        btn.textContent = 'Hide Zones';
-        btn.style.background = 'var(--accent)';
-        btn.style.color = 'white';
-      }
+      if (btn) { btn.textContent = 'Hide Zones'; btn.style.background = 'var(--accent)'; btn.style.color = 'white'; }
       if (!_custZonesData.length) showToast('No zones defined yet', '');
     }
   }
