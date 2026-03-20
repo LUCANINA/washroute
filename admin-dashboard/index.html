@@ -1173,9 +1173,9 @@
         <div class="page" id="page-customers">
           <div class="stats-grid">
             <div class="stat-card stat-card-link" title="All customers" onclick="filterCustomers('all',document.querySelector('#cust-filter-tabs .filter-tab'))"><div class="stat-label">Total</div><div class="stat-value" id="cstat-total">—</div></div>
-            <div class="stat-card stat-card-link" title="Active customers" onclick="filterCustomers('active',document.querySelectorAll('#cust-filter-tabs .filter-tab')[1])"><div class="stat-label">Active (90 days)</div><div class="stat-value" id="cstat-active">—</div></div>
-            <div class="stat-card"><div class="stat-label">Avg. Order Value</div><div class="stat-value" id="cstat-aov">—</div></div>
-            <div class="stat-card stat-card-link" title="At risk customers" onclick="filterCustomers('at_risk',document.querySelectorAll('#cust-filter-tabs .filter-tab')[2])"><div class="stat-label">At Risk</div><div class="stat-value" id="cstat-risk" style="color:var(--amber)">—</div></div>
+            <div class="stat-card stat-card-link" title="Active in last 7 days" onclick="filterCustomers('7d',document.querySelectorAll('#cust-filter-tabs .filter-tab')[1])"><div class="stat-label">Active (7 days)</div><div class="stat-value" id="cstat-7d">—</div></div>
+            <div class="stat-card stat-card-link" title="Active in last 30 days" onclick="filterCustomers('30d',document.querySelectorAll('#cust-filter-tabs .filter-tab')[2])"><div class="stat-label">Active (30 days)</div><div class="stat-value" id="cstat-30d">—</div></div>
+            <div class="stat-card stat-card-link" title="Active in last 90 days" onclick="filterCustomers('90d',document.querySelectorAll('#cust-filter-tabs .filter-tab')[3])"><div class="stat-label">Active (90 days)</div><div class="stat-value" id="cstat-90d">—</div></div>
           </div>
           <div class="card">
             <!-- Header row -->
@@ -1204,11 +1204,12 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input id="cust-search" class="form-input" placeholder="Search name, email, phone…" style="padding-left:32px;height:34px;font-size:13px;" oninput="searchCustomers(this.value)" />
               </div>
+              <span style="font-size:12px;color:var(--gray-400);white-space:nowrap">Active within:</span>
               <div class="filter-tabs" id="cust-filter-tabs">
                 <button class="filter-tab active" onclick="filterCustomers('all',this)">All</button>
-                <button class="filter-tab" onclick="filterCustomers('active',this)">Active</button>
-                <button class="filter-tab" onclick="filterCustomers('at_risk',this)">At Risk</button>
-                <button class="filter-tab" onclick="filterCustomers('churned',this)">Churned</button>
+                <button class="filter-tab" onclick="filterCustomers('7d',this)">7 days</button>
+                <button class="filter-tab" onclick="filterCustomers('30d',this)">30 days</button>
+                <button class="filter-tab" onclick="filterCustomers('90d',this)">90 days</button>
               </div>
             </div>
             <!-- City + Route filter row -->
@@ -1233,10 +1234,10 @@
                   <div id="cim-badge"></div>
                 </div>
                 <div class="map-legend-box">
-                  <div class="leg-title">Status</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Active</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#d97706"></div>At Risk</div>
-                  <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>Churned</div>
+                  <div class="leg-title">Last Order</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Within 30 days</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#d97706"></div>30–90 days ago</div>
+                  <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>90+ days ago</div>
                   <div id="cust-map-count" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08);font-size:11px;color:var(--gray-500);font-weight:500;"></div>
                 </div>
               </div>
@@ -4751,12 +4752,12 @@
 
   function updateCustomerStats(data) {
     document.getElementById('cstat-total').textContent = data.length;
-    const active = data.filter(c=>c.risk_status==='active').length;
-    document.getElementById('cstat-active').textContent = active;
-    const totalRev = data.reduce((s,c)=>s+parseFloat(c.lifetime_value||0),0);
-    const totalOrd = data.reduce((s,c)=>s+parseInt(c.total_orders||0),0);
-    document.getElementById('cstat-aov').textContent = totalOrd ? fmtMoney(totalRev/totalOrd) : '$0.00';
-    document.getElementById('cstat-risk').textContent = data.filter(c=>c.risk_status==='at_risk').length;
+    const now = Date.now();
+    const DAY = 86_400_000;
+    const activeIn = (days) => data.filter(c => c.last_order_at && (now - new Date(c.last_order_at).getTime()) <= days * DAY).length;
+    document.getElementById('cstat-7d').textContent  = activeIn(7);
+    document.getElementById('cstat-30d').textContent = activeIn(30);
+    document.getElementById('cstat-90d').textContent = activeIn(90);
   }
 
   function sortCustomers(data) {
@@ -4782,8 +4783,8 @@
           bv = b.last_order_at || '';
           break;
         case 'status':
-          av = a.risk_status || '';
-          bv = b.risk_status || '';
+          av = a.last_order_at || '';
+          bv = b.last_order_at || '';
           break;
         default: av = ''; bv = '';
       }
@@ -4838,7 +4839,7 @@
         ${thSort('orders','Orders')}
         ${thSort('ltv','Lifetime Value')}
         ${thSort('last_order','Last Order')}
-        ${thSort('status','Status')}
+        ${thSort('status','Activity')}
       </tr></thead><tbody>
       ${page.map(c=>{
         const p = custProfile(c);
@@ -4855,7 +4856,7 @@
           <td>${c.total_orders||0}</td>
           <td style="font-weight:600">${fmtMoney(c.lifetime_value)}</td>
           <td style="color:var(--gray-500)">${fmtDate(c.last_order_at)}</td>
-          <td>${statusBadge(c.risk_status||'active')}</td>
+          <td>${custActivityBadge(c)}</td>
         </tr>`;
       }).join('')}
     </tbody></table>
@@ -4931,8 +4932,15 @@
 
   function applyCustomerFilters(q, status) {
     let data = allCustomers;
-    // status filter
-    if (status && status !== 'all') data = data.filter(c => c.risk_status === status);
+    // time-based activity filter
+    if (status && status !== 'all') {
+      const daysMap = { '7d': 7, '30d': 30, '90d': 90 };
+      const days = daysMap[status];
+      if (days) {
+        const cutoff = Date.now() - days * 86_400_000;
+        data = data.filter(c => c.last_order_at && new Date(c.last_order_at).getTime() >= cutoff);
+      }
+    }
     // text search across name, email, phone
     if (q) {
       data = data.filter(c => {
@@ -10360,7 +10368,7 @@ ${totalLinesXml}
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
     document.getElementById('cp-meta').innerHTML =
       `${phone ? `<a href="tel:${phone}">${phone}</a>` : ''}${phone&&email?' · ':''}${email ? `<a href="mailto:${email}">${email}</a>` : ''}` || '<span style="color:var(--gray-300)">No contact info</span>';
-    document.getElementById('cp-status-badge').innerHTML = statusBadge(c.risk_status||'active');
+    document.getElementById('cp-status-badge').innerHTML = custActivityBadge(c);
 
     // Stats
     const ltv = Number(c.lifetime_value || 0);
@@ -11802,7 +11810,21 @@ ${totalLinesXml}
   // ── MAP STATE ──
   let custMap=null, zonesMap=null;
   let custMarkers=[], drawnZones=[], zoneDrawControl=null;
-  const statusColor={active:'#0ba25a',at_risk:'#d97706',churned:'#9ca3af'};
+  function custActivityColor(c) {
+    if (!c.last_order_at) return '#9ca3af';
+    const days = (Date.now() - new Date(c.last_order_at).getTime()) / 86_400_000;
+    if (days <= 30) return '#0ba25a';
+    if (days <= 90) return '#d97706';
+    return '#9ca3af';
+  }
+  function custActivityBadge(c) {
+    if (!c.last_order_at) return '<span class="badge badge-gray">No orders</span>';
+    const days = Math.floor((Date.now() - new Date(c.last_order_at).getTime()) / 86_400_000);
+    if (days <= 7)  return '<span class="badge badge-green">7 days</span>';
+    if (days <= 30) return '<span class="badge badge-green">30 days</span>';
+    if (days <= 90) return '<span class="badge badge-amber">90 days</span>';
+    return '<span class="badge badge-gray">90+ days</span>';
+  }
 
   function makePin(color,label,size=28){
     return L.divIcon({className:'',iconSize:[size,size],iconAnchor:[size/2,size/2],
@@ -13870,7 +13892,7 @@ ${totalLinesXml}
   function addCustPins(data){
     data.forEach(c=>{
       if(!c.lat||!c.lng) return;
-      const col=statusColor[c.risk_status||'active'];
+      const col=custActivityColor(c);
       const p=custProfile(c);
       const fn = p.first_name || c.first_name_cache || '';
       const ln = p.last_name  || c.last_name_cache  || '';
@@ -13879,7 +13901,7 @@ ${totalLinesXml}
       const showCard = () => {
         document.getElementById('cim-name').textContent=name;
         document.getElementById('cim-addr').textContent=addr;
-        document.getElementById('cim-badge').innerHTML=statusBadge(c.risk_status||'active');
+        document.getElementById('cim-badge').innerHTML = c.last_order_at ? `<span style="font-size:11px;color:var(--gray-500)">Last order: ${fmtDate(c.last_order_at)}</span>` : '<span style="font-size:11px;color:var(--gray-400)">No orders</span>';
         document.getElementById('cust-info-card').style.display='block';
       };
       const m=L.marker([c.lat,c.lng],{icon:makePin(col,'',24)}).addTo(custMap)
