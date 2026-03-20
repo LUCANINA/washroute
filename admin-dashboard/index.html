@@ -1212,12 +1212,9 @@
                 <button class="filter-tab" onclick="filterCustomers('90d',this)">90 days</button>
               </div>
             </div>
-            <!-- City + Route filter row -->
+            <!-- Zone filter row -->
             <div style="padding:8px 16px;border-bottom:1px solid var(--gray-100);display:flex;gap:8px;align-items:center;background:var(--gray-50)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="color:var(--gray-400);flex-shrink:0"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-              <select id="cust-map-city" class="form-input" style="height:28px;font-size:12px;width:140px;padding:0 8px;" onchange="setCustCityFilter(this.value)">
-                <option value="all">All Cities</option>
-              </select>
               <select id="cust-map-zone" class="form-input" style="height:28px;font-size:12px;width:170px;padding:0 8px;" onchange="setCustZoneFilter(this.value)">
                 <option value="all">All Zones</option>
               </select>
@@ -4870,7 +4867,6 @@
   // active status filter (persists across search)
   let custStatusFilter = 'all';
   // map-only filters
-  let custCityFilter  = 'all';
   let custZoneFilter = 'all';
   // client-side pagination
   let custPage = 1;
@@ -4894,20 +4890,12 @@
   }
 
   async function populateCustMapFilters() {
-    // Cities dropdown — unique non-null cities from loaded customers
-    const cityEl = document.getElementById('cust-map-city');
-    if (cityEl) {
-      const cities = [...new Set(allCustomers.map(c => c.city).filter(Boolean))].sort();
-      cityEl.innerHTML = '<option value="all">All Cities</option>'
-        + cities.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
-      cityEl.value = custCityFilter;
-    }
     // Zones dropdown — from service_zones table
     const zoneEl = document.getElementById('cust-map-zone');
     if (zoneEl) {
       if (!_allZones.length) {
         zoneEl.innerHTML = '<option value="all">Loading zones…</option>';
-        const { data } = await db.from('service_zones').select('id, name, cities').order('name');
+        const { data } = await db.from('service_zones').select('id, name').order('name');
         _allZones = data || [];
       }
       zoneEl.innerHTML = '<option value="all">All Zones</option>'
@@ -4916,16 +4904,18 @@
     }
   }
 
-  function setCustCityFilter(val) {
-    custCityFilter = val;
-    custPage = 1;
-    const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
-    applyCustomerFilters(q, custStatusFilter);
-  }
-
-  function setCustZoneFilter(val) {
+  let _zoneCustomerIds = null; // Set of customer IDs inside the selected zone polygon
+  async function setCustZoneFilter(val) {
     custZoneFilter = val;
     custPage = 1;
+    _zoneCustomerIds = null;
+    if (val !== 'all') {
+      // Query PostGIS for customers whose address falls inside the zone polygon
+      const { data, error } = await db.rpc('customers_in_zone', { zone_id: val });
+      if (!error && data) {
+        _zoneCustomerIds = new Set(data.map(r => r.customer_id));
+      }
+    }
     const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
     applyCustomerFilters(q, custStatusFilter);
   }
@@ -4955,14 +4945,9 @@
           || phone.includes(q);
       });
     }
-    // map-specific filters (city + zone)
-    if (custCityFilter !== 'all') data = data.filter(c => c.city === custCityFilter);
-    if (custZoneFilter !== 'all') {
-      const zone = _allZones.find(z => z.id === custZoneFilter);
-      if (zone && Array.isArray(zone.cities)) {
-        const zoneCities = zone.cities.map(ci => ci.toLowerCase());
-        data = data.filter(c => c.city && zoneCities.includes(c.city.toLowerCase()));
-      }
+    // zone filter (PostGIS point-in-polygon)
+    if (custZoneFilter !== 'all' && _zoneCustomerIds) {
+      data = data.filter(c => _zoneCustomerIds.has(c.id));
     }
     renderCustomers(data);
     // if map is visible, refresh pins too
