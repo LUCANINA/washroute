@@ -5828,26 +5828,12 @@
     const addr   = addrs.find(a => a.id === addrId) || addrs.find(a => a.is_default) || addrs[0];
 
     if (addr?.lat && addr?.lng) {
-      // Always parse to float — Supabase returns numeric columns as strings,
-      // and PostgREST may silently fail casting a JSON string to double precision.
+      // PostGIS polygon match + city-list match handled server-side
       const { data: zones, error: zoneErr } = await db.rpc('get_zones_for_point', {
         lat: parseFloat(addr.lat), lng: parseFloat(addr.lng), p_city: addr.city || null
       });
       if (zoneErr) console.warn('[RoutePicker] zone RPC error:', zoneErr.message);
       (zones || []).forEach(z => _opPickerZoneIds.add(z.id));
-    }
-    if (!_opPickerZoneIds.size && addr?.city) {
-      // City fallback: match templates whose zone name or cities list contains the address city.
-      // service_zones is returned as a single object (many-to-one join) but guard against array too.
-      const city = addr.city.trim().toLowerCase();
-      _opTemplates.forEach(tmpl => {
-        const zoneRaw = tmpl.service_zones;
-        const zone = Array.isArray(zoneRaw) ? zoneRaw[0] : zoneRaw;
-        if (!zone || !tmpl.zone_id) return;
-        const nameMatch   = (zone.name || '').toLowerCase() === city;
-        const citiesMatch = Array.isArray(zone.cities) && zone.cities.some(c => c.toLowerCase() === city);
-        if (nameMatch || citiesMatch) _opPickerZoneIds.add(tmpl.zone_id);
-      });
     }
 
     // Show routes for the pre-filled date
@@ -6221,17 +6207,6 @@
         });
         if (zoneErr) console.warn('[RoutePicker] zone RPC error:', zoneErr.message);
         (zones || []).forEach(z => _opPickerZoneIds.add(z.id));
-      }
-      if (!_opPickerZoneIds.size && addr?.city) {
-        const city = addr.city.trim().toLowerCase();
-        _opTemplates.forEach(tmpl => {
-          const zoneRaw = tmpl.service_zones;
-          const zone = Array.isArray(zoneRaw) ? zoneRaw[0] : zoneRaw;
-          if (!zone || !tmpl.zone_id) return;
-          const nameMatch   = (zone.name || '').toLowerCase() === city;
-          const citiesMatch = Array.isArray(zone.cities) && zone.cities.some(c => c.toLowerCase() === city);
-          if (nameMatch || citiesMatch) _opPickerZoneIds.add(tmpl.zone_id);
-        });
       }
       opFilterRoutesByDate(leg, dateInput.value);
     }
