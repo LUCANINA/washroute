@@ -1820,7 +1820,7 @@ async function handleSignup(e) {
     return;
   }
   btn.disabled = true; btn.textContent = 'Creating account…';
-  const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://washroute.vercel.app/customer-app/index.html';
+  const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://app.familylaundry.com/';
   const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone }, emailRedirectTo: redirectUrl } });
   btn.disabled = false; btn.textContent = 'Create Account';
   if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
@@ -1976,7 +1976,7 @@ async function handleMagicLink() {
   btn.disabled = true; btn.textContent = 'Sending…';
   try {
     // Use our branded send-magic-link Edge Function instead of Supabase's default email
-    const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://washroute.vercel.app/customer-app/index.html';
+    const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://app.familylaundry.com/';
     const res = await fetch(`${SUPA_URL}/functions/v1/send-magic-link`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
@@ -3657,7 +3657,7 @@ async function placeOrder() {
       return;
     }
     btn.disabled = true; btn.textContent = 'Creating account…';
-    const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://washroute.vercel.app/customer-app/index.html';
+    const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://app.familylaundry.com/';
     const { data: authData, error: authErr } = await db.auth.signUp({
       email, password: pass, options: { data: { first_name: first, last_name: last, phone }, emailRedirectTo: redirectUrl }
     });

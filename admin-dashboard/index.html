@@ -4294,7 +4294,7 @@
   <align mode="center">
     <text-line size="1:2"><bold>TEST PRINT</bold></text-line>
     <text-line>CloudPRNT is working!</text-line>
-    <text-line>WashRoute Admin</text-line>
+    <text-line>Family Laundry Admin</text-line>
   </align>
   <ruled-line/>
   <align mode="center">
@@ -7360,8 +7360,8 @@ ${totalLinesXml}
         body: JSON.stringify({
           type: 'setup',
           customerId,
-          successUrl: 'https://washroute.vercel.app/customer-app/',
-          cancelUrl: 'https://washroute.vercel.app/customer-app/',
+          successUrl: 'https://app.familylaundry.com/',
+          cancelUrl: 'https://app.familylaundry.com/',
         }),
       });
       const result = await res.json();
@@ -15306,7 +15306,7 @@ ${totalLinesXml}
     if (isWalkIn && custPhone) {
       // Normalize to E.164 — DB stores plain digits (e.g. 4156085446), Twilio needs +14156085446
       const toE164  = custPhone.startsWith('+') ? custPhone : `+1${custPhone.replace(/\D/g,'')}`;
-      const smsBody = `Hi ${custFirst}! Your laundry is ready for pickup. See you soon! — WashRoute`;
+      const smsBody = `Hi ${custFirst}! Your laundry is ready for pickup. See you soon! — Family Laundry`;
       fetch(`${SUPA_URL}/functions/v1/send-sms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
@@ -16687,7 +16687,7 @@ ${totalLinesXml}
         </div>
         <div style="max-width:72%;display:flex;flex-direction:column;align-items:${isAdmin ? 'flex-end' : 'flex-start'}">
           <div style="font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;padding:0 4px">
-            ${isAdmin ? 'WashRoute Team' : adminDriverName(drv)}
+            ${isAdmin ? 'Family Laundry Team' : adminDriverName(drv)}
           </div>
           <div style="background:${isAdmin ? 'var(--accent)' : 'white'};color:${isAdmin ? 'white' : 'var(--gray-800)'};border-radius:${isAdmin ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};padding:10px 14px;font-size:14px;font-weight:500;line-height:1.45;box-shadow:0 1px 3px rgba(0,0,0,.07);word-break:break-word">
             ${m.body.replace(/\n/g, '<br>')}
