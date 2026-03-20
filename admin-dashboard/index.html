@@ -9464,7 +9464,9 @@ ${totalLinesXml}
   let _noDelivEnd     = null;
   let _noDelivLabel   = null;   // time-window label for delivery slot
   let _noDelivDate    = null;   // LOCAL date (YYYY-MM-DD) for delivery
-  let _noAddressCity  = '';   // city of selected address — used to filter routes by zone
+  let _noAddressCity  = '';   // city of selected address — used as fallback for zone detection
+  let _noAddresses    = [];  // loaded addresses for the current customer
+  let _noZoneIds      = new Set(); // zone IDs detected via PostGIS for the selected address
 
   // ── CUSTOMER COMBOBOX (New Order modal) ──
   let _custComboHighlight = -1;
@@ -9621,16 +9623,18 @@ ${totalLinesXml}
     const addrSel = document.getElementById('o-address');
     addrSel.innerHTML = '<option value="">Loading…</option>';
     const { data: addrs } = await db.from('addresses')
-      .select('id, label, line1, city, is_default')
+      .select('id, label, line1, city, lat, lng, is_default')
       .eq('customer_id', customerId)
       .order('is_default', { ascending: false });
+    _noAddresses = addrs || [];
     if (addrs?.length) {
       addrSel.innerHTML = addrs.map(a =>
         `<option value="${a.id}" data-city="${esc(a.city||'')}"${a.is_default?' selected':''}>${a.label ? a.label+' — ' : ''}${a.line1}${a.city ? ', '+a.city : ''}</option>`
       ).join('');
-      // Set city for route filtering — use default address (first after sort)
+      // Detect zones for the default address via PostGIS
       const def = addrs.find(a => a.is_default) || addrs[0];
       _noAddressCity = def?.city || '';
+      await _noDetectZones(def);
     } else {
       addrSel.innerHTML = '<option value="">No addresses on file</option>';
       _noAddressCity = '';
@@ -9663,7 +9667,17 @@ ${totalLinesXml}
   }
 
   // Called when the user picks a different address — re-filter routes by zone
-  function onOrderAddressChange() {
+  async function _noDetectZones(addr) {
+    _noZoneIds = new Set();
+    if (addr?.lat && addr?.lng) {
+      const { data: zones, error } = await db.rpc('get_zones_for_point', {
+        lat: parseFloat(addr.lat), lng: parseFloat(addr.lng), p_city: addr.city || null
+      });
+      if (!error && zones) zones.forEach(z => _noZoneIds.add(z.id));
+    }
+  }
+
+  async function onOrderAddressChange() {
     const sel = document.getElementById('o-address');
     const opt = sel.options[sel.selectedIndex];
     _noAddressCity = opt?.dataset.city || '';
@@ -9671,21 +9685,19 @@ ${totalLinesXml}
     document.getElementById('no-route-expanded').style.display = '';
     document.getElementById('no-route-bar').style.display      = 'none';
     document.getElementById('no-day-section').style.display    = 'none';
+    // Detect zones via PostGIS for the selected address
+    const addr = _noAddresses.find(a => a.id === sel.value);
+    await _noDetectZones(addr);
     renderNoRoutes();
   }
 
   function renderNoRoutes() {
     const el = document.getElementById('no-routes');
 
-    // Filter templates to only routes whose service zone covers the selected city
+    // Filter templates to routes whose zone matches the customer's address (PostGIS)
     let templates = _noTemplates;
-    if (_noAddressCity) {
-      const city = _noAddressCity.toLowerCase().trim();
-      const zoneMatches = templates.filter(t => {
-        const cities = Array.isArray(t.service_zones?.cities) ? t.service_zones.cities : [];
-        return cities.some(c => c.toLowerCase().trim() === city);
-      });
-      // Only apply the filter if at least one route matches; otherwise show all with a note
+    if (_noZoneIds.size > 0) {
+      const zoneMatches = templates.filter(t => t.zone_id && _noZoneIds.has(t.zone_id));
       if (zoneMatches.length) templates = zoneMatches;
     }
 

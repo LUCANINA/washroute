@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 19, 2026 — Customer data import, address geocoding, SMS emergency shutdown (session 41)*
+*Last updated: Mar 19, 2026 — Customer activity filters, PostGIS zone filtering, QA cleanup (session 42)*
 
 ---
 
@@ -782,6 +782,21 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 19, 2026 (session 42) — Customer activity filters, PostGIS zone filtering, QA cleanup
+
+- **Customer page tabs replaced:** "All / Active / At Risk / Churned" → "All / 7 days / 30 days / 90 days" with "Active within:" label. Filtering uses `last_order_at` instead of `risk_status`. Stat cards show active customer counts per time range.
+- **Customer table "Status" column → "Activity":** Badges now show time-based activity (7 days / 30 days / 90 days / 90+ days / No orders) instead of Active/At Risk/Churned. Sort by Activity sorts by `last_order_at`.
+- **Map pin colors updated:** Green = last order within 30 days, amber = 30–90 days, gray = 90+ or no orders. Map info card shows "Last order: [date]" instead of risk badge.
+- **City dropdown removed from customer filters.** Replaced by zone-only dropdown using PostGIS polygon matching.
+- **`customers_in_zone(zone_id)` SQL function created:** Returns customer IDs whose address falls inside the zone's polygon OR whose city matches the zone's `cities` list. Used by the customer page zone dropdown.
+- **JS city-name fallback removed from admin route picker** (two instances in `openOpRoutePicker` and `onOrderAddressChange`). Zone detection now relies entirely on the server-side `get_zones_for_point` RPC.
+- **New Order form zone matching fixed (QA catch):** `renderNoRoutes()` was still using city-name matching. Now uses `get_zones_for_point` RPC with address lat/lng via new `_noDetectZones()` helper.
+- **SMS inbox cleared:** All 8,734 messages deleted for fresh start (904 inbound + 7,830 outbound from mass SMS incident).
+- **`washroute-preflight` safety skill created and installed.** Forces a preflight checklist (triggers, cron jobs, SMS templates, blast radius) before any bulk operation. Golden rule: if it could send a message to a customer, assume it will send to every customer.
+- **Note:** `recalcRiskStatuses()` still runs on page load and writes `risk_status` to the DB. Harmless but now unused by the UI — can be removed in a future cleanup.
 
 ---
 
