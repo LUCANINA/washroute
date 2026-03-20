@@ -14075,9 +14075,10 @@ ${totalLinesXml}
       let n = 0;
       _custZonesData.forEach(z => {
         const color = z.color || '#635bff';
-        if (z.geojson) {
+        const src = z.unified_geojson || z.geojson;
+        if (src) {
           try {
-            const g = typeof z.geojson === 'string' ? JSON.parse(z.geojson) : z.geojson;
+            const g = typeof src === 'string' ? JSON.parse(src) : src;
             const l = L.geoJSON(g, { style: { color, fillColor: color, fillOpacity: 0.18, weight: 3, lineCap: 'round', lineJoin: 'round' } }).addTo(custMap);
             l.bindTooltip(`<strong>${z.name}</strong>`, { sticky: true });
             _custZoneOverlayLayers.push(l); n++;
@@ -14274,10 +14275,11 @@ ${totalLinesXml}
       const color = z.color || '#635bff';
       const layers = [];
 
-      // Hand-drawn polygon only — clean solid outline, no city boundary clutter
-      if (z.geojson) {
+      // Unified shape: ST_Union of hand-drawn polygon + city polygons, one clean outline
+      const src = z.unified_geojson || z.geojson;
+      if (src) {
         try {
-          const g = typeof z.geojson === 'string' ? JSON.parse(z.geojson) : z.geojson;
+          const g = typeof src === 'string' ? JSON.parse(src) : src;
           layers.push(L.geoJSON(g, { style: { color, fillColor: color, fillOpacity: 0.18, weight: 3, lineCap: 'round', lineJoin: 'round' } }));
         } catch(e) {}
       }

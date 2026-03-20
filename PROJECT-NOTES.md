@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 20, 2026 — Zone overlay CSS toggle confirmed working (session 44 continued)*
+*Last updated: Mar 20, 2026 — Color coordination: zone color is single source of truth (session 44 continued)*
 
 ---
 
@@ -797,6 +797,11 @@ There are actually **two separate hang points** that must both be covered:
 - **Customer map — zone overlay toggle:** "Show Zones" button added to map legend. Fetches zone polygons via `get_service_zones_geojson` RPC, renders colored fills + dashed outlines on the customer map. Button turns purple / "Hide Zones" when active. Bug fix: geojson must be parsed with `JSON.parse()` before passing to Leaflet (same as `renderZonePolygons` does).
 - **Admin — Services tab label:** "Display" renamed to "App Display" on the Services & Pricing tab.
 - **Zone overlay debugging + final fix:** Three-step fix process: (1) geojson string parse fix (`JSON.parse` before passing to Leaflet); (2) switched from `L.featureGroup(layers)` wrapper to direct `.addTo(custMap)` per layer; (3) root cause found — `.map-legend-box` CSS had `pointer-events: none`, which silently blocked all click/touch events on the legend including the toggle. Fixed to `pointer-events: auto`. Button replaced with a proper CSS pill toggle (on/off). Zone overlay confirmed working: 6 zones render as colored semi-transparent fills with dashed borders and name tooltips.
+- **Color coordination — zone color is single source of truth (commit ae5aff9):**
+  - DB: All 10 route templates updated to inherit their zone's color via `UPDATE route_templates SET color = sz.color FROM service_zones sz WHERE rt.zone_id = sz.id`. Driver schedule now automatically uses zone colors for pills.
+  - Admin UI: Template editor now fetches `color` field from `service_zones` in `loadZonesIntoSelect`. When a zone is selected, color swatches are hidden and replaced with a colored dot + "Follows zone" badge (via new `syncColorToZone()` function). If no zone is assigned, swatches show as before.
+  - `saveTemplate()` reads zone color from the selected option's `data-color`; falls back to swatch only when no zone is assigned.
+  - Consequence: you can no longer accidentally set a template to a different color than its zone. Zone → template → driver schedule pill is one consistent color chain.
 
 ---
 
@@ -1828,6 +1833,7 @@ There are actually **two separate hang points** that must both be covered:
 - ~~**Driver app stress test**~~ ✅ — fully tested session 44. All stages passed end-to-end.
 - ~~**Family Laundry rebrand**~~ ✅ — all visible "WashRoute" text replaced across admin, driver, and customer apps (session 44).
 - ~~**Customer map — all addresses + zone overlay**~~ ✅ — secondary address pins (hollow rings), zone overlay toggle in legend (session 44).
+- ~~**Color coordination**~~ ✅ — zone color is single source of truth; route templates inherit zone color; driver schedule pills follow template color (session 44).
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - SMS automation Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table for multi-turn state
 - **Launderer reporting Phase 2** — date range mode (week/month/custom) on the launderer history panel; data model is complete, UI-only work
