@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 20, 2026 — Services/preferences sync, per-item pricing, admin link badge (session 43)*
+*Last updated: Mar 20, 2026 — Customer map all-addresses + zone overlay, subdomain routing, Family Laundry rebrand (session 44)*
 
 ---
 
@@ -782,6 +782,20 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 20, 2026 (session 44) — Full order pipeline stress test, customer map improvements, subdomain routing, rebrand
+
+- **Full pipeline stress test (session continuation):** Entire order lifecycle verified end-to-end: customer booking → zone/route assignment → driver pickup (including bag count update and driver note) → processing queue → weight/price calculation → folding → rack → delivery. All stages passed.
+- **Per-item pricing fix:** Shirt Service and Air Dry were showing `+$X.XX/bag` — now correctly shows `/item`. Estimate bar and confirm screen both exclude per-item add-ons from bag-multiplied total and show "billed at processing" note. Email confirmation also updated with itemized line items and per-item footnote. Propagated `pricing_type` through `_buildGlobalPrefs()` to all 6 label locations.
+- **Folding column gap fix:** Orders moved directly to Folding without going through fold panel arrived with `folded_by_id = null`. Implemented Option B: inline amber warning badge with launderer dropdown on unassigned Folding cards. New `assignFolderInline()` function. `stopPropagation()` prevents card click when selecting launderer.
+- **Delivery bag count locked:** Driver was able to edit bag count on delivery stops (should only be editable at pickup). Fixed: delivery stops now show read-only bag count with "Locked at processing" label; `isPickup` flag controls which stepper renders.
+- **Family Laundry rebrand:** All visible "WashRoute" text replaced across all 3 apps. Page titles, login screens, SMS sender name, Stripe redirect URLs, Supabase auth redirect URLs, thermal print header all updated.
+- **Subdomain routing live:** `app.familylaundry.com`, `driver.familylaundry.com`, `admin.familylaundry.com` all routing correctly. CNAMEs added in Wix DNS (Wix manages nameservers for familylaundry.com, not GoDaddy). `vercel.json` updated with `has` host conditions taking priority over path-based fallbacks. **⚠️ DNS upgrade (low priority):** Vercel recommends CNAME `7e86fe29233068d2.vercel-dns-017.com` but Wix rejects it — leave as `cname.vercel-dns.com` for now, works fine.
+- **Customer map — all addresses:** `addCustPins()` now plots every saved address per customer, not just the default. Default address = filled circle (activity color, 24px). Non-default addresses = hollow ring (same color, 16px, white center). Hovering a secondary pin shows the address label (e.g. "Work") in the info card. Pin count footer shows alt address tally.
+- **Customer map — zone overlay toggle:** "Show Zones" button added to map legend. Fetches zone polygons via `get_service_zones_geojson` RPC, renders colored fills + dashed outlines on the customer map. Button turns purple / "Hide Zones" when active. Bug fix: geojson must be parsed with `JSON.parse()` before passing to Leaflet (same as `renderZonePolygons` does).
+- **Admin — Services tab label:** "Display" renamed to "App Display" on the Services & Pricing tab.
 
 ---
 
@@ -1809,8 +1823,10 @@ There are actually **two separate hang points** that must both be covered:
 - ~~Add Double Wash price_mod~~ ✅ — $15/bag, linked addon service, live in DB (session 16)
 - ~~SMS automation Phase 1~~ ✅ — PICKUP, SKIP, HELP, STOP, START live in twilio-webhook v27 (session 41). Claude AI **removed**. All SMS templates currently disabled — re-enable with scoping before going live.
 - ~~CloudPRNT integration~~ ✅ — `print_jobs` table + `cloudprnt` edge function live (session 22). Configure via Admin → Settings → Receipt Printer.
-- **Domain setup** — Move to app/driver/admin.familylaundry.com (owned via GoDaddy, currently live on Wix). Steps: add 3 CNAME records in GoDaddy pointing to Vercel, update `vercel.json` from path-based routing to subdomain routing, add custom domains in Vercel project settings.
-- **Driver app stress test** — walk through route load, stop detail, navigation, On My Way, pickup complete + photo proof, delivery complete. Confirm status pipeline fires correctly end-to-end.
+- ~~**Domain setup**~~ ✅ — app/driver/admin.familylaundry.com live (session 44). CNAMEs added in Wix DNS (nameservers are Wix-managed). `vercel.json` updated to subdomain routing with path-based fallback. All 3 domains registered in Vercel Production. **⚠️ DNS upgrade (low priority):** Vercel recommends updating CNAMEs from `cname.vercel-dns.com` → `7e86fe29233068d2.vercel-dns-017.com` in Wix. Current setup works fine — update when convenient.
+- ~~**Driver app stress test**~~ ✅ — fully tested session 44. All stages passed end-to-end.
+- ~~**Family Laundry rebrand**~~ ✅ — all visible "WashRoute" text replaced across admin, driver, and customer apps (session 44).
+- ~~**Customer map — all addresses + zone overlay**~~ ✅ — secondary address pins (hollow rings), zone overlay toggle in legend (session 44).
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - SMS automation Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table for multi-turn state
 - **Launderer reporting Phase 2** — date range mode (week/month/custom) on the launderer history panel; data model is complete, UI-only work
