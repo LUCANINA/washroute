@@ -1,29 +1,19 @@
 {
   "rewrites": [
+    { "has": [{ "type": "host", "value": "app.familylaundry.com" }],    "source": "/(.*)", "destination": "/customer-app/index.html" },
+    { "has": [{ "type": "host", "value": "driver.familylaundry.com" }], "source": "/(.*)", "destination": "/driver-app/index.html" },
+    { "has": [{ "type": "host", "value": "admin.familylaundry.com" }],  "source": "/(.*)", "destination": "/admin-dashboard/index.html" },
     { "source": "/admin",  "destination": "/admin-dashboard/index.html" },
     { "source": "/driver", "destination": "/driver-app/index.html" },
     { "source": "/",       "destination": "/customer-app/index.html" }
   ],
   "headers": [
     {
-      "source": "/(admin|driver|)",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
-        { "key": "Pragma",        "value": "no-cache" },
-        { "key": "Expires",       "value": "0" }
-      ]
-    },
-    {
-      "source": "/(.*)/index.html",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
-        { "key": "Pragma",        "value": "no-cache" },
-        { "key": "Expires",       "value": "0" }
-      ]
-    },
-    {
       "source": "/(.*)",
       "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+        { "key": "Pragma",        "value": "no-cache" },
+        { "key": "Expires",       "value": "0" },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "X-Frame-Options",        "value": "SAMEORIGIN" }
       ]
