@@ -1617,7 +1617,7 @@
             <!-- Tab bar -->
             <div class="svc-page-tabs">
               <button class="svc-page-tab active" id="svctab-btn-services"     onclick="svcPageTab('services',this)">Services</button>
-              <button class="svc-page-tab"        id="svctab-btn-display"      onclick="svcPageTab('display',this)">Display</button>
+              <button class="svc-page-tab"        id="svctab-btn-display"      onclick="svcPageTab('display',this)">App Display</button>
               <button class="svc-page-tab"        id="svctab-btn-fees"         onclick="svcPageTab('fees',this)">Fees</button>
               <button class="svc-page-tab"        id="svctab-btn-preferences"  onclick="svcPageTab('preferences',this)">Preferences</button>
               <button class="svc-page-tab"        id="svctab-btn-categories"   onclick="svcPageTab('categories',this)">Categories</button>
@@ -14918,6 +14918,16 @@ ${totalLinesXml}
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
       const folderName = allLaunCache.find(l => l.id === o.folded_by_id)?.name || null;
       const alreadyPaid = !!o.stripe_payment_intent_id;
+      const activeLaun  = allLaunCache.filter(l => l.is_active);
+      const noFolderBadge = !o.folded_by_id ? `
+        <div style="margin-top:8px;padding:7px 9px;background:#fef9c3;border:1.5px solid #f59e0b;border-radius:8px;display:flex;align-items:center;gap:7px" onclick="event.stopPropagation()">
+          <span style="font-size:13px;flex-shrink:0">⚠️</span>
+          <select style="flex:1;font-size:12px;padding:3px 6px;border:1px solid #f59e0b;border-radius:5px;background:white;font-family:inherit;cursor:pointer;color:#92400e;font-weight:600"
+            onchange="assignFolderInline('${o.id}',this.value);event.stopPropagation()">
+            <option value="">No launderer assigned — assign now</option>
+            ${activeLaun.map(l=>`<option value="${l.id}">👤 ${l.name}</option>`).join('')}
+          </select>
+        </div>` : '';
       return `<div class="proc-card" id="fold-card-${o.id}"
         style="cursor:pointer"
         onclick="openRackPanel('${o.id}')"
@@ -14942,6 +14952,7 @@ ${totalLinesXml}
           ${Number(o.total_amount)>0 ? `<span style="font-weight:600;color:var(--gray-700)">${fmtMoney(o.total_amount)}</span>` : ''}
         </div>
         ${folderName ? `<div style="font-size:12px;color:var(--gray-500)">👤 Folded by <strong style="color:var(--gray-700)">${folderName}</strong></div>` : ''}
+        ${noFolderBadge}
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
       </div>`;
     }).join('');
@@ -15046,6 +15057,20 @@ ${totalLinesXml}
     allProcOrders  = allProcOrders.filter(o => o.id !== movedId);
     showToast(`Order #${orderNum} assigned to ${launName} for folding`, 'success');
     reloadColumns('cleaning', 'folding');
+  }
+
+  async function assignFolderInline(orderId, launId) {
+    if (!launId) return;
+    const { error } = await db.from('orders').update({
+      folded_by_id: launId,
+      updated_at: new Date().toISOString()
+    }).eq('id', orderId);
+    if (error) { showToast('Could not assign: ' + error.message, 'error'); return; }
+    const launName = allLaunCache.find(l => l.id === launId)?.name || 'Launderer';
+    const order = allFoldOrders.find(o => o.id === orderId);
+    if (order) order.folded_by_id = launId;
+    showToast(`Assigned to ${launName}`, 'success');
+    renderFoldQueue();
   }
 
   // ── RACK QUEUE (status: assembled — recently racked, awaiting driver) ──
