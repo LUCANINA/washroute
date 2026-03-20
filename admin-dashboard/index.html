@@ -1246,7 +1246,11 @@
                   <div class="leg-row"><div class="leg-dot" style="background:#0ba25a"></div>Within 30 days</div>
                   <div class="leg-row"><div class="leg-dot" style="background:#d97706"></div>30–90 days ago</div>
                   <div class="leg-row"><div class="leg-dot" style="background:#9ca3af"></div>90+ days ago</div>
+                  <div class="leg-row" style="margin-top:4px;padding-top:5px;border-top:1px solid rgba(0,0,0,.06)">
+                    <div style="width:14px;height:14px;border-radius:50%;border:2px solid #9ca3af;background:white;flex-shrink:0;"></div>Alt address
+                  </div>
                   <div id="cust-map-count" style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08);font-size:11px;color:var(--gray-500);font-weight:500;"></div>
+                  <button id="cust-zone-toggle" onclick="toggleCustZoneOverlay(this)" style="margin-top:7px;width:100%;font-size:11px;font-weight:600;padding:5px 0;border-radius:6px;border:1px solid var(--gray-200);background:white;color:var(--gray-700);cursor:pointer;transition:background .15s,color .15s">Show Zones</button>
                 </div>
               </div>
             </div>
@@ -11858,6 +11862,10 @@ ${totalLinesXml}
   // ── MAP STATE ──
   let custMap=null, zonesMap=null;
   let custMarkers=[], drawnZones=[], zoneDrawControl=null;
+  // Zone overlay on the customer map (separate from the Delivery Zones map)
+  let _custZonesData = null;       // cached result from get_service_zones_geojson
+  let _custZoneOverlayLayers = []; // Leaflet layers added to custMap
+  let _custZoneOverlayOn = false;
   function custActivityColor(c) {
     if (!c.last_order_at) return '#9ca3af';
     const days = (Date.now() - new Date(c.last_order_at).getTime()) / 86_400_000;
@@ -11877,6 +11885,11 @@ ${totalLinesXml}
   function makePin(color,label,size=28){
     return L.divIcon({className:'',iconSize:[size,size],iconAnchor:[size/2,size/2],
       html:`<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2.5px solid white;box-shadow:0 2px 8px rgba(0,0,0,.22);display:flex;align-items:center;justify-content:center;font-size:${size>26?11:9}px;font-weight:700;color:white">${label}</div>`});
+  }
+  // Hollow ring pin for secondary (non-default) addresses — smaller, ring-only
+  function makeAltPin(color, size=16){
+    return L.divIcon({className:'',iconSize:[size,size],iconAnchor:[size/2,size/2],
+      html:`<div style="width:${size}px;height:${size}px;border-radius:50%;background:white;border:2.5px solid ${color};box-shadow:0 1px 5px rgba(0,0,0,.18);"></div>`});
   }
   function makeDriverPin(){
     return L.divIcon({className:'',iconSize:[38,38],iconAnchor:[19,19],
@@ -13938,31 +13951,107 @@ ${totalLinesXml}
   }
 
   function addCustPins(data){
+    let secPinCount = 0;
     data.forEach(c=>{
-      if(!c.lat||!c.lng) return;
       const col=custActivityColor(c);
       const p=custProfile(c);
       const fn = p.first_name || c.first_name_cache || '';
       const ln = p.last_name  || c.last_name_cache  || '';
       const name=`${fn} ${ln}`.trim()||'Unknown';
-      const addr = c.address_cache || (c.city ? `${c.city}` : '') || p.email||c.email_cache||'';
-      const showCard = () => {
-        document.getElementById('cim-name').textContent=name;
-        document.getElementById('cim-addr').textContent=addr;
-        document.getElementById('cim-badge').innerHTML = c.last_order_at ? `<span style="font-size:11px;color:var(--gray-500)">Last order: ${fmtDate(c.last_order_at)}</span>` : '<span style="font-size:11px;color:var(--gray-400)">No orders</span>';
-        document.getElementById('cust-info-card').style.display='block';
-      };
-      const m=L.marker([c.lat,c.lng],{icon:makePin(col,'',24)}).addTo(custMap)
-        .on('mouseover', showCard)
-        .on('mouseout', ()=>{ document.getElementById('cust-info-card').style.display='none'; })
-        .on('click', ()=>{ showCard(); custMap.flyTo([c.lat,c.lng],15,{duration:.8}); });
-      custMarkers.push(m);
+
+      // ── Primary pin (default address) ──
+      if(c.lat&&c.lng){
+        const addr = c.address_cache || (c.city ? `${c.city}` : '') || p.email||c.email_cache||'';
+        const showCard = () => {
+          document.getElementById('cim-name').textContent=name;
+          document.getElementById('cim-addr').textContent=addr;
+          document.getElementById('cim-badge').innerHTML = c.last_order_at ? `<span style="font-size:11px;color:var(--gray-500)">Last order: ${fmtDate(c.last_order_at)}</span>` : '<span style="font-size:11px;color:var(--gray-400)">No orders</span>';
+          document.getElementById('cust-info-card').style.display='block';
+        };
+        const m=L.marker([c.lat,c.lng],{icon:makePin(col,'',24)}).addTo(custMap)
+          .on('mouseover', showCard)
+          .on('mouseout', ()=>{ document.getElementById('cust-info-card').style.display='none'; })
+          .on('click', ()=>{ showCard(); custMap.flyTo([c.lat,c.lng],15,{duration:.8}); });
+        custMarkers.push(m);
+      }
+
+      // ── Secondary pins (non-default saved addresses) ──
+      const addrs = Array.isArray(c.addresses) ? c.addresses : [];
+      addrs.forEach(a => {
+        // Skip default address (already plotted above) and entries without coordinates
+        if (a.is_default) return;
+        if (a.id && a.id === c.addr_id) return; // fallback guard
+        const aLat = a.lat ? parseFloat(a.lat) : null;
+        const aLng = a.lng ? parseFloat(a.lng) : null;
+        if (!aLat || !aLng) return;
+        const addrLine = [a.line1, a.city].filter(Boolean).join(', ') || a.line1 || '';
+        const label = a.label || 'Saved address';
+        const showAlt = () => {
+          document.getElementById('cim-name').textContent = name;
+          document.getElementById('cim-addr').textContent = addrLine;
+          document.getElementById('cim-badge').innerHTML = `<span style="font-size:11px;padding:2px 7px;border-radius:4px;background:var(--gray-100);color:var(--gray-600);font-weight:600">${esc(label)}</span>`;
+          document.getElementById('cust-info-card').style.display='block';
+        };
+        const am = L.marker([aLat, aLng], {icon: makeAltPin(col, 16)}).addTo(custMap)
+          .on('mouseover', showAlt)
+          .on('mouseout', ()=>{ document.getElementById('cust-info-card').style.display='none'; })
+          .on('click', ()=>{ showAlt(); custMap.flyTo([aLat, aLng], 15, {duration:.8}); });
+        custMarkers.push(am);
+        secPinCount++;
+      });
     });
+
     // update pin count display
     const countEl = document.getElementById('cust-map-count');
     if (countEl) {
       const n = data.filter(c=>c.lat&&c.lng).length;
-      countEl.textContent = `${n} customer${n!==1?'s':''} on map`;
+      const secNote = secPinCount > 0 ? ` · ${secPinCount} alt addr` : '';
+      countEl.textContent = `${n} customer${n!==1?'s':''} on map${secNote}`;
+    }
+  }
+
+  // ── CUSTOMER MAP: ZONE OVERLAY ──
+  async function toggleCustZoneOverlay(btn) {
+    if (!custMap) return;
+    if (_custZoneOverlayOn) {
+      // Turn off — remove all overlay layers
+      _custZoneOverlayLayers.forEach(l => { try { custMap.removeLayer(l); } catch(e) {} });
+      _custZoneOverlayLayers = [];
+      _custZoneOverlayOn = false;
+      if (btn) { btn.textContent = 'Show Zones'; btn.style.background = 'white'; btn.style.color = 'var(--gray-700)'; }
+    } else {
+      // Turn on — fetch zone polygons if not yet cached
+      if (!_custZonesData) {
+        if (btn) btn.textContent = 'Loading…';
+        const { data, error } = await db.rpc('get_service_zones_geojson');
+        if (error) { showToast('Could not load zones', 'error'); if (btn) btn.textContent = 'Show Zones'; return; }
+        _custZonesData = data || [];
+      }
+      _custZonesData.forEach(z => {
+        const color = z.color || '#635bff';
+        const layers = [];
+        // Hand-drawn polygon
+        if (z.geojson) {
+          try { layers.push(L.geoJSON(z.geojson, { style: { color, fillColor: color, fillOpacity: 0.08, weight: 2, dashArray: '6,4' } })); } catch(e) {}
+        }
+        // City polygons
+        (z.city_polygons || []).forEach(cp => {
+          if (!cp.geojson) return;
+          try { layers.push(L.geoJSON(cp.geojson, { style: { color, fillColor: color, fillOpacity: 0.06, weight: 1.5, dashArray: '5,4' } })); } catch(e) {}
+        });
+        if (!layers.length) return;
+        const group = L.featureGroup(layers).addTo(custMap);
+        const cityNames = (z.city_polygons||[]).map(c=>c.name).join(', ');
+        group.bindTooltip(`<strong>${z.name}</strong>${cityNames ? `<br><span style="font-size:11px;font-weight:400">${cityNames}</span>` : ''}`, { sticky: true });
+        _custZoneOverlayLayers.push(group);
+      });
+      _custZoneOverlayOn = true;
+      if (btn) {
+        btn.textContent = 'Hide Zones';
+        btn.style.background = 'var(--accent)';
+        btn.style.color = 'white';
+      }
+      if (!_custZonesData.length) showToast('No zones defined yet', '');
     }
   }
 
