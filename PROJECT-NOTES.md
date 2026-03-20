@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 20, 2026 — Customer map all-addresses + zone overlay, subdomain routing, Family Laundry rebrand (session 44)*
+*Last updated: Mar 20, 2026 — Zone overlay CSS toggle confirmed working (session 44 continued)*
 
 ---
 
@@ -796,6 +796,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Customer map — all addresses:** `addCustPins()` now plots every saved address per customer, not just the default. Default address = filled circle (activity color, 24px). Non-default addresses = hollow ring (same color, 16px, white center). Hovering a secondary pin shows the address label (e.g. "Work") in the info card. Pin count footer shows alt address tally.
 - **Customer map — zone overlay toggle:** "Show Zones" button added to map legend. Fetches zone polygons via `get_service_zones_geojson` RPC, renders colored fills + dashed outlines on the customer map. Button turns purple / "Hide Zones" when active. Bug fix: geojson must be parsed with `JSON.parse()` before passing to Leaflet (same as `renderZonePolygons` does).
 - **Admin — Services tab label:** "Display" renamed to "App Display" on the Services & Pricing tab.
+- **Zone overlay debugging + final fix:** Three-step fix process: (1) geojson string parse fix (`JSON.parse` before passing to Leaflet); (2) switched from `L.featureGroup(layers)` wrapper to direct `.addTo(custMap)` per layer; (3) root cause found — `.map-legend-box` CSS had `pointer-events: none`, which silently blocked all click/touch events on the legend including the toggle. Fixed to `pointer-events: auto`. Button replaced with a proper CSS pill toggle (on/off). Zone overlay confirmed working: 6 zones render as colored semi-transparent fills with dashed borders and name tooltips.
 
 ---
 
