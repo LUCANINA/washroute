@@ -3586,7 +3586,8 @@
   let allOrders = [];
   let allTemplates = [], allDriversCache = [];
   let allDriversList = [];
-  let currentDriverId = null;
+  let currentDriverId        = null;
+  let currentDriverProfileId = null; // profile_id (auth user UUID) for the open driver
   let driverFilter = 'all';
   let allServices        = [];
   // svcPrefsState removed — preferences are no longer assigned at service level
@@ -12338,8 +12339,9 @@ ${totalLinesXml}
   }
 
   function openDriverEditor(driverId) {
-    currentDriverId = driverId;
+    currentDriverId        = driverId;
     const d = driverId ? allDriversList.find(x => x.id === driverId) : null;
+    currentDriverProfileId = d?.profileId || null;
 
     document.getElementById('drv-so-title').textContent = d ? 'Edit Driver' : 'New Driver';
     document.getElementById('drv-so-sub').textContent   = d
@@ -12457,17 +12459,12 @@ ${totalLinesXml}
     if (!currentDriverId) return;
     const d = allDriversList.find(x => x.id === currentDriverId);
     const name = `${d?.firstName} ${d?.lastName}`.trim() || 'this driver';
-    if (!confirm(`Deactivate ${name}? They will no longer be able to log into the driver app.`)) return;
-    const { error } = await db.from('drivers').update({ is_active: false }).eq('id', currentDriverId);
-    if (error) { showToast('Could not deactivate driver: ' + error.message, 'error'); return; }
+    if (!confirm(`Delete ${name}? This will permanently remove them from the driver list.`)) return;
+    const { error } = await db.from('drivers').delete().eq('id', currentDriverId);
+    if (error) { showToast('Could not delete driver: ' + error.message, 'error'); return; }
     closeDriverEditor();
-    showToast('Driver deactivated.', 'success');
+    showToast(`${name} deleted.`, 'success');
     await loadDrivers();
-    // Switch to Active filter so the deactivated driver disappears from view
-    driverFilter = 'active';
-    document.querySelectorAll('#page-drivers .filter-tab').forEach(b => b.classList.remove('active'));
-    document.getElementById('drvf-active')?.classList.add('active');
-    renderDrivers();
   }
 
   // ── TAB SWITCHING ──
