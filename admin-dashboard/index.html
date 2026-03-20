@@ -350,6 +350,17 @@
     .pref-chips-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
     .pref-add-option-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; border: 1.5px dashed var(--gray-300); border-radius: 20px; font-size: 12px; color: var(--gray-400); background: none; cursor: pointer; transition: all .12s; font-family: inherit; }
     .pref-add-option-btn:hover { border-color: var(--accent); color: var(--accent); }
+    /* Service link badge */
+    .pref-link-badge { display:inline-flex; align-items:center; gap:5px; padding:3px 8px 3px 6px; border-radius:20px; font-size:11px; font-weight:600; transition:all .12s; margin-top:5px; white-space:nowrap; }
+    .pref-link-badge.linked { background:#ecfdf5; border:1.5px solid #10b981; color:#059669; cursor:default; }
+    .pref-link-badge.unlinked { background:none; border:1.5px dashed var(--gray-300); color:var(--gray-400); cursor:pointer; }
+    .pref-link-badge.unlinked:hover { border-color:var(--accent); color:var(--accent); background:#f5f3ff; }
+    .pref-link-unlink-btn { background:none; border:none; cursor:pointer; color:#10b981; padding:0 0 0 2px; font-size:13px; line-height:1; opacity:.7; transition:all .12s; }
+    .pref-link-unlink-btn:hover { color:var(--red); opacity:1; }
+    .pref-link-select-wrap { display:none; align-items:center; gap:6px; margin-top:5px; }
+    .pref-link-select-wrap.open { display:flex; }
+    .pref-link-select { font-size:12px; padding:4px 8px; border:1.5px solid var(--accent); border-radius:6px; background:white; color:var(--gray-800); font-family:inherit; cursor:pointer; outline:none; max-width:200px; }
+    .pref-link-cancel-btn { font-size:11.5px; color:var(--gray-400); background:none; border:none; cursor:pointer; font-family:inherit; padding:0 2px; }
     .pref-add-option-form { display: none; gap: 6px; align-items: center; flex-wrap: wrap; }
     .pref-add-option-form.open { display: flex; }
     .pref-opt-input { border: 1.5px solid var(--gray-200); border-radius: 7px; padding: 5px 10px; font-size: 13px; font-family: inherit; color: var(--gray-800); background: white; transition: border-color .12s; }
@@ -9012,6 +9023,7 @@ ${totalLinesXml}
   let allGlobalPrefs = [];
   let globalPrefsLocalState = {}; // prefId → { name, options: [{id,label,is_default}] }
   let prefActiveCat = 'Delivery';
+  let _prefLinkMap = {}; // prefId → linked service row (rebuilt on each renderGlobalPrefs)
 
   async function loadGlobalPrefs() {
     const body = document.getElementById('pref-builder-body');
@@ -9042,6 +9054,13 @@ ${totalLinesXml}
       return;
     }
     if (!cats.includes(prefActiveCat)) prefActiveCat = cats.includes('Delivery') ? 'Delivery' : cats[0];
+
+    // Rebuild link map: prefId → service that has linked_preference_id = prefId
+    _prefLinkMap = {};
+    (allAddonServicesCache || []).forEach(s => {
+      if (s.linked_preference_id) _prefLinkMap[s.linked_preference_id] = s;
+    });
+
     const catTabs = `<div class="filter-tabs" style="margin:14px 20px 12px">
       ${cats.map(c => `<button class="filter-tab${c===prefActiveCat?' active':''}" onclick="setPrefCat('${svcEsc(c)}')">${svcEsc(c)}</button>`).join('')}
     </div>`;
@@ -9069,10 +9088,36 @@ ${totalLinesXml}
     const opts = state.options || [];
     const isFirst = idx === 0;
     const isLast  = idx === total - 1;
+
+    // Link badge — shows which service this preference is linked to (if any)
+    const linkedSvc = _prefLinkMap[pref.id];
+    const chainIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="11" height="11"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>`;
+    const linkBadge = linkedSvc
+      ? `<div class="pref-link-badge linked" title="Linked to service — price syncs from Services tab">
+           ${chainIcon} ${svcEsc(linkedSvc.name)} · $${parseFloat(linkedSvc.base_price||0).toFixed(2)}
+           <button class="pref-link-unlink-btn" onclick="unlinkPrefService('${pref.id}')" title="Unlink from service">×</button>
+         </div>`
+      : `<div>
+           <div class="pref-link-badge unlinked" onclick="showLinkDrop('${pref.id}')" title="Link to a service so prices sync automatically">
+             ${chainIcon} Link to service
+           </div>
+           <div class="pref-link-select-wrap" id="pref-link-drop-${pref.id}">
+             <select class="pref-link-select" onchange="linkPrefToService('${pref.id}',this.value)">
+               <option value="">Select service…</option>
+               ${(allAddonServicesCache||[]).filter(s => s.is_addon && !s.linked_preference_id)
+                 .map(s => `<option value="${s.id}">${svcEsc(s.name)} ($${parseFloat(s.base_price||0).toFixed(2)})</option>`).join('')}
+             </select>
+             <button class="pref-link-cancel-btn" onclick="hideLinkDrop('${pref.id}')">Cancel</button>
+           </div>
+         </div>`;
+
     return `<div class="pref-row" id="gpref-${pref.id}">
-      <input class="pref-name-input" value="${svcEsc(state.name)}" placeholder="Preference name…"
-             oninput="updateGlobalPrefName('${pref.id}',this.value)"
-             onblur="saveGlobalPref('${pref.id}')" />
+      <div>
+        <input class="pref-name-input" value="${svcEsc(state.name)}" placeholder="Preference name…"
+               oninput="updateGlobalPrefName('${pref.id}',this.value)"
+               onblur="saveGlobalPref('${pref.id}')" />
+        ${linkBadge}
+      </div>
       <div class="pref-opts-cell">
         <div class="pref-chips-row" id="gopts-${pref.id}">
           ${opts.map(opt => renderGlobalOptionChip(pref.id, opt)).join('')}
@@ -9103,6 +9148,37 @@ ${totalLinesXml}
         </button>
       </div>
     </div>`;
+  }
+
+  function showLinkDrop(prefId) {
+    document.getElementById('pref-link-drop-' + prefId)?.classList.add('open');
+  }
+  function hideLinkDrop(prefId) {
+    document.getElementById('pref-link-drop-' + prefId)?.classList.remove('open');
+  }
+
+  async function linkPrefToService(prefId, serviceId) {
+    if (!serviceId) return;
+    const { error } = await db.from('services').update({ linked_preference_id: prefId }).eq('id', serviceId);
+    if (error) { showToast(error.message, 'error'); return; }
+    // Update local cache so badge re-renders correctly
+    allAddonServicesCache = allAddonServicesCache.map(s =>
+      s.id === serviceId ? { ...s, linked_preference_id: prefId } : s
+    );
+    showToast('Linked ✓', 'success');
+    renderGlobalPrefs();
+  }
+
+  async function unlinkPrefService(prefId) {
+    const linkedSvc = _prefLinkMap[prefId];
+    if (!linkedSvc) return;
+    const { error } = await db.from('services').update({ linked_preference_id: null }).eq('id', linkedSvc.id);
+    if (error) { showToast(error.message, 'error'); return; }
+    allAddonServicesCache = allAddonServicesCache.map(s =>
+      s.id === linkedSvc.id ? { ...s, linked_preference_id: null } : s
+    );
+    showToast('Unlinked', '');
+    renderGlobalPrefs();
   }
 
   let _prefMoving = false;

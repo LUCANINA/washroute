@@ -2197,6 +2197,47 @@ async function loadUserData() {
 }
 
 /* ── SERVICES + GLOBAL PREFS ── */
+
+// Build the unified globalPrefs list from both tables:
+// 1. For preferences with a linked service (linked_preference_id on services):
+//    price is synced live from services.base_price so admin changes appear instantly.
+// 2. For is_addon services with no linked preference yet:
+//    a virtual Yes/No pref group is generated automatically.
+// 3. Non-priced preferences (e.g. Wash temp) pass through unchanged.
+function _buildGlobalPrefs(svcs, prefs) {
+  const svcList  = svcs  || [];
+  const prefList = (prefs || []).map(p => ({ ...p, options: (p.options || []).map(o => ({ ...o })) }));
+  const prefById = {};
+  prefList.forEach(p => { prefById[p.id] = p; });
+
+  // Step 1 — sync prices from services into linked preference groups
+  const linkedPrefIds = new Set();
+  svcList.forEach(svc => {
+    if (!svc.linked_preference_id) return;
+    const group = prefById[svc.linked_preference_id];
+    if (!group) return;
+    linkedPrefIds.add(svc.linked_preference_id);
+    group.options = group.options.map(opt =>
+      opt.is_default ? opt : { ...opt, price_mod: parseFloat(svc.base_price || 0) }
+    );
+  });
+
+  // Step 2 — auto-generate virtual pref groups for is_addon services with no link yet
+  const virtualPrefs = svcList
+    .filter(s => s.is_addon && !s.linked_preference_id)
+    .map(s => ({
+      id: 'svc_' + s.id,
+      name: s.name,
+      sort_order: s.sort_order,
+      options: [
+        { id: 'svc_' + s.id + '_no',  label: 'No',  is_default: true,  price_mod: 0 },
+        { id: 'svc_' + s.id + '_yes', label: 'Yes', is_default: false, price_mod: parseFloat(s.base_price || 0) }
+      ]
+    }));
+
+  return [...prefList, ...virtualPrefs].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+}
+
 async function loadServices() {
   // Fetch services, preferences, and service fees in parallel
   const [{ data: svcs }, { data: prefs }, { data: fees }] = await Promise.all([
@@ -2206,7 +2247,7 @@ async function loadServices() {
   ]);
   allServices    = svcs  || [];
   defaultService = allServices.find(s => !s.is_addon) || null;
-  globalPrefs    = prefs || [];
+  globalPrefs    = _buildGlobalPrefs(svcs, prefs);
   allServiceFees = fees  || [];
 }
 
@@ -5236,7 +5277,8 @@ async function loadAccount() {
     db.from('preferences').select('*').order('sort_order')
   ]);
   if (freshCust) currentCustomer = freshCust;
-  globalPrefs = gp || [];
+  // Re-sync prices from services so account panel always reflects latest admin pricing
+  globalPrefs = _buildGlobalPrefs(allServices, gp);
 
   // Load all saved cards for this customer (default first)
   if (currentCustomer?.id) {
