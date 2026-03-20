@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 19, 2026 — Schedule lock visual fix, QA hardening (session 40 cont'd)*
+*Last updated: Mar 19, 2026 — Customer data import, address geocoding, SMS emergency shutdown (session 41)*
 
 ---
 
@@ -99,7 +99,8 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | Function | Purpose | JWT |
 |---|---|---|
 | `send-sms` | Send outbound SMS via Twilio + log to DB | Off |
-| `twilio-webhook` | Receive inbound SMS — SKIP/PICKUP/HELP keywords + Claude AI for everything else | Off |
+| `twilio-webhook` | Receive inbound SMS — STOP/START/SKIP/PICKUP/HELP keywords only. Claude AI **removed** session 41. All other messages route silently to human inbox. | Off |
+| `geocode-addresses` | **TEMPORARY — deployed & deleted session 41.** Batch-geocoded 5,043 imported customer addresses via Google Maps API. No longer deployed. | N/A |
 | `notify-on-my-way` | Driver "On My Way" button → customer SMS | Off |
 | `charge-order` | Stripe payment charge | On |
 | `send-order-notification` | Status-change notifications | On |
@@ -280,28 +281,43 @@ Postgres function: `find_customer_by_phone(digits TEXT)`.
 
 ## SMS Automation — Status
 
-### ✅ Phase 1 — Live (twilio-webhook v26, session 36–37)
+### ⚠️ SMS CURRENTLY DISABLED (session 41)
+
+**All SMS templates are set to `sms_enabled = false`.** No outbound SMS will be sent by any function or cron job until templates are re-enabled. This was an emergency shutdown after the customer data import (session 41) triggered mass SMS to 6,900+ imported customers via `notify_customer_registered` triggers and `send-scheduled-reminders` cron jobs.
+
+**What was disabled:**
+- pg_cron jobs `wr-reminder-evening` and `wr-reminder-morning` — **removed** (not just paused)
+- DB triggers `trg_customer_registered_insert` and `trg_customer_phone_first_set` — **dropped**
+- All 13 SMS templates — `sms_enabled = false`
+- Claude AI removed from `twilio-webhook` — **permanently** (v27)
+
+**What still works:**
+- `twilio-webhook` v27 handles inbound keywords: STOP, START, SKIP, PICKUP, HELP
+- STOP clears `sms_consent_at` in the DB (new in v27 — was never implemented before)
+- START re-sets `sms_consent_at` (new in v27)
+- All other inbound messages route silently to human inbox (no auto-reply)
+
+**Before re-enabling SMS:**
+1. Re-create `wr-reminder-evening` and `wr-reminder-morning` cron jobs with a filter: only send to customers who have **real orders in the system** (not just imported historical data)
+2. Re-create `notify_customer_registered` triggers scoped to only new signups (not bulk imports)
+3. Re-enable SMS templates one at a time, testing each
+4. 670 customers who texted STOP have been properly opted out (`sms_consent_at = NULL`)
+
+### ✅ Phase 1 — Keywords Only (twilio-webhook v27, session 41)
 
 **Keyword actions (deterministic):**
+- `STOP` — Clears `sms_consent_at` in DB, confirms opt-out. Twilio also blocks at carrier level.
+- `START` / `UNSTOP` — Re-sets `sms_consent_at`, confirms re-subscription.
 - `PICKUP` — Books next evening pickup using last order as template (zone, address, bags). Blocks if active order already exists. Falls back to default address + zone lookup for new customers.
 - `SKIP` — Skips next scheduled order, fires `skip_confirmation` template.
-- `HELP` — Returns menu of available commands.
+- `HELP` — Returns menu of available commands (PICKUP, SKIP, STOP, START).
 
-**Claude AI — natural language (all other messages):**
-- Every inbound SMS that isn't a keyword goes to `claude-haiku-4-5-20251001` with the customer's name + active order context.
-- Claude answers status/ETA questions, guides customers to PICKUP/SKIP, handles general questions.
-- Returns `ESCALATE` for complaints, billing disputes, or anything it can't confidently answer → message silently routes to human inbox (already logged, visible in admin SMS Inbox).
-- Falls back to human inbox automatically if `ANTHROPIC_API_KEY` is missing or Claude API errors.
+**Claude AI — REMOVED (session 41).** Was live in v22–v26. Removed because the feature was deployed prematurely during the customer import session. All non-keyword messages now route to the human inbox with no auto-reply. Claude AI SMS may be revisited in a future session with proper planning and David's explicit approval.
 
-**Secrets required:** `ANTHROPIC_API_KEY` — added to Supabase Secrets 2026-03-19.
-
-### Phase 2 — Pending
-- Natural-language cancellations: "Can I cancel Thursday?" → skip with date parsing
-- Requires `conversations` table for multi-turn state tracking
-
-### Phase 3 — Pending
+### Phase 2 — Pending (deprioritized)
+- Claude AI natural-language replies — revisit when David is ready
+- Natural-language cancellations: "Can I cancel Thursday?" — needs `conversations` table
 - New bookings via SMS: "Book a pickup tonight"
-- Requires multi-turn conversation flow + availability check
 
 ---
 
@@ -766,6 +782,21 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 19, 2026 (session 41) — Customer data import, address geocoding, SMS emergency shutdown
+
+- **6,930 customers imported from CSV** into `customers` table (from 3 CSV files: ALL Customers to 10/26, FY2025, and 2026). Preferences parsed into structured JSONB format. Notes, referrals, tips, credits, lifetime value all imported. Air Dry and Shirt Service preferences created in the `preferences` table.
+- **5,028 structured `addresses` rows created** by parsing `address_cache` strings. 1,876 retail customers (2609 Foothill Blvd) skipped. City names normalized (SF → San Francisco, case fixes). 12 junk records skipped.
+- **5,043 addresses geocoded** via Google Maps Geocoding API. Temporary `geocode-addresses` edge function deployed, ran via pg_cron batch job, then deleted. All addresses now have lat/lng coordinates for routing and map display.
+- **Admin dashboard paginated** — `loadCustomers()` now uses `.range()` loop to fetch all 6,930 customers (was capped at 1,000 by Supabase default). Client-side pagination at 100/page with Prev/Next controls. City filter dropdown populated from address data.
+- **⚠️ SMS EMERGENCY SHUTDOWN:** Imported customers had `sms_consent_at` set, which caused `send-scheduled-reminders` cron jobs and `notify_customer_registered` triggers to fire mass SMS to thousands of non-active customers. Disabled: both reminder cron jobs (removed), both customer registration triggers (dropped), all 13 SMS templates (`sms_enabled = false`).
+- **670 STOP opt-outs processed:** 663 customers texted STOP but only 65 had been properly opted out (twilio-webhook had no STOP handler). All 670 now have `sms_consent_at = NULL`.
+- **`twilio-webhook` v27 deployed:** Claude AI completely removed. Now handles ONLY: STOP (clears `sms_consent_at`), START (re-sets consent), SKIP, PICKUP, HELP. All other messages → human inbox with no auto-reply.
+- **Lesson learned:** Before any bulk data import, disable all automated outbound messaging (cron jobs, triggers, templates) FIRST. Re-enable selectively after import, with filters to target only active customers.
+- **Google Maps API key:** Was unrestricted for geocoding. David needs to re-restrict it in Google Cloud Console now that geocoding is complete.
+- **Next:** Re-enable SMS templates selectively with proper scoping. Dashboard UX improvements (city/zone filtering, customer page redesign). Git push needed for dashboard pagination commit.
 
 ---
 
@@ -1750,7 +1781,7 @@ There are actually **two separate hang points** that must both be covered:
 - ~~UX audit top 5 fixes~~ ✅ — double-tap, res.ok guard, batch button disable, stop card styling, slot CSS (session 15)
 - ~~How did you find us? referral source~~ ✅ — both signup flows + admin dropdown (session 15)
 - ~~Add Double Wash price_mod~~ ✅ — $15/bag, linked addon service, live in DB (session 16)
-- ~~SMS automation Phase 1~~ ✅ — PICKUP (evening default), SKIP, HELP + Claude AI natural language replies live in twilio-webhook v22 (session 36)
+- ~~SMS automation Phase 1~~ ✅ — PICKUP, SKIP, HELP, STOP, START live in twilio-webhook v27 (session 41). Claude AI **removed**. All SMS templates currently disabled — re-enable with scoping before going live.
 - ~~CloudPRNT integration~~ ✅ — `print_jobs` table + `cloudprnt` edge function live (session 22). Configure via Admin → Settings → Receipt Printer.
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - SMS automation Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table for multi-turn state
