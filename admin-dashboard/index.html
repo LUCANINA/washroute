@@ -12252,10 +12252,16 @@ ${totalLinesXml}
     const d = allDriversList.find(x => x.id === currentDriverId);
     const name = `${d?.firstName} ${d?.lastName}`.trim() || 'this driver';
     if (!confirm(`Deactivate ${name}? They will no longer be able to log into the driver app.`)) return;
-    await db.from('drivers').update({ is_active: false }).eq('id', currentDriverId);
+    const { error } = await db.from('drivers').update({ is_active: false }).eq('id', currentDriverId);
+    if (error) { showToast('Could not deactivate driver: ' + error.message, 'error'); return; }
     closeDriverEditor();
     showToast('Driver deactivated.', 'success');
     await loadDrivers();
+    // Switch to Active filter so the deactivated driver disappears from view
+    driverFilter = 'active';
+    document.querySelectorAll('#page-drivers .filter-tab').forEach(b => b.classList.remove('active'));
+    document.getElementById('drvf-active')?.classList.add('active');
+    renderDrivers();
   }
 
   // ── TAB SWITCHING ──
