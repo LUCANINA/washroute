@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 19, 2026 — Customer activity filters, PostGIS zone filtering, QA cleanup (session 42)*
+*Last updated: Mar 20, 2026 — Services/preferences sync, per-item pricing, admin link badge (session 43)*
 
 ---
 
@@ -782,6 +782,17 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 20, 2026 (session 43) — Services/preferences sync, per-item pricing fix, admin link badge
+
+- **"Yes/Yes" add-on display bug fixed:** Order details were showing "Yes $3.00 / Yes $3.00" instead of preference names like "Vinegar / Oxi". Root cause: `Object.values(draft.prefs)` lost the `groupId` key, so the label lookup fell through to the option label ("Yes"). Fixed by switching to `Object.entries` and looking up group name from `globalPrefs`.
+- **Services ↔ Preferences sync architecture implemented (`_buildGlobalPrefs`):** Customer app preferences were completely disconnected from admin Services & Pricing. New `_buildGlobalPrefs(svcs, prefs)` helper runs at load time and: (1) syncs prices from `services` into any linked `preferences` group via `linked_preference_id` FK; (2) auto-generates virtual Yes/No pref groups for any `is_addon` service that has no linked preference yet. Admin is now the single source of truth — change a price in Services and it appears immediately in the customer app.
+- **Admin Preferences tab link badge added:** Each preference card now shows a colored chain-link badge indicating whether it is linked to a service in Services & Pricing. Green badge = linked (shows service name + price). Dashed gray badge = unlinked (click to open dropdown and link). Includes an × button to unlink. New functions: `showLinkDrop`, `hideLinkDrop`, `linkPrefToService`, `unlinkPrefService`. Uses `_prefLinkMap` for fast lookup during render.
+- **Per-item pricing fixed in customer app:** Shirt Service and Air Dry have `pricing_type = per_item` in the DB but were displaying `+$X.XX/bag` everywhere. Fixed across all 6 locations: checkbox labels in booking flow and account panel now show `/item`; `updateEstimate()` and all three `addonsTotal` calculations no longer multiply per_item add-ons by bag count; estimate bar shows "per-item services billed at processing" note; confirm screen addon rows show unit price + "billed at processing" label and "TBD" for total. `_buildGlobalPrefs` now propagates `pricing_type` onto each preference group from its linked service.
+- **DB change:** `Air Dry` and `Shirt Service` services flagged `is_addon = true` in the `services` table.
+- **⚠️ Push pending:** Three commits (64ebef0, 386e35e, 820cc25) are committed locally but NOT pushed. David needs to run `git push` from his terminal to deploy to Vercel.
 
 ---
 
@@ -1798,6 +1809,8 @@ There are actually **two separate hang points** that must both be covered:
 - ~~Add Double Wash price_mod~~ ✅ — $15/bag, linked addon service, live in DB (session 16)
 - ~~SMS automation Phase 1~~ ✅ — PICKUP, SKIP, HELP, STOP, START live in twilio-webhook v27 (session 41). Claude AI **removed**. All SMS templates currently disabled — re-enable with scoping before going live.
 - ~~CloudPRNT integration~~ ✅ — `print_jobs` table + `cloudprnt` edge function live (session 22). Configure via Admin → Settings → Receipt Printer.
+- **Domain setup** — Move to app/driver/admin.familylaundry.com (owned via GoDaddy, currently live on Wix). Steps: add 3 CNAME records in GoDaddy pointing to Vercel, update `vercel.json` from path-based routing to subdomain routing, add custom domains in Vercel project settings.
+- **Driver app stress test** — walk through route load, stop detail, navigation, On My Way, pickup complete + photo proof, delivery complete. Confirm status pipeline fires correctly end-to-end.
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - SMS automation Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table for multi-turn state
 - **Launderer reporting Phase 2** — date range mode (week/month/custom) on the launderer history panel; data model is complete, UI-only work
