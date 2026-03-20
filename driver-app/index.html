@@ -2246,19 +2246,32 @@ function renderStopDetail(stop) {
       if (currentStopSubPhase === 1) {
         // ── SUB-PHASE 1: Confirm bags + notes ──
 
-        // Bag count stepper
-        const bagLabel = isPickup ? 'Bags to pick up' : 'Bags to deliver';
-        h += `<div class="dsection">
-          <div class="dsection-title" style="display:flex;align-items:center;justify-content:space-between">${bagLabel}${navLink}</div>
-          <div class="bag-stepper-wrap">
-            <div class="bag-stepper">
-              <button class="bag-stepper-btn" id="bag-minus-btn" onclick="adjustBags(-1)" ${bagCount <= 0 ? 'disabled' : ''}>−</button>
-              <div class="bag-stepper-count" id="bag-count-val">${bagCount}</div>
-              <button class="bag-stepper-btn" onclick="adjustBags(1)">+</button>
+        // Bag count — editable on pickup, locked on delivery
+        if (isPickup) {
+          h += `<div class="dsection">
+            <div class="dsection-title" style="display:flex;align-items:center;justify-content:space-between">Bags to pick up${navLink}</div>
+            <div class="bag-stepper-wrap">
+              <div class="bag-stepper">
+                <button class="bag-stepper-btn" id="bag-minus-btn" onclick="adjustBags(-1)" ${bagCount <= 0 ? 'disabled' : ''}>−</button>
+                <div class="bag-stepper-count" id="bag-count-val">${bagCount}</div>
+                <button class="bag-stepper-btn" onclick="adjustBags(1)">+</button>
+              </div>
+              <div class="bag-expected">Expected: ${expectedBags} bag${expectedBags !== 1 ? 's' : ''}</div>
             </div>
-            <div class="bag-expected">Expected: ${expectedBags} bag${expectedBags !== 1 ? 's' : ''}</div>
-          </div>
-        </div>`;
+          </div>`;
+        } else {
+          h += `<div class="dsection">
+            <div class="dsection-title" style="display:flex;align-items:center;justify-content:space-between">Bags to deliver${navLink}</div>
+            <div class="bag-stepper-wrap">
+              <div class="bag-stepper" style="opacity:0.6;pointer-events:none">
+                <button class="bag-stepper-btn" disabled>−</button>
+                <div class="bag-stepper-count">${bagCount}</div>
+                <button class="bag-stepper-btn" disabled>+</button>
+              </div>
+              <div class="bag-expected">Locked at processing</div>
+            </div>
+          </div>`;
+        }
 
         // Driver notes
         h += `<div class="dsection">
