@@ -3657,7 +3657,7 @@ async function placeOrder() {
   // Build line_items from prefs
   const lineItems = [
     { type:'base', label:`${bags} bag${bags!==1?'s':''} × ${$m(svc?.base_price||0)}`, amount:(svc?.base_price||0)*bags },
-    ...Object.values(draft.prefs).filter(p=>p.priceMod).map(p=>({ type:'addon', label:p.label, amount:p.priceMod }))
+    ...Object.entries(draft.prefs).filter(([,p])=>p.priceMod).map(([groupId,p])=>({ type:'addon', label:(globalPrefs.find(g=>g.id===groupId)?.name || p.label), amount:p.priceMod }))
   ];
   if (routeFeeTotal > 0) {
     lineItems.push({ type: 'delivery_fee', label: 'Delivery fee', amount: routeFeeTotal });
