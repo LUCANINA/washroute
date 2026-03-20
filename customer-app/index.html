@@ -2217,6 +2217,7 @@ function _buildGlobalPrefs(svcs, prefs) {
     const group = prefById[svc.linked_preference_id];
     if (!group) return;
     linkedPrefIds.add(svc.linked_preference_id);
+    group.pricing_type = svc.pricing_type || 'per_bag';
     group.options = group.options.map(opt =>
       opt.is_default ? opt : { ...opt, price_mod: parseFloat(svc.base_price || 0) }
     );
@@ -2229,6 +2230,7 @@ function _buildGlobalPrefs(svcs, prefs) {
       id: 'svc_' + s.id,
       name: s.name,
       sort_order: s.sort_order,
+      pricing_type: s.pricing_type || 'per_bag',
       options: [
         { id: 'svc_' + s.id + '_no',  label: 'No',  is_default: true,  price_mod: 0 },
         { id: 'svc_' + s.id + '_yes', label: 'Yes', is_default: false, price_mod: parseFloat(s.base_price || 0) }
@@ -2655,7 +2657,8 @@ function renderOrderPrefs() {
         if (!activeOpt || !defaultOpt) return '';
         const isChecked  = draft.prefs[group.id]?.optId === activeOpt.id;
         const price      = parseFloat(activeOpt.price_mod || 0);
-        const priceLabel = price > 0 ? `+$${price.toFixed(2)}/bag` : '';
+        const pricingUnit = group.pricing_type === 'per_item' ? 'item' : 'bag';
+        const priceLabel = price > 0 ? `+$${price.toFixed(2)}/${pricingUnit}` : '';
         const checkSvg   = isChecked
           ? `<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>`
           : '';
@@ -2722,7 +2725,15 @@ function updateEstimate() {
   const svc         = defaultService;
   const pricePerBag = parseFloat(svc?.base_price || 0);
   const bags        = draft.bags;
-  const addonsTotal = Object.values(draft.prefs).reduce((s, p) => s + (p.priceMod || 0) * bags, 0);
+  const addonsTotal = Object.entries(draft.prefs).reduce((s, [gid, p]) => {
+    if (!p.priceMod) return s;
+    const grp = globalPrefs.find(g => g.id === gid);
+    return s + (grp?.pricing_type === 'per_item' ? 0 : p.priceMod * bags);
+  }, 0);
+  const hasPerItemAddons = Object.entries(draft.prefs).some(([gid, p]) => {
+    if (!p.priceMod) return false;
+    return globalPrefs.find(g => g.id === gid)?.pricing_type === 'per_item';
+  });
   const base        = pricePerBag * bags;
 
   // Only include fees explicitly categorized as Delivery or Pickup — never Penalty/Reward/Surcharge
@@ -2737,6 +2748,7 @@ function updateEstimate() {
   // Build compact breakdown line
   const parts = [`${bags} bag${bags!==1?'s':''} × ${$m(pricePerBag)}`];
   if (addonsTotal > 0) parts.push(`add-ons +${$m(addonsTotal)}`);
+  if (hasPerItemAddons) parts.push('+ per-item services billed at processing');
   if (routeFeeTotal > 0) {
     const label = routeFees.length === 1 ? routeFees[0].name : 'Pickup & Delivery';
     parts.push(`${label} +${$m(routeFeeTotal)}`);
@@ -3443,7 +3455,11 @@ function toggleSameDay(checked) {
 function buildConfirmSummary() {
   const svc         = defaultService;
   const bags           = draft.bags;
-  const addonsTotal    = Object.values(draft.prefs).reduce((s,p)=>s+(p.priceMod||0)*bags,0);
+  const addonsTotal    = Object.entries(draft.prefs).reduce((s,[gid,p])=>{
+    if(!p.priceMod) return s;
+    const grp=globalPrefs.find(g=>g.id===gid);
+    return s+(grp?.pricing_type==='per_item'?0:p.priceMod*bags);
+  },0);
   const sameDayFee     = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
   const routeFees      = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const routeFeeTotal  = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
@@ -3464,7 +3480,7 @@ function buildConfirmSummary() {
     .map(g => {
       const sel = draft.prefs[g.id];
       const priceNote = sel.priceMod > 0
-        ? `<span style="font-size:11px;color:var(--accent);margin-left:6px;font-weight:600">+${$m(sel.priceMod)}/bag</span>`
+        ? `<span style="font-size:11px;color:var(--accent);margin-left:6px;font-weight:600">+${$m(sel.priceMod)}/${g.pricing_type==='per_item'?'item':'bag'}</span>`
         : '';
       return `<div class="d-row">
         <span class="d-key">${escHtml(g.name)}</span>
@@ -3472,16 +3488,20 @@ function buildConfirmSummary() {
       </div>`;
     }).join('') || `<div class="d-row"><span class="d-key" style="color:var(--gray-400)">Using defaults</span><span class="d-val">—</span></div>`;
 
-  // Paid add-on rows — per-bag pricing, matching processing queue logic
+  // Paid add-on rows — respects per_bag vs per_item pricing
   const addonRows = Object.entries(draft.prefs)
     .filter(([, p]) => p.priceMod > 0)
     .map(([groupId, p]) => {
-      const prefName  = globalPrefs.find(g => g.id === groupId)?.name || p.label;
-      const lineTotal = (p.priceMod || 0) * bags;
-      const perBagLabel = bags > 1 ? ` × ${bags} bags` : '';
+      const grp       = globalPrefs.find(g => g.id === groupId);
+      const prefName  = grp?.name || p.label;
+      const isPerItem = grp?.pricing_type === 'per_item';
+      const lineTotal = isPerItem ? null : (p.priceMod || 0) * bags;
+      const suffix    = isPerItem
+        ? ` · $${parseFloat(p.priceMod).toFixed(2)}/item · billed at processing`
+        : (bags > 1 ? ` × ${bags} bags` : '');
       return `<div class="d-row">
-        <span class="d-key">${escHtml(prefName)}${perBagLabel}</span>
-        <span class="d-val">+${$m(lineTotal)}</span>
+        <span class="d-key">${escHtml(prefName)}${suffix}</span>
+        <span class="d-val">${lineTotal !== null ? '+'+$m(lineTotal) : 'TBD'}</span>
       </div>`;
     }).join('');
 
@@ -3683,7 +3703,11 @@ async function placeOrder() {
 
   const svc           = defaultService;
   const bags          = draft.bags;
-  const addonsTotal   = Object.values(draft.prefs).reduce((s,p) => s + (p.priceMod||0) * bags, 0);
+  const addonsTotal   = Object.entries(draft.prefs).reduce((s,[gid,p])=>{
+    if(!p.priceMod) return s;
+    const grp=globalPrefs.find(g=>g.id===gid);
+    return s+(grp?.pricing_type==='per_item'?0:(p.priceMod||0)*bags);
+  },0);
   const sameDayFee    = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
   const routeFees     = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const routeFeeTotal = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
@@ -3698,7 +3722,11 @@ async function placeOrder() {
   // Build line_items from prefs
   const lineItems = [
     { type:'base', label:`${bags} bag${bags!==1?'s':''} × ${$m(svc?.base_price||0)}`, amount:(svc?.base_price||0)*bags },
-    ...Object.entries(draft.prefs).filter(([,p])=>p.priceMod).map(([groupId,p])=>({ type:'addon', label:(globalPrefs.find(g=>g.id===groupId)?.name || p.label), amount:p.priceMod }))
+    ...Object.entries(draft.prefs).filter(([,p])=>p.priceMod).map(([groupId,p])=>{
+      const grp=globalPrefs.find(g=>g.id===groupId);
+      const isPerItem=grp?.pricing_type==='per_item';
+      return { type:'addon', label:(grp?.name||p.label)+(isPerItem?' (per item · billed at processing)':''), amount:isPerItem?0:p.priceMod*bags };
+    })
   ];
   if (routeFeeTotal > 0) {
     lineItems.push({ type: 'delivery_fee', label: 'Delivery fee', amount: routeFeeTotal });
@@ -5464,7 +5492,8 @@ function renderAccountPrefs() {
         if (!activeOpt || !defaultOpt) return '';
         const isChecked  = acctPrefs[group.id] === activeOpt.id;
         const price      = parseFloat(activeOpt.price_mod || 0);
-        const priceLabel = price > 0 ? `+$${price.toFixed(2)}/bag` : '';
+        const pricingUnit = group.pricing_type === 'per_item' ? 'item' : 'bag';
+        const priceLabel = price > 0 ? `+$${price.toFixed(2)}/${pricingUnit}` : '';
         const checkSvg   = isChecked
           ? `<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>`
           : '';
