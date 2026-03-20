@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 20, 2026 — Color coordination: zone color is single source of truth (session 44 continued)*
+*Last updated: Mar 20, 2026 — Zone maps now render unified ST_Union shapes (session 44 continued)*
 
 ---
 
@@ -802,6 +802,11 @@ There are actually **two separate hang points** that must both be covered:
   - Admin UI: Template editor now fetches `color` field from `service_zones` in `loadZonesIntoSelect`. When a zone is selected, color swatches are hidden and replaced with a colored dot + "Follows zone" badge (via new `syncColorToZone()` function). If no zone is assigned, swatches show as before.
   - `saveTemplate()` reads zone color from the selected option's `data-color`; falls back to swatch only when no zone is assigned.
   - Consequence: you can no longer accidentally set a template to a different color than its zone. Zone → template → driver schedule pill is one consistent color chain.
+- **Zone maps — unified clean territory rendering (commits c05b9a1, d1b40bd, 2e7f610):**
+  - Problem: each zone was rendering two layers — a hand-drawn polygon AND jagged dashed city boundary outlines (from OSM/Nominatim), creating a visual mess of overlapping shapes.
+  - Fix: `get_service_zones_geojson` RPC updated to also return `unified_geojson` — a server-side `ST_Union` of the main polygon and all city polygons merged into one geometry (DROP + recreate required due to return type change).
+  - Both `renderZonePolygons()` (Zones map) and `toggleCustZoneOverlay()` (customer map overlay) now use `unified_geojson || geojson`. One clean solid-border shape per zone, no internal borders, no city clutter.
+  - Style updated: `weight: 3, lineCap/lineJoin: round`, no `dashArray`. City polygon data is still stored in DB for zone-matching logic — just no longer rendered.
 
 ---
 
@@ -1834,6 +1839,7 @@ There are actually **two separate hang points** that must both be covered:
 - ~~**Family Laundry rebrand**~~ ✅ — all visible "WashRoute" text replaced across admin, driver, and customer apps (session 44).
 - ~~**Customer map — all addresses + zone overlay**~~ ✅ — secondary address pins (hollow rings), zone overlay toggle in legend (session 44).
 - ~~**Color coordination**~~ ✅ — zone color is single source of truth; route templates inherit zone color; driver schedule pills follow template color (session 44).
+- ~~**Zone map unified rendering**~~ ✅ — ST_Union of polygon + city areas = one clean shape per zone; both Zones map and customer map overlay updated (session 44).
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - SMS automation Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table for multi-turn state
 - **Launderer reporting Phase 2** — date range mode (week/month/custom) on the launderer history panel; data model is complete, UI-only work
