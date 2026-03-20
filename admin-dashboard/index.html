@@ -14078,21 +14078,11 @@ ${totalLinesXml}
         if (z.geojson) {
           try {
             const g = typeof z.geojson === 'string' ? JSON.parse(z.geojson) : z.geojson;
-            const l = L.geoJSON(g, { style: { color, fillColor: color, fillOpacity: 0.15, weight: 2.5, dashArray: '6,4' } }).addTo(custMap);
+            const l = L.geoJSON(g, { style: { color, fillColor: color, fillOpacity: 0.18, weight: 3, lineCap: 'round', lineJoin: 'round' } }).addTo(custMap);
             l.bindTooltip(`<strong>${z.name}</strong>`, { sticky: true });
             _custZoneOverlayLayers.push(l); n++;
           } catch(e) { console.error('[ZoneOverlay] polygon err', z.name, e); }
         }
-        const cps = Array.isArray(z.city_polygons) ? z.city_polygons : [];
-        cps.forEach(cp => {
-          if (!cp.geojson) return;
-          try {
-            const g = typeof cp.geojson === 'string' ? JSON.parse(cp.geojson) : cp.geojson;
-            const l = L.geoJSON(g, { style: { color, fillColor: color, fillOpacity: 0.10, weight: 1.5, dashArray: '5,4' } }).addTo(custMap);
-            l.bindTooltip(`<strong>${z.name}</strong><br><span style="font-size:11px;font-weight:400">${cp.name}</span>`, { sticky: true });
-            _custZoneOverlayLayers.push(l); n++;
-          } catch(e) { console.error('[ZoneOverlay] city err', z.name, cp.name, e); }
-        });
       });
       console.log('[ZoneOverlay] rendered', n, 'layers on custMap');
       _custZoneOverlayOn = true;
