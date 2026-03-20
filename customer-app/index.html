@@ -1679,8 +1679,19 @@ async function handleOTPVerify() {
 
     const user = data.user;
     // Check if customer record already exists and has a name
-    const { data: cust } = await db.from('customers').select('id, first_name_cache')
+    let { data: cust } = await db.from('customers').select('id, first_name_cache')
       .eq('profile_id', user.id).maybeSingle();
+
+    // If no direct match, try phone-based matching for imported customers
+    if (!cust && user.phone) {
+      try {
+        const { data: linked } = await db.rpc('link_phone_auth_account', {
+          p_phone_digits: user.phone,
+          p_new_profile_id: user.id
+        });
+        if (linked?.length > 0) cust = linked[0];
+      } catch (_) { /* non-fatal — falls through to name collection */ }
+    }
 
     if (!cust || !cust.first_name_cache) {
       // New user — collect name before navigating
@@ -1894,6 +1905,8 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
   }
 
   // 3. Still nothing — create a fresh customer record
+  //    (Phone-based matching for OTP logins is handled separately in loadUserData
+  //     via the link_phone_auth_account DB function.)
   if (!ec) {
     await db.from('customers').insert({
       profile_id:       user.id,

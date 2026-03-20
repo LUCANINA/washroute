@@ -4606,25 +4606,49 @@
   }
 
   async function loadCustomers() {
-    const { data, error } = await db.from('customers')
-        .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
-        .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('loadCustomers error:', error);
-      const el = document.getElementById('customers-table-body');
-      if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load customers</div><div class="empty-sub">${error.message}</div></div>`;
-      return;
+    // Supabase PostgREST defaults to 1000 rows — paginate to fetch all
+    const PAGE = 1000;
+    let allData = [];
+    let from = 0;
+    let keepGoing = true;
+    while (keepGoing) {
+      const { data, error } = await db.from('customers')
+          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
+          .order('created_at', { ascending: false })
+          .range(from, from + PAGE - 1);
+      if (error) {
+        console.error('loadCustomers error:', error);
+        if (!allData.length) {
+          const el = document.getElementById('customers-table-body');
+          if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load customers</div><div class="empty-sub">${error.message}</div></div>`;
+          return;
+        }
+        break;
+      }
+      allData = allData.concat(data || []);
+      keepGoing = data && data.length === PAGE;
+      from += PAGE;
     }
-    // Normalise: pull lat/lng/city/addr_id from default address
-    allCustomers = (data || []).map(c => {
+    // Normalise: pull lat/lng/city/addr_id from default address, fall back to address_cache
+    allCustomers = allData.map(c => {
       const addrs = Array.isArray(c.addresses) ? c.addresses : (c.addresses ? [c.addresses] : []);
       const def = addrs.find(a => a.is_default) || addrs[0] || {};
+      // Parse city from address_cache as fallback (format: "123 Main St, City, ST 12345")
+      let cacheCity = null;
+      if (!def.city && c.address_cache) {
+        const parts = c.address_cache.split(',').map(p => p.trim());
+        if (parts.length >= 2) {
+          // Second-to-last part is typically "City, ST ZIP" — grab the city token
+          const cityPart = parts[parts.length - 2];
+          // If it looks like "City" (not a street number), use it
+          if (cityPart && !/^\d/.test(cityPart) && !/^#/.test(cityPart)) cacheCity = cityPart;
+        }
+      }
       return {
         ...c,
         lat:     def.lat  ? parseFloat(def.lat)  : null,
         lng:     def.lng  ? parseFloat(def.lng)  : null,
-        city:    def.city || null,
+        city:    def.city || cacheCity || null,
         addr_id: def.id   || null,
       };
     });
@@ -4776,9 +4800,18 @@
       custSortCol = col;
       custSortDir = 'asc';
     }
+    custPage = 1;
     // re-apply current filters + new sort
     const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
     applyCustomerFilters(q, custStatusFilter);
+  }
+
+  function setCustPage(p) {
+    custPage = p;
+    const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
+    applyCustomerFilters(q, custStatusFilter);
+    // Scroll back to top of customers list
+    document.getElementById('customers-table-body')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function renderCustomers(data) {
@@ -4789,6 +4822,11 @@
       return;
     }
     const sorted = sortCustomers(data);
+    const totalPages = Math.ceil(sorted.length / CUST_PAGE_SIZE);
+    if (custPage > totalPages) custPage = totalPages;
+    if (custPage < 1) custPage = 1;
+    const start = (custPage - 1) * CUST_PAGE_SIZE;
+    const page  = sorted.slice(start, start + CUST_PAGE_SIZE);
     const thSort = (col, label) => {
       const cls = custSortCol === col
         ? `th-sort ${custSortDir === 'asc' ? 'sort-asc' : 'sort-desc'}`
@@ -4802,7 +4840,7 @@
         ${thSort('last_order','Last Order')}
         ${thSort('status','Status')}
       </tr></thead><tbody>
-      ${sorted.map(c=>{
+      ${page.map(c=>{
         const p = custProfile(c);
         const firstName = p.first_name || c.first_name_cache || '';
         const lastName  = p.last_name  || c.last_name_cache  || '';
@@ -4820,7 +4858,12 @@
           <td>${statusBadge(c.risk_status||'active')}</td>
         </tr>`;
       }).join('')}
-    </tbody></table>`;
+    </tbody></table>
+    ${totalPages > 1 ? `<div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:16px 0;font-size:13px">
+      <button class="btn btn-sm" ${custPage<=1?'disabled':''} onclick="setCustPage(${custPage-1})" style="min-width:70px">← Prev</button>
+      <span style="color:var(--gray-500)">Page ${custPage} of ${totalPages} &nbsp;·&nbsp; ${start+1}–${Math.min(start+CUST_PAGE_SIZE, sorted.length)} of ${sorted.length}</span>
+      <button class="btn btn-sm" ${custPage>=totalPages?'disabled':''} onclick="setCustPage(${custPage+1})" style="min-width:70px">Next →</button>
+    </div>` : ''}`;
   }
 
   // active status filter (persists across search)
@@ -4828,10 +4871,14 @@
   // map-only filters
   let custCityFilter  = 'all';
   let custZoneFilter = 'all';
+  // client-side pagination
+  let custPage = 1;
+  const CUST_PAGE_SIZE = 100;
   let _allZones = [];  // service_zones cache for customer filtering
 
   function filterCustomers(status, btn) {
     custStatusFilter = status;
+    custPage = 1;
     document.querySelectorAll('#cust-filter-tabs .filter-tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
     // also respect any active search term
@@ -4841,6 +4888,7 @@
 
   function searchCustomers(raw) {
     const q = raw.trim().toLowerCase();
+    custPage = 1;
     applyCustomerFilters(q, custStatusFilter);
   }
 
@@ -4869,12 +4917,14 @@
 
   function setCustCityFilter(val) {
     custCityFilter = val;
+    custPage = 1;
     const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
     applyCustomerFilters(q, custStatusFilter);
   }
 
   function setCustZoneFilter(val) {
     custZoneFilter = val;
+    custPage = 1;
     const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
     applyCustomerFilters(q, custStatusFilter);
   }
