@@ -2587,6 +2587,10 @@
             <div class="color-swatch" style="background:#0891b2" data-color="#0891b2" onclick="selectTemplateSwatch(this)"></div>
             <div class="color-swatch" style="background:#dc2626" data-color="#dc2626" onclick="selectTemplateSwatch(this)"></div>
           </div>
+          <div id="zone-color-badge" style="display:none;align-items:center;gap:6px;font-size:12px;color:var(--gray-500);margin-top:4px;">
+            <div id="zone-color-dot" style="width:14px;height:14px;border-radius:50%;flex-shrink:0;border:1px solid rgba(0,0,0,.1);"></div>
+            <span>Follows zone</span>
+          </div>
         </div>
       </div>
     </div>
@@ -2629,7 +2633,7 @@
     <!-- Service Zone -->
     <div class="so-section">
       <div class="so-label">Service Zone</div>
-      <select class="form-input" id="so-zone">
+      <select class="form-input" id="so-zone" onchange="syncColorToZone()">
         <option value="">Loading zones…</option>
       </select>
     </div>
@@ -12356,8 +12360,9 @@ ${totalLinesXml}
     document.getElementById('so-service-type').value = tmpl?.service_type || 'pickup_delivery';
     document.getElementById('so-active').checked = tmpl ? tmpl.is_active : true;
 
-    // Zone dropdown
+    // Zone dropdown — load zones, then sync color badge
     await loadZonesIntoSelect(tmpl?.zone_id);
+    syncColorToZone();
 
     document.getElementById('so-error').style.display = 'none';
     updateUpcomingPreview();
@@ -12366,10 +12371,27 @@ ${totalLinesXml}
   }
 
   async function loadZonesIntoSelect(selectedId) {
-    const { data } = await db.from('service_zones').select('id, name').order('name');
+    const { data } = await db.from('service_zones').select('id, name, color').order('name');
     const sel = document.getElementById('so-zone');
     sel.innerHTML = `<option value="">No zone assigned</option>` +
-      (data||[]).map(z => `<option value="${z.id}"${z.id===selectedId?' selected':''}>${z.name}</option>`).join('');
+      (data||[]).map(z => `<option value="${z.id}" data-color="${z.color||'#635bff'}"${z.id===selectedId?' selected':''}>${z.name}</option>`).join('');
+  }
+
+  function syncColorToZone() {
+    const sel = document.getElementById('so-zone');
+    const opt = sel.options[sel.selectedIndex];
+    const zoneColor = opt && opt.value ? opt.dataset.color : null;
+    const swatchesDiv = document.getElementById('color-swatches');
+    const badge = document.getElementById('zone-color-badge');
+    const dot = document.getElementById('zone-color-dot');
+    if (zoneColor) {
+      swatchesDiv.style.display = 'none';
+      dot.style.background = zoneColor;
+      badge.style.display = 'flex';
+    } else {
+      swatchesDiv.style.display = '';
+      badge.style.display = 'none';
+    }
   }
 
   function toggleDayChip(chip) {
@@ -12420,11 +12442,14 @@ ${totalLinesXml}
     const activeDays = [...document.querySelectorAll('.day-chip.active')].map(c => parseInt(c.dataset.day));
     if (!activeDays.length) { err.textContent = 'Select at least one day.'; err.style.display = 'block'; return; }
 
+    const zoneSelect = document.getElementById('so-zone');
+    const zoneOpt = zoneSelect.options[zoneSelect.selectedIndex];
+    const zoneColor = zoneOpt && zoneOpt.value ? (zoneOpt.dataset.color || null) : null;
     const selectedSwatch = document.querySelector('.color-swatch.selected');
     const payload = {
       name,
-      color: selectedSwatch ? selectedSwatch.dataset.color : '#635bff',
-      zone_id: document.getElementById('so-zone').value || null,
+      color: zoneColor || (selectedSwatch ? selectedSwatch.dataset.color : '#635bff'),
+      zone_id: zoneSelect.value || null,
       schedule_days: activeDays,
       window_start: document.getElementById('so-window-start').value + ':00',
       window_end:   document.getElementById('so-window-end').value   + ':00',
