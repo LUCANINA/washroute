@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 20, 2026 — Zone geometry complete: unified territory (polygon + cities), multi-polygon editing, geometry hardening, QA fixes (session 44 final)*
+*Last updated: Mar 21, 2026 — Sunday launch prep: SMTP, email branding, geocoding, sign-up flow fix, customer data cleanup (session 45)*
 
 ---
 
@@ -784,6 +784,19 @@ There are actually **two separate hang points** that must both be covered:
   2. Route picker fine-tuning (backlog)
 
 ---
+
+### Mar 21, 2026 (session 45) — Sunday launch prep: SMTP, email branding, geocoding, sign-up flow fix
+
+- **Laura Guevara customer record restored:** Co-founder's account was missing from all CSV exports. Created manually: 55 orders, $35,311.60 lifetime value, 5215 Genoa St Oakland. Will link via phone OTP on Sunday.
+- **5 missing Kidango addresses added:** CCELC, Coyote Hills, Hillside, Ryan, Unidos — all geocoded and now visible on admin map (16/16 Kidango accounts).
+- **Permanent auto-geocoding built into admin dashboard:** Google Maps Geocoder (`geocodeAddress()` helper) wired into 3 save points: new customer creation, edit address, add address. Also added `geocodeMissing()` bulk utility. API key: `AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc`.
+- **Admin RLS policies for addresses:** Added INSERT/UPDATE/DELETE policies so geocoding writes succeed (was SELECT-only).
+- **Password reset redirect fixed:** Supabase Site URL updated from `washroute.vercel.app` to `https://app.familylaundry.com`. Redirect URLs: `admin.familylaundry.com`, `app.familylaundry.com`, `driver.familylaundry.com`.
+- **All 6 Supabase email templates branded as Family Laundry:** Reset Password, Confirm Sign Up, Invite User, Magic Link, Change Email, Reauthentication — all green (#38a169) button styling, Family Laundry branding.
+- **SendGrid SMTP configured in Supabase:** Custom SMTP enabled — sender `info@familylaundry.com` / `Family Laundry`, host `smtp.sendgrid.net`, port 587. New "Supabase SMTP" API key created (Full Access). Fixes the 2 emails/hour rate limit. Typo fix: `famillylaundry` → `familylaundry` in sender address was blocking sends.
+- **Sign-up → order flow fix (customer app):** Users who signed up via the auth page and confirmed email were shown "Create your account" again at order step 4. Root causes: (a) `ensureProfile()` ran during sign-up without a session → RLS blocked writes → blank data; (b) `loadUserData()` didn't fall back to `user_metadata` for blank profiles; (c) race condition created duplicate customer records. Fixes: `renderConfirmAuth()` now auto-creates customer record from metadata for authenticated users; `handleSignup()` skips `ensureProfile()` without session; `loadUserData()` merges `user_metadata` into blank profiles and has race-condition guard.
+- **Unique index on customers.profile_id:** Partial unique index (`WHERE profile_id IS NOT NULL`) prevents duplicate customer records. Orphan records (admin-pre-created, `profile_id IS NULL`) are unaffected.
+- **Data cleanup:** Fixed address_cache for Shilling Center, 24 "SF"→"San Francisco" records, Laura Guevara, David Macquart-Moulin. Deleted Joe Blo test data (2 duplicate blank records + profile + auth user).
 
 ### Mar 20, 2026 (session 44) — Full order pipeline stress test, customer map improvements, subdomain routing, rebrand
 
