@@ -5401,11 +5401,11 @@
     // Payment status icon (SVG): green card = has card, blue building = on account, amber warning = no card
     let payIcon = '';
     if (billingType === 'on_account') {
-      payIcon = `<span title="On account (invoiced)" style="display:inline-flex;cursor:help"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 21V12h6v9"/><path d="M3 9h18"/></svg></span>`;
+      payIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="cursor:help;flex-shrink:0"><title>On account (invoiced)</title><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 21V12h6v9"/><path d="M3 9h18"/></svg>`;
     } else if (custId && _custWithCard.has(custId)) {
-      payIcon = `<span title="Card on file" style="display:inline-flex;cursor:help"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span>`;
+      payIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="cursor:help;flex-shrink:0"><title>Card on file</title><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>`;
     } else {
-      payIcon = `<span title="No card on file" style="display:inline-flex;cursor:help"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>`;
+      payIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="cursor:help;flex-shrink:0"><title>No card on file</title><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
     }
     return `<span style="display:flex;align-items:center;gap:6px">${icon}<span>${orderCustomerName(o)}</span>${payIcon}</span>`;
   }
