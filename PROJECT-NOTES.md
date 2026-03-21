@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 21, 2026 — Sunday launch prep: SMTP, email branding, geocoding, sign-up flow fix, customer data cleanup (session 45)*
+*Last updated: Mar 21, 2026 — Logo rebrand + PWA icon refresh (session 46)*
 
 ---
 
@@ -782,6 +782,17 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 21, 2026 (session 46) — Logo rebrand + PWA icon refresh
+
+- **New Family Laundry logo deployed everywhere:** Replaced the old "Est. 2018" diamond logo with the new "Oakland CA." script logo across all apps. Source file: `assets/FamilyLaundry Logo main.png` (1475×1493 RGBA). Generated 7 logo variants (transparent, navy bg, white bg, login, sidebar, preview) from source using PIL/Pillow.
+- **All 6 PWA app icons regenerated:** Admin (navy), Driver (gold), Customer (pink) — all using new logo at 90% width. Both 512px and 180px sizes for each app.
+- **Customer icon color iterated:** Started with dusty pink `(219, 182, 196)`, David requested "bright light pink" — updated to `#ff9bec` / `(255, 155, 236)`.
+- **PWA app names updated:** `FL Laundry` → `Family Laundry`, `FL Admin` → `Family Laundry Admin`, `FL Driver` → `Family Laundry Driver` (via `apple-mobile-web-app-title` meta tag).
+- **Invoice logo URL updated:** Admin invoice now references `https://admin.familylaundry.com/assets/logo_white_bg.png` instead of Supabase storage URL.
+- **QA fix — theme-color mismatch:** Customer app `theme-color` meta tag updated from old dusty pink `#f4c2d5` to match new icon color `#ff9bec`.
 
 ---
 
