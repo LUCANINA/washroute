@@ -1827,7 +1827,7 @@ async function handleSignup(e) {
   }
   btn.disabled = true; btn.textContent = 'Creating account…';
   const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://app.familylaundry.com/';
-  const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone }, emailRedirectTo: redirectUrl } });
+  const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone, sms_consent: smsConsent, referral_source: referralSource }, emailRedirectTo: redirectUrl } });
   btn.disabled = false; btn.textContent = 'Create Account';
   if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
   if (data.user) {
@@ -2204,7 +2204,9 @@ async function loadUserData() {
       await db.from('customers').insert({
         profile_id: currentUser.id,
         first_name_cache: custFirst, last_name_cache: custLast,
-        email_cache: custEmail, phone_cache: custPhone
+        email_cache: custEmail, phone_cache: custPhone,
+        sms_consent_at: m.sms_consent ? new Date().toISOString() : null,
+        referral_source: m.referral_source || null
       }).then(() => {});
       const { data } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
       currentCustomer = data;
@@ -2658,6 +2660,16 @@ function renderOrderPrefs() {
       draft.prefs[group.id] = { optId: opt.id, label: opt.label, priceMod: opt.price_mod || 0 };
     });
   }
+
+  // For any preference group that still has no selection, pick the default option.
+  // This ensures new customers see "Warm" pre-selected for Wash temp, etc.
+  prefs.forEach(group => {
+    if (draft.prefs[group.id]) return; // already has a selection
+    const defaultOpt = (group.options || []).find(o => o.is_default);
+    if (defaultOpt) {
+      draft.prefs[group.id] = { optId: defaultOpt.id, label: defaultOpt.label, priceMod: defaultOpt.price_mod || 0 };
+    }
+  });
 
   const regularPrefs = prefs.filter(g => !_isAddonPref(g));
   const addonPrefs   = prefs.filter(g =>  _isAddonPref(g));
@@ -3677,7 +3689,8 @@ async function renderConfirmAuth() {
         profile_id: currentUser.id,
         first_name_cache: first, last_name_cache: last,
         email_cache: email, phone_cache: phone,
-        sms_consent_at: m.sms_consent ? new Date().toISOString() : null
+        sms_consent_at: m.sms_consent ? new Date().toISOString() : null,
+        referral_source: m.referral_source || null
       });
       const { data: newCust } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
       currentCustomer = newCust;
