@@ -11206,12 +11206,13 @@ ${totalLinesXml}
     const src    = document.getElementById('cpe-source').value;
     const { data: c } = await db.from('customers').select('profile_id').eq('id',panelCustomerId).single();
     if (c?.profile_id) await db.from('profiles').update({ first_name:fn, last_name:ln, phone, email }).eq('id', c.profile_id);
-    await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, customer_type:type||null, referral_source:src||null }).eq('id', panelCustomerId);
+    const { error } = await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, customer_type:type||null, referral_source:src||null }).eq('id', panelCustomerId);
+    btn.disabled=false; btn.textContent=origText;
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
     document.getElementById('cp-meta').innerHTML = `${phone?`<a href="tel:${phone}">${phone}</a>`:''}${phone&&email?' · ':''}${email?`<a href="mailto:${email}">${email}</a>`:''}`;
     loadCustomers();
-    btn.disabled=false; btn.textContent=origText;
-    const msg=document.getElementById('cp-contact-msg'); msg.style.display='block'; setTimeout(()=>msg.style.display='none',2500);
+    showToast('Contact info saved', 'success');
   }
 
   // ── BILLING TAB ──────────────────────────────────────────────────
@@ -11277,8 +11278,7 @@ ${totalLinesXml}
     const { error } = await db.from('customers').update(patch).eq('id', panelCustomerId);
     if (btn) { btn.disabled = false; btn.textContent = 'Save Billing'; }
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
-    const msg = document.getElementById('cp-billing-msg');
-    if (msg) { msg.style.opacity = '1'; setTimeout(() => msg.style.opacity = '0', 2500); }
+    showToast('Billing settings saved', 'success');
     loadCustomers();
   }
 
@@ -12152,21 +12152,23 @@ ${totalLinesXml}
     document.querySelectorAll('#cp-global-prefs-list select[data-pref-id]').forEach(sel => {
       if (sel.value) prefs[sel.dataset.prefId] = sel.value;
     });
-    await db.from('customers').update({ preferences: prefs }).eq('id', panelCustomerId);
+    const { error } = await db.from('customers').update({ preferences: prefs }).eq('id', panelCustomerId);
     btn.disabled=false; btn.textContent=origText;
-    const msg=document.getElementById('cp-pref-msg'); msg.style.display='block'; setTimeout(()=>msg.style.display='none',2500);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    showToast('Preferences saved', 'success');
   }
 
   async function savePanelNotes() {
     if (!panelCustomerId) return;
     const btn = document.querySelector('#cptab-notes .btn-primary');
     const origText = btn.textContent; btn.disabled=true; btn.textContent='Saving…';
-    await db.from('customers').update({
+    const { error } = await db.from('customers').update({
       notes: document.getElementById('cpnote-text').value.trim() || null,
       access_instructions: document.getElementById('cpnote-access').value.trim() || null
     }).eq('id', panelCustomerId);
     btn.disabled=false; btn.textContent=origText;
-    const msg=document.getElementById('cp-notes-msg'); msg.style.display='block'; setTimeout(()=>msg.style.display='none',2500);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    showToast('Notes saved', 'success');
   }
 
   function closeCustomerPanel() {
