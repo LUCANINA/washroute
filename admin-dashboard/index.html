@@ -17,6 +17,7 @@
   <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://js.stripe.com/v3/"></script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc&libraries=geocoding"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { overflow-x: hidden; overflow-y: overlay; }
@@ -10531,8 +10532,9 @@ ${totalLinesXml}
 
       if (custErr) throw custErr;
 
-      // Insert service address if provided
+      // Insert service address if provided (with geocoding)
       if (addr && cust?.id) {
+        const geo = await geocodeAddress(addr, city, state, zip);
         await db.from('addresses').insert({
           customer_id:           cust.id,
           label:                 'Home',
@@ -10541,6 +10543,8 @@ ${totalLinesXml}
           city:                  city || null,
           state:                 state || null,
           zip:                   zip  || null,
+          lat:                   geo?.lat || null,
+          lng:                   geo?.lng || null,
           delivery_instructions: access || null,
           is_default:            true,
         });
@@ -10727,12 +10731,62 @@ ${totalLinesXml}
   }
 
   // ── TOAST ──
+  // ── GEOCODING HELPER ──
+  // Converts a street address into { lat, lng } via Google Maps Geocoding API.
+  // Returns null if the address can't be geocoded.
+  async function geocodeAddress(line1, city, state, zip) {
+    const full = [line1, city, state, zip].filter(Boolean).join(', ');
+    if (!full.trim()) return null;
+    try {
+      const geocoder = new google.maps.Geocoder();
+      const result = await new Promise((resolve, reject) => {
+        geocoder.geocode({ address: full }, (results, status) => {
+          if (status === 'OK' && results[0]) resolve(results[0]);
+          else reject(new Error(status));
+        });
+      });
+      return {
+        lat: result.geometry.location.lat(),
+        lng: result.geometry.location.lng()
+      };
+    } catch (e) {
+      console.warn('Geocoding failed for:', full, e.message);
+      return null;
+    }
+  }
+
   function showToast(msg, type='') {
     const t = document.getElementById('toast');
     t.textContent = msg;
     t.className = `toast ${type} show`;
     setTimeout(()=>{ t.className='toast'; }, 3000);
   }
+
+  // ── BULK GEOCODE: fix any addresses missing lat/lng ──
+  // Run from browser console: geocodeMissing()
+  window.geocodeMissing = async function() {
+    const { data: rows, error } = await db.from('addresses')
+      .select('id, line1, city, state, zip')
+      .or('lat.is.null,lng.is.null')
+      .not('line1', 'is', null);
+    if (error) { console.error('Query error:', error); return; }
+    if (!rows.length) { console.log('All addresses already have coordinates.'); return; }
+    console.log(`Found ${rows.length} addresses without coordinates. Geocoding...`);
+    let success = 0, failed = 0;
+    for (const row of rows) {
+      const geo = await geocodeAddress(row.line1, row.city, row.state, row.zip);
+      if (geo) {
+        await db.from('addresses').update({ lat: geo.lat, lng: geo.lng }).eq('id', row.id);
+        console.log(`  ✓ ${row.line1}, ${row.city} → ${geo.lat}, ${geo.lng}`);
+        success++;
+      } else {
+        console.warn(`  ✗ ${row.line1}, ${row.city} — could not geocode`);
+        failed++;
+      }
+      await new Promise(r => setTimeout(r, 200)); // rate-limit politeness
+    }
+    console.log(`Done. ${success} geocoded, ${failed} failed.`);
+  };
 
   // ── CLOSE MODALS ON OVERLAY CLICK ──
   document.querySelectorAll('.modal-overlay').forEach(o=>{
@@ -11009,6 +11063,9 @@ ${totalLinesXml}
       is_default:            document.getElementById('cpea-default-'+id)?.checked || false,
     };
     if (!patch.line1) { showToast('Street address is required', 'error'); return; }
+    // Geocode the updated address
+    const geo = await geocodeAddress(patch.line1, patch.city, patch.state, patch.zip);
+    if (geo) { patch.lat = geo.lat; patch.lng = geo.lng; }
     // If setting as default, clear default on others first
     if (patch.is_default) await db.from('addresses').update({ is_default: false }).eq('customer_id', panelCustomerId);
     const { error } = await db.from('addresses').update(patch).eq('id', id);
@@ -11065,14 +11122,20 @@ ${totalLinesXml}
   async function saveNewAddress() {
     const line1 = document.getElementById('cpna-line1').value.trim();
     if (!line1) { alert('Street address is required.'); return; }
+    const city  = document.getElementById('cpna-city').value.trim();
+    const state = document.getElementById('cpna-state').value.trim();
+    const zip   = document.getElementById('cpna-zip').value.trim();
+    const geo   = await geocodeAddress(line1, city, state, zip);
     await db.from('addresses').insert({
       customer_id: panelCustomerId,
       label:  document.getElementById('cpna-label').value.trim() || 'Home',
       line1,
       line2:  document.getElementById('cpna-line2').value.trim() || null,
-      city:   document.getElementById('cpna-city').value.trim(),
-      state:  document.getElementById('cpna-state').value.trim(),
-      zip:    document.getElementById('cpna-zip').value.trim(),
+      city,
+      state,
+      zip,
+      lat:    geo?.lat || null,
+      lng:    geo?.lng || null,
       delivery_instructions: document.getElementById('cpna-instructions').value.trim() || null,
       is_default: false
     });
