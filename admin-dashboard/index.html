@@ -16718,12 +16718,7 @@ ${totalLinesXml}
     const movedId  = procActiveOrder.id;
     const movedNum = procActiveOrder.order_number;
     _autoPrintIntake(lineItems, bd, printWin);
-    // Auto-send email receipt — fire-and-forget
-    fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
-      body: JSON.stringify({ order_id: movedId }),
-    }).catch(e => console.warn('Auto email receipt failed:', e));
+    // Email receipt is sent later when the order is racked (after charge) — not at intake
     closeIntakePanel();
     document.getElementById('proc-card-' + movedId)?.remove();
     allProcOrders = allProcOrders.filter(o => o.id !== movedId);
