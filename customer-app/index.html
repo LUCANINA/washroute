@@ -1831,7 +1831,13 @@ async function handleSignup(e) {
   btn.disabled = false; btn.textContent = 'Create Account';
   if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
   if (data.user) {
-    await ensureProfile(data.user, first, last, email, phone, smsConsent, referralSource);
+    // Only call ensureProfile when we have an active session (email auto-confirmed
+    // or instant login). Without a session, RLS blocks the writes and the data is
+    // lost. loadUserData() will handle profile/customer creation after email
+    // confirmation using user_metadata stored in the auth record.
+    if (data.session) {
+      await ensureProfile(data.user, first, last, email, phone, smsConsent, referralSource);
+    }
     // If no session yet, email confirmation is required — show check-your-email panel
     if (!data.session) {
       document.getElementById('form-signup').style.display = 'none';
@@ -2131,9 +2137,17 @@ async function loadUserData() {
     }
   }
 
-  if (!currentProfile) {
+  if (!currentProfile || (!currentProfile.first_name && (currentUser.user_metadata?.first_name))) {
+    // Profile missing OR exists with blank data but user_metadata has the real values
+    // (e.g. ensureProfile ran during sign-up without a session and wrote blanks).
     const m = currentUser.user_metadata || {};
-    const { error: pe } = await db.from('profiles').upsert({ id: currentUser.id, first_name: m.first_name || '', last_name: m.last_name || '', email: currentUser.email, phone: m.phone || '' }, { onConflict: 'id' });
+    const { error: pe } = await db.from('profiles').upsert({
+      id: currentUser.id,
+      first_name: m.first_name || currentProfile?.first_name || '',
+      last_name:  m.last_name  || currentProfile?.last_name  || '',
+      email:      currentUser.email || currentProfile?.email  || '',
+      phone:      m.phone      || currentProfile?.phone      || ''
+    }, { onConflict: 'id' });
     if (pe) console.warn('Profile:', pe.message);
     const { data } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
     currentProfile = data;
@@ -2175,16 +2189,26 @@ async function loadUserData() {
   }
 
   if (!currentCustomer && currentProfile) {
-    // Customer row genuinely missing — create a fresh record
-    await db.from('customers').insert({
-      profile_id: currentUser.id,
-      first_name_cache: currentProfile.first_name || '',
-      last_name_cache: currentProfile.last_name || '',
-      email_cache: currentProfile.email || currentUser.email || '',
-      phone_cache: currentProfile.phone || ''
-    }).then(() => {});
-    const { data } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
-    currentCustomer = data;
+    // Customer row genuinely missing — create a fresh record.
+    // Use user_metadata as fallback if profile fields are blank (sign-up race condition).
+    const m = currentUser.user_metadata || {};
+    const custFirst = currentProfile.first_name || m.first_name || '';
+    const custLast  = currentProfile.last_name  || m.last_name  || '';
+    const custEmail = currentProfile.email || currentUser.email || '';
+    const custPhone = currentProfile.phone || m.phone || '';
+    // Double-check no record appeared in the meantime (race condition guard)
+    const { data: raceCheck } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
+    if (raceCheck) {
+      currentCustomer = raceCheck;
+    } else {
+      await db.from('customers').insert({
+        profile_id: currentUser.id,
+        first_name_cache: custFirst, last_name_cache: custLast,
+        email_cache: custEmail, phone_cache: custPhone
+      }).then(() => {});
+      const { data } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
+      currentCustomer = data;
+    }
   }
   // Load payment cards so the home screen banner is accurate immediately
   if (currentCustomer?.id) {
@@ -2769,7 +2793,7 @@ function updateEstimate() {
 }
 
 /* ── STEP NAVIGATION ── */
-function goOrderStep(step) {
+async function goOrderStep(step) {
   // For saved addresses, zoneId resolves in the background after selection —
   // only block if no saved address is selected AND no zone has been confirmed.
   if (step === 1 && !draft.zoneId && !draft.addressId) { toast('Please check your address first'); return; }
@@ -2800,7 +2824,7 @@ function goOrderStep(step) {
     renderOrderPrefs();
   }
 
-  if (step === 4) { buildConfirmSummary(); renderConfirmAuth(); }
+  if (step === 4) { buildConfirmSummary(); await renderConfirmAuth(); }
   if (step === 0) { initOrderStep0(); }
   orderStep = step;
   renderStep(step);
@@ -3621,9 +3645,45 @@ function selectConfirmDeliveryWindow(idx) {
   if (el) el.style.display = '';
 }
 
-function renderConfirmAuth() {
+async function renderConfirmAuth() {
   const authSection = document.getElementById('confirm-auth-section');
   if (!authSection) return;
+
+  // If user is authenticated but customer record is missing, auto-create it
+  // from their profile/metadata rather than showing the sign-up form again.
+  if (!currentCustomer && currentUser) {
+    const m = currentUser.user_metadata || {};
+    const first = currentProfile?.first_name || m.first_name || '';
+    const last  = currentProfile?.last_name  || m.last_name  || '';
+    const email = currentProfile?.email || currentUser.email || '';
+    const phone = currentProfile?.phone || m.phone || '';
+
+    // Ensure profile exists
+    if (!currentProfile) {
+      await db.from('profiles').upsert({
+        id: currentUser.id, first_name: first, last_name: last, email, phone
+      }, { onConflict: 'id' });
+      const { data: prof } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
+      currentProfile = prof;
+    }
+
+    // Ensure customer record exists (check again to avoid race with loadUserData)
+    const { data: existingCust } = await db.from('customers')
+      .select('*').eq('profile_id', currentUser.id).maybeSingle();
+    if (existingCust) {
+      currentCustomer = existingCust;
+    } else {
+      await db.from('customers').insert({
+        profile_id: currentUser.id,
+        first_name_cache: first, last_name_cache: last,
+        email_cache: email, phone_cache: phone,
+        sms_consent_at: m.sms_consent ? new Date().toISOString() : null
+      });
+      const { data: newCust } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
+      currentCustomer = newCust;
+    }
+  }
+
   authSection.style.display = currentCustomer ? 'none' : '';
   const btn = document.getElementById('btn-place');
   if (btn) btn.textContent = currentCustomer ? 'Place Order' : 'Create Account & Place Order';
