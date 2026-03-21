@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 21, 2026 — Logo rebrand + PWA icon refresh (session 46)*
+*Last updated: Mar 21, 2026 — Customer app fixes, payment status icons, toast notifications (session 47)*
 
 ---
 
@@ -782,6 +782,15 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 21, 2026 (session 47) — Customer app fixes, payment status icons, toast notifications
+
+- **Fix — Wash temperature default not pre-selected for new customers:** `renderOrderPrefs()` now auto-selects the `is_default` option for every preference group when no customer preferences are saved. New customers see "Warm" pre-highlighted. Addon defaults (e.g. Vinegar "No") are also correctly pre-selected so toggles stay off.
+- **Fix — Referral source lost after email confirmation:** Sign-up stored `first_name`, `last_name`, `phone` in Supabase `user_metadata` but not `referral_source` or `sms_consent`. When user confirmed email and returned, all three customer-creation paths (`ensureProfile`, `loadUserData`, `renderConfirmAuth`) couldn't find the referral. Now all five fields are stored in `user_metadata` at sign-up and all creation paths read them back.
+- **Payment status icons in Orders list (admin):** New `_payStatusIcon()` helper renders an SVG icon to the left of the dollar amount in the Total column. Shows card-on-file (green credit card), no-card (amber triangle), or on-account (blue building) before payment is processed. Replaced by green `$` after successful charge, red `FAILED` badge on failure, or blue `✔` for invoiced on-account orders. Uses a side-fetch of `customer_payment_methods` in `loadOrders()` to populate `_custWithCard` Set. CSS `.pay-tip` class provides hover tooltips.
+- **Toast notifications on all customer profile saves:** Replaced the tiny, easy-to-miss "✓ Saved" text with proper `showToast()` calls on Save Contact, Save Billing, Save Preferences, and Save Notes. Also added error handling (`showToast('Error: ...', 'error')`) to Preferences and Notes saves which previously had none.
 
 ---
 
