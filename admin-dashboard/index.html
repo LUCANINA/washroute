@@ -5397,20 +5397,38 @@
     const ln = p.last_name  || p._lname_cache || '';
     return `${fn} ${ln}`.trim() || 'Unknown';
   }
-  function orderCustomerCell(o) {
-    const icon = _recurSvg(o.recurring_interval);
+  // Payment status icon for Total column.
+  // Priority: Paid ($) > Pay Failed > On Account (✔) > Card on file (card) > No card (⚠)
+  function _payStatusIcon(o) {
     const custId = o.customers?.id;
     const billingType = o.customers?.billing_type;
-    // Payment status icon (SVG + CSS tooltip): green card = has card, blue building = on account, amber warning = no card
-    let payIcon = '';
-    if (billingType === 'on_account') {
-      payIcon = `<span class="pay-tip" data-tip="On account (invoiced)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 21V12h6v9"/><path d="M3 9h18"/></svg></span>`;
-    } else if (custId && _custWithCard.has(custId)) {
-      payIcon = `<span class="pay-tip" data-tip="Card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span>`;
-    } else {
-      payIcon = `<span class="pay-tip" data-tip="No card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>`;
+    // Already charged successfully
+    if (o.stripe_payment_intent_id && o.billing_status !== 'failed') {
+      return `<span class="pay-tip" data-tip="Paid" style="color:#16a34a;font-size:13px;font-weight:800;line-height:1">$</span>`;
     }
-    return `<span style="display:flex;align-items:center;gap:6px">${icon}<span>${orderCustomerName(o)}</span>${payIcon}</span>`;
+    // Charge failed
+    if (o.billing_status === 'failed') {
+      return `<span class="pay-tip" data-tip="Payment failed" style="background:#fee2e2;color:#dc2626;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;letter-spacing:.02em;white-space:nowrap">FAILED</span>`;
+    }
+    // On account — invoiced (only after processing)
+    if (billingType === 'on_account' && Number(o.total_amount) > 0 && ['ready_for_delivery','out_for_delivery','delivered'].includes(o.status)) {
+      return `<span class="pay-tip" data-tip="On account (invoiced)" style="color:#1e40af;font-size:12px;font-weight:700;line-height:1">✔</span>`;
+    }
+    // On account — not yet invoiced
+    if (billingType === 'on_account') {
+      return `<span class="pay-tip" data-tip="On account"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 21V12h6v9"/><path d="M3 9h18"/></svg></span>`;
+    }
+    // Has a card on file
+    if (custId && _custWithCard.has(custId)) {
+      return `<span class="pay-tip" data-tip="Card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span>`;
+    }
+    // No card on file
+    return `<span class="pay-tip" data-tip="No card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>`;
+  }
+
+  function orderCustomerCell(o) {
+    const icon = _recurSvg(o.recurring_interval);
+    return `<span style="display:flex;align-items:center;gap:6px">${icon}<span>${orderCustomerName(o)}</span></span>`;
   }
 
   // Group filter → actual statuses mapping
@@ -5642,7 +5660,7 @@
           <td style="font-size:12.5px;white-space:nowrap">${deliveryRouteCell(o)}</td>
           <td style="font-size:12.5px;white-space:nowrap">${deliveryTimeCell(o)}</td>
           <td style="font-size:12.5px;text-align:right;padding-right:20px;line-height:1.4">${bagsDisplay}</td>
-          <td style="font-weight:600;padding-right:20px;white-space:nowrap"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:80px">${o.stripe_payment_intent_id && o.billing_status !== 'failed' ? '<span style="color:#16a34a;font-size:13px;font-weight:800;line-height:1" title="Paid">$</span>' : o.billing_status === 'failed' ? '<span style="background:#fee2e2;color:#dc2626;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;letter-spacing:.02em;white-space:nowrap" title="Payment failed">PAY FAILED</span>' : o.customers?.billing_type === 'on_account' && Number(o.total_amount) > 0 && ['ready_for_delivery','out_for_delivery','delivered'].includes(o.status) ? '<span style="color:#1e40af;font-size:12px;font-weight:700;line-height:1" title="On Account — Invoiced">✔</span>' : '<span></span>'}<span>${fmtMoney(o.total_amount)}</span></div></td>
+          <td style="font-weight:600;padding-right:20px;white-space:nowrap"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:80px">${_payStatusIcon(o)}<span>${fmtMoney(o.total_amount)}</span></div></td>
           ${inIssues ? `<td style="padding-right:16px;white-space:nowrap" onclick="event.stopPropagation()">${issueActionBtn(o)}</td>` : ''}
         </tr>`;
       }).join('')}
