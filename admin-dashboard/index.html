@@ -3632,6 +3632,7 @@
   let currentPage = 'overview';
   let allCustomers = [];
   let allOrders = [];
+  let _custWithCard = new Set(); // customer IDs that have at least one payment method on file
   let allTemplates = [], allDriversCache = [];
   let allDriversList = [];
   let currentDriverId        = null;
@@ -5395,7 +5396,18 @@
   }
   function orderCustomerCell(o) {
     const icon = _recurSvg(o.recurring_interval);
-    return `<span style="display:flex;align-items:center;gap:6px">${icon}<span>${orderCustomerName(o)}</span></span>`;
+    const custId = o.customers?.id;
+    const billingType = o.customers?.billing_type;
+    // Payment status icon: green card = has card, blue building = on account, amber warning = no card
+    let payIcon = '';
+    if (billingType === 'on_account') {
+      payIcon = `<span title="On account (invoiced)" style="font-size:12px;line-height:1;cursor:help">🏢</span>`;
+    } else if (custId && _custWithCard.has(custId)) {
+      payIcon = `<span title="Card on file" style="font-size:12px;line-height:1;cursor:help;filter:saturate(1.5) hue-rotate(-10deg)">💳</span>`;
+    } else {
+      payIcon = `<span title="No card on file" style="font-size:12px;line-height:1;cursor:help">⚠️</span>`;
+    }
+    return `<span style="display:flex;align-items:center;gap:6px">${icon}<span>${orderCustomerName(o)}</span>${payIcon}</span>`;
   }
 
   // Group filter → actual statuses mapping
@@ -5437,6 +5449,16 @@
       return;
     }
     allOrders = data || [];
+
+    // Side-fetch: which customers have a payment card on file?
+    const custIds = [...new Set((data||[]).map(o => o.customers?.id).filter(Boolean))];
+    if (custIds.length) {
+      const { data: cardRows } = await db.from('customer_payment_methods')
+        .select('customer_id').in('customer_id', custIds);
+      _custWithCard = new Set((cardRows||[]).map(r => r.customer_id));
+    } else {
+      _custWithCard = new Set();
+    }
 
     // Stat cards — always reflect full dataset
     const todayStr = today();
