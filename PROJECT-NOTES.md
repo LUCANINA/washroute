@@ -819,6 +819,9 @@ There are actually **two separate hang points** that must both be covered:
 3. Check if **delivery date = pickup date** → set `is_same_day = true` and use PM route delivery windows
 4. Set `recurring_interval` on the order at creation time so the trigger works automatically after delivery
 5. The `source = 'recurring'` field is just a label — the trigger only checks `recurring_interval`
+6. **Always geocode after creating addresses via SQL.** Addresses inserted directly into the DB won't have lat/lng coordinates, so they won't appear on the route map. Run `geocodeMissing()` from the admin dashboard browser console after any batch address insert. The customer app and admin dashboard both auto-geocode via Google Maps when addresses are added through the UI, so this only applies to direct SQL inserts.
+
+**Geocoding fix:** 11 addresses created via SQL during this session were missing lat/lng. Ran `geocodeMissing()` from admin dashboard — all 11 now geocoded.
 
 **Monday morning totals: 71 stops** (58 pickups + 13 deliveries), plus 11 same-day PM deliveries in the evening.
 
