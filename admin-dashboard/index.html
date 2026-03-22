@@ -13912,26 +13912,42 @@ ${totalLinesXml}
 
       let cardsHtml = '';
       let _displayIdx = 0;
-      const getUtcMins = s => {
-        // Use delivery_window_start for delivery stops — their pickup_window_start
-        // may be from a different route/time (e.g. morning AM pickup → evening PM delivery)
-        // and would create a phantom time band if used for bucketing here.
+
+      // ── Slot-based time-window grouping ──
+      // Convert stop time to LOCAL minutes so we can compare against the
+      // template's local window_start / window_end.
+      const getLocalMins = s => {
         const ts = s.stop_type === 'delivery'
           ? (s.orders?.delivery_window_start || s.orders?.pickup_window_start)
           : (s.orders?.pickup_window_start   || s.orders?.delivery_window_start);
         if (!ts) return null;
         const d = new Date(ts);
-        return d.getUTCHours() * 60 + d.getUTCMinutes();
+        return d.getHours() * 60 + d.getMinutes();
       };
 
-      // Collect distinct UTC-minute buckets that actually appear in this route
-      const bucketSet = new Set();
-      stops.forEach(s => { const m = getUtcMins(s); if (m !== null) bucketSet.add(m); });
-      const sortedBuckets = [...bucketSet].sort((a, b) => a - b);
+      const toM = t => { const p = (t || '00:00').split(':'); return parseInt(p[0]) * 60 + parseInt(p[1] || 0); };
+      const tmplStartM = toM(tpl?.window_start || '00:00');
+      const tmplEndM   = toM(tpl?.window_end   || '23:59');
+      const slotDur    = arrWinHrs * 60;
+      const numSlots   = arrWinHrs > 0 ? Math.max(1, Math.round((tmplEndM - tmplStartM) / slotDur)) : 0;
 
-      if (arrWinHrs > 0 && sortedBuckets.length > 1) {
-        // Build slot labels from template local window_start + arrival_window_hours
-        const toM = t => { const p = (t || '00:00').split(':'); return parseInt(p[0]) * 60 + parseInt(p[1] || 0); };
+      // Map each stop to a template slot index (clamped to valid range).
+      // Stops whose local time falls outside the template window (e.g. PM
+      // deliveries on an AM route) get clamped into the nearest valid slot
+      // instead of creating phantom time bands.
+      const getSlotIdx = s => {
+        const lm = getLocalMins(s);
+        if (lm === null) return -1;
+        const idx = Math.floor((lm - tmplStartM) / slotDur);
+        return Math.max(0, Math.min(numSlots - 1, idx));
+      };
+
+      // Collect distinct slot indices that appear in this route
+      const slotSet = new Set();
+      stops.forEach(s => { const idx = getSlotIdx(s); if (idx >= 0) slotSet.add(idx); });
+      const sortedSlots = [...slotSet].sort((a, b) => a - b);
+
+      if (numSlots > 0 && sortedSlots.length > 1) {
         const fmtH = mins => {
           const h = Math.floor(mins / 60) % 24, m = mins % 60;
           return m ? `${h % 12 || 12}:${String(m).padStart(2, '0')}` : `${h % 12 || 12}`;
@@ -13940,27 +13956,26 @@ ${totalLinesXml}
           const sSuf = startM >= 720 ? 'PM' : 'AM', eSuf = endM >= 720 ? 'PM' : 'AM';
           return sSuf === eSuf ? `${fmtH(startM)}–${fmtH(endM)} ${eSuf}` : `${fmtH(startM)} ${sSuf}–${fmtH(endM)} ${eSuf}`;
         };
-        const tmplStartM = toM(tpl?.window_start || '00:00');
-        const bucketLabel = {};
-        sortedBuckets.forEach((bucket, i) => {
-          bucketLabel[bucket] = fmtSlotLbl(tmplStartM + i * arrWinHrs * 60, tmplStartM + (i + 1) * arrWinHrs * 60);
+        const slotLabel = {};
+        sortedSlots.forEach(idx => {
+          slotLabel[idx] = fmtSlotLbl(tmplStartM + idx * slotDur, tmplStartM + (idx + 1) * slotDur);
         });
 
-        // Group stops by bucket (preserving stop_number order within each group)
+        // Group stops by slot (preserving stop_number order within each group)
         const groups = {};
-        sortedBuckets.forEach(b => { groups[b] = []; });
+        sortedSlots.forEach(idx => { groups[idx] = []; });
         const noWindow = [];
         stops.forEach(s => {
-          const m = getUtcMins(s);
-          if (m !== null && groups[m] !== undefined) groups[m].push(s);
+          const idx = getSlotIdx(s);
+          if (idx >= 0 && groups[idx] !== undefined) groups[idx].push(s);
           else noWindow.push(s);
         });
 
         let firstDiv = true;
-        sortedBuckets.forEach(bucket => {
-          const grp = groups[bucket];
+        sortedSlots.forEach(slotIdx => {
+          const grp = groups[slotIdx];
           if (!grp.length) return;
-          cardsHtml += `<div class="rcc-window-divider${firstDiv ? ' rcc-first-div' : ''}">${bucketLabel[bucket]}</div>`;
+          cardsHtml += `<div class="rcc-window-divider${firstDiv ? ' rcc-first-div' : ''}">${slotLabel[slotIdx]}</div>`;
           firstDiv = false;
           grp.forEach(s => { s._displayNum = ++_displayIdx; cardsHtml += rccBuildCard(s, routeId, color); });
         });
@@ -17370,24 +17385,24 @@ ${totalLinesXml}
 
   function _launchEmailBody(firstName) {
     return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:520px;margin:0 auto;padding:0;background:#ffffff">
-      <div style="background:#1e293b;padding:28px 24px;text-align:center;border-radius:12px 12px 0 0">
-        <img src="https://admin.familylaundry.com/assets/logo_white_bg.png" alt="Family Laundry" style="height:48px;border-radius:8px" />
+      <div style="background:#1e293b;padding:36px 24px;text-align:center;border-radius:12px 12px 0 0">
+        <img src="https://admin.familylaundry.com/assets/logo_white.png" alt="Family Laundry" style="height:72px" />
       </div>
       <div style="padding:32px 24px 24px">
-        <h1 style="color:#1e293b;font-size:22px;margin:0 0 16px;font-weight:700">Our new app is live!</h1>
+        <h1 style="color:#1e293b;font-size:22px;margin:0 0 16px;font-weight:700">We've upgraded your experience</h1>
         <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 16px">Hi ${esc(firstName)},</p>
-        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 16px">Great news — the Family Laundry ordering app is officially here. You can now manage your laundry pickups, track orders, and update your preferences all in one place.</p>
-        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 8px"><strong style="color:#1e293b">Here's what to do:</strong></p>
-        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 6px">1. Click the button below to open the app</p>
-        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 6px">2. Create your account using this email address</p>
-        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 20px">3. Update your preferences and add a payment card</p>
+        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 16px">We're excited to introduce your new Family Laundry app. A simpler, faster way to manage your laundry service. Everything you're used to, now in one place: schedule pickups, track your orders in real time, and set your laundry preferences.</p>
+        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 16px">Your account is ready and waiting for you.</p>
+        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 8px"><strong style="color:#1e293b">To get started:</strong></p>
+        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 6px">1. Tap the button below to log in</p>
+        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 20px">2. Update your payment details</p>
         <div style="background:#ecfdf5;border-left:4px solid #10b981;padding:14px 18px;border-radius:0 8px 8px 0;margin:0 0 24px">
-          <p style="color:#065f46;font-size:14px;font-weight:600;margin:0">🎉 Update your details by Monday at midnight and get $20 in laundry credit — automatically added to your account.</p>
+          <p style="color:#065f46;font-size:14px;font-weight:600;margin:0">🎉 Update your payment details by Monday at midnight and we'll add $20 in laundry credit to your account, on us.</p>
         </div>
         <div style="text-align:center;margin:28px 0">
           <a href="https://app.familylaundry.com" style="background:#38a169;color:white;padding:16px 36px;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px;display:inline-block">Open the App →</a>
         </div>
-        <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:24px 0 0;text-align:center">Questions? Just reply to this email and a human will respond.<br/>— David + The Family Laundry Team</p>
+        <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:24px 0 0;text-align:center">Questions? Just reply to this email and a human will respond.<br/>The Family Laundry Team</p>
       </div>
     </div>`;
   }
