@@ -7017,7 +7017,16 @@
     });
     const data = await res.json();
     if (!res.ok) { showToast(data.error || 'Charge failed', 'error'); return; }
+    // Clear failed billing status and refresh
+    await db.from('orders').update({ billing_status: null }).eq('id', o.id);
     showToast('Payment charged ✓', 'success');
+    opPopulateBilling(o);
+    // Send receipt email now that charge succeeded
+    fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+      body: JSON.stringify({ order_id: o.id }),
+    }).catch(() => {});
     setTimeout(() => loadOrders(currentOrderFilter), 500);
   }
 
@@ -8029,7 +8038,15 @@ ${totalLinesXml}
       });
       const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
       if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
+      // Clear failed billing status
+      await db.from('orders').update({ billing_status: null }).eq('id', orderId);
       showToast(`✓ Order #${orderNum} charged — ${result.card || ''}`, 'success');
+      // Send receipt email now that charge succeeded
+      fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({ order_id: orderId }),
+      }).catch(() => {});
       loadOrders(currentOrderFilter); // Refresh so the order moves out of Issues
     } catch (e) {
       btn.disabled = false; btn.textContent = 'Retry charge';
@@ -15881,11 +15898,11 @@ ${totalLinesXml}
         if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
         showToast(`💳 Order #${rackActiveOrder.order_number} charged — ${result.card || ''}`, 'success');
       } catch (e) {
-        // Payment failed — keep order in Folding
-        errEl.textContent = '⚠️ Payment failed: ' + e.message + ' — order stays in Folding.';
-        errEl.style.display = '';
-        if (chargingEl) chargingEl.style.display = 'none';
-        return; // do NOT advance to ready_for_delivery
+        // Payment failed — still rack the order, but mark billing as failed.
+        // Order moves to ready_for_delivery and appears in Issues tab for admin to resolve.
+        showToast(`⚠️ Payment failed: ${e.message} — order racked, charge from Order Details`, 'error');
+        await db.from('orders').update({ billing_status: 'failed' }).eq('id', rackActiveOrder.id);
+        rackActiveOrder.billing_status = 'failed';
       }
     }
 
@@ -15906,6 +15923,7 @@ ${totalLinesXml}
     const custPhone  = rackActiveOrder.customers?.phone_cache || null;
     const custFirst  = rackActiveOrder.customers?.first_name_cache || 'there';
     const custId     = rackActiveOrder.customers?.id || null;
+    const chargeFailed = rackActiveOrder.billing_status === 'failed';
     closeRackPanel();
     // Instant removal from source column
     ['fold-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
@@ -15913,8 +15931,8 @@ ${totalLinesXml}
     allCleanOrders = allCleanOrders.filter(o => o.id !== movedId);
     showToast(`Order #${orderNum} racked on ${rackName}! Ready for delivery.`, 'success');
     reloadColumns('folding', 'rack');
-    // Auto-send email receipt — skip for on-account (receipt sent when actually charged)
-    if (!isOnAccount) {
+    // Auto-send email receipt — skip for on-account and failed charges (receipt sent when actually charged)
+    if (!isOnAccount && !chargeFailed) {
       fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
