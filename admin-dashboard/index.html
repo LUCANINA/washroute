@@ -17359,6 +17359,163 @@ ${totalLinesXml}
     renderAdminDriverList();
     input.focus();
   }
+
+  // ── LAUNCH ANNOUNCEMENT ────────────────────────────────────────────
+  // Send the Sunday launch email + SMS to a single customer (for testing)
+  // or to all customers with sms_consent (for the real launch).
+  //
+  // Usage from browser console:
+  //   sendLaunchAnnouncement('0140849f-...')   → single customer
+  //   sendLaunchAnnouncementAll()              → ALL customers (confirmation required)
+
+  function _launchEmailBody(firstName) {
+    return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:520px;margin:0 auto;padding:0;background:#ffffff">
+      <div style="background:#1e293b;padding:28px 24px;text-align:center;border-radius:12px 12px 0 0">
+        <img src="https://admin.familylaundry.com/assets/logo_white_bg.png" alt="Family Laundry" style="height:48px;border-radius:8px" />
+      </div>
+      <div style="padding:32px 24px 24px">
+        <h1 style="color:#1e293b;font-size:22px;margin:0 0 16px;font-weight:700">Our new app is live!</h1>
+        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 16px">Hi ${esc(firstName)},</p>
+        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 16px">Great news — the Family Laundry ordering app is officially here. You can now manage your laundry pickups, track orders, and update your preferences all in one place.</p>
+        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 8px"><strong style="color:#1e293b">Here's what to do:</strong></p>
+        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 6px">1. Click the button below to open the app</p>
+        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 6px">2. Create your account using this email address</p>
+        <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 20px">3. Update your preferences and add a payment card</p>
+        <div style="background:#ecfdf5;border-left:4px solid #10b981;padding:14px 18px;border-radius:0 8px 8px 0;margin:0 0 24px">
+          <p style="color:#065f46;font-size:14px;font-weight:600;margin:0">🎉 Update your details by Monday at midnight and get $20 in laundry credit — automatically added to your account.</p>
+        </div>
+        <div style="text-align:center;margin:28px 0">
+          <a href="https://app.familylaundry.com" style="background:#38a169;color:white;padding:16px 36px;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px;display:inline-block">Open the App →</a>
+        </div>
+        <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:24px 0 0;text-align:center">Questions? Just reply to this email and a human will respond.<br/>— David + The Family Laundry Team</p>
+      </div>
+    </div>`;
+  }
+
+  function _launchSmsBody(firstName) {
+    return `Hi ${firstName}! Family Laundry here — our new ordering app is live! Log in now to update your preferences and payment details: app.familylaundry.com\n\nUpdate by Monday midnight and get $20 in laundry credit, automatically added to your account.\n\nQuestions? Just text us back.`;
+  }
+
+  async function sendLaunchAnnouncement(customerId) {
+    // Look up customer
+    const { data: c, error } = await db.from('customers')
+      .select('id, first_name_cache, email_cache, phone_cache')
+      .eq('id', customerId)
+      .single();
+    if (error || !c) { showToast('Customer not found: ' + (error?.message || customerId), 'error'); return; }
+
+    const results = [];
+
+    // Send email
+    if (c.email_cache) {
+      try {
+        const res = await fetch(`${SUPA_URL}/functions/v1/send-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+          body: JSON.stringify({
+            customer_id: c.id,
+            to_email: c.email_cache,
+            subject: 'Your Family Laundry App is Live — Log In for $20 Credit 🧺',
+            body: _launchEmailBody(c.first_name_cache || 'there'),
+          }),
+        });
+        const d = await res.json();
+        results.push(res.ok ? '✅ Email sent' : `❌ Email failed: ${d.error}`);
+      } catch (e) { results.push(`❌ Email error: ${e.message}`); }
+    } else {
+      results.push('⚠️ No email on file');
+    }
+
+    // Send SMS
+    if (c.phone_cache) {
+      const phone = c.phone_cache.replace(/\D/g, '');
+      const to = phone.length === 10 ? `+1${phone}` : `+${phone}`;
+      try {
+        const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+          body: JSON.stringify({
+            to,
+            body: _launchSmsBody(c.first_name_cache || 'there'),
+            customer_id: c.id,
+          }),
+        });
+        const d = await res.json();
+        results.push(res.ok ? '✅ SMS sent' : `❌ SMS failed: ${d.error}`);
+      } catch (e) { results.push(`❌ SMS error: ${e.message}`); }
+    } else {
+      results.push('⚠️ No phone on file');
+    }
+
+    showToast(results.join(' | '), results.some(r => r.startsWith('❌')) ? 'error' : 'success');
+    console.log(`[Launch] ${c.first_name_cache} ${c.email_cache}: ${results.join(', ')}`);
+    return results;
+  }
+
+  async function sendLaunchAnnouncementAll() {
+    // Fetch all customers with email or phone
+    const { data: custs, error } = await db.from('customers')
+      .select('id, first_name_cache, email_cache, phone_cache, sms_consent_at')
+      .or('email_cache.neq.null,phone_cache.neq.null');
+    if (error) { showToast('Failed to load customers: ' + error.message, 'error'); return; }
+
+    const withEmail = custs.filter(c => c.email_cache);
+    const withPhone = custs.filter(c => c.phone_cache);
+
+    const go = confirm(
+      `⚠️ LAUNCH ANNOUNCEMENT\n\n` +
+      `This will send to ${custs.length} customers:\n` +
+      `• ${withEmail.length} emails\n` +
+      `• ${withPhone.length} SMS messages\n\n` +
+      `Are you sure? This cannot be undone.`
+    );
+    if (!go) { showToast('Cancelled', 'error'); return; }
+
+    const doubleCheck = prompt('Type LAUNCH to confirm:');
+    if (doubleCheck !== 'LAUNCH') { showToast('Cancelled', 'error'); return; }
+
+    showToast(`Sending to ${custs.length} customers… check console for progress`, 'success');
+    let sentEmail = 0, sentSms = 0, failEmail = 0, failSms = 0;
+
+    for (let i = 0; i < custs.length; i++) {
+      const c = custs[i];
+      // Email
+      if (c.email_cache) {
+        try {
+          const res = await fetch(`${SUPA_URL}/functions/v1/send-email`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+            body: JSON.stringify({
+              customer_id: c.id,
+              to_email: c.email_cache,
+              subject: 'Your Family Laundry App is Live — Log In for $20 Credit 🧺',
+              body: _launchEmailBody(c.first_name_cache || 'there'),
+            }),
+          });
+          if (res.ok) sentEmail++; else failEmail++;
+        } catch { failEmail++; }
+      }
+      // SMS (only if they have sms_consent)
+      if (c.phone_cache && c.sms_consent_at) {
+        const phone = c.phone_cache.replace(/\D/g, '');
+        const to = phone.length === 10 ? `+1${phone}` : `+${phone}`;
+        try {
+          const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+            body: JSON.stringify({ to, body: _launchSmsBody(c.first_name_cache || 'there'), customer_id: c.id }),
+          });
+          if (res.ok) sentSms++; else failSms++;
+        } catch { failSms++; }
+      }
+      // Progress log every 50
+      if ((i + 1) % 50 === 0) console.log(`[Launch] Progress: ${i + 1}/${custs.length} — Email: ${sentEmail}✓ ${failEmail}✗ | SMS: ${sentSms}✓ ${failSms}✗`);
+    }
+
+    const summary = `Done! Email: ${sentEmail} sent, ${failEmail} failed | SMS: ${sentSms} sent, ${failSms} failed`;
+    showToast(summary, (failEmail + failSms > 0) ? 'error' : 'success');
+    console.log(`[Launch] ${summary}`);
+  }
 </script>
 </body>
 </html>
