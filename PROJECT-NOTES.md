@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 21, 2026 — Customer app fixes, payment status icons, toast notifications (session 47)*
+*Last updated: Mar 22, 2026 — Starchup backfill: 58 Monday AM pickups + 13 deliveries, recurring schedules set, commercial accounts created (session 50)*
 
 ---
 
@@ -16,6 +16,8 @@ Project moved from the old Cowork sandbox path to a proper local git repo:
 ## Guiding Principle
 
 Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no dead references, no hardcoded strings that should be configurable. Whether the customer sees it or not — the system must be tidy. Clean up after every job.
+
+**⚠️ DELIVERY WINDOWS MUST MATCH ROUTE TEMPLATES.** When creating orders, always check the route template's `arrival_window_hours` to determine the correct delivery window size. San Francisco and Hayward routes have 3-hour arrival windows (7–10 PM), so the delivery window is the full route window. Berkeley, Alameda, and Oakland routes have 2-hour arrival windows (sub-windows: 6–8 PM or 8–10 PM). Never assume all routes use the same window size. One-time orders use `recurring_interval = NULL` (not `'one_time'`).
 
 **⚠️ NEVER use `.toISOString()` for local date comparisons.** `toISOString()` returns UTC — after 5 PM Pacific it rolls to the next calendar day and breaks every "is this today?" check. Always use the `today()` helper or `getFullYear()/getMonth()/getDate()` formatting. This caused a critical bug where route schedule cells locked every evening. Applies to all three apps.
 
@@ -782,6 +784,82 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 22, 2026 (session 50) — Starchup backfill: Monday AM pickups, deliveries, recurring schedules, commercial accounts
+
+**Monday 3/23 AM Pickups — 58 orders created (orders #187–244):**
+- Hayward AM: 21 orders | BERK AM: 17 orders | Oakland AM: 14 orders | Alameda AM: 6 orders
+- 11 same-day turnaround orders (AM pickup → PM delivery same day) identified from Starchup order details and created with `is_same_day = true`
+- Same-day customers: Ruth Cossey, Monica Arnold, Onimisi Ojeba, Cory Johnson, Norah Nicholls (Hayward); Jennifer Stahl, Klaire Hubbard, Jennifer Leech, Erinn Nahid (Berkeley); Julia Donaldson, Andrea Dooley (Oakland)
+
+**Recurring order schedules set via `recurring_interval` column:**
+- 34 weekly, 4 biweekly (Satina Dunigan ×2, Alicia Swartz, Amanda Piasecki, Karim Biaye), 1 monthly (Jonathan Rodriguez), 1 biweekly delivery (Gwen BellBabaoye)
+- Recurring engine verified working: `create_recurring_order_on_delivered` trigger reads `recurring_interval` ('weekly'/'biweekly'/'monthly') and auto-creates the next order when current one is delivered or customer-skipped. Skips Sundays by bumping to Monday.
+- **⚠️ Lesson learned:** Initial batch backfill only set `source = 'recurring'` (a label) but missed the `recurring_interval` column (the field the trigger actually checks). Future backfills MUST check Starchup's Orders page for the recurring icon on each order and hover/click for cadence info before creating in WashRoute.
+
+**Deliveries — 13 orders (#174–186) from prior session confirmed:**
+- 3 set to weekly recurring (Matt Yan #174, Hoan TonThat #176, Brooke Rosenberg #180)
+- 1 set to biweekly (Gwen BellBabaoye #186)
+
+**Commercial accounts — 4 verified and updated for April 1 transition:**
+- Charlotte Maxwell Clinic: already in WashRoute, added address (411 30th St #508, Oakland 94609), set `account_type = 'commercial'`, pickup order #244 created
+- Fitnesse Training Club: already in WashRoute, set `account_type = 'commercial'`, added 2nd address (2 Ambler Lane, Oakland 94608), pickup order #230 created
+- Nit Pixies: created in WashRoute (oakland@nitpixies.com), 2 addresses (5009 Woodminster Ln Oakland, 11362 San Pablo Ave El Cerrito), pickup order #229 created (BERK AM, weekly)
+- Reup Refill Shop: created in WashRoute (order@wastewhat.org), address (6076 Claremont Ave Oakland), pickup order #239 created (BERK AM, weekly)
+
+**New customers created (from Starchup lookup):**
+- Erika VanHarken, Mark Heslop, Patti Birbigli (session 49 continuation)
+- Multiple missing customers discovered during screenshot verification: Jennifer Stahl, Ruth Cossey, Julia Donaldson, Klaire Hubbard, Monica Arnold, Erinn Nahid, Bridget Guerra, Yvette Beavers, Jennifer Leech, Onimisi Ojeba, Marilyn Waller, Saied Amiry, Cory Johnson, Norah Nicholls, Andrea Dooley
+
+**⚠️ Process note for future Starchup backfills:**
+1. Use Starchup's **Orders page** (not just route pages) — it shows recurring icons and same-day delivery info
+2. Check each order for the **recurring icon** (circular arrows) and hover for cadence (weekly/biweekly/monthly)
+3. Check if **delivery date = pickup date** → set `is_same_day = true` and use PM route delivery windows
+4. Set `recurring_interval` on the order at creation time so the trigger works automatically after delivery
+5. The `source = 'recurring'` field is just a label — the trigger only checks `recurring_interval`
+
+**Monday morning totals: 71 stops** (58 pickups + 13 deliveries), plus 11 same-day PM deliveries in the evening.
+
+---
+
+### Mar 22, 2026 (session 49) — Starchup backfill: 8 picked-up orders migrated, customer data reconciled
+
+- **Backfilled 8 picked-up orders from final Starchup pickup night (3/21/26):** Ruby Anderson (#161), Caragh England (#163), Naomi Odean (#167), Sal Dazzo (#168), Matt Holmes (#169), Devki Patel (#170), Steve Wilson (#171), B Curry (#172). Each order: inserted as `scheduled` (triggers auto-routing), then updated to `picked_up` with actual pickup timestamp and bag count. Pickup route_stops marked `complete`.
+- **Customer data reconciled against Starchup for each customer:** Updated stats (total_orders, lifetime_value, credits), default tips, wash & fold preferences (oxi, vinegar, air dry, double wash, shirt service), delivery instructions, and phone numbers where they differed.
+- **Address fix — Naomi Odean:** Added missing 59 Parkside Drive address (was only 43 Slater Lane in DB). Set as default per Starchup. Both addresses retained.
+- **All SMS and email templates remain disabled** (turned off session 49 start for safe backfill — no automated messages sent to customers during inserts).
+- **Delivery window rule established:** Delivery windows on orders must always match the route template's `arrival_window_hours`. SF and Hayward = 3-hour full window (7–10 PM). Berkeley, Alameda, Oakland = 2-hour sub-windows (6–8 PM or 8–10 PM). Fixed B Curry's delivery window from incorrect 8–10 PM to correct 7–10 PM (SF route).
+- **`recurring_interval` rule clarified:** One-time orders use `NULL` (not `'one_time'`). Setting `'one_time'` causes the UI to render a recurring icon with tooltip "Every one_time". Fixed on Naomi's order.
+- **Tips not yet functional at processing intake.** `calcProcTotal()` and `_buildIntakeLineItems()` do not include `tip_amount`. Customer app has zero tip UI. **Must be fixed before launch blast invitations.** David flagged as today's priority.
+- **Pending — tips end-to-end fix (PRIORITY — before launch blasts):**
+  1. `calcProcTotal()` must include `tip_amount` from the order
+  2. `_buildIntakeLineItems()` should create a tip line item
+  3. Verify `charge-order` charges the full amount including tip
+  4. Add default tip setting to customer app
+  5. Remind David about tips before sending launch announcement blasts
+
+---
+
+### Mar 21, 2026 (session 48) — Sunday launch prep: $20 promo, launch emails/SMS, account reset, QA
+
+- **$20 signup promo credit system (launch promo):** Postgres trigger `trg_signup_promo_credit` on `customer_payment_methods` INSERT. When a customer adds their **first** payment card before Monday March 23 midnight PT, the trigger automatically: (1) adds $20 to `customers.credits`, (2) sets `signup_promo_credit_at` timestamp, (3) logs a `credit_add` transaction, (4) sends a follow-up confirmation email ("You're all set! $20 credit added"), (5) sends a follow-up SMS (if `sms_consent_at` is set) with home-screen save tip. Guards: first card only, one-time per customer, auto-expires after deadline. Uses `SECURITY DEFINER` + `pg_net` for HTTP calls. Migration: `add_signup_promo_credit_trigger`. New column: `customers.signup_promo_credit_at` (timestamptz, nullable).
+- **Launch announcement system built:** Admin dashboard functions `sendLaunchAnnouncement(customerId)` (single test) and `sendLaunchAnnouncementAll()` (bulk with confirm + "type LAUNCH" safety gates). Sends branded email + SMS. Email: "We've upgraded your experience" with white logo on navy header, two-step CTA (log in + update payment details), $20 promo callout, green "Open the App" button. SMS: concise version with app link and $20 mention. Bulk SMS respects `sms_consent_at`. **Plan: 10-phase rollout with David's approval at each phase.**
+- **David's account reset for testing:** Auth account deleted, customer `profile_id` cleared, payment methods removed, credits zeroed. Customer record and order history preserved. New admin auth account created via Team page. `info@familylaundry.com` temporarily promoted to admin for this, then restored to `laundry_tech`.
+- **Charge failure no longer blocks racking:** Previously, if payment failed at rack, the order stayed in Folding. Now: order racks anyway, `billing_status` set to `'failed'`, order appears in Issues tab. Admin can retry charge from Order Details page. On successful retry, `billing_status` is cleared, order moves to Ready, receipt email sends.
+- **Receipt email timing fixed:** Removed premature `send-receipt` call at intake (line ~16721 in admin). Receipt now only sends at rack after successful charge, or on successful retry charge from Order Details.
+- **iPad kiosk setup:** Two iPads configured with iOS Guided Access for processing center use, one for intake, one for dry room. Both use shared `info@familylaundry.com` account with Laundry Tech view.
+- **QA fix: SMS consent check added to promo trigger.** Original trigger sent follow-up SMS to any customer with a phone. Fixed to only send if `sms_consent_at IS NOT NULL`.
+
+**Active cron jobs (as of this session):**
+1. `generate-route-runs` — daily at midnight UTC — generates 14-day route schedule
+2. `auto-fail-expired-orders` — every 30 min — fails orders past expiry
+3. `expire-migration-credits` — daily at 8 AM UTC — zeroes credits where `credit_expires_at` has passed
+
+**⚠️ Note:** The `expire-migration-credits` cron will NOT affect promo credits because the promo trigger does not set `credit_expires_at`. Promo credits persist until used.
+
+**⚠️ File sync issue:** Cowork VM edits to `admin-dashboard/index.html` are not syncing to David's Mac git repo. Launch announcement functions exist in the VM copy but need to be manually synced or the console-paste approach used for Sunday. The phased send scripts will be provided as console-paste snippets.
 
 ---
 
@@ -1895,6 +1973,8 @@ There are actually **two separate hang points** that must both be covered:
 - ~~**Multi-polygon zone editing**~~ ✅ — draw multiple non-contiguous areas per zone; saved as MultiPolygon; column type widened (session 44).
 - Route picker fine-tuning — continuing session 8 (edge cases, UX polish)
 - SMS automation Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table for multi-turn state
+- **Inactivity nudge SMS (back burner — build after ~1 month of operations):** One-time SMS to customers with no delivered order in 45 days. SMS only (requires `sms_consent_at`). Stamp `inactivity_nudge_sent_at` on customer so it never re-sends. Message content TBD. Same timeline as re-enabling automated reminder cron jobs — wait until platform is stable.
+- **Re-enable automated reminder cron jobs (back burner — ~1 month of operations):** Re-create `wr-reminder-evening` and `wr-reminder-morning` with proper scoping (only customers with real orders). Re-enable SMS templates one at a time. See "SMS CURRENTLY DISABLED" section for full checklist.
 - **Launderer reporting Phase 2** — date range mode (week/month/custom) on the launderer history panel; data model is complete, UI-only work
 - **Launderer reporting Phase 3** — cross-folder aggregate view: side-by-side bags/lbs/orders/revenue for all active folders over a selected period (pay period reporting)
 - ~~Design decision: customer-initiated skips + `cancelled_by` field~~ ✅ — fully implemented session 5
