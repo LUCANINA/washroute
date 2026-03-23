@@ -885,11 +885,9 @@
 
     /* ── PROCESSING QUEUE ── */
     .proc-queue-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px; }
-    .proc-card { background:white;border:1px solid var(--gray-200);border-radius:var(--radius);padding:18px 20px;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s,border-color .15s;cursor:grab;touch-action:none;user-select:none; }
-    .proc-card.no-drag { cursor:pointer;touch-action:auto;user-select:auto; }
+    .proc-card { background:white;border:1px solid var(--gray-200);border-radius:var(--radius);padding:18px 20px;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s,border-color .15s,transform .2s;cursor:pointer;touch-action:auto;user-select:none; }
     .proc-card:hover { box-shadow:0 4px 18px rgba(0,0,0,.1);border-color:var(--accent); }
-    .proc-card:active { cursor:grabbing; }
-    .proc-card.no-drag:active { cursor:pointer; }
+    .proc-card.long-press-active { transform:scale(1.04);box-shadow:0 12px 36px rgba(0,0,0,.22);border-color:var(--accent);cursor:grabbing;touch-action:none; }
     .kanban-col-body.drag-lock { overflow-y:hidden; } /* freeze column scroll while finger-dragging */
     .proc-card.dragging { opacity:.2;box-shadow:none; }
     .proc-card-order { font-size:11.5px;color:var(--gray-400);font-family:monospace;letter-spacing:.03em; }
@@ -15609,7 +15607,13 @@ ${totalLinesXml}
   }
 
   // ── KANBAN DRAG — touch (tablet / iOS) ──
+  // Long-press (~500ms) to pick up a card for dragging between columns.
+  // Tap = opens the card's action panel. Normal scroll = works naturally.
   let _tdId = null, _tdClone = null, _tdOff = {x:0,y:0}, _tdDropZones = [];
+  let _tdTapStart = null;       // { x, y, time }
+  let _tdDragStarted = false;
+  let _tdLongPressTimer = null;  // 500ms hold timer
+  let _tdLongPressReady = false; // true once hold threshold met (before finger moves)
 
   function _buildDropZones() {
     _tdDropZones = ['kanban-intake-col','kanban-clean-col','kanban-fold-col','kanban-rack-col']
@@ -15617,35 +15621,68 @@ ${totalLinesXml}
       .filter(z => z.el);
   }
 
-  let _tdTapStart = null;  // { x, y, time } — for distinguishing taps from drags
-  let _tdDragStarted = false;
+  function _cancelLongPress() {
+    if (_tdLongPressTimer) { clearTimeout(_tdLongPressTimer); _tdLongPressTimer = null; }
+    // Remove visual feedback if timer was cancelled before drag started
+    if (_tdId && !_tdDragStarted) {
+      const card = document.getElementById('proc-card-'+_tdId)
+                || document.getElementById('clean-card-'+_tdId)
+                || document.getElementById('fold-card-'+_tdId);
+      if (card) card.classList.remove('long-press-active');
+    }
+    _tdLongPressReady = false;
+  }
 
   function touchStartOrder(event, id) {
-    // If the touch started on a button/link, let it click normally — don't drag
-    if (event.target.closest('button, a, .proc-card-btn')) return;
+    // If the touch started on a button/link/select, let it behave normally
+    if (event.target.closest('button, a, select, .proc-card-btn')) return;
     _tdId = id;
     _tdDragStarted = false;
+    _tdLongPressReady = false;
     const touch = event.touches[0];
     _tdTapStart = { x: touch.clientX, y: touch.clientY, time: Date.now() };
-    // Don't preventDefault or start drag clone yet — wait for move
+    // Start 500ms long-press timer — don't preventDefault so scrolling still works
+    _tdLongPressTimer = setTimeout(() => {
+      _tdLongPressTimer = null;
+      _tdLongPressReady = true;
+      // Visual feedback: card lifts up to signal "ready to drag"
+      const card = document.getElementById('proc-card-'+_tdId)
+                || document.getElementById('clean-card-'+_tdId)
+                || document.getElementById('fold-card-'+_tdId);
+      if (card) {
+        card.classList.add('long-press-active');
+        // Haptic feedback if available (iOS/Android)
+        if (navigator.vibrate) navigator.vibrate(30);
+      }
+    }, 500);
   }
 
   function touchMoveOrder(event) {
     if (!_tdId) return;
     const touch = event.touches[0];
-    // If drag hasn't started yet, check if finger moved enough to start one (10px threshold)
-    if (!_tdDragStarted) {
+
+    // If long-press hasn't fired yet, check if finger drifted too far (cancel = allow scroll)
+    if (!_tdLongPressReady && !_tdDragStarted) {
       if (!_tdTapStart) return;
       const dx = touch.clientX - _tdTapStart.x;
       const dy = touch.clientY - _tdTapStart.y;
-      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; // not enough movement — still a tap
-      // Enough movement — start the drag
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+        // Finger moved before long-press threshold — this is a scroll, cancel everything
+        _cancelLongPress();
+        _tdId = null; _tdTapStart = null;
+      }
+      return; // Let browser handle native scroll
+    }
+
+    // Long-press was reached but drag clone not yet created — create it now on first move
+    if (_tdLongPressReady && !_tdDragStarted) {
       _tdDragStarted = true;
       event.preventDefault();
       const card = document.getElementById('proc-card-'+_tdId)
                 || document.getElementById('clean-card-'+_tdId)
                 || document.getElementById('fold-card-'+_tdId);
       if (!card) return;
+      card.classList.remove('long-press-active');
       _buildDropZones();
       document.querySelectorAll('.kanban-col-body').forEach(c => c.classList.add('drag-lock'));
       const rect = card.getBoundingClientRect();
@@ -15666,19 +15703,23 @@ ${totalLinesXml}
       card.style.opacity = '0.25';
       return;
     }
+
     // Drag already active — move the clone
-    event.preventDefault();
-    _tdClone.style.left = (touch.clientX - _tdOff.x)+'px';
-    _tdClone.style.top  = (touch.clientY - _tdOff.y)+'px';
-    _tdDropZones.forEach(z => {
-      const r = z.el.getBoundingClientRect();
-      z.el.classList.toggle('drag-over',
-        touch.clientX >= r.left && touch.clientX <= r.right &&
-        touch.clientY >= r.top  && touch.clientY <= r.bottom);
-    });
+    if (_tdDragStarted && _tdClone) {
+      event.preventDefault();
+      _tdClone.style.left = (touch.clientX - _tdOff.x)+'px';
+      _tdClone.style.top  = (touch.clientY - _tdOff.y)+'px';
+      _tdDropZones.forEach(z => {
+        const r = z.el.getBoundingClientRect();
+        z.el.classList.toggle('drag-over',
+          touch.clientX >= r.left && touch.clientX <= r.right &&
+          touch.clientY >= r.top  && touch.clientY <= r.bottom);
+      });
+    }
   }
 
   function touchEndOrder(event) {
+    _cancelLongPress();
     if (!_tdId) return;
     const id = _tdId;
     const touch = event.changedTouches[0];
@@ -15686,12 +15727,12 @@ ${totalLinesXml}
     // ── TAP (no drag started) — treat as a click on the card ──
     if (!_tdDragStarted) {
       _tdId = null; _tdTapStart = null;
-      // Find the card element and trigger its onclick
+      // If long-press visual was showing but finger lifted without moving, also treat as tap
       const card = document.getElementById('proc-card-'+id)
                 || document.getElementById('clean-card-'+id)
                 || document.getElementById('fold-card-'+id)
                 || document.getElementById('racked-card-'+id);
-      if (card) card.click();
+      if (card) { card.classList.remove('long-press-active'); card.click(); }
       return;
     }
 
@@ -15700,7 +15741,7 @@ ${totalLinesXml}
     document.querySelectorAll('.kanban-col-body').forEach(c => c.classList.remove('drag-lock'));
     ['proc-card-','clean-card-','fold-card-'].forEach(pfx => {
       const el = document.getElementById(pfx+id);
-      if (el) el.style.opacity = '';
+      if (el) { el.style.opacity = ''; el.classList.remove('long-press-active'); }
     });
     let handled = false;
     _tdDropZones.forEach(z => {
@@ -15719,7 +15760,7 @@ ${totalLinesXml}
         if (z.id === 'kanban-rack-col'   && !allRackOrders.some(o=>o.id===id))  openRackPanel(id);
       }
     });
-    _tdId = null; _tdTapStart = null; _tdDragStarted = false;
+    _tdId = null; _tdTapStart = null; _tdDragStarted = false; _tdLongPressReady = false;
   }
 
   // ── FOLDING QUEUE ──
@@ -15777,9 +15818,6 @@ ${totalLinesXml}
       return `<div class="proc-card" id="fold-card-${o.id}"
         style="cursor:pointer"
         onclick="openRackPanel('${o.id}')"
-        draggable="true"
-        ondragstart="dragStartOrder(event,'${o.id}')"
-        ondragend="dragEndOrder('${o.id}')"
         ontouchstart="touchStartOrder(event,'${o.id}')"
         ontouchmove="touchMoveOrder(event)"
         ontouchend="touchEndOrder(event)">
@@ -16322,9 +16360,6 @@ ${totalLinesXml}
       return `<div class="proc-card" id="clean-card-${o.id}"
         style="cursor:pointer"
         onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openFoldPanel('${o.id}')`}"
-        draggable="true"
-        ondragstart="dragStartOrder(event,'${o.id}')"
-        ondragend="dragEndOrder('${o.id}')"
         ontouchstart="touchStartOrder(event,'${o.id}')"
         ontouchmove="touchMoveOrder(event)"
         ontouchend="touchEndOrder(event)">
