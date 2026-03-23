@@ -831,9 +831,11 @@ Update by Monday midnight and get $20 in laundry credit, automatically added to 
 **Standing instruction:** When checking or modifying customer data, update `total_orders` and `lifetime_value` stats.
 
 **Next steps for tomorrow:**
-- Continue email + SMS blasts to wider audience (2,345 customers with 5+ orders, or 4,768 with email + order history).
+- Continue email + SMS blasts to wider audience. Eligible pool after exclusions: **4,722 customers** (4,647 with email).
+- **Exclusion rules:** Always filter out (1) retail customers: `address_cache ILIKE '%2609 Foothill%'` (382 people — walk-in/drop-off at the processing center), and (2) commercial customers: `billing_type = 'on_account'` (49 people — billed separately, not self-service app users). 2 overlap both.
 - Use the same DO $$ / pg_net method documented above.
 - Consider updating the $20 credit deadline wording if Monday has passed.
+- David may want to batch the 4,722 into tiers (e.g., most active first) rather than blasting all at once.
 
 ---
 
