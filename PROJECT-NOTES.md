@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 23, 2026 — Launch blast #3 sent to 216 remaining customers, Kanban UX fix, driver undo removal (session 55)*
+*Last updated: Mar 23, 2026 — Launch blast #3 (216 customers), Kanban UX fixes, driver undo removal, zone badges on Folding cards (session 55)*
 
 ---
 
@@ -808,10 +808,15 @@ There are actually **two separate hang points** that must both be covered:
 - The "skip" undo bar was kept intact — different use case, less prone to accidental taps.
 - Change: lines ~2747-2754 replaced `showUndoBar(...)` call with a comment explaining the removal.
 
-**Files changed (not yet committed/pushed — git lock files may need clearing):**
-- `admin-dashboard/index.html` — Kanban UX (no-drag intake, search all columns)
-- `driver-app/index.html` — undo bar removal
-- `PROJECT-NOTES.md` — this entry
+**Folding column now shows delivery zone — `admin-dashboard/index.html`:**
+- Each card in the Folding column displays a color-coded zone badge (e.g. "📍 Oakland", "📍 Alameda") so the folder knows where to rack each order.
+- `loadFolding()` query updated to join `service_zones(name, color)` via `zone_id`.
+- Badge uses the zone's map color for dot + tinted background, with dark text for readability (avoids yellow/green text contrast issues).
+
+**Commits:**
+- `b86a515` — fix: disable Intake drag + add Kanban search + remove driver undo bar
+- `52f0de6` — docs: session 55 — launch blast #3 to 216 customers
+- `4796bae` — feat: show delivery zone on Folding kanban cards
 
 ---
 
