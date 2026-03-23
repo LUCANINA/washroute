@@ -2619,6 +2619,17 @@
         </div>
       </div>
 
+      <!-- Same-day toggle (appears after pickup slot confirmed, if eligible) -->
+      <div id="no-sameday-card" style="display:none;border:1.5px solid rgba(99,91,255,.25);border-radius:10px;padding:12px 14px;background:rgba(99,91,255,.04)">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin:0">
+          <input type="checkbox" id="no-sameday-chk" onchange="toggleNoSameDay()" style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer" />
+          <div>
+            <div style="font-size:13.5px;font-weight:700;color:var(--gray-900)" id="no-sameday-label">⚡ Same-day delivery</div>
+            <div style="font-size:12px;color:var(--gray-500);margin-top:2px" id="no-sameday-sub"></div>
+          </div>
+        </label>
+      </div>
+
       <!-- Delivery section — appears after pickup slot confirmed -->
       <div id="no-delivery-section" style="display:none;border:1px solid var(--gray-200);border-radius:10px;overflow:hidden">
         <div style="background:var(--gray-50);padding:9px 14px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;justify-content:space-between">
@@ -2628,6 +2639,11 @@
         <div style="padding:14px;display:flex;flex-direction:column;gap:12px">
           <!-- Confirmed delivery summary (shown by default) -->
           <div id="nd-delivery-summary" style="font-size:13px;color:var(--gray-700);font-weight:500"></div>
+          <!-- Delivery route template picker (lets admin pick a different route for delivery) -->
+          <div id="nd-route-section" style="display:none">
+            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">Delivery Route</div>
+            <div id="nd-routes" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+          </div>
           <!-- Day grid (hidden until Change clicked or no auto-slot found) -->
           <div id="nd-day-section" style="display:none">
             <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em">Day</div>
@@ -10008,6 +10024,9 @@ ${totalLinesXml}
   let _noDelivEnd     = null;
   let _noDelivLabel   = null;   // time-window label for delivery slot
   let _noDelivDate    = null;   // LOCAL date (YYYY-MM-DD) for delivery
+  let _noDelivTmpl    = null;   // delivery route template (can differ from pickup template)
+  let _noIsSameDay    = false;  // same-day delivery toggle state
+  let _noSameDaySurcharge = 0;  // cached same-day surcharge amount
   let _noAddressCity  = '';   // city of selected address — used as fallback for zone detection
   let _noAddresses    = [];  // loaded addresses for the current customer
   let _noZoneIds      = new Set(); // zone IDs detected via PostGIS for the selected address
@@ -10094,6 +10113,9 @@ ${totalLinesXml}
     _noDelivEnd     = null;
     _noDelivLabel   = null;
     _noDelivDate    = null;
+    _noDelivTmpl    = null;
+    _noIsSameDay    = false;
+    _noSameDaySurcharge = 0;
     _noDayLimit     = 28;
     _noTipType      = 'dollar';
     _noAddressCity  = '';
@@ -10104,6 +10126,7 @@ ${totalLinesXml}
     document.getElementById('no-day-bar').style.display          = 'none';
     document.getElementById('no-slot-section').style.display     = 'none';
     document.getElementById('no-pickup-summary').style.display   = 'none';
+    document.getElementById('no-sameday-card').style.display     = 'none';
     document.getElementById('no-delivery-section').style.display = 'none';
     setNoTipType('dollar');
     document.getElementById('o-notes').value = '';
@@ -10145,7 +10168,7 @@ ${totalLinesXml}
 
     // Route templates for inline slot picker
     const { data: tmpls, error: tmplErr } = await db.from('route_templates')
-      .select('id, name, color, schedule_days, window_start, window_end, arrival_window_hours, zone_id, service_zones(id, name, cities)')
+      .select('id, name, color, schedule_days, window_start, window_end, arrival_window_hours, turnaround_hours, zone_id, service_zones(id, name, cities)')
       .eq('is_active', true).order('name');
     if (tmplErr) console.error('populateOrderModal route_templates error:', tmplErr);
     _noTemplates = tmpls || [];
@@ -10192,10 +10215,12 @@ ${totalLinesXml}
     }
 
     // Re-filter routes by the new customer's address city
-    _noSelectedTmpl = null;
-    document.getElementById('no-route-expanded').style.display = '';
-    document.getElementById('no-route-bar').style.display      = 'none';
-    document.getElementById('no-day-section').style.display    = 'none';
+    _noSelectedTmpl = null; _noDelivTmpl = null; _noIsSameDay = false;
+    document.getElementById('no-route-expanded').style.display   = '';
+    document.getElementById('no-route-bar').style.display        = 'none';
+    document.getElementById('no-day-section').style.display      = 'none';
+    document.getElementById('no-sameday-card').style.display     = 'none';
+    document.getElementById('no-delivery-section').style.display = 'none';
     renderNoRoutes();
   }
 
@@ -10225,10 +10250,12 @@ ${totalLinesXml}
     const sel = document.getElementById('o-address');
     const opt = sel.options[sel.selectedIndex];
     _noAddressCity = opt?.dataset.city || '';
-    _noSelectedTmpl = null; // clear any prior route selection
-    document.getElementById('no-route-expanded').style.display = '';
-    document.getElementById('no-route-bar').style.display      = 'none';
-    document.getElementById('no-day-section').style.display    = 'none';
+    _noSelectedTmpl = null; _noDelivTmpl = null; _noIsSameDay = false;
+    document.getElementById('no-route-expanded').style.display   = '';
+    document.getElementById('no-route-bar').style.display        = 'none';
+    document.getElementById('no-day-section').style.display      = 'none';
+    document.getElementById('no-sameday-card').style.display     = 'none';
+    document.getElementById('no-delivery-section').style.display = 'none';
     // Detect zones via PostGIS for the selected address
     const addr = _noAddresses.find(a => a.id === sel.value);
     await _noDetectZones(addr);
@@ -10275,8 +10302,10 @@ ${totalLinesXml}
     document.getElementById('no-day-expanded').style.display     = '';
     document.getElementById('no-slot-section').style.display     = 'none';
     document.getElementById('no-pickup-summary').style.display   = 'none';
+    document.getElementById('no-sameday-card').style.display     = 'none';
     document.getElementById('no-delivery-section').style.display = 'none';
-    _noDelivStart = null; _noDelivEnd = null; _noDelivLabel = null;
+    _noDelivStart = null; _noDelivEnd = null; _noDelivLabel = null; _noDelivTmpl = null;
+    _noIsSameDay = false;
 
     renderNoDays();
     document.getElementById('no-day-section').style.display = '';
@@ -10289,9 +10318,11 @@ ${totalLinesXml}
     document.getElementById('no-day-section').style.display      = 'none';
     document.getElementById('no-slot-section').style.display     = 'none';
     document.getElementById('no-pickup-summary').style.display   = 'none';
+    document.getElementById('no-sameday-card').style.display     = 'none';
     document.getElementById('no-delivery-section').style.display = 'none';
     _noSelectedTmpl = null; _noPickupStart = null; _noPickupEnd = null; _noPickupLabel = null; _noPickupDate = null;
-    _noDelivStart   = null; _noDelivEnd    = null; _noDelivLabel  = null; _noDelivDate  = null;
+    _noDelivStart = null; _noDelivEnd = null; _noDelivLabel = null; _noDelivDate = null; _noDelivTmpl = null;
+    _noIsSameDay = false;
   }
 
   function expandNoDay() {
@@ -10300,9 +10331,11 @@ ${totalLinesXml}
     document.getElementById('no-day-expanded').style.display     = '';
     document.getElementById('no-slot-section').style.display     = 'none';
     document.getElementById('no-pickup-summary').style.display   = 'none';
+    document.getElementById('no-sameday-card').style.display     = 'none';
     document.getElementById('no-delivery-section').style.display = 'none';
     _noPickupStart = null; _noPickupEnd = null; _noPickupLabel = null; _noPickupDate = null;
-    _noDelivStart  = null; _noDelivEnd  = null; _noDelivLabel  = null; _noDelivDate  = null;
+    _noDelivStart = null; _noDelivEnd = null; _noDelivLabel = null; _noDelivDate = null; _noDelivTmpl = null;
+    _noIsSameDay = false;
   }
 
   // Shared helper: build time-slot array from a route template + ISO date
@@ -10348,24 +10381,13 @@ ${totalLinesXml}
     const now        = new Date();
     const base       = new Date(); base.setHours(0,0,0,0);
 
-    // Same-day cutoff: 30 min before route window_end (e.g. "22:00" → 21:30)
-    let todayCutoff = null;
-    if (tmpl.window_end) {
-      const [h, m] = tmpl.window_end.split(':').map(Number);
-      todayCutoff = new Date(base);
-      todayCutoff.setHours(h, m - 30, 0, 0);
-    }
-
+    // Admin can schedule any day including today — no cutoff (cutoff is customer-facing only)
     const days = [];
     for (let i = 0; i <= _noDayLimit; i++) {
       const d   = new Date(base); d.setDate(base.getDate() + i);
       const dow = (d.getDay() + 6) % 7;
       const iso = d.toLocaleDateString('sv');
-      let avail = activeDays.includes(dow);
-      // For today: only available if before the cutoff
-      if (i === 0 && avail) {
-        avail = todayCutoff ? now < todayCutoff : false;
-      }
+      const avail = activeDays.includes(dow);
       days.push({ d, dow, iso, avail });
     }
     document.getElementById('no-days').innerHTML = days.map(({ d, dow, iso, avail }) => {
@@ -10443,31 +10465,120 @@ ${totalLinesXml}
   // ── DELIVERY SECTION ─────────────────────────────────────────────────────────
   let _ndDaysVisible = false;   // whether the day/slot pickers are expanded
 
-  function initDeliverySection(pickupDateIso) {
+  async function initDeliverySection(pickupDateIso) {
     const tmpl = _noSelectedTmpl; if (!tmpl) return;
     _noDelivStart  = null;
     _noDelivEnd    = null;
     _noDelivLabel  = null;
+    _noDelivTmpl   = tmpl;  // default: same template as pickup
+    _noIsSameDay   = false;
     _ndDaysVisible = false;
+    document.getElementById('nd-route-section').style.display = 'none';
     document.getElementById('nd-day-section').style.display  = 'none';
     document.getElementById('nd-slot-section').style.display = 'none';
     document.getElementById('nd-change-btn').textContent = 'Change';
+    document.getElementById('no-sameday-chk').checked = false;
 
-    // Find the next available route day after pickup
+    // ── Check same-day delivery eligibility ──
+    const sameDayWindows = _checkNoSameDay(pickupDateIso);
+    if (sameDayWindows.length) {
+      // Fetch surcharge
+      if (!_noSameDaySurcharge) {
+        const { data: feeRow } = await db.from('service_fees')
+          .select('amount').ilike('name', '%same%day%').eq('is_active', true).limit(1).single();
+        _noSameDaySurcharge = parseFloat(feeRow?.amount || 0);
+      }
+      const surLabel = _noSameDaySurcharge > 0 ? `+${fmtMoney(_noSameDaySurcharge)} surcharge` : 'No extra charge';
+      const isToday = pickupDateIso === new Date().toLocaleDateString('sv');
+      document.getElementById('no-sameday-label').textContent = `⚡ ${isToday ? 'Deliver tonight' : 'Same-day delivery'}`;
+      document.getElementById('no-sameday-sub').textContent = `${sameDayWindows[0].label} · ${surLabel}`;
+      document.getElementById('no-sameday-card').style.display = '';
+      document.getElementById('no-sameday-card')._sdWindows = sameDayWindows;
+    } else {
+      document.getElementById('no-sameday-card').style.display = 'none';
+    }
+
+    // ── Standard delivery (next available day) ──
+    _autoSelectDelivery(pickupDateIso);
+    document.getElementById('no-delivery-section').style.display = '';
+  }
+
+  // Check if same-day delivery is possible: any zone-matching template has a window
+  // AFTER the pickup window ends, respecting turnaround_hours
+  function _checkNoSameDay(pickupDateIso) {
+    if (!_noPickupEnd) return [];
+    const pickupEndMs = new Date(_noPickupEnd).getTime();
+    const qualifying = [];
+    // Check ALL zone-matching templates for same-day delivery windows
+    let templates = _noTemplates;
+    if (_noZoneIds.size > 0) {
+      const zoneMatches = templates.filter(t => t.zone_id && _noZoneIds.has(t.zone_id));
+      if (zoneMatches.length) templates = zoneMatches;
+    }
+    templates.forEach(tmpl => {
+      const turnaround = (tmpl.turnaround_hours || 0) * 3600000;
+      if (!turnaround) return; // turnaround_hours = 0 means no same-day
+      const earliestMs = pickupEndMs + turnaround;
+      buildSlots(tmpl, pickupDateIso).forEach(s => {
+        if (new Date(s.start).getTime() >= earliestMs) {
+          qualifying.push({ ...s, tmplId: tmpl.id, tmplName: tmpl.name });
+        }
+      });
+    });
+    return qualifying.sort((a, b) => a.start < b.start ? -1 : 1);
+  }
+
+  function toggleNoSameDay() {
+    _noIsSameDay = document.getElementById('no-sameday-chk').checked;
+    const card = document.getElementById('no-sameday-card');
+    const sdWindows = card._sdWindows || [];
+    if (_noIsSameDay && sdWindows.length) {
+      // Lock delivery to the first same-day window
+      const win = sdWindows[0];
+      _noDelivStart = win.start;
+      _noDelivEnd   = win.end;
+      _noDelivLabel = win.label;
+      _noDelivDate  = _noPickupDate;
+      const delivTmpl = _noTemplates.find(t => t.id === win.tmplId);
+      _noDelivTmpl  = delivTmpl || _noSelectedTmpl;
+      const [yr, mo, dy] = _noPickupDate.split('-').map(Number);
+      const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+      document.getElementById('nd-delivery-summary').innerHTML =
+        `<span style="color:var(--accent);font-weight:700">⚡</span> Same-day · ${_noDelivTmpl?.name || ''} · ${dayFmt} · ${win.label}`;
+      // Hide change controls — same-day locks the delivery window
+      document.getElementById('nd-change-btn').style.display     = 'none';
+      document.getElementById('nd-route-section').style.display  = 'none';
+      document.getElementById('nd-day-section').style.display    = 'none';
+      document.getElementById('nd-slot-section').style.display   = 'none';
+      document.getElementById('no-delivery-section').style.display = '';
+    } else {
+      // Revert to standard delivery
+      _noIsSameDay = false;
+      document.getElementById('nd-change-btn').style.display = '';
+      _autoSelectDelivery(_noPickupDate);
+    }
+  }
+
+  // Auto-select the best delivery day/slot using the current _noDelivTmpl
+  function _autoSelectDelivery(pickupDateIso) {
+    const tmpl = _noDelivTmpl || _noSelectedTmpl;
+    if (!tmpl) return;
+    _noDelivTmpl = tmpl;
     const nextIso = nextAvailableDay(pickupDateIso, tmpl);
     if (!nextIso) {
       document.getElementById('nd-delivery-summary').textContent = 'No upcoming route days found — change manually.';
       _ndDaysVisible = true;
+      _renderNdRoutes();
       renderNdDays(pickupDateIso);
+      document.getElementById('nd-route-section').style.display = '';
       document.getElementById('nd-day-section').style.display = '';
     } else {
-      // Auto-select first slot on that day
       const slots = buildSlots(tmpl, nextIso);
       if (slots.length) {
         _noDelivStart = slots[0].start;
         _noDelivEnd   = slots[0].end;
         _noDelivLabel = slots[0].label;
-        _noDelivDate  = nextIso; // nextIso is already a local YYYY-MM-DD date string
+        _noDelivDate  = nextIso;
         const [yr, mo, dy] = nextIso.split('-').map(Number);
         const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
         document.getElementById('nd-delivery-summary').innerHTML =
@@ -10475,21 +10586,52 @@ ${totalLinesXml}
       } else {
         document.getElementById('nd-delivery-summary').textContent = 'No time slots for this route — change manually.';
       }
-      // Pre-render day+slot grids in background so "Change" is instant
       renderNdDays(pickupDateIso);
     }
     document.getElementById('no-delivery-section').style.display = '';
   }
 
+  // Render route template pills for the delivery section
+  function _renderNdRoutes() {
+    let templates = _noTemplates;
+    if (_noZoneIds.size > 0) {
+      const zoneMatches = templates.filter(t => t.zone_id && _noZoneIds.has(t.zone_id));
+      if (zoneMatches.length) templates = zoneMatches;
+    }
+    const el = document.getElementById('nd-routes');
+    el.innerHTML = templates.map(t => {
+      const sel = _noDelivTmpl?.id === t.id;
+      const dot = `<span style="width:8px;height:8px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>`;
+      return `<button class="sp-route-pill${sel?' selected':''}" style="padding:6px 12px;font-size:12.5px" onclick="selectNoDelivTemplate('${t.id}')" data-nd-tmpl="${t.id}">
+        ${dot}<span style="font-weight:600;color:var(--gray-900)">${t.name}</span>
+      </button>`;
+    }).join('');
+  }
+
+  function selectNoDelivTemplate(tmplId) {
+    _noDelivTmpl = _noTemplates.find(t => t.id === tmplId);
+    _noDelivStart = null; _noDelivEnd = null; _noDelivLabel = null; _noDelivDate = null;
+    // Highlight the selected pill
+    document.querySelectorAll('[data-nd-tmpl]').forEach(b =>
+      b.classList.toggle('selected', b.dataset.ndTmpl === tmplId));
+    // Refresh days for the new template
+    renderNdDays(_noPickupDate || new Date().toLocaleDateString('sv'));
+    document.getElementById('nd-day-section').style.display  = '';
+    document.getElementById('nd-slot-section').style.display = 'none';
+    document.getElementById('nd-delivery-summary').textContent = 'Select a delivery day and time below.';
+  }
+
   function toggleNdDays() {
     _ndDaysVisible = !_ndDaysVisible;
+    _renderNdRoutes();
+    document.getElementById('nd-route-section').style.display = _ndDaysVisible ? '' : 'none';
     document.getElementById('nd-day-section').style.display  = _ndDaysVisible ? '' : 'none';
     document.getElementById('nd-slot-section').style.display = _ndDaysVisible ? '' : 'none';
     document.getElementById('nd-change-btn').textContent = _ndDaysVisible ? 'Done' : 'Change';
   }
 
   function renderNdDays(afterIso) {
-    const tmpl = _noSelectedTmpl; if (!tmpl) return;
+    const tmpl = _noDelivTmpl || _noSelectedTmpl; if (!tmpl) return;
     const activeDays = tmpl.schedule_days || [0,1,2,3,4];
     const DAY_ABBR   = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
     const base = new Date(afterIso + 'T00:00:00');
@@ -10516,9 +10658,10 @@ ${totalLinesXml}
   function selectNdDay(iso) {
     document.querySelectorAll('#nd-days .sp-day-btn').forEach(b =>
       b.classList.toggle('selected', b.dataset.ndIso === iso));
-    _noDelivDayIso = iso; // capture local date before any UTC shift happens
+    _noDelivDayIso = iso;
     _noDelivStart = null; _noDelivEnd = null; _noDelivLabel = null;
-    const slots = buildSlots(_noSelectedTmpl, iso);
+    const tmpl = _noDelivTmpl || _noSelectedTmpl;
+    const slots = buildSlots(tmpl, iso);
     document.getElementById('nd-slots').innerHTML = !slots.length
       ? '<span style="color:var(--gray-400);font-size:13px">No slots — check route window times.</span>'
       : slots.map(s =>
@@ -10534,15 +10677,17 @@ ${totalLinesXml}
     _noDelivStart = startIso;
     _noDelivEnd   = endIso;
     _noDelivLabel = label;
-    _noDelivDate  = _noDelivDayIso || startIso.slice(0, 10); // use local date; fallback to UTC slice
+    _noDelivDate  = _noDelivDayIso || startIso.slice(0, 10);
+    const tmpl = _noDelivTmpl || _noSelectedTmpl;
     const [yr, mo, dy] = (_noDelivDayIso || startIso.split('T')[0]).split('-').map(Number);
     const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
     document.getElementById('nd-delivery-summary').innerHTML =
-      `<span style="color:var(--accent);font-weight:700">✓</span> ${_noSelectedTmpl?.name || ''} · ${dayFmt} · ${label}`;
+      `<span style="color:var(--accent);font-weight:700">✓</span> ${tmpl?.name || ''} · ${dayFmt} · ${label}`;
     // Collapse the pickers
     _ndDaysVisible = false;
-    document.getElementById('nd-day-section').style.display  = 'none';
-    document.getElementById('nd-slot-section').style.display = 'none';
+    document.getElementById('nd-route-section').style.display = 'none';
+    document.getElementById('nd-day-section').style.display   = 'none';
+    document.getElementById('nd-slot-section').style.display  = 'none';
     document.getElementById('nd-change-btn').textContent = 'Change';
   }
 
@@ -10650,12 +10795,13 @@ ${totalLinesXml}
     if (!serviceId)     { err.textContent='Service not available. Please reload.'; err.style.display='block'; return; }
     if (!_noPickupStart){ err.textContent='Please select a pickup slot.';  err.style.display='block'; return; }
 
-    // Calculate total from service base price × bags + delivery fee
+    // Calculate total from service base price × bags + delivery fee + same-day surcharge
     const svc = allServices.find(s => s.id === serviceId);
     const basePrice = svc ? parseFloat(svc.base_price || 0) : 0;
     const subtotal  = basePrice * bags;
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
+    const sameDaySurcharge = _noIsSameDay ? (_noSameDaySurcharge || 0) : 0;
     // Apply discount if selected
     let discountAmt = 0;
     if (discountId) {
@@ -10663,7 +10809,7 @@ ${totalLinesXml}
       const discOpt = couponSel?.querySelector(`option[value="${discountId}"]`);
       // We'll keep total_amount as the base estimate — billing adjustments happen later
     }
-    const totalAmount = subtotal + deliveryFee + tipRaw;
+    const totalAmount = subtotal + deliveryFee + sameDaySurcharge + tipRaw;
 
     const btn = document.querySelector('#modal-add-order .btn-primary');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -10679,10 +10825,11 @@ ${totalLinesXml}
         .select('id').eq('template_id', _noSelectedTmpl.id).eq('run_date', pickupDate).maybeSingle();
       if (pr) pickupRunId = pr.id;
     }
-    if (_noSelectedTmpl?.id && _noDelivStart) {
+    const delivTmplId = _noDelivTmpl?.id || _noSelectedTmpl?.id;
+    if (delivTmplId && _noDelivStart) {
       const delivDate = _noDelivDate || _noDelivStart.split('T')[0];
       const { data: dr } = await db.from('routes')
-        .select('id').eq('template_id', _noSelectedTmpl.id).eq('run_date', delivDate).maybeSingle();
+        .select('id').eq('template_id', delivTmplId).eq('run_date', delivDate).maybeSingle();
       if (dr) delivRunId = dr.id;
     }
 
@@ -10705,9 +10852,11 @@ ${totalLinesXml}
       tip_amount:            tipRaw,
       tip_type:              _noTipType,
       discount_id:           discountId,
+      is_same_day:           _noIsSameDay || false,
       line_items:            [
         { type: 'base', label: `${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`, amount: subtotal },
-        ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : [])
+        ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : []),
+        ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge }] : [])
       ],
       source:                'scheduled',
     }).select('id, order_number').single();
