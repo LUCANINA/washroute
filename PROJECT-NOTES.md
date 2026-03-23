@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 22, 2026 — Customer profiles enriched from Starchup: stats, tips, preferences for 53 customers (session 54)*
+*Last updated: Mar 23, 2026 — Launch blast #3 sent to 216 remaining customers, Kanban UX fix, driver undo removal (session 55)*
 
 ---
 
@@ -784,6 +784,34 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 23, 2026 (session 55) — Launch blast #3 (216 customers) + Kanban UX + driver undo removal
+
+**Launch blast #3 — email + SMS to 216 remaining customers with orders:**
+- Same email template ("We've upgraded your experience") and SMS ("Our new ordering app is live!") as blasts #1 and #2.
+- Same $20 credit deadline: "Update by Monday at midnight."
+- Audience: all customers with at least one order who were NOT reached by blast #1 (82) or #2 (49), excluding retail (address_cache ILIKE '%2609 Foothill%') and commercial (billing_type = 'on_account').
+- **Blast #3 results:** 216 emails sent, 215 SMS sent (1 customer missing phone number).
+- **All-time totals across 3 blasts:** 348 unique customers emailed, 347 unique customers texted.
+- Preflight safety check passed: 0 enabled message templates, 0 message-sending triggers on email/sms tables, 0 message-sending cron jobs.
+- Note: initial SMS run caught only ~0 new recipients because the `already_reached` CTE unioned email_messages (which now included the just-sent blast #3 emails). Fixed by targeting blast #3 email recipients who hadn't yet received an SMS.
+
+**Kanban (Processing Queue) UX improvements — `admin-dashboard/index.html`:**
+- **Intake column cards no longer draggable.** iPad users in a full column were accidentally moving cards when trying to scroll. Cards now use `onclick` (click-to-open) instead of drag. CSS class `no-drag` disables drag affordances.
+- **All 4 columns now searchable.** Added `<input class="kanban-search">` to Intake, Clean, Fold, and Rack columns. `filterKanbanCol()` function filters cards by text content. Search re-applied after each render cycle so it persists through data refreshes.
+- Kanban card template for Intake changed from `draggable="true"` to `class="proc-card no-drag"` with `onclick` handler.
+
+**Driver app — undo bar removed for completed stops — `driver-app/index.html`:**
+- Removed the 12-second undo bar that appeared after a driver completed a pickup or delivery. Drivers were instinctively tapping the undo bar, reversing completed stops.
+- The "skip" undo bar was kept intact — different use case, less prone to accidental taps.
+- Change: lines ~2747-2754 replaced `showUndoBar(...)` call with a comment explaining the removal.
+
+**Files changed (not yet committed/pushed — git lock files may need clearing):**
+- `admin-dashboard/index.html` — Kanban UX (no-drag intake, search all columns)
+- `driver-app/index.html` — undo bar removal
+- `PROJECT-NOTES.md` — this entry
 
 ---
 
