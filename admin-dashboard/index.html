@@ -16043,6 +16043,7 @@ ${totalLinesXml}
   let procActiveOrder = null, procSvc = null;
   let procBags = 1, procWeight = '', procAddons = {}, procNotes = '';
   let procAddonServices = {}; // { [serviceId]: { selected: bool, service: {...} } }
+  let procAddonPrefQty  = {}; // { [prefGroupId]: qty } — per-item qty for preference-linked services (Shirt Service, Air Dry)
   let procFeeExempt = false;  // true when customer has fee_exempt checked
   let procIsSameDay = false;  // true when pickup date === delivery date
   let procCustomerCredits = 0; // customer's available credit balance
@@ -16271,6 +16272,7 @@ ${totalLinesXml}
     document.getElementById('intake-error').style.display  = 'none';
     procAddons = {};
     procAddonServices = {};
+    procAddonPrefQty  = {};
     renderIntakePanel();
     document.getElementById('intake-panel').classList.add('open');
 
@@ -16308,6 +16310,7 @@ ${totalLinesXml}
     // the Preferences section automatically shows up in the intake form — no extra steps.
     // Use the customer's saved choice; fall back to the global default.
     procAddons = {};
+    procAddonPrefQty = {};
     allPreferencesCache.forEach(g => {
       if (!(g.options || []).length) return;
       if (customerPrefs[g.id]) {
@@ -16377,7 +16380,7 @@ ${totalLinesXml}
           </div>
         </div>`).join('');
 
-      // Add-on preferences (Vinegar, Oxi, Double Wash) — compact togglable chips
+      // Add-on preferences (Vinegar, Oxi, Double Wash, Shirt Service, Air Dry) — compact togglable chips
       const addonPrefChips = addonPrefsArr.length ? `
         <div class="proc-addon-group">
           <div class="proc-addon-group-label">Customer Add-ons</div>
@@ -16386,12 +16389,28 @@ ${totalLinesXml}
               const activeOpt = (g.options||[]).find(o => !o.is_default);
               if (!activeOpt) return '';
               const sel = procAddons[g.id]?.id === activeOpt.id;
-              const priceLabel = activeOpt.price_mod > 0 ? `+${fmtMoney(activeOpt.price_mod)}/bag` : '';
-              return `<button class="proc-addon-btn${sel?' selected':''}"
-                onclick="selectProcAddon('${g.id}','${activeOpt.id}','${(activeOpt.label||'').replace(/'/g,"\\'")}',${activeOpt.price_mod||0},'${(g.options.find(o=>o.is_default)?.id||'')}','${(g.options.find(o=>o.is_default)?.label||'').replace(/'/g,"\\'")}')">
-                <span class="proc-addon-btn-name">${g.name}</span>
-                ${priceLabel ? `<span class="proc-addon-btn-price">${priceLabel}</span>` : ''}
-              </button>`;
+              // Check if this preference has a linked service with per_item pricing
+              const linkedSvc  = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
+              const isPerItem  = linkedSvc?.pricing_type === 'per_item';
+              const chipPrice  = isPerItem ? parseFloat(linkedSvc.base_price || 0) : (activeOpt.price_mod || 0);
+              const unitLabel  = isPerItem ? '/item' : '/bag';
+              const priceLabel = chipPrice > 0 ? `+${fmtMoney(chipPrice)}${unitLabel}` : '';
+              const prefQty    = procAddonPrefQty[g.id] || 1;
+              const qtyRow     = (sel && isPerItem) ? `
+                <div style="display:flex;align-items:center;justify-content:center;gap:8px;width:120px">
+                  <button class="proc-stepper-btn" style="width:26px;height:26px;font-size:14px" onclick="event.stopPropagation();setProcAddonPrefQty('${g.id}',-1)">−</button>
+                  <span style="font-size:14px;font-weight:700;min-width:20px;text-align:center">${prefQty}</span>
+                  <button class="proc-stepper-btn" style="width:26px;height:26px;font-size:14px" onclick="event.stopPropagation();setProcAddonPrefQty('${g.id}',1)">+</button>
+                </div>` : '';
+              return `<div style="display:flex;flex-direction:column;gap:6px;${isPerItem ? 'width:120px' : ''}">
+                <button class="proc-addon-btn${sel?' selected':''}"
+                  ${isPerItem ? 'style="width:100%"' : ''}
+                  onclick="selectProcAddon('${g.id}','${activeOpt.id}','${(activeOpt.label||'').replace(/'/g,"\\'")}',${activeOpt.price_mod||0},'${(g.options.find(o=>o.is_default)?.id||'')}','${(g.options.find(o=>o.is_default)?.label||'').replace(/'/g,"\\'")}')">
+                  <span class="proc-addon-btn-name">${g.name}</span>
+                  ${priceLabel ? `<span class="proc-addon-btn-price">${priceLabel}</span>` : ''}
+                </button>
+                ${qtyRow}
+              </div>`;
             }).join('')}
           </div>
         </div>` : '';
@@ -16482,7 +16501,7 @@ ${totalLinesXml}
       if (hasLinkedSvc) return;
       rows.push(`<div class="proc-breakdown-row"><span>${a.label}</span><span class="amount">+${fmtMoney(a.price_mod)}</span></div>`);
     });
-    // Preference-linked services (Vinegar, Oxi) — auto-billed when chip = non-default (Yes)
+    // Preference-linked services (Vinegar, Oxi, Shirt Service, Air Dry) — auto-billed when chip = non-default (Yes)
     allPreferencesCache.forEach(g => {
       const selId  = procAddons[g.id]?.id;
       if (!selId) return;
@@ -16491,8 +16510,11 @@ ${totalLinesXml}
       const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
       if (linkedSvc) {
         const price   = parseFloat(linkedSvc.base_price) || 0;
-        const lineAmt = price * bd.bags;
-        rows.push(`<div class="proc-breakdown-row"><span>${linkedSvc.name} × ${bd.bags} bag${bd.bags!==1?'s':''}</span><span class="amount">+${fmtMoney(lineAmt)}</span></div>`);
+        const isItem  = linkedSvc.pricing_type === 'per_item';
+        const units   = isItem ? (procAddonPrefQty[g.id] || 1) : bd.bags;
+        const unit    = isItem ? 'item' : 'bag';
+        const lineAmt = price * units;
+        rows.push(`<div class="proc-breakdown-row"><span>${linkedSvc.name} × ${units} ${unit}${units!==1?'s':''}</span><span class="amount">+${fmtMoney(lineAmt)}</span></div>`);
       }
     });
     // Additional services (Shirt Service, Air Dry, etc.)
@@ -16556,7 +16578,8 @@ ${totalLinesXml}
         const units = a.service.pricing_type === 'per_item' ? (a.qty || 1) : bags;
         return s + price * units;
       }, 0);
-    // Preference-linked services (Vinegar, Oxi): auto-charged when chip = non-default (Yes)
+    // Preference-linked services (Vinegar, Oxi, Shirt Service, Air Dry): auto-charged when chip = non-default (Yes)
+    // per_item services use procAddonPrefQty; everything else uses bags
     const prefLinkedSvc_total = allPreferencesCache.reduce((sum, g) => {
       const selId  = procAddons[g.id]?.id;
       if (!selId) return sum;
@@ -16564,7 +16587,9 @@ ${totalLinesXml}
       if (!selOpt || selOpt.is_default) return sum;
       const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
       if (!linkedSvc) return sum;
-      return sum + (parseFloat(linkedSvc.base_price) || 0) * bags;
+      const price = parseFloat(linkedSvc.base_price) || 0;
+      const units = linkedSvc.pricing_type === 'per_item' ? (procAddonPrefQty[g.id] || 1) : bags;
+      return sum + price * units;
     }, 0);
     const { deliveryFee, sameDaySurcharge, deliveryTotal } = getDeliveryFees();
     const subtotal = base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total + deliveryTotal;
@@ -16586,6 +16611,15 @@ ${totalLinesXml}
     procWeight = val;
     refreshProcCalc();
     updateIntakeSaveBtn();
+  }
+
+  // setProcAddonPrefQty: adjust per-item quantity for a preference-linked service (Shirt Service, Air Dry)
+  function setProcAddonPrefQty(groupId, delta) {
+    const cur = procAddonPrefQty[groupId] || 1;
+    procAddonPrefQty[groupId] = Math.max(1, cur + delta);
+    const savedWeight = document.getElementById('proc-weight-inp')?.value || procWeight;
+    procWeight = savedWeight;
+    renderIntakePanel();
   }
 
   // selectProcAddon: for add-on chips, optId is the non-default "Yes" option.
@@ -16649,6 +16683,7 @@ ${totalLinesXml}
     document.getElementById('intake-panel').classList.remove('open');
     procActiveOrder = null; procSvc = null;
     procFeeExempt = false; procIsSameDay = false;
+    procAddonPrefQty = {};
   }
 
   // ── INTAKE: "Next Step" button — advances order to the next column ──
@@ -16679,9 +16714,12 @@ ${totalLinesXml}
       const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
       if (linkedSvc) {
         const price   = parseFloat(linkedSvc.base_price) || 0;
-        const lineAmt = price * bd.bags;
+        const isItem  = linkedSvc.pricing_type === 'per_item';
+        const units   = isItem ? (procAddonPrefQty[g.id] || 1) : bd.bags;
+        const unit    = isItem ? 'item' : 'bag';
+        const lineAmt = price * units;
         lineItems.push({ type:'pref_service', service_id: linkedSvc.id,
-          label: `${linkedSvc.name} × ${bd.bags} bag${bd.bags!==1?'s':''}`, amount: lineAmt });
+          label: `${linkedSvc.name} × ${units} ${unit}${units!==1?'s':''}`, amount: lineAmt });
       } else {
         // No linked service — use the preference price_mod directly (rare case)
         const priceMod = parseFloat(sel.price_mod || 0);
