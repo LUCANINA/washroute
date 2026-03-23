@@ -8310,17 +8310,17 @@ ${totalLinesXml}
         const convRow = m.customer_id ? convByCustomer[m.customer_id] : convByPhone[phone];
         convMap[key] = {
           key, customer_id: m.customer_id, cust: m.customers,
-          phone, latest: m, unread: 0, channel: 'sms',
+          phone, latest: m, unread: 0, hasInbound: false, channel: 'sms',
           conv_id: convRow?.id || null,
           db_status: convRow?.status || null,
         };
       }
-      if (m.direction === 'inbound') convMap[key].unread++;
+      if (m.direction === 'inbound') { convMap[key].unread++; convMap[key].hasInbound = true; }
     });
 
-    // Determine effective status
+    // Determine effective status — only show conversations where the customer has replied
     const _24hAgo = Date.now() - 24 * 60 * 60 * 1000;
-    const convs = Object.values(convMap).map(c => {
+    const convs = Object.values(convMap).filter(c => c.hasInbound).map(c => {
       const latestIsInbound = c.latest.direction === 'inbound';
       let status = c.db_status || 'open';
       if (latestIsInbound && status === 'waiting') status = 'open'; // re-open only if waiting (not if explicitly archived)
