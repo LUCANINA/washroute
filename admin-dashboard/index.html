@@ -886,8 +886,10 @@
     /* ── PROCESSING QUEUE ── */
     .proc-queue-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px; }
     .proc-card { background:white;border:1px solid var(--gray-200);border-radius:var(--radius);padding:18px 20px;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s,border-color .15s;cursor:grab;touch-action:none;user-select:none; }
+    .proc-card.no-drag { cursor:pointer;touch-action:auto;user-select:auto; }
     .proc-card:hover { box-shadow:0 4px 18px rgba(0,0,0,.1);border-color:var(--accent); }
     .proc-card:active { cursor:grabbing; }
+    .proc-card.no-drag:active { cursor:pointer; }
     .kanban-col-body.drag-lock { overflow-y:hidden; } /* freeze column scroll while finger-dragging */
     .proc-card.dragging { opacity:.2;box-shadow:none; }
     .proc-card-order { font-size:11.5px;color:var(--gray-400);font-family:monospace;letter-spacing:.03em; }
@@ -922,6 +924,10 @@
     .kcol-clean.drag-over   { background:rgba(58,155,181,.10) !important;outline:2px dashed #3a9bb5;outline-offset:-4px; }
     .kcol-folding.drag-over { background:rgba(91,141,184,.10) !important;outline:2px dashed #5b8db8;outline-offset:-4px; }
     .kcol-rack.drag-over    { background:rgba(58,155,181,.10) !important;outline:2px dashed #3a9bb5;outline-offset:-4px; }
+    .kanban-search { padding:5px 10px;border:1.5px solid var(--gray-200);border-radius:7px;font-size:12px;font-family:inherit;outline:none;width:100%;box-sizing:border-box;transition:border-color .15s,box-shadow .15s;background:white; }
+    .kanban-search:focus { border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,91,255,.10); }
+    .kanban-search::placeholder { color:var(--gray-300); }
+    .kanban-search-wrap { padding:6px 12px 2px; }
     .kanban-col-hint { font-size:10px;color:var(--gray-400);margin-left:auto;font-weight:400; }
     .kanban-drop-label { font-size:10px;font-weight:700;margin-left:auto;opacity:0;transition:opacity .15s;color:var(--accent); }
     .kcol-intake.drag-over  .kanban-drop-label,
@@ -1399,6 +1405,7 @@
                   <span class="proc-tab-badge kbadge-intake" id="ptab-badge-intake">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
+                <div class="kanban-search-wrap"><input class="kanban-search" id="kanban-search-intake" placeholder="Search…" oninput="filterKanbanCol('intake')"></div>
                 <div class="kanban-col-body" id="proc-queue-wrap">
                   <div class="loading"><div class="spinner"></div> Loading…</div>
                 </div>
@@ -1413,6 +1420,7 @@
                   <span class="proc-tab-badge kbadge-clean" id="ptab-badge-clean">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
+                <div class="kanban-search-wrap"><input class="kanban-search" id="kanban-search-clean" placeholder="Search…" oninput="filterKanbanCol('clean')"></div>
                 <div class="kanban-col-body" id="clean-queue-wrap">
                   <div class="loading"><div class="spinner"></div> Loading…</div>
                 </div>
@@ -1427,6 +1435,7 @@
                   <span class="proc-tab-badge kbadge-folding" id="ptab-badge-folding">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
+                <div class="kanban-search-wrap"><input class="kanban-search" id="kanban-search-fold" placeholder="Search…" oninput="filterKanbanCol('fold')"></div>
                 <div class="kanban-col-body" id="fold-queue-wrap">
                   <div class="loading"><div class="spinner"></div> Loading…</div>
                 </div>
@@ -1441,6 +1450,7 @@
                   <span class="proc-tab-badge kbadge-rack" id="ptab-badge-rack">0</span>
                   <span class="kanban-drop-label">← drop here</span>
                 </div>
+                <div class="kanban-search-wrap"><input class="kanban-search" id="kanban-search-rack" placeholder="Search…" oninput="filterKanbanCol('rack')"></div>
                 <div class="kanban-col-body" id="rack-queue-wrap">
                   <div class="loading"><div class="spinner"></div> Loading…</div>
                 </div>
@@ -15372,6 +15382,21 @@ ${totalLinesXml}
     );
   }
 
+  /* ── Kanban column search ── */
+  function filterKanbanCol(col) {
+    const wrapIds = { intake:'proc-queue-wrap', clean:'clean-queue-wrap', fold:'fold-queue-wrap', rack:'rack-queue-wrap' };
+    const prefixes = { intake:'proc-card-', clean:'clean-card-', fold:'fold-card-', rack:'racked-card-' };
+    const wrap = document.getElementById(wrapIds[col]);
+    if (!wrap) return;
+    const q = (document.getElementById('kanban-search-' + col)?.value || '').toLowerCase().trim();
+    const cards = wrap.querySelectorAll('.proc-card, .racked-card');
+    cards.forEach(card => {
+      if (!q) { card.style.display = ''; return; }
+      const text = card.textContent.toLowerCase();
+      card.style.display = text.includes(q) ? '' : 'none';
+    });
+  }
+
   function onKanbanColLeave(event, colId) {
     const col = document.getElementById(colId);
     if (col && !col.contains(event.relatedTarget)) col.classList.remove('drag-over');
@@ -15607,6 +15632,7 @@ ${totalLinesXml}
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
       </div>`;
     }).join('');
+    filterKanbanCol('fold'); // re-apply search if active
   }
 
   function openFoldPanel(orderId) {
@@ -15784,6 +15810,7 @@ ${totalLinesXml}
         </div>
       </div>`;
     }).join('');
+    filterKanbanCol('rack'); // re-apply search if active
   }
 
   // Rack panel
@@ -16142,6 +16169,7 @@ ${totalLinesXml}
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
       </div>`;
     }).join('');
+    filterKanbanCol('clean'); // re-apply search if active
   }
 
   function renderProcQueue() {
@@ -16172,15 +16200,9 @@ ${totalLinesXml}
       // Show chips for pref options that have a price mod (non-standard selections)
       const premiumOpts = [];
       prefs.forEach(g => { const d = (g.options||[]).find(opt=>opt.is_default); if(d&&d.price_mod>0) premiumOpts.push(d.label); });
-      return `<div class="proc-card" id="proc-card-${o.id}"
+      return `<div class="proc-card no-drag" id="proc-card-${o.id}"
         style="cursor:pointer"
-        onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openIntakePanel('${o.id}')`}"
-        draggable="true"
-        ondragstart="dragStartOrder(event,'${o.id}')"
-        ondragend="dragEndOrder('${o.id}')"
-        ontouchstart="touchStartOrder(event,'${o.id}')"
-        ontouchmove="touchMoveOrder(event)"
-        ontouchend="touchEndOrder(event)">
+        onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openIntakePanel('${o.id}')`}">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
           <div>
             <div class="proc-card-order">#${o.order_number||'—'}</div>
@@ -16197,6 +16219,7 @@ ${totalLinesXml}
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
       </div>`;
     }).join('');
+    filterKanbanCol('intake'); // re-apply search if active
   }
 
   async function openIntakePanel(orderId) {
