@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 22, 2026 — PM backfill complete: 44 Monday PM pickups across 5 routes, 46 total with pre-existing orders (session 51 cont'd)*
+*Last updated: Mar 22, 2026 — Launch blast #2 sent to 49 customers with upcoming orders + service_id fix on backfilled orders (session 52)*
 
 ---
 
@@ -787,6 +787,56 @@ There are actually **two separate hang points** that must both be covered:
 
 ---
 
+### Mar 22, 2026 (session 52) — Launch blast #2 (49 customers) + service_id fix
+
+**Launch blast #2 — email + SMS to 49 customers with upcoming scheduled orders:**
+- Targeted customers who have orders with `pickup_window_start >= '2026-03-23'` and `status = 'scheduled'` but were NOT in the first blast (84 customers reached in blast #1).
+- Same email subject: `The new Family Laundry app is live - log in for $20 Credit`
+- Same SMS body: personalized "Hi {first_name}, Family Laundry here. Our new ordering app is live!..." with app link and $20 credit deadline.
+- **Total customers now reached: 132** (83 email + 49 email = 132 emails; 84 SMS + 50 SMS = 134 SMS — slight overlap due to 2 extra customers in SMS batch).
+
+**How the blast works (reference for future blasts):**
+1. Identify unreached customers via CTE that unions `email_messages` (by subject match) and `sms_messages` (by date range + direction).
+2. Email: `DO $$ ... FOR r IN (SELECT ...) LOOP ... PERFORM net.http_post(url := 'https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/send-email', ..., body := jsonb_build_object('to_email', r.email_cache, 'subject', '...', 'body', email_html, 'customer_id', r.id)) ... END LOOP; END $$;`
+3. SMS: Same pattern but calls `/functions/v1/send-sms` with `jsonb_build_object('to', r.phone_cache, 'body', sms_text, 'customer_id', r.id)`.
+4. Both edge functions log to `email_messages` / `sms_messages` tables automatically.
+5. **Critical param names:** `send-email` expects `to_email`, `subject`, `body`. `send-sms` expects `to`, `body`, `customer_id`. (First attempt used wrong param `to` instead of `to_email` for email — got 400 errors; fixed on retry.)
+6. Auth: `Authorization: Bearer` + `current_setting('app.settings.service_role_key', true)` — the service role key is available inside pg_net DO blocks via this Postgres setting.
+
+**Email HTML template (inline, no external file):**
+- Heading: "We've upgraded your experience"
+- Personalized greeting: "Hi {first_name},"
+- Body: app intro, "Your account is ready", numbered steps (log in, update details)
+- Green callout box: "$20 credit if you update by Monday at midnight"
+- Purple CTA button: "Open the App →" linking to `app.familylaundry.com`
+- Footer: "Questions? Reply to this email" + "The Family Laundry Team"
+- Inline CSS, max-width 520px, Apple system font stack
+
+**SMS template:**
+```
+Hi {first_name}, Family Laundry here. Our new ordering app is live! Log in now to update your preferences and payment details: app.familylaundry.com
+
+Update by Monday midnight and get $20 in laundry credit, automatically added to your account.
+```
+
+**Preflight safety check passed:** 0 enabled SMS templates, 0 message-sending triggers on email/sms tables, 0 cron jobs that send messages. Risk level: LOW.
+
+**Bug fix — missing `service_id` on backfilled orders:**
+- All 6 processing orders (#309–314) and 34 of the 44 PM pickup orders (#264–308) had `service_id = NULL` from the backfill INSERT.
+- Without `service_id`, the admin Details tab couldn't look up the Wash & Fold price ($59/bag) — showed only the delivery fee ($9.95).
+- Fixed: `UPDATE orders SET service_id = 'd97ba33a-...' WHERE order_number BETWEEN 264 AND 314 AND service_id IS NULL` — set all 40 to Wash & Fold Delivery service.
+- Also recalculated Order #310 (Suzanne Stroebe) line_items: 1 bag × $59 + $9.95 delivery = $68.95 total. Other processing orders will calculate correctly when edited in the admin UI since `service_id` is now set.
+- **Lesson for future backfills:** Always include `service_id` in the INSERT. The Wash & Fold Delivery service ID is `d97ba33a-4fb1-43e4-8bfa-29cd68b95fcb`.
+
+**Standing instruction:** When checking or modifying customer data, update `total_orders` and `lifetime_value` stats.
+
+**Next steps for tomorrow:**
+- Continue email + SMS blasts to wider audience (2,345 customers with 5+ orders, or 4,768 with email + order history).
+- Use the same DO $$ / pg_net method documented above.
+- Consider updating the $20 credit deadline wording if Monday has passed.
+
+---
+
 ### Mar 22, 2026 (session 51) — Launch blast to 82 customers + full PM backfill (44 orders)
 
 **Launch blast — emails + SMS sent to all 82 existing customers:**
@@ -823,11 +873,12 @@ Second pass (33 orders bulk-inserted from Starchup-filtered page):
 | Berkeley PM | 8 | 6 weekly, 1 biweekly, 1 one-time |
 | **Total** | **46** | (44 from Starchup + Chezka Solon + Harriett Feltman pre-existing) |
 
-**New customers created this session (4 total):**
+**New customers created this session (5 total):**
 - Karen White — k109036@msn.com, (415) 664-7942, 1270 44th Ave, San Francisco 94122
 - Dominic Volpatti — dvdrummer360@gmail.com, (916) 715-6617, 137 Garfield St, San Francisco 94132
 - Paula Murphy — paularuthmurphy@gmail.com, (510) 227-9773, 4866 Trinidad Ave, Oakland 94602 → Hayward zone
 - Jennifer Evans — jenjackson24@gmail.com, (415) 279-8260, 1504 Verdi St, Alameda 94501 → Alameda zone
+- Dennison Williams — (address from Starchup), 2800 Bryant St, San Francisco 94110 → SF zone
 
 **Address updates:**
 - Bronwyn Ayla: added "2000 Prince Street, Berkeley 94703" as second address (Starchup order address differs from existing "3326 Dwight Way, Berkeley 94704" in WashRoute)
@@ -844,7 +895,24 @@ Second pass (33 orders bulk-inserted from Starchup-filtered page):
 2. Never assign zones by city name alone — always check the zone map or match against existing customers in the same zip code.
 3. The `auto_route_order` function routes by time window match within a zone. If a pickup time falls outside all PM windows (e.g., 18:00 PT vs 19:00 PM start), it may fall back to AM routes. Always verify PM orders land on PM routes after auto-routing.
 
-**Monday 3/23 grand totals:** 58 AM pickups + 46 PM pickups + deliveries across Tue-Thu = ~170+ route stops for the week.
+**6 in-processing orders with PM deliveries on 3/23 (orders #309–314):**
+- These were older orders picked up 3/20–3/21, currently in processing, needing delivery stops on Monday PM routes.
+- Created with `status = 'processing'`, past pickup windows (for records), and 3/23 PM delivery windows.
+- `auto_route_on_insert` trigger does NOT fire for non-'scheduled' status — all 6 required manual `SELECT auto_route_order(id)` calls.
+- Dennison Williams was a new customer (created this session — 5th new customer total).
+
+| # | Customer | Route | Recurring |
+|---|----------|-------|-----------|
+| 309 | Linda Malbreau | Oakland PM | one-time |
+| 310 | Suzanne Stroebe | Berkeley PM | weekly |
+| 311 | Jennifer Lamphere | San Francisco PM | biweekly |
+| 312 | Patricia Hedl | Hayward PM | biweekly |
+| 313 | Gigi Gamble | Alameda PM | one-time |
+| 314 | Dennison Williams | San Francisco PM | one-time |
+
+**New customers created this session (5 total):** added Dennison Williams — 2800 Bryant St, San Francisco 94110 → SF zone.
+
+**Monday 3/23 grand totals:** 58 AM pickups + 46 PM pickups + 6 PM deliveries (in-processing) = 110 route stops on Monday alone, plus deliveries across Tue-Thu.
 
 ---
 
