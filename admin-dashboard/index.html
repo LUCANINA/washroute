@@ -8284,7 +8284,7 @@ ${totalLinesXml}
 
     // Load SMS messages only (email view removed for now)
     const { data: msgs, error } = await db.from('sms_messages')
-      .select('id, customer_id, direction, body, from_number, to_number, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, email_cache)')
+      .select('id, customer_id, direction, body, from_number, to_number, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, email_cache, sms_consent_at)')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -8423,7 +8423,7 @@ ${totalLinesXml}
       <div class="inbox-item-header">
         <div class="inbox-item-name">
           ${unreadDot}${esc(name)}
-          <span class="ch-badge ch-sms">SMS</span>
+          <span class="ch-badge ch-sms">SMS</span>${c.cust && !c.cust.sms_consent_at ? '<span style="font-size:11px;color:var(--red);font-weight:600;margin-left:6px">SMS opted out</span>' : ''}
         </div>
         <div class="inbox-item-time">${inboxTimeAgo(c.latest.created_at)}</div>
       </div>
@@ -8553,7 +8553,7 @@ ${totalLinesXml}
         <div class="inbox-thread-header-top">
           <div>
             <div class="inbox-thread-name">${name}</div>
-            <div class="inbox-thread-meta">${phone} · <span class="ch-badge ch-sms">SMS</span></div>
+            <div class="inbox-thread-meta">${phone} · <span class="ch-badge ch-sms">SMS</span>${convMeta.cust && !convMeta.cust.sms_consent_at ? ' <span style="color:var(--red);font-weight:600;font-size:12px">⚠ Opted out of SMS — texts won\'t be delivered</span>' : ''}</div>
           </div>
           <div class="inbox-thread-btns">
             <button class="btn-resolve ${resolveClass}" onclick="toggleResolve()" id="btn-resolve-thread">
