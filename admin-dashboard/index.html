@@ -15566,8 +15566,8 @@ ${totalLinesXml}
       allLaunCache = data || [];
     }
     const { data: orders } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id,
-               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type), services(name)`)
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, zone_id,
+               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type), services(name), service_zones(name, color)`)
       .eq('status', 'folding')
       .order('updated_at', { ascending: true });
     allFoldOrders = orders || [];
@@ -15594,6 +15594,8 @@ ${totalLinesXml}
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
       const folderName = allLaunCache.find(l => l.id === o.folded_by_id)?.name || null;
       const alreadyPaid = !!o.stripe_payment_intent_id;
+      const zoneName  = o.service_zones?.name  || '';
+      const zoneColor = o.service_zones?.color || '#94a3b8';
       const activeLaun  = allLaunCache.filter(l => l.is_active);
       const noFolderBadge = !o.folded_by_id ? `
         <div style="margin-top:8px;padding:7px 9px;background:#fef9c3;border:1.5px solid #f59e0b;border-radius:8px;display:flex;align-items:center;gap:7px" onclick="event.stopPropagation()">
@@ -15621,6 +15623,10 @@ ${totalLinesXml}
           ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Walk-in</span>`:''}
           ${alreadyPaid?`<span style="font-size:10px;font-weight:700;color:#059669">✅ Paid</span>`:''}
         </div>
+        ${zoneName ? `<div style="display:inline-flex;align-items:center;gap:5px;margin-top:4px;padding:3px 9px;border-radius:6px;background:${zoneColor}15;border:1.5px solid ${zoneColor}40">
+          <span style="width:8px;height:8px;border-radius:50%;background:${zoneColor};flex-shrink:0"></span>
+          <span style="font-size:11.5px;font-weight:700;color:var(--gray-700)">📍 ${zoneName}</span>
+        </div>` : ''}
         <div class="proc-card-meta">
           <span>📦 ${bags} bag${bags!==1?'s':''}</span>
           <span>⚖️ ${lbs}</span>
