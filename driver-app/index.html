@@ -2744,14 +2744,7 @@ async function completeStop(stopId, stopType) {
   if (updated) renderStopDetail(updated);
   renderHome();
 
-  // Show undo bar
-  const undoMsg = stopType === 'pickup' ? 'Pickup confirmed' : 'Delivery confirmed';
-  showUndoBar(undoMsg, {
-    type: 'complete',
-    stopId,
-    prevStopStatus: 'pending',
-    prevOrderStatus,
-  });
+  // Undo bar removed — drivers were instinctively tapping it, reversing completed stops
 
   // Re-optimize remaining stops from driver's current location (fire-and-forget)
   if (routeId && route?.status !== 'complete') {
