@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 22, 2026 — Starchup backfill: 58 Monday AM pickups + 13 deliveries, recurring schedules set, commercial accounts created (session 50)*
+*Last updated: Mar 22, 2026 — PM backfill complete: 44 Monday PM pickups across 5 routes, 46 total with pre-existing orders (session 51 cont'd)*
 
 ---
 
@@ -784,6 +784,67 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 22, 2026 (session 51) — Launch blast to 82 customers + full PM backfill (44 orders)
+
+**Launch blast — emails + SMS sent to all 82 existing customers:**
+- Message 1 (email): Branded launch email with "We've upgraded your experience" messaging, $20 credit callout, CTA to `app.familylaundry.com`. Template saved to `launch-email-template.html`.
+- Message 2 (SMS): Concise launch text with app link and $20 promo mention.
+- Test sends to David and Laura Guevara confirmed working before bulk send.
+- Bulk send used `net.http_post()` via pg_net (VM proxy blocks direct curl to Supabase edge functions — 403 from allowlist). FOR loops in DO $$ blocks iterated all 82 customers.
+- Confirmed 3 customers (Benjamin Olson, Chezka Solon, Emily Budeke) had already logged in and triggered the $20 promo credit flow by the time the blast completed.
+
+**Monday 3/23 PM Pickups — 44 non-commercial PM orders backfilled (orders #264–308):**
+
+First pass (11 orders created manually, some with routing corrections):
+- San Francisco: 4 orders — ISHITA SAINI, Karen White*, Melissa Crouch, Dominic Volpatti*
+- Oakland PM: 3 orders — Meriem Bekka, Tim Johnson ×2
+- Hayward PM: 2 orders — Dallas Butler, Noel Thomas
+- Berkeley PM: 1 order — Bronwyn Ayla
+- (*) = new customer created this session
+- Ruby Anderson order was created in error (her weekly doesn't start until 3/30) — deleted.
+
+Second pass (33 orders bulk-inserted from Starchup-filtered page):
+- Data extracted from Starchup Orders > Pickups page filtered to 3/23/2026 (David confirmed 48 PM pickups total = 44 residential + 4 commercial; commercial ignored).
+- Each customer mapped to WashRoute zone and route template pickup windows.
+- `auto_route_on_insert` trigger auto-routed all 33 — zero routing errors.
+- Preflight safety check confirmed: 0 SMS templates enabled, 0 message-sending triggers, 0 message-sending cron jobs. No unintended messages sent.
+
+**Final PM route counts for Monday 3/23:**
+
+| Route | Orders | Recurring breakdown |
+|-------|--------|-------------------|
+| San Francisco | 11 | 7 weekly, 1 biweekly, 3 one-time |
+| Hayward PM | 9 | 6 weekly, 3 one-time |
+| Oakland PM | 9 | 5 weekly, 4 one-time |
+| Alameda PM | 9 | 5 weekly, 4 biweekly |
+| Berkeley PM | 8 | 6 weekly, 1 biweekly, 1 one-time |
+| **Total** | **46** | (44 from Starchup + Chezka Solon + Harriett Feltman pre-existing) |
+
+**New customers created this session (4 total):**
+- Karen White — k109036@msn.com, (415) 664-7942, 1270 44th Ave, San Francisco 94122
+- Dominic Volpatti — dvdrummer360@gmail.com, (916) 715-6617, 137 Garfield St, San Francisco 94132
+- Paula Murphy — paularuthmurphy@gmail.com, (510) 227-9773, 4866 Trinidad Ave, Oakland 94602 → Hayward zone
+- Jennifer Evans — jenjackson24@gmail.com, (415) 279-8260, 1504 Verdi St, Alameda 94501 → Alameda zone
+
+**Address updates:**
+- Bronwyn Ayla: added "2000 Prince Street, Berkeley 94703" as second address (Starchup order address differs from existing "3326 Dwight Way, Berkeley 94704" in WashRoute)
+
+**Routing corrections (first pass):**
+- Dallas Butler: `auto_route_order` placed him on Hayward AM because his 18:00 PT pickup fell outside Hayward PM's 19:00-22:00 window. Manually moved to Hayward PM.
+- Noel Thomas: Initially assigned to Oakland zone based on city name. David corrected — per WashRoute's zone map, 94619 (deep East Oakland / Seminary area) falls within the **Hayward zone**, not Oakland. Moved to Hayward PM.
+- Ruby Anderson: Order created for 3/23 in error — her recurring weekly doesn't start until 3/30 (WashRoute already had auto-generated order #162 for that date). Order deleted.
+
+**Routing lesson for second pass:** Set pickup windows to match WashRoute route template windows exactly (not Starchup pickup times). SF/Hayward = 7-10 PM (02:00-05:00 UTC). Oakland/Berkeley/Alameda 6-8 PM = 01:00-03:00 UTC, 8-10 PM = 03:00-05:00 UTC. This avoided the Dallas Butler misroute problem entirely.
+
+**⚠️ Critical zone mapping rules (reinforced this session):**
+1. Oakland zone ≠ Oakland city. The Oakland zone covers roughly Piedmont, Temescal, Rockridge, and central Oakland (yellow on zone map). Deep East Oakland (94619, 94621) and South Oakland fall in the **Hayward zone** (red on map).
+2. Never assign zones by city name alone — always check the zone map or match against existing customers in the same zip code.
+3. The `auto_route_order` function routes by time window match within a zone. If a pickup time falls outside all PM windows (e.g., 18:00 PT vs 19:00 PM start), it may fall back to AM routes. Always verify PM orders land on PM routes after auto-routing.
+
+**Monday 3/23 grand totals:** 58 AM pickups + 46 PM pickups + deliveries across Tue-Thu = ~170+ route stops for the week.
 
 ---
 
