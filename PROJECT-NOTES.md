@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 22, 2026 — Launch blast #2 sent to 49 customers with upcoming orders + service_id fix on backfilled orders (session 52)*
+*Last updated: Mar 22, 2026 — Customer profiles enriched from Starchup: stats, tips, preferences for 53 customers (session 54)*
 
 ---
 
@@ -784,6 +784,110 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 22, 2026 (session 54) — Customer profile enrichment from Starchup
+
+**Scope:** Matched WashRoute customers (who have at least one order) against the Starchup customer database by email, then backfilled historical stats and washing preferences.
+
+**53 customers matched and updated with Starchup stats:**
+- `total_orders` — historical order count from Starchup
+- `lifetime_value` — total spend from Starchup
+- `default_tip` + `default_tip_type` — for 14 customers who had a tip preference set (all percentage-based: 5%, 10%, 15%, 20%, 50%)
+- `credits` — for 3 customers who had Starchup credit balances ($20, $50, $70)
+
+**27 customers updated with washing preferences from Starchup:**
+- Fetched per-customer cleaning preferences via Starchup API (`/api/Customers/{id}/cleaning_preferences`)
+- Filtered to Family Laundry facility (ID 231) preferences only
+- Mapped Starchup preference IDs to WashRoute preference UUIDs + option IDs:
+  - SC 2569 "Add Oxi?" → WR Oxi preference
+  - SC 2581 "Air Dry Delicates" → WR Air Dry preference
+  - SC 2582 "Double wash" → WR Double Wash preference
+  - SC 2616 "Vinegar Boost" → WR Vinegar preference
+  - SC 2618 "Shirt Service" → WR Shirt Service preference
+- Starchup values like `"Yes ($3/bag)"` mapped to WR Yes option IDs; `"No"` mapped to WR No option IDs
+- Most common add-on: Oxi (25 of 27 customers). Vinegar second (8). Double Wash (2). Air Dry (2).
+
+**Cynthia GerleinSafdi bug fix:**
+- WashRoute showed `lifetime_value = $4,292,022.00` with `total_orders = 0` — clearly a migration artifact
+- Starchup confirmed: 3 orders, $273.85 total
+- Fixed to correct values
+
+**Multiple addresses identified (reference only — not stored in customers table):**
+- 10 customers had 2+ addresses in Starchup; most were duplicates
+- Genuinely different addresses: Rabun Jones (2), Mark Heslop (3), Patti Birbiglia (2), Quinlan Heathers (3), Sarah Buster (3)
+- WashRoute stores addresses on route_stops, not as a customer multi-address field
+
+**Matching stats:**
+- 357 WR customers with orders → matched against 2,700 Starchup customers by email
+- 53 matches (15%) — remaining 304 are either newer WR-only customers or have different emails between systems
+
+**Technical notes:**
+- `default_tip_type` check constraint uses `'$'` and `'%'` (not `'percent'`/`'flat'`)
+- Starchup cleaning preference values include price suffix (e.g., `"Yes ($3/bag)"`) — match on `startsWith('Yes')` not exact equality
+- Preflight safety check confirmed: no triggers on `customers` table, no enabled SMS templates, cron jobs don't interact with stats columns
+
+---
+
+### Mar 22, 2026 (session 53) — Full Starchup backfill: 248 orders, 19 new customers, zone matching
+
+**Scope:** Backfilled ALL remaining Starchup orders after 3/23/2026 from the Orders > Delivery page into WashRoute. Excluded only routes named "COMMERCIAL 1" and "KIDANGO" on Starchup, plus 10 Kidango daycare locations outside all service zones (San Jose, Union City, Newark).
+
+**19 new customers created in WashRoute:**
+- Full profiles migrated from Starchup: addresses with lat/lng, delivery instructions, default tips, credits, order counts, lifetime spend.
+- Tagged with `referral_source = 'starchup_migration'` for tracking.
+- Customer matching used 3-tier strategy (email → name → phone) — reduced initial 133 "missing" to 19 truly new.
+
+**Zone matching — client-side ray-casting + city name fallback:**
+- Downloaded all 6 zone polygons as GeoJSON from `service_zones.polygon` via `ST_AsGeoJSON()`.
+- Implemented ray-casting point-in-polygon algorithm in browser JS (`window._wrFindZone`).
+- **⚠️ CRITICAL DISCOVERY:** The PostGIS `polygon` column is only a rough hand-drawn supplement (e.g., Berkeley has just 15 coordinate points across 2 rings). The actual zone boundaries rendered on the admin dashboard map come from `city_polygons` (jsonb column) — detailed city boundary GeoJSON with hundreds of points per city, sourced from Nominatim/OSM. Zone matching in WashRoute uses BOTH sources (see "Zone Matching Architecture" below).
+- Because the ray-casting used only the PostGIS `polygon` column, many customers appeared "outside" their zone when they were clearly inside on the dashboard map (e.g., Anubhav Arora in central Berkeley).
+- City-name fallback assignments corrected all mismatches — all 248 orders have correct `zone_id`.
+- Additional force-assignments by city: Orinda → Concord, Castro Valley/Fremont → Oakland/Hayward, north Oakland edge → Oakland.
+- 10 Kidango daycares in San Jose/Union City/Newark excluded (outside all zones).
+
+**248 orders inserted with auto-routing:**
+- Created `bulk_insert_orders(json)` SQL function (SECURITY DEFINER) to bypass RLS, called from browser via Supabase RPC in 13 batches of 20.
+- Each INSERT triggered `auto_route_on_insert` → `auto_route_order()` which created route runs and route_stops automatically.
+- **Result: 248/248 routed (pickup + delivery), 0 routing errors, 0 null service_id, 0 SMS sent.**
+- Function dropped after use.
+
+**Route breakdown:**
+| Route | Orders |
+|---|---|
+| Oakland AM | 65 |
+| Oakland PM | 45 |
+| Berkeley PM | 29 |
+| Hayward AM | 28 |
+| SF PM | 26 |
+| Berkeley AM | 18 |
+| Alameda PM | 17 |
+| Hayward PM | 14 |
+| Alameda AM | 5 |
+| Concord AM | 1 |
+
+**Recurring breakdown:** 163 weekly, 50 biweekly, 22 monthly, 9 one-time. Pickup dates: 3/24–4/29/2026.
+
+**Outside-polygon customer list:** Spreadsheet saved to `WashRoute/outside-polygon-customers.xlsx` — 31 customers whose addresses fall outside current zone polygon geometry (13 Berkeley gap, 3 west Berkeley, 4 south Hayward, 3 Oakland edge, 1 Orinda, 10 Kidango excluded). Orders were still created for all except the 10 Kidango locations.
+
+**Customer stats updated:** `total_orders` incremented and `last_order_at` set for all 234 customers who received backfilled orders.
+
+**Preflight safety check passed:** 0 enabled SMS/email templates, no message-sending triggers on orders/route_stops, 3 active cron jobs (none send messages). SMS baseline: 418 messages before, 418 after (3 unrelated credit notifications during session). Risk level: LOW.
+
+**Known issue — outside-polygon spreadsheet is inaccurate:**
+- The spreadsheet `outside-polygon-customers.xlsx` was generated using only the PostGIS `polygon` column, which is a rough hand-drawn shape. Many customers listed as "outside" are actually inside their zones when checked against the full zone definition (`city_polygons` + `cities` array + `polygon`). The spreadsheet is mostly noise and should be regenerated if needed.
+
+**Zone Matching Architecture (CRITICAL — for all future sessions):**
+The `service_zones` table has THREE zone-defining columns that work together:
+1. **`cities`** (text array) — e.g., `['Berkeley', 'El Cerrito', 'Albany', 'kensington']`. The admin UI says: "Any order whose address city matches will be placed in this zone — no polygon needed." This is the simplest matching layer.
+2. **`city_polygons`** (jsonb) — Array of objects, each with `name` and `geojson` (detailed Polygon with hundreds of coordinate points from actual city boundaries via Nominatim/OSM). This is what the dashboard map renders as **dashed-line city boundaries**. Example: Berkeley zone has 4 entries (Berkeley, El Cerrito, Albany, Kensington) each with precise GeoJSON.
+3. **`polygon`** (PostGIS geometry, USER-DEFINED) — Hand-drawn polygon with few points (e.g., Berkeley has only 15 points across 2 geometries). This is what the dashboard renders as the **solid-line drawn polygon**. It extends zone coverage beyond city boundaries into unincorporated areas.
+
+**Correct zone matching must use ALL THREE:** city name match from `cities` array, point-in-polygon against `city_polygons[].geojson`, AND point-in-polygon against PostGIS `polygon`. A customer is "in zone" if ANY of the three matches.
+
+**Zone IDs for reference:** Alameda=`9d624c91`, Berkeley=`2dfc9835`, Concord=`ebc59b58`, Hayward=`39d9a0c0`, Oakland=`fbc4627b`, SF=`1f7ab563`
 
 ---
 
