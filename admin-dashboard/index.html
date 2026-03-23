@@ -15763,6 +15763,40 @@ ${totalLinesXml}
     _tdId = null; _tdTapStart = null; _tdDragStarted = false; _tdLongPressReady = false;
   }
 
+  // ── PICKUP & DELIVERY INFO HELPER (shared across Fold / Rack / Intake panels) ──
+  function _buildPickupDeliveryHTML(o) {
+    const addrs = Array.isArray(o.customers?.addresses) ? o.customers.addresses : [];
+    const puAddr = addrs.find(a => a.id === o.pickup_address_id);
+    const dlAddr = addrs.find(a => a.id === o.delivery_address_id) || puAddr; // fallback to pickup addr
+    const puAddrStr = puAddr ? `${puAddr.line1}${puAddr.city ? ', '+puAddr.city : ''}` : null;
+    const dlAddrStr = dlAddr ? `${dlAddr.line1}${dlAddr.city ? ', '+dlAddr.city : ''}` : null;
+    const puDate = o.pickup_window_start ? fmtDate(o.pickup_window_start) : null;
+    const puSlot = o.pickup_window_start ? fmtSlot(o.pickup_window_start, o.pickup_window_end) : null;
+    const dlDate = o.delivery_window_start ? fmtDate(o.delivery_window_start) : null;
+    const dlSlot = o.delivery_window_start ? fmtSlot(o.delivery_window_start, o.delivery_window_end) : null;
+    const puRoute = o.pickup_run?.name || null;
+    const dlRoute = o.delivery_run?.name || null;
+    // Highlight if delivery is today or overdue
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    const dlDateRaw = o.delivery_window_start ? new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;
+    const isToday = dlDateRaw === today;
+    const isOverdue = dlDateRaw && dlDateRaw < today;
+    const dlHighlight = isOverdue ? 'color:#dc2626;font-weight:700' : isToday ? 'color:#059669;font-weight:700' : '';
+    const dlLabel = isOverdue ? ' (OVERDUE)' : isToday ? ' (TODAY)' : '';
+    let rows = '';
+    if (puAddrStr) rows += `<div class="fold-order-row"><span>Pickup address</span><strong style="font-size:12px;text-align:right;max-width:60%">${puAddrStr}</strong></div>`;
+    if (puDate) rows += `<div class="fold-order-row"><span>Picked up</span><strong>${puDate}${puSlot ? ' · '+puSlot : ''}</strong></div>`;
+    if (puRoute) rows += `<div class="fold-order-row"><span>Pickup route</span><strong>${puRoute}</strong></div>`;
+    if (dlAddrStr && dlAddrStr !== puAddrStr) rows += `<div class="fold-order-row"><span>Delivery address</span><strong style="font-size:12px;text-align:right;max-width:60%">${dlAddrStr}</strong></div>`;
+    if (dlDate) rows += `<div class="fold-order-row"><span>Delivery due</span><strong style="${dlHighlight}">${dlDate}${dlSlot ? ' · '+dlSlot : ''}${dlLabel}</strong></div>`;
+    if (dlRoute) rows += `<div class="fold-order-row"><span>Delivery route</span><strong>${dlRoute}</strong></div>`;
+    if (!rows) return ''; // no pickup/delivery data at all
+    return `<div class="intake-section" style="margin-top:4px">
+      <div class="intake-section-label">Pickup & Delivery</div>
+      <div class="fold-order-summary">${rows}</div>
+    </div>`;
+  }
+
   // ── FOLDING QUEUE ──
   let allFoldOrders = [], foldActiveOrder = null, foldSelectedLaunId = null;
 
@@ -15776,7 +15810,11 @@ ${totalLinesXml}
     }
     const { data: orders } = await db.from('orders')
       .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, zone_id,
-               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type), services(name), service_zones(name, color)`)
+               pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
+               pickup_address_id, delivery_address_id,
+               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, addresses(id,label,line1,city)),
+               services(name), service_zones(name, color),
+               pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('status', 'folding')
       .order('updated_at', { ascending: true });
     allFoldOrders = orders || [];
@@ -15909,6 +15947,7 @@ ${totalLinesXml}
           ${notesHTML}
         </div>
       </div>
+      ${_buildPickupDeliveryHTML(o)}
       <div class="intake-section">
         <div class="intake-section-label">Who is folding this order?</div>
         ${launHTML}
@@ -15976,7 +16015,11 @@ ${totalLinesXml}
     }
     const { data } = await db.from('orders')
       .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, rack_id, folded_by_id, source,
-               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type), services(name)`)
+               pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
+               pickup_address_id, delivery_address_id,
+               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, addresses(id,label,line1,city)),
+               services(name),
+               pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('status', 'ready_for_delivery')
       .order('racked_at', { ascending: false })
       .limit(20); // only show recently racked
@@ -16096,6 +16139,7 @@ ${totalLinesXml}
           ${notesHTML}
         </div>
       </div>
+      ${_buildPickupDeliveryHTML(o)}
       <div class="intake-section">
         <div class="intake-section-label">Which rack?</div>
         ${racksHTML}
@@ -16313,8 +16357,12 @@ ${totalLinesXml}
   async function loadIntakeCol() {
     const { data } = await db.from('orders')
       .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
-               stripe_payment_intent_id, customers(id, first_name_cache, last_name_cache, customer_type, preferences, billing_type),
-               services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
+               stripe_payment_intent_id,
+               pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
+               actual_pickup_at, pickup_address_id, delivery_address_id,
+               customers(id, first_name_cache, last_name_cache, customer_type, preferences, billing_type, addresses(id,label,line1,city)),
+               services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
+               pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('status', 'picked_up')
       .order('actual_pickup_at', { ascending: true });
     allProcOrders = data || [];
@@ -16331,7 +16379,11 @@ ${totalLinesXml}
     if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
     const { data } = await db.from('orders')
       .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id,
-               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type), services(name)`)
+               pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
+               pickup_address_id, delivery_address_id,
+               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, addresses(id,label,line1,city)),
+               services(name),
+               pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('status', 'processing')
       .order('updated_at', { ascending: true });
     allCleanOrders = data || [];
@@ -16437,9 +16489,11 @@ ${totalLinesXml}
     // (admin may have changed them in the order panel since the proc queue last loaded)
     const { data: freshOrder } = await db.from('orders')
       .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
-               pickup_window_start, delivery_window_start, total_amount, line_items,
-               customers(id, first_name_cache, last_name_cache, customer_type, preferences),
-               services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
+               pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
+               pickup_address_id, delivery_address_id, total_amount, line_items,
+               customers(id, first_name_cache, last_name_cache, customer_type, preferences, addresses(id,label,line1,city)),
+               services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
+               pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('id', orderId)
       .single();
     const order = freshOrder || allProcOrders.find(o => o.id === orderId)
@@ -16685,6 +16739,7 @@ ${totalLinesXml}
           style="width:100%;border:1.5px solid var(--gray-200);border-radius:10px;padding:10px 12px;font-family:inherit;font-size:13px;color:var(--gray-800);resize:none;outline:none;box-sizing:border-box;line-height:1.5;background:var(--gray-50)"
           oninput="procNotes=this.value">${(procNotes||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
       </div>
+      ${_buildPickupDeliveryHTML(procActiveOrder)}
       <div class="intake-section" style="margin-bottom:0">
         <div class="intake-section-label">Price Breakdown</div>
         <div class="proc-breakdown" id="proc-breakdown">${renderBreakdownRows(bd, pricePerBag)}</div>
