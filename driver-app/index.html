@@ -2116,7 +2116,10 @@ function openStop(stopId) {
   showScreen('stop');
 }
 
-function renderStopDetail(stop) {
+function renderStopDetail(stopOrId) {
+  // Accept either a stop object or a stop ID string (realtime handlers pass IDs)
+  const stop = typeof stopOrId === 'string' ? allStops.find(s => s.id === stopOrId) : stopOrId;
+  if (!stop) return;
   const addr  = stop._addr;
   const order = stop.orders;
   const cust  = order?.customers;
