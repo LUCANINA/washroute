@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 23, 2026 — Launch blast #3 (216 customers), Kanban UX fixes, driver undo removal, zone badges on Folding cards (session 55)*
+*Last updated: Mar 23, 2026 — Launch blast batches 4–9 (600 more customers), inbox filtering, SMS opt-out badge, driver/admin skip fix (session 56)*
 
 ---
 
@@ -283,27 +283,25 @@ Postgres function: `find_customer_by_phone(digits TEXT)`.
 
 ## SMS Automation — Status
 
-### ⚠️ SMS CURRENTLY DISABLED (session 41)
+### SMS Template Status (updated session 56)
 
-**All SMS templates are set to `sms_enabled = false`.** No outbound SMS will be sent by any function or cron job until templates are re-enabled. This was an emergency shutdown after the customer data import (session 41) triggered mass SMS to 6,900+ imported customers via `notify_customer_registered` triggers and `send-scheduled-reminders` cron jobs.
+**12 of 14 templates are `sms_enabled = true`.** Operational SMS (order confirmations, driver on-way, pickup reminders, etc.) is fully live. Only marketing templates remain off.
 
-**What was disabled:**
-- pg_cron jobs `wr-reminder-evening` and `wr-reminder-morning` — **removed** (not just paused)
-- DB triggers `trg_customer_registered_insert` and `trg_customer_phone_first_set` — **dropped**
-- All 13 SMS templates — `sms_enabled = false`
-- Claude AI removed from `twilio-webhook` — **permanently** (v27)
+**Enabled (12):** `customer_registered`, `order_confirmed`, `driver_on_way_pickup`, `order_picked_up`, `driver_on_way_delivery`, `order_delivered`, `payment_received`, `payment_failed`, `pickup_reminder_recurring`, `pickup_day_reminder`, `skip_confirmation`, `pickup_failed`
 
-**What still works:**
+**Still disabled (2):** `review_request`, `reorder_reminder` — both marketing. Re-enable when ready.
+
+**Still removed (not re-created):**
+- pg_cron jobs `wr-reminder-evening` and `wr-reminder-morning` — need to be re-created with proper filters before scheduled reminders will send automatically
+- DB triggers `trg_customer_registered_insert` and `trg_customer_phone_first_set` — dropped in session 41
+- Claude AI in `twilio-webhook` — permanently removed (v27)
+
+**What works:**
 - `twilio-webhook` v27 handles inbound keywords: STOP, START, SKIP, PICKUP, HELP
-- STOP clears `sms_consent_at` in the DB (new in v27 — was never implemented before)
-- START re-sets `sms_consent_at` (new in v27)
+- STOP clears `sms_consent_at` in the DB. Twilio also blocks at carrier level.
+- START re-sets `sms_consent_at`
 - All other inbound messages route silently to human inbox (no auto-reply)
-
-**Before re-enabling SMS:**
-1. Re-create `wr-reminder-evening` and `wr-reminder-morning` cron jobs with a filter: only send to customers who have **real orders in the system** (not just imported historical data)
-2. Re-create `notify_customer_registered` triggers scoped to only new signups (not bulk imports)
-3. Re-enable SMS templates one at a time, testing each
-4. 670 customers who texted STOP have been properly opted out (`sms_consent_at = NULL`)
+- 1,042 customers have opted out of SMS (`sms_consent_at = NULL`) as of session 56
 
 ### ✅ Phase 1 — Keywords Only (twilio-webhook v27, session 41)
 
@@ -388,26 +386,30 @@ There are actually **two separate hang points** that must both be covered:
 
 ---
 
-## ✅ Customer-Initiated Skips — Design Decision Resolved (session 5)
+## ✅ Skip Behavior — Design Decision (sessions 5, 56)
 
-`cancelled_by` column is now fully implemented across DB, all three apps, and all skip/cancel paths.
+`cancelled_by` column is fully implemented across DB, all three apps, and all skip/cancel paths.
 
-| Who skipped | `cancelled_by` value | Appears in Issues? | Next recurring order? |
-|---|---|---|---|
-| Driver | `'driver'` | ✅ Yes | ❌ No |
-| Customer (intentional skip) | `'customer'` | ❌ No | ✅ Yes — chain continues |
-| Admin (manual intervention) | `'admin'` | ✅ Yes | ❌ No |
-| Auto-fail cron | `'system'` | ✅ Yes | ❌ No |
+**Core rule (updated session 56):** A skip is always routine — regardless of who initiates it (customer, driver, or admin). Skips keep the recurring subscription alive and stay out of the Issues tab. Only cancels, pickup failures, and delivery failures are real problems.
+
+| Who acted | Action | `cancelled_by` value | Appears in Issues? | Next recurring order? |
+|---|---|---|---|---|
+| Customer | Skip | `'customer'` | ❌ No | ✅ Yes — chain continues |
+| Driver | Skip | `'customer'` | ❌ No | ✅ Yes — chain continues |
+| Admin | Skip | `'customer'` | ❌ No | ✅ Yes — chain continues |
+| Driver | Fail pickup | `'driver'` | ✅ Yes | ❌ No |
+| Admin | Cancel / Fail | `'admin'` | ✅ Yes | ❌ No |
+| Auto-fail cron | Expire | `'system'` | ✅ Yes | ❌ No |
 
 ### Entry points
-- **Customer app:** "Skip this pickup" button on order detail — visible for recurring orders in skippable statuses. Sets `status = 'skipped', cancelled_by = 'customer'`.
-- **Driver app:** `skipStop()` sets `cancelled_by = 'driver'`. Undo clears it back to null.
-- **Admin:** `opSkipOrder()` (admin processing a customer request) sets `cancelled_by = 'customer'`. `opSetOrderStatus()` and `setSingleOrderStatus()` set `cancelled_by = 'admin'` for other terminal statuses.
-- **SMS automation** (future Phase 2): when customer texts "skip Thursday", set same fields as above.
+- **Customer app:** "Skip this pickup" button on order detail. Sets `status = 'skipped', cancelled_by = 'customer'`.
+- **Driver app:** `skipStop()` sets `cancelled_by = 'customer'` (changed from `'driver'` in session 56). Undo clears it back to null.
+- **Admin:** `opSetOrderStatus()` and `setSingleOrderStatus()` set `cancelled_by = 'customer'` for skips, `cancelled_by = 'admin'` for cancels/failures (changed in session 56).
+- **SMS automation:** SKIP keyword in `twilio-webhook` sets `cancelled_by = 'customer'`.
 
 ### Key behavior
 - Issues tab excludes orders where `cancelled_by = 'customer'` — these are resolved, not actionable.
-- `trg_create_recurring_order` now fires on `skipped` **only when `cancelled_by = 'customer'`** — ensures subscription chain continues for intentional customer skips.
+- `trg_create_recurring_order` fires on `skipped` **only when `cancelled_by = 'customer'`** — ensures subscription chain continues.
 - `billing_status = 'failed'` orders always surface in Issues regardless of `cancelled_by`.
 
 ---
@@ -784,6 +786,45 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 23, 2026 (session 56) — Launch blasts 4–9, inbox filtering, SMS opt-out badge, skip behavior fix
+
+**Launch campaign — batches 4–9 (600 customers reached this session):**
+- Same email template ("We've upgraded your experience") and SMS ("Our new ordering app is live!") as previous blasts.
+- $20 credit deadline changed from "Monday midnight" to **"Tuesday midnight"** starting batch 1 of this session.
+- Audience: active customers (ordered within past year), excluding retail (2609 Foothill), commercial (billing_type = 'on_account'), and already-reached customers.
+- Sent via `net.http_post()` calling `send-email` and `send-sms` edge functions. Batches of 100 every ~10 minutes.
+- SMS skipped for customers with `sms_consent_at IS NULL` — they received email only.
+- **Session totals:** 600 emails + ~538 SMS sent across 6 batches.
+- **All-time campaign totals:** 948 unique emails, 885 unique SMS across all blasts (sessions 51–56).
+- **Remaining:** ~591 customers still to reach.
+- **Campaign conversion snapshot:** 143 customers with card on file (17%), 195 logged in (23%), 139 received $20 credit confirmation. 11 new STOP replies (1.4% opt-out rate), 65 real customer replies.
+
+**Inbox — hide outbound-only conversations (`admin-dashboard/index.html`):**
+- Added `hasInbound` flag to conversation builder in `loadInbox()`. Conversations now only appear in the Inbox when the customer has sent at least one inbound message.
+- Prevents launch blast SMS from flooding the Inbox with hundreds of one-way threads.
+- Compose button still works — you can send to anyone, conversation just won't show until they reply.
+- Commit: `8249786`
+
+**Inbox — SMS opted-out badge (`admin-dashboard/index.html`):**
+- Added `sms_consent_at` to the customers join in `loadInbox()` SELECT.
+- Conversation list: red "SMS opted out" label next to the SMS badge for opted-out customers.
+- Thread header: red "⚠ Opted out of SMS — texts won't be delivered" warning under phone number.
+- Helps David know when to email or call instead of texting.
+
+**Skip behavior fix — driver and admin skips now generate recurring orders:**
+- **Root cause:** Driver app `skipStop()` set `cancelled_by = 'driver'`, and admin status changes set `cancelled_by = 'admin'` for skips. The `trg_create_recurring_order` trigger only fires when `cancelled_by = 'customer'`, so driver/admin skips broke the recurring chain and cluttered the Issues tab.
+- **Fix:** Driver app `skipStop()` now sets `cancelled_by = 'customer'`. Admin dashboard `opSetOrderStatus()` and `setSingleOrderStatus()` set `cancelled_by = 'customer'` for skips (still `'admin'` for cancels/failures).
+- **Data fix:** 6 orders skipped today (Ellen Konnert, Alicia Swartz, Paula Spiese, Satina Dunigan, Julia Donaldson, Karim Biaye) had `cancelled_by` corrected to `'customer'`. 5 missing next recurring orders were generated by temporarily resetting status to trigger `trg_create_recurring_order` (Julia Donaldson already had hers).
+- **Design principle updated:** A skip is always routine regardless of who initiates it. Only cancels and failures are real issues.
+
+**Pending (carries forward):**
+1. ~591 customers still need launch blast — continue batches of 100
+2. `git push` needed — inbox filter, opted-out badge, and skip fix commits are local. Also need to `rm .git/HEAD.lock` before committing the badge change.
+3. Re-create `wr-reminder-evening` and `wr-reminder-morning` cron jobs (still removed since session 41)
+4. Re-enable `review_request` and `reorder_reminder` SMS templates when ready
 
 ---
 

@@ -6221,7 +6221,8 @@
     const payload = { status: newStatus };
     if (newStatus === 'picked_up') payload.actual_pickup_at = new Date().toISOString();
     if (newStatus === 'delivered') payload.actual_delivery_at = new Date().toISOString();
-    if (['skipped','cancelled','pickup_failed','delivery_failed'].includes(newStatus)) payload.cancelled_by = 'admin';
+    if (newStatus === 'skipped') payload.cancelled_by = 'customer'; // skip = routine, keeps recurring chain going
+    else if (['cancelled','pickup_failed','delivery_failed'].includes(newStatus)) payload.cancelled_by = 'admin';
     // Clear routing_error if advancing forward (order was fixed)
     if (newIdx > oldIdx && o.routing_error) payload.routing_error = null;
 
@@ -7705,7 +7706,8 @@ ${totalLinesXml}
       const payload = { status: newStatus };
       if (newStatus === 'picked_up')  payload.actual_pickup_at   = now;
       if (newStatus === 'delivered')  payload.actual_delivery_at = now;
-      if (['skipped','cancelled','pickup_failed','delivery_failed'].includes(newStatus)) payload.cancelled_by = 'admin';
+      if (newStatus === 'skipped') payload.cancelled_by = 'customer'; // skip = routine, keeps recurring chain going
+      else if (['cancelled','pickup_failed','delivery_failed'].includes(newStatus)) payload.cancelled_by = 'admin';
       const { error } = await db.from('orders').update(payload).eq('id', orderId);
       if (error) { showToast('Error: ' + error.message, 'error'); return; }
       showToast(`✓ Order #${orderNum} → ${label}`);
