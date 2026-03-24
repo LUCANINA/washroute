@@ -6144,8 +6144,8 @@
       _opPreSameDayDeliveryEnd   = o.delivery_window_end;
       _opPreSameDayDeliveryRunId = o.delivery_run_id;
 
-      // Find a same-day PM route: zone-matching template with turnaround_hours > 0
-      // whose delivery window starts after the pickup window ends
+      // Find a same-day PM route: zone-matching delivery template whose slots
+      // start after pickup end + the pickup template's turnaround_hours
       if (!_opTemplates.length) await opPrefetchRoutes();
       const pickupEndMs = new Date(o.pickup_window_end || o.pickup_window_start).getTime();
       const pickupDateIso = new Date(o.pickup_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
@@ -6157,14 +6157,18 @@
       }) || _opTemplates.find(t => o.pickup_run?.name && o.pickup_run.name.startsWith(t.name));
       const pickupZoneId = pickupTmpl?.zone_id;
 
+      // turnaround_hours lives on the PICKUP template (AM routes), not delivery templates
+      const turnaroundMs = ((pickupTmpl?.turnaround_hours || 0) * 3600000) || (8 * 3600000); // default 8h
+      const earliestDeliveryMs = pickupEndMs + turnaroundMs;
+
       const qualifying = [];
       _opTemplates.forEach(tmpl => {
-        const turnaround = (tmpl.turnaround_hours || 0) * 3600000;
-        if (!turnaround) return; // turnaround_hours = 0 means no same-day
+        // Skip the pickup template itself — we want a DIFFERENT route for delivery
+        if (pickupTmpl && tmpl.id === pickupTmpl.id) return;
         // Zone match: same zone as pickup, or skip zone filter if we can't determine
         if (pickupZoneId && tmpl.zone_id && tmpl.zone_id !== pickupZoneId) return;
         buildSlots(tmpl, pickupDateIso).forEach(s => {
-          if (new Date(s.start).getTime() >= pickupEndMs + turnaround) {
+          if (new Date(s.start).getTime() >= earliestDeliveryMs) {
             qualifying.push({ ...s, tmpl });
           }
         });
@@ -10768,23 +10772,26 @@ ${totalLinesXml}
   }
 
   // Check if same-day delivery is possible: any zone-matching template has a window
-  // AFTER the pickup window ends, respecting turnaround_hours
+  // AFTER the pickup window ends + the PICKUP template's turnaround_hours
   function _checkNoSameDay(pickupDateIso) {
     if (!_noPickupEnd) return [];
     const pickupEndMs = new Date(_noPickupEnd).getTime();
+
+    // turnaround_hours lives on the PICKUP template (AM), not delivery templates
+    const turnaroundMs = ((_noSelectedTmpl?.turnaround_hours || 0) * 3600000) || (8 * 3600000);
+    const earliestDeliveryMs = pickupEndMs + turnaroundMs;
+
     const qualifying = [];
-    // Check ALL zone-matching templates for same-day delivery windows
     let templates = _noTemplates;
     if (_noZoneIds.size > 0) {
       const zoneMatches = templates.filter(t => t.zone_id && _noZoneIds.has(t.zone_id));
       if (zoneMatches.length) templates = zoneMatches;
     }
     templates.forEach(tmpl => {
-      const turnaround = (tmpl.turnaround_hours || 0) * 3600000;
-      if (!turnaround) return; // turnaround_hours = 0 means no same-day
-      const earliestMs = pickupEndMs + turnaround;
+      // Skip the pickup template itself — we want a different route for delivery
+      if (_noSelectedTmpl && tmpl.id === _noSelectedTmpl.id) return;
       buildSlots(tmpl, pickupDateIso).forEach(s => {
-        if (new Date(s.start).getTime() >= earliestMs) {
+        if (new Date(s.start).getTime() >= earliestDeliveryMs) {
           qualifying.push({ ...s, tmplId: tmpl.id, tmplName: tmpl.name });
         }
       });
