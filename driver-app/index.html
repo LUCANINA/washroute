@@ -1467,9 +1467,9 @@ async function resendDriverOTP() {
   btn.textContent = 'Sending…'; btn.disabled = true;
   const { error } = await db.auth.signInWithOtp({ phone: _driverPhoneSent });
   if (error) {
-    showToast('Could not resend code — please try again.', 'error');
+    toast('Could not resend code — please try again.');
   } else {
-    showToast('Code resent!', 'success');
+    toast('Code resent!');
   }
   btn.textContent = 'Resend code'; btn.disabled = false;
 }
@@ -1511,7 +1511,13 @@ async function doSignOut() {
 /* ──────────────────────────────
    DATA LOADING
 ────────────────────────────── */
+let _loadPromise = null; // dedup concurrent loadDriverData calls
 async function loadDriverData() {
+  if (_loadPromise) return _loadPromise; // piggyback on in-flight load
+  _loadPromise = _loadDriverDataInner();
+  try { return await _loadPromise; } finally { _loadPromise = null; }
+}
+async function _loadDriverDataInner() {
   _dataLoading = true;
   try {
   // ── Group 1: profile + driver record in parallel ──
@@ -1533,7 +1539,7 @@ async function loadDriverData() {
         p_new_profile_id: currentUser.id
       });
       if (linkErr?.message?.includes('MULTIPLE_MATCHES')) {
-        showToast('Multiple driver accounts share this number — contact admin.', 'error');
+        toast('Multiple driver accounts share this number — contact admin.');
         setTimeout(() => db.auth.signOut(), 2500);
         return;
       }
@@ -1560,7 +1566,9 @@ async function loadDriverData() {
     }
   }
   currentDriver = drv;
-  if (!currentDriver) return;
+  if (!currentDriver) {
+    throw new Error('Could not load or create driver record');
+  }
 
   const stopFields = `
     *,
@@ -1737,8 +1745,10 @@ async function loadDriverData() {
 }
 
 async function refreshRoute() {
+  if (_dataLoading) return; // prevent overlapping loads
   showLoading(true);
-  try { await loadDriverData(); } catch(e) { console.error(e); } finally { showLoading(false); }
+  try { await loadDriverData(); } catch(e) { console.error(e); toast('Could not refresh — try again'); } finally { showLoading(false); }
+  renderHome();
   renderRoute();
   toast('Route refreshed ↻');
 }
@@ -3435,9 +3445,11 @@ function subscribeToRouteStopUpdates() {
 ────────────────────────────── */
 // CRITICAL: Supabase-js deadlocks if you await Supabase calls inside onAuthStateChange.
 // All async work is deferred via setTimeout(0). See: https://github.com/supabase/auth-js/issues/762
+let _sessionLoading = false; // guard against concurrent _handleDriverSession calls
 async function _handleDriverSession(event, session) {
   if (session?.user) {
-    if (appReady) return;
+    if (appReady || _sessionLoading) return;
+    _sessionLoading = true;
     currentUser = session.user;
 
     const cached = loadDriverCache(currentUser.id);
@@ -3459,6 +3471,7 @@ async function _handleDriverSession(event, session) {
           // Also reset phone OTP panel in case driver came in via phone auth
           resetDriverPhone();
           switchAuthTab('password');
+          _sessionLoading = false; // allow retry
         }
       }, 15000);
       showLoading(true);
@@ -3474,8 +3487,9 @@ async function _handleDriverSession(event, session) {
       }
     }
     // If first load failed with no cache, don't lock out retries
-    if (loadFailed && !cached) { appReady = false; return; }
+    if (loadFailed && !cached) { appReady = false; _sessionLoading = false; return; }
     appReady = true;
+    _sessionLoading = false;
     document.getElementById('bottom-nav').style.display = 'flex';
     subscribeToDriverMessages();
     subscribeToRouteStopUpdates();
@@ -3493,6 +3507,16 @@ async function _handleDriverSession(event, session) {
 }
 db.auth.onAuthStateChange((event, session) => {
   setTimeout(() => _handleDriverSession(event, session), 0);
+});
+
+// Global error handler — surface JS errors that would otherwise silently crash the app
+window.addEventListener('error', e => {
+  console.error('Unhandled error:', e.error || e.message);
+  toast('Something went wrong — pull down to refresh');
+});
+window.addEventListener('unhandledrejection', e => {
+  console.error('Unhandled promise rejection:', e.reason);
+  toast('Something went wrong — pull down to refresh');
 });
 </script>
 </body>
