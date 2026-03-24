@@ -5538,8 +5538,8 @@
     const readyCount = allOrders.filter(o => o.status === 'ready_for_delivery').length;
     // Delivered Today: orders delivered today
     const deliveredToday = allOrders.filter(o => o.status === 'delivered' && (o.actual_delivery_at || '').startsWith(todayStr)).length;
-    // Revenue Today: actual Stripe charges billed today
-    const revenueToday = allOrders.filter(o => o.stripe_payment_intent_id && o.billing_status !== 'failed' && (o.billed_at || '').startsWith(todayStr))
+    // Revenue Today: only orders successfully charged via Stripe (billing_status = 'paid')
+    const revenueToday = allOrders.filter(o => o.billing_status === 'paid' && (o.billed_at || '').startsWith(todayStr))
       .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
     document.getElementById('ostat-pickups').textContent = pickedUpToday;
     document.getElementById('ostat-processing').textContent = processing;
