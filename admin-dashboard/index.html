@@ -8740,7 +8740,20 @@ ${totalLinesXml}
       if (currentConv) currentConv = { ...currentConv, status: conv?.status !== 'resolved' ? 'waiting' : 'resolved', conv_id: conv?.id };
 
       showToast('Sent ✓', 'success');
-      openSMSConversation(currentConvCustomerId||'', currentConvPhone, null, true);
+
+      // Optimistically append the sent message to the thread immediately
+      const msgThread = document.getElementById('msg-thread');
+      if (msgThread) {
+        const container = msgThread.querySelector('div');
+        if (container) {
+          const bubble = document.createElement('div');
+          bubble.style.cssText = 'display:flex;flex-direction:column;align-items:flex-end';
+          bubble.innerHTML = `<div class="message-bubble message-outbound">${esc(body)}</div><div class="msg-ts">${fmtDate(new Date().toISOString())} ${fmtTime(new Date().toISOString())}</div>`;
+          container.appendChild(bubble);
+          msgThread.scrollTop = msgThread.scrollHeight;
+        }
+      }
+
       loadInbox();
     } catch (err) {
       showToast('Failed to send: ' + err.message, 'error');
