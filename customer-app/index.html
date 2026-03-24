@@ -823,14 +823,17 @@
       <div class="auth-body" style="display:flex;flex-direction:column;gap:0">
         <div style="text-align:center;padding:20px 0 28px">
           <div style="font-size:48px;margin-bottom:12px">👋</div>
-          <h2 style="font-size:22px;font-weight:800;color:var(--navy);margin:0 0 8px">What's your name?</h2>
-          <p style="font-size:14px;color:var(--gray-500);margin:0">Just your first name so we know what to call you.</p>
+          <h2 style="font-size:22px;font-weight:800;color:var(--navy);margin:0 0 8px">Tell us about yourself</h2>
+          <p style="font-size:14px;color:var(--gray-500);margin:0">We need a few details to set up your account.</p>
         </div>
         <div class="auth-error" id="name-err"></div>
+        <div class="field-row">
+          <div class="field"><label>First name</label><input type="text" id="name-input" placeholder="Jane" autocomplete="given-name" required></div>
+          <div class="field"><label>Last name</label><input type="text" id="name-last-input" placeholder="Doe" autocomplete="family-name" required></div>
+        </div>
         <div class="field">
-          <label>First name</label>
-          <input type="text" id="name-input" placeholder="Jane"
-                 autocomplete="given-name"
+          <label>Email</label>
+          <input type="email" id="name-email-input" placeholder="you@email.com" autocomplete="email" required
                  onkeydown="if(event.key==='Enter') handleNameSubmit()">
         </div>
         <button class="btn-primary" style="margin-top:14px" id="btn-name" onclick="handleNameSubmit()">Let's go →</button>
@@ -1683,6 +1686,10 @@ async function handleOTPVerify() {
     const { data, error } = await db.auth.verifyOtp({ phone: _pendingPhone, token, type: 'sms' });
     if (error) throw error;
 
+    // Block _handleCustomerSession immediately — before any await that could
+    // let it fire and create a blank-name customer record (race condition fix)
+    _awaitingName = true;
+
     const user = data.user;
     // Check if customer record already exists and has a name
     let { data: cust } = await db.from('customers').select('id, first_name_cache')
@@ -1701,9 +1708,11 @@ async function handleOTPVerify() {
 
     if (!cust || !cust.first_name_cache) {
       // New user — collect name before navigating
-      _awaitingName = true;
       showAuthPanel('name');
       setTimeout(() => document.getElementById('name-input')?.focus(), 200);
+    } else {
+      // Existing user with name — release the lock so session handler can proceed
+      _awaitingName = false;
     }
     // If existing user, onAuthStateChange handles navigation automatically
   } catch (err) {
@@ -1715,30 +1724,40 @@ async function handleOTPVerify() {
 
 async function handleNameSubmit() {
   const firstName = (document.getElementById('name-input').value || '').trim();
-  if (!firstName) { toast('Please enter your name'); return; }
+  const lastName  = (document.getElementById('name-last-input')?.value || '').trim();
+  const email     = (document.getElementById('name-email-input')?.value || '').trim();
+  if (!firstName || !lastName) { toast('Please enter your first and last name'); return; }
+  if (!email || !email.includes('@')) { toast('Please enter a valid email address'); return; }
 
   const btn = document.getElementById('btn-name');
   btn.disabled = true; btn.textContent = 'Setting up…';
   try {
     const { data: { user } } = await db.auth.getUser();
     const phoneVal = _pendingPhone || user?.phone || '';
-    // Ensure profile row exists (trigger handles new users; this covers edge cases)
+    // Ensure profile row exists with all fields
     await db.from('profiles').upsert({
-      id:    user.id,
-      phone: phoneVal
+      id:         user.id,
+      first_name: firstName,
+      last_name:  lastName,
+      email:      email,
+      phone:      phoneVal
     }, { onConflict: 'id' });
-    // Create customer record
+    // Create or update customer record
     const { data: existing } = await db.from('customers').select('id').eq('profile_id', user.id).maybeSingle();
     if (existing) {
       await db.from('customers').update({
         first_name_cache: firstName,
-        phone_cache: phoneVal,
-        sms_consent_at: new Date().toISOString()
+        last_name_cache:  lastName,
+        email_cache:      email,
+        phone_cache:      phoneVal,
+        sms_consent_at:   new Date().toISOString()
       }).eq('id', existing.id);
     } else {
       await db.from('customers').insert({
         profile_id:       user.id,
         first_name_cache: firstName,
+        last_name_cache:  lastName,
+        email_cache:      email,
         phone_cache:      phoneVal,
         sms_consent_at:   new Date().toISOString()
       });
@@ -2030,6 +2049,14 @@ async function _handleCustomerSession(event, session) {
     } else {
       showLoading(true);
       try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }
+    }
+    // If customer exists but has no name, redirect to name collection
+    if (currentCustomer && !(currentCustomer.first_name_cache || '').trim()) {
+      _awaitingName = true;
+      _authHandlerRunning = false;
+      showAuthPanel('name');
+      setTimeout(() => document.getElementById('name-input')?.focus(), 200);
+      return;
     }
     appReady = true;
     _authHandlerRunning = false;
@@ -3749,6 +3776,27 @@ async function placeOrder() {
   }
 
   if (!currentCustomer) { toast('Account error — please try again'); btn.disabled = false; return; }
+
+  // ── Profile completeness gate — block order if required fields are missing ──
+  const _custName  = (currentCustomer.first_name_cache || '').trim();
+  const _custEmail = (currentCustomer.email_cache || '').trim();
+  if (!_custName) {
+    toast('Please add your name to your account before placing an order.');
+    if (btn) { btn.disabled = false; btn.textContent = 'Place Order'; }
+    goTo('account');
+    return;
+  }
+  if (!_custEmail) {
+    toast('Please add your email address before placing an order.');
+    if (btn) { btn.disabled = false; btn.textContent = 'Place Order'; }
+    goTo('account');
+    return;
+  }
+  if (!draft.addressId && !draft._addrComponents) {
+    toast('Please add a delivery address.');
+    if (btn) { btn.disabled = false; btn.textContent = 'Place Order'; }
+    return;
+  }
 
   btn.disabled = true; btn.textContent = 'Placing order…';
 
