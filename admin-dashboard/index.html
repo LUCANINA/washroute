@@ -15768,14 +15768,14 @@ ${totalLinesXml}
     const addrs = Array.isArray(o.customers?.addresses) ? o.customers.addresses : [];
     const puAddr = addrs.find(a => a.id === o.pickup_address_id);
     const dlAddr = addrs.find(a => a.id === o.delivery_address_id) || puAddr; // fallback to pickup addr
-    const puAddrStr = puAddr ? `${puAddr.line1}${puAddr.city ? ', '+puAddr.city : ''}` : null;
-    const dlAddrStr = dlAddr ? `${dlAddr.line1}${dlAddr.city ? ', '+dlAddr.city : ''}` : null;
+    const puAddrStr = puAddr ? esc(`${puAddr.line1}${puAddr.city ? ', '+puAddr.city : ''}`) : null;
+    const dlAddrStr = dlAddr ? esc(`${dlAddr.line1}${dlAddr.city ? ', '+dlAddr.city : ''}`) : null;
     const puDate = o.pickup_window_start ? fmtDate(o.pickup_window_start) : null;
     const puSlot = o.pickup_window_start ? fmtSlot(o.pickup_window_start, o.pickup_window_end) : null;
     const dlDate = o.delivery_window_start ? fmtDate(o.delivery_window_start) : null;
     const dlSlot = o.delivery_window_start ? fmtSlot(o.delivery_window_start, o.delivery_window_end) : null;
-    const puRoute = o.pickup_run?.name || null;
-    const dlRoute = o.delivery_run?.name || null;
+    const puRoute = o.pickup_run?.name ? esc(o.pickup_run.name) : null;
+    const dlRoute = o.delivery_run?.name ? esc(o.delivery_run.name) : null;
     // Highlight if delivery is today or overdue
     const today = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
     const dlDateRaw = o.delivery_window_start ? new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;

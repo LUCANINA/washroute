@@ -1517,7 +1517,7 @@ async function loadDriverData() {
   // ── Group 1: profile + driver record in parallel ──
   const [{ data: prof }, { data: drv0 }] = await Promise.all([
     db.from('profiles').select('*').eq('id', currentUser.id).single(),
-    db.from('drivers').select('*').eq('profile_id', currentUser.id).single()
+    db.from('drivers').select('*').eq('profile_id', currentUser.id).order('created_at').limit(1).maybeSingle()
   ]);
   currentProfile = prof;
 
@@ -1551,8 +1551,13 @@ async function loadDriverData() {
   // Auto-create driver record on first login (sequential — depends on group 1 result)
   let drv = linkedDrv || drv0;
   if (!drv) {
-    const { data: nd } = await db.from('drivers').insert({ profile_id: currentUser.id, is_active: true }).select().single();
-    drv = nd;
+    // Double-check: re-query to prevent duplicates from race conditions or earlier .single() failures
+    const { data: recheck } = await db.from('drivers').select('*').eq('profile_id', currentUser.id).order('created_at').limit(1).maybeSingle();
+    if (recheck) { drv = recheck; }
+    else {
+      const { data: nd } = await db.from('drivers').insert({ profile_id: currentUser.id, is_active: true }).select().single();
+      drv = nd;
+    }
   }
   currentDriver = drv;
   if (!currentDriver) return;
