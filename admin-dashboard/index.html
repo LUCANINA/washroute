@@ -3557,12 +3557,12 @@
     </div>
     <button class="btn btn-ghost" onclick="printBagTag(foldActiveOrder?.id)" style="padding:6px 10px;font-size:24px;color:var(--gray-500)" title="Print receipt">🖨</button>
   </div>
+  <button id="fold-back-btn" onclick="foldPanelMoveBack()" style="display:none;width:100%;padding:8px;font-size:12px;font-weight:600;color:var(--gray-400);background:var(--gray-50);border:none;border-bottom:1px solid var(--gray-100);cursor:pointer;font-family:inherit">← Move Back</button>
   <div class="slide-over-body" id="fold-body">
     <div class="loading"><div class="spinner"></div> Loading…</div>
   </div>
   <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
     <div id="fold-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
-    <button id="fold-back-btn" class="btn btn-ghost" style="width:100%;padding:10px;font-size:13px;color:var(--gray-500);border:1px dashed var(--gray-200);border-radius:8px;display:none" onclick="foldPanelMoveBack()"></button>
   </div>
 </div>
 
@@ -3578,13 +3578,13 @@
     </div>
     <button class="btn btn-ghost" onclick="printBagTag(rackActiveOrder?.id)" style="padding:6px 10px;font-size:24px;color:var(--gray-500)" title="Print receipt">🖨</button>
   </div>
+  <button id="rack-back-btn" onclick="rackPanelMoveBack()" style="display:none;width:100%;padding:8px;font-size:12px;font-weight:600;color:var(--gray-400);background:var(--gray-50);border:none;border-bottom:1px solid var(--gray-100);cursor:pointer;font-family:inherit">← Move Back</button>
   <div class="slide-over-body" id="rack-body">
     <div class="loading"><div class="spinner"></div> Loading…</div>
   </div>
   <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
     <div id="rack-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
     <div id="rack-charging" style="display:none;text-align:center;font-size:13px;color:var(--gray-500)"><div class="spinner" style="margin:0 auto 6px"></div>Charging & racking…</div>
-    <button id="rack-back-btn" class="btn btn-ghost" style="width:100%;padding:10px;font-size:13px;color:var(--gray-500);border:1px dashed var(--gray-200);border-radius:8px;display:none" onclick="rackPanelMoveBack()"></button>
   </div>
 </div>
 
@@ -15926,10 +15926,8 @@ ${totalLinesXml}
     const foldIsOnAcct = order.customers?.billing_type === 'on_account';
     document.getElementById('fold-subtitle').innerHTML = `Order #${order.order_number||'—'} · ${order.services?.name||''}${foldIsOnAcct ? ' <span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px">ON ACCOUNT</span>' : ''}`;
     document.getElementById('fold-error').style.display = 'none';
-    // Show "move back" button — Fold panel is always reached from Cleaning, so back = Intake
-    const foldBackBtn = document.getElementById('fold-back-btn');
-    foldBackBtn.textContent = '← Return to Intake';
-    foldBackBtn.style.display = '';
+    // Show "move back" button at top of panel
+    document.getElementById('fold-back-btn').style.display = '';
     renderFoldPanel();
     document.getElementById('fold-panel').classList.add('open');
   }
@@ -16115,13 +16113,8 @@ ${totalLinesXml}
     const isOnAcct = order.customers?.billing_type === 'on_account';
     subtitleEl.innerHTML = `Order #${order.order_number||'—'} · ${order.services?.name||''}${isOnAcct ? ' <span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px">ON ACCOUNT</span>' : ''}`;
     document.getElementById('rack-error').style.display  = 'none';
-    // Show "move back" button with label based on current status
-    const rackBackBtn = document.getElementById('rack-back-btn');
-    const backLabel = order.status === 'ready_for_delivery' ? '← Return to Folding'
-                    : order.status === 'folding'            ? '← Return to Cleaning'
-                    :                                         '← Return to Intake';
-    rackBackBtn.textContent = backLabel;
-    rackBackBtn.style.display = '';
+    // Show "move back" button at top of panel
+    document.getElementById('rack-back-btn').style.display = '';
     const chargingEl = document.getElementById('rack-charging');
     if (chargingEl) {
       chargingEl.style.display = 'none';
