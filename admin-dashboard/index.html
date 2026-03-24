@@ -3762,10 +3762,9 @@
       return `<span style="font-size:12.5px">${fmtDate(o.delivery_window_start)} · ${fmtSlot(o.delivery_window_start, o.delivery_window_end)}</span>`;
     return '—';
   };
-  const today = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  };
+  const today = () => new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+  // Convert a UTC timestamp to YYYY-MM-DD in business timezone
+  const toLocalDate = (ts) => ts ? new Date(ts).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '';
 
   // Returns a descriptive badge for the Issues tab — replaces generic statusBadge with context baked in
   const issueBadge = (o) => {
@@ -5527,19 +5526,19 @@
 
     // Stat cards — always reflect full dataset
     const todayStr = today();
-    // Picked Up Today: orders actually picked up today
+    // Picked Up Today: orders actually picked up today (Pacific time)
     const pickedUpToday = allOrders.filter(o => {
       if (!['picked_up','processing','folding','ready_for_delivery','out_for_delivery','delivered'].includes(o.status)) return false;
-      return (o.actual_pickup_at || '').startsWith(todayStr);
+      return toLocalDate(o.actual_pickup_at) === todayStr;
     }).length;
     // Processing: picked_up through folding (actively being worked on)
     const processing = allOrders.filter(o => ['picked_up','processing','folding'].includes(o.status)).length;
     // Ready for Delivery: on the rack waiting to go out
     const readyCount = allOrders.filter(o => o.status === 'ready_for_delivery').length;
-    // Delivered Today: orders delivered today
-    const deliveredToday = allOrders.filter(o => o.status === 'delivered' && (o.actual_delivery_at || '').startsWith(todayStr)).length;
-    // Revenue Today: only orders successfully charged via Stripe (billing_status = 'paid')
-    const revenueToday = allOrders.filter(o => o.billing_status === 'paid' && (o.billed_at || '').startsWith(todayStr))
+    // Delivered Today: orders delivered today (Pacific time)
+    const deliveredToday = allOrders.filter(o => o.status === 'delivered' && toLocalDate(o.actual_delivery_at) === todayStr).length;
+    // Revenue Today: only orders successfully charged via Stripe (Pacific time)
+    const revenueToday = allOrders.filter(o => o.billing_status === 'paid' && toLocalDate(o.billed_at) === todayStr)
       .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
     document.getElementById('ostat-pickups').textContent = pickedUpToday;
     document.getElementById('ostat-processing').textContent = processing;
