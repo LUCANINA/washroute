@@ -1288,10 +1288,11 @@
             <div id="customers-map-view" style="display:none;">
               <div style="height:800px;position:relative;">
                 <div id="cust-map" style="height:100%;width:100%;"></div>
-                <div class="map-info-card" id="cust-info-card">
+                <div class="map-info-card" id="cust-info-card" style="cursor:pointer;">
                   <div class="mic-name" id="cim-name"></div>
                   <div class="mic-addr" id="cim-addr"></div>
                   <div id="cim-badge"></div>
+                  <div style="font-size:11px;color:var(--accent);font-weight:600;margin-top:4px;">View account →</div>
                 </div>
                 <div class="map-legend-box">
                   <div class="leg-title">Last Order</div>
@@ -14706,11 +14707,12 @@ ${totalLinesXml}
           document.getElementById('cim-addr').textContent=addr;
           document.getElementById('cim-badge').innerHTML = c.last_order_at ? `<span style="font-size:11px;color:var(--gray-500)">Last order: ${fmtDate(c.last_order_at)}</span>` : '<span style="font-size:11px;color:var(--gray-400)">No orders</span>';
           document.getElementById('cust-info-card').style.display='block';
+          document.getElementById('cust-info-card').onclick = () => { if(c.id) openCustomerPanel(c.id); };
         };
         const m=L.marker([c.lat,c.lng],{icon:makePin(col,'',24)}).addTo(custMap)
           .on('mouseover', showCard)
           .on('mouseout', ()=>{ document.getElementById('cust-info-card').style.display='none'; })
-          .on('click', ()=>{ showCard(); custMap.flyTo([c.lat,c.lng],15,{duration:.8}); });
+          .on('click', ()=>{ if(c.id) openCustomerPanel(c.id); });
         custMarkers.push(m);
       }
 
@@ -14730,11 +14732,12 @@ ${totalLinesXml}
           document.getElementById('cim-addr').textContent = addrLine;
           document.getElementById('cim-badge').innerHTML = `<span style="font-size:11px;padding:2px 7px;border-radius:4px;background:var(--gray-100);color:var(--gray-600);font-weight:600">${esc(label)}</span>`;
           document.getElementById('cust-info-card').style.display='block';
+          document.getElementById('cust-info-card').onclick = () => { if(c.id) openCustomerPanel(c.id); };
         };
         const am = L.marker([aLat, aLng], {icon: makeAltPin(col, 16)}).addTo(custMap)
           .on('mouseover', showAlt)
           .on('mouseout', ()=>{ document.getElementById('cust-info-card').style.display='none'; })
-          .on('click', ()=>{ showAlt(); custMap.flyTo([aLat, aLng], 15, {duration:.8}); });
+          .on('click', ()=>{ if(c.id) openCustomerPanel(c.id); });
         custMarkers.push(am);
         secPinCount++;
       });
