@@ -4143,6 +4143,7 @@
         loadAll();
         startNewOrderListener();
         startRouteStopListener();
+        startPaymentMethodListener();
 
         // Restore the page + sub-tab the user was on before refresh (from URL hash).
         // Hash format: #page  or  #page/subtab  (e.g. #orders/schedule, #orders/in_process, #routes/schedule)
@@ -4629,6 +4630,29 @@
         }
       })
 
+      .subscribe();
+  }
+
+  // ── Payment-method realtime: update badge when customer adds a card ──
+  let _payMethodSub = null;
+  function startPaymentMethodListener() {
+    if (_payMethodSub) return;
+    _payMethodSub = db.channel('admin-payment-methods-live')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'customer_payment_methods' }, payload => {
+        const custId = payload.new.customer_id;
+        if (!custId) return;
+        _custWithCard.add(custId);
+        _cardRequestSent.delete(custId);
+        // Find customer name from cached orders for the toast
+        const order = allOrders.find(o => o.customers?.id === custId);
+        const name = order ? `${order.customers.first_name_cache || ''} ${order.customers.last_name_cache || ''}`.trim() : '';
+        showToast(`💳 ${name || 'Customer'} added a card on file`, 'success');
+        // Re-render orders table so "✓ Requested" / "Request card" badges update instantly
+        if (currentPage === 'orders') {
+          updateOrderFilterCounts();
+          renderOrders(getFilteredOrders());
+        }
+      })
       .subscribe();
   }
 
