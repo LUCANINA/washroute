@@ -133,7 +133,7 @@
     .tech-header-logout:hover { background:rgba(255,255,255,.2); }
 
     /* ── CARDS & STATS ── */
-    .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 28px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 28px; }
     .stat-card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow-sm); }
     .stat-card-link { cursor: pointer; transition: border-color .12s, box-shadow .12s; }
     .stat-card-link:hover { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.1); }
@@ -1333,6 +1333,7 @@
               <div class="stat-card"><div class="stat-label">Delivered Today</div><div class="stat-value" id="ostat-delivered">—</div></div>
               <div class="stat-card"><div class="stat-label">Orders Processing</div><div class="stat-value" id="ostat-processing">—</div></div>
               <div class="stat-card"><div class="stat-label">Ready for Delivery</div><div class="stat-value" id="ostat-ready">—</div></div>
+              <div class="stat-card"><div class="stat-label">$ In Process</div><div class="stat-value" id="ostat-in-process">—</div></div>
               <div class="stat-card"><div class="stat-label">Revenue Today</div><div class="stat-value" id="ostat-revenue">—</div></div>
             </div>
             <div class="card">
@@ -5578,6 +5579,9 @@
     const readyCount = allOrders.filter(o => o.status === 'ready_for_delivery').length;
     // Delivered Today: orders delivered today (Pacific time)
     const deliveredToday = allOrders.filter(o => o.status === 'delivered' && toLocalDate(o.actual_delivery_at) === todayStr).length;
+    // $ In Process: total amount of orders being processed but not yet charged
+    const inProcessRevenue = allOrders.filter(o => ['picked_up','processing','folding'].includes(o.status) && o.billing_status !== 'paid')
+      .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
     // Revenue Today: only orders successfully charged via Stripe (Pacific time)
     const revenueToday = allOrders.filter(o => o.billing_status === 'paid' && toLocalDate(o.billed_at) === todayStr)
       .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
@@ -5585,6 +5589,7 @@
     document.getElementById('ostat-processing').textContent = processing;
     document.getElementById('ostat-ready').textContent = readyCount;
     document.getElementById('ostat-delivered').textContent = deliveredToday;
+    document.getElementById('ostat-in-process').textContent = fmtMoney(inProcessRevenue);
     document.getElementById('ostat-revenue').textContent = fmtMoney(revenueToday);
 
     // Update pill badge counts, then render filtered view
