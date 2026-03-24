@@ -664,6 +664,7 @@
     @keyframes rccPopin { from{transform:scale(.9) translateY(4px);opacity:0} to{transform:none;opacity:1} }
     .rcc-stop-num { position:absolute;left:8px;top:50%;transform:translateY(-50%);width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff; }
     .rcc-card-name { font-size:12.5px;font-weight:700;color:var(--gray-900);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .rcc-card-name[onclick]:hover { color:var(--accent);text-decoration:underline; }
     .rcc-card-addr { font-size:11px;color:var(--gray-400);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
     .rcc-card-foot { font-size:10.5px;color:var(--gray-400);display:flex;gap:5px;align-items:center;flex-wrap:wrap; }
     .rcc-card-dot  { width:3px;height:3px;border-radius:50%;background:var(--gray-300);flex-shrink:0; }
@@ -14225,13 +14226,15 @@ ${totalLinesXml}
       movedBadge = `<span class="rcc-card-dot"></span><span class="rcc-moved-badge" style="--badge-color:${origColor};" title="Moved from ${origName}">↩ ${origName}</span>`;
     }
 
+    const custId = s.orders?.customer_id || '';
+    const custClick = custId ? `event.stopPropagation();openCustomerPanel('${custId}')` : '';
     return `<div class="rcc-card rcc-popin" draggable="true"
       data-stop-id="${s.id}" data-route-id="${routeId}"
       ondragstart="rccDragStart(event,'${s.id}','${routeId}')"
       onclick="${flyClick}"
       ${hoverIn} ${hoverOut}>
       <div class="rcc-stop-num" style="background:${color};">${s._displayNum||s.stop_number||'?'}</div>
-      <div class="rcc-card-name">${name}${statusMark}</div>
+      <div class="rcc-card-name"${custClick ? ` onclick="${custClick}" style="cursor:pointer;" title="Open customer account"` : ''}>${name}${statusMark}</div>
       <div class="rcc-card-addr">${addr}</div>
       <div class="rcc-card-foot">
         <span style="font-size:9.5px;font-weight:600;padding:1px 5px;border-radius:4px;${typeBg}">${typeLabel}</span>
@@ -14415,8 +14418,12 @@ ${totalLinesXml}
         const cust = s.orders?.customers || {};
         const custName = `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown';
         const label = String(s._displayNum || s.stop_number || '?');
+        const popupCustId = s.orders?.customer_id || '';
+        const popupNameHtml = popupCustId
+          ? `<strong style="cursor:pointer;color:var(--accent);text-decoration:underline;" onclick="openCustomerPanel('${popupCustId}')">${custName}</strong>`
+          : `<strong>${custName}</strong>`;
         const m = L.marker([s._addr.lat, s._addr.lng], { icon: makePin(color, label) })
-          .bindPopup(`<strong>${custName}</strong><br>${s._addr.line1||''}${hasBoth ? '<br><span style="font-size:10px;color:#888">📦 pickup + 🏠 delivery</span>' : ''}<br><span style="font-size:11px;color:#888">${rd.templateName}</span>`);
+          .bindPopup(`${popupNameHtml}<br>${s._addr.line1||''}${hasBoth ? '<br><span style="font-size:10px;color:#888">📦 pickup + 🏠 delivery</span>' : ''}<br><span style="font-size:11px;color:#888">${rd.templateName}</span>`);
         m._isStopLayer = true;
         m.addTo(routeLiveMap);
       });
