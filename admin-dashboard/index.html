@@ -5745,7 +5745,7 @@
         ${thSort('delivery_window_start','Delivery Time')}
         ${thSort('weight_lbs','Bags')}
         ${thSort('total_amount','Total')}
-        ${(currentOrderFilter==='issues' || currentOrderFilter==='delivered') ? '<th style="padding-right:16px"></th>' : ''}
+        ${['issues','in_process','ready','delivered'].includes(currentOrderFilter) ? '<th style="padding-right:16px"></th>' : ''}
       </tr></thead><tbody>
       ${sorted.map(o => {
         const custId = o.customers?.id || '';
@@ -5756,13 +5756,12 @@
             ? `<span style="font-weight:600">${bags}</span><br><span style="font-size:11px;color:var(--gray-400)">${o.weight_lbs} lbs</span>`
             : String(bags);
         const inIssues = currentOrderFilter === 'issues';
-        const inDelivered = currentOrderFilter === 'delivered';
-        const showAction = inIssues || inDelivered;
+        const showAction = ['issues','in_process','ready','delivered'].includes(currentOrderFilter);
         // Action cell content
         let actionCell = '';
         if (inIssues) {
           actionCell = issueActionBtn(o);
-        } else if (inDelivered) {
+        } else if (showAction) {
           actionCell = _deliveredActionBtn(o);
         }
         return `<tr style="cursor:pointer" onclick="openOrderPanel('${o.id}')">
