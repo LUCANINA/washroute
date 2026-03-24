@@ -3666,6 +3666,7 @@
   let allCustomers = [];
   let allOrders = [];
   let _custWithCard = new Set(); // customer IDs that have at least one payment method on file
+  let _cardRequestSent = new Set(); // customer IDs that have been sent a card-request SMS
   let allTemplates = [], allDriversCache = [];
   let allDriversList = [];
   let currentDriverId        = null;
@@ -3800,9 +3801,38 @@
       }
       const custId = o.customers?.id || '';
       const phone  = o.customers?.phone_cache || '';
+      if (custId && _cardRequestSent.has(custId)) {
+        return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
+      }
       return `<button onclick="event.stopPropagation();requestCardFromIssues('${custId}','${phone}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Request card</button>`;
     }
     return `<button onclick="event.stopPropagation();openOrderPanel('${o.id}')" style="font-size:11px;font-weight:700;color:#1a56db;background:#eff6ff;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Reschedule →</button>`;
+  };
+
+  // Action button for Delivered tab — shows card request / retry for unpaid orders
+  const _deliveredActionBtn = (o) => {
+    if (o.billing_status === 'failed') {
+      const custId = o.customers?.id || '';
+      const hasCard = custId && _custWithCard.has(custId);
+      if (hasCard) {
+        return `<button onclick="event.stopPropagation();retryChargeFromIssues('${o.id}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Retry charge</button>`;
+      }
+      const phone = o.customers?.phone_cache || '';
+      if (custId && _cardRequestSent.has(custId)) {
+        return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
+      }
+      return `<button onclick="event.stopPropagation();requestCardFromIssues('${custId}','${phone}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Request card</button>`;
+    }
+    // No card on file but not failed yet — still show request option
+    const custId = o.customers?.id || '';
+    if (custId && !_custWithCard.has(custId) && o.billing_status !== 'paid' && o.customers?.billing_type !== 'on_account') {
+      const phone = o.customers?.phone_cache || '';
+      if (_cardRequestSent.has(custId)) {
+        return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
+      }
+      return `<button onclick="event.stopPropagation();requestCardFromIssues('${custId}','${phone}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Request card</button>`;
+    }
+    return '';
   };
 
   const statusBadge = (s) => {
@@ -5524,6 +5554,17 @@
       _custWithCard = new Set();
     }
 
+    // Side-fetch: which customers have already been sent a card request SMS?
+    if (custIds.length) {
+      const { data: smsRows } = await db.from('sms_messages')
+        .select('customer_id')
+        .in('customer_id', custIds)
+        .like('body', '%card on file%');
+      _cardRequestSent = new Set((smsRows||[]).map(r => r.customer_id));
+    } else {
+      _cardRequestSent = new Set();
+    }
+
     // Stat cards — always reflect full dataset
     const todayStr = today();
     // Picked Up Today: orders actually picked up today (Pacific time)
@@ -5704,7 +5745,7 @@
         ${thSort('delivery_window_start','Delivery Time')}
         ${thSort('weight_lbs','Bags')}
         ${thSort('total_amount','Total')}
-        ${currentOrderFilter==='issues' ? '<th style="padding-right:16px"></th>' : ''}
+        ${(currentOrderFilter==='issues' || currentOrderFilter==='delivered') ? '<th style="padding-right:16px"></th>' : ''}
       </tr></thead><tbody>
       ${sorted.map(o => {
         const custId = o.customers?.id || '';
@@ -5715,6 +5756,15 @@
             ? `<span style="font-weight:600">${bags}</span><br><span style="font-size:11px;color:var(--gray-400)">${o.weight_lbs} lbs</span>`
             : String(bags);
         const inIssues = currentOrderFilter === 'issues';
+        const inDelivered = currentOrderFilter === 'delivered';
+        const showAction = inIssues || inDelivered;
+        // Action cell content
+        let actionCell = '';
+        if (inIssues) {
+          actionCell = issueActionBtn(o);
+        } else if (inDelivered) {
+          actionCell = _deliveredActionBtn(o);
+        }
         return `<tr style="cursor:pointer" onclick="openOrderPanel('${o.id}')">
           <td style="width:36px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${o.customers?.phone_cache||''}" data-cust-name="${(o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||'')}" onchange="updateOrderBatchBar()"></td>
           <td style="font-size:12px;color:var(--gray-400);font-weight:600;white-space:nowrap;padding-right:8px">${o.order_number ? '#'+o.order_number : '—'}</td>
@@ -5726,7 +5776,7 @@
           <td style="font-size:12.5px;white-space:nowrap">${deliveryTimeCell(o)}</td>
           <td style="font-size:12.5px;text-align:right;padding-right:20px;line-height:1.4">${bagsDisplay}</td>
           <td style="font-weight:600;padding-right:20px;white-space:nowrap"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:80px">${_payStatusIcon(o)}<span>${fmtMoney(o.total_amount)}</span></div></td>
-          ${inIssues ? `<td style="padding-right:16px;white-space:nowrap" onclick="event.stopPropagation()">${issueActionBtn(o)}</td>` : ''}
+          ${showAction ? `<td style="padding-right:16px;white-space:nowrap" onclick="event.stopPropagation()">${actionCell}</td>` : ''}
         </tr>`;
       }).join('')}
     </tbody></table>`;
@@ -8157,6 +8207,7 @@ ${totalLinesXml}
           body: JSON.stringify({ to: phone, body: smsBody, customer_id: custId }),
         });
         if (!smsRes.ok) throw new Error('SMS send failed');
+        _cardRequestSent.add(custId);
         btn.textContent = '✓ Sent';
         btn.style.color = '#059669'; btn.style.background = '#ecfdf5';
         showToast(`Card request SMS sent for order #${orderNum}`, 'success');
@@ -8178,12 +8229,14 @@ ${totalLinesXml}
             </div>`,
           }),
         });
+        _cardRequestSent.add(custId);
         btn.textContent = '✓ Emailed';
         btn.style.color = '#059669'; btn.style.background = '#ecfdf5';
         showToast(`Card request emailed for order #${orderNum}`, 'success');
       } else {
         // No phone or email — copy link to clipboard
         await navigator.clipboard.writeText(result.url);
+        _cardRequestSent.add(custId);
         btn.textContent = '✓ Copied';
         btn.style.color = '#059669'; btn.style.background = '#ecfdf5';
         showToast('Card setup link copied to clipboard', 'success');
