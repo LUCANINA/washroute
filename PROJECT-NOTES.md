@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 24, 2026 — Cron jobs restored, unknown customers resolved, click-to-customer from maps, z-index fix, inbox reply lag fix (session 59)*
+*Last updated: Mar 24, 2026 — Stat card revamp (6 cards, timezone fix, $ In Process, Revenue Today), Request Card actions across 4 tabs, charge-order v25 + stripe-webhook v24 billing pipeline fix, customer support cleanup (session 61)*
 
 ---
 
@@ -18,6 +18,8 @@ Project moved from the old Cowork sandbox path to a proper local git repo:
 Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no dead references, no hardcoded strings that should be configurable. Whether the customer sees it or not — the system must be tidy. Clean up after every job.
 
 **⚠️ DELIVERY WINDOWS MUST MATCH ROUTE TEMPLATES.** When creating orders, always check the route template's `arrival_window_hours` to determine the correct delivery window size. San Francisco and Hayward routes have 3-hour arrival windows (7–10 PM), so the delivery window is the full route window. Berkeley, Alameda, and Oakland routes have 2-hour arrival windows (sub-windows: 6–8 PM or 8–10 PM). Never assume all routes use the same window size. One-time orders use `recurring_interval = NULL` (not `'one_time'`).
+
+**⚠️ BUSINESS TIMEZONE: Oakland CA, Pacific Time (`America/Los_Angeles`).** All "today" checks, stat cards, and date comparisons must use the `BIZ_TZ` constant (loaded from settings table at startup). Never assume UTC or browser local time.
 
 **⚠️ NEVER use `.toISOString()` for local date comparisons.** `toISOString()` returns UTC — after 5 PM Pacific it rolls to the next calendar day and breaks every "is this today?" check. Always use the `today()` helper or `getFullYear()/getMonth()/getDate()` formatting. This caused a critical bug where route schedule cells locked every evening. Applies to all three apps.
 
@@ -104,7 +106,8 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `twilio-webhook` | Receive inbound SMS — STOP/START/SKIP/PICKUP/HELP keywords only. Claude AI **removed** session 41. All other messages route silently to human inbox. | Off |
 | `geocode-addresses` | **TEMPORARY — deployed & deleted session 41.** Batch-geocoded 5,043 imported customer addresses via Google Maps API. No longer deployed. | N/A |
 | `notify-on-my-way` | Driver "On My Way" button → customer SMS | Off |
-| `charge-order` | Stripe payment charge | On |
+| `charge-order` | Stripe payment charge — **v25 (session 61):** now sets `billing_status='paid'` + `billed_at` on success, `billing_status='failed'` on decline | On |
+| `stripe-webhook` | Stripe webhook handler — **v24 (session 61):** added `payment_intent.succeeded` and `payment_intent.payment_failed` handlers as backup safety net for billing_status | Off |
 | `send-order-notification` | Status-change notifications | On |
 | `cloudprnt` | CloudPRNT server — printer polls for jobs, gets Star Markup, marks done | Off |
 | `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. Pickups and deliveries optimized independently. **v12 (session 27):** No-GPS path now uses geographic-extremes algorithm — northernmost and southernmost stops become fixed endpoints; tries both N→S and S→N directions with 2 Google API calls; picks shorter road distance. Eliminates U-shaped routes caused by pinning stop_number extremes as endpoints. When GPS provided: driver position is origin, last pending stop is destination (unchanged). | Off |
@@ -413,6 +416,8 @@ There are actually **two separate hang points** that must both be covered:
 - Issues tab excludes orders where `cancelled_by = 'customer'` — these are resolved, not actionable.
 - `trg_create_recurring_order` fires on `skipped` **only when `cancelled_by = 'customer'`** — ensures subscription chain continues.
 - `billing_status = 'failed'` orders always surface in Issues regardless of `cancelled_by`.
+- `billing_status` values: `'paid'` (charged successfully), `'failed'` (card declined), `'refunded'`, or `null` (not yet charged). Set by `charge-order` v25 and `stripe-webhook` v24.
+- `billed_at` timestamp: set when Stripe charge succeeds. Used by Revenue Today stat card to show same-day revenue in Pacific time.
 
 ---
 
@@ -788,6 +793,59 @@ There are actually **two separate hang points** that must both be covered:
 - **Next session priorities:**
   1. SMS Phase 2 — natural-language cancellations ("cancel Thursday") — needs `conversations` table
   2. Route picker fine-tuning (backlog)
+
+---
+
+### Mar 24, 2026 (session 61) — Stat card revamp, billing pipeline fix, Request Card actions, customer support
+
+**Stat card revamp (admin-dashboard/index.html):**
+- Expanded from 4 to 6 stat cards in a responsive CSS grid: Picked Up Today, Delivered Today, Orders Processing, Ready for Delivery, $ In Process (new), Revenue Today (fixed)
+- **Timezone fix:** All stat card date comparisons now use `toLocalDate()` with `BIZ_TZ` (Pacific time) instead of raw UTC string comparison. `today()` helper returns Pacific-time YYYY-MM-DD. Was causing wrong counts after 5 PM Pacific.
+- **$ In Process card:** Shows total_amount of orders in picked_up/processing/folding that haven't been charged yet
+- **Revenue Today accuracy fix:** Changed from counting all delivered orders to only counting orders where `billing_status='paid'` and `billed_at` is today (Pacific time)
+- Added responsive breakpoints: 3 columns at ≤1100px, 2 columns at ≤600px
+
+**Billing pipeline fix (charge-order v25 + stripe-webhook v24):**
+- **Root cause:** `charge-order` edge function was successfully charging via Stripe but never writing `billing_status` or `billed_at` back to the orders table. Revenue Today showed $388 instead of the actual $4,200+ collected.
+- **charge-order v25 deployed:** Now sets `billing_status='paid'` + `billed_at` on successful charge, `billing_status='failed'` on decline
+- **stripe-webhook v24 deployed:** Added `payment_intent.succeeded` and `payment_intent.payment_failed` handlers as backup safety net — catches cases where the edge function response is lost but Stripe actually processed the payment
+- **Backfill:** 74 previously-charged orders (with `stripe_payment_intent_id` but null `billing_status`) updated to `billing_status='paid'` with `billed_at` set from `updated_at`
+- **QA fix (this session):** Removed stale line in `retryChargeFromIssues()` that was overwriting `billing_status` back to null after a successful retry charge — conflicted with v25 which now sets it to 'paid'
+
+**Request Card action column (admin-dashboard/index.html):**
+- Added "Request card" button to Issues, Delivered, In Process, and Ready tabs for orders where the customer has no card on file
+- Shows "Retry charge" button for `billing_status='failed'` orders where customer DOES have a card
+- Tracks which customers already received a card request SMS (queries `sms_messages` for body containing "card on file") — shows greyed-out "✓ Requested" badge instead of duplicate button
+- `_cardRequestSent` Set refreshed on every `loadOrders()` call
+- `_deliveredActionBtn()` function handles all non-Issues tabs; `issueActionBtn()` handles Issues tab
+
+**Additional timezone fix:**
+- Fixed `loadRouteAssignments()` (customer panel) — was using `new Date().toISOString().slice(0,10)` for "today" comparison against route dates. Changed to use `today()` helper with BIZ_TZ.
+
+**Customer support:**
+- **Melissa Crouch:** Deleted duplicate customer record (0 orders) + orphaned auth.users entry + orphaned profile. Working account uses phone auth (978-270-4555).
+- **Marcie Gutierrez:** "Token has expired or is invalid" error on login — OTP code expiring before entry. Suggested entering code faster; consider increasing OTP expiry in Supabase auth settings.
+- **Danai Lamb:** Phone formatting issue investigated — David corrected in admin.
+
+**Commits:**
+- `921807b` — Revenue Today: only count orders with billing_status=paid
+- `a5afc7c` — Fix stat card timezone bug: convert UTC timestamps to Pacific time
+- `16c6d57` — Add Request Card action to Delivered tab, show sent status on both tabs
+- `da0a46f` — Add Request Card action column to In Process and Ready tabs
+- `709d504` — Add $ In Process stat card showing potential billings for orders not yet charged
+
+**QA findings (this session):**
+- HIGH: `retryChargeFromIssues()` was overwriting `billing_status` to null after successful charge — FIXED
+- LOW: `loadRouteAssignments()` timezone bug — FIXED
+- LOW: 6-column grid had no responsive breakpoints — FIXED (added media queries)
+- LOW: onclick handlers interpolate `custId`/`phone` values directly into HTML strings — XSS risk is minimal (admin-only app, data from Supabase) but noted for future refactor
+- The `toISOString().slice(0,10)` usages in the scheduling/reschedule UI (lines 6382–6706) are safe — they extract date parts from existing timestamps for date picker prefill, not for business-logic "today" comparisons
+
+**Pending (carries forward):**
+1. Re-enable `review_request` and `reorder_reminder` SMS templates when ready
+2. Resolve 5 unpaid delivered orders ($567.75) — confirm if paid on Starchup side
+3. Consider increasing Supabase OTP expiry for customers with slow entry (Marcie Gutierrez case)
+4. Future refactor: replace inline onclick string interpolation with data attributes + delegated event listeners
 
 ---
 

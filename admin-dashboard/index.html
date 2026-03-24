@@ -133,7 +133,9 @@
     .tech-header-logout:hover { background:rgba(255,255,255,.2); }
 
     /* ── CARDS & STATS ── */
-    .stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 28px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 28px; min-width: 0; }
+    @media (max-width: 1100px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 600px)  { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
     .stat-card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow-sm); }
     .stat-card-link { cursor: pointer; transition: border-color .12s, box-shadow .12s; }
     .stat-card-link:hover { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.1); }
@@ -8169,8 +8171,7 @@ ${totalLinesXml}
       });
       const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
       if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
-      // Clear failed billing status
-      await db.from('orders').update({ billing_status: null }).eq('id', orderId);
+      // charge-order v25 already sets billing_status='paid' + billed_at — no client-side update needed
       showToast(`✓ Order #${orderNum} charged — ${result.card || ''}`, 'success');
       // Send receipt email now that charge succeeded
       fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
@@ -11484,7 +11485,7 @@ ${totalLinesXml}
   async function loadRouteAssignments(customerId) {
     const el = document.getElementById('cp-route-assignments');
     el.innerHTML = '<span style="color:var(--gray-400)">Loading…</span>';
-    const today = new Date().toISOString().slice(0,10);
+    const todayLocal = today(); // Pacific time via BIZ_TZ helper
     // Get customer's active orders
     const { data: orders } = await db.from('orders').select('id').eq('customer_id', customerId)
       .not('status', 'in', '(cancelled,delivered)');
@@ -11495,7 +11496,7 @@ ${totalLinesXml}
     const { data: stops } = await db.from('route_stops')
       .select('stop_type, status, routes(id, name, run_date, status)')
       .in('order_id', orders.map(o=>o.id));
-    const upcoming = (stops||[]).filter(s=>s.routes&&s.routes.run_date>=today);
+    const upcoming = (stops||[]).filter(s=>s.routes&&s.routes.run_date>=todayLocal);
     if (!upcoming.length) {
       el.innerHTML = '<span style="color:var(--gray-300);font-style:italic">No upcoming route assignments</span>';
       return;
