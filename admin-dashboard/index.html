@@ -6189,16 +6189,25 @@
       const tmplName = best.tmpl.name;
       let routeRun = _opRoutes.find(r => r.name === tmplName && r.run_date === pickupDateIso);
       if (!routeRun) {
-        // Create the route run for this date
-        const { data: created } = await db.from('routes').insert({
-          name: tmplName,
-          template_id: best.tmpl.id,
-          run_date: pickupDateIso,
-          status: 'pending'
-        }).select('id, name, run_date, status').single();
-        if (created) {
-          routeRun = created;
-          _opRoutes.push(created);
+        // Route may exist beyond the prefetch limit — check DB before creating
+        const { data: existing } = await db.from('routes')
+          .select('id, name, run_date, status')
+          .eq('name', tmplName).eq('run_date', pickupDateIso)
+          .limit(1).maybeSingle();
+        if (existing) {
+          routeRun = existing;
+          _opRoutes.push(existing);
+        } else {
+          const { data: created } = await db.from('routes').insert({
+            name: tmplName,
+            template_id: best.tmpl.id,
+            run_date: pickupDateIso,
+            status: 'pending'
+          }).select('id, name, run_date, status').single();
+          if (created) {
+            routeRun = created;
+            _opRoutes.push(created);
+          }
         }
       }
 
