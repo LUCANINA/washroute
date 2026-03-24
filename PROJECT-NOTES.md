@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 23, 2026 — Kanban long-press, pickup/delivery details, driver duplicate fix, launch blast complete to all active customers (session 58)*
+*Last updated: Mar 24, 2026 — Cron jobs restored, unknown customers resolved, click-to-customer from maps, z-index fix, inbox reply lag fix (session 59)*
 
 ---
 
@@ -292,9 +292,11 @@ Postgres function: `find_customer_by_phone(digits TEXT)`.
 **Still disabled (2):** `review_request`, `reorder_reminder` — both marketing. Re-enable when ready.
 
 **Still removed (not re-created):**
-- pg_cron jobs `wr-reminder-evening` and `wr-reminder-morning` — need to be re-created with proper filters before scheduled reminders will send automatically
 - DB triggers `trg_customer_registered_insert` and `trg_customer_phone_first_set` — dropped in session 41
 - Claude AI in `twilio-webhook` — permanently removed (v27)
+
+**Restored (session 59):**
+- pg_cron jobs `wr-reminder-evening` and `wr-reminder-morning` — re-created with proper schedules and HTTP POST payloads calling `send-scheduled-reminders` edge function (v15). Evening runs at 8 PM PT, morning at 7 AM PT.
 
 **What works:**
 - `twilio-webhook` v27 handles inbound keywords: STOP, START, SKIP, PICKUP, HELP
@@ -789,6 +791,49 @@ There are actually **two separate hang points** that must both be covered:
 
 ---
 
+### Mar 24, 2026 (session 59) — Cron jobs restored, unknown customers resolved, map click-to-customer, inbox fix
+
+**pg_cron reminder jobs re-created:**
+- `wr-reminder-evening` (8 PM PT) and `wr-reminder-morning` (7 AM PT) — both call `send-scheduled-reminders` edge function (v15) via `net.http_post()`.
+- Preflight safety check confirmed no SMS blast risk — templates filtered to `pickup_reminder_recurring` and `pickup_day_reminder` only.
+- Manually triggered morning job to cover today's pickups/deliveries since we were past the 7 AM window.
+
+**Unknown customer names resolved (48 → 0):**
+- Cross-referenced `first_name_cache`/`last_name_cache` = NULL customers against 3 Starchup migration CSVs by email and phone.
+- Matched and updated 38 customers via SQL UPDATE on `profiles` table (names synced to `customers` cache columns).
+- 2 additional matches found by David from Starchup screenshots (Melanie Peterson, Emilie Wong).
+- 10 ghost accounts (phone/email-only signups, no orders, no addresses) deleted from `customers` and `profiles` tables.
+
+**Click-to-customer-account from RCC (Orders) map (`admin-dashboard/index.html`):**
+- Stop card customer names are now clickable → opens customer panel via `openCustomerPanel()`.
+- Map pin popups show customer name as clickable link → same behavior.
+- CSS hover state added: `.rcc-card-name[onclick]:hover` underlines with accent color.
+
+**Click-to-customer-account from Customers map (`admin-dashboard/index.html`):**
+- Marker click opens customer panel directly (replaced flyTo behavior).
+- Info card (hover) also clickable with "View account →" link.
+- Consistent with RCC map behavior.
+
+**Z-index fix for panel overlays (`admin-dashboard/index.html`):**
+- Leaflet maps use z-index up to ~1000 internally. Side panel (1100), backdrop (1099), and order panel (1101) bumped above map layers.
+
+**Inbox reply lag fix (`admin-dashboard/index.html`):**
+- Sent messages now appear instantly via optimistic UI update — appends bubble to DOM immediately after successful send.
+- Replaced full `openSMSConversation()` reload (which had a race condition with the edge function DB write) with local DOM append + `loadInbox()` for sidebar refresh.
+
+**Commits:**
+- `abe0949` — Add click-to-customer-account from RCC map view
+- `63a354f` — Add click-to-customer-account from Customer map pins
+- `b32f71d` — Fix panel z-index to appear above Leaflet map layers
+- `9c9796d` — Fix inbox reply lag — optimistically append sent message to thread
+
+**Pending (carries forward):**
+1. Re-enable `review_request` and `reorder_reminder` SMS templates when ready
+2. Resolve 5 unpaid delivered orders ($567.75) — confirm if paid on Starchup side
+3. QA + security review (deferred from session 57)
+
+---
+
 ### Mar 23, 2026 (session 58) — Launch blast complete + unpaid order audit
 
 **Launch blast — COMPLETE for all active customers:**
@@ -812,7 +857,7 @@ There are actually **two separate hang points** that must both be covered:
 - Decision pending: charge retroactively or write off as transition cost (likely already billed on Starchup side).
 
 **Pending (carries forward):**
-1. Re-create `wr-reminder-evening` and `wr-reminder-morning` cron jobs (still removed since session 41)
+1. ~~Re-create cron jobs~~ — ✅ Done in session 59
 2. Re-enable `review_request` and `reorder_reminder` SMS templates when ready
 3. Resolve 5 unpaid delivered orders ($567.75) — confirm if paid on Starchup side
 4. QA + security review (deferred from session 57)
