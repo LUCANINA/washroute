@@ -3562,6 +3562,7 @@
   </div>
   <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
     <div id="fold-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
+    <button id="fold-back-btn" class="btn btn-ghost" style="width:100%;padding:10px;font-size:13px;color:var(--gray-500);border:1px dashed var(--gray-200);border-radius:8px;display:none" onclick="foldPanelMoveBack()"></button>
   </div>
 </div>
 
@@ -3583,6 +3584,7 @@
   <div class="slide-over-footer" style="flex-direction:column;gap:10px;padding:16px 24px">
     <div id="rack-error" style="display:none;color:var(--red);font-size:12.5px;text-align:center"></div>
     <div id="rack-charging" style="display:none;text-align:center;font-size:13px;color:var(--gray-500)"><div class="spinner" style="margin:0 auto 6px"></div>Charging & racking…</div>
+    <button id="rack-back-btn" class="btn btn-ghost" style="width:100%;padding:10px;font-size:13px;color:var(--gray-500);border:1px dashed var(--gray-200);border-radius:8px;display:none" onclick="rackPanelMoveBack()"></button>
   </div>
 </div>
 
@@ -15924,6 +15926,10 @@ ${totalLinesXml}
     const foldIsOnAcct = order.customers?.billing_type === 'on_account';
     document.getElementById('fold-subtitle').innerHTML = `Order #${order.order_number||'—'} · ${order.services?.name||''}${foldIsOnAcct ? ' <span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px">ON ACCOUNT</span>' : ''}`;
     document.getElementById('fold-error').style.display = 'none';
+    // Show "move back" button — Fold panel is always reached from Cleaning, so back = Intake
+    const foldBackBtn = document.getElementById('fold-back-btn');
+    foldBackBtn.textContent = '← Return to Intake';
+    foldBackBtn.style.display = '';
     renderFoldPanel();
     document.getElementById('fold-panel').classList.add('open');
   }
@@ -16109,6 +16115,13 @@ ${totalLinesXml}
     const isOnAcct = order.customers?.billing_type === 'on_account';
     subtitleEl.innerHTML = `Order #${order.order_number||'—'} · ${order.services?.name||''}${isOnAcct ? ' <span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px">ON ACCOUNT</span>' : ''}`;
     document.getElementById('rack-error').style.display  = 'none';
+    // Show "move back" button with label based on current status
+    const rackBackBtn = document.getElementById('rack-back-btn');
+    const backLabel = order.status === 'ready_for_delivery' ? '← Return to Folding'
+                    : order.status === 'folding'            ? '← Return to Cleaning'
+                    :                                         '← Return to Intake';
+    rackBackBtn.textContent = backLabel;
+    rackBackBtn.style.display = '';
     const chargingEl = document.getElementById('rack-charging');
     if (chargingEl) {
       chargingEl.style.display = 'none';
@@ -17044,13 +17057,32 @@ ${totalLinesXml}
     allFoldOrders   = allFoldOrders.filter(o => o.id !== orderId);
     allRackOrders   = allRackOrders.filter(o => o.id !== orderId);
     const patch = { status: targetStatus, updated_at: new Date().toISOString() };
-    if (targetStatus === 'folding') { patch.rack_id = null; patch.racked_at = null; }
+    // Clear rack assignment when moving back from or past the Rack column
+    if (['folding','processing','picked_up'].includes(targetStatus)) { patch.rack_id = null; patch.racked_at = null; }
     const { error } = await db.from('orders').update(patch).eq('id', orderId);
     if (error) { showToast(error.message, 'error'); reloadColumns('intake','cleaning','folding','rack'); return; }
     showToast(`Order moved back to ${label}`, 'success');
     // Only reload the two columns involved in this back-move
     const colMap = { picked_up: ['cleaning','intake'], processing: ['folding','cleaning'], folding: ['rack','folding'] };
     reloadColumns(...(colMap[targetStatus] || ['intake','cleaning','folding','rack']));
+  }
+
+  // ── Move-back helpers for panel footers ──
+  function foldPanelMoveBack() {
+    if (!foldActiveOrder) return;
+    const id = foldActiveOrder.id;
+    closeFoldPanel();
+    moveOrderBack(id, 'picked_up');
+  }
+
+  function rackPanelMoveBack() {
+    if (!rackActiveOrder) return;
+    const id = rackActiveOrder.id;
+    const status = rackActiveOrder.status;
+    closeRackPanel();
+    if (status === 'ready_for_delivery') moveOrderBack(id, 'folding');
+    else if (status === 'folding')       moveOrderBack(id, 'processing');
+    else                                 moveOrderBack(id, 'picked_up');
   }
 
   async function saveIntake() {
