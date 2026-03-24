@@ -133,8 +133,8 @@
     .tech-header-logout:hover { background:rgba(255,255,255,.2); }
 
     /* ── CARDS & STATS ── */
-    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
-    .stat-card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-sm); }
+    .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 28px; }
+    .stat-card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow-sm); }
     .stat-card-link { cursor: pointer; transition: border-color .12s, box-shadow .12s; }
     .stat-card-link:hover { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.1); }
     .stat-label { font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 8px; }
@@ -1330,9 +1330,9 @@
           <div id="orders-list-view">
             <div class="stats-grid">
               <div class="stat-card"><div class="stat-label">Picked Up Today</div><div class="stat-value" id="ostat-pickups">—</div></div>
+              <div class="stat-card"><div class="stat-label">Delivered Today</div><div class="stat-value" id="ostat-delivered">—</div></div>
               <div class="stat-card"><div class="stat-label">Orders Processing</div><div class="stat-value" id="ostat-processing">—</div></div>
               <div class="stat-card"><div class="stat-label">Ready for Delivery</div><div class="stat-value" id="ostat-ready">—</div></div>
-              <div class="stat-card"><div class="stat-label">Delivered Today</div><div class="stat-value" id="ostat-delivered">—</div></div>
               <div class="stat-card"><div class="stat-label">Revenue Today</div><div class="stat-value" id="ostat-revenue">—</div></div>
             </div>
             <div class="card">
