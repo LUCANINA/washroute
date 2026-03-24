@@ -1329,9 +1329,10 @@
           <!-- Orders List View -->
           <div id="orders-list-view">
             <div class="stats-grid">
-              <div class="stat-card"><div class="stat-label">Pickups Today</div><div class="stat-value" id="ostat-pickups">—</div></div>
+              <div class="stat-card"><div class="stat-label">Picked Up Today</div><div class="stat-value" id="ostat-pickups">—</div></div>
               <div class="stat-card"><div class="stat-label">Orders Processing</div><div class="stat-value" id="ostat-processing">—</div></div>
-              <div class="stat-card"><div class="stat-label">Expected Revenue Today</div><div class="stat-value" id="ostat-revenue">—</div></div>
+              <div class="stat-card"><div class="stat-label">Ready for Delivery</div><div class="stat-value" id="ostat-ready">—</div></div>
+              <div class="stat-card"><div class="stat-label">Revenue Today</div><div class="stat-value" id="ostat-revenue">—</div></div>
             </div>
             <div class="card">
               <div class="card-header" style="flex-wrap:wrap;gap:10px;">
@@ -5525,12 +5526,23 @@
 
     // Stat cards — always reflect full dataset
     const todayStr = today();
-    const pickupsToday = allOrders.filter(o => (o.pickup_window_start||'').startsWith(todayStr) && !['cancelled'].includes(o.status)).length;
-    const processing = allOrders.filter(o => ['picked_up','processing','folding','ready_for_delivery'].includes(o.status)).length;
-    const revenueToday = allOrders.filter(o => (o.pickup_window_start||'').startsWith(todayStr) && !['cancelled'].includes(o.status))
+    // Picked Up Today: orders whose status moved past 'scheduled' today (picked_up or beyond, changed today)
+    const pickedUpToday = allOrders.filter(o => {
+      if (!['picked_up','processing','folding','ready_for_delivery','out_for_delivery','delivered'].includes(o.status)) return false;
+      const updated = o.updated_at || o.created_at || '';
+      return updated.startsWith(todayStr);
+    }).length;
+    // Processing: picked_up through folding (actively being worked on)
+    const processing = allOrders.filter(o => ['picked_up','processing','folding'].includes(o.status)).length;
+    // Ready for Delivery: on the rack waiting to go out
+    const readyCount = allOrders.filter(o => o.status === 'ready_for_delivery').length;
+    // Revenue Today: actual charged amount (has stripe_payment_intent_id, not failed)
+    const revenueToday = allOrders.filter(o => o.stripe_payment_intent_id && o.billing_status !== 'failed')
+      .filter(o => (o.updated_at||'').startsWith(todayStr))
       .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
-    document.getElementById('ostat-pickups').textContent = pickupsToday;
+    document.getElementById('ostat-pickups').textContent = pickedUpToday;
     document.getElementById('ostat-processing').textContent = processing;
+    document.getElementById('ostat-ready').textContent = readyCount;
     document.getElementById('ostat-revenue').textContent = fmtMoney(revenueToday);
 
     // Update pill badge counts, then render filtered view
