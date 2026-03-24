@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 24, 2026 — Stat card revamp (6 cards, timezone fix, $ In Process, Revenue Today), Request Card actions across 4 tabs, charge-order v25 + stripe-webhook v24 billing pipeline fix, customer support cleanup (session 61)*
+*Last updated: Mar 24, 2026 — Stat card revamp, billing pipeline fix, realtime card listener, customer app null crash fix, Laura Woltag merge, customer support (session 61)*
 
 ---
 
@@ -827,25 +827,58 @@ There are actually **two separate hang points** that must both be covered:
 - **Marcie Gutierrez:** "Token has expired or is invalid" error on login — OTP code expiring before entry. Suggested entering code faster; consider increasing OTP expiry in Supabase auth settings.
 - **Danai Lamb:** Phone formatting issue investigated — David corrected in admin.
 
+**Realtime card-added listener (admin-dashboard/index.html):**
+- Subscribes to INSERT on `customer_payment_methods` via Supabase realtime
+- When a customer adds a card: adds to `_custWithCard`, removes from `_cardRequestSent`, shows toast with customer name, re-renders orders table so badges update instantly
+- Enabled realtime publication for `customer_payment_methods` table in Supabase
+- Card request SMS conversion: 29 customers added a card within 4 hours of receiving the request
+
+**Customer app bug fix (customer-app/index.html):**
+- **`handleNameSubmit()` null crash:** `loadUserData()` used global `currentUser` which could be null if auth state change listener hadn't fired yet (race condition). Now sets `currentUser` from local `user` variable before calling `loadUserData()`. Added guard in `loadUserData()` itself. Shows "Session expired" message if `getUser()` returns null.
+- Triggered by Danai Lamb seeing "null is not an object (evaluating 'currentUser.id')" on the signup form
+
+**Customer support (continued):**
+- **Laura Woltag:** Had 2 accounts (Starchup migration + new signup). Merged: moved phone, $20 credit, transaction/SMS history, and combined lifetime value ($708.70) to the active account. Deleted old customer + profile + auth user. David issuing $20 refund on order #659 separately.
+- **Alena Hutchinson:** "Token invalid" on OTP — same as Marcie Gutierrez. She eventually got in (auth shows last_sign_in today). OTP expiry too short for some users.
+- **Cynthia Williams:** Not receiving OTP SMS at all. Email is `jazzblack@att.net` — likely AT&T landline, which can't receive SMS. Has no auth user (never successfully logged in). Waiting for her response to confirm.
+
 **Commits:**
 - `921807b` — Revenue Today: only count orders with billing_status=paid
 - `a5afc7c` — Fix stat card timezone bug: convert UTC timestamps to Pacific time
 - `16c6d57` — Add Request Card action to Delivered tab, show sent status on both tabs
 - `da0a46f` — Add Request Card action column to In Process and Ready tabs
 - `709d504` — Add $ In Process stat card showing potential billings for orders not yet charged
+- `ae64d24` — QA fixes: billing_status overwrite, route assignments timezone, responsive grid
+- `b56c746` — Realtime card-added listener: badges update instantly
+- `fedc338` — Fix null currentUser crash on customer app signup form
 
 **QA findings (this session):**
 - HIGH: `retryChargeFromIssues()` was overwriting `billing_status` to null after successful charge — FIXED
 - LOW: `loadRouteAssignments()` timezone bug — FIXED
 - LOW: 6-column grid had no responsive breakpoints — FIXED (added media queries)
 - LOW: onclick handlers interpolate `custId`/`phone` values directly into HTML strings — XSS risk is minimal (admin-only app, data from Supabase) but noted for future refactor
+- LOW: `handleNameSubmit()` race condition with null `currentUser` — FIXED
 - The `toISOString().slice(0,10)` usages in the scheduling/reschedule UI (lines 6382–6706) are safe — they extract date parts from existing timestamps for date picker prefill, not for business-logic "today" comparisons
+
+**Security review (session 61):**
+- No secret keys (sk_live, Twilio auth tokens, service role keys) exposed in client code — PASS
+- Stripe publishable key (pk_live) in admin dashboard is expected and safe
+- **XSS via onclick handlers (MEDIUM):** `custId`, `phone`, `email` interpolated directly into onclick strings across admin dashboard. Risk is low (admin-only app, data from Supabase, not user-editable in freeform) but should be refactored to use data attributes + delegated listeners
+- **XSS via data attributes (MEDIUM):** Customer names/phones in `data-*` attributes on order table rows not HTML-escaped. Same low-risk profile as above.
+- **localStorage PII (MEDIUM):** Customer app caches card_last4, card_brand in localStorage for performance. No full card numbers. Consider clearing on logout.
+- **Edge functions with verify_jwt:false (MEDIUM):** `charge-order`, `send-sms`, `cloudprnt` have JWT verification off — they validate via apikey header instead. Acceptable for current scale but should add request-origin validation if public traffic grows.
+- **innerHTML with error messages (LOW):** A few `innerHTML` calls include `error.message` from Supabase — could reflect unexpected content. Should use `textContent` for error display.
+- **No CSRF tokens (LOW):** Edge function calls use standard fetch with no CSRF protection. Mitigated by Supabase apikey requirement and CORS.
+- **Overall assessment:** No critical vulnerabilities found. Admin-only XSS vectors are the highest priority for future hardening. No credential leaks. Payment processing is server-side only (Stripe secret key in Supabase secrets, never in client code).
 
 **Pending (carries forward):**
 1. Re-enable `review_request` and `reorder_reminder` SMS templates when ready
 2. Resolve 5 unpaid delivered orders ($567.75) — confirm if paid on Starchup side
-3. Consider increasing Supabase OTP expiry for customers with slow entry (Marcie Gutierrez case)
-4. Future refactor: replace inline onclick string interpolation with data attributes + delegated event listeners
+3. Consider increasing Supabase OTP expiry for customers with slow entry (Marcie Gutierrez, Alena Hutchinson)
+4. Cynthia Williams — likely landline, can't receive OTP. May need email login fallback in customer app
+5. Credits not applied at charge time — only at Intake. If credit is added after Intake, it's missed. Consider adding credit check to `charge-order` edge function
+6. Future refactor: replace inline onclick string interpolation with data attributes + delegated event listeners
+7. Security hardening: escape customer data in data attributes/onclick handlers, clear localStorage on logout
 
 ---
 
