@@ -1733,6 +1733,9 @@ async function handleNameSubmit() {
   btn.disabled = true; btn.textContent = 'Setting up…';
   try {
     const { data: { user } } = await db.auth.getUser();
+    if (!user) { toast('Session expired — please sign in again'); btn.disabled = false; btn.textContent = 'Let\'s go →'; return; }
+    // Ensure global currentUser is set (race condition: auth state change may not have fired yet)
+    if (!currentUser) currentUser = user;
     const phoneVal = _pendingPhone || user?.phone || '';
     // Ensure profile row exists with all fields
     await db.from('profiles').upsert({
@@ -2109,6 +2112,7 @@ db.auth.onAuthStateChange((event, session) => {
 });
 
 async function loadUserData() {
+  if (!currentUser) { console.warn('loadUserData called with no currentUser'); return; }
   const [{ data: prof }, { data: cust }] = await Promise.all([
     db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle(),
     db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle()
