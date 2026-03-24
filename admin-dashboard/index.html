@@ -5556,10 +5556,13 @@
     // No search term — normal tab filtering
     if (currentOrderFilter) {
       if (currentOrderFilter === 'issues') {
-        data = data.filter(o =>
-          (ORDER_FILTER_GROUPS.issues.includes(o.status) && o.cancelled_by !== 'customer') ||
-          o.billing_status === 'failed'
-        );
+        data = data.filter(o => {
+          // Exclude customer skips (intentional, recurring chain continues)
+          if (o.cancelled_by === 'customer') return false;
+          // Exclude recurring pickup_failed — chain auto-continues, treat like a skip
+          if (o.status === 'pickup_failed' && o.recurring_interval) return false;
+          return ORDER_FILTER_GROUPS.issues.includes(o.status) || o.billing_status === 'failed';
+        });
       } else if (currentOrderFilter === 'delivered') {
         const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         data = data.filter(o =>
@@ -5582,7 +5585,7 @@
       scheduled:  allOrders.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
       in_process: allOrders.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
       ready:      allOrders.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
-      issues:     allOrders.filter(o => ((ORDER_FILTER_GROUPS.issues||[]).includes(o.status) && o.cancelled_by !== 'customer') || o.billing_status === 'failed').length,
+      issues:     allOrders.filter(o => { if (o.cancelled_by === 'customer') return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status) || o.billing_status === 'failed'; }).length,
       delivered:  (() => { const cutoff = new Date(Date.now() - 24*60*60*1000).toISOString(); return allOrders.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
