@@ -14075,7 +14075,7 @@ ${totalLinesXml}
   let _rccRouteData    = {};          // routeId → { route, color, driverName, stops, routeWindow }
   let _rccDragStopId   = null;        // stop id being dragged
   let _rccStopMarkers  = {};          // stopId → L.marker (for hover)
-  let _rccPolylines    = {};          // routeId → L.polyline
+  let _rccPolylines    = {};          // (unused — route lines removed for clarity)
   let _rccSlot         = null;        // 'AM' | 'PM' — chip strip filter
   let _rccReassigned   = {};          // stopId → { fromRouteName, fromColor } — cleared on date change
 
@@ -14123,12 +14123,13 @@ ${totalLinesXml}
     _rccDriverSched = {};
     (schedRows || []).forEach(r => { _rccDriverSched[`${r.template_id}-${r.day_of_week}`] = r.driver_id; });
 
-    // Get live stop counts per route (exclude delivered/cancelled)
+    // Get live stop counts per route (only remaining — exclude done/dead)
     _dsCountMap = {};
     const routeIds = _dsRoutes.map(r => r.id);
     if (routeIds.length) {
-      const { data: sc } = await db.from('route_stops').select('route_id, orders(status)').in('route_id', routeIds);
-      (sc||[]).filter(s => s.orders && !DEAD_ORDER_STATUSES.includes(s.orders.status))
+      const { data: sc } = await db.from('route_stops').select('route_id, status, orders(status)').in('route_id', routeIds);
+      (sc||[]).filter(s => s.orders && !DEAD_ORDER_STATUSES.includes(s.orders.status)
+          && s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed')
         .forEach(s => { _dsCountMap[s.route_id] = (_dsCountMap[s.route_id]||0) + 1; });
     }
 
@@ -14345,9 +14346,11 @@ ${totalLinesXml}
       if (!rd) return;
       const { color, driverName, driverInitials, stops, templateName } = rd;
       const cnt = stops.length;
-      const pickups = stops.filter(s => s.stop_type !== 'delivery').length;
-      const deliveries = stops.filter(s => s.stop_type === 'delivery').length;
       const doneCount = stops.filter(s => s.status === 'complete').length;
+      // Only show remaining (non-complete, non-skipped, non-failed) stops in cards + map
+      const remaining = stops.filter(s => s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed');
+      const pickups = remaining.filter(s => s.stop_type !== 'delivery').length;
+      const deliveries = remaining.filter(s => s.stop_type === 'delivery').length;
       const pct = cnt > 0 ? Math.round((doneCount / cnt) * 100) : 0;
 
       // ── Time-window section dividers ──
@@ -14388,9 +14391,9 @@ ${totalLinesXml}
         return Math.max(0, Math.min(numSlots - 1, idx));
       };
 
-      // Collect distinct slot indices that appear in this route
+      // Collect distinct slot indices that appear in this route (remaining stops only)
       const slotSet = new Set();
-      stops.forEach(s => { const idx = getSlotIdx(s); if (idx >= 0) slotSet.add(idx); });
+      remaining.forEach(s => { const idx = getSlotIdx(s); if (idx >= 0) slotSet.add(idx); });
       const sortedSlots = [...slotSet].sort((a, b) => a - b);
 
       if (numSlots > 0 && sortedSlots.length > 1) {
@@ -14411,7 +14414,7 @@ ${totalLinesXml}
         const groups = {};
         sortedSlots.forEach(idx => { groups[idx] = []; });
         const noWindow = [];
-        stops.forEach(s => {
+        remaining.forEach(s => {
           const idx = getSlotIdx(s);
           if (idx >= 0 && groups[idx] !== undefined) groups[idx].push(s);
           else noWindow.push(s);
@@ -14427,7 +14430,7 @@ ${totalLinesXml}
         });
         noWindow.forEach(s => { s._displayNum = ++_displayIdx; cardsHtml += rccBuildCard(s, routeId, color); });
       } else {
-        stops.forEach(s => { s._displayNum = ++_displayIdx; cardsHtml += rccBuildCard(s, routeId, color); });
+        remaining.forEach(s => { s._displayNum = ++_displayIdx; cardsHtml += rccBuildCard(s, routeId, color); });
       }
 
       html += `<div class="rcc-col" data-route-id="${routeId}"
@@ -14444,7 +14447,7 @@ ${totalLinesXml}
             <button onclick="rccToggleRoute('${routeId}')" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:16px;line-height:1;padding:0 2px;flex-shrink:0;" title="Close">×</button>
           </div>
           <div class="rcc-col-meta">
-            <span class="rcc-col-n">${cnt}</span>
+            <span class="rcc-col-n">${remaining.length}</span>
             <span class="rcc-col-lbl">stops</span>
             <span class="rcc-card-dot" style="margin:0 5px;"></span>
             <span class="rcc-col-n">${pickups}</span>
@@ -14641,31 +14644,10 @@ ${totalLinesXml}
       const rd = _rccRouteData[routeId];
       if (!rd) return;
       const { color, stops } = rd;
-      const valid = stops.filter(s => s._addr?.lat && s._addr?.lng);
+      // Only show remaining stops on the map (hide complete/skipped/failed)
+      const remaining = stops.filter(s => s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed');
+      const valid = remaining.filter(s => s._addr?.lat && s._addr?.lng);
       if (!valid.length) return;
-
-      // Separate pickups and deliveries — draw as two distinct polylines
-      // so the optimized order of each type is clearly visible.
-      // Sort by _displayNum (window-time order) not raw stop_number.
-      const pickupStops   = valid.filter(s => s.stop_type === 'pickup')
-                                  .sort((a,b) => (a._displayNum||a.stop_number) - (b._displayNum||b.stop_number));
-      const deliveryStops = valid.filter(s => s.stop_type === 'delivery')
-                                  .sort((a,b) => (a._displayNum||a.stop_number) - (b._displayNum||b.stop_number));
-
-      // Pickup polyline — solid line
-      if (pickupStops.length > 1) {
-        const coords = pickupStops.map(s => [s._addr.lat, s._addr.lng]);
-        const line = L.polyline(coords, { color, weight: 3, opacity: 0.65 });
-        line._isStopLayer = true;
-        line.addTo(routeLiveMap);
-      }
-      // Delivery polyline — dashed line (visually distinct)
-      if (deliveryStops.length > 1) {
-        const coords = deliveryStops.map(s => [s._addr.lat, s._addr.lng]);
-        const line = L.polyline(coords, { color, weight: 3, opacity: 0.55, dashArray: '8 5' });
-        line._isStopLayer = true;
-        line.addTo(routeLiveMap);
-      }
 
       // Collect all coords for map bounds
       valid.forEach(s => allCoords.push([s._addr.lat, s._addr.lng]));
