@@ -12948,9 +12948,9 @@ ${totalLinesXml}
       allDriversCache = [];
       return;
     }
-    // Only include actual drivers (and admins who also drive) — exclude laundry_tech etc.
+    // Include drivers, admins, and managers (managers can have "Also a driver" toggle)
     allDriversCache = (data||[])
-      .filter(d => !d.profiles?.role || d.profiles.role === 'driver' || d.profiles.role === 'admin')
+      .filter(d => !d.profiles?.role || ['driver','admin','manager'].includes(d.profiles.role))
       .map(d => ({
         id: d.id,
         name: `${d.profiles?.first_name||''} ${d.profiles?.last_name||''}`.trim() || 'Driver'
@@ -12974,8 +12974,8 @@ ${totalLinesXml}
       return;
     }
 
-    // Exclude non-driver roles (laundry_tech etc.) from the drivers list
-    allDriversList = (data||[]).filter(d => !d.profiles?.role || d.profiles.role === 'driver' || d.profiles.role === 'admin').map(d => ({
+    // Include drivers, admins, and managers — exclude laundry_tech etc.
+    allDriversList = (data||[]).filter(d => !d.profiles?.role || ['driver','admin','manager'].includes(d.profiles.role)).map(d => ({
       id:         d.id,
       profileId:  d.profiles?.id,
       firstName:  d.profiles?.first_name || '',
