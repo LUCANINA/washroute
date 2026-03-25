@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 24, 2026 — Stat card revamp, billing pipeline fix, realtime card listener, customer app null crash fix, Laura Woltag merge, customer support (session 61)*
+*Last updated: Mar 24, 2026 — UTC timezone fix across all apps, driver stop cascade fix, wrong-date route stops corrected (session 62)*
 
 ---
 
@@ -858,7 +858,7 @@ There are actually **two separate hang points** that must both be covered:
 - LOW: 6-column grid had no responsive breakpoints — FIXED (added media queries)
 - LOW: onclick handlers interpolate `custId`/`phone` values directly into HTML strings — XSS risk is minimal (admin-only app, data from Supabase) but noted for future refactor
 - LOW: `handleNameSubmit()` race condition with null `currentUser` — FIXED
-- The `toISOString().slice(0,10)` usages in the scheduling/reschedule UI (lines 6382–6706) are safe — they extract date parts from existing timestamps for date picker prefill, not for business-logic "today" comparisons
+- ~~The `toISOString().slice(0,10)` usages in the scheduling/reschedule UI were considered safe~~ — **WRONG. Fixed session 62.** These DID cause PM routes (6 PM Pacific = 1 AM UTC next day) to match wrong-date routes. All replaced with `toLocalDate()` (Pacific time)
 
 **Security review (session 61):**
 - No secret keys (sk_live, Twilio auth tokens, service role keys) exposed in client code — PASS
@@ -879,6 +879,44 @@ There are actually **two separate hang points** that must both be covered:
 5. Credits not applied at charge time — only at Intake. If credit is added after Intake, it's missed. Consider adding credit check to `charge-order` edge function
 6. Future refactor: replace inline onclick string interpolation with data attributes + delegated event listeners
 7. Security hardening: escape customer data in data attributes/onclick handlers, clear localStorage on logout
+
+---
+
+### Mar 24, 2026 (session 62) — UTC timezone fix, driver stop cascade fix, wrong-date stops corrected
+
+**Critical bug fix — PM route stops landing on wrong day's route:**
+- **Root cause:** Admin dashboard used `.split('T')[0]` and `.toISOString().slice(0,10)` to extract dates from UTC timestamps. For PM routes, 6 PM Pacific = `2026-03-25T01:00Z` → splitting gives `2026-03-25` (tomorrow) instead of `2026-03-24` (today). This caused delivery/pickup stops to be placed on the next day's route. Drivers wouldn't see stops for tonight's PM routes.
+- **Fix (admin-dashboard/index.html):** Replaced 8 instances of UTC date extraction with `toLocalDate()` helper (which uses `toLocaleDateString('en-CA', { timeZone: BIZ_TZ })`):
+  - `saveOrder()` pickup + delivery date fallbacks (lines 11103, 11110)
+  - `selectNoSlot()` pickup date fallback (line 10727)
+  - `selectNdSlot()` delivery date + day formatting fallbacks (lines 10960, 10962)
+  - Reschedule modal prefill dates: pickup, delivery, delivery-min, auto-update (lines 6476–6496, 6799–6807)
+  - `tomorrowStr` stat card helper (line 4888)
+- **Fix (customer-app/index.html):** Replaced 2 instances of UTC date extraction in edit-schedule init (lines 4751–4752) with Pacific timezone conversion.
+- **⚠️ RULE UPDATED:** Previous session 61 QA incorrectly assessed these `.toISOString().slice(0,10)` usages as "safe." They were NOT safe for PM routes. The standing rule now applies to ALL date extraction from UTC timestamps, not just "today" comparisons: **NEVER use `.split('T')[0]`, `.slice(0,10)`, or `.toISOString()` to extract dates from DB timestamps. Always use `toLocalDate()` (admin) or `toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })` (customer app).**
+
+**Driver stop cascade fix (admin-dashboard/index.html):**
+- **Problem:** `assignDriverOverride()` only cascaded stop `driver_id` changes to today's routes. Future routes relied solely on the DB trigger `trg_cascade_route_driver`, which could miss stops if the route record update was a no-op (driver_id unchanged → trigger skips).
+- **Fix:** Now iterates ALL matching routes (today + future) and explicitly updates pending/en_route stops for each. Belt-and-suspenders — DB trigger is still the primary mechanism.
+- **Symptom:** Robin Kline's delivery stop was assigned to Tulicia (old driver) on a route now driven by Aracely. Driver app filtered it out because `driver_id` didn't match.
+
+**Data fixes (13 stops corrected):**
+- **5 driver-mismatched stops:** Robin Kline, Gregg Loos (Oakland PM), Carrie Stone, Level Up Wellness (Oakland AM), and a future Gregg Loos (Mar 30) — stop `driver_id` updated to match route `driver_id`.
+- **3 tonight stops on wrong-date routes:** Robin Kline, Eric Polk, Benjamin Olson — moved from Mar 25 route to tonight's Mar 24 route.
+- **10 future stops on wrong-date routes (1 day to 1 week off):** Sahlee Tongson, Sarah Seiter, Janet Walker, Dani Black, Bruna Liborio, Brianna Headsten, jessica anderson — deleted misplaced stops, cleared order run_ids, re-routed via `auto_route_order()`. All landed on correct-date routes with zero routing errors.
+
+**Verification:** Post-fix query confirmed zero mismatched stops remaining (stop window date ≠ route run_date) across all future routes.
+
+**Files changed:** `admin-dashboard/index.html`, `customer-app/index.html`
+
+**Pending (carries forward from session 61):**
+1. Re-enable `review_request` and `reorder_reminder` SMS templates when ready
+2. Resolve 5 unpaid delivered orders ($567.75) — confirm if paid on Starchup side
+3. Consider increasing Supabase OTP expiry for customers with slow entry
+4. Cynthia Williams — likely landline, can't receive OTP. May need email login fallback
+5. Credits not applied at charge time — only at Intake
+6. Future refactor: replace inline onclick string interpolation with data attributes
+7. Security hardening: escape customer data in attributes/onclick handlers
 
 ---
 
