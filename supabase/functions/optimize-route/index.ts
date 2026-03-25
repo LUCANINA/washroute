@@ -23,9 +23,12 @@ function haversine(a: {lat:number;lng:number}, b: {lat:number;lng:number}): numb
 // ─── Determine which time-window slot a stop belongs to ───
 // Returns the slot start time in minutes-from-midnight (local),
 // e.g. 1080 for 6 PM, 1200 for 8 PM.
+// Clamped to valid template range so reassigned stops from other routes
+// never create phantom window groups outside the destination route's window.
 function getStopWindowStart(
   stop: any,
   tmplStartM: number,
+  tmplEndM: number,
   slotDurM: number,
 ): number {
   // Use the order's booked window to determine the slot
@@ -42,10 +45,12 @@ function getStopWindowStart(
   const [h, m] = timePart.split(':').map(Number);
   const localMins = h * 60 + m;
 
-  // Snap to slot boundary
+  // Snap to slot boundary, clamped to valid template range
   if (slotDurM <= 0) return tmplStartM;
   const slotIdx = Math.floor((localMins - tmplStartM) / slotDurM);
-  return tmplStartM + Math.max(0, slotIdx) * slotDurM;
+  const maxSlotIdx = Math.max(0, Math.ceil((tmplEndM - tmplStartM) / slotDurM) - 1);
+  const clampedIdx = Math.max(0, Math.min(slotIdx, maxSlotIdx));
+  return tmplStartM + clampedIdx * slotDurM;
 }
 
 // ─── Call Google Directions API with optimize:true ───
@@ -271,7 +276,7 @@ Deno.serve(async (req: Request) => {
     // ── 5. Group pending stops by time window ──
     const windowGroups: Record<number, any[]> = {};
     pendingWithAddr.forEach(s => {
-      const winStart = getStopWindowStart(s, tmplStartM, slotDurM);
+      const winStart = getStopWindowStart(s, tmplStartM, tmplEndM, slotDurM);
       if (!windowGroups[winStart]) windowGroups[winStart] = [];
       windowGroups[winStart].push(s);
     });
@@ -280,13 +285,33 @@ Deno.serve(async (req: Request) => {
     const windowKeys = Object.keys(windowGroups).map(Number).sort((a, b) => a - b);
     console.log(`[optimize-route] ${pendingWithAddr.length} stops in ${windowKeys.length} window(s): ${windowKeys.map(k => `${Math.floor(k/60)}:${String(k%60).padStart(2,'0')}(${windowGroups[k].length})`).join(', ')}`);
 
+    // ── 5b. Single-pass optimization for routes within Google waypoint limit ──
+    // Google Directions API supports up to 25 waypoints. When we have ≤23 pending
+    // stops (+ origin + destination = 25), optimize everything in one pass for the
+    // best geographic clustering. This is especially important for reassigned stops
+    // from other routes — they need to be interleaved geographically with existing
+    // stops, not isolated in separate window groups.
+    const GOOGLE_MAX_WAYPOINTS = 23; // +origin +dest = 25 total
+    const useSinglePass = pendingWithAddr.length <= GOOGLE_MAX_WAYPOINTS;
+
+    if (useSinglePass && windowKeys.length > 1) {
+      // Merge all window groups into one, sorted by window start for initial ordering
+      const merged: any[] = [];
+      for (const wk of windowKeys) merged.push(...windowGroups[wk]);
+      const singleKey = windowKeys[0];
+      windowGroups[singleKey] = merged;
+      // Remove other keys
+      for (let i = 1; i < windowKeys.length; i++) delete windowGroups[windowKeys[i]];
+      windowKeys.length = 1;
+      console.log(`[optimize-route] Single-pass mode: merged ${merged.length} stops into 1 group for best geographic efficiency`);
+    }
+
     // ── 6. Determine starting position ──
     let currentOrigin: { lat: number; lng: number };
     if (driver_lat && driver_lng) {
       currentOrigin = { lat: Number(driver_lat), lng: Number(driver_lng) };
     } else {
-      // No driver GPS — use centroid of first window's stops as starting estimate,
-      // then let Google optimize from the nearest stop
+      // No driver GPS — use northernmost stop as starting point
       const firstGroup = windowGroups[windowKeys[0]];
       const byLat = [...firstGroup].sort((a, b) => b.lat - a.lat);
       currentOrigin = { lat: byLat[0].lat, lng: byLat[0].lng }; // northernmost
@@ -334,9 +359,12 @@ Deno.serve(async (req: Request) => {
       const startMin = tmplStartM % 60;
       // Create date in Pacific time
       const pacificDateStr = `${runDate}T${String(startHour).padStart(2,'0')}:${String(startMin).padStart(2,'0')}:00`;
-      // Parse as Pacific time by appending the offset (approximate)
-      // Use Intl to get the correct offset
-      const refDate = new Date(`${pacificDateStr}-07:00`); // PDT offset
+      // Parse as Pacific time — compute correct UTC offset dynamically (handles PST/PDT)
+      const tempDate = new Date(pacificDateStr + 'Z'); // treat as UTC temporarily
+      const utcStr = tempDate.toLocaleString('en-US', { timeZone: 'UTC' });
+      const ptStr = tempDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+      const offsetMs = new Date(utcStr).getTime() - new Date(ptStr).getTime();
+      const refDate = new Date(tempDate.getTime() + offsetMs);
       if (refDate.getTime() > now.getTime()) {
         clock = refDate.getTime();
       }
@@ -351,7 +379,7 @@ Deno.serve(async (req: Request) => {
       stop._eta = eta;
 
       // Check if at-risk (ETA past this stop's window deadline)
-      const winStart = getStopWindowStart(stop, tmplStartM, slotDurM);
+      const winStart = getStopWindowStart(stop, tmplStartM, tmplEndM, slotDurM);
       const winEnd = winStart + slotDurM; // e.g., 1080 + 120 = 1200 (8 PM)
       const etaPacific = eta.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false });
       const etaTimePart = etaPacific.split(', ')[1] || '00:00:00';

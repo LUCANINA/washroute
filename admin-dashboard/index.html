@@ -4798,7 +4798,7 @@
     if (!BIZ_PRINTER_TOKEN) { showToast('Save a printer token first', ''); return; }
     const btn = document.getElementById('btn-test-print');
     if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-    const now = new Date().toLocaleString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit', hour: 'numeric', minute: '2-digit' });
+    const now = new Date().toLocaleString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit', hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ });
     const testMarkup = `<document>
   <align mode="center">
     <text-line size="2:2"><bold>FAMILY LAUNDRY</bold></text-line>
@@ -7299,6 +7299,7 @@
     const ts = now.toLocaleString('en-US', {
       month: 'numeric', day: 'numeric', year: '2-digit',
       hour: 'numeric', minute: '2-digit',
+      timeZone: BIZ_TZ
     });
 
     // Partition line items (same logic as _openReceiptWindow)
@@ -7541,7 +7542,7 @@ ${totalLinesXml}
       `<\/style></head><body>` +
       copiesHtml +
       `<script>` +
-      `const pd=new Date().toLocaleString('en-US',{month:'numeric',day:'numeric',year:'2-digit',hour:'numeric',minute:'2-digit'});` +
+      `const pd=new Date().toLocaleString('en-US',{month:'numeric',day:'numeric',year:'2-digit',hour:'numeric',minute:'2-digit',timeZone:'America/Los_Angeles'});` +
       `document.querySelectorAll('.pdate').forEach(el=>el.textContent=pd);` +
       `document.querySelectorAll('.bc-${sn}').forEach(svg=>{` +
       `JsBarcode(svg,'${sn}',{format:'CODE128',width:1.6,height:46,displayValue:false,margin:0,background:'#ffffff',lineColor:'#000000'});` +
@@ -12909,7 +12910,7 @@ ${totalLinesXml}
       const driver = loc.drivers || {};
       const name = `${driver.first_name || ''} ${driver.last_name || ''}`.trim() || 'Driver';
       const marker = L.marker([loc.lat, loc.lng], { icon: makeDriverMarker(name), zIndexOffset: 1000 })
-        .bindPopup(`<strong>${name}</strong><br><span style="font-size:11px;color:#888">Updated ${new Date(loc.updated_at).toLocaleTimeString()}</span>`);
+        .bindPopup(`<strong>${name}</strong><br><span style="font-size:11px;color:#888">Updated ${new Date(loc.updated_at).toLocaleTimeString('en-US', {timeZone: BIZ_TZ})}</span>`);
       marker._isDriverMarker = true;
       marker.addTo(routeLiveMap);
       _driverMarkers[loc.driver_id] = marker;
@@ -14110,7 +14111,7 @@ ${totalLinesXml}
 
     // Auto-select AM/PM slot based on current time (only on first load)
     if (_rccSlot === null) {
-      _rccSlot = new Date().getHours() < 12 ? 'AM' : 'PM';
+      _rccSlot = parseInt(new Date().toLocaleString('en-US', {hour: 'numeric', hour12: false, timeZone: BIZ_TZ})) < 12 ? 'AM' : 'PM';
     }
 
     // Reset active state
@@ -14560,7 +14561,7 @@ ${totalLinesXml}
     let etaBadge = '';
     if (s.estimated_arrival && s.status === 'pending') {
       const etaTime = new Date(s.estimated_arrival);
-      const etaStr = etaTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      const etaStr = etaTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ });
       // Check if at-risk: ETA past the order's delivery/pickup window end
       const order = s.orders || {};
       const windowEnd = isDelivery ? order.delivery_window_end : order.pickup_window_end;
@@ -14753,7 +14754,7 @@ ${totalLinesXml}
         const windowEnd = isDelivery ? s.orders?.delivery_window_end : s.orders?.pickup_window_end;
         const isAtRisk = s.estimated_arrival && windowEnd && new Date(s.estimated_arrival) > new Date(windowEnd);
         const etaInfo = s.estimated_arrival
-          ? `<br><span style="font-size:11px;color:${isAtRisk ? '#dc2626;font-weight:600' : '#6b7280'}">ETA: ${new Date(s.estimated_arrival).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}${isAtRisk ? ' ⚠ LATE' : ''}</span>`
+          ? `<br><span style="font-size:11px;color:${isAtRisk ? '#dc2626;font-weight:600' : '#6b7280'}">ETA: ${new Date(s.estimated_arrival).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:BIZ_TZ})}${isAtRisk ? ' ⚠ LATE' : ''}</span>`
           : '';
         const m = L.marker([s._addr.lat, s._addr.lng], { icon: makePin(color, label) })
           .bindPopup(`${popupNameHtml}<br>${s._addr.line1||''}${hasBoth ? '<br><span style="font-size:10px;color:#888">📦 pickup + 🏠 delivery</span>' : ''}${etaInfo}<br><span style="font-size:11px;color:#888">${rd.templateName}</span>`);
@@ -15860,7 +15861,7 @@ ${totalLinesXml}
       const cust = o.customers;
       const name = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() : '—';
       const time = o.folded_at
-        ? new Date(o.folded_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
+        ? new Date(o.folded_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:BIZ_TZ})
         : '';
       return `<div class="laun-hist-order-row">
         <div class="laun-hist-order-num">#${o.order_number}</div>
@@ -17601,7 +17602,7 @@ ${totalLinesXml}
     // ── Fetch routes with driver info ──
     let rQ = db.from('routes')
       .select('id, run_date, status, total_stops, completed_stops, started_at, completed_at, driver_id');
-    if (rptPeriod !== 'all') rQ = rQ.gte('run_date', start.toISOString().split('T')[0]).lte('run_date', end.toISOString().split('T')[0]);
+    if (rptPeriod !== 'all') rQ = rQ.gte('run_date', start.toLocaleDateString('en-CA', {timeZone: BIZ_TZ})).lte('run_date', end.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}));
     const { data: routes } = await rQ;
     const routeList = routes || [];
 
@@ -17978,7 +17979,7 @@ ${totalLinesXml}
       const unread = msgs.filter(m => m.sender_type === 'driver' && !m.read_at).length;
       const last   = msgs[msgs.length - 1];
       const lastText = last ? last.body.slice(0, 38) + (last.body.length > 38 ? '…' : '') : 'No messages yet';
-      const lastTime = last ? new Date(last.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
+      const lastTime = last ? new Date(last.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZone: BIZ_TZ }) : '';
       const isActive = adminMsgActiveDriver?.id === drv.id;
       const dotColor = isOnline ? 'var(--green)' : 'var(--gray-300)';
 
@@ -18043,7 +18044,7 @@ ${totalLinesXml}
 
     thread.innerHTML = `<div style="max-width:580px;margin:0 auto">` + msgs.map(m => {
       const isAdmin = m.sender_type === 'admin';
-      const timeStr = new Date(m.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+      const timeStr = new Date(m.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZone: BIZ_TZ });
       return `<div style="display:flex;flex-direction:${isAdmin ? 'row-reverse' : 'row'};gap:10px;align-items:flex-end;margin-bottom:14px">
         <div style="width:30px;height:30px;border-radius:50%;background:${isAdmin ? '#1e40af' : 'var(--accent)'};color:white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">
           ${isAdmin ? 'CS' : adminDriverName(drv)[0]}

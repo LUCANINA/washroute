@@ -1438,6 +1438,7 @@
 /* ── SUPABASE ── */
 const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
+const BIZ_TZ = 'America/Los_Angeles';
 let db;
 try {
   db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { flowType: 'implicit', storageKey: 'wr-customer-auth', autoRefreshToken: true, persistSession: true } });
@@ -1555,8 +1556,8 @@ function showToast(msg, type = '') {
 }
 
 function $m(n) { return '$' + (+(n || 0)).toFixed(2); }
-function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'; }
-function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase() : ''; }
+function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ }) : '—'; }
+function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:BIZ_TZ}).toLowerCase() : ''; }
 function fmtSlot(start, end) {
   function compact(iso) {
     if (!iso) return '';
@@ -1577,7 +1578,7 @@ function daysFromNow(n) { const d = new Date(); d.setDate(d.getDate() + n); retu
 // Return YYYY-MM-DD in the user's LOCAL timezone — never use toISOString() for calendar
 // dates because that returns UTC, which can be a different day in the evenings.
 function localIso(d) { d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
-function fmtDay(d) { return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
+function fmtDay(d) { return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ }); }
 // Returns the next business day (Mon–Fri) after a given date string or Date.
 // Pickup on Friday → delivery Monday. Pickup on Thursday → delivery Friday.
 // Returns the next day that has an active route running, starting from day after pickup.
@@ -1601,7 +1602,7 @@ async function getNextDeliveryDay(afterDateOrStr, zoneId) {
 
   for (let i = 0; i < 14; i++) {
     const isoDay = (d.getDay() + 6) % 7;
-    if (!validDays || validDays.has(isoDay)) return d.toISOString().split('T')[0];
+    if (!validDays || validDays.has(isoDay)) return d.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
     d.setDate(d.getDate() + 1);
   }
   // Absolute fallback: just use +1 day
@@ -1609,7 +1610,7 @@ async function getNextDeliveryDay(afterDateOrStr, zoneId) {
     ? new Date(afterDateOrStr + 'T12:00:00')
     : new Date(afterDateOrStr);
   fb.setDate(fb.getDate() + 1);
-  return fb.toISOString().split('T')[0];
+  return fb.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
 }
 
 /* ── AUTH ── */
@@ -2900,7 +2901,7 @@ async function renderStep(step) {
 function buildCalendar() {
   const year  = calMonth.getFullYear();
   const month = calMonth.getMonth();
-  const monthName = calMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthName = calMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: BIZ_TZ });
   document.getElementById('cal-month-title').textContent = monthName;
 
   // Earliest selectable date = tomorrow
@@ -2923,7 +2924,7 @@ function buildCalendar() {
   const labelEl = document.getElementById('cal-selected-label');
   if (draft.pickupDate) {
     const d = new Date(draft.pickupDate + 'T12:00:00');
-    labelEl.textContent = '✓ Pickup: ' + d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+    labelEl.textContent = '✓ Pickup: ' + d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', timeZone: BIZ_TZ });
   } else {
     labelEl.textContent = '';
   }
@@ -3031,10 +3032,10 @@ function _schedDateLabel(iso) {
   const todayIso    = localIso();
   const tomorrowIso = localIso(new Date(Date.now() + 86400000));
   const d   = new Date(iso + 'T12:00:00');
-  const mon = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const mon = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: BIZ_TZ });
   if (iso === todayIso)    return `Today, ${mon}`;
   if (iso === tomorrowIso) return `Tomorrow, ${mon}`;
-  return `${d.toLocaleDateString('en-US', { weekday:'short' })}, ${mon}`;
+  return `${d.toLocaleDateString('en-US', { weekday:'short', timeZone: BIZ_TZ })}, ${mon}`;
 }
 
 // Entry point: called by renderStep(1)
@@ -3154,7 +3155,7 @@ function _renderSchedDeliveryDateOpts() {
 
   let grid = '<div class="mini-cal-dow">Su</div><div class="mini-cal-dow">Mo</div><div class="mini-cal-dow">Tu</div><div class="mini-cal-dow">We</div><div class="mini-cal-dow">Th</div><div class="mini-cal-dow">Fr</div><div class="mini-cal-dow">Sa</div>';
   days.forEach(d => {
-    const iso     = d.toISOString().split('T')[0];
+    const iso     = d.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
     const isValid = validSet.has(iso);
     const sel     = draft.deliveryDate === iso;
     if (isValid) {
@@ -3375,7 +3376,7 @@ async function _updateSchedDelivery() {
   while (dates.length < 4 && walk <= cutoff) {
     const isoDay = (walk.getDay() + 6) % 7;
     if (!deliveryDays || deliveryDays.size === 0 || deliveryDays.has(isoDay)) {
-      dates.push(walk.toISOString().split('T')[0]);
+      dates.push(walk.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}));
     }
     walk.setDate(walk.getDate() + 1);
   }
@@ -3470,7 +3471,7 @@ function _renderSameDayToggle(sameDayWindows, surcharge) {
   const surchargeLabel = surcharge > 0 ? `+$${surcharge.toFixed(2)}` : 'included';
   // Dynamic headline: "tonight" if booking for today, otherwise "same day"
   const isToday = draft.pickupDate === localIso();
-  const eveningLabel = isToday ? 'tonight' : new Date(draft.pickupDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }) + ' evening';
+  const eveningLabel = isToday ? 'tonight' : new Date(draft.pickupDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', timeZone: BIZ_TZ }) + ' evening';
   const card = document.createElement('div');
   card.id = 'same-day-toggle-card';
   card.style.cssText = 'background:var(--gray-50);border:1.5px solid var(--gray-200);border-radius:12px;margin:12px 0 4px;overflow:hidden;';
@@ -3510,7 +3511,7 @@ function toggleSameDay(checked) {
     // Update delivery display
     const valDate = document.getElementById('val-delivery-date');
     const _sdIsToday = draft.pickupDate === localIso();
-    const _sdDateLabel = _sdIsToday ? 'Tonight 🌙' : new Date(draft.pickupDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + ' 🌙';
+    const _sdDateLabel = _sdIsToday ? 'Tonight 🌙' : new Date(draft.pickupDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ }) + ' 🌙';
     if (valDate) valDate.textContent = _sdDateLabel;
     const valWin = document.getElementById('val-delivery-window');
     if (valWin) valWin.textContent = draft._sameDayWindows[0].label;
@@ -3539,7 +3540,7 @@ function buildConfirmSummary() {
   const total          = Math.round(((svc?.base_price||0)*bags + addonsTotal + routeFeeTotal + sameDayFee)*100)/100;
 
   const pickup = new Date(draft.pickupDate + 'T12:00:00');
-  const fmt    = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  const fmt    = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', timeZone: BIZ_TZ });
 
   const freqLabels = { weekly:'Every week', biweekly:'Every 2 weeks', monthly:'Every month' };
   const freqLabel  = freqLabels[draft.recurring] || 'One-time';
@@ -3981,7 +3982,7 @@ async function placeOrder() {
   // Fire booking confirmation email (best-effort, don't block)
   const _emailAddr = currentCustomer.email_cache;
   if (_emailAddr) {
-    const _fmtD = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+    const _fmtD = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',timeZone:BIZ_TZ});
     const _pickupLine   = pw?.label          ? `${_fmtD(pickupDate)}   · ${pw.label}`           : _fmtD(pickupDate);
     const _deliveryLine = _effectiveDW?.label ? `${_fmtD(deliveryDate)} · ${_effectiveDW.label}` : _fmtD(deliveryDate);
     const _recurLabel = draft.recurring ? ({weekly:'Every week',biweekly:'Every 2 weeks',monthly:'Every month'})[draft.recurring] : null;
@@ -4043,7 +4044,7 @@ async function placeOrder() {
   // Address auto-save now happens BEFORE order creation (above) so the address ID is set on the order
 
   // Success screen
-  const longDate  = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+  const longDate  = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',timeZone:BIZ_TZ});
   const pickupFmt = longDate(pickupDate);
   const winSuffix = pw?.label ? ` · ${pw.label}` : '';
   const orderNumEl = document.getElementById('success-order-num');
@@ -5079,7 +5080,7 @@ async function _computeEditDeliveryOptions() {
   while (dates.length < 4 && walk <= cutoff) {
     const isoDay = (walk.getDay() + 6) % 7;
     if (!deliveryDays || !deliveryDays.size || deliveryDays.has(isoDay))
-      dates.push(walk.toISOString().split('T')[0]);
+      dates.push(walk.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}));
     walk.setDate(walk.getDate() + 1);
   }
   es.deliveryOptions = dates;
@@ -5141,7 +5142,7 @@ function _editRenderDeliveryDateOpts() {
   while (walk <= endOfCal) { days.push(new Date(walk)); walk.setDate(walk.getDate() + 1); }
   let grid = '<div class="mini-cal-dow">Su</div><div class="mini-cal-dow">Mo</div><div class="mini-cal-dow">Tu</div><div class="mini-cal-dow">We</div><div class="mini-cal-dow">Th</div><div class="mini-cal-dow">Fr</div><div class="mini-cal-dow">Sa</div>';
   days.forEach(d => {
-    const iso = d.toISOString().split('T')[0], isValid = validSet.has(iso);
+    const iso = d.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}), isValid = validSet.has(iso);
     const sel = window._editSchedule?.deliveryDate === iso;
     grid += isValid
       ? `<div class="mini-cal-day${sel?' selected':''}" onclick="editSelectDeliveryDate('${iso}')">${d.getDate()}</div>`

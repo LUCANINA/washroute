@@ -1034,6 +1034,7 @@
 ────────────────────────────── */
 const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
+const BIZ_TZ = 'America/Los_Angeles';
 const db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'wr-driver-auth', autoRefreshToken: true, persistSession: true } });
 
 let currentUser = null, currentProfile = null, currentDriver = null;
@@ -1236,7 +1237,7 @@ function setRouteFilter(filterId) {
 
 function today() {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
 }
 
 // Sort stops by pickup/delivery window time (earliest first), matching admin Order Schedule.
@@ -1277,7 +1278,7 @@ function mapsLink(a) {
 }
 
 function greet() {
-  const h = new Date().getHours();
+  const h = parseInt(new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: BIZ_TZ }));
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 }
 
@@ -1319,7 +1320,7 @@ function toggleLaterToday() {
 
 function fmtTime(ts) {
   if (!ts) return '';
-  return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ });
 }
 
 // Format a "HH:MM:SS" time string (from route_templates) → "6:00 PM"
@@ -1342,7 +1343,7 @@ function fmtWindowRange(tmpl) {
 function fmtDate(ts) {
   if (!ts) return '';
   const d = typeof ts === 'string' && ts.length === 10 ? new Date(ts + 'T00:00:00') : new Date(ts);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: BIZ_TZ });
 }
 
 // Compact time range: "7 – 9 AM"
@@ -1764,7 +1765,7 @@ async function refreshRoute() {
 function renderHome() {
   const body = document.getElementById('home-body');
   const name = currentProfile?.first_name || 'Driver';
-  const dateStr = new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+  const dateStr = new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', timeZone: BIZ_TZ });
   // Exclude upcoming (later-today) stops from the progress counts on the home screen
   const currentStops = allStops.filter(s => !s._upcoming);
   const doneAll  = currentStops.filter(s => s.status === 'complete').length;
@@ -3059,8 +3060,8 @@ function fmtMsgTime(ts) {
   const now = new Date();
   const isToday = d.toDateString() === now.toDateString();
   return isToday
-    ? d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' })
-    : d.toLocaleString('en-US', { month: 'short', day: 'numeric' });
+    ? d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ })
+    : d.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: BIZ_TZ });
 }
 
 // ── Open a thread ──
@@ -3153,7 +3154,7 @@ function renderThreadMessages() {
     const wrapClass = isFromMe ? 'from-driver' : 'from-admin';
     const isUnread = _msgActiveThread === 'admin' && !isFromMe && !m.read_at;
     const d = new Date(m.created_at);
-    const timeStr = d.toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+    const timeStr = d.toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZone: BIZ_TZ });
 
     h += `<div class="msg-bubble-wrap ${wrapClass}">
       <div class="msg-avatar ${avatarClass}">${avatarText}</div>
