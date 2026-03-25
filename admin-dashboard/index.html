@@ -14007,14 +14007,17 @@ ${totalLinesXml}
         await db.from('routes').update({ driver_id: newDriverId || null })
           .in('id', routeIds);
 
-        // For today's route(s), also reassign pending/en_route stops
-        const todaysRoutes = matching.filter(r => r.run_date === todayDate);
-        if (todaysRoutes.length) {
-          const todayIds = todaysRoutes.map(r => r.id);
-          const oldDriverId = todaysRoutes[0].driver_id;
+        // Reassign pending/en_route stops on ALL matching routes (today + future).
+        // Previously only cascaded today's stops; future routes relied solely on the
+        // DB trigger trg_cascade_route_driver. But if the route record update is a
+        // no-op (driver_id unchanged), the trigger doesn't fire and stops get orphaned.
+        // Belt-and-suspenders: explicitly cascade stops on every affected route.
+        for (const route of matching) {
+          const oldDriverId = route.driver_id;
+          if (oldDriverId === (newDriverId || null)) continue; // no change for this route
           let q = db.from('route_stops')
             .update({ driver_id: newDriverId || null })
-            .in('route_id', todayIds)
+            .eq('route_id', route.id)
             .in('status', ['pending', 'en_route']);
           if (oldDriverId) {
             q = q.eq('driver_id', oldDriverId);
