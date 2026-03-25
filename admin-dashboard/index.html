@@ -4627,6 +4627,12 @@
             else opRenderDetailsReadonly(allOrders[idx]);
             opPopulateBilling(allOrders[idx]); // refresh Billing tab charge button
           }
+          // Refresh RCC columns/map when order status changes (delivery stops may appear/disappear
+          // based on NOT_READY_FOR_DELIVERY filter as orders advance through the pipeline)
+          if (_rccActiveRoutes.size > 0) {
+            if (updated.pickup_run_id && _rccActiveRoutes.has(updated.pickup_run_id)) rccRefreshRoute(updated.pickup_run_id);
+            if (updated.delivery_run_id && _rccActiveRoutes.has(updated.delivery_run_id)) rccRefreshRoute(updated.delivery_run_id);
+          }
         }
       })
 
@@ -4656,7 +4662,7 @@
       .subscribe();
   }
 
-  // ── Route-stop realtime: proof photos + stop status changes ──
+  // ── Route-stop realtime: proof photos + stop status changes + inserts/deletes ──
   let _routeStopSub = null;
   function startRouteStopListener() {
     if (_routeStopSub) return;
@@ -4668,6 +4674,18 @@
           opRefreshProofPhotos(opCurrentOrderId);
         }
         // If this stop's route is open in RCC, refresh its column in real-time
+        if (stop.route_id && _rccActiveRoutes.has(stop.route_id)) {
+          rccRefreshRoute(stop.route_id);
+        }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'route_stops' }, payload => {
+        const stop = payload.new;
+        if (stop.route_id && _rccActiveRoutes.has(stop.route_id)) {
+          rccRefreshRoute(stop.route_id);
+        }
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'route_stops' }, payload => {
+        const stop = payload.old;
         if (stop.route_id && _rccActiveRoutes.has(stop.route_id)) {
           rccRefreshRoute(stop.route_id);
         }
