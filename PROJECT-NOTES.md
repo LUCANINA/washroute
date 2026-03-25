@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 25, 2026 — Real-time dispatch optimizer fully deployed: time-window ETAs, driver app live updates, auto re-optimization cron, admin at-risk badges (session 63–64)*
+*Last updated: Mar 25, 2026 — Comprehensive UTC timezone audit: fixed 45+ bugs across all apps and edge functions (session 67)*
 
 ---
 
@@ -903,6 +903,126 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 25, 2026 (session 67) — Comprehensive UTC timezone audit + fixes
+
+**Trigger:** Customer Kimi Watkins-Tartt reported SMS confirmation showing wrong date vs correct email confirmation. Investigation traced to `fmtDate()` in `send-order-notification` edge function using UTC instead of Pacific. David then requested a full codebase audit: "scour every inch of code for UTC mismatches."
+
+**SMS notification fix (deployed as edge function v22):**
+- `fmtDate()` now includes `timeZone: 'America/Los_Angeles'` — was using Deno's UTC default
+- Added `fmtTimeWindow()` function to compute pickup/delivery time windows from order timestamps
+- Populated `time_window`, `pickup_time_window`, `delivery_time_window`, `bag_count` template variables (were hardcoded empty)
+
+**John Taladiar login fix:**
+- "Cannot coerce the result to a single JSON object" — two auth.users accounts (email + phone) for same person, profile linked to phone account only
+- Created profile for email account, updated customer record, deleted orphaned phone account
+
+**Map pin color fix:**
+- At-risk stops were rendering as red dots on the map, indistinguishable from Hayward route (also red)
+- Removed `const pinColor = isAtRisk ? '#dc2626' : color;` — pins now always use route color
+- Red LATE warning still shows in popup text and card list badges (David approved this UX)
+
+**Duplicate route stops cleanup:**
+- Steven Kral: deleted one of two duplicate stops
+- System-wide scan: found 12 customers with duplicate orders on same routes (mostly $0 batch-imported migration orders)
+- Scored and deleted 15 stale orders + ~30 stops
+
+**Auto-route window matching bug (migration `fix_auto_route_order_window_matching`):**
+- `auto_route_order()` silently assigned orders to wrong time-window routes when matching routes were full (fell through to any route in same zone/day)
+- Fixed: FOR loop now restricted to `AND v_pickup_time >= window_start AND v_pickup_time < window_end`
+- Found and re-routed 8 mis-routed orders (6 scheduled, 2 already delivered)
+- David bumped route limits to 25; force-inserted remaining stragglers
+
+**RCC realtime fix:**
+- Map "remaining" count wasn't updating in real time — only had UPDATE handler on route_stops
+- Added INSERT and DELETE handlers to route_stops subscription
+- Added orders→RCC bridge: order status changes now trigger `rccRefreshRoute()` for affected routes
+
+**Full UTC timezone audit — 45+ bugs fixed across all apps:**
+
+*Admin Dashboard (~15 fixes):*
+- Report date filter: `toISOString().split('T')[0]` → `toLocaleDateString('en-CA', {timeZone: BIZ_TZ})`
+- AM/PM route selector: `new Date().getHours() < 12` → timezone-aware via `toLocaleString`
+- All `toLocaleTimeString()` and `toLocaleString()` calls: added `timeZone: BIZ_TZ`
+- Affected: driver location popup, ETA displays, laundry history, receipt, message timestamps
+
+*Customer App (~17 fixes):*
+- Added `const BIZ_TZ = 'America/Los_Angeles'` constant
+- All `toISOString().split('T')[0]` → `toLocaleDateString('en-CA', {timeZone: BIZ_TZ})`
+- All `toLocaleDateString()` / `toLocaleTimeString()`: added `timeZone: BIZ_TZ`
+- Affected: booking flow dates, calendar, order display, schedule labels, time formatting
+
+*Driver App (~8 fixes):*
+- Added `const BIZ_TZ = 'America/Los_Angeles'` constant
+- Fixed `today()` function, `fmtTime()`, `fmtDate()`, greeting `getHours()`, route date header, message timestamps
+
+*optimize-route Edge Function (deployed as v17):*
+- Replaced hardcoded `-07:00` (PDT) offset with dynamic PST/PDT-aware computation using Intl
+- Was wrong during winter months (Nov–Mar when PST = `-08:00`)
+
+**Prevention rule established:** Every date formatting call must include `timeZone: 'America/Los_Angeles'` (or `BIZ_TZ`). `toISOString().split('T')[0]` is banned — use `toLocaleDateString('en-CA', {timeZone: BIZ_TZ})`. Bare `getHours()` banned for business logic — convert to Pacific first.
+
+**Pending (carries forward from session 66):**
+1. Re-enable `review_request` and `reorder_reminder` SMS templates when ready
+2. Resolve 5 unpaid delivered orders ($567.75)
+3. Consider increasing Supabase OTP expiry
+4. Cynthia Williams landline issue
+5. Credits not applied at charge time if added after Intake
+6. XSS hardening (onclick string interpolation)
+7. Deduplicate merged customer addresses
+8. Clean up orphaned auth.users/profiles from deleted duplicate customers
+
+---
+
+### Mar 25, 2026 (session 66) — Customer account deduplication
+
+**Nate Frank — individual merge (manual):**
+- Two accounts found: one Starchup migration shell (no orders, no Stripe, no profile) and one active customer app signup with orders, Stripe, and profile.
+- Moved SMS and address data from shell to active account, deleted conversations and shell customer record. Verified zero orphaned references.
+
+**System-wide duplicate audit:**
+- Ran three parallel detection queries: by email, by phone (last 10 digits), by exact name match.
+- Found 41 duplicate groups (88 total accounts). Most were Starchup migration shells paired with new customer app signups for the same person.
+
+**Bulk merge — 38 groups processed:**
+- Built automated merge DO block with scoring system: `orders×1000 + has_stripe×100 + has_profile×10 + creation_epoch/1e10` to select the "winner" (most active account) in each group.
+- For each pair: moved orders, sms_messages, email_messages, customer_transactions, notifications, subscriptions, cs_issues, addresses to winner. Transferred stripe_customer_id and profile_id from loser→winner when winner lacked them (clearing loser's unique constraint first). Deleted loser's conversations and customer record.
+- Payment methods: moved to winner if winner had none, deleted if winner already had payment methods.
+- Preflight verified all triggers on affected tables (orders, customer_payment_methods) only fire on INSERT or status/window changes — no SMS blast risk from UPDATE customer_id.
+
+**3 groups intentionally skipped:**
+1. David's test accounts (phone `4156085446`, 3 records) — kept for testing.
+2. Myra Greene vs Sarang Rahmani (phone `5109270366`) — different people, same phone.
+3. Charlene Bachemin vs Charlene Davis (phone `5109270618`) — uncertain match, different last names.
+
+**Errors encountered and resolved during merge iterations:**
+- `conversations_customer_id_fkey` — added DELETE FROM conversations before deleting customer.
+- `idx_customers_profile_id_unique` — must NULL loser's profile_id before setting on winner.
+- `orders_pickup_address_id_fkey` — changed from DELETE addresses to UPDATE (move to winner), since orders already moved to winner still referenced those address IDs.
+- `customers_stripe_customer_id_key` — must NULL loser's stripe_customer_id before setting on winner.
+
+**Verification — all clean:**
+- Zero orphaned references across all 10 FK tables (orders, sms_messages, email_messages, customer_transactions, notifications, subscriptions, cs_issues, addresses, customer_payment_methods, conversations).
+- Only remaining phone duplicates are the 3 intentionally skipped groups.
+
+**Potential cleanup (not done this session):**
+- Duplicate addresses: some winners may now have two copies of the same address (theirs + loser's). Could deduplicate.
+- Orphaned auth.users/profiles: losers whose profile_ids were NOT transferred still have orphan profile rows. Could clean up.
+
+**No files changed — all work was SQL operations against Supabase.**
+
+**Pending (carries forward):**
+1. Re-enable `review_request` and `reorder_reminder` SMS templates when ready
+2. Resolve 5 unpaid delivered orders ($567.75) — confirm if paid on Starchup side
+3. Consider increasing Supabase OTP expiry for customers with slow entry
+4. Cynthia Williams — likely landline, can't receive OTP. May need email login fallback
+5. Credits not applied at charge time — only at Intake
+6. Future refactor: replace inline onclick string interpolation with data attributes
+7. Security hardening: escape customer data in attributes/onclick handlers
+8. Deduplicate merged customer addresses (same address from both old accounts)
+9. Clean up orphaned auth.users/profiles from deleted duplicate customers
+
+---
 
 ### Mar 25, 2026 (session 65) — Root cause fix: auto-sync delivery stops on window change
 
