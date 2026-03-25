@@ -14737,8 +14737,7 @@ ${totalLinesXml}
         const etaInfo = s.estimated_arrival
           ? `<br><span style="font-size:11px;color:${isAtRisk ? '#dc2626;font-weight:600' : '#6b7280'}">ETA: ${new Date(s.estimated_arrival).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}${isAtRisk ? ' ⚠ LATE' : ''}</span>`
           : '';
-        const pinColor = isAtRisk ? '#dc2626' : color;
-        const m = L.marker([s._addr.lat, s._addr.lng], { icon: makePin(pinColor, label) })
+        const m = L.marker([s._addr.lat, s._addr.lng], { icon: makePin(color, label) })
           .bindPopup(`${popupNameHtml}<br>${s._addr.line1||''}${hasBoth ? '<br><span style="font-size:10px;color:#888">📦 pickup + 🏠 delivery</span>' : ''}${etaInfo}<br><span style="font-size:11px;color:#888">${rd.templateName}</span>`);
         m._isStopLayer = true;
         m.addTo(routeLiveMap);
