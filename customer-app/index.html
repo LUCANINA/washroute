@@ -4748,8 +4748,8 @@ function openEditOrder() {
   }
 
   // Initialise edit-schedule state from the order's stored timestamps
-  const _esPickupDate  = o.pickup_window_start  ? o.pickup_window_start.split('T')[0]  : null;
-  const _esDelivDate   = o.delivery_window_start ? o.delivery_window_start.split('T')[0] : null;
+  const _esPickupDate  = o.pickup_window_start  ? new Date(o.pickup_window_start).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })  : null;
+  const _esDelivDate   = o.delivery_window_start ? new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }) : null;
   function _winFromOrder(startIso, endIso) {
     if (!startIso) return null;
     const d = new Date(startIso);

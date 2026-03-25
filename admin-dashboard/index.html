@@ -4885,7 +4885,7 @@
   // ── OVERVIEW ──
   async function loadOverview() {
     const todayStr = today();
-    const tomorrowStr = (() => { const d = new Date(todayStr + 'T12:00:00'); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); })();
+    const tomorrowStr = (() => { const [y,m,d2] = todayStr.split('-').map(Number); const d = new Date(y, m-1, d2+1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
     const monthStart = todayStr.slice(0,7) + '-01';
 
     const [
@@ -6473,17 +6473,18 @@
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     let prefillDate = null;
     if (leg === 'pickup') {
-      prefillDate = o?.pickup_window_start ? new Date(o.pickup_window_start).toISOString().slice(0,10) : today();
+      prefillDate = o?.pickup_window_start ? toLocalDate(o.pickup_window_start) : today();
     } else {
       // For delivery: use existing delivery date only if it's after the pickup date
-      const pickupDate = o?.pickup_window_start ? new Date(o.pickup_window_start).toISOString().slice(0,10) : today();
-      const existingDelivery = o?.delivery_window_start ? new Date(o.delivery_window_start).toISOString().slice(0,10) : null;
+      const pickupDate = o?.pickup_window_start ? toLocalDate(o.pickup_window_start) : today();
+      const existingDelivery = o?.delivery_window_start ? toLocalDate(o.delivery_window_start) : null;
       if (existingDelivery && existingDelivery > pickupDate) {
         prefillDate = existingDelivery;
       } else {
         // Default to pickup date + 1 day
         const [yr, mo, dy] = pickupDate.split('-').map(Number);
-        prefillDate = new Date(yr, mo-1, dy+1).toISOString().slice(0,10);
+        const nextDay = new Date(yr, mo-1, dy+1);
+        prefillDate = `${nextDay.getFullYear()}-${String(nextDay.getMonth()+1).padStart(2,'0')}-${String(nextDay.getDate()).padStart(2,'0')}`;
       }
     }
     dateInput.value = prefillDate;
@@ -6491,9 +6492,10 @@
     if (leg === 'pickup') {
       dateInput.min = today();
     } else {
-      const pickupDate = o?.pickup_window_start ? new Date(o.pickup_window_start).toISOString().slice(0,10) : today();
+      const pickupDate = o?.pickup_window_start ? toLocalDate(o.pickup_window_start) : today();
       const [yr, mo, dy] = pickupDate.split('-').map(Number);
-      dateInput.min = new Date(yr, mo-1, dy+1).toISOString().slice(0,10);
+      const nextDay = new Date(yr, mo-1, dy+1);
+      dateInput.min = `${nextDay.getFullYear()}-${String(nextDay.getMonth()+1).padStart(2,'0')}-${String(nextDay.getDate()).padStart(2,'0')}`;
     }
 
     // Determine zones for filtering
@@ -6796,13 +6798,15 @@
 
     if (leg === 'pickup' && startIso) {
       // Auto-update delivery date min + pre-fill to pickup+1 so it's ready to set
-      const [yr, mo, dy] = startIso.slice(0,10).split('-').map(Number);
-      const deliveryMin = new Date(yr, mo-1, dy+1).toISOString().slice(0,10);
+      const pickupLocalDate = toLocalDate(startIso);
+      const [yr, mo, dy] = pickupLocalDate.split('-').map(Number);
+      const nextDay = new Date(yr, mo-1, dy+1);
+      const deliveryMin = `${nextDay.getFullYear()}-${String(nextDay.getMonth()+1).padStart(2,'0')}-${String(nextDay.getDate()).padStart(2,'0')}`;
       const deliveryDateInput = document.getElementById('op-delivery-date');
       if (deliveryDateInput) {
         deliveryDateInput.min = deliveryMin;
         // Only update delivery date if it's now invalid (before new pickup)
-        if (!deliveryDateInput.value || deliveryDateInput.value <= startIso.slice(0,10)) {
+        if (!deliveryDateInput.value || deliveryDateInput.value <= pickupLocalDate) {
           deliveryDateInput.value = deliveryMin;
           opFilterRoutesByDate('delivery', deliveryMin);
         }
@@ -10724,7 +10728,7 @@ ${totalLinesXml}
     // Use the explicitly-passed local date rather than extracting from the ISO
     // string, which would give the UTC date and shift display/delivery by a day
     // for evening pickups in timezones west of UTC (e.g. Pacific Time).
-    if (!pickupDateIso) pickupDateIso = startIso.slice(0, 10); // legacy fallback
+    if (!pickupDateIso) pickupDateIso = toLocalDate(startIso); // legacy fallback — Pacific date, not UTC
     _noPickupDate = pickupDateIso; // store local date for route-run lookup in saveOrder()
     const [yr, mo, dy] = pickupDateIso.split('-').map(Number);
     const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
@@ -10957,9 +10961,9 @@ ${totalLinesXml}
     _noDelivStart = startIso;
     _noDelivEnd   = endIso;
     _noDelivLabel = label;
-    _noDelivDate  = _noDelivDayIso || startIso.slice(0, 10);
+    _noDelivDate  = _noDelivDayIso || toLocalDate(startIso);
     const tmpl = _noDelivTmpl || _noSelectedTmpl;
-    const [yr, mo, dy] = (_noDelivDayIso || startIso.split('T')[0]).split('-').map(Number);
+    const [yr, mo, dy] = (_noDelivDayIso || toLocalDate(startIso)).split('-').map(Number);
     const dayFmt = new Date(yr, mo-1, dy).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
     document.getElementById('nd-delivery-summary').innerHTML =
       `<span style="color:var(--accent);font-weight:700">✓</span> ${tmpl?.name || ''} · ${dayFmt} · ${label}`;
@@ -11100,14 +11104,14 @@ ${totalLinesXml}
     if (_noSelectedTmpl?.id && _noPickupStart) {
       // Use stored local date (_noPickupDate) — NOT split from the UTC ISO string,
       // which would give the wrong date for evening slots (e.g. 6pm PT = next day UTC)
-      const pickupDate = _noPickupDate || _noPickupStart.split('T')[0];
+      const pickupDate = _noPickupDate || toLocalDate(_noPickupStart);
       const { data: pr } = await db.from('routes')
         .select('id').eq('template_id', _noSelectedTmpl.id).eq('run_date', pickupDate).maybeSingle();
       if (pr) pickupRunId = pr.id;
     }
     const delivTmplId = _noDelivTmpl?.id || _noSelectedTmpl?.id;
     if (delivTmplId && _noDelivStart) {
-      const delivDate = _noDelivDate || _noDelivStart.split('T')[0];
+      const delivDate = _noDelivDate || toLocalDate(_noDelivStart);
       const { data: dr } = await db.from('routes')
         .select('id').eq('template_id', delivTmplId).eq('run_date', delivDate).maybeSingle();
       if (dr) delivRunId = dr.id;
