@@ -1140,16 +1140,16 @@ async function reoptimizeRoute(routeId) {
     });
     if (!resp.ok) return; // silent fail — driver experience unaffected
 
-    // Pull fresh stop_numbers from DB and update local order
+    // Pull fresh stop_numbers + ETAs from DB and update local order
     const { data: updated } = await db.from('route_stops')
-      .select('id, stop_number')
+      .select('id, stop_number, estimated_arrival')
       .eq('route_id', routeId);
     if (updated?.length) {
-      const numMap = {};
-      updated.forEach(s => { numMap[s.id] = s.stop_number; });
+      const updateMap = {};
+      updated.forEach(s => { updateMap[s.id] = s; });
       allStops = allStops.map(s =>
-        (s.route_id === routeId && numMap[s.id] !== undefined)
-          ? { ...s, stop_number: numMap[s.id] }
+        (s.route_id === routeId && updateMap[s.id])
+          ? { ...s, stop_number: updateMap[s.id].stop_number, estimated_arrival: updateMap[s.id].estimated_arrival }
           : s
       );
       // Re-sort by window time and re-number
@@ -1249,7 +1249,12 @@ function sortStopsByWindow(stops) {
     const tsB = b.stop_type === 'delivery'
       ? (b.orders?.delivery_window_start || b.orders?.pickup_window_start)
       : (b.orders?.pickup_window_start   || b.orders?.delivery_window_start);
-    if (tsA && tsB) return new Date(tsA) - new Date(tsB);
+    if (tsA && tsB) {
+      const diff = new Date(tsA) - new Date(tsB);
+      if (diff !== 0) return diff;
+      // Same window — use optimized stop_number order
+      return (a.stop_number || 0) - (b.stop_number || 0);
+    }
     if (tsA) return -1;
     if (tsB) return 1;
     return (a.stop_number || 0) - (b.stop_number || 0);
@@ -1957,7 +1962,7 @@ function renderRoute() {
         <div>${typePill}${showBadge ? ` <span class="stop-badge ${badgeClass}">${badgeText}</span>` : ''}${reassignedTag}</div>
         <div class="stop-name">${custName}</div>
         <div class="stop-addr">${addr ? `${addr.line1}, ${addr.city}` : 'No address'}</div>
-        <div class="stop-meta">${stop.orders?.total_bags||1} bag${(stop.orders?.total_bags||1)!==1?'s':''} · ${stop.orders?.services?.name||'Service'}${(() => { const w = stopWindow(stop); return w.start ? ' · ' + fmtSlot(w.start, w.end) : ''; })()}${isDone && stop.completed_at ? ' · ' + fmtTime(stop.completed_at) : ''}</div>
+        <div class="stop-meta">${stop.orders?.total_bags||1} bag${(stop.orders?.total_bags||1)!==1?'s':''} · ${stop.orders?.services?.name||'Service'}${(() => { const w = stopWindow(stop); return w.start ? ' · ' + fmtSlot(w.start, w.end) : ''; })()}${isDone && stop.completed_at ? ' · ' + fmtTime(stop.completed_at) : ''}${!isDone && !isSkip && !isFailed && stop.estimated_arrival ? ` · <span style="color:var(--accent);font-weight:600">ETA ${fmtTime(stop.estimated_arrival)}</span>` : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
         ${addr ? `<a href="${mapsLink(addr)}" target="_blank" onclick="event.stopPropagation()"
@@ -3287,6 +3292,22 @@ function subscribeToDriverMessages() {
 }
 
 /* ──────────────────────────────
+   DEBOUNCED RESORT — when optimizer updates many stops at once,
+   batch the re-sort + re-render into a single UI update.
+   ────────────────────────────── */
+let _resortTimer = null;
+function debouncedResort() {
+  if (_resortTimer) clearTimeout(_resortTimer);
+  _resortTimer = setTimeout(() => {
+    _resortTimer = null;
+    sortStopsByWindow(allStops);
+    renderHome();
+    renderRoute();
+    if (currentStopId) renderStopDetail(currentStopId);
+  }, 300);  // 300ms debounce — fast enough to feel instant, slow enough to batch bulk updates
+}
+
+/* ──────────────────────────────
    REALTIME: ROUTE STOP + ORDER UPDATES
    Catches admin reassignments, cancellations, and any order
    status changes so the driver always sees current data.
@@ -3334,10 +3355,18 @@ function subscribeToRouteStopUpdates() {
         return;
       }
 
+      // Detect if stop order or ETA changed (from optimizer) vs other field changes
+      const orderChanged = allStops[idx].stop_number !== updated.stop_number
+                        || allStops[idx].estimated_arrival !== updated.estimated_arrival;
       Object.assign(allStops[idx], updated);
-      renderHome();
-      renderRoute();
-      if (currentStopId === updated.id) renderStopDetail(updated.id);
+      if (orderChanged) {
+        // Optimizer updated stop order — debounce to batch multiple stop updates
+        debouncedResort();
+      } else {
+        renderHome();
+        renderRoute();
+        if (currentStopId === updated.id) renderStopDetail(updated.id);
+      }
     })
 
     // Route stop INSERTED (new stop added to one of this driver's routes by admin)

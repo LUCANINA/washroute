@@ -14264,7 +14264,7 @@ ${totalLinesXml}
     const color = tpl?.color || '#635bff';
 
     const { data: stops } = await db.from('route_stops')
-      .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id,
+      .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id, estimated_arrival,
                orders(id, status, total_bags, customer_id, pickup_address_id, delivery_address_id,
                  pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                  customers(first_name_cache, last_name_cache))`)
@@ -14498,6 +14498,22 @@ ${totalLinesXml}
       movedBadge = `<span class="rcc-card-dot"></span><span class="rcc-moved-badge" style="--badge-color:${origColor};" title="Moved from ${origName}">↩ ${origName}</span>`;
     }
 
+    // ETA + at-risk badge for pending stops
+    let etaBadge = '';
+    if (s.estimated_arrival && s.status === 'pending') {
+      const etaTime = new Date(s.estimated_arrival);
+      const etaStr = etaTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      // Check if at-risk: ETA past the order's delivery/pickup window end
+      const order = s.orders || {};
+      const windowEnd = isDelivery ? order.delivery_window_end : order.pickup_window_end;
+      const isAtRisk = windowEnd && etaTime > new Date(windowEnd);
+      if (isAtRisk) {
+        etaBadge = `<span class="rcc-card-dot"></span><span style="font-size:9.5px;font-weight:600;color:#dc2626;background:#fef2f2;padding:1px 5px;border-radius:4px;" title="ETA past window">⚠ ${etaStr}</span>`;
+      } else {
+        etaBadge = `<span class="rcc-card-dot"></span><span style="font-size:9.5px;color:#6b7280;" title="Estimated arrival">${etaStr}</span>`;
+      }
+    }
+
     const custId = s.orders?.customer_id || '';
     const custClick = custId ? `event.stopPropagation();openCustomerPanel('${custId}')` : '';
     return `<div class="rcc-card rcc-popin" draggable="true"
@@ -14513,6 +14529,7 @@ ${totalLinesXml}
         <span class="rcc-card-dot"></span>
         <span>${bags} bag${bags!==1?'s':''}</span>
         ${movedBadge}
+        ${etaBadge}
       </div>
     </div>`;
   }
@@ -14673,8 +14690,16 @@ ${totalLinesXml}
         const popupNameHtml = popupCustId
           ? `<strong style="cursor:pointer;color:var(--accent);text-decoration:underline;" onclick="openCustomerPanel('${popupCustId}')">${custName}</strong>`
           : `<strong>${custName}</strong>`;
-        const m = L.marker([s._addr.lat, s._addr.lng], { icon: makePin(color, label) })
-          .bindPopup(`${popupNameHtml}<br>${s._addr.line1||''}${hasBoth ? '<br><span style="font-size:10px;color:#888">📦 pickup + 🏠 delivery</span>' : ''}<br><span style="font-size:11px;color:#888">${rd.templateName}</span>`);
+        // At-risk detection for map pin
+        const isDelivery = s.stop_type === 'delivery';
+        const windowEnd = isDelivery ? s.orders?.delivery_window_end : s.orders?.pickup_window_end;
+        const isAtRisk = s.estimated_arrival && windowEnd && new Date(s.estimated_arrival) > new Date(windowEnd);
+        const etaInfo = s.estimated_arrival
+          ? `<br><span style="font-size:11px;color:${isAtRisk ? '#dc2626;font-weight:600' : '#6b7280'}">ETA: ${new Date(s.estimated_arrival).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}${isAtRisk ? ' ⚠ LATE' : ''}</span>`
+          : '';
+        const pinColor = isAtRisk ? '#dc2626' : color;
+        const m = L.marker([s._addr.lat, s._addr.lng], { icon: makePin(pinColor, label) })
+          .bindPopup(`${popupNameHtml}<br>${s._addr.line1||''}${hasBoth ? '<br><span style="font-size:10px;color:#888">📦 pickup + 🏠 delivery</span>' : ''}${etaInfo}<br><span style="font-size:11px;color:#888">${rd.templateName}</span>`);
         m._isStopLayer = true;
         m.addTo(routeLiveMap);
       });
@@ -14717,7 +14742,7 @@ ${totalLinesXml}
     if (!rd) return;
 
     const { data: stops } = await db.from('route_stops')
-      .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id,
+      .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id, estimated_arrival,
                orders(id, status, total_bags, customer_id, pickup_address_id, delivery_address_id,
                  pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                  customers(first_name_cache, last_name_cache))`)

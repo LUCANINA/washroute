@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 24, 2026 — UTC timezone fix across all apps, driver stop cascade fix, wrong-date route stops corrected (session 62)*
+*Last updated: Mar 25, 2026 — Real-time dispatch optimizer fully deployed: time-window ETAs, driver app live updates, auto re-optimization cron, admin at-risk badges (session 63–64)*
 
 ---
 
@@ -879,6 +879,61 @@ There are actually **two separate hang points** that must both be covered:
 5. Credits not applied at charge time — only at Intake. If credit is added after Intake, it's missed. Consider adding credit check to `charge-order` edge function
 6. Future refactor: replace inline onclick string interpolation with data attributes + delegated event listeners
 7. Security hardening: escape customer data in data attributes/onclick handlers, clear localStorage on logout
+
+---
+
+### Mar 24, 2026 (session 63) — Route map UX cleanup, data corrections, real-time dispatch planning
+
+**Route map & list UX overhaul (admin-dashboard/index.html):**
+- **Hide completed stops:** Stops with status `complete`, `skipped`, or `failed` are now hidden from both the stop card list AND the map pins. Only remaining (pending/en_route) stops are visible — giving drivers and admins a clear picture of what's left.
+- **Remove route lines:** Removed all polyline drawing from the map (pickup lines and delivery dashed lines). The map was becoming an unreadable maze of overlapping colored lines. Now it's clean pins only, color-coded by route.
+- **Updated chip badge counts:** The colored route pills at the top now show remaining stop count (not total), so you can see at a glance how many stops are left per route.
+- **Header stats updated:** Column headers show remaining P/D counts + "X done" indicator with progress bar for overall completion tracking.
+
+**Data corrections (4 stops fixed on Oakland AM Mar 25):**
+- Jeremy Dunn — delivery stop skipped (order was `cancelled` but stop was still `pending`)
+- Stacy Kawula — delivery stop skipped (order was `skipped` but stop was still `pending`)
+- David Macquart-Moulin — stale `complete` pickup from Mar 15 skipped (orphaned on wrong route)
+- Constance Moore — delivery moved from Oakland AM to Oakland PM (her window is 8-10 PM, not AM)
+- Oakland AM went from 42 → 38 stops after cleanup.
+
+**Real-time dispatch optimizer — Phase 1 planned:**
+- Reviewed current `optimize-route` edge function (v13): uses Google Directions API with `optimize:true` waypoints, geographic-extremes N/S endpoint selection, separate pickup/delivery optimization.
+- Identified 7 gaps vs production dispatch needs: no time-window awareness, no ETAs, no at-risk flagging, no periodic re-optimization, no driver app auto-refresh, no service time accounting, uses legacy Directions API instead of Routes API.
+- 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
+
+**Files changed:** `admin-dashboard/index.html`
+
+### Mar 25, 2026 (session 64) — Real-time dispatch optimizer: all 4 phases deployed
+
+**Phase 1 — Time-window-aware optimization engine (optimize-route v14):**
+- Deployed and verified. Edge function rewritten to group stops by time window (Window 1 first), combine pickup+delivery in single optimization pass, compute per-stop ETAs with 4-min service time, flag at-risk stops whose ETA exceeds their delivery/pickup window end.
+- ETAs confirmed working: Berkeley AM (18 stops, 7:00→10:31 AM), Hayward AM (19 stops), Oakland AM (28 stops).
+- Uses Google Directions API `optimize:true` with `departure_time=now` and `traffic_model=best_guess` for traffic-aware routing.
+
+**Phase 2 — Driver app real-time stop order updates (driver-app/index.html):**
+- Fixed `sortStopsByWindow()` to use `stop_number` as secondary sort within same-window stops (was being ignored, causing random order within windows).
+- Added debounced re-sort (`debouncedResort()`) — when optimizer updates many stops at once, batches all Realtime events into a single UI update (300ms debounce).
+- Updated Realtime UPDATE handler to detect `stop_number`/`estimated_arrival` changes and trigger debounced re-sort.
+- Added ETA display on stop cards: pending stops show "ETA 7:42 AM" in accent color.
+- Updated `reoptimizeRoute()` to fetch `estimated_arrival` alongside `stop_number`.
+
+**Phase 3 — Periodic re-optimization via pg_cron:**
+- Created `reoptimize_active_routes()` SQL function: finds routes for today with 3+ pending stops and a driver with GPS within 15 min, calls optimize-route edge function via pg_net with driver's current lat/lng.
+- Scheduled as pg_cron job `reoptimize-active-routes` (jobid 12): runs every 5 minutes, 24/7. Self-gating — only fires HTTP calls when active routes exist.
+- Manually tested: function found 4 qualifying routes and triggered all 4 optimizations successfully.
+
+**Phase 4 — Admin dashboard ETA display + at-risk badges (admin-dashboard/index.html):**
+- Stop cards now show ETA time for pending stops. At-risk stops (ETA past window end) show red "⚠ 8:42 PM" badge.
+- Map pins turn red for at-risk stops. Pin popups show ETA and "LATE" warning.
+- Added `estimated_arrival` to the RCC stop select query.
+
+**Infrastructure changes:**
+- New pg_cron job: `reoptimize-active-routes` (*/5 * * * *, jobid 12)
+- New SQL function: `reoptimize_active_routes()`
+- Edge function: `optimize-route` v14 (deployed, verified, production-active)
+
+**Files changed:** `driver-app/index.html`, `admin-dashboard/index.html`, `supabase/functions/optimize-route/index.ts`
 
 ---
 
