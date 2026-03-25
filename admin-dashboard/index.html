@@ -13502,10 +13502,12 @@ ${totalLinesXml}
             .eq('run_date', today());
           if (todayRoutes?.length) {
             const { data: todayStops } = await db.from('route_stops')
-              .select('route_id, status, orders!inner(status)')
+              .select('route_id, status, stop_type, orders!inner(status)')
               .in('route_id', todayRoutes.map(r => r.id));
             const routeToTemplate = Object.fromEntries(todayRoutes.map(r => [r.id, r.template_id]));
-            (todayStops||[]).filter(s => !DEAD_ORDER_STATUSES.includes(s.orders?.status)).forEach(s => {
+            const _nrfd = ['processing', 'folding', 'picked_up'];
+            (todayStops||[]).filter(s => !DEAD_ORDER_STATUSES.includes(s.orders?.status)
+                && !(s.stop_type === 'delivery' && _nrfd.includes(s.orders?.status))).forEach(s => {
               const tid = routeToTemplate[s.route_id];
               if (!tid) return;
               if (!todayStopStatus[tid]) todayStopStatus[tid] = { total: 0, done: 0, pending: 0 };
@@ -13715,10 +13717,12 @@ ${totalLinesXml}
             .eq('run_date', today());
           if (todayRoutes?.length) {
             const { data: todayStops } = await db.from('route_stops')
-              .select('route_id, status, orders!inner(status)')
+              .select('route_id, status, stop_type, orders!inner(status)')
               .in('route_id', todayRoutes.map(r => r.id));
             const routeToTemplate = Object.fromEntries(todayRoutes.map(r => [r.id, r.template_id]));
-            (todayStops||[]).filter(s => !DEAD_ORDER_STATUSES.includes(s.orders?.status)).forEach(s => {
+            const _nrfd = ['processing', 'folding', 'picked_up'];
+            (todayStops||[]).filter(s => !DEAD_ORDER_STATUSES.includes(s.orders?.status)
+                && !(s.stop_type === 'delivery' && _nrfd.includes(s.orders?.status))).forEach(s => {
               const tid = routeToTemplate[s.route_id];
               if (!tid) return;
               if (!todayStopStatus[tid]) todayStopStatus[tid] = { total: 0, done: 0, pending: 0 };
@@ -13927,12 +13931,14 @@ ${totalLinesXml}
       if (!todayRoutes?.length) return; // No route run yet — fine to reassign freely
 
       const { data: stops } = await db.from('route_stops')
-        .select('status, orders!inner(status)')
+        .select('status, stop_type, orders!inner(status)')
         .in('route_id', todayRoutes.map(r => r.id));
 
       if (!stops?.length) return;
-      // Exclude stops whose orders are no longer active (match RCC chip count exclusion list)
-      const liveStops = stops.filter(s => !DEAD_ORDER_STATUSES.includes(s.orders?.status));
+      // Exclude dead orders and delivery stops for orders not ready for delivery
+      const _nrfd3 = ['processing', 'folding', 'picked_up'];
+      const liveStops = stops.filter(s => !DEAD_ORDER_STATUSES.includes(s.orders?.status)
+          && !(s.stop_type === 'delivery' && _nrfd3.includes(s.orders?.status)));
       if (!liveStops.length) return;
       const total   = liveStops.length;
       const done    = liveStops.filter(s => s.status === 'complete' || s.status === 'skipped' || s.status === 'failed').length;
@@ -14870,17 +14876,38 @@ ${totalLinesXml}
     const btn = document.getElementById('btn-optimize');
     btn.disabled = true; btn.textContent = 'Optimizing…';
     try {
-      await Promise.all(activeIds.map(async routeId => {
+      // Filter to routes that actually have pending stops
+      const routesWithStops = activeIds.filter(rid => {
+        const rd = _rccRouteData[rid];
+        return rd?.stops?.some(s => s.status === 'pending');
+      });
+      if (!routesWithStops.length) {
+        showToast('No pending stops to optimize');
+        return;
+      }
+      const results = await Promise.allSettled(routesWithStops.map(async routeId => {
         const resp = await fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
           body: JSON.stringify({ route_id: routeId })
         });
-        if (!resp.ok) throw new Error('Optimization failed');
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => ({}));
+          throw new Error(body.error || `HTTP ${resp.status}`);
+        }
       }));
-      const label = activeIds.length > 1 ? `${activeIds.length} routes` : '1 route';
-      showToast(`✓ Optimized ${label}`);
-      await Promise.all(activeIds.map(id => rccRefreshRoute(id)));
+      const ok = results.filter(r => r.status === 'fulfilled').length;
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed === 0) {
+        const label = ok > 1 ? `${ok} routes` : '1 route';
+        showToast(`✓ Optimized ${label}`);
+      } else if (ok > 0) {
+        showToast(`Optimized ${ok} route${ok>1?'s':''}, ${failed} failed`, 'error');
+      } else {
+        const firstErr = results.find(r => r.status === 'rejected');
+        showToast('Optimization failed: ' + (firstErr?.reason?.message || 'Unknown error'), 'error');
+      }
+      await Promise.all(routesWithStops.map(id => rccRefreshRoute(id)));
     } catch(e) {
       showToast('Optimization failed: ' + e.message, 'error');
     } finally {
