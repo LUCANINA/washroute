@@ -14127,9 +14127,11 @@ ${totalLinesXml}
     _dsCountMap = {};
     const routeIds = _dsRoutes.map(r => r.id);
     if (routeIds.length) {
-      const { data: sc } = await db.from('route_stops').select('route_id, status, orders(status)').in('route_id', routeIds);
+      const { data: sc } = await db.from('route_stops').select('route_id, status, stop_type, orders(status)').in('route_id', routeIds);
+      const _notReady = ['processing', 'folding', 'picked_up'];
       (sc||[]).filter(s => s.orders && !DEAD_ORDER_STATUSES.includes(s.orders.status)
-          && s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed')
+          && s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed'
+          && !(s.stop_type === 'delivery' && _notReady.includes(s.orders.status)))
         .forEach(s => { _dsCountMap[s.route_id] = (_dsCountMap[s.route_id]||0) + 1; });
     }
 
@@ -14271,7 +14273,13 @@ ${totalLinesXml}
       .eq('route_id', routeId)
       .order('stop_number');
 
-    const activeStops = (stops||[]).filter(s => s.orders && !DEAD_ORDER_STATUSES.includes(s.orders.status));
+    const NOT_READY_FOR_DELIVERY = ['processing', 'folding', 'picked_up'];
+    const activeStops = (stops||[]).filter(s => {
+      if (!s.orders || DEAD_ORDER_STATUSES.includes(s.orders.status)) return false;
+      // Hide delivery stops for orders still being processed — not ready to hand to driver
+      if (s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY.includes(s.orders.status)) return false;
+      return true;
+    });
 
     // Resolve addresses: use the stop's address_id or order's address, falling back to customer default
     const addrIds = [...new Set(activeStops.map(s => {
@@ -14775,7 +14783,12 @@ ${totalLinesXml}
       .eq('route_id', routeId)
       .order('stop_number');
 
-    const activeStops = (stops||[]).filter(s => s.orders && !DEAD_ORDER_STATUSES.includes(s.orders.status));
+    const NOT_READY_FOR_DELIVERY2 = ['processing', 'folding', 'picked_up'];
+    const activeStops = (stops||[]).filter(s => {
+      if (!s.orders || DEAD_ORDER_STATUSES.includes(s.orders.status)) return false;
+      if (s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY2.includes(s.orders.status)) return false;
+      return true;
+    });
     // Resolve addresses: stop address_id → order address → customer default
     const _addrIds = [...new Set(activeStops.map(s => s.address_id || (s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id)).filter(Boolean))];
     const _custIds = [...new Set(activeStops.map(s => s.orders?.customer_id).filter(Boolean))];
