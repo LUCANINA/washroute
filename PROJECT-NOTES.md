@@ -941,7 +941,15 @@ There are actually **two separate hang points** that must both be covered:
 - Function: `sync_stops_on_order_status_advance()` — auto-completes stops when order advances past their phase
 - Trigger: `trg_sync_stops_on_order_advance` ON orders (AFTER UPDATE)
 
-**Files changed:** `admin-dashboard/index.html`, `driver-app/index.html`
+**Optimize button "Optimization failed" error:**
+- Root cause: `optimizeRoute()` used `Promise.all` across all open route columns. Empty routes (0 stops) returned 400 from edge function, killing the entire batch.
+- Fix 1: Edge function v15 — empty routes return 200 with `stops_optimized: 0` instead of 400.
+- Fix 2: Admin dashboard `optimizeRoute()` rewritten with `Promise.allSettled`, pre-filters routes with no pending stops, shows per-route success/failure counts.
+
+**QA blast radius fix — NOT_READY_FOR_DELIVERY filter:**
+- Found 3 additional locations in Daily Schedule view that count stops for progress bars/popovers without the NOT_READY filter. These were inflating "pending" counts by including delivery stops for processing orders. All 3 fixed with `stop_type` added to queries.
+
+**Files changed:** `admin-dashboard/index.html`, `supabase/functions/optimize-route/index.ts`
 
 ---
 
