@@ -14328,6 +14328,32 @@ ${totalLinesXml}
     rccRenderMap();
     rccUpdatePanelWidth();
     rccUpdateOptimizeBtn();
+
+    // Auto-fill missing ETAs: if pending stops lack estimated_arrival, trigger optimization in background
+    const pendingWithoutEta = enriched.filter(s => s.status === 'pending' && !s.estimated_arrival);
+    const pendingTotal = enriched.filter(s => s.status === 'pending').length;
+    if (pendingWithoutEta.length > 0 && pendingTotal >= 2) {
+      fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` },
+        body: JSON.stringify({ route_id: routeId })
+      }).then(async resp => {
+        if (!resp.ok) return;
+        // Re-fetch stops with fresh ETAs and update the column
+        const { data: freshStops } = await db.from('route_stops')
+          .select(`id, stop_number, estimated_arrival`)
+          .eq('route_id', routeId);
+        if (!freshStops?.length || !_rccRouteData[routeId]) return;
+        const etaMap = {};
+        freshStops.forEach(fs => { etaMap[fs.id] = fs; });
+        _rccRouteData[routeId].stops = _rccRouteData[routeId].stops.map(s => {
+          const fresh = etaMap[s.id];
+          return fresh ? { ...s, stop_number: fresh.stop_number, estimated_arrival: fresh.estimated_arrival } : s;
+        });
+        rccRenderColumns();
+        rccRenderMap();
+      }).catch(() => {}); // silent — ETAs are best-effort
+    }
   }
 
   // ── RCC: Render all active route columns ──
