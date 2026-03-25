@@ -904,6 +904,40 @@ There are actually **two separate hang points** that must both be covered:
 
 **Files changed:** `admin-dashboard/index.html`
 
+### Mar 25, 2026 (session 65) — Root cause fix: auto-sync delivery stops on window change
+
+**Root cause analysis — why wrong-date delivery stops kept recurring:**
+- When an order is created, `auto_route_order()` trigger eagerly creates BOTH pickup and delivery stops on routes based on planned dates. This is correct at creation time.
+- Problem: if `delivery_window_start` later changes (admin shifts window, customer reschedules), the delivery stop stays on the original route. There was NO mechanism to keep `route_stops` in sync with the order's delivery date.
+- This caused recurring bugs where delivery stops appeared on the wrong day's route — every time a delivery window shifted post-creation, the stop became stale.
+
+**Fix — new database trigger `trg_sync_delivery_stop_on_window_change`:**
+- BEFORE UPDATE trigger on `orders` that fires when `delivery_window_start` changes.
+- Compares the order's new delivery date (Pacific timezone) against the current route's `run_date`.
+- If mismatched, automatically moves the pending delivery stop to the correct route using the same zone/template/day matching logic as `auto_route_order()`.
+- Creates the target route if it doesn't exist yet (same as initial routing).
+- Smart conflict avoidance: if admin is also setting `delivery_run_id` in the same update (explicit route reassignment), the trigger stands down and trusts the admin's choice.
+- Clears stale `estimated_arrival` on moved stops so the optimizer recalculates.
+- Updates `total_stops` counts on both old and new routes.
+- Sets `moved_from_route_id` for audit trail.
+
+**Also fixed — processing orders showing on route map:**
+- Added `NOT_READY_FOR_DELIVERY` filter (`['processing', 'folding', 'picked_up']`) to hide delivery stops for orders not yet ready. Applied to card list, map, and chip badge counts in admin dashboard.
+
+**Bug fixes from earlier in session:**
+- Fixed `reoptimize_active_routes()` timezone bug: was using `CURRENT_DATE` (UTC) instead of `(now() AT TIME ZONE 'America/Los_Angeles')::date` — at 9:45 PM Pacific, this returned the next day, causing no routes to match.
+- Fixed 4 misplaced delivery stops (orders with Mar 25 delivery windows on Mar 24 routes) — manually moved to correct routes.
+- Lowered cron re-optimization threshold from 3 to 2 pending stops.
+- Added auto-optimize-on-column-open in admin dashboard for routes missing ETAs.
+
+**New SQL objects:**
+- Function: `sync_delivery_stop_on_window_change()` — trigger function for auto-moving delivery stops
+- Trigger: `trg_sync_delivery_stop_on_window_change` ON orders (BEFORE UPDATE)
+
+**Files changed:** `admin-dashboard/index.html`, `driver-app/index.html`
+
+---
+
 ### Mar 25, 2026 (session 64) — Real-time dispatch optimizer: all 4 phases deployed
 
 **Phase 1 — Time-window-aware optimization engine (optimize-route v14):**
