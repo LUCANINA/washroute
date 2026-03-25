@@ -930,9 +930,16 @@ There are actually **two separate hang points** that must both be covered:
 - Lowered cron re-optimization threshold from 3 to 2 pending stops.
 - Added auto-optimize-on-column-open in admin dashboard for routes missing ETAs.
 
+**Bug: Christina Sullivan #472 pickup stop stuck in `en_route` while order was `picked_up`:**
+- Root cause: order status was advanced but `trg_sync_stops_on_order_terminal` only syncs terminal statuses. Mid-pipeline statuses like `picked_up` didn't cascade to stops.
+- Found 4 additional mismatched stops (#769, #765, #694, #310) — all `ready_for_delivery` with pickup stops still pending/en_route. Fixed all 5.
+- **Structural fix — new trigger `trg_sync_stops_on_order_advance`:** AFTER UPDATE on orders, when status changes. If order advances past pickup phase → auto-completes pickup stop. If order reaches `delivered` → auto-completes delivery stop. Loop-safe with existing `sync_order_status_from_stops` (verified).
+
 **New SQL objects:**
-- Function: `sync_delivery_stop_on_window_change()` — trigger function for auto-moving delivery stops
+- Function: `sync_delivery_stop_on_window_change()` — auto-moves delivery stops when delivery_window_start changes
 - Trigger: `trg_sync_delivery_stop_on_window_change` ON orders (BEFORE UPDATE)
+- Function: `sync_stops_on_order_status_advance()` — auto-completes stops when order advances past their phase
+- Trigger: `trg_sync_stops_on_order_advance` ON orders (AFTER UPDATE)
 
 **Files changed:** `admin-dashboard/index.html`, `driver-app/index.html`
 
