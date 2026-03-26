@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 26, 2026 — Kidango cleanup, duplicate merge, 18 UTC→Pacific timezone fixes (session 70)*
+*Last updated: Mar 26, 2026 — Unpaid orders panel, 71 email duplicate merges, 40 desynced stop fixes, daily audit skill (session 70b)*
 
 ---
 
@@ -941,15 +941,37 @@ Session 67 caught 45+ timezone bugs but these 18 slipped through. All were cases
 
 **Files changed:** `admin-dashboard/index.html`, `customer-app/index.html`, `driver-app/index.html`
 
-**Pending (carries forward from session 69):**
+**Session 70b — continued same day:**
+
+**Unpaid Delivered Orders panel (admin Overview page, commit `3816069`):**
+- New "Unpaid Delivered Orders" card on the Overview page. Shows all orders with status delivered/ready_for_delivery/out_for_delivery where `billing_status != 'paid'`. Color-coded badges: FAILED (red), REFUNDED (purple), UNPAID (amber). Clickable rows open order detail panel. Counter shows total count + outstanding dollar amount. Appears between Open Issues and Recurring Orders sections.
+
+**Email duplicate merge — 71 pairs:**
+- Merged 71 email-based duplicate customer pairs (in addition to the 5 phone-based pairs from earlier in session 70). Pattern: ghost accounts from email signup with 0-1 orders and no phone, alongside active accounts with orders + phone. All FK records (orders, addresses, conversations, payment methods, transactions, email messages, SMS messages, notifications, subscriptions, CS issues) transferred to winner. Profiles NULLed on losers first to avoid unique constraint, then transferred to winners where winner had none. Names transferred where winner was blank.
+- Special overrides per David: Kelly Thompson phone → (510) 387-1272; Risa → Rita Hidalgo; Bethel Berkeley → "Front Administrator"; Ecole Bilingue de Berkeley kept; Level Up Wellness merged to business name; Ruth MacNaughton merged (same phone, different formats).
+- Post-merge verification: 0 remaining email dupes (down from 71), 0 desynced stops, 0 unintended SMS sent.
+
+**Wrong-date stop cleanup — 7 stops:**
+- 4 orders (#199 Rae MaxwellRoss, #260 Dominic Volpatti, #245 Emily Buddeke, #707 Rachelle Greenfield) had delivery stops on wrong-date routes. All were cancelled/skipped orders with pending stops. Set to skipped.
+
+**Desynced stop cleanup — 33 stops:**
+- 33 route stops had pending/en_route status while their parent orders were cancelled/skipped/delivery_failed. Set to skipped (31) or failed (2, for delivery_failed orders).
+
+**Daily health audit skill installed:**
+- New `washroute-audit` skill with 10 SQL checks: unrouted orders, wrong-date stops, unpaid delivered orders, stop/order desync, duplicate customers, duplicate orders, over-capacity routes, driverless routes, SMS opt-out sync, orphaned records. Triggers on "load up", "morning rounds", "run audit". First run caught all the issues fixed above.
+
+**Pending (carries forward):**
 1. Re-send campaign emails to ~3,475 unreached customers (session 68 emails failed due to wrong params)
 2. Continue campaign SMS to ~1,846 unreached customers
 3. Re-enable `review_request` and `reorder_reminder` SMS templates
-4. Resolve 5 unpaid delivered orders ($567.75)
-5. Phase 1 smart scheduler — `route_duration_estimate` + Google API integration
-6. Supabase OTP expiry, Cynthia Williams landline, credits not applied after Intake
-7. XSS hardening, deduplicate merged addresses, clean up orphaned auth.users/profiles
-8. Order mC-Print3 printer
+4. Resolve 42 unpaid delivered orders (now visible on Overview page — ranges $48.95–$204.95, mix of failed/null/refunded billing_status)
+5. Oakland AM tomorrow over capacity (36 stops vs 30 limit) — move 6 stops or raise limit
+6. 78 orphaned profiles (customer role, no linked customer record) — clean up
+7. 29 duplicate addresses — deduplicate
+8. Phase 1 smart scheduler — `route_duration_estimate` + Google API integration
+9. Supabase OTP expiry, Cynthia Williams landline, credits not applied after Intake
+10. XSS hardening, clean up orphaned auth.users
+11. Order mC-Print3 printer
 
 ---
 
