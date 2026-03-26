@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 26, 2026 — Promo credit trigger fix, 55 backfill credits, nudge SMS, Overview cleanup (session 70c)*
+*Last updated: Mar 26, 2026 — Order History feature, logOrderEvent wiring, SMS timestamps, routing fix (session 70d)*
 
 ---
 
@@ -184,6 +184,11 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 ### Order Schedule (Route Command Center)
 - **Phantom time band bug fixed (session 31, commit `a522084`):** The RCC column's time-window section dividers grouped stops by `pickup_window_start` for all stop types. When a delivery stop's order was originally picked up on a different route (e.g. Oakland AM at 9am), its `pickup_window_start` was the morning AM slot (16:00 UTC), which created a spurious 3rd bucket that got labeled "10–12 PM" even though Oakland PM only runs 6–10 PM. Fix: `getUtcMins()` in `rccRenderColumns()` now uses `delivery_window_start` for delivery stops and `pickup_window_start` for pickup stops. Root cause: same-day turnaround orders have pickup on one route and delivery on another — bucketing must use the stop-type-appropriate window.
 
+### Order History (session 70d)
+- **History tab in order panel:** New 4th tab (Schedule · Details · Billing · History) shows full timestamped activity timeline per order. Lazy-loads from `order_events` table with caching per order.
+- **Admin attribution via `logOrderEvent()`:** 18 admin actions wired to insert events BEFORE the DB update with the logged-in admin's first name. Trigger's 3-second dedup skips when JS already logged the event — preserves "Lili" instead of "System." Covers: status changes, reschedules, weight/bags/total edits, fold/rack assignments, charge/billing, address changes, recurrence changes, batch operations.
+- **SMS timestamps on Engagement page:** Message History now shows time alongside date (e.g. "Mar 25 · 2:34 pm") instead of just the date.
+
 ### Other
 - Customer management, driver management, services & pricing, reports (all built)
 - Driver Messages tab (in-app driver ↔ admin chat, separate from SMS)
@@ -260,6 +265,7 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 | `route_stops` | Stops may have `driver_id = NULL` (inherits from parent route's `driver_id`) or an explicit UUID override. `trg_fill_stop_driver` auto-fills on INSERT. RLS policies handle both cases |
 | `route_driver_schedule` | Per-day driver assignments: (template_id, day_of_week, driver_type) → driver_id. Sole source of truth for driver scheduling (no template defaults) |
 | `driver_locations` | Live GPS: one row per driver (UPSERT on driver_id), updated every 12s from driver app. Realtime-enabled |
+| `order_events` | **NEW (session 70d)** Audit log for every order action. Columns: `order_id`, `event_type`, `description`, `old_value`, `new_value`, `actor_id`, `actor_name`, `created_at`. 3-second dedup between JS-inserted events (with admin name) and trigger-inserted events (with 'System'). ~4,900 events backfilled. |
 | `sms_messages` | All SMS in/out. `direction`: inbound/outbound. Linked to `customers` by phone matching |
 | `driver_messages` | In-app admin ↔ driver chat (not SMS) |
 
@@ -278,6 +284,8 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 | `trg_route_stops_updated_at` | Trigger (BEFORE UPDATE on route_stops) | Auto-sets `updated_at = now()` on every route_stop write |
 | `trg_sync_route_driver` | Trigger (BEFORE UPDATE OF driver_id ON routes) | When a route's primary driver changes, auto-clears `pickup_driver_id`/`delivery_driver_id` to NULL. Ensures RLS policies always derive driver access from `driver_id` — no manual cleanup needed when reassigning via the schedule |
 | `find_customer_by_phone(digits)` | Function | Matches phone by last 10 digits |
+| `log_order_change()` | Trigger (AFTER UPDATE on orders) | **NEW (session 70d)** Comprehensive audit trigger. Logs: status changes, weight/bags/total changes, folded_by (with folder name from profiles), racked, pickup/delivery route assignments, billing status, pickup/delivery rescheduling. 3-second dedup on all sections — if JS already inserted the event, trigger skips. FK on `actor_id` was dropped (launderers not in profiles table). |
+| `log_order_created()` | Trigger (AFTER INSERT on orders) | **NEW (session 70d)** Logs "Order created" with actor = Customer/System based on source |
 
 ---
 
@@ -907,6 +915,26 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 26, 2026 (session 70d) — Order History feature, logOrderEvent wiring, SMS timestamps
+
+- **PM→next-morning-AM routing bug fixed:** `auto_route_order()` now guards against PM pickups being scheduled for next-morning AM delivery. If pickup ≥ 12:00 AND delivery < 12:00 AND delivery_date ≤ pickup_date + 1, delivery shifts to PM. Sub-window capacity overflow also fixed — WHILE loop now iterates through all sub-windows instead of giving up after the first full one. 11 Oakland orders unblocked.
+- **`order_events` table created:** Full audit log with `event_type`, `description`, `old_value`/`new_value`, `actor_name`, and `created_at`. Indexed on `(order_id, created_at)`. RLS: read/insert for all.
+- **`log_order_change()` trigger deployed:** AFTER UPDATE on orders. Captures status, weight, bags, total, folded_by, racked, routed, billing, rescheduled — each section has 3-second dedup. `log_order_created()` trigger logs new orders.
+- **`logOrderEvent()` JS helper:** Inserts event with admin's `currentUserFirstName` BEFORE the DB update. Trigger dedup skips when JS already logged it — preserves admin attribution.
+- **18 admin actions wired:** `opSaveRouteAndSlot`, `_opShiftDeliveryWindow`, `selectSpSlot`, `confirmReassignRun`, `opSaveOrderDetails`, `saveIntake`, `opChargeOrder`, `confirmBilling` (card + alt), `saveFolding`, `assignFolderInline`, `saveRacking`, `batchSetStatus`, `batchAdvanceStatus`, `updateOrderStatus`, `moveOrderBack`, `opSaveAddress`, `opToggleDiffDeliveryAddr`, `opSaveRecurring`.
+- **History tab added to order panel:** 4th tab with emoji-coded timeline, lazy-loaded, cached per order.
+- **4,926 events backfilled** from existing order data (timestamps from `created_at`, `actual_pickup_at`, `actual_delivery_at`, `folded_at`, `racked_at`, `paid_at`, `updated_at`).
+- **FK constraint dropped on `order_events.actor_id`:** `folded_by_id` references launderers not in `profiles` table — FK was causing crashes when assigning folders in Processing queue.
+- **Dedup added to folded/racked trigger sections:** Previously had no dedup, causing duplicate events.
+- **SMS timestamps on Engagement page:** Message History now shows "Mar 25 · 2:34 pm" instead of just "Mar 25".
+- **Oliver Said's account deleted** (0 orders, inactive legacy customer).
+
+**Commits:** `d77c583` (logOrderEvent wiring + backfill), `3f7f3c7` (SMS timestamps)
+**DB changes:** `order_events` table, `log_order_change()` trigger (updated), `log_order_created()` trigger, FK dropped on `actor_id`
+**Files changed:** `admin-dashboard/index.html`
+
+---
 
 ### Mar 26, 2026 (session 70) — Kidango cleanup, duplicate merge, UTC→Pacific timezone audit round 2
 
