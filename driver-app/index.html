@@ -1011,8 +1011,9 @@
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><path d="M9 21V12h6v9"/></svg></span>
       Home
     </button>
-    <button class="nav-btn" id="nav-route" onclick="activeRouteFilter=null;goTo('route')">
+    <button class="nav-btn" id="nav-route" onclick="activeRouteFilter=null;goTo('route')" style="position:relative">
       <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg></span>
+      <span id="photo-queue-badge" style="display:none;position:absolute;top:4px;right:14px;background:#f59e0b;color:#fff;font-size:10px;font-weight:800;min-width:16px;height:16px;border-radius:8px;align-items:center;justify-content:center;padding:0 4px">0</span>
       Route
     </button>
     <button class="nav-btn" id="nav-messages" onclick="goTo('messages')">
@@ -1051,6 +1052,199 @@ let appReady = false, loadingTimer = null;
 
 // Undo state
 let undoTimer = null, undoCountTimer = null, pendingUndo = null;
+
+/* ──────────────────────────────
+   PHOTO QUEUE — capture-now, upload-later
+   Compresses images, stores in IndexedDB,
+   uploads in background with retry.
+────────────────────────────── */
+const PHOTO_MAX_PX = 1200;
+const PHOTO_QUALITY = 0.80;
+const PHOTO_RETRY_MS = 30000; // retry every 30s
+let _photoQueue = [];          // in-memory mirror of IndexedDB queue
+let _photoRetryTimer = null;
+let _photoDbReady = false;
+let _photoDB = null;
+
+// ── IndexedDB helpers ──
+function _openPhotoDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('wr-photo-queue', 1);
+    req.onupgradeneeded = e => {
+      const idb = e.target.result;
+      if (!idb.objectStoreNames.contains('photos')) {
+        idb.createObjectStore('photos', { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = e => { _photoDB = e.target.result; _photoDbReady = true; resolve(_photoDB); };
+    req.onerror = e => { console.warn('IndexedDB open error:', e); reject(e); };
+  });
+}
+
+async function _idbPut(item) {
+  if (!_photoDB) await _openPhotoDB();
+  return new Promise((resolve, reject) => {
+    const tx = _photoDB.transaction('photos', 'readwrite');
+    tx.objectStore('photos').put(item);
+    tx.oncomplete = resolve;
+    tx.onerror = e => reject(e);
+  });
+}
+
+async function _idbDelete(id) {
+  if (!_photoDB) await _openPhotoDB();
+  return new Promise((resolve, reject) => {
+    const tx = _photoDB.transaction('photos', 'readwrite');
+    tx.objectStore('photos').delete(id);
+    tx.oncomplete = resolve;
+    tx.onerror = e => reject(e);
+  });
+}
+
+async function _idbGetAll() {
+  if (!_photoDB) await _openPhotoDB();
+  return new Promise((resolve, reject) => {
+    const tx = _photoDB.transaction('photos', 'readonly');
+    const req = tx.objectStore('photos').getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = e => reject(e);
+  });
+}
+
+// ── Compress image using canvas ──
+function compressPhoto(file) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.width, h = img.height;
+      if (w > PHOTO_MAX_PX || h > PHOTO_MAX_PX) {
+        const ratio = Math.min(PHOTO_MAX_PX / w, PHOTO_MAX_PX / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => resolve(blob), 'image/jpeg', PHOTO_QUALITY);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); }; // fallback: use original
+    img.src = url;
+  });
+}
+
+// ── Enqueue a photo for background upload ──
+async function enqueuePhoto(stopId, blob, localDataUrl) {
+  const id = `${stopId}_${Date.now()}`;
+  const reader = new FileReader();
+  const blobDataUrl = await new Promise(r => { reader.onload = e => r(e.target.result); reader.readAsDataURL(blob); });
+
+  const item = { id, stopId, blobDataUrl, localDataUrl, ts: Date.now(), attempts: 0 };
+  _photoQueue.push(item);
+  try { await _idbPut(item); } catch(e) { console.warn('idb put error:', e); }
+  updatePhotoBadge();
+
+  // Try uploading immediately
+  processPhotoQueue();
+}
+
+// ── Process the queue: upload pending photos ──
+let _photoProcessing = false;
+async function processPhotoQueue() {
+  if (_photoProcessing || _photoQueue.length === 0) return;
+  _photoProcessing = true;
+
+  // Work through queue — newest first so current stop finishes fastest
+  const queue = [..._photoQueue];
+  for (const item of queue) {
+    try {
+      // Convert dataURL back to Blob
+      const resp = await fetch(item.blobDataUrl);
+      const blob = await resp.blob();
+      const ext = 'jpg';
+      const path = `stops/${item.stopId}/${item.ts}.${ext}`;
+
+      const { data, error } = await db.storage
+        .from('stop-photos')
+        .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+
+      if (error) throw error;
+
+      const { data: urlData } = db.storage.from('stop-photos').getPublicUrl(path);
+      const photoUrl = urlData.publicUrl;
+
+      // Save URL to route_stops
+      await db.from('route_stops').update({ proof_photo_url: photoUrl }).eq('id', item.stopId);
+
+      // Update local state
+      const idx = allStops.findIndex(s => s.id === item.stopId);
+      if (idx >= 0) allStops[idx].proof_photo_url = photoUrl;
+
+      // Remove from queue
+      _photoQueue = _photoQueue.filter(q => q.id !== item.id);
+      try { await _idbDelete(item.id); } catch(e) {}
+      updatePhotoBadge();
+
+      console.log(`Photo uploaded for stop ${item.stopId}`);
+    } catch (e) {
+      item.attempts++;
+      console.warn(`Photo upload attempt ${item.attempts} failed for ${item.stopId}:`, e.message || e);
+      // Update in IDB with new attempt count
+      try { await _idbPut(item); } catch(e2) {}
+    }
+  }
+
+  _photoProcessing = false;
+
+  // If anything remains, schedule retry
+  if (_photoQueue.length > 0) schedulePhotoRetry();
+  updatePhotoBadge();
+}
+
+function schedulePhotoRetry() {
+  if (_photoRetryTimer) return;
+  _photoRetryTimer = setTimeout(() => {
+    _photoRetryTimer = null;
+    processPhotoQueue();
+  }, PHOTO_RETRY_MS);
+}
+
+// ── Badge showing pending uploads ──
+function updatePhotoBadge() {
+  const badge = document.getElementById('photo-queue-badge');
+  if (!badge) return;
+  if (_photoQueue.length > 0) {
+    badge.textContent = _photoQueue.length;
+    badge.style.display = 'inline-flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// ── Init: load any persisted queue on app start ──
+async function initPhotoQueue() {
+  try {
+    await _openPhotoDB();
+    _photoQueue = await _idbGetAll();
+    updatePhotoBadge();
+    if (_photoQueue.length > 0) {
+      console.log(`Photo queue: ${_photoQueue.length} pending uploads — retrying now`);
+      processPhotoQueue();
+    }
+  } catch(e) {
+    console.warn('Photo queue init error:', e);
+  }
+}
+
+// Also retry when connectivity comes back
+window.addEventListener('online', () => {
+  if (_photoQueue.length > 0) {
+    console.log('Back online — flushing photo queue');
+    processPhotoQueue();
+  }
+});
 
 /* ──────────────────────────────
    LIVE GPS TRACKING
@@ -2328,7 +2522,7 @@ function renderStopDetail(stopOrId) {
               ${hasPhoto ? 'Photo Taken' : 'Take Photo'}
             </button>
           </div>
-          <div class="photo-uploading" id="photo-uploading">Uploading photo…</div>
+          <div class="photo-uploading" id="photo-uploading">Compressing…</div>
           <input class="photo-input" type="file" accept="image/*" capture="environment" id="photo-input" onchange="handlePhoto(this, '${stop.id}')">
         </div>`;
 
@@ -2522,54 +2716,38 @@ async function handlePhoto(input, stopId) {
   const uploading = document.getElementById('photo-uploading');
   const thumb     = document.getElementById('photo-thumb');
   const camBtn    = document.getElementById('btn-camera');
-  if (uploading) uploading.classList.add('show');
-  if (camBtn)    camBtn.textContent = 'Uploading…';
+  if (camBtn) camBtn.textContent = 'Processing…';
 
-  // Show local preview immediately
-  const reader = new FileReader();
-  reader.onload = e => {
-    if (thumb) { thumb.src = e.target.result; thumb.classList.add('show'); }
-  };
-  reader.readAsDataURL(file);
+  // 1. Show local preview immediately
+  const localDataUrl = await new Promise(r => {
+    const reader = new FileReader();
+    reader.onload = e => r(e.target.result);
+    reader.readAsDataURL(file);
+  });
+  if (thumb) { thumb.src = localDataUrl; thumb.classList.add('show'); }
 
-  try {
-    // Upload to Supabase Storage
-    const ext  = file.name.split('.').pop() || 'jpg';
-    const path = `stops/${stopId}/${Date.now()}.${ext}`;
+  // 2. Compress the image (typically 80-90% smaller)
+  if (uploading) { uploading.textContent = 'Compressing…'; uploading.classList.add('show'); }
+  const compressed = await compressPhoto(file);
+  const sizeMb = (sz) => (sz / 1024 / 1024).toFixed(1);
+  console.log(`Photo compressed: ${sizeMb(file.size)}MB → ${sizeMb(compressed.size)}MB`);
 
-    const { data, error } = await db.storage
-      .from('stop-photos')
-      .upload(path, file, { contentType: file.type, upsert: false });
+  // 3. Mark photo as taken locally — unlock Complete button right away
+  const idx = allStops.findIndex(s => s.id === stopId);
+  if (idx >= 0) allStops[idx].proof_photo_url = localDataUrl; // local data URL as placeholder
+  if (camBtn) { camBtn.textContent = 'Photo Taken'; camBtn.classList.add('has-photo'); }
+  if (uploading) uploading.classList.remove('show');
 
-    if (error) throw error;
-
-    // Get public URL
-    const { data: urlData } = db.storage.from('stop-photos').getPublicUrl(path);
-    const photoUrl = urlData.publicUrl;
-
-    // Save URL to route_stops
-    await db.from('route_stops').update({ proof_photo_url: photoUrl }).eq('id', stopId);
-
-    // Update local state
-    const idx = allStops.findIndex(s => s.id === stopId);
-    if (idx >= 0) allStops[idx].proof_photo_url = photoUrl;
-
-    if (uploading) uploading.classList.remove('show');
-    if (camBtn) { camBtn.textContent = 'Photo Saved'; camBtn.classList.add('has-photo'); }
-    // Unlock the complete button now that a photo exists
-    const completeBtn = document.getElementById('btn-do-complete');
-    if (completeBtn) {
-      completeBtn.disabled = false;
-      const hint = completeBtn.nextElementSibling;
-      if (hint && hint.style.textAlign === 'center') hint.remove();
-    }
-    toast('Photo saved.');
-  } catch (e) {
-    console.error('Photo upload error:', e);
-    if (uploading) uploading.classList.remove('show');
-    if (camBtn) { camBtn.textContent = 'Retry Photo'; }
-    toast('Photo upload failed — tap to retry');
+  const completeBtn = document.getElementById('btn-do-complete');
+  if (completeBtn) {
+    completeBtn.disabled = false;
+    const hint = completeBtn.nextElementSibling;
+    if (hint && hint.style.textAlign === 'center') hint.remove();
   }
+  toast('Photo saved — uploading in background');
+
+  // 4. Enqueue for background upload (handles retry + offline)
+  await enqueuePhoto(stopId, compressed, localDataUrl);
 }
 
 /* ──────────────────────────────
@@ -2682,7 +2860,9 @@ async function completeStop(stopId, stopType) {
   const stop  = allStops.find(s => s.id === stopId);
   if (!stop) { toast('Stop no longer exists'); goTo('route'); return; }
   // Safety guard: proof photo required before completing
-  if (!stop.proof_photo_url) {
+  // Accept both remote URLs and local data URLs (queued for background upload)
+  const hasLocalOrRemotePhoto = stop.proof_photo_url || _photoQueue.some(q => q.stopId === stopId);
+  if (!hasLocalOrRemotePhoto) {
     toast('Please take a photo before completing');
     if (btn) { btn.disabled = true; btn.textContent = stopType === 'pickup' ? 'Mark Picked Up' : 'Mark Delivered'; }
     return;
@@ -3521,6 +3701,7 @@ async function _handleDriverSession(event, session) {
     appReady = true;
     _sessionLoading = false;
     document.getElementById('bottom-nav').style.display = 'flex';
+    initPhotoQueue(); // Resume any pending photo uploads from previous session
     subscribeToDriverMessages();
     subscribeToRouteStopUpdates();
     goTo('home');
