@@ -1220,6 +1220,17 @@
             <div id="overview-issues-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
 
+          <!-- Unpaid Delivered Orders -->
+          <div class="card" style="margin-top:0">
+            <div class="card-header">
+              <div>
+                <div class="card-title" style="color:#b91c1c">Unpaid Delivered Orders</div>
+                <div class="card-sub" id="unpaid-count-sub">Loading…</div>
+              </div>
+            </div>
+            <div id="unpaid-orders-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+          </div>
+
           <!-- Recurring Orders panel -->
           <div class="card" style="margin-top:0">
             <div class="card-header">
@@ -5039,6 +5050,7 @@
     loadNewCustomers();
     loadRecentOrders();
     loadOverviewIssues();
+    loadUnpaidOrders();
     loadRecurringOverview();
   }
 
@@ -5158,6 +5170,55 @@
         <span class="issue-row-meta">${esc(custName)} · ${age}${iss.assigned_to ? ' · ' + esc(iss.assigned_to) : ''}</span>
       </div>`;
     }).join('');
+  }
+
+  // ── Unpaid Delivered Orders ──
+  async function loadUnpaidOrders() {
+    const el = document.getElementById('unpaid-orders-body');
+    const subEl = document.getElementById('unpaid-count-sub');
+    if (!el) return;
+
+    const { data, error } = await db.from('orders')
+      .select('id, order_number, status, billing_status, total_amount, created_at, customers(id, first_name_cache, last_name_cache)')
+      .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery'])
+      .not('billing_status', 'eq', 'paid')
+      .order('created_at', { ascending: false });
+
+    if (error || !data) {
+      el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Could not load unpaid orders.</div>';
+      return;
+    }
+    if (!data.length) {
+      if (subEl) subEl.textContent = 'All clear';
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No unpaid delivered orders</div>';
+      return;
+    }
+
+    const totalOwed = data.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+    const failedCount = data.filter(o => o.billing_status === 'failed').length;
+    const parts = [`${data.length} order${data.length !== 1 ? 's' : ''}`, fmtMoney(totalOwed) + ' outstanding'];
+    if (failedCount) parts.push(`${failedCount} failed`);
+    if (subEl) subEl.textContent = parts.join(' · ');
+
+    el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Billing</th><th style="text-align:right">Amount</th></tr></thead><tbody>
+      ${data.map(o => {
+        const cust = o.customers;
+        const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
+        const billingBadge = o.billing_status === 'failed'
+          ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:#fee2e2;color:#b91c1c">FAILED</span>'
+          : o.billing_status === 'refunded'
+          ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:#f3e8ff;color:#7c3aed">REFUNDED</span>'
+          : '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:#fef3c7;color:#92400e">UNPAID</span>';
+        const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
+        return `<tr ${clickable}>
+          <td class="td-mono">#${o.order_number}</td>
+          <td class="td-name">${esc(name)}</td>
+          <td>${statusBadge(o.status)}</td>
+          <td>${billingBadge}</td>
+          <td style="text-align:right;font-weight:600">${fmtMoney(o.total_amount)}</td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>`;
   }
 
   // ── CUSTOMERS ──
