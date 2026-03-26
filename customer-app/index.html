@@ -2054,8 +2054,8 @@ async function _handleCustomerSession(event, session) {
       showLoading(true);
       try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }
     }
-    // If customer exists but has no name, redirect to name collection
-    if (currentCustomer && !(currentCustomer.first_name_cache || '').trim()) {
+    // If customer is missing or has no name, redirect to name collection
+    if (!currentCustomer || !(currentCustomer.first_name_cache || '').trim()) {
       _awaitingName = true;
       _authHandlerRunning = false;
       showAuthPanel('name');
@@ -2228,6 +2228,15 @@ async function loadUserData() {
     const custLast  = currentProfile.last_name  || m.last_name  || '';
     const custEmail = currentProfile.email || currentUser.email || '';
     const custPhone = currentProfile.phone || m.phone || '';
+
+    // If we have no name, do NOT create a blank customer record.
+    // The name gate in _handleCustomerSession will show the name collection
+    // screen, and handleNameSubmit will create the record with a real name.
+    if (!custFirst.trim()) {
+      currentCustomer = null;
+      return;
+    }
+
     // Double-check no record appeared in the meantime (race condition guard)
     const { data: raceCheck } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
     if (raceCheck) {

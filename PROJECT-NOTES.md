@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 25, 2026 — Comprehensive UTC timezone audit: fixed 45+ bugs across all apps and edge functions (session 67)*
+*Last updated: Mar 25, 2026 — Launch campaign extension blast: 2,000 SMS queued (batches 1-8), emails failed due to wrong params — must re-send (session 68)*
 
 ---
 
@@ -903,6 +903,80 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 25, 2026 (session 68) — Launch campaign extension blast (SMS working, emails need re-send)
+
+**Context:** David extended the $20 credit deadline from Tuesday midnight to Friday midnight Pacific. credit_expires_at already set to `2026-03-28 07:59:59+00` (= Mar 27 11:59:59 PM Pacific, which IS Friday). Remaining ~3,846 unreached non-retail customers need email + SMS with updated deadline.
+
+**$20 credit deadline extension:** Verified existing `credit_expires_at` values were already correct for Friday. No DB update needed — the cron job `expire-migration-credits` runs daily at midnight UTC and zeros credits where `credit_expires_at < now()`.
+
+**SMS sends (batches 1-8 = 2,000 customers):**
+- Used `net.http_post()` calling `send-sms` edge function
+- SMS body: `"Hi {first_name}, Family Laundry here. Our new ordering app is live! Log in now to update your preferences and payment details: app.familylaundry.com Update by Friday midnight and get $20 in laundry credit, automatically added to your account."`
+- Batches 1-4 (~1,000): ~861 succeeded, ~103 rate-limited (Twilio "Too Many Requests"), 1 pending
+- Batches 5-8 (~1,000): still in `net._http_response` queue (null status) at time of pause — should process eventually
+- Targeting: unreached non-retail customers with `phone_cache IS NOT NULL AND sms_consent_at IS NOT NULL`, ordered by `created_at ASC`, 250 per batch
+
+**Email sends — ALL FAILED (must re-send):**
+- Used wrong parameter names in `net.http_post()` payload: sent `to` instead of `to_email`, and `html` instead of `body`
+- Edge function `send-email` expects: `{ customer_id, to_email, subject, body }`
+- All 2,000 email requests returned 400: `"to_email, subject, and body are required"`
+- **Action required next session:** Re-send all emails using correct params. Also include `customer_id` for proper logging.
+
+**Correct blast SQL pattern (for next session):**
+```sql
+-- EMAIL (correct params):
+net.http_post(
+  'https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/send-email',
+  jsonb_build_object(
+    'customer_id', c.id::text,
+    'to_email', c.email_cache,
+    'subject', 'The new Family Laundry app is live - log in for $20 Credit',
+    'body', '<html content here>'
+  ), '{}',
+  jsonb_build_object(
+    'Content-Type', 'application/json',
+    'Authorization', 'Bearer <anon_key>'
+  )
+)
+
+-- SMS (correct — already working):
+net.http_post(
+  'https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/send-sms',
+  jsonb_build_object(
+    'to', c.phone_cache,
+    'body', 'Hi ' || COALESCE(c.first_name_cache, 'there') || ', Family Laundry here...'
+  ), '{}',
+  jsonb_build_object(
+    'Content-Type', 'application/json',
+    'Authorization', 'Bearer <anon_key>'
+  )
+)
+```
+
+**SMS rate limiting note:** Sending 250 SMS in a single SQL batch overwhelms Twilio after ~200. Future batches should either use smaller batch sizes (100-150) or add a delay between batches.
+
+**Campaign totals (all-time, before re-send):**
+- Emails: ~1,514 unique customers reached (all from sessions 51-58; zero new from session 68)
+- SMS: ~1,397 + up to 2,000 new from session 68 (exact count pending queue drain)
+- Unreached (email): ~3,475 customers still need email
+- Unreached (SMS): ~2,959 customers still need SMS (some overlap with email-only — 834 have no SMS consent)
+
+**Pending (carries forward):**
+1. **Re-send all emails** to the 2,000 customers who got SMS but no email this session — use `to_email` and `body` params
+2. **Continue campaign** to remaining ~1,846 unreached customers (email + SMS)
+3. Re-enable `review_request` and `reorder_reminder` SMS templates when ready
+4. Resolve 5 unpaid delivered orders ($567.75)
+5. Consider increasing Supabase OTP expiry
+6. Cynthia Williams landline issue
+7. Credits not applied at charge time if added after Intake
+8. XSS hardening (onclick string interpolation)
+9. Deduplicate merged customer addresses
+10. Clean up orphaned auth.users/profiles from deleted duplicate customers
+
+**Printer:** David chose Star Micronics mC-Print3 (WiFi+LAN+USB+CloudPRNT) to replace TSP100IIIBI (Bluetooth-only, can't do CloudPRNT). Not yet ordered.
+
+---
 
 ### Mar 25, 2026 (session 67) — Comprehensive UTC timezone audit + fixes
 
