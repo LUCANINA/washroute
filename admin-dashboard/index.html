@@ -5182,7 +5182,8 @@
         const name = `${c.first_name_cache||''} ${c.last_name_cache||''}`.trim() || 'Unknown';
         const firstName = c.first_name_cache || '';
         const hasOrder = (c.total_orders || 0) > 0;
-        const joined = c.created_at ? new Date(c.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—';
+        const _jd = c.created_at ? new Date(c.created_at) : null;
+        const joined = _jd ? _jd.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:BIZ_TZ}) + ' · ' + _jd.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:BIZ_TZ}).toLowerCase() : '—';
         const phone = c.phone_cache || '';
         let actionCell = '';
         if (!hasOrder && phone) {
