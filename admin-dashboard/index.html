@@ -3753,9 +3753,9 @@
     if (!d) return '—';
     // Date-only string: render in BIZ_TZ so "2026-03-09" shows as "Mar 9" not "Mar 8"
     if (typeof d === 'string' && d.length === 10) {
-      return new Date(d + 'T00:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric', timeZone: BIZ_TZ});
+      return new Date(d + 'T00:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric', timeZone: BIZ_TZ});
     }
-    return new Date(d).toLocaleDateString('en-US', {month:'short', day:'numeric', timeZone: BIZ_TZ});
+    return new Date(d).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric', timeZone: BIZ_TZ});
   };
   const fmtTime = (d) => {
     if (!d) return '';
