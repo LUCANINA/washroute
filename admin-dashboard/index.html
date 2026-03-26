@@ -3319,6 +3319,41 @@
 
   <!-- ── ENGAGEMENT TAB ── -->
   <div class="cp-body" id="cptab-engagement" style="display:none">
+    <!-- Marketing Preferences -->
+    <div class="cp-section-head"><span>Marketing Preferences</span></div>
+    <div class="cp-card" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--gray-800)">SMS Marketing</div>
+          <div style="font-size:12px;color:var(--gray-400);margin-top:2px" id="cp-sms-mkt-detail"></div>
+        </div>
+        <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">
+          <input type="checkbox" id="cp-sms-mkt-toggle" onchange="toggleMarketingOpt('sms')" style="opacity:0;width:0;height:0">
+          <span style="position:absolute;cursor:pointer;inset:0;background:var(--gray-300);border-radius:24px;transition:.2s"></span>
+          <span style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.15)" id="cp-sms-mkt-knob"></span>
+        </label>
+      </div>
+      <div style="border-top:1px solid var(--gray-100);margin:10px 0"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--gray-800)">Email Marketing</div>
+          <div style="font-size:12px;color:var(--gray-400);margin-top:2px" id="cp-email-mkt-detail"></div>
+        </div>
+        <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">
+          <input type="checkbox" id="cp-email-mkt-toggle" onchange="toggleMarketingOpt('email')" style="opacity:0;width:0;height:0">
+          <span style="position:absolute;cursor:pointer;inset:0;background:var(--gray-300);border-radius:24px;transition:.2s"></span>
+          <span style="position:absolute;left:2px;top:2px;width:20px;height:20px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.15)" id="cp-email-mkt-knob"></span>
+        </label>
+      </div>
+    </div>
+    <style>
+      #cp-sms-mkt-toggle:checked + span { background: #16a34a; }
+      #cp-sms-mkt-toggle:checked ~ #cp-sms-mkt-knob { left: 22px; }
+      #cp-email-mkt-toggle:checked + span { background: #16a34a; }
+      #cp-email-mkt-toggle:checked ~ #cp-email-mkt-knob { left: 22px; }
+    </style>
+    <!-- Message History -->
+    <div class="cp-section-head"><span>Message History</span></div>
     <div style="display:flex;gap:6px;margin-bottom:14px">
       <button class="filter-tab active" onclick="filterCpEngagement('all',this)" id="cpeng-all">All</button>
       <button class="filter-tab" onclick="filterCpEngagement('sms',this)" id="cpeng-sms">SMS</button>
@@ -11374,7 +11409,7 @@ ${totalLinesXml}
     document.getElementById('cp-add-addr-form').style.display = 'none';
 
     const { data: c } = await db.from('customers')
-      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at)')
+      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at)')
       .eq('id', customerId).single();
     if (!c) return;
     _panelCustomerData = c;  // save for invoice generation
@@ -11478,6 +11513,9 @@ ${totalLinesXml}
     // Addresses
     const addrs = Array.isArray(c.addresses) ? c.addresses : (c.addresses ? [c.addresses] : []);
     renderPanelAddresses(addrs);
+
+    // Marketing opt-in/out toggles
+    populateMarketingToggles(c);
 
     // Pre-fill notes tab
     document.getElementById('cpnote-text').value   = c.notes || '';
@@ -11947,6 +11985,42 @@ ${totalLinesXml}
   // ── ENGAGEMENT TAB ───────────────────────────────────────────────
   let _allCpMsgs = [];
   let _cpEngFilter = 'all';
+
+  // ── MARKETING OPT-IN/OUT TOGGLES ──────────────────────────────
+  function populateMarketingToggles(c) {
+    const smsOptedOut = !!c.sms_marketing_opt_out_at;
+    const emailOptedOut = !!c.email_marketing_opt_out_at;
+    const smsToggle = document.getElementById('cp-sms-mkt-toggle');
+    const emailToggle = document.getElementById('cp-email-mkt-toggle');
+    if (smsToggle) smsToggle.checked = !smsOptedOut;
+    if (emailToggle) emailToggle.checked = !emailOptedOut;
+    const smsDetail = document.getElementById('cp-sms-mkt-detail');
+    const emailDetail = document.getElementById('cp-email-mkt-detail');
+    if (smsDetail) smsDetail.textContent = smsOptedOut ? `Opted out ${fmtDate(c.sms_marketing_opt_out_at)}` : 'Opted in — receives campaign SMS';
+    if (emailDetail) emailDetail.textContent = emailOptedOut ? `Opted out ${fmtDate(c.email_marketing_opt_out_at)}` : 'Opted in — receives campaign emails';
+    if (smsDetail) smsDetail.style.color = smsOptedOut ? 'var(--red)' : 'var(--gray-400)';
+    if (emailDetail) emailDetail.style.color = emailOptedOut ? 'var(--red)' : 'var(--gray-400)';
+  }
+
+  async function toggleMarketingOpt(channel) {
+    if (!panelCustomerId) return;
+    const toggle = document.getElementById(channel === 'sms' ? 'cp-sms-mkt-toggle' : 'cp-email-mkt-toggle');
+    const isNowOn = toggle.checked; // checked = opted IN
+    const col = channel === 'sms' ? 'sms_marketing_opt_out_at' : 'email_marketing_opt_out_at';
+    const patch = { [col]: isNowOn ? null : new Date().toISOString(), updated_at: new Date().toISOString() };
+    const { error } = await db.from('customers').update(patch).eq('id', panelCustomerId);
+    if (error) { showToast('Error: ' + error.message, 'error'); toggle.checked = !isNowOn; return; }
+    // Update detail text
+    const detail = document.getElementById(channel === 'sms' ? 'cp-sms-mkt-detail' : 'cp-email-mkt-detail');
+    if (isNowOn) {
+      detail.textContent = channel === 'sms' ? 'Opted in — receives campaign SMS' : 'Opted in — receives campaign emails';
+      detail.style.color = 'var(--gray-400)';
+    } else {
+      detail.textContent = `Opted out ${fmtDate(new Date().toISOString())}`;
+      detail.style.color = 'var(--red)';
+    }
+    showToast(`${channel.toUpperCase()} marketing ${isNowOn ? 'opted in' : 'opted out'}`, 'success');
+  }
 
   async function loadCpEngagement(customerId, phone) {
     const el = document.getElementById('cp-engagement-list');
