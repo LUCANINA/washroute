@@ -6781,7 +6781,7 @@
       const addrId = o.pickup_address_id || addrs.find(a => a.is_default)?.id || addrs[0]?.id || null;
       const { data: existStop } = await db.from('route_stops').select('id').eq('order_id', opCurrentOrderId).eq('stop_type','pickup').maybeSingle();
       if (existStop) {
-        await db.from('route_stops').update({ route_id: routeId }).eq('id', existStop.id);
+        await db.from('route_stops').update({ route_id: routeId, driver_id: null }).eq('id', existStop.id);
       } else {
         const { data: maxS } = await db.from('route_stops').select('stop_number').eq('route_id', routeId).order('stop_number',{ascending:false}).limit(1);
         await db.from('route_stops').insert({ route_id: routeId, order_id: opCurrentOrderId, stop_type:'pickup', stop_number:(maxS?.[0]?.stop_number||0)+1, address_id: addrId, status:'pending' });
@@ -6795,7 +6795,7 @@
       const addrId = o.delivery_address_id || o.pickup_address_id || addrs.find(a => a.is_default)?.id || addrs[0]?.id || null;
       const { data: existStop } = await db.from('route_stops').select('id').eq('order_id', opCurrentOrderId).eq('stop_type','delivery').maybeSingle();
       if (existStop) {
-        await db.from('route_stops').update({ route_id: routeId }).eq('id', existStop.id);
+        await db.from('route_stops').update({ route_id: routeId, driver_id: null }).eq('id', existStop.id);
       } else {
         const { data: maxS } = await db.from('route_stops').select('stop_number').eq('route_id', routeId).order('stop_number',{ascending:false}).limit(1);
         await db.from('route_stops').insert({ route_id: routeId, order_id: opCurrentOrderId, stop_type:'delivery', stop_number:(maxS?.[0]?.stop_number||0)+1, address_id: addrId, status:'pending' });
