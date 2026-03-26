@@ -12597,7 +12597,7 @@ ${totalLinesXml}
           <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:${isOut ? 'var(--accent)' : 'var(--gray-500)'}">
             ${isOut ? '↑ Sent' : '↓ Received'}
           </span>
-          <span style="font-size:11.5px;color:var(--gray-400)">${fmtDate(m.created_at)}</span>
+          <span style="font-size:11.5px;color:var(--gray-400)">${fmtDate(m.created_at)} · ${new Date(m.created_at).toLocaleTimeString('en-US',{timeZone:BIZ_TZ,hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase()}</span>
         </div>
         <div style="font-size:13.5px;color:var(--gray-800);line-height:1.5">${esc(m.body || '')}</div>
       </div>`;
