@@ -1566,10 +1566,10 @@ function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US',{h
 function fmtSlot(start, end) {
   function compact(iso) {
     if (!iso) return '';
-    const d = new Date(iso);
-    const h = d.getHours() % 12 || 12;
-    const m = d.getMinutes();
-    const p = d.getHours() < 12 ? 'am' : 'pm';
+    const _pd = new Date(new Date(iso).toLocaleString('en-US', { timeZone: BIZ_TZ }));
+    const h = _pd.getHours() % 12 || 12;
+    const m = _pd.getMinutes();
+    const p = _pd.getHours() < 12 ? 'am' : 'pm';
     return m === 0 ? `${h}${p}` : `${h}:${String(m).padStart(2,'0')}${p}`;
   }
   if (!start) return '—';
@@ -1582,7 +1582,7 @@ function fmtSlot(start, end) {
 function daysFromNow(n) { const d = new Date(); d.setDate(d.getDate() + n); return d; }
 // Return YYYY-MM-DD in the user's LOCAL timezone — never use toISOString() for calendar
 // dates because that returns UTC, which can be a different day in the evenings.
-function localIso(d) { d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function localIso(d) { d = d || new Date(); return d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ }); }
 function fmtDay(d) { return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ }); }
 // Returns the next business day (Mon–Fri) after a given date string or Date.
 // Pickup on Friday → delivery Monday. Pickup on Thursday → delivery Friday.
@@ -2421,11 +2421,13 @@ function buildActiveCard(o) {
     const d = new Date(o.pickup_window_start);
     if (!isNaN(d.getTime())) {
       const dateStr   = fmtDay(d);
-      const startMins = d.getHours() * 60 + d.getMinutes();
+      const _pd1 = new Date(d.toLocaleString('en-US', { timeZone: BIZ_TZ }));
+      const startMins = _pd1.getHours() * 60 + _pd1.getMinutes();
       let timeStr = fmtHourMin(startMins);
       if (o.pickup_window_end) {
         const e = new Date(o.pickup_window_end);
-        if (!isNaN(e.getTime())) timeStr += ' – ' + fmtHourMin(e.getHours() * 60 + e.getMinutes());
+        const _pe1 = new Date(e.toLocaleString('en-US', { timeZone: BIZ_TZ }));
+        if (!isNaN(e.getTime())) timeStr += ' – ' + fmtHourMin(_pe1.getHours() * 60 + _pe1.getMinutes());
       }
       pickupLine = `<div style="font-size:12px;color:var(--gray-600);margin-top:4px">📅 ${dateStr} · ${timeStr}</div>`;
     }
@@ -4867,11 +4869,12 @@ function openEditOrder() {
   const _esDelivDate   = o.delivery_window_start ? new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }) : null;
   function _winFromOrder(startIso, endIso) {
     if (!startIso) return null;
-    const d = new Date(startIso);
+    const _pd2 = new Date(new Date(startIso).toLocaleString('en-US', { timeZone: BIZ_TZ }));
+    const _pe2 = endIso ? new Date(new Date(endIso).toLocaleString('en-US', { timeZone: BIZ_TZ })) : null;
     return { slotStart: startIso, slotEnd: endIso || null,
              label: fmtSlot(startIso, endIso),
-             startMins: d.getHours() * 60 + d.getMinutes(),
-             endMins:   endIso ? (new Date(endIso).getHours() * 60 + new Date(endIso).getMinutes()) : undefined };
+             startMins: _pd2.getHours() * 60 + _pd2.getMinutes(),
+             endMins:   _pe2 ? (_pe2.getHours() * 60 + _pe2.getMinutes()) : undefined };
   }
   window._editSchedule = {
     pickupDate:       _esPickupDate,

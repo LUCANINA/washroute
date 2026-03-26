@@ -13105,12 +13105,12 @@ ${totalLinesXml}
     if (!tmpl) return;
     const activeDays = tmpl.schedule_days || [0,1,2,3,4]; // 0=Mon…6=Sun
     const DAY_ABBR = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    const todayMs = new Date(); todayMs.setHours(0,0,0,0);
+    const todayMs = new Date(new Date().toLocaleString('en-US', { timeZone: BIZ_TZ })); todayMs.setHours(0,0,0,0);
     const days = [];
     for (let i = 1; i <= 14; i++) {
       const d = new Date(todayMs); d.setDate(todayMs.getDate() + i);
       const dow = (d.getDay() + 6) % 7; // Sun=0 in JS → convert to Mon=0
-      const iso = d.toLocaleDateString('sv'); // 'sv' locale gives YYYY-MM-DD without timezone issues
+      const iso = d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ }); // YYYY-MM-DD in Pacific
       days.push({ d, dow, iso, avail: activeDays.includes(dow) });
     }
     const el = document.getElementById('sp-days');
@@ -13867,7 +13867,8 @@ ${totalLinesXml}
     const todayStopStatus = {};
     if (schedWeekOffset === 0) {
       try {
-        const todayDow = (new Date().getDay() + 6) % 7;
+        const _pacificNow1 = new Date(new Date().toLocaleString('en-US', { timeZone: BIZ_TZ }));
+        const todayDow = (_pacificNow1.getDay() + 6) % 7;
         const todayTemplateIds = allTemplates
           .filter(t => (t.schedule_days||[]).includes(todayDow))
           .map(t => t.id);
@@ -13951,8 +13952,8 @@ ${totalLinesXml}
       if (isToday && t.window_end) {
         const [eh, em] = t.window_end.split(':').map(Number);
         const bufferMs = (eh * 60 + em + 120) * 60 * 1000; // window_end + 2hrs in ms from midnight
-        const now = new Date();
-        const msSinceMidnight = (now.getHours() * 60 + now.getMinutes()) * 60 * 1000 + now.getSeconds() * 1000;
+        const _pNow = new Date(new Date().toLocaleString('en-US', { timeZone: BIZ_TZ }));
+        const msSinceMidnight = (_pNow.getHours() * 60 + _pNow.getMinutes()) * 60 * 1000 + _pNow.getSeconds() * 1000;
         windowClosed = msSinceMidnight >= bufferMs;
       }
       // Lock if: past day, OR today + window_end + 2hr buffer has passed
@@ -13992,8 +13993,7 @@ ${totalLinesXml}
     });
 
     // weekDates + schedWeekDates already set above; just build display helpers here
-    const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
-    const todayStr = todayMidnight.toDateString();
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
     const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const fmtWeekDate = d => `${MON_ABBR[d.getMonth()]} ${d.getDate()}`;
     const weekLabel = document.getElementById('sched-week-label');
@@ -14004,7 +14004,7 @@ ${totalLinesXml}
         <th style="min-width:100px">Time</th>
         <th style="min-width:130px;text-align:left">Route</th>
         ${weekDates.map((d, i) => {
-          const isToday = d.toDateString() === todayStr;
+          const isToday = d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) === todayStr;
           return `<th style="${isToday?'background:var(--accent-light);color:var(--accent);':''}">${DAY_LABELS[i]}<br><span style="font-weight:400;font-size:10px;${isToday?'color:var(--accent);':''}">${fmtWeekDate(d)}${isToday?' ★':''}</span></th>`;
         }).join('')}
       </tr></thead>
@@ -14082,7 +14082,8 @@ ${totalLinesXml}
     const todayStopStatus = {};
     if (schedWeekOffset === 0) {
       try {
-        const todayDow = (new Date().getDay() + 6) % 7; // 0=Mon..6=Sun
+        const _pacificNow2 = new Date(new Date().toLocaleString('en-US', { timeZone: BIZ_TZ }));
+        const todayDow = (_pacificNow2.getDay() + 6) % 7; // 0=Mon..6=Sun
         const todayTemplateIds = allTemplates
           .filter(t => (t.schedule_days||[]).includes(todayDow))
           .map(t => t.id);
@@ -14164,8 +14165,8 @@ ${totalLinesXml}
       if (isToday && t.window_end) {
         const [eh, em] = t.window_end.split(':').map(Number);
         const bufferMs = (eh * 60 + em + 120) * 60 * 1000; // window_end + 2hrs in ms from midnight
-        const now = new Date();
-        const msSinceMidnight = (now.getHours() * 60 + now.getMinutes()) * 60 * 1000 + now.getSeconds() * 1000;
+        const _pNow = new Date(new Date().toLocaleString('en-US', { timeZone: BIZ_TZ }));
+        const msSinceMidnight = (_pNow.getHours() * 60 + _pNow.getMinutes()) * 60 * 1000 + _pNow.getSeconds() * 1000;
         windowClosed = msSinceMidnight >= bufferMs;
       }
       // Lock if: past day, OR today + window_end + 2hr buffer has passed
@@ -14203,8 +14204,7 @@ ${totalLinesXml}
     });
 
     // weekDates + schedWeekDates already set above; just build display helpers here
-    const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
-    const todayStr = todayMidnight.toDateString();
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
     const MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const fmtWeekDate = d => `${MON_ABBR[d.getMonth()]} ${d.getDate()}`;
     const weekLabel = document.getElementById('sched-week-label2');
@@ -14215,7 +14215,7 @@ ${totalLinesXml}
         <th style="min-width:100px">Time</th>
         <th style="min-width:130px;text-align:left">Route</th>
         ${weekDates.map((d, i) => {
-          const isToday = d.toDateString() === todayStr;
+          const isToday = d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) === todayStr;
           return `<th style="${isToday?'background:var(--accent-light);color:var(--accent);':''}">${DAY_LABELS[i]}<br><span style="font-weight:400;font-size:10px;${isToday?'color:var(--accent);':''}">${fmtWeekDate(d)}${isToday?' ★':''}</span></th>`;
         }).join('')}
       </tr></thead>
@@ -14298,7 +14298,8 @@ ${totalLinesXml}
     pop.style.left = left + 'px';
 
     // ── For today's column only: check if this route is already in-progress or done ──
-    const isToday = schedWeekOffset === 0 && Number(day) === (new Date().getDay() + 6) % 7;
+    const _pNow4 = new Date(new Date().toLocaleString('en-US', { timeZone: BIZ_TZ }));
+    const isToday = schedWeekOffset === 0 && Number(day) === (_pNow4.getDay() + 6) % 7;
     if (!isToday || !statusBanner) return;
 
     try {
@@ -14328,8 +14329,8 @@ ${totalLinesXml}
       if (tmpl?.window_end) {
         const [eh, em] = tmpl.window_end.split(':').map(Number);
         const bufferMs = (eh * 60 + em + 120) * 60 * 1000;
-        const now = new Date();
-        const msSinceMidnight = (now.getHours() * 60 + now.getMinutes()) * 60 * 1000 + now.getSeconds() * 1000;
+        const _pNow3 = new Date(new Date().toLocaleString('en-US', { timeZone: BIZ_TZ }));
+        const msSinceMidnight = (_pNow3.getHours() * 60 + _pNow3.getMinutes()) * 60 * 1000 + _pNow3.getSeconds() * 1000;
         windowClosed = msSinceMidnight >= bufferMs;
       }
 
@@ -14786,7 +14787,7 @@ ${totalLinesXml}
           ? (s.orders?.delivery_window_start || s.orders?.pickup_window_start)
           : (s.orders?.pickup_window_start   || s.orders?.delivery_window_start);
         if (!ts) return null;
-        const d = new Date(ts);
+        const d = new Date(new Date(ts).toLocaleString('en-US', { timeZone: BIZ_TZ }));
         return d.getHours() * 60 + d.getMinutes();
       };
 
@@ -16172,9 +16173,10 @@ ${totalLinesXml}
     ordersEl.innerHTML = '<div style="padding:32px;text-align:center"><div class="spinner"></div></div>';
     summaryEl.style.display = 'none';
 
-    // Convert local date to UTC range
-    const start = new Date(dateVal + 'T00:00:00').toISOString();
-    const end   = new Date(dateVal + 'T23:59:59.999').toISOString();
+    // Convert Pacific date to UTC range for DB query
+    const _ptOff = (() => { const t = new Date(dateVal + 'T12:00:00Z'); const u = t.toLocaleString('en-US',{timeZone:'UTC'}); const p = t.toLocaleString('en-US',{timeZone:BIZ_TZ}); return (new Date(u) - new Date(p)) / 60000; })();
+    const start = new Date(new Date(dateVal + 'T00:00:00').getTime() + _ptOff * 60000).toISOString();
+    const end   = new Date(new Date(dateVal + 'T23:59:59.999').getTime() + _ptOff * 60000).toISOString();
 
     const { data: orders, error } = await db.from('orders')
       .select(`id, order_number, status, total_bags, weight_lbs, total_amount, folded_at,

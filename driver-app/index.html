@@ -3058,7 +3058,7 @@ function renderConversationList() {
 function fmtMsgTime(ts) {
   const d = new Date(ts);
   const now = new Date();
-  const isToday = d.toDateString() === now.toDateString();
+  const isToday = d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) === now.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
   return isToday
     ? d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ })
     : d.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: BIZ_TZ });
