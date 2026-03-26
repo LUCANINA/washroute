@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 26, 2026 — Launch blast campaign, driver photo queue, date formatting fix, OTP investigation (session 70e)*
+*Last updated: Mar 26, 2026 — Phone required on signup, registration time widget, phone-missing email blast (session 70f)*
 
 ---
 
@@ -189,6 +189,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **Admin attribution via `logOrderEvent()`:** 18 admin actions wired to insert events BEFORE the DB update with the logged-in admin's first name. Trigger's 3-second dedup skips when JS already logged the event — preserves "Lili" instead of "System." Covers: status changes, reschedules, weight/bags/total edits, fold/rack assignments, charge/billing, address changes, recurrence changes, batch operations.
 - **SMS timestamps on Engagement page:** Message History now shows time alongside date (e.g. "Mar 25 · 2:34 pm") instead of just the date.
 - **Year in date formatting (session 70e):** `fmtDate()` now includes year (e.g. "Mar 26, 2026" instead of "Mar 26"). Affects Customers page, customer profiles, SMS inbox badge, and all other admin date displays.
+- **Registration time in New Customers widget (session 70f):** "Joined" column now shows date + time (e.g. "Mar 26 · 2:34 pm") instead of date only. Uses `BIZ_TZ` for Pacific time.
 
 ### Other
 - Customer management, driver management, services & pricing, reports (all built)
@@ -228,6 +229,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Account management: name, email, password change, address book, laundry preferences, recurring plan, order history
 - Customer-initiated skip button on recurring orders (pre-pickup only)
 - Referral source captured at signup
+- **Phone number required at signup (session 70f):** All three registration paths (email sign-up form, in-checkout sign-up, OTP name panel) now enforce phone number with JS-level 10-digit validation. Prevents accounts with no phone — critical for SMS delivery updates and driver contact.
 - **Phone OTP login (session 20/21):** SMS code login via Twilio. `link_phone_auth_account` RPC (SECURITY DEFINER) re-points existing customer records to the new phone-auth UUID on first login — customers with existing email accounts don't lose their history. Multiple-account collision handled with a graceful error + auto sign-out.
 - **Capacity-aware booking UX (session 69, commits `3ac0b59`, `53ce21d`):** When routes are full, the booking screen now shows a red "Full" badge and disables that time slot. Almost-full slots (≤5 spots left) show an amber badge like "3 spots left". When ALL slots on a day are full, a yellow nudge banner says "Please pick a different day for faster service." Auto-select logic skips full windows. Works for both pickup and delivery date selection.
 - **Per-sub-window capacity enforcement (session 69):** Capacity is now checked per sub-window (e.g. 6–8 PM and 8–10 PM separately) rather than for the whole route template. A route with `stop_limit = 30` and 2 sub-windows gets 15 per sub-window. Both the DB function `auto_route_order()` and the customer app booking flow enforce this. Prevents lopsided booking (e.g. 29 stops in one sub-window, 1 in the other).
@@ -917,6 +919,19 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 26, 2026 (session 70f) — Phone required on signup, registration time widget, phone-missing email blast
+
+- **Phone number now required on all registration paths:** Added JS-level validation (min 10 digits) to the email sign-up form (`handleSignup`), the in-checkout sign-up form (`placeOrder`), and a safety guard on the OTP name-collection panel (`handleNameSubmit`). Also added HTML `required` attribute to checkout phone input. Previously, email-signup users could create accounts without a phone number — 12 out of ~700 customers had no phone on file.
+- **New Customers widget shows registration time:** "Joined" column now shows "Mar 26 · 2:34 pm" instead of just "Mar 26", so David can see exactly when each customer signed up. Uses `BIZ_TZ` for Pacific time consistency.
+- **Phone-missing email blast:** Sent personalized email to all 12 customers with email but no phone number, urging them to add their mobile via the app. Sent via `pg_net` → `send-email` edge function. All 12 returned HTTP 200. Email includes app link (https://app.familylaundry.com/), instructions to go to Account → add phone → Save, and auto-appended unsubscribe footer.
+- **CC Holland account deletion:** Guided David through manual SQL in Supabase SQL Editor (MCP was down after blast campaign). Required deleting FK-referencing tables first (conversations, sms_messages, email_messages, addresses) before customers row. CC re-registered with a fresh account.
+
+**Commits:** `7fdae10` (registration time widget), `4a371b8` (phone required on signup)
+**DB changes:** None
+**Files changed:** `admin-dashboard/index.html`, `customer-app/index.html`
+
+---
 
 ### Mar 26, 2026 (session 70e) — Launch blast campaign, driver photo queue, date formatting, OTP triage
 
