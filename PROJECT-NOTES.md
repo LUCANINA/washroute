@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 25, 2026 — Launch campaign extension blast: 2,000 SMS queued (batches 1-8), emails failed due to wrong params — must re-send (session 68)*
+*Last updated: Mar 25, 2026 — SMS/email opt-out sync, email unsubscribe, route capacity fixes, capacity-aware booking UX, per-sub-window capacity enforcement (session 69)*
 
 ---
 
@@ -103,7 +103,9 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | Function | Purpose | JWT |
 |---|---|---|
 | `send-sms` | Send outbound SMS via Twilio + log to DB | Off |
-| `twilio-webhook` | Receive inbound SMS — STOP/START/SKIP/PICKUP/HELP keywords only. Claude AI **removed** session 41. All other messages route silently to human inbox. | Off |
+| `twilio-webhook` | Receive inbound SMS — STOP/START/SKIP/PICKUP/HELP keywords only. **v28 (session 69):** STOP now also sets `sms_marketing_opt_out_at`; START clears it. Keeps admin marketing toggle in sync with Twilio keywords. | Off |
+| `email-unsubscribe` | **NEW (session 69):** Public endpoint for email unsubscribe links. Verifies HMAC-SHA256 token, sets `email_marketing_opt_out_at`. Branded HTML confirmation page. | Off |
+| `send-email` | Send outbound email via SendGrid. **v14 (session 69):** Auto-appends signed unsubscribe footer (HMAC link) to every email with a `customer_id`. | Off |
 | `geocode-addresses` | **TEMPORARY — deployed & deleted session 41.** Batch-geocoded 5,043 imported customer addresses via Google Maps API. No longer deployed. | N/A |
 | `notify-on-my-way` | Driver "On My Way" button → customer SMS | Off |
 | `charge-order` | Stripe payment charge — **v25 (session 61):** now sets `billing_status='paid'` + `billed_at` on success, `billing_status='failed'` on decline | On |
@@ -220,6 +222,8 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Customer-initiated skip button on recurring orders (pre-pickup only)
 - Referral source captured at signup
 - **Phone OTP login (session 20/21):** SMS code login via Twilio. `link_phone_auth_account` RPC (SECURITY DEFINER) re-points existing customer records to the new phone-auth UUID on first login — customers with existing email accounts don't lose their history. Multiple-account collision handled with a graceful error + auto sign-out.
+- **Capacity-aware booking UX (session 69, commits `3ac0b59`, `53ce21d`):** When routes are full, the booking screen now shows a red "Full" badge and disables that time slot. Almost-full slots (≤5 spots left) show an amber badge like "3 spots left". When ALL slots on a day are full, a yellow nudge banner says "Please pick a different day for faster service." Auto-select logic skips full windows. Works for both pickup and delivery date selection.
+- **Per-sub-window capacity enforcement (session 69):** Capacity is now checked per sub-window (e.g. 6–8 PM and 8–10 PM separately) rather than for the whole route template. A route with `stop_limit = 30` and 2 sub-windows gets 15 per sub-window. Both the DB function `auto_route_order()` and the customer app booking flow enforce this. Prevents lopsided booking (e.g. 29 stops in one sub-window, 1 in the other).
 - **Cross-method auth re-linking (session 30, commit `778e9d8`):** `ensureProfile()` step 2b — if a customer signs in via email magic link but their account was originally created via phone OTP (or vice versa), the function now detects the existing customer record by `email_cache` even if it already has a `profile_id`, and re-points it to the current auth user. Previously, this created a blank duplicate customer record. Two orphaned records from the first occurrence were deleted from the DB. Note: Supabase creates a new auth UUID per sign-in method; `profile_id` flips to whichever method was used most recently — harmless in practice.
 
 ---
@@ -903,6 +907,54 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 25, 2026 (session 69) — SMS/email opt-out sync, email unsubscribe, route capacity fixes, capacity-aware booking, per-sub-window enforcement
+
+**SMS/email marketing opt-out sync (twilio-webhook v28):**
+- `sms_consent_at` (Twilio legal compliance, cleared by STOP) and `sms_marketing_opt_out_at` (admin marketing toggle) are now kept in sync. STOP sets both to opted-out; START clears both.
+- Backfilled 404 customers who had texted STOP (`sms_consent_at = NULL`) but still showed as marketing-opted-in (`sms_marketing_opt_out_at = NULL`).
+
+**Email unsubscribe system (email-unsubscribe edge function v1, send-email v14):**
+- New `email-unsubscribe` edge function: public GET endpoint with HMAC-SHA256 signed tokens so customers can't unsubscribe others by guessing IDs. Sets `email_marketing_opt_out_at`. Returns branded HTML confirmation page.
+- `send-email` v14: auto-appends signed unsubscribe footer to every email that has a `customer_id`. Uses `SUPABASE_SERVICE_ROLE_KEY` for HMAC signing.
+
+**Route assignment bug fix (migration `fix_auto_route_order_capacity_check`):**
+- Root cause: `auto_route_order()` counted ALL stops (including completed/skipped/failed) against `stop_limit`, causing false "at capacity" rejections on customer-created orders.
+- Fixed to only count `pending`/`en_route` stops.
+- Re-routed 7 previously unrouted orders — 2 fixed immediately, 5 were genuinely at capacity.
+- Bumped Oakland AM + PM `stop_limit` from 25 to 30 per David's request.
+
+**Capacity-aware booking UX (commit `3ac0b59`):**
+- Full slots show red "Full" badge and are disabled. Almost-full (≤5 spots) shows amber "N spots left" badge.
+- All-full day shows yellow nudge: "Please pick a different day for faster service."
+- Auto-select skips full windows for both pickup and delivery.
+- Delivery capacity fetched separately via `_fetchDeliveryCapacity()` (delivery may be on a different date).
+
+**Per-sub-window capacity enforcement (migration `per_sub_window_capacity`, commit `53ce21d`):**
+- `stop_limit` on a route template is now divided by the number of sub-windows: `num_sub_windows = FLOOR(total_hours * 60 / step_mins)`, `sub_window_limit = FLOOR(stop_limit / num_sub_windows)`.
+- Example: Oakland PM (6–10 PM, 2-hour arrival windows) has 2 sub-windows. A `stop_limit` of 30 → 15 per sub-window.
+- `get_slot_availability()` RPC now returns per-sub-window rows with `sub_window_start`, `sub_window_end`, `sub_window_limit`, `active_stops`.
+- `auto_route_order()` checks capacity within the specific sub-window the order falls into.
+- Customer app `fetchWindowsForDate()` and `_fetchDeliveryCapacity()` key capacity by `"templateId|sub_window_start"`.
+
+**Smart scheduler discussion (not implemented):**
+- Phase 1: Add `route_duration_estimate` column updated via Google API when routes change — visibility into how long routes actually take.
+- Phase 2: Replace fixed stop limits with time-based capacity checks.
+- Agreed on phased approach; nothing built yet.
+
+**Files changed:** `customer-app/index.html`, DB migrations (`fix_auto_route_order_capacity_check`, `add_get_slot_availability_rpc`, `per_sub_window_capacity`), edge functions (`twilio-webhook` v28, `email-unsubscribe` v1, `send-email` v14)
+
+**Pending (carries forward from session 68):**
+1. Re-send campaign emails to ~3,475 unreached customers (session 68 emails failed due to wrong params)
+2. Continue campaign SMS to ~1,846 unreached customers
+3. Re-enable `review_request` and `reorder_reminder` SMS templates
+4. Resolve 5 unpaid delivered orders ($567.75)
+5. Phase 1 smart scheduler — `route_duration_estimate` + Google API integration
+6. Supabase OTP expiry, Cynthia Williams landline, credits not applied after Intake
+7. XSS hardening, deduplicate merged addresses, clean up orphaned auth.users/profiles
+8. Order mC-Print3 printer
+
+---
 
 ### Mar 25, 2026 (session 68) — Launch campaign extension blast (SMS working, emails need re-send)
 
