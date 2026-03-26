@@ -1175,16 +1175,28 @@
           <!-- Main two-col: new customers + recent orders (collapsible) -->
           <div class="two-col">
             <div class="card">
-              <div class="card-header" style="cursor:pointer" onclick="toggleOverviewPanel('new-customers-body',this)">
-                <div><div class="card-title">New Customers</div><div class="card-sub">Last 10 registered</div></div>
-                <span class="overview-chevron" style="font-size:18px;color:var(--gray-400);transition:transform .2s">▸</span>
+              <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('new-customers-body',this)">
+                <div style="flex:1">
+                  <div style="display:flex;align-items:center;gap:12px">
+                    <div class="card-title" style="font-size:16px">New Customers</div>
+                    <span id="cust-24h-badge" style="font-size:13px;font-weight:700;color:var(--accent);background:#eff6ff;border-radius:8px;padding:3px 10px;display:none"></span>
+                  </div>
+                  <div class="card-sub" style="margin-top:4px">Last 10 registered</div>
+                </div>
+                <span class="overview-chevron" style="font-size:28px;font-weight:700;color:var(--gray-400);transition:transform .2s;padding:0 4px">▸</span>
               </div>
               <div id="new-customers-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
             <div class="card">
-              <div class="card-header" style="cursor:pointer" onclick="toggleOverviewPanel('recent-orders-body',this)">
-                <div><div class="card-title">Recent Orders</div><div class="card-sub">Last 10 placed</div></div>
-                <span class="overview-chevron" style="font-size:18px;color:var(--gray-400);transition:transform .2s">▸</span>
+              <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('recent-orders-body',this)">
+                <div style="flex:1">
+                  <div style="display:flex;align-items:center;gap:12px">
+                    <div class="card-title" style="font-size:16px">Recent Orders</div>
+                    <span id="orders-24h-badge" style="font-size:13px;font-weight:700;color:var(--green);background:#ecfdf5;border-radius:8px;padding:3px 10px;display:none"></span>
+                  </div>
+                  <div class="card-sub" style="margin-top:4px">Last 10 placed</div>
+                </div>
+                <span class="overview-chevron" style="font-size:28px;font-weight:700;color:var(--gray-400);transition:transform .2s;padding:0 4px">▸</span>
               </div>
               <div id="recent-orders-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
@@ -4994,6 +5006,27 @@
     loadRecentOrders();
     loadOverviewIssues();
     loadUnpaidOrders();
+    load24hStats();
+  }
+
+  async function load24hStats() {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const [custRes, ordRes] = await Promise.all([
+      db.from('customers').select('id', { count: 'exact', head: true }).gte('created_at', since),
+      db.from('orders').select('id', { count: 'exact', head: true }).gte('created_at', since).neq('status', 'cancelled')
+    ]);
+    const custBadge = document.getElementById('cust-24h-badge');
+    const ordBadge = document.getElementById('orders-24h-badge');
+    const custCount = custRes?.count ?? 0;
+    const ordCount = ordRes?.count ?? 0;
+    if (custBadge && custCount > 0) {
+      custBadge.textContent = `${custCount} in last 24h`;
+      custBadge.style.display = '';
+    }
+    if (ordBadge && ordCount > 0) {
+      ordBadge.textContent = `${ordCount} in last 24h`;
+      ordBadge.style.display = '';
+    }
   }
 
   async function loadRecentOrders() {
