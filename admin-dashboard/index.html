@@ -17,6 +17,7 @@
   <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://js.stripe.com/v3/"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc&libraries=geocoding"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -3697,9 +3698,10 @@
   // Used across schedule grids, route progress banner, RCC, and stop counts.
   const DEAD_ORDER_STATUSES = ['delivered','cancelled','skipped','pickup_failed','delivery_failed','on_hold'];
 
-  let BIZ_TZ            = 'America/Los_Angeles'; // loaded from settings table at startup
-  let BIZ_PRINTER_TOKEN = '';                     // loaded from settings table at startup
-  let BIZ_REVIEW_LINK   = '';                     // loaded from settings table at startup
+  let BIZ_TZ              = 'America/Los_Angeles'; // loaded from settings table at startup
+  let BIZ_PRINTER_TOKEN   = '';                     // loaded from settings table at startup
+  let BIZ_PRINT_TRANSPORT = 'browser';              // 'browser' | 'cloudprnt' | 'passprnt'
+  let BIZ_REVIEW_LINK     = '';                     // loaded from settings table at startup
   let currentPage = 'overview';
   let allCustomers = [];
   let allOrders = [];
@@ -4797,9 +4799,10 @@
 
   // ── SETTINGS ──
   async function loadSettings() {
-    const { data } = await db.from('settings').select('timezone, printer_token, review_link').eq('id', 1).single();
-    if (data?.timezone)       BIZ_TZ            = data.timezone;
-    if (data?.printer_token)  BIZ_PRINTER_TOKEN = data.printer_token;
+    const { data } = await db.from('settings').select('timezone, printer_token, print_transport, review_link').eq('id', 1).single();
+    if (data?.timezone)        BIZ_TZ              = data.timezone;
+    if (data?.printer_token)   BIZ_PRINTER_TOKEN   = data.printer_token;
+    if (data?.print_transport) BIZ_PRINT_TRANSPORT = data.print_transport;
     if (data?.review_link !== undefined) BIZ_REVIEW_LINK = data.review_link || '';
   }
 
@@ -4821,6 +4824,15 @@
     renderSettingsTab(); // re-render to show/hide the ✓ connected badge
   }
 
+  async function savePrintTransport() {
+    const val = document.getElementById('settings-print-transport')?.value || 'browser';
+    const { error } = await db.from('settings').update({ print_transport: val }).eq('id', 1);
+    if (error) { showToast('Failed to save print transport', 'error'); return; }
+    BIZ_PRINT_TRANSPORT = val;
+    showToast('✓ Print method saved — ' + { browser: 'Browser popup', cloudprnt: 'CloudPRNT', passprnt: 'PassPRNT (Bluetooth)' }[val], 'success');
+    renderSettingsTab();
+  }
+
   async function saveReviewLink() {
     const link = (document.getElementById('settings-review-link')?.value || '').trim();
     const { error } = await db.from('settings').update({ review_link: link }).eq('id', 1);
@@ -4830,10 +4842,30 @@
   }
 
   async function testPrint() {
-    if (!BIZ_PRINTER_TOKEN) { showToast('Save a printer token first', ''); return; }
+    const transport = _resolveTransport();
+    if (transport === 'cloudprnt' && !BIZ_PRINTER_TOKEN) { showToast('Save a printer token first', ''); return; }
     const btn = document.getElementById('btn-test-print');
     if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
     const now = new Date().toLocaleString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit', hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ });
+
+    if (transport === 'passprnt') {
+      const testHtml = `<html><body style="font-family:sans-serif;width:576px;text-align:center;padding:20px 0">` +
+        `<div style="font-size:32px;font-weight:900">FAMILY LAUNDRY</div>` +
+        `<div style="font-size:14px;color:#555">2609 Foothill Blvd, Oakland CA</div>` +
+        `<div style="font-size:13px;color:#777;margin:4px 0">${now}</div>` +
+        `<hr style="border:none;border-top:2px solid #000;margin:12px 0">` +
+        `<div style="font-size:28px;font-weight:900;margin:12px 0">TEST PRINT</div>` +
+        `<div style="font-size:16px">PassPRNT is working!</div>` +
+        `<div style="font-size:14px;color:#555;margin-top:4px">Family Laundry Admin</div>` +
+        `<hr style="border:none;border-top:2px solid #000;margin:12px 0">` +
+        `<div style="font-size:13px">washroute.vercel.app</div>` +
+        `</body></html>`;
+      if (btn) { btn.disabled = false; btn.textContent = '🖨 Test Print'; }
+      _launchPassPRNT(testHtml);
+      return;
+    }
+
+    // CloudPRNT path
     const testMarkup = `<document>
   <align mode="center">
     <text-line size="2:2"><bold>FAMILY LAUNDRY</bold></text-line>
@@ -4868,14 +4900,31 @@
     const el = document.getElementById('page-settings');
     if (!el) return;
     const cloudprintUrl = `${SUPA_URL}/functions/v1/cloudprnt`;
+    const isCp = BIZ_PRINT_TRANSPORT === 'cloudprnt';
+    const isPp = BIZ_PRINT_TRANSPORT === 'passprnt';
     el.innerHTML = `
       <div class="card" style="max-width:540px">
         <div class="card-header">
           <div class="card-title">🖨 Receipt Printer</div>
-          <div class="card-sub">Star TSP654II CloudPRNT. Point the printer's "Server URL" at the address below, then paste in the printer's token.</div>
+          <div class="card-sub">Choose how receipts are sent to the printer. You can always reprint from any order.</div>
         </div>
         <div style="padding:20px 24px 24px">
-          <div style="margin-bottom:16px">
+          <div style="margin-bottom:20px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Print Method</div>
+            <select id="settings-print-transport" class="form-input" style="width:100%;font-size:13.5px;margin-bottom:4px" onchange="savePrintTransport()">
+              <option value="browser" ${BIZ_PRINT_TRANSPORT === 'browser' ? 'selected' : ''}>Browser popup (any printer)</option>
+              <option value="cloudprnt" ${isCp ? 'selected' : ''}>CloudPRNT (Star TSP654II — WiFi)</option>
+              <option value="passprnt" ${isPp ? 'selected' : ''}>PassPRNT (Star TSP143IIIBI — iPad Bluetooth)</option>
+            </select>
+            <div style="font-size:11px;color:var(--gray-400)">
+              ${isCp ? 'Receipts print automatically via WiFi — no tap required.' :
+                isPp ? 'Receipts print via the Star PassPRNT app on iPad over Bluetooth.' :
+                       'A print preview opens in a new tab — select your printer from the browser dialog.'}
+            </div>
+          </div>
+
+          ${isCp ? `
+          <div style="border-top:1px solid var(--gray-200);padding-top:16px;margin-bottom:16px">
             <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">CloudPRNT Server URL</div>
             <div style="display:flex;align-items:center;gap:8px">
               <code style="flex:1;font-size:12px;background:var(--gray-100);padding:8px 10px;border-radius:6px;word-break:break-all">${cloudprintUrl}</code>
@@ -4895,6 +4944,21 @@
             <button class="btn" id="btn-test-print" onclick="testPrint()" style="font-size:13.5px;padding:8px 16px;color:var(--gray-700)">🖨 Test Print</button>
           </div>
           ${BIZ_PRINTER_TOKEN ? `<div style="margin-top:12px;font-size:12px;color:#16a34a;font-weight:600">✓ Printer connected — token saved</div>` : ''}
+          ` : isPp ? `
+          <div style="border-top:1px solid var(--gray-200);padding-top:16px;margin-bottom:16px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Setup Instructions</div>
+            <ol style="font-size:12.5px;color:var(--gray-600);line-height:1.7;padding-left:18px;margin:0">
+              <li>Install <strong>Star PassPRNT</strong> from the App Store on your iPad</li>
+              <li>Open PassPRNT → pair your Star TSP143IIIBI via Bluetooth</li>
+              <li>Return here and tap <strong>Test Print</strong> below</li>
+            </ol>
+          </div>
+          <button class="btn" id="btn-test-print" onclick="testPrint()" style="font-size:13.5px;padding:8px 16px;color:var(--gray-700)">🖨 Test Print</button>
+          ` : `
+          <div style="border-top:1px solid var(--gray-200);padding-top:16px">
+            <div style="font-size:12px;color:var(--gray-400)">No additional setup needed — receipts open in a browser print dialog.</div>
+          </div>
+          `}
         </div>
       </div>
 
@@ -7451,6 +7515,191 @@ ${totalLinesXml}
     return true;
   }
 
+  // ── PRINT TRANSPORT RESOLUTION ──
+  // Returns the effective transport: 'cloudprnt' | 'passprnt' | 'browser'.
+  // Falls back gracefully when config is incomplete.
+  function _resolveTransport() {
+    if (BIZ_PRINT_TRANSPORT === 'passprnt') return 'passprnt';
+    if (BIZ_PRINT_TRANSPORT === 'cloudprnt' && BIZ_PRINTER_TOKEN) return 'cloudprnt';
+    if (BIZ_PRINT_TRANSPORT === 'cloudprnt' && !BIZ_PRINTER_TOKEN) {
+      console.warn('CloudPRNT selected but no printer token — falling back to browser');
+      return 'browser';
+    }
+    return 'browser';
+  }
+
+  // ── PASSPRNT TRANSPORT ──
+  // Builds thermal-receipt HTML and launches via Star PassPRNT URL scheme.
+  // Uses the same receiptData shape as CloudPRNT and browser popup.
+
+  function _buildPassPrntHtml(data) {
+    const { orderNum, custName, custAddr, weightLbs, bags,
+            pickupStr, delivStr, stopNum, routeName,
+            addonTags, lineItems, total } = data;
+
+    // Timestamp
+    const ts = new Date().toLocaleString('en-US', {
+      month: 'numeric', day: 'numeric', year: '2-digit',
+      hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ
+    });
+
+    // Partition line items (same logic as browser popup and Star Markup)
+    const displayItems = (lineItems || []).filter(li =>
+      li.type === 'base' || li.type === 'overage' || li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && parseFloat(li.amount||0) > 0));
+    const delivFeeItem = (lineItems || []).find(li => li.type === 'delivery_fee');
+    const sameDayItem  = (lineItems || []).find(li => li.type === 'same_day_surcharge');
+    const creditItem   = (lineItems || []).find(li => li.type === 'credit');
+    const subtotal     = displayItems.reduce((s, li) => s + Number(li.amount || 0), 0);
+    const hasFeeSplit  = !!(delivFeeItem || sameDayItem || creditItem);
+    const fmt = n => '$' + Math.abs(Number(n || 0)).toFixed(2);
+
+    // Pre-render barcode as inline SVG (PassPRNT cannot load CDN scripts)
+    let barcodeSvg = '';
+    try {
+      const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      JsBarcode(tempSvg, String(orderNum || ''), {
+        format: 'CODE128', width: 1.6, height: 46,
+        displayValue: false, margin: 0, background: '#ffffff', lineColor: '#000000'
+      });
+      barcodeSvg = new XMLSerializer().serializeToString(tempSvg);
+    } catch (e) {
+      console.warn('Barcode generation failed for PassPRNT:', e);
+      barcodeSvg = `<div style="font-size:18px;font-weight:900;letter-spacing:4px">${orderNum || ''}</div>`;
+    }
+
+    // Invoice rows
+    const lineItemsHtml = displayItems.length
+      ? displayItems.map(li =>
+          `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dotted #ddd">` +
+          `<span style="flex:1;font-size:12px">${li.label || 'Service'}</span>` +
+          `<span style="width:56px;text-align:right;font-size:12px;font-weight:700">${fmt(li.amount)}</span></div>`
+        ).join('')
+      : '<div style="font-size:11px;color:#555">Wash &amp; Fold</div>';
+
+    // Add-on tags
+    const addonHtml = (addonTags && addonTags.length)
+      ? `<div style="margin:7px 0 8px">` +
+        `<div style="font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:3px">Add-ons</div>` +
+        addonTags.map(t =>
+          `<span style="display:inline-block;border:2px solid #000;border-radius:3px;padding:2px 6px;font-size:11.5px;font-weight:800;text-transform:uppercase;margin:2px 3px 2px 0">${t}</span>`
+        ).join('') + `</div>` : '';
+
+    // Schedule box
+    const hasRoute = stopNum || routeName;
+    const routePart = hasRoute
+      ? `<div style="text-align:right"><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">Stop \u00b7 Route</div>` +
+        `<div style="font-size:11px;font-weight:700">${stopNum}${stopNum && routeName ? ' \u00b7 ' : ''}${routeName}</div></div>` : '';
+    const schedHtml =
+      `<div style="border:2px solid #000;border-radius:3px;padding:7px 9px;margin:7px 0">` +
+      `<div style="margin-bottom:5px"><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">PICKUP</div>` +
+      `<div style="font-size:12px;font-weight:700">${pickupStr || '\u2014'}</div></div>` +
+      `<div style="border-top:1px dashed #ccc;margin-bottom:5px"></div>` +
+      `<div style="display:flex;justify-content:space-between;align-items:flex-start">` +
+      `<div><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">DELIVERY</div>` +
+      `<div style="font-size:12px;font-weight:700">${delivStr || '\u2014'}</div></div>${routePart}</div></div>`;
+
+    // Totals
+    let totalsHtml = '';
+    if (hasFeeSplit) {
+      totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Subtotal</span><span>${fmt(subtotal)}</span></div>`;
+      if (delivFeeItem) totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Delivery Fee</span><span>${fmt(delivFeeItem.amount)}</span></div>`;
+      if (sameDayItem)  totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Same-day surcharge</span><span>${fmt(sameDayItem.amount)}</span></div>`;
+      if (creditItem)   totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Credit applied</span><span style="color:#16a34a">\u2212${fmt(creditItem.amount)}</span></div>`;
+    }
+
+    // Build single-copy receipt body (PassPRNT handles its own rendering width)
+    // Width 576px = 3-inch thermal at 203dpi
+    const receiptBody =
+      `<div style="font-family:-apple-system,Helvetica,sans-serif;width:576px;margin:0 auto;padding:8px">` +
+      `<div style="font-size:28px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;text-align:center">Family Laundry</div>` +
+      `<div style="font-size:12px;color:#555;text-align:center;line-height:1.5;margin-top:2px">2609 Foothill Blvd \u00b7 Oakland, CA 94601</div>` +
+      `<div style="font-size:11px;color:#777;display:flex;justify-content:space-between;margin-top:6px"><span>FL</span><span>${ts}</span></div>` +
+      `<hr style="border:none;border-top:2px solid #000;margin:7px 0">` +
+      `<div style="font-size:26px;font-weight:900;text-transform:uppercase;letter-spacing:.03em;line-height:1.2;margin-bottom:2px">${custName}</div>` +
+      (custAddr ? `<div style="font-size:13px;color:#333;line-height:1.5">${custAddr}</div>` : '') +
+      `<hr style="border:none;border-top:1px dashed #aaa;margin:7px 0">` +
+      `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">` +
+      `<div style="font-size:22px;font-weight:900">#${orderNum}</div>` +
+      `<div style="font-size:14px;font-weight:700;color:#333">${bags || '\u2014'} BAGS \u00b7 ${weightLbs ? weightLbs + ' LBS' : '\u2014 LBS'}</div></div>` +
+      schedHtml + addonHtml +
+      `<hr style="border:none;border-top:1px dashed #aaa;margin:7px 0">` +
+      `<div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:2px">Invoice</div>` +
+      `<div style="border-top:1px solid #000;margin-bottom:3px"></div>` +
+      lineItemsHtml +
+      `<hr style="border:none;border-top:1px solid #ccc;margin:5px 0 4px">` +
+      totalsHtml +
+      `<hr style="border:none;border-top:2px solid #000;margin:7px 0">` +
+      `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px">` +
+      `<span style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Amount Due</span>` +
+      `<span style="font-size:28px;font-weight:900">$${Number(total || 0).toFixed(2)}</span></div>` +
+      `<hr style="border:none;border-top:1px dashed #aaa;margin:7px 0">` +
+      `<div style="text-align:center;margin:6px 0 2px">${barcodeSvg}` +
+      `<div style="font-size:10px;color:#777;margin-top:1px;letter-spacing:.08em">${orderNum}</div></div>` +
+      `<hr style="border:none;border-top:1px dashed #aaa;margin:7px 0">` +
+      `<div style="font-size:11px;color:#555;text-align:center;line-height:1.6">Thank you for choosing Family Laundry!<br>Questions? Visit familylaundry.com</div>` +
+      `</div>`;
+
+    // Two copies with spacing between them (thermal printer prints continuously)
+    return `<html><head><meta charset="UTF-8"><style>*{box-sizing:border-box;margin:0;padding:0}</style></head><body>` +
+      receiptBody +
+      `<div style="height:20mm"></div>` +
+      receiptBody +
+      `</body></html>`;
+  }
+
+  // Launch Star PassPRNT via URL scheme. Returns true if launched, false on error.
+  function _launchPassPRNT(htmlContent) {
+    // Log transport attempt
+    console.log('[PassPRNT] Launching — payload size:', htmlContent.length, 'chars');
+
+    const backUrl = encodeURIComponent(window.location.href);
+    const encodedHtml = encodeURIComponent(htmlContent);
+    const url = `starpassprnt://v1/print/nopreview?back=${backUrl}&html=${encodedHtml}&size=3`;
+
+    // Check URL length — iOS Safari supports ~2MB, but be cautious
+    if (url.length > 1500000) {
+      console.error('[PassPRNT] Payload too large:', url.length);
+      showToast('Receipt too large for PassPRNT — try CloudPRNT or browser', 'error');
+      return false;
+    }
+
+    // Attempt to open PassPRNT. If the app isn't installed, the URL scheme silently fails on iOS.
+    // We use a visibility-change approach: if the browser goes to background (PassPRNT opened), success.
+    // If nothing happens within 2s, show an error.
+    let launched = false;
+    const onBlur = () => { launched = true; };
+    window.addEventListener('pagehide', onBlur);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) launched = true; });
+
+    try {
+      window.location.href = url;
+    } catch (e) {
+      console.error('[PassPRNT] URL scheme error:', e);
+      showToast('Could not launch PassPRNT — is the app installed?', 'error');
+      window.removeEventListener('pagehide', onBlur);
+      return false;
+    }
+
+    // Check after 2.5s if we're still here
+    setTimeout(() => {
+      window.removeEventListener('pagehide', onBlur);
+      if (!launched) {
+        console.warn('[PassPRNT] App did not open — may not be installed');
+        showToast('PassPRNT did not open. Install Star PassPRNT from the App Store, or switch to CloudPRNT in Settings → Printer.', 'error');
+      }
+    }, 2500);
+
+    showToast('✓ Sending to PassPRNT…', 'success');
+    return true;
+  }
+
+  // Deliver a receipt via PassPRNT. Builds HTML from receiptData and launches the URL scheme.
+  function deliverPassPRNT(receiptData) {
+    const html = _buildPassPrntHtml(receiptData);
+    console.log('[PassPRNT] Receipt for order', receiptData.orderNum, '— transport: passprnt');
+    return _launchPassPRNT(html);
+  }
+
   function _fmtReceiptDate(isoStr) {
     if (!isoStr) return '—';
     const d  = new Date(isoStr);
@@ -7602,11 +7851,11 @@ ${totalLinesXml}
            || (allProcOrders||[]).find(x => x.id === targetId);
     if (!o) return;
 
-    // When CloudPRNT is configured, skip the browser popup entirely.
-    // When not configured, open popup NOW (before any async) to avoid popup blockers.
-    const usingCloudPrint = !!BIZ_PRINTER_TOKEN;
-    const printWin = usingCloudPrint ? null : window.open('', '_blank', 'width=420,height=750');
-    if (!usingCloudPrint && !printWin) { showToast('Pop-up blocked — allow pop-ups for this page to print receipts', ''); return; }
+    // Resolve transport BEFORE any async to decide whether we need a popup window.
+    // Browser popup must be opened synchronously (before await) to avoid popup blockers.
+    const transport = _resolveTransport();
+    const printWin = transport === 'browser' ? window.open('', '_blank', 'width=420,height=750') : null;
+    if (transport === 'browser' && !printWin) { showToast('Pop-up blocked — allow pop-ups for this page to print receipts', ''); return; }
 
     // allOrders has customer_id + allCustomers; kanban caches have o.customers embedded — use whichever is available
     const cust = allCustomers.find(c => c.id === o.customer_id) || o.customers || {};
@@ -7657,8 +7906,11 @@ ${totalLinesXml}
       orderId: targetId,
     };
 
-    if (usingCloudPrint) {
+    // Route to the configured transport
+    if (transport === 'cloudprnt') {
       await queueCloudPRNTJob(receiptData);
+    } else if (transport === 'passprnt') {
+      deliverPassPRNT(receiptData);
     } else {
       _openReceiptWindow(receiptData, 2, printWin);
     }
@@ -17510,8 +17762,8 @@ ${totalLinesXml}
     const lineItems   = _buildIntakeLineItems(bd, pricePerBag, ovgRate);
 
     // Open print popup NOW — before any await — so browsers don't block it.
-    // Skip the popup entirely when CloudPRNT is configured.
-    const printWin = BIZ_PRINTER_TOKEN ? null : window.open('', '_blank', 'width=420,height=750');
+    // Only needed for browser transport; CloudPRNT and PassPRNT don't use popups.
+    const printWin = _resolveTransport() === 'browser' ? window.open('', '_blank', 'width=420,height=750') : null;
 
     const { error } = await db.from('orders').update({
       status: 'processing', weight_lbs: weight, total_bags: bd.bags,
@@ -17587,8 +17839,11 @@ ${totalLinesXml}
       stopNum, routeName, addonTags, lineItems, total: bd.total,
       orderId: o.id,
     };
-    if (BIZ_PRINTER_TOKEN) {
+    const transport = _resolveTransport();
+    if (transport === 'cloudprnt') {
       await queueCloudPRNTJob(receiptData);
+    } else if (transport === 'passprnt') {
+      deliverPassPRNT(receiptData);
     } else {
       _openReceiptWindow(receiptData, 2, printWin);
     }
