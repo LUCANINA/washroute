@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 26, 2026 — Order History feature, logOrderEvent wiring, SMS timestamps, routing fix (session 70d)*
+*Last updated: Mar 26, 2026 — Launch blast campaign, driver photo queue, date formatting fix, OTP investigation (session 70e)*
 
 ---
 
@@ -188,6 +188,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **History tab in order panel:** New 4th tab (Schedule · Details · Billing · History) shows full timestamped activity timeline per order. Lazy-loads from `order_events` table with caching per order.
 - **Admin attribution via `logOrderEvent()`:** 18 admin actions wired to insert events BEFORE the DB update with the logged-in admin's first name. Trigger's 3-second dedup skips when JS already logged the event — preserves "Lili" instead of "System." Covers: status changes, reschedules, weight/bags/total edits, fold/rack assignments, charge/billing, address changes, recurrence changes, batch operations.
 - **SMS timestamps on Engagement page:** Message History now shows time alongside date (e.g. "Mar 25 · 2:34 pm") instead of just the date.
+- **Year in date formatting (session 70e):** `fmtDate()` now includes year (e.g. "Mar 26, 2026" instead of "Mar 26"). Affects Customers page, customer profiles, SMS inbox badge, and all other admin date displays.
 
 ### Other
 - Customer management, driver management, services & pricing, reports (all built)
@@ -199,7 +200,8 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Daily route loads automatically by driver login
 - Per-stop detail view: address, customer name, order info, special instructions
 - One-tap Google Maps navigation
-- Mark pickup / delivery complete with optional photo
+- Mark pickup / delivery complete with required photo
+- **Capture-now-upload-later photo queue (session 70e):** Photos are compressed (1200px max, 80% JPEG — typically 4MB→400KB) and stored locally via IndexedDB. Complete button unlocks immediately after capture — no waiting for upload. Background queue uploads to Supabase Storage with automatic retry every 30s + instant retry on `online` event. Amber badge on Route nav shows pending upload count. Queue persists across app restarts via IndexedDB.
 - **📲 On My Way button** → marks stop `en_route` + sends customer an SMS automatically
 - Undo complete (within same session)
 - Skip stop (with 12-second undo window, requires confirmation)
@@ -915,6 +917,28 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 26, 2026 (session 70e) — Launch blast campaign, driver photo queue, date formatting, OTP triage
+
+- **Launch campaign blast sent:** 559 SMS + 318 emails to remaining active customers who hadn't been contacted yet. Filtered out: already-contacted, retail (2609 Foothill), inactive since Jan 2025. Sent via `pg_net` → `send-sms`/`send-email` edge functions (VM couldn't reach external URLs directly). Email parameter fix: corrected `to`→`to_email` and `html`→`body` for `send-email` edge function.
+- **Follow-up trigger confirmed live:** `apply_signup_promo_credit()` trigger on `customer_payment_methods` INSERT already handles: $20 credit + "You're all set!" email + SMS. 308 customers have received the credit as of this session. Deadline: Monday March 30 midnight PT.
+- **Driver photo queue — capture-now-upload-later:** Replaced blocking upload with background queue. Photos compressed via canvas (1200px max, 80% JPEG). Stored in IndexedDB, uploaded in background with 30s retry. Complete button unlocks immediately. Amber pending-count badge on Route nav. Queue survives app restart.
+- **Year added to `fmtDate()`:** All admin date displays now show year (e.g. "Mar 26, 2026"). Single-line fix in shared utility function.
+- **OTP investigation:** 19 customers complained about "token expired" in last 3 days. Root cause: Supabase OTP expiry was set to 60 seconds — too short for most users to switch apps and type the code. David changed to 300 seconds in dashboard. 51 users never confirmed (7.4%), 41 confirmed on a different day. 2 unreplied complaints found (Katharine Boyle, Ayse Sercan) — sent template reply with instructions + email login alternative.
+
+**Commits:** `9e94015` (fmtDate year fix), `0bc2dfc` (driver photo queue)
+**DB changes:** None (OTP expiry changed in Supabase dashboard, not SQL)
+**Files changed:** `admin-dashboard/index.html`, `driver-app/index.html`
+
+**Pending (carries forward):**
+- Fix Supabase dashboard test phone number format to save 300s OTP expiry (field needs `phone=OTP` format, not bare number)
+- Re-enable `review_request` / `reorder_reminder` SMS templates
+- Resolve 38+ unpaid orders, 78 orphaned profiles, 29 duplicate addresses
+- Phase 1 smart scheduler
+- XSS hardening
+- Wire driver app + edge functions to insert `order_events`
+
+---
 
 ### Mar 26, 2026 (session 70d) — Order History feature, logOrderEvent wiring, SMS timestamps
 
