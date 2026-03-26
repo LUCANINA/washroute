@@ -90,6 +90,7 @@
     .logo-name { font-size: 15px; font-weight: 600; color: white; letter-spacing: -.01em; }
     .logo-name span { color: rgba(255,255,255,.4); font-weight: 400; }
     .sidebar-section-label { padding: 18px 20px 6px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,.38); }
+    .sidebar-section-label[onclick]:hover { color: rgba(255,255,255,.6); }
     .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 20px; color: rgba(255,255,255,.55); cursor: pointer; font-size: 13.5px; font-weight: 500; transition: background .12s, color .12s; position: relative; }
     .nav-item:hover { background: rgba(255,255,255,.05); color: rgba(255,255,255,.9); }
     .nav-item.active { color: white; background: rgba(99,91,255,.22); box-shadow: inset 0 0 0 1px rgba(99,91,255,.25); }
@@ -709,11 +710,11 @@
     .tpl-badge { font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:6px;flex-shrink:0; }
     /* Weekly schedule grid */
     .sched-grid { border-collapse:collapse;width:100%;min-width:600px; }
-    .sched-grid th { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);padding:8px 10px;text-align:center;border-bottom:2px solid var(--gray-200); }
-    .sched-grid th:first-child { text-align:left;min-width:170px; }
-    .sched-grid td { padding:6px 8px;border-bottom:1px solid var(--gray-100);text-align:center;vertical-align:middle; }
+    .sched-grid th { font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);padding:5px 6px;text-align:center;border-bottom:2px solid var(--gray-200); }
+    .sched-grid th:first-child { text-align:left;min-width:130px; }
+    .sched-grid td { padding:3px 4px;border-bottom:1px solid var(--gray-100);text-align:center;vertical-align:middle; }
     .sched-grid td:first-child { text-align:left; }
-    .sched-cell { display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:5px 10px;border-radius:20px;font-size:11.5px;font-weight:600;cursor:pointer;transition:all .12s;border:1.5px solid transparent;white-space:nowrap; }
+    .sched-cell { display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:3px 8px;border-radius:14px;font-size:10.5px;font-weight:600;cursor:pointer;transition:all .12s;border:1.5px solid transparent;white-space:nowrap; }
     .sched-cell:hover { opacity:.8;border-color:rgba(0,0,0,.15); }
     .sched-override { box-shadow:inset 0 0 0 2px rgba(255,255,255,.55); }
     /* Template slide-over */
@@ -1115,38 +1116,43 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         Reports
       </div>
-      <div class="sidebar-section-label" data-section="settings">Settings</div>
-      <div class="nav-item" data-page="services" data-section="settings" onclick="showPage('services',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-        Services
+      <div class="sidebar-section-label" data-section="settings" id="settings-nav-toggle" onclick="toggleSettingsNav()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding-right:20px;user-select:none;">
+        <span>Settings</span>
+        <span id="settings-nav-chevron" style="font-size:10px;opacity:.6;transition:transform .2s;">▸</span>
       </div>
-      <div class="nav-item" data-page="notifications" data-section="settings" onclick="showPage('notifications',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-        Notifications
-      </div>
-      <div class="nav-item" data-page="maps" data-section="settings" onclick="showPage('maps',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
-        Delivery Zones
-      </div>
-      <div class="nav-item" data-page="launderers" data-section="settings" onclick="showPage('launderers',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><path d="M16 3.13a4 4 0 010 7.75"/><path d="M21 21v-2a4 4 0 00-3-3.87"/></svg>
-        Launderers
-      </div>
-      <div class="nav-item" data-page="racks" data-section="settings" onclick="showPage('racks',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><rect x="2" y="10" width="20" height="5" rx="1"/><rect x="2" y="17" width="20" height="5" rx="1"/></svg>
-        Racks
-      </div>
-      <div class="nav-item" data-page="discounts" data-section="settings" onclick="showPage('discounts',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-        Discounts
-      </div>
-      <div class="nav-item" data-page="team" data-section="settings" onclick="showPage('team',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-        Team
-      </div>
-      <div id="nav-settings" class="nav-item" data-page="settings" data-section="settings" onclick="showPage('settings',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-        Printer
+      <div id="settings-nav-group" style="display:none;">
+        <div class="nav-item" data-page="services" data-section="settings" onclick="showPage('services',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+          Services
+        </div>
+        <div class="nav-item" data-page="notifications" data-section="settings" onclick="showPage('notifications',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          Notifications
+        </div>
+        <div class="nav-item" data-page="maps" data-section="settings" onclick="showPage('maps',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+          Delivery Zones
+        </div>
+        <div class="nav-item" data-page="launderers" data-section="settings" onclick="showPage('launderers',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><path d="M16 3.13a4 4 0 010 7.75"/><path d="M21 21v-2a4 4 0 00-3-3.87"/></svg>
+          Launderers
+        </div>
+        <div class="nav-item" data-page="racks" data-section="settings" onclick="showPage('racks',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="5" rx="1"/><rect x="2" y="10" width="20" height="5" rx="1"/><rect x="2" y="17" width="20" height="5" rx="1"/></svg>
+          Racks
+        </div>
+        <div class="nav-item" data-page="discounts" data-section="settings" onclick="showPage('discounts',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+          Discounts
+        </div>
+        <div class="nav-item" data-page="team" data-section="settings" onclick="showPage('team',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          Team
+        </div>
+        <div id="nav-settings" class="nav-item" data-page="settings" data-section="settings" onclick="showPage('settings',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Printer
+        </div>
       </div>
       <div class="sidebar-footer" onclick="handleSignOut()">
         <div class="avatar" id="user-avatar">?</div>
@@ -4774,7 +4780,47 @@
     if (id === 'discounts') renderDiscounts();
     if (id === 'settings') renderSettingsTab();
     if (id === 'team') loadTeamPage();
+
+    // Auto-expand settings nav group when navigating to a settings page
+    const settingsPages = ['services','notifications','maps','launderers','racks','discounts','team','settings'];
+    if (settingsPages.includes(id)) {
+      const grp = document.getElementById('settings-nav-group');
+      if (grp && grp.style.display === 'none') toggleSettingsNav();
+    }
   }
+
+  // ── Collapsible Settings nav ──
+  function toggleSettingsNav() {
+    const grp = document.getElementById('settings-nav-group');
+    const chev = document.getElementById('settings-nav-chevron');
+    if (!grp) return;
+    const isHidden = grp.style.display === 'none';
+    grp.style.display = isHidden ? '' : 'none';
+    if (chev) chev.textContent = isHidden ? '▾' : '▸';
+    try { sessionStorage.setItem('wr-settings-nav', isHidden ? 'open' : 'closed'); } catch(_) {}
+  }
+
+  // Restore settings nav state on load
+  (function() {
+    try {
+      const saved = sessionStorage.getItem('wr-settings-nav');
+      if (saved === 'open') {
+        const grp = document.getElementById('settings-nav-group');
+        const chev = document.getElementById('settings-nav-chevron');
+        if (grp) { grp.style.display = ''; if (chev) chev.textContent = '▾'; }
+      }
+    } catch(_) {}
+    // Also auto-expand if the current hash is a settings page
+    try {
+      const hash = location.hash.replace('#','');
+      const settingsPages = ['services','notifications','maps','launderers','racks','discounts','team','settings'];
+      if (settingsPages.includes(hash)) {
+        const grp = document.getElementById('settings-nav-group');
+        const chev = document.getElementById('settings-nav-chevron');
+        if (grp) { grp.style.display = ''; if (chev) chev.textContent = '▾'; }
+      }
+    } catch(_) {}
+  })();
 
   function handleCTA() {
     if (currentPage === 'maps') {
@@ -13989,14 +14035,14 @@ ${totalLinesXml}
       if (isLocked) {
         const lockIcon = `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`;
         return `<div class="sched-cell"
-          style="background:${bg};color:${fg};padding:4px 10px;display:inline-flex;align-items:center;gap:5px;opacity:${isPast?'0.45':'0.7'};cursor:default;"
+          style="background:${bg};color:${fg};opacity:${isPast?'0.45':'0.7'};cursor:default;"
           title="${t.name} · ${drvName} (locked)">
           ${lockIcon}${drvFirst}
         </div>`;
       }
 
       return `<div class="sched-cell"
-        style="background:${bg};color:${fg};padding:4px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:5px"
+        style="background:${bg};color:${fg};cursor:pointer;"
         onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
         title="${t.name} · ${drvName}">
         ${statusBadgeHtml}${drvFirst}
@@ -14045,20 +14091,20 @@ ${totalLinesXml}
           const isFirstInBand = ri === 0;
           const rowBorder = isFirstInBand ? bandBorder : '';
           const timeTd = isFirstInBand
-            ? `<td rowspan="${band.routes.length}" style="vertical-align:middle;padding:10px 10px;white-space:nowrap;${bandBorder}">
-                <div style="font-size:12px;font-weight:700;color:var(--accent)">${timeLabel}</div>
+            ? `<td rowspan="${band.routes.length}" style="vertical-align:middle;padding:6px 6px;white-space:nowrap;${bandBorder}">
+                <div style="font-size:11px;font-weight:700;color:var(--accent)">${timeLabel}</div>
                </td>`
             : '';
           return `<tr style="${rowBorder}">
             ${timeTd}
-            <td style="vertical-align:middle;padding:7px 8px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
-              <div style="display:flex;align-items:center;gap:6px">
-                <span style="width:8px;height:8px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>
-                <span style="font-size:12px;font-weight:600;color:var(--gray-800)">${t.name}</span>
+            <td style="vertical-align:middle;padding:4px 6px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
+              <div style="display:flex;align-items:center;gap:5px">
+                <span style="width:7px;height:7px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>
+                <span style="font-size:11px;font-weight:600;color:var(--gray-800)">${t.name}</span>
               </div>
             </td>
             ${[0,1,2,3,4,5,6].map(day => `
-              <td style="text-align:center;vertical-align:middle;padding:5px 4px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
+              <td style="text-align:center;vertical-align:middle;padding:3px 2px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
                 ${makeChip(t, day, weekDates[day])}
               </td>`).join('')}
           </tr>`;
@@ -14202,14 +14248,14 @@ ${totalLinesXml}
       if (isLocked) {
         const lockIcon = `<span style="font-size:10px;line-height:1;opacity:.85;">🔒</span>`;
         return `<div class="sched-cell"
-          style="background:${bg};color:${fg};padding:4px 10px;display:inline-flex;align-items:center;gap:5px;opacity:${isPast?'0.45':'0.7'};cursor:default;"
+          style="background:${bg};color:${fg};opacity:${isPast?'0.45':'0.7'};cursor:default;"
           title="${t.name} · ${drvName} (locked)">
           ${lockIcon}${drvFirst}
         </div>`;
       }
 
       return `<div class="sched-cell"
-        style="background:${bg};color:${fg};padding:4px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:5px"
+        style="background:${bg};color:${fg};cursor:pointer;"
         onclick="openDriverPopover('${t.id}',${day},'pickup','${drvId||''}',event)"
         title="${t.name} · ${drvName}">
         ${statusBadgeHtml}${drvFirst}
@@ -14255,20 +14301,20 @@ ${totalLinesXml}
           const isFirstInBand = ri === 0;
           const rowBorder = isFirstInBand ? bandBorder : '';
           const timeTd = isFirstInBand
-            ? `<td rowspan="${band.routes.length}" style="vertical-align:middle;padding:10px 10px;white-space:nowrap;${bandBorder}">
-                <div style="font-size:12px;font-weight:700;color:var(--accent)">${timeLabel}</div>
+            ? `<td rowspan="${band.routes.length}" style="vertical-align:middle;padding:6px 6px;white-space:nowrap;${bandBorder}">
+                <div style="font-size:11px;font-weight:700;color:var(--accent)">${timeLabel}</div>
                </td>`
             : '';
           return `<tr style="${rowBorder}">
             ${timeTd}
-            <td style="vertical-align:middle;padding:7px 8px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
-              <div style="display:flex;align-items:center;gap:6px">
-                <span style="width:8px;height:8px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>
-                <span style="font-size:12px;font-weight:600;color:var(--gray-800)">${t.name}</span>
+            <td style="vertical-align:middle;padding:4px 6px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
+              <div style="display:flex;align-items:center;gap:5px">
+                <span style="width:7px;height:7px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>
+                <span style="font-size:11px;font-weight:600;color:var(--gray-800)">${t.name}</span>
               </div>
             </td>
             ${[0,1,2,3,4,5,6].map(day => `
-              <td style="text-align:center;vertical-align:middle;padding:5px 4px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
+              <td style="text-align:center;vertical-align:middle;padding:3px 2px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
                 ${makeChip(t, day, weekDates[day])}
               </td>`).join('')}
           </tr>`;
@@ -14318,10 +14364,21 @@ ${totalLinesXml}
     const pop = document.getElementById('driver-popover');
     pop.style.display = 'block';
     const cell = event.target.closest('.sched-cell');
-    const rect = cell ? cell.getBoundingClientRect() : { bottom: event.clientY, left: event.clientX };
-    let top = rect.bottom + window.scrollY + 4;
-    let left = rect.left + window.scrollX;
+    const rect = cell ? cell.getBoundingClientRect() : { bottom: event.clientY, top: event.clientY, left: event.clientX };
+    const popHeight = pop.offsetHeight || 300;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    let top, left;
+    if (spaceBelow < popHeight + 10 && spaceAbove > popHeight + 10) {
+      // Flip upward
+      top = rect.top + window.scrollY - popHeight - 4;
+    } else {
+      // Open downward (default)
+      top = rect.bottom + window.scrollY + 4;
+    }
+    left = rect.left + window.scrollX;
     if (left + 255 > window.innerWidth) left = window.innerWidth - 260;
+    if (top < window.scrollY + 10) top = window.scrollY + 10;
     pop.style.top = top + 'px';
     pop.style.left = left + 'px';
 

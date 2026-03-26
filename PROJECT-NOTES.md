@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 26, 2026 — Unpaid orders panel, 71 email duplicate merges, 40 desynced stop fixes, daily audit skill (session 70b)*
+*Last updated: Mar 26, 2026 — Promo credit trigger fix, 55 backfill credits, nudge SMS, Overview cleanup (session 70c)*
 
 ---
 
@@ -960,18 +960,48 @@ Session 67 caught 45+ timezone bugs but these 18 slipped through. All were cases
 **Daily health audit skill installed:**
 - New `washroute-audit` skill with 10 SQL checks: unrouted orders, wrong-date stops, unpaid delivered orders, stop/order desync, duplicate customers, duplicate orders, over-capacity routes, driverless routes, SMS opt-out sync, orphaned records. Triggers on "load up", "morning rounds", "run audit". First run caught all the issues fixed above.
 
+**Session 70c — continued same day:**
+
+**⚠️ CRITICAL FIX — $20 promo credit trigger deadline was stale:**
+- The `trg_signup_promo_credit` trigger (on `customer_payment_methods` INSERT) had a hardcoded deadline of `2026-03-24 00:00:00 PT` (Monday March 23 midnight). This was the ORIGINAL deadline from session 48 launch. Although the project notes recorded deadline extensions to Tuesday and then Friday, **the actual trigger function was never updated** — it still used the March 24 cutoff.
+- Result: every customer who added a card after March 24 got silently skipped — no $20 credit, no confirmation email, no confirmation SMS.
+- **Fix:** Updated `apply_signup_promo_credit()` function deadline to `2026-03-31 00:00:00 PT` (next Monday March 30 midnight). Future card-adds will now correctly receive the $20 promo.
+- **Backfill:** Identified 55 customers who added cards between March 24–26 and received $0 credit. Applied $20 credit to all 55 accounts ($1,100 total), set `signup_promo_credit_at`, and logged `credit_add` transactions with note "Launch promo backfill". These customers did NOT receive the confirmation email/SMS that the trigger normally sends — they just got the credit silently. David may want to send a follow-up.
+
+**Chelle Schauben duplicate merge:**
+- Merged "Chelle y" (chelleland@gmail.com, 1 order, $0, created today) into "Chelle Schauben" (same email, 94 cached orders → 1 actual non-cancelled order after recount). Transferred order #927 ($68.95, scheduled). Deleted duplicate + orphaned profile.
+
+**Nudge SMS feature (admin Overview → New Customers panel):**
+- New "Nudge" button on new customers who haven't placed an order yet and have a phone number
+- Sends personalized SMS: "Hi {name}, this is {sender} from Family Laundry. Can I help you place your first order with us? Have any questions?"
+- **Dynamic sender name:** Uses `currentUserFirstName` from the logged-in admin/manager's profile (David, Luis, John, or Lili). Not hardcoded.
+- Button shows "✓ Nudged" after send. "No phone" shown for customers without phone_cache.
+- Reply goes to SMS inbox like any other customer message.
+- Verified: nudge to Ellen Mulberg sent successfully (status: accepted, Twilio delivered).
+
+**Overview page cleanup (commits `dae50ef` through `a4c8390`):**
+- Removed stat cards (Expected Orders/Bags/Revenue Today) — cluttered, not actionable
+- Removed Recurring Orders panel — rarely used, cluttered
+- Made New Customers and Recent Orders panels collapsible (default closed)
+- Added 24h stat badges: signups, orders placed in last 24 hours
+- Added conversion % badge: shows what percentage of all registered customers have placed at least one order (green ≥50%, amber <50%)
+- CTA text "Show last 10 ▸" / "Hide ▾" replaces old expand button
+- Unpaid Delivered Orders panel: filters out refunded orders, adds Retry/Request Card action buttons using existing `_deliveredActionBtn()` pattern
+
 **Pending (carries forward):**
 1. Re-send campaign emails to ~3,475 unreached customers (session 68 emails failed due to wrong params)
 2. Continue campaign SMS to ~1,846 unreached customers
 3. Re-enable `review_request` and `reorder_reminder` SMS templates
 4. Resolve 42 unpaid delivered orders (now visible on Overview page — ranges $48.95–$204.95, mix of failed/null/refunded billing_status)
-5. Oakland AM tomorrow over capacity (36 stops vs 30 limit) — move 6 stops or raise limit
+5. Oakland AM over capacity (36 stops vs 30 limit) — move 6 stops or raise limit
 6. 78 orphaned profiles (customer role, no linked customer record) — clean up
 7. 29 duplicate addresses — deduplicate
 8. Phase 1 smart scheduler — `route_duration_estimate` + Google API integration
 9. Supabase OTP expiry, Cynthia Williams landline, credits not applied after Intake
 10. XSS hardening, clean up orphaned auth.users
 11. Order mC-Print3 printer
+12. **Consider sending confirmation email/SMS to the 55 backfilled customers** — they got the $20 but no notification
+13. **$20 promo deadline is now March 30 midnight PT** — verify trigger fires correctly for next card-add
 
 ---
 
