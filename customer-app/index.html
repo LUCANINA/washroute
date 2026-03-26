@@ -3022,26 +3022,32 @@ async function fetchWindowsForDate(iso) {
   const templates = tmplRes.data;
   if (tmplRes.error || !templates?.length) return;
 
-  // Build a capacity lookup: template_id → { active_stops, stop_limit }
+  // Build a capacity lookup: "templateId|HH:MM" → { activeStops, subWindowLimit }
+  // The RPC now returns per-sub-window rows with sub_window_start/end
   const capMap = {};
   (capRes.data || []).forEach(row => {
-    capMap[row.template_id] = { activeStops: Number(row.active_stops), stopLimit: row.stop_limit };
+    const key = `${row.template_id}|${row.sub_window_start}`;
+    capMap[key] = { activeStops: Number(row.active_stops), subWindowLimit: row.sub_window_limit };
   });
 
   const windows = [];
   templates.forEach(tmpl => {
     if (!tmpl.window_start || !tmpl.window_end) return;
     const subWins = computeSubWindows(iso, tmpl, tmpl.id, tmpl.name);
-    // Annotate each sub-window with capacity info from the parent template
-    const cap = capMap[tmpl.id] || { activeStops: 0, stopLimit: null };
+    // Annotate each sub-window with its own capacity data
     subWins.forEach(w => {
+      // Match by template_id + sub-window start time (HH:MM:SS format from DB)
+      const swStartTime = w.startMins != null
+        ? `${String(Math.floor(w.startMins / 60)).padStart(2,'0')}:${String(w.startMins % 60).padStart(2,'0')}:00`
+        : null;
+      const cap = swStartTime ? (capMap[`${tmpl.id}|${swStartTime}`] || { activeStops: 0, subWindowLimit: null }) : { activeStops: 0, subWindowLimit: null };
       w.activeStops = cap.activeStops;
-      w.stopLimit   = cap.stopLimit;
-      if (cap.stopLimit) {
-        w.spotsLeft = Math.max(0, cap.stopLimit - cap.activeStops);
-        w.isFull    = cap.activeStops >= cap.stopLimit;
+      w.stopLimit   = cap.subWindowLimit;
+      if (cap.subWindowLimit) {
+        w.spotsLeft = Math.max(0, cap.subWindowLimit - cap.activeStops);
+        w.isFull    = cap.activeStops >= cap.subWindowLimit;
       } else {
-        w.spotsLeft = null; // no limit configured
+        w.spotsLeft = null;
         w.isFull    = false;
       }
       windows.push(w);
@@ -3499,15 +3505,18 @@ async function _fetchDeliveryCapacity() {
   try {
     const { data } = await db.rpc('get_slot_availability', { p_zone_id: draft.zoneId, p_date: draft.deliveryDate });
     const capMap = {};
-    (data || []).forEach(row => { capMap[row.template_id] = { activeStops: Number(row.active_stops), stopLimit: row.stop_limit }; });
-    // Clone availableWindows with delivery-date capacity
+    (data || []).forEach(row => { capMap[`${row.template_id}|${row.sub_window_start}`] = { activeStops: Number(row.active_stops), subWindowLimit: row.sub_window_limit }; });
+    // Clone availableWindows with delivery-date per-sub-window capacity
     draft._deliveryWindows = draft.availableWindows.map(w => {
-      const cap = capMap[w.routeId] || { activeStops: 0, stopLimit: null };
+      const swStartTime = w.startMins != null
+        ? `${String(Math.floor(w.startMins / 60)).padStart(2,'0')}:${String(w.startMins % 60).padStart(2,'0')}:00`
+        : null;
+      const cap = swStartTime ? (capMap[`${w.routeId}|${swStartTime}`] || { activeStops: 0, subWindowLimit: null }) : { activeStops: 0, subWindowLimit: null };
       return { ...w,
         activeStops: cap.activeStops,
-        stopLimit: cap.stopLimit,
-        spotsLeft: cap.stopLimit ? Math.max(0, cap.stopLimit - cap.activeStops) : null,
-        isFull: cap.stopLimit ? cap.activeStops >= cap.stopLimit : false,
+        stopLimit: cap.subWindowLimit,
+        spotsLeft: cap.subWindowLimit ? Math.max(0, cap.subWindowLimit - cap.activeStops) : null,
+        isFull: cap.subWindowLimit ? cap.activeStops >= cap.subWindowLimit : false,
       };
     });
   } catch (err) {
