@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 25, 2026 — SMS/email opt-out sync, email unsubscribe, route capacity fixes, capacity-aware booking UX, per-sub-window capacity enforcement (session 69)*
+*Last updated: Mar 26, 2026 — Kidango cleanup, duplicate merge, 18 UTC→Pacific timezone fixes (session 70)*
 
 ---
 
@@ -907,6 +907,51 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 26, 2026 (session 70) — Kidango cleanup, duplicate merge, UTC→Pacific timezone audit round 2
+
+**Kidango account removal:**
+- Identified and removed 16 Kidango childcare center accounts (Starchup migration data). None had Stripe, profiles, or SMS. Deleted 16 customers, 12 orders ($0, never charged), 24 route stops, 16 addresses. Preflight confirmed zero SMS risk.
+
+**Duplicate account merge (5 groups):**
+- Sandeep Vadivel, Amber Holden (was "Jessica Leak"), Franklin Zuniga, Michael Bernasek, Shaina Sherer — all classic Starchup shell + new customer app signup pairs. Winner scored by orders/Stripe/profile. SMS, addresses, orders moved to winner; loser deleted. Profile and Stripe transferred where winner lacked them. Franklin's name corrected from "Lodestar" to "Franklin Zuniga".
+- 3 groups intentionally skipped (same as session 66): David's test accounts, Myra Greene/Sarang Rahmani (different people), Charlene Davis/Charlene Bachemin (uncertain match).
+
+**UTC→Pacific timezone audit — 18 bugs fixed (commit `2579fa7`):**
+
+Session 67 caught 45+ timezone bugs but these 18 slipped through. All were cases of bare `.getHours()`, `.getDay()`, `.getDate()`, `.toDateString()`, or `setHours(0,0,0,0)` on `new Date()` without converting to Pacific first.
+
+*Admin Dashboard (11 fixes):*
+- 3× `msSinceMidnight` for route window lock timing — bare `getHours()/getMinutes()` → Pacific via `toLocaleString('en-US', { timeZone: BIZ_TZ })`
+- 3× `todayDow` for day-of-week checks (route badges, schedule grid, driver popover) — bare `getDay()` → Pacific
+- 2× `toDateString()` comparisons for "is today" schedule highlighting → `toLocaleDateString('en-CA', { timeZone: BIZ_TZ })`
+- 2× `todayMidnight.setHours(0,0,0,0)` → replaced with Pacific date string comparison
+- 1× laundry history date range query — browser-local midnight → dynamic Pacific UTC offset
+
+*Customer App (5 fixes):*
+- `localIso()` function — used UTC `getFullYear()/getMonth()/getDate()` → now uses `toLocaleDateString('en-CA', { timeZone: BIZ_TZ })`
+- `fmtSlot()` compact function — bare `getHours()` → Pacific-converted
+- `buildActiveCard()` — 2× bare `getHours()` for pickup time display → Pacific
+- `_winFromOrder()` — bare `getHours()` for edit schedule start/end minutes → Pacific
+
+*Driver App (1 fix):*
+- `fmtMsgTime()` "isToday" check — `toDateString()` → Pacific `toLocaleDateString`
+
+*Edge functions: CLEAN — no issues found.*
+
+**Files changed:** `admin-dashboard/index.html`, `customer-app/index.html`, `driver-app/index.html`
+
+**Pending (carries forward from session 69):**
+1. Re-send campaign emails to ~3,475 unreached customers (session 68 emails failed due to wrong params)
+2. Continue campaign SMS to ~1,846 unreached customers
+3. Re-enable `review_request` and `reorder_reminder` SMS templates
+4. Resolve 5 unpaid delivered orders ($567.75)
+5. Phase 1 smart scheduler — `route_duration_estimate` + Google API integration
+6. Supabase OTP expiry, Cynthia Williams landline, credits not applied after Intake
+7. XSS hardening, deduplicate merged addresses, clean up orphaned auth.users/profiles
+8. Order mC-Print3 printer
+
+---
 
 ### Mar 25, 2026 (session 69) — SMS/email opt-out sync, email unsubscribe, route capacity fixes, capacity-aware booking, per-sub-window enforcement
 
