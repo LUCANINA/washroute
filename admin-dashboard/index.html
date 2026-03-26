@@ -1177,9 +1177,10 @@
             <div class="card">
               <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('new-customers-body',this)">
                 <div style="flex:1">
-                  <div style="display:flex;align-items:center;gap:12px">
+                  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
                     <div class="card-title" style="font-size:16px">New Customers</div>
                     <span id="cust-24h-badge" style="font-size:13px;font-weight:700;color:var(--accent);background:#eff6ff;border-radius:8px;padding:3px 10px;display:none"></span>
+                    <span id="cust-conversion-badge" style="font-size:13px;font-weight:700;border-radius:8px;padding:3px 10px;display:none"></span>
                   </div>
                 </div>
                 <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
@@ -5011,12 +5012,14 @@
 
   async function load24hStats() {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const [custRes, ordRes] = await Promise.all([
+    const [custRes, ordRes, convRes] = await Promise.all([
       db.from('customers').select('id', { count: 'exact', head: true }).gte('created_at', since),
-      db.from('orders').select('id', { count: 'exact', head: true }).gte('created_at', since).neq('status', 'cancelled')
+      db.from('orders').select('id', { count: 'exact', head: true }).gte('created_at', since).neq('status', 'cancelled'),
+      db.from('customers').select('id, total_orders').gte('created_at', since)
     ]);
     const custBadge = document.getElementById('cust-24h-badge');
     const ordBadge = document.getElementById('orders-24h-badge');
+    const convBadge = document.getElementById('cust-conversion-badge');
     const custCount = custRes?.count ?? 0;
     const ordCount = ordRes?.count ?? 0;
     if (custBadge && custCount > 0) {
@@ -5026,6 +5029,15 @@
     if (ordBadge && ordCount > 0) {
       ordBadge.textContent = `${ordCount} in last 24h`;
       ordBadge.style.display = '';
+    }
+    if (convBadge && convRes?.data?.length > 0) {
+      const total = convRes.data.length;
+      const ordered = convRes.data.filter(c => (c.total_orders || 0) > 0).length;
+      const pct = Math.round((ordered / total) * 100);
+      convBadge.textContent = `${pct}% placed order`;
+      convBadge.style.color = pct >= 50 ? '#059669' : '#92400e';
+      convBadge.style.background = pct >= 50 ? '#ecfdf5' : '#fef3c7';
+      convBadge.style.display = '';
     }
   }
 
@@ -5057,9 +5069,32 @@
     </tbody></table>`;
   }
 
+  const _nudgeSent = new Set(); // track which customers got nudged this session
+
+  async function nudgeNewCustomer(custId, firstName, phone, btn) {
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try {
+      const name = firstName || 'there';
+      const body = `Hi ${name}, this is David from Family Laundry. Can I help you place your first order with us? Have any questions?`;
+      const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+        body: JSON.stringify({ to: phone, body, customer_id: custId }),
+      });
+      if (!res.ok) throw new Error('SMS send failed');
+      _nudgeSent.add(custId);
+      btn.textContent = '✓ Sent';
+      btn.style.color = '#059669'; btn.style.background = '#ecfdf5';
+      showToast(`Nudge sent to ${name}`, 'success');
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'Nudge';
+      showToast('Failed to send nudge: ' + e.message, 'error');
+    }
+  }
+
   async function loadNewCustomers() {
     const { data: custs } = await db.from('customers')
-      .select('id, first_name_cache, last_name_cache, email_cache, created_at, total_orders')
+      .select('id, first_name_cache, last_name_cache, email_cache, phone_cache, created_at, total_orders')
       .order('created_at', { ascending: false })
       .limit(10);
 
@@ -5068,17 +5103,30 @@
       el.innerHTML = `<div class="empty"><div class="empty-title">No customers yet</div><div class="empty-sub">New sign-ups will appear here.</div></div>`;
       return;
     }
-    el.innerHTML = `<table><thead><tr><th>Customer</th><th>Email</th><th style="text-align:center">Ordered</th><th>Joined</th></tr></thead><tbody>
+    el.innerHTML = `<table><thead><tr><th>Customer</th><th>Email</th><th style="text-align:center">Ordered</th><th>Joined</th><th style="text-align:right"></th></tr></thead><tbody>
       ${custs.map(c => {
         const name = `${c.first_name_cache||''} ${c.last_name_cache||''}`.trim() || 'Unknown';
+        const firstName = c.first_name_cache || '';
         const hasOrder = (c.total_orders || 0) > 0;
         const joined = c.created_at ? new Date(c.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—';
+        const phone = c.phone_cache || '';
+        let actionCell = '';
+        if (!hasOrder && phone) {
+          if (_nudgeSent.has(c.id)) {
+            actionCell = `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Sent</span>`;
+          } else {
+            actionCell = `<button onclick="event.stopPropagation();nudgeNewCustomer('${c.id}','${esc(firstName.replace(/'/g,"\\\\'"))}','${esc(phone)}',this)" style="font-size:11px;font-weight:700;color:var(--accent);background:#eff6ff;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Nudge</button>`;
+          }
+        } else if (!hasOrder && !phone) {
+          actionCell = `<span style="font-size:11px;color:var(--gray-400)">No phone</span>`;
+        }
         const clickable = `style="cursor:pointer" onclick="showPage('customers',document.getElementById('nav-customers'))"`;
         return `<tr ${clickable}>
           <td class="td-name">${esc(name)}</td>
           <td style="font-size:12px;color:var(--gray-500)">${esc(c.email_cache||'—')}</td>
           <td style="text-align:center;font-size:16px">${hasOrder ? '<span title="Has placed an order" style="color:var(--green)">✓</span>' : '<span style="color:var(--gray-300)">—</span>'}</td>
           <td style="font-size:12px;color:var(--gray-500);white-space:nowrap">${joined}</td>
+          <td style="text-align:right">${actionCell}</td>
         </tr>`;
       }).join('')}
     </tbody></table>`;
