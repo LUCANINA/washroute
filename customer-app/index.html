@@ -625,8 +625,13 @@
     .sched-opt { padding: 12px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; background: white; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 500; color: var(--text); text-align: left; transition: all .12s; display: flex; align-items: center; justify-content: space-between; -webkit-tap-highlight-color: transparent; }
     .sched-opt:active { background: var(--gray-50); }
     .sched-opt.selected { border-color: var(--navy); background: #eef3ff; color: var(--navy); font-weight: 600; }
-    .sched-opt:disabled, .sched-opt.unavailable { background: var(--gray-50); color: var(--gray-300); border-color: var(--gray-100); cursor: not-allowed; text-decoration: line-through; }
+    .sched-opt:disabled, .sched-opt.unavailable { background: var(--gray-50); color: var(--gray-300); border-color: var(--gray-100); cursor: not-allowed; }
     .sched-opt:disabled:active, .sched-opt.unavailable:active { background: var(--gray-50); }
+    .sched-opt .slot-badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 6px; margin-left: 8px; }
+    .sched-opt .slot-badge.full { background: #fee2e2; color: #dc2626; }
+    .sched-opt .slot-badge.almost-full { background: #fef3c7; color: #b45309; }
+    .sched-opt .slot-badge.available { background: #d1fae5; color: #059669; }
+    .sched-nudge { padding: 10px 16px; font-size: 13px; color: #b45309; background: #fffbeb; border-radius: 8px; margin: 0 14px 8px; line-height: 1.4; }
     .sched-opt-check { font-size: 15px; opacity: 0; color: var(--navy); }
     .sched-opt.selected .sched-opt-check { opacity: 1; }
 
@@ -3004,19 +3009,43 @@ async function fetchWindowsForDate(iso) {
   // Convert selected date to ISO weekday (0=Mon … 6=Sun)
   const isoDay = (new Date(iso + 'T12:00:00').getDay() + 6) % 7;
 
-  const { data: templates, error } = await db
-    .from('route_templates')
-    .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
-    .eq('zone_id', draft.zoneId)
-    .eq('is_active', true)
-    .contains('schedule_days', [isoDay]);
+  // Fetch templates and capacity in parallel
+  const [tmplRes, capRes] = await Promise.all([
+    db.from('route_templates')
+      .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
+      .eq('zone_id', draft.zoneId)
+      .eq('is_active', true)
+      .contains('schedule_days', [isoDay]),
+    db.rpc('get_slot_availability', { p_zone_id: draft.zoneId, p_date: iso })
+  ]);
 
-  if (error || !templates?.length) return; // no windows available for this day
+  const templates = tmplRes.data;
+  if (tmplRes.error || !templates?.length) return;
+
+  // Build a capacity lookup: template_id → { active_stops, stop_limit }
+  const capMap = {};
+  (capRes.data || []).forEach(row => {
+    capMap[row.template_id] = { activeStops: Number(row.active_stops), stopLimit: row.stop_limit };
+  });
 
   const windows = [];
   templates.forEach(tmpl => {
     if (!tmpl.window_start || !tmpl.window_end) return;
-    computeSubWindows(iso, tmpl, tmpl.id, tmpl.name).forEach(w => windows.push(w));
+    const subWins = computeSubWindows(iso, tmpl, tmpl.id, tmpl.name);
+    // Annotate each sub-window with capacity info from the parent template
+    const cap = capMap[tmpl.id] || { activeStops: 0, stopLimit: null };
+    subWins.forEach(w => {
+      w.activeStops = cap.activeStops;
+      w.stopLimit   = cap.stopLimit;
+      if (cap.stopLimit) {
+        w.spotsLeft = Math.max(0, cap.stopLimit - cap.activeStops);
+        w.isFull    = cap.activeStops >= cap.stopLimit;
+      } else {
+        w.spotsLeft = null; // no limit configured
+        w.isFull    = false;
+      }
+      windows.push(w);
+    });
   });
   windows.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
 
@@ -3061,9 +3090,9 @@ async function renderSchedCard() {
     await fetchWindowsForDate(draft.pickupDate);
   }
 
-  // Auto-select earliest window if none chosen yet (matches "one default time" UX)
+  // Auto-select earliest available (non-full) window if none chosen yet
   if (!draft.pickupWindow && draft.availableWindows.length) {
-    draft.pickupWindow = draft.availableWindows[0];
+    draft.pickupWindow = draft.availableWindows.find(w => !w.isFull) || null;
   }
 
   _updateSchedWindowDisplay('pickup');
@@ -3178,7 +3207,7 @@ function _renderSchedDeliveryDateOpts() {
 }
 
 // Called when a delivery date option is tapped
-function selectSchedDeliveryDate(iso) {
+async function selectSchedDeliveryDate(iso) {
   // Close picker
   const expandEl = document.getElementById('expand-delivery-date');
   const chevEl   = document.getElementById('chev-delivery-date');
@@ -3187,13 +3216,17 @@ function selectSchedDeliveryDate(iso) {
 
   draft.deliveryDate = iso;
 
-  // Auto-select the first valid delivery window for this date.
+  // Fetch delivery-date capacity
+  await _fetchDeliveryCapacity();
+
+  // Auto-select the first valid non-full delivery window for this date.
   // On the first eligible date, respect the template turnaround — only PM windows for PM pickups.
   {
     const isFirstDate = draft._deliveryOptions?.length > 0 && iso === draft._deliveryOptions[0];
     const minMins     = isFirstDate ? (draft._earliestDeliveryWindowMins ?? 0) : 0;
-    const validWins   = draft.availableWindows.filter(w => w.startMins >= minMins);
-    draft.deliveryWindow = validWins[0] || draft.availableWindows[0] || null;
+    const wins = (draft._deliveryWindows || draft.availableWindows);
+    const validWins   = wins.filter(w => w.startMins >= minMins && !w.isFull);
+    draft.deliveryWindow = validWins[0] || wins.filter(w => w.startMins >= minMins)[0] || null;
   }
 
   const valDate = document.getElementById('val-delivery-date');
@@ -3262,7 +3295,8 @@ function _renderSchedWindowOpts(which) {
     return;
   }
 
-  let windows = draft.availableWindows;
+  // Use delivery-specific windows (with delivery-date capacity) when rendering delivery slots
+  let windows = (which === 'delivery' && draft._deliveryWindows) ? draft._deliveryWindows : draft.availableWindows;
 
   // For delivery windows: enforce the route-template turnaround rules.
   if (which === 'delivery' && !draft.isSameDay && draft.pickupWindow) {
@@ -3290,15 +3324,43 @@ function _renderSchedWindowOpts(which) {
     if (valEl) valEl.textContent = '—';
     return;
   }
+
+  // Check if ALL windows are full — show a nudge to pick another day
+  const allFull = windows.every(w => w.isFull);
+  const anyFull = windows.some(w => w.isFull);
+
   const cur = which === 'pickup'
     ? draft.pickupWindow
     : (draft.deliveryWindow || draft.pickupWindow);
-  container.innerHTML = '<div class="sched-opts">' + windows.map((w, i) => {
-    // Use the index in the full availableWindows array so selectSchedWindow can look it up correctly
-    const fullIdx = draft.availableWindows.indexOf(w);
+
+  let html = '';
+  if (allFull) {
+    html += `<div class="sched-nudge">All ${which} slots are full for this date. Please pick a different day for faster service.</div>`;
+  } else if (anyFull) {
+    html += `<div class="sched-nudge">Some slots are filling up — available times shown below.</div>`;
+  }
+
+  html += '<div class="sched-opts">' + windows.map((w, i) => {
+    // Find the index in availableWindows by slotStart (works for both pickup and delivery clones)
+    const fullIdx = draft.availableWindows.findIndex(aw => aw.slotStart === w.slotStart);
     const sel = cur?.slotStart === w.slotStart;
-    return `<button class="sched-opt${sel ? ' selected' : ''}" onclick="selectSchedWindow('${which}',${fullIdx})"><span>${w.label}</span><span class="sched-opt-check">✓</span></button>`;
+    const isFull = w.isFull === true;
+
+    // Capacity badge
+    let badge = '';
+    if (isFull) {
+      badge = '<span class="slot-badge full">Full</span>';
+    } else if (w.stopLimit && w.spotsLeft != null && w.spotsLeft <= 5) {
+      badge = `<span class="slot-badge almost-full">${w.spotsLeft} spot${w.spotsLeft !== 1 ? 's' : ''} left</span>`;
+    }
+
+    if (isFull) {
+      return `<button class="sched-opt unavailable" disabled><span>${w.label}</span>${badge}</button>`;
+    }
+    return `<button class="sched-opt${sel ? ' selected' : ''}" onclick="selectSchedWindow('${which}',${fullIdx})"><span>${w.label}</span>${badge}<span class="sched-opt-check">✓</span></button>`;
   }).join('') + '</div>';
+
+  container.innerHTML = html;
 }
 
 // Called when a window option is tapped
@@ -3402,13 +3464,15 @@ async function _updateSchedDelivery() {
     draft.deliveryDate = dates[0] || null;
   }
 
-  // Auto-select the first valid delivery window for this delivery date.
-  // This replaces the old behaviour where delivery window defaulted silently to the pickup window.
+  // Fetch delivery-date capacity and build delivery-specific windows
+  await _fetchDeliveryCapacity();
+
+  // Auto-select the first valid non-full delivery window for this delivery date.
   {
     const isFirstDate = draft.deliveryDate === dates[0];
     const minMins     = isFirstDate ? _pickupTmplStartMins : 0;
-    const validWins   = draft.availableWindows.filter(w => w.startMins >= minMins);
-    draft.deliveryWindow = validWins[0] || draft.availableWindows[0] || null;
+    const validWins   = (draft._deliveryWindows || draft.availableWindows).filter(w => w.startMins >= minMins && !w.isFull);
+    draft.deliveryWindow = validWins[0] || (draft._deliveryWindows || draft.availableWindows).filter(w => w.startMins >= minMins)[0] || null;
   }
 
   const valDate = document.getElementById('val-delivery-date');
@@ -3418,6 +3482,38 @@ async function _updateSchedDelivery() {
 
   const delSec = document.getElementById('sched-delivery-section');
   if (delSec) delSec.style.display = '';
+}
+
+// ── Fetch capacity for the delivery date and build delivery-specific windows ──
+// Clones availableWindows but re-annotates with delivery-date capacity data.
+async function _fetchDeliveryCapacity() {
+  if (!draft.deliveryDate || !draft.zoneId) {
+    draft._deliveryWindows = null;
+    return;
+  }
+  // If delivery date == pickup date, capacity is already correct on availableWindows
+  if (draft.deliveryDate === draft._windowsForDate) {
+    draft._deliveryWindows = null; // use availableWindows as-is
+    return;
+  }
+  try {
+    const { data } = await db.rpc('get_slot_availability', { p_zone_id: draft.zoneId, p_date: draft.deliveryDate });
+    const capMap = {};
+    (data || []).forEach(row => { capMap[row.template_id] = { activeStops: Number(row.active_stops), stopLimit: row.stop_limit }; });
+    // Clone availableWindows with delivery-date capacity
+    draft._deliveryWindows = draft.availableWindows.map(w => {
+      const cap = capMap[w.routeId] || { activeStops: 0, stopLimit: null };
+      return { ...w,
+        activeStops: cap.activeStops,
+        stopLimit: cap.stopLimit,
+        spotsLeft: cap.stopLimit ? Math.max(0, cap.stopLimit - cap.activeStops) : null,
+        isFull: cap.stopLimit ? cap.activeStops >= cap.stopLimit : false,
+      };
+    });
+  } catch (err) {
+    console.warn('_fetchDeliveryCapacity error:', err);
+    draft._deliveryWindows = null;
+  }
 }
 
 // ── SAME-DAY: check if same-day delivery is available for the current pickup window ──
