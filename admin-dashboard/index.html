@@ -3681,6 +3681,7 @@
   const db = createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { storageKey: 'wr-admin-auth', autoRefreshToken: true, persistSession: true, lock: _noopLock } });
   let currentUserRole = null; // 'admin' | 'manager' | 'laundry_tech'
   let currentUserId   = null; // logged-in admin's auth user ID
+  let currentUserFirstName = null; // first name of logged-in user (for nudge SMS etc.)
   let rolePermissions = {};   // { page_id: true/false } — loaded from role_permissions table
   let allRolePermissions = []; // full table cache for the permissions grid UI
 
@@ -4134,6 +4135,7 @@
 
         currentUserRole = role;
         currentUserId   = session.user.id;
+        currentUserFirstName = profile?.first_name || null;
 
         // Load permissions for this role from role_permissions table
         try {
@@ -5075,7 +5077,8 @@
     btn.disabled = true; btn.textContent = 'Sending…';
     try {
       const name = firstName || 'there';
-      const body = `Hi ${name}, this is David from Family Laundry. Can I help you place your first order with us? Have any questions?`;
+      const sender = currentUserFirstName || 'Family Laundry';
+      const body = `Hi ${name}, this is ${sender} from Family Laundry. Can I help you place your first order with us? Have any questions?`;
       const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
@@ -5083,7 +5086,7 @@
       });
       if (!res.ok) throw new Error('SMS send failed');
       _nudgeSent.add(custId);
-      btn.textContent = '✓ Sent';
+      btn.textContent = '✓ Nudged';
       btn.style.color = '#059669'; btn.style.background = '#ecfdf5';
       showToast(`Nudge sent to ${name}`, 'success');
     } catch (e) {
@@ -5113,7 +5116,7 @@
         let actionCell = '';
         if (!hasOrder && phone) {
           if (_nudgeSent.has(c.id)) {
-            actionCell = `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Sent</span>`;
+            actionCell = `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Nudged</span>`;
           } else {
             actionCell = `<button onclick="event.stopPropagation();nudgeNewCustomer('${c.id}','${esc(firstName.replace(/'/g,"\\\\'"))}','${esc(phone)}',this)" style="font-size:11px;font-weight:700;color:var(--accent);background:#eff6ff;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Nudge</button>`;
           }
