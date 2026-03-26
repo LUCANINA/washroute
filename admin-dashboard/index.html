@@ -2913,6 +2913,7 @@
     <button class="op-tab active" id="op-tab-btn-schedule" onclick="opSwitchTab('schedule',this)">Schedule</button>
     <button class="op-tab" id="op-tab-btn-details" onclick="opSwitchTab('details',this)">Details</button>
     <button class="op-tab" id="op-tab-btn-billing" onclick="opSwitchTab('billing',this)">Billing</button>
+    <button class="op-tab" id="op-tab-btn-history" onclick="opSwitchTab('history',this)">History</button>
   </div>
 
   <!-- ── SCHEDULE TAB ── -->
@@ -3083,6 +3084,13 @@
     <div id="op-bill-actions" style="margin-top:14px;display:flex;flex-direction:column;gap:8px"></div>
 
   </div><!-- /billing tab -->
+
+  <!-- ── HISTORY TAB ── -->
+  <div class="op-tab-body" id="op-tab-history" style="display:none">
+    <div id="op-history-list" style="display:flex;flex-direction:column;gap:0;padding:0 2px"></div>
+    <div id="op-history-empty" style="display:none;text-align:center;padding:32px 16px;color:var(--gray-400);font-size:13px">No history yet</div>
+    <div id="op-history-loading" style="text-align:center;padding:24px;color:var(--gray-400);font-size:13px">Loading history…</div>
+  </div><!-- /history tab -->
 
   <!-- Footer (always visible) -->
   <div class="op-actions">
@@ -6136,6 +6144,7 @@
     if (!o) return;
     opCurrentOrderId = orderId;
     opCurrentCustId  = o.customers?.id || null;
+    _opHistoryLoaded = null; // reset history cache for new order
 
     // Header
     document.getElementById('op-num').textContent = `ORDER #${o.order_number || '—'}`;
@@ -6460,6 +6469,9 @@
 
   async function _opShiftDeliveryWindow(o, newStart, newEnd) {
     const update = { delivery_window_start: newStart, delivery_window_end: newEnd, updated_at: new Date().toISOString() };
+    const oldDel = o.delivery_window_start ? new Date(o.delivery_window_start).toLocaleDateString('en-US',{timeZone:BIZ_TZ}) : '—';
+    const newDel = new Date(newStart).toLocaleDateString('en-US',{timeZone:BIZ_TZ});
+    await logOrderEvent(o.id, 'rescheduled', `Delivery rescheduled from ${oldDel} to ${newDel}`, oldDel, newDel);
     const { error } = await db.from('orders').update(update).eq('id', o.id);
     if (error) { showToast('Failed to update delivery window', 'error'); return; }
     Object.assign(o, update);
@@ -6473,6 +6485,7 @@
       // Clear delivery_address_id so it defaults back to the pickup address
       const o = allOrders.find(x => x.id === opCurrentOrderId);
       if (!o) return;
+      await logOrderEvent(opCurrentOrderId, 'rescheduled', 'Delivery address reset to pickup address');
       const { error } = await db.from('orders').update({ delivery_address_id: null }).eq('id', opCurrentOrderId);
       if (error) { showToast('Failed to clear delivery address', 'error'); return; }
       o.delivery_address_id = null;
@@ -6494,11 +6507,12 @@
   }
 
   function opSwitchTab(tab, btn) {
-    ['schedule','details','billing'].forEach(t => {
+    ['schedule','details','billing','history'].forEach(t => {
       document.getElementById(`op-tab-${t}`).style.display = t === tab ? '' : 'none';
       const b = document.getElementById(`op-tab-btn-${t}`);
       if (b) b.classList.toggle('active', t === tab);
     });
+    if (tab === 'history') opLoadHistory();
   }
 
   function closeOrderPanel() {
@@ -6506,6 +6520,99 @@
     document.getElementById('order-panel-backdrop').classList.remove('open');
     opCurrentOrderId = null;
     opCurrentCustId  = null;
+  }
+
+  // ── ORDER HISTORY TAB ──────────────────────────────────────────
+  let _opHistoryLoaded = null; // order id of last loaded history
+  async function opLoadHistory() {
+    if (!opCurrentOrderId) return;
+    if (_opHistoryLoaded === opCurrentOrderId) return; // already loaded for this order
+
+    const listEl = document.getElementById('op-history-list');
+    const emptyEl = document.getElementById('op-history-empty');
+    const loadEl = document.getElementById('op-history-loading');
+    listEl.innerHTML = '';
+    emptyEl.style.display = 'none';
+    loadEl.style.display = '';
+
+    const { data, error } = await db.from('order_events')
+      .select('*')
+      .eq('order_id', opCurrentOrderId)
+      .order('created_at', { ascending: true });
+
+    loadEl.style.display = 'none';
+
+    if (error || !data || data.length === 0) {
+      emptyEl.style.display = '';
+      return;
+    }
+
+    _opHistoryLoaded = opCurrentOrderId;
+    listEl.innerHTML = data.map(ev => opRenderHistoryEvent(ev)).join('');
+  }
+
+  function opRenderHistoryEvent(ev) {
+    const dt = new Date(ev.created_at);
+    const dateStr = dt.toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'numeric', day: 'numeric', year: '2-digit' });
+    const timeStr = dt.toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+    const actor = ev.actor_name || 'System';
+
+    // Icon + color per event type
+    let icon = '•', color = 'var(--gray-400)';
+    switch (ev.event_type) {
+      case 'created':        icon = '📋'; break;
+      case 'status_change':
+        switch (ev.new_value) {
+          case 'picked_up':          icon = '🚗'; break;
+          case 'processing':         icon = '🧺'; break;
+          case 'folding':            icon = '👕'; break;
+          case 'ready_for_delivery': icon = '✅'; break;
+          case 'delivered':          icon = '📦'; break;
+          case 'cancelled':          icon = '❌'; break;
+          case 'skipped':            icon = '⏭️'; break;
+          case 'pickup_failed':
+          case 'delivery_failed':    icon = '⚠️'; break;
+          default:                   icon = '🔄'; break;
+        }
+        break;
+      case 'weight_updated':  icon = '⚖️'; break;
+      case 'bags_updated':    icon = '🛍️'; break;
+      case 'total_changed':   icon = '💲'; break;
+      case 'folded':          icon = '👕'; break;
+      case 'racked':          icon = '🗄️'; break;
+      case 'routed':          icon = '🗺️'; break;
+      case 'billing':         icon = ev.new_value === 'failed' ? '⚠️' : '💳'; break;
+      case 'rescheduled':     icon = '📅'; break;
+      default:                icon = '•'; break;
+    }
+
+    const desc = (ev.description || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const actorSafe = actor.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    return `<div style="display:flex;align-items:flex-start;gap:10px;padding:9px 4px;border-bottom:1px solid var(--gray-100);font-size:12.5px;line-height:1.4">
+      <span style="flex-shrink:0;font-size:14px;margin-top:1px">${icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="color:var(--gray-900);font-weight:500">${desc}</div>
+        <div style="color:var(--gray-400);font-size:11px;margin-top:2px">${dateStr} ${timeStr} — <span style="color:var(--gray-500)">${actorSafe}</span></div>
+      </div>
+    </div>`;
+  }
+
+  // Helper: log an order event from admin JS (with admin's name)
+  async function logOrderEvent(orderId, eventType, description, oldValue, newValue) {
+    const actorName = currentUserFirstName || 'Admin';
+    try {
+      await db.from('order_events').insert({
+        order_id: orderId,
+        event_type: eventType,
+        description: description,
+        old_value: oldValue || null,
+        new_value: newValue || null,
+        actor_name: actorName
+      });
+    } catch(_) {}
+    // Reset history cache so next tab switch reloads
+    if (opCurrentOrderId === orderId) _opHistoryLoaded = null;
   }
 
   async function opAdvanceStatus() {
@@ -6589,6 +6696,7 @@
         routing_error: reopenNote,
       };
 
+      await logOrderEvent(opCurrentOrderId, 'status_change', `Rolled back from ${_OP_STATUS_LABELS[o.status]} → On Hold`, o.status, 'on_hold');
       const { error } = await db.from('orders').update(payload).eq('id', opCurrentOrderId);
       if (error) { showToast('Failed to update status: ' + error.message, 'error'); return; }
       Object.assign(o, payload);
@@ -6631,6 +6739,10 @@
     // Clear routing_error if advancing forward (order was fixed)
     if (newIdx > oldIdx && o.routing_error) payload.routing_error = null;
 
+    // Log event BEFORE update so trigger dedup sees it
+    const statusLabel = _OP_STATUS_LABELS[newStatus] || newStatus.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+    await logOrderEvent(opCurrentOrderId, 'status_change', statusLabel, o.status, newStatus);
+
     const { error } = await db.from('orders').update(payload).eq('id', opCurrentOrderId);
     if (error) { showToast('Failed to update status: ' + error.message, 'error'); return; }
     Object.assign(o, payload);
@@ -6639,7 +6751,7 @@
     opRefreshAdvanceBtn(o);
     updateOrderFilterCounts();
     renderOrders(getFilteredOrders());
-    showToast(`Status → ${_OP_STATUS_LABELS[newStatus] || newStatus.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}`, 'success');
+    showToast(`Status → ${statusLabel}`, 'success');
   }
 
   function opViewCustomer() {
@@ -6655,6 +6767,9 @@
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
     const newVal = val || null;
+    const oldLabel = o.recurring_interval ? (_recurLabel[o.recurring_interval] || o.recurring_interval) : 'one-time';
+    const newLabel = newVal ? (_recurLabel[newVal] || newVal) : 'one-time';
+    await logOrderEvent(opCurrentOrderId, 'rescheduled', `Recurrence changed from ${oldLabel} to ${newLabel}`, o.recurring_interval || 'none', newVal || 'none');
     const { error } = await db.from('orders').update({ recurring_interval: newVal }).eq('id', opCurrentOrderId);
     if (error) { showToast('Failed to update recurrence: ' + error.message, 'error'); return; }
     o.recurring_interval = newVal;
@@ -6963,6 +7078,17 @@
       update.cancelled_by = null;
     }
 
+    // Log reschedule event BEFORE the update so trigger dedup sees it
+    const legLabel = leg === 'pickup' ? 'Pickup' : 'Delivery';
+    const newDate = startIso ? new Date(startIso).toLocaleDateString('en-US',{timeZone:BIZ_TZ}) : '';
+    const newTime = startIso ? new Date(startIso).toLocaleTimeString('en-US',{timeZone:BIZ_TZ,hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase() : '';
+    const routeName = _opRoutes.find(x => x.id === routeId)?.name || '';
+    await logOrderEvent(opCurrentOrderId, 'rescheduled', `${legLabel} rescheduled to ${newDate} ${newTime}${routeName ? ' · ' + routeName : ''}`, null, startIso);
+    if (update.status) {
+      const statusLabel = _OP_STATUS_LABELS[update.status] || update.status;
+      await logOrderEvent(opCurrentOrderId, 'status_change', `Status reset to ${statusLabel}`, o.status, update.status);
+    }
+
     const { error } = await db.from('orders').update(update).eq('id', opCurrentOrderId);
     if (error) {
       showToast('Failed to save: ' + error.message, 'error');
@@ -7081,6 +7207,12 @@
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
     const col = leg === 'pickup' ? 'pickup_address_id' : 'delivery_address_id';
+    const legLabel = leg === 'pickup' ? 'Pickup' : 'Delivery';
+    const cust = allCustomers.find(c => c.id === opCurrentCustId);
+    const addrs = Array.isArray(cust?.addresses) ? cust.addresses : [];
+    const addr = addrs.find(a => a.id === addressId);
+    const addrLabel = addr ? (addr.label || addr.line1 || 'new address') : 'new address';
+    await logOrderEvent(opCurrentOrderId, 'rescheduled', `${legLabel} address changed to ${addrLabel}`, null, addressId);
     const { error } = await db.from('orders').update({ [col]: addressId }).eq('id', opCurrentOrderId);
     if (error) { showToast('Failed to save address', 'error'); return; }
     o[col] = addressId;
@@ -7424,6 +7556,11 @@
       updated_at: new Date().toISOString(),
     };
 
+    // Log detail changes BEFORE the update
+    if (o.weight_lbs !== (weight > 0 ? weight : null)) await logOrderEvent(opCurrentOrderId, 'weight_updated', `Weight changed from ${o.weight_lbs || 0} lbs to ${weight} lbs`, String(o.weight_lbs || 0), String(weight));
+    if (o.total_bags !== (bags || null)) await logOrderEvent(opCurrentOrderId, 'bags_updated', `Bags changed from ${o.total_bags || 0} to ${bags}`, String(o.total_bags || 0), String(bags));
+    if (Math.abs((o.total_amount || 0) - newTotal) > 0.01) await logOrderEvent(opCurrentOrderId, 'total_changed', `Total changed from ${fmtMoney(o.total_amount || 0)} to ${fmtMoney(newTotal)}`, String(o.total_amount || 0), String(newTotal));
+
     const { error } = await db.from('orders').update(update).eq('id', opCurrentOrderId);
     if (error) { showToast('Failed to save', 'error'); return; }
     Object.assign(o, update);
@@ -7470,6 +7607,7 @@
     });
     const data = await res.json();
     if (!res.ok) { showToast(data.error || 'Charge failed', 'error'); return; }
+    await logOrderEvent(o.id, 'billing', `Charged ${fmtMoney(o.total_amount)}`, null, 'charged');
     // Clear failed billing status and refresh
     await db.from('orders').update({ billing_status: null }).eq('id', o.id);
     showToast('Payment charged ✓', 'success');
@@ -8129,6 +8267,7 @@ ${totalLinesXml}
       const payload = { status: newStatus };
       if (newStatus === 'picked_up')   payload.actual_pickup_at   = now;
       if (newStatus === 'delivered')   payload.actual_delivery_at = now;
+      await logOrderEvent(s.id, 'status_change', label, s.status, newStatus);
       const { error } = await db.from('orders').update(payload).eq('id', s.id);
       if (!error) succeeded++;
     }
@@ -8181,6 +8320,8 @@ ${totalLinesXml}
       const payload = { status: nextStatus };
       if (nextStatus === 'picked_up') payload.actual_pickup_at = now;
       if (nextStatus === 'delivered') payload.actual_delivery_at = now;
+      const advLabel = STATUS_NEXT_LABEL[nextStatus] || nextStatus;
+      await logOrderEvent(s.id, 'status_change', advLabel, s.status, nextStatus);
       const { error } = await db.from('orders').update(payload).eq('id', s.id);
       if (!error) succeeded++;
     }
@@ -8337,6 +8478,7 @@ ${totalLinesXml}
       if (newStatus === 'delivered')  payload.actual_delivery_at = now;
       if (newStatus === 'skipped') payload.cancelled_by = 'customer'; // skip = routine, keeps recurring chain going
       else if (['cancelled','pickup_failed','delivery_failed'].includes(newStatus)) payload.cancelled_by = 'admin';
+      await logOrderEvent(orderId, 'status_change', label, _singleStatusCurrentStatus, newStatus);
       const { error } = await db.from('orders').update(payload).eq('id', orderId);
       if (error) { showToast('Error: ' + error.message, 'error'); return; }
       showToast(`✓ Order #${orderNum} → ${label}`);
@@ -8371,6 +8513,10 @@ ${totalLinesXml}
     const errEl = document.getElementById('reassign-error');
     if (!runId) { errEl.textContent = 'Please select a route.'; errEl.style.display=''; return; }
     const col = _rescheduleLeg === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
+    const legLabel = _rescheduleLeg === 'pickup' ? 'Pickup' : 'Delivery';
+    const selOpt = document.getElementById('reassign-run-select').selectedOptions[0];
+    const routeLabel = selOpt ? selOpt.textContent.trim() : '';
+    await logOrderEvent(_rescheduleOrderId, 'rescheduled', `${legLabel} moved to route: ${routeLabel}`, null, runId);
     const { error } = await db.from('orders').update({ [col]: runId }).eq('id', _rescheduleOrderId);
     if (error) { errEl.textContent = error.message; errEl.style.display=''; return; }
     closeReassignModal();
@@ -8835,6 +8981,8 @@ ${totalLinesXml}
         if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
         showToast(`💳 Order #${orderNum} charged — ${result.card || ''}`);
       }
+      // Log status change BEFORE update so trigger dedup sees it
+      await logOrderEvent(orderId, 'status_change', label, null, newStatus);
       // Update the status in Supabase (auto-stamp actual times)
       const statusPayload = { status: newStatus };
       if (newStatus === 'picked_up')   statusPayload.actual_pickup_at   = new Date().toISOString();
@@ -12787,6 +12935,12 @@ ${totalLinesXml}
 
       const successIds = ids.filter(id => !failedOrders.find(f => f.orderId === id));
 
+      // Log billing events for each successfully charged order
+      for (const oid of successIds) {
+        const ord = cpAllOrders.find(x => x.id === oid);
+        await logOrderEvent(oid, 'billing', `Charged ${fmtMoney(ord?.total_amount || 0)} via credit card`, null, 'paid');
+      }
+
       // Mark successfully charged orders as paid in DB
       if (successIds.length > 0) {
         await db.from('orders').update({
@@ -12830,6 +12984,11 @@ ${totalLinesXml}
 
     // ── ALL OTHER METHODS: just record payment ──
     btn.disabled = true; btn.textContent = 'Saving…';
+    const methodLabel = method === 'check' ? 'check' : method === 'cash' ? 'cash' : method === 'venmo' ? 'Venmo' : method;
+    for (const oid of ids) {
+      const ord = cpAllOrders.find(x => x.id === oid);
+      await logOrderEvent(oid, 'billing', `Marked paid via ${methodLabel} — ${fmtMoney(ord?.total_amount || 0)}`, null, 'paid');
+    }
     const { error } = await db.from('orders').update({
       billing_status: 'paid',
       billing_payment_method: method,
@@ -13281,6 +13440,9 @@ ${totalLinesXml}
     // Mark saving state
     document.querySelectorAll('.sp-slot-btn').forEach(b => b.classList.add('saving'));
     btn.textContent = 'Saving…';
+    const newDate = new Date(startIso).toLocaleDateString('en-US',{timeZone:BIZ_TZ});
+    const newTime = new Date(startIso).toLocaleTimeString('en-US',{timeZone:BIZ_TZ,hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase();
+    await logOrderEvent(_spOrderId, 'rescheduled', `Pickup rescheduled to ${newDate} ${newTime}`, null, startIso);
     const { error } = await db.from('orders').update({
       pickup_window_start: startIso,
       pickup_window_end: endIso,
@@ -16815,6 +16977,9 @@ ${totalLinesXml}
 
   async function saveFolding() {
     if (!foldActiveOrder || !foldSelectedLaunId) return;
+    const _foldLaunName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
+    await logOrderEvent(foldActiveOrder.id, 'folded', `Assigned to ${_foldLaunName} for folding`, null, foldSelectedLaunId);
+    await logOrderEvent(foldActiveOrder.id, 'status_change', 'Folding', foldActiveOrder.status || 'processing', 'folding');
     const { error } = await db.from('orders').update({
       status: 'folding', folded_by_id: foldSelectedLaunId,
       folded_at: new Date().toISOString(), updated_at: new Date().toISOString()
@@ -16838,6 +17003,8 @@ ${totalLinesXml}
 
   async function assignFolderInline(orderId, launId) {
     if (!launId) return;
+    const _inlineLaunName = allLaunCache.find(l => l.id === launId)?.name || 'Launderer';
+    await logOrderEvent(orderId, 'folded', `Reassigned to ${_inlineLaunName} for folding`, null, launId);
     const { error } = await db.from('orders').update({
       folded_by_id: launId,
       updated_at: new Date().toISOString()
@@ -17054,6 +17221,11 @@ ${totalLinesXml}
         rackActiveOrder.billing_status = 'failed';
       }
     }
+
+    // Log rack assignment + status change BEFORE update
+    const _rackLabel = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
+    await logOrderEvent(rackActiveOrder.id, 'racked', `Racked on ${_rackLabel}`, null, selectedRackId);
+    await logOrderEvent(rackActiveOrder.id, 'status_change', 'Ready for Delivery', rackActiveOrder.status || 'folding', 'ready_for_delivery');
 
     const { error } = await db.from('orders').update({
       status: 'ready_for_delivery', rack_id: selectedRackId,
@@ -17874,6 +18046,7 @@ ${totalLinesXml}
     const patch = { status: targetStatus, updated_at: new Date().toISOString() };
     // Clear rack assignment when moving back from or past the Rack column
     if (['folding','processing','picked_up'].includes(targetStatus)) { patch.rack_id = null; patch.racked_at = null; }
+    await logOrderEvent(orderId, 'status_change', `Moved back to ${label}`, null, targetStatus);
     const { error } = await db.from('orders').update(patch).eq('id', orderId);
     if (error) { showToast(error.message, 'error'); reloadColumns('intake','cleaning','folding','rack'); return; }
     showToast(`Order moved back to ${label}`, 'success');
@@ -17916,6 +18089,12 @@ ${totalLinesXml}
     // Open print popup NOW — before any await — so browsers don't block it.
     // Only needed for browser transport; CloudPRNT and PassPRNT don't use popups.
     const printWin = _resolveTransport() === 'browser' ? window.open('', '_blank', 'width=420,height=750') : null;
+
+    // Log intake events BEFORE the update
+    await logOrderEvent(procActiveOrder.id, 'weight_updated', `Weight recorded: ${weight} lbs`, null, String(weight));
+    if (bd.bags) await logOrderEvent(procActiveOrder.id, 'bags_updated', `Bags: ${bd.bags}`, null, String(bd.bags));
+    if (bd.total > 0) await logOrderEvent(procActiveOrder.id, 'total_changed', `Total calculated: ${fmtMoney(bd.total)}`, null, String(bd.total));
+    await logOrderEvent(procActiveOrder.id, 'status_change', 'Processing', procActiveOrder.status, 'processing');
 
     const { error } = await db.from('orders').update({
       status: 'processing', weight_lbs: weight, total_bags: bd.bags,
