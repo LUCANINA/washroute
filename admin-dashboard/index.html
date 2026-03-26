@@ -1171,40 +1171,22 @@
 
         <!-- ── OVERVIEW ── -->
         <div class="page active" id="page-overview">
-          <!-- Today's snapshot — 3 stat cards -->
-          <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
-            <div class="stat-card stat-card-link" onclick="showPage('orders',document.getElementById('nav-orders'))" title="View today's orders">
-              <div class="stat-label">Expected Orders Today</div>
-              <div class="stat-value" id="stat-today-orders">—</div>
-              <div class="stat-delta" id="stat-today-orders-sub">Loading…</div>
-            </div>
-            <div class="stat-card stat-card-link" onclick="showPage('orders',document.getElementById('nav-orders'))" title="View today's orders">
-              <div class="stat-label">Expected Bags Today</div>
-              <div class="stat-value" id="stat-today-bags">—</div>
-              <div class="stat-delta" id="stat-today-bags-sub">Loading…</div>
-            </div>
-            <div class="stat-card stat-card-link" onclick="showPage('reports',document.getElementById('nav-reports'))" title="View reports">
-              <div class="stat-label">Expected Revenue Today</div>
-              <div class="stat-value" id="stat-today-revenue">—</div>
-              <div class="stat-delta" id="stat-today-revenue-sub">Loading…</div>
-            </div>
-          </div>
 
-          <!-- Main two-col: new customers + recent orders -->
+          <!-- Main two-col: new customers + recent orders (collapsible) -->
           <div class="two-col">
             <div class="card">
-              <div class="card-header">
+              <div class="card-header" style="cursor:pointer" onclick="toggleOverviewPanel('new-customers-body',this)">
                 <div><div class="card-title">New Customers</div><div class="card-sub">Last 10 registered</div></div>
-                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('customers',document.getElementById('nav-customers'))">View all</button>
+                <span class="overview-chevron" style="font-size:18px;color:var(--gray-400);transition:transform .2s">▸</span>
               </div>
-              <div id="new-customers-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+              <div id="new-customers-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
             <div class="card">
-              <div class="card-header">
+              <div class="card-header" style="cursor:pointer" onclick="toggleOverviewPanel('recent-orders-body',this)">
                 <div><div class="card-title">Recent Orders</div><div class="card-sub">Last 10 placed</div></div>
-                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('orders',document.getElementById('nav-orders'))">View all</button>
+                <span class="overview-chevron" style="font-size:18px;color:var(--gray-400);transition:transform .2s">▸</span>
               </div>
-              <div id="recent-orders-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+              <div id="recent-orders-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
           </div>
 
@@ -1231,19 +1213,6 @@
             <div id="unpaid-orders-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
 
-          <!-- Recurring Orders panel -->
-          <div class="card" style="margin-top:0">
-            <div class="card-header">
-              <div>
-                <div class="card-title">Recurring Orders</div>
-                <div class="card-sub" id="recurring-sub">Loading…</div>
-              </div>
-              <button class="btn btn-ghost" id="recurring-run-btn" style="font-size:12px;padding:5px 10px" onclick="runRecurringScheduler()">▶ Run Scheduler</button>
-            </div>
-            <div id="recurring-body" style="padding:4px 20px 16px">
-              <div class="loading"><div class="spinner"></div> Loading…</div>
-            </div>
-          </div>
         </div>
 
         <!-- ── CUSTOMERS ── -->
@@ -5011,47 +4980,20 @@
   }
 
   // ── OVERVIEW ──
+  function toggleOverviewPanel(bodyId, headerEl) {
+    const body = document.getElementById(bodyId);
+    if (!body) return;
+    const chevron = headerEl.querySelector('.overview-chevron');
+    const isHidden = body.style.display === 'none';
+    body.style.display = isHidden ? '' : 'none';
+    if (chevron) chevron.textContent = isHidden ? '▾' : '▸';
+  }
+
   async function loadOverview() {
-    const todayStr = today();
-    const tomorrowStr = (() => { const [y,m,d2] = todayStr.split('-').map(Number); const d = new Date(y, m-1, d2+1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
-    const monthStart = todayStr.slice(0,7) + '-01';
-
-    const [
-      { count: custCount },
-      { data: activeOrders },
-      { data: todayOrders }
-    ] = await Promise.all([
-      db.from('customers').select('*', { count: 'exact', head: true }),
-      db.from('orders').select('id,status').not('status','in','("delivered","cancelled")'),
-      db.from('orders')
-        .select('id, total_bags, total_amount, status')
-        .gte('pickup_window_start', todayStr + 'T00:00:00')
-        .lt('pickup_window_start',  tomorrowStr + 'T00:00:00')
-        .not('status','in','("cancelled")')
-    ]);
-
-    // Today's snapshot stats
-    const todayCount   = todayOrders?.length ?? 0;
-    const todayBags    = (todayOrders||[]).reduce((s,o)=>s+(o.total_bags||0),0);
-    const todayRevenue = (todayOrders||[]).reduce((s,o)=>s+parseFloat(o.total_amount||0),0);
-    const delivered    = (todayOrders||[]).filter(o=>o.status==='delivered').length;
-
-    document.getElementById('stat-today-orders').textContent = todayCount;
-    document.getElementById('stat-today-orders-sub').textContent = delivered ? `${delivered} already delivered` : 'Scheduled for today';
-
-    document.getElementById('stat-today-bags').textContent = todayBags;
-    document.getElementById('stat-today-bags-sub').textContent = todayCount ? `across ${todayCount} order${todayCount!==1?'s':''}` : 'No pickups today';
-
-    document.getElementById('stat-today-revenue').textContent = fmtMoney(todayRevenue);
-    document.getElementById('stat-today-revenue-sub').textContent = todayCount ? `avg ${fmtMoney(todayRevenue/(todayCount||1))} per order` : 'No pickups today';
-
-    // Nav badges removed (only inbox badge remains)
-
     loadNewCustomers();
     loadRecentOrders();
     loadOverviewIssues();
     loadUnpaidOrders();
-    loadRecurringOverview();
   }
 
   async function loadRecentOrders() {
@@ -5179,9 +5121,9 @@
     if (!el) return;
 
     const { data, error } = await db.from('orders')
-      .select('id, order_number, status, billing_status, total_amount, created_at, customers(id, first_name_cache, last_name_cache)')
+      .select('id, order_number, status, billing_status, total_amount, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, billing_type)')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery'])
-      .not('billing_status', 'eq', 'paid')
+      .not('billing_status', 'in', '("paid","refunded")')
       .order('created_at', { ascending: false });
 
     if (error || !data) {
@@ -5200,15 +5142,14 @@
     if (failedCount) parts.push(`${failedCount} failed`);
     if (subEl) subEl.textContent = parts.join(' · ');
 
-    el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Billing</th><th style="text-align:right">Amount</th></tr></thead><tbody>
+    el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Billing</th><th style="text-align:right">Amount</th><th style="text-align:right">Action</th></tr></thead><tbody>
       ${data.map(o => {
         const cust = o.customers;
         const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
         const billingBadge = o.billing_status === 'failed'
           ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:#fee2e2;color:#b91c1c">FAILED</span>'
-          : o.billing_status === 'refunded'
-          ? '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:#f3e8ff;color:#7c3aed">REFUNDED</span>'
           : '<span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:#fef3c7;color:#92400e">UNPAID</span>';
+        const action = _deliveredActionBtn(o);
         const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
         return `<tr ${clickable}>
           <td class="td-mono">#${o.order_number}</td>
@@ -5216,6 +5157,7 @@
           <td>${statusBadge(o.status)}</td>
           <td>${billingBadge}</td>
           <td style="text-align:right;font-weight:600">${fmtMoney(o.total_amount)}</td>
+          <td style="text-align:right">${action}</td>
         </tr>`;
       }).join('')}
     </tbody></table>`;
@@ -5228,65 +5170,6 @@
     if (!p) return {};
     if (Array.isArray(p)) return p[0] || {};
     return p;
-  }
-
-  // ── Recurring Orders overview + manual scheduler trigger ──
-  async function loadRecurringOverview() {
-    const subEl = document.getElementById('recurring-sub');
-    const bodyEl = document.getElementById('recurring-body');
-    if (!bodyEl) return;
-
-    const { data: orders, error } = await db
-      .from('orders')
-      .select('id, customer_id, recurring_interval, pickup_window_start, status')
-      .not('recurring_interval', 'is', null)
-      .neq('status', 'cancelled')
-      .gte('pickup_window_start', new Date().toISOString())
-      .order('pickup_window_start');
-
-    if (error || !orders?.length) {
-      if (subEl) subEl.textContent = 'No active recurring orders';
-      bodyEl.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:4px 0">No upcoming recurring pickups scheduled.</div>';
-      return;
-    }
-
-    const uniqueCustomers = new Set(orders.map(o => o.customer_id)).size;
-    if (subEl) subEl.textContent = `${uniqueCustomers} customer${uniqueCustomers !== 1 ? 's' : ''} · ${orders.length} upcoming`;
-
-    const intervalLabel = { weekly: '🔁 Weekly', biweekly: '📅 Biweekly', monthly: '🗓️ Monthly' };
-    const rows = orders.slice(0, 8).map(o => {
-      const cust = allCustomers.find(c => c.id === o.customer_id);
-      const name = cust ? `${cust.first_name_cache||''} ${cust.last_name_cache||''}`.trim() || 'Unknown' : 'Unknown';
-      const freq = intervalLabel[o.recurring_interval] || o.recurring_interval;
-      const date = fmtDate(new Date(o.pickup_window_start));
-      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--gray-100);font-size:13px">
-        <span style="font-weight:500;flex:1">${name}</span>
-        <span style="color:var(--gray-500);flex:1;text-align:center">${freq}</span>
-        <span style="color:var(--gray-600);flex:0 0 auto">${date}</span>
-      </div>`;
-    }).join('');
-
-    bodyEl.innerHTML = rows + (orders.length > 8
-      ? `<div style="font-size:12px;color:var(--gray-400);padding-top:8px">+ ${orders.length - 8} more upcoming</div>`
-      : '');
-  }
-
-  async function runRecurringScheduler() {
-    const btn = document.getElementById('recurring-run-btn');
-    if (!btn) return;
-    btn.disabled = true;
-    btn.textContent = '⏳ Running…';
-    try {
-      const { data, error } = await db.rpc('create_recurring_orders');
-      if (error) throw error;
-      showToast(`✓ Scheduler ran — ${data.created} order${data.created !== 1 ? 's' : ''} created, ${data.skipped} skipped`, 'success');
-      await loadRecurringOverview();
-    } catch (err) {
-      showToast('Scheduler error: ' + err.message, 'error');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '▶ Run Scheduler';
-    }
   }
 
   async function loadCustomers() {
