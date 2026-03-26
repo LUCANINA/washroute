@@ -5157,6 +5157,18 @@
       el.innerHTML = `<div class="empty"><div class="empty-title">No customers yet</div><div class="empty-sub">New sign-ups will appear here.</div></div>`;
       return;
     }
+
+    // Pre-populate _nudgeSent from DB so nudge status persists across refreshes
+    const nudgeCandidateIds = custs.filter(c => (c.total_orders || 0) === 0 && c.phone_cache).map(c => c.id);
+    if (nudgeCandidateIds.length && !_nudgeSent.size) {
+      const { data: nudgeRows } = await db.from('sms_messages')
+        .select('customer_id')
+        .in('customer_id', nudgeCandidateIds)
+        .like('body', '%place your first order%')
+        .eq('direction', 'outbound');
+      (nudgeRows || []).forEach(r => _nudgeSent.add(r.customer_id));
+    }
+
     el.innerHTML = `<table><thead><tr><th>Customer</th><th>Email</th><th style="text-align:center">Ordered</th><th>Joined</th><th style="text-align:right"></th></tr></thead><tbody>
       ${custs.map(c => {
         const name = `${c.first_name_cache||''} ${c.last_name_cache||''}`.trim() || 'Unknown';
