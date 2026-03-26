@@ -7377,6 +7377,18 @@
 
   // ── RECEIPT PRINTING ──
 
+  // ── RECEIPT HELPERS ──
+  // HTML entity escaper — used in all HTML-based receipt renderers (PassPRNT + browser popup).
+  // Prevents XSS from customer names, addresses, or line item labels containing HTML special chars.
+  function _escHtml(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   // ── CLOUDPRNT: Star Document Markup builder ──
   // Generates Star SDM (text/vnd.star.markup) for the TSP654II thermal printer.
   // Uses the same data shape as _openReceiptWindow().
@@ -7533,9 +7545,19 @@ ${totalLinesXml}
   // Uses the same receiptData shape as CloudPRNT and browser popup.
 
   function _buildPassPrntHtml(data) {
-    const { orderNum, custName, custAddr, weightLbs, bags,
-            pickupStr, delivStr, stopNum, routeName,
-            addonTags, lineItems, total } = data;
+    const { orderNum: rawOrderNum, custName: rawCustName, custAddr: rawCustAddr, weightLbs, bags,
+            pickupStr: rawPickupStr, delivStr: rawDelivStr, stopNum: rawStopNum, routeName: rawRouteName,
+            addonTags: rawAddonTags, lineItems, total } = data;
+
+    // Escape all user-supplied strings to prevent XSS in PassPRNT's WebView
+    const orderNum  = _escHtml(rawOrderNum);
+    const custName  = _escHtml(rawCustName);
+    const custAddr  = _escHtml(rawCustAddr);
+    const pickupStr = _escHtml(rawPickupStr);
+    const delivStr  = _escHtml(rawDelivStr);
+    const stopNum   = _escHtml(rawStopNum);
+    const routeName = _escHtml(rawRouteName);
+    const addonTags = (rawAddonTags || []).map(t => _escHtml(t));
 
     // Timestamp
     const ts = new Date().toLocaleString('en-US', {
@@ -7557,7 +7579,7 @@ ${totalLinesXml}
     let barcodeSvg = '';
     try {
       const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      JsBarcode(tempSvg, String(orderNum || ''), {
+      JsBarcode(tempSvg, String(rawOrderNum || ''), {
         format: 'CODE128', width: 1.6, height: 46,
         displayValue: false, margin: 0, background: '#ffffff', lineColor: '#000000'
       });
@@ -7567,16 +7589,16 @@ ${totalLinesXml}
       barcodeSvg = `<div style="font-size:18px;font-weight:900;letter-spacing:4px">${orderNum || ''}</div>`;
     }
 
-    // Invoice rows
+    // Invoice rows (li.label escaped for safety)
     const lineItemsHtml = displayItems.length
       ? displayItems.map(li =>
           `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dotted #ddd">` +
-          `<span style="flex:1;font-size:12px">${li.label || 'Service'}</span>` +
+          `<span style="flex:1;font-size:12px">${_escHtml(li.label) || 'Service'}</span>` +
           `<span style="width:56px;text-align:right;font-size:12px;font-weight:700">${fmt(li.amount)}</span></div>`
         ).join('')
       : '<div style="font-size:11px;color:#555">Wash &amp; Fold</div>';
 
-    // Add-on tags
+    // Add-on tags (already escaped via addonTags map above)
     const addonHtml = (addonTags && addonTags.length)
       ? `<div style="margin:7px 0 8px">` +
         `<div style="font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:3px">Add-ons</div>` +
@@ -7663,29 +7685,33 @@ ${totalLinesXml}
       return false;
     }
 
-    // Attempt to open PassPRNT. If the app isn't installed, the URL scheme silently fails on iOS.
-    // We use a visibility-change approach: if the browser goes to background (PassPRNT opened), success.
-    // If nothing happens within 2s, show an error.
+    // Use a hidden iframe to invoke the URL scheme — safer than window.location.href
+    // which can navigate the page away on non-iOS devices or show an error dialog.
+    // On iOS: if PassPRNT is installed, it opens and the browser goes to background.
+    // If not installed, nothing visible happens — we detect via visibility timeout.
     let launched = false;
-    const onBlur = () => { launched = true; };
-    window.addEventListener('pagehide', onBlur);
-    document.addEventListener('visibilitychange', () => { if (document.hidden) launched = true; });
+    const onVisChange = () => { if (document.hidden) launched = true; };
+    document.addEventListener('visibilitychange', onVisChange);
 
     try {
-      window.location.href = url;
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      setTimeout(() => { try { iframe.remove(); } catch (_) {} }, 3000);
     } catch (e) {
       console.error('[PassPRNT] URL scheme error:', e);
       showToast('Could not launch PassPRNT — is the app installed?', 'error');
-      window.removeEventListener('pagehide', onBlur);
+      document.removeEventListener('visibilitychange', onVisChange);
       return false;
     }
 
     // Check after 2.5s if we're still here
     setTimeout(() => {
-      window.removeEventListener('pagehide', onBlur);
+      document.removeEventListener('visibilitychange', onVisChange);
       if (!launched) {
         console.warn('[PassPRNT] App did not open — may not be installed');
-        showToast('PassPRNT did not open. Install Star PassPRNT from the App Store, or switch to CloudPRNT in Settings → Printer.', 'error');
+        showToast('PassPRNT did not open. Install Star PassPRNT from the App Store, or switch to CloudPRNT in Settings \u2192 Printer.', 'error');
       }
     }, 2500);
 
@@ -7713,9 +7739,14 @@ ${totalLinesXml}
 
   function _openReceiptWindow(data, copies, win) {
     copies = copies || 2;
-    const { orderNum, custName, custAddr, weightLbs, bags,
-            pickupStr, delivStr, stopNum, routeName,
-            addonTags, lineItems, total } = data;
+    const { orderNum: rawON, custName: rawCN, custAddr: rawCA, weightLbs, bags,
+            pickupStr: rawPS, delivStr: rawDS, stopNum: rawSN, routeName: rawRN,
+            addonTags: rawAT, lineItems, total } = data;
+    // Escape all user-supplied strings for safe HTML interpolation
+    const orderNum = _escHtml(rawON), custName = _escHtml(rawCN), custAddr = _escHtml(rawCA);
+    const pickupStr = _escHtml(rawPS), delivStr = _escHtml(rawDS);
+    const stopNum = _escHtml(rawSN), routeName = _escHtml(rawRN);
+    const addonTags = (rawAT || []).map(t => _escHtml(t));
 
     // Partition line items — only show meaningful service lines in the invoice body
     const displayItems = (lineItems || []).filter(li =>
@@ -7727,11 +7758,11 @@ ${totalLinesXml}
     const hasFeeSplit  = !!(delivFeeItem || sameDayItem || creditItem);
     const fmt = n => '$' + Math.abs(Number(n || 0)).toFixed(2);
 
-    // Invoice rows
+    // Invoice rows (li.label escaped for safety)
     const lineItemsHtml = displayItems.length
       ? displayItems.map(li =>
           `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dotted #ddd">` +
-          `<span style="flex:1;font-size:12px">${li.label || 'Service'}</span>` +
+          `<span style="flex:1;font-size:12px">${_escHtml(li.label) || 'Service'}</span>` +
           `<span style="width:56px;text-align:right;font-size:12px;font-weight:700">$${Number(li.amount || 0).toFixed(2)}</span></div>`
         ).join('')
       : '<div style="font-size:11px;color:#555">Wash &amp; Fold</div>';
@@ -7772,8 +7803,8 @@ ${totalLinesXml}
       if (creditItem)   totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Credit applied</span><span style="color:#16a34a">&#8722;${fmt(creditItem.amount)}</span></div>`;
     }
 
-    // Safe order number for CSS class names (alphanumeric only)
-    const sn = String(orderNum).replace(/[^a-zA-Z0-9]/g, '');
+    // Safe order number for CSS class names and barcode (uses raw unescaped value)
+    const sn = String(rawON || '').replace(/[^a-zA-Z0-9]/g, '');
 
     function oneCopy() {
       return (
