@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 27, 2026 — Billing retry flow refinement, audit fixes, driver duplicate fix (session 70h)*
+*Last updated: Mar 27, 2026 — Skip attribution, customer tip, issue tracking, CloudPRNT ESC/POS fix (session 70i)*
 
 ---
 
@@ -35,7 +35,7 @@ Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no d
 | Receipt paper | Standard 80mm thermal roll | Buy in bulk |
 
 ### Current printing setup (CloudPRNT — mC-Print3)
-Receipt prints automatically — no user tap required. Full handshake built and deployed. Edge function serves Star Document Markup natively (v13, session 70g — no more ESC/POS conversion).
+Receipt prints automatically — no user tap required. Full handshake built and deployed. Edge function converts Star Document Markup XML → ESC/POS binary at serve time (v14, session 70i). The mC-Print3 firmware 5.2 does NOT support Star Document Markup natively — it only accepts `application/vnd.star.starprnt` (ESC/POS binary). v13 broke printing by serving raw XML as `text/vnd.star.markup`; v14 restored the `markupToEscPos()` converter.
 
 **Printer setup (one-time):**
 1. Connect mC-Print3 to WiFi, navigate to its IP in a browser → CloudPRNT settings
@@ -188,6 +188,17 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **Year in date formatting (session 70e):** `fmtDate()` now includes year (e.g. "Mar 26, 2026" instead of "Mar 26"). Affects Customers page, customer profiles, SMS inbox badge, and all other admin date displays.
 - **Registration time in New Customers widget (session 70f):** "Joined" column now shows date + time (e.g. "Mar 26 · 2:34 pm") instead of date only. Uses `BIZ_TZ` for Pacific time.
 
+### Skip Attribution (session 70i)
+- **`cancelled_by` now tracks the actual actor:** Admin dashboard sets `'admin'`, driver app sets `'driver'`, customer app sets `'customer'`. Previously all three hardcoded `'customer'`. Fixed in 3 locations: `opSkipOrder()`, status dropdown advance, and `setSingleOrderStatus()` in admin; driver app skip handler.
+- **Skip events logged in `order_events`:** `logOrderEvent()` call added to the admin skip button so skips appear in the order History tab with admin name and timestamp.
+
+### Issue Tracking System (session 70i)
+- **`cs_issues` + `cs_issue_comments` tables:** Full issue lifecycle — create, view, comment, resolve/reopen. Issues have: customer_id, title, category, priority, status, assigned_to, notes, order_id.
+- **3 entry points:** "+ New Issue" button on Overview issues panel, "⚑ Issue" button on customer profile header, and the existing inbox issue creation (now includes category and created_by).
+- **Issue detail slide-over panel:** Opens from Overview issue rows. Shows meta grid (customer, priority, category, assigned to), full timeline of comments/status changes/assignment changes, and comment input box. Inline editing for assignment and priority — changes auto-logged to audit trail.
+- **Categories:** pickup, delivery, billing, damaged, schedule, complaint, other.
+- **Resolve/reopen:** Resolved issues disappear from Overview list; can be reopened from detail panel.
+
 ### Other
 - Customer management, driver management, services & pricing, reports (all built)
 - Driver Messages tab (in-app driver ↔ admin chat, separate from SMS)
@@ -230,6 +241,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **Phone OTP login (session 20/21):** SMS code login via Twilio. `link_phone_auth_account` RPC (SECURITY DEFINER) re-points existing customer records to the new phone-auth UUID on first login — customers with existing email accounts don't lose their history. Multiple-account collision handled with a graceful error + auto sign-out.
 - **Capacity-aware booking UX (session 69, commits `3ac0b59`, `53ce21d`):** When routes are full, the booking screen now shows a red "Full" badge and disables that time slot. Almost-full slots (≤5 spots left) show an amber badge like "3 spots left". When ALL slots on a day are full, a yellow nudge banner says "Please pick a different day for faster service." Auto-select logic skips full windows. Works for both pickup and delivery date selection.
 - **Per-sub-window capacity enforcement (session 69):** Capacity is now checked per sub-window (e.g. 6–8 PM and 8–10 PM separately) rather than for the whole route template. A route with `stop_limit = 30` and 2 sub-windows gets 15 per sub-window. Both the DB function `auto_route_order()` and the customer app booking flow enforce this. Prevents lopsided booking (e.g. 29 stops in one sub-window, 1 in the other).
+- **Default tip setting in customer app (session 70i):** Customers can now set their own default tip in Account → Payment Method. $/% toggle and numeric input, saves to `default_tip` and `default_tip_type` on the `customers` table — same fields the admin dashboard reads. Tip is auto-applied to each new order.
 - **Cross-method auth re-linking (session 30, commit `778e9d8`):** `ensureProfile()` step 2b — if a customer signs in via email magic link but their account was originally created via phone OTP (or vice versa), the function now detects the existing customer record by `email_cache` even if it already has a `profile_id`, and re-points it to the current auth user. Previously, this created a blank duplicate customer record. Two orphaned records from the first occurrence were deleted from the DB. Note: Supabase creates a new auth UUID per sign-in method; `profile_id` flips to whichever method was used most recently — harmless in practice.
 
 ---
@@ -260,7 +272,7 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 | Table | Notes |
 |---|---|
 | `customers` | `phone_cache` stores phone in any format (e.g. `(415) 608-5446`) |
-| `orders` | Status pipeline: scheduled → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. (`ready_for_pickup` was removed session 6 — never auto-set, redundant.) `source`: scheduled, walk_in, customer_app, recurring. `cancelled_by`: 'customer', 'driver', 'admin', 'system' (nullable) — set on skip/cancel to distinguish who initiated. `charge_failed_at` (TIMESTAMPTZ, session 70h): set by charge-order v26 on decline; compared against `customer_payment_methods.created_at` to detect stale cards |
+| `orders` | Status pipeline: scheduled → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. (`ready_for_pickup` was removed session 6 — never auto-set, redundant.) `source`: scheduled, walk_in, customer_app, recurring. `cancelled_by`: 'customer', 'driver', 'admin', 'system' (nullable) — set on skip/cancel to distinguish who initiated. **Session 70i fix:** admin dashboard now sets `'admin'`, driver app sets `'driver'`, customer app sets `'customer'` (was all hardcoded to `'customer'`). Skip events also logged in `order_events`. `charge_failed_at` (TIMESTAMPTZ, session 70h): set by charge-order v26 on decline; compared against `customer_payment_methods.created_at` to detect stale cards |
 | `route_templates` | Recurring route definitions: zone, schedule_days (0=Mon..5=Sat), window_start/end, turnaround_days, default drivers, stop_limit |
 | `routes` | Dated route instances (auto-created from templates by `auto_route_order()`). Links to template_id, date, single `driver_id`. `pickup_driver_id`/`delivery_driver_id` columns exist but are not used by app code — auto-cleared by `trg_sync_route_driver` whenever `driver_id` changes, keeping RLS policies consistent |
 | `route_stops` | Stops may have `driver_id = NULL` (inherits from parent route's `driver_id`) or an explicit UUID override. `trg_fill_stop_driver` auto-fills on INSERT. RLS policies handle both cases |
@@ -919,6 +931,47 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 27, 2026 (session 70i) — Skip attribution, customer tip, issue tracking, CloudPRNT fix
+
+**Skip attribution fix (3 apps):**
+- Admin dashboard: `cancelled_by` changed from `'customer'` → `'admin'` in `opSkipOrder()`, status dropdown, and `setSingleOrderStatus()`. Added `logOrderEvent()` to the skip button so skips appear in History tab.
+- Driver app: `cancelled_by` changed from `'customer'` → `'driver'` in skip handler.
+- Customer app: verified already correct (`'customer'`).
+
+**Default tip in customer app:**
+- Added tip UI to Account → Payment Method: $/% toggle + numeric input + Save button.
+- New functions `setCustomerTipType()` and `saveCustomerTip()` write to `default_tip` and `default_tip_type` on the customer record — same fields the admin dashboard reads.
+
+**LaChar Burns stats backfill:**
+- Updated lifetime_value ($1,170.90), total_orders (+2), referral_source, and notes with full Starchup legacy breakdown (order #2088524).
+
+**Issue tracking system (full feature):**
+- `cs_issues` + `cs_issue_comments` tables (migration already existed from previous session).
+- Issue detail slide-over panel: meta grid, timeline, comment input, resolve/reopen actions.
+- 3 creation entry points: Overview "+ New Issue" button, customer profile "⚑ Issue" button, inbox (updated with category + created_by).
+- Inline assignment editing (click to change, logs to audit trail).
+- Inline priority editing (dropdown, logs to audit trail).
+- Categories: pickup, delivery, billing, damaged, schedule, complaint, other.
+- Issue rows on Overview now open detail panel instead of navigating to inbox.
+
+**CloudPRNT edge function fix (v14 deployed):**
+- v13 served raw Star Markup XML as `text/vnd.star.markup` — mC-Print3 firmware 5.2 rejected it (only accepts ESC/POS binary).
+- v14 restores `markupToEscPos()` converter: tokenizes Star Markup XML tags and emits ESC/POS byte sequences (bold, alignment, sizing, ruled lines, Code128 barcodes, feed, cut).
+- Serves as `application/vnd.star.starprnt`. Cleared 65 stuck pending print jobs.
+- **Printer not polling** — zero cloudprnt calls in edge function logs. Likely WiFi disconnect or CloudPRNT polling stopped after repeated v13 failures. Needs on-site check: confirm WiFi, toggle CloudPRNT off/on in printer web config.
+
+**Edge functions deployed:** `cloudprnt` v14
+**Files changed:** `admin-dashboard/index.html`, `driver-app/index.html`, `customer-app/index.html`, `supabase/functions/cloudprnt/index.ts`
+
+**Pending (carries forward):**
+1. Printer not polling — needs on-site WiFi/CloudPRNT check
+2. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+3. Tech debt: driver app line 1764 auto-create fallback needs `profile_id` uniqueness guard
+4. Investigate stripe-webhook 400 errors (invalid signature)
+5. Root cause: duplicate account creation — customer app creates new accounts for existing Starchup-migrated customers
+
+---
 
 ### Mar 27, 2026 (session 70h) — Billing retry flow refinement, audit fixes, driver duplicate fix
 
