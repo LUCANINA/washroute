@@ -4965,7 +4965,7 @@
             <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Print Method</div>
             <select id="settings-print-transport" class="form-input" style="width:100%;font-size:13.5px;margin-bottom:4px" onchange="savePrintTransport()">
               <option value="browser" ${BIZ_PRINT_TRANSPORT === 'browser' ? 'selected' : ''}>Browser popup (any printer)</option>
-              <option value="cloudprnt" ${isCp ? 'selected' : ''}>CloudPRNT (Star TSP654II — WiFi)</option>
+              <option value="cloudprnt" ${isCp ? 'selected' : ''}>CloudPRNT (Star mC-Print3 — WiFi)</option>
               <option value="passprnt" ${isPp ? 'selected' : ''}>PassPRNT (Star TSP143IIIBI — iPad Bluetooth)</option>
             </select>
             <div style="font-size:11px;color:var(--gray-400)">
@@ -6537,7 +6537,7 @@
     loadEl.style.display = '';
 
     const { data, error } = await db.from('order_events')
-      .select('*')
+      .select('id, event_type, description, old_value, new_value, actor_name, created_at')
       .eq('order_id', opCurrentOrderId)
       .order('created_at', { ascending: true });
 
@@ -7648,7 +7648,7 @@
   }
 
   function buildStarMarkup(data) {
-    const { orderNum, custName, custAddr, weightLbs, bags,
+    const { orderNum, custName, custAddr, custPhone, weightLbs, bags,
             pickupStr, delivStr, stopNum, routeName,
             addonTags, lineItems, total } = data;
 
@@ -7694,12 +7694,12 @@
 
     // Add-ons
     const addonsXml = (addonTags && addonTags.length)
-      ? `  <text-line><bold>ADD-ONS: </bold>${_escXml(addonTags.map(t => t.toUpperCase()).join('  \u00b7  '))}</text-line>`
+      ? `  <text-line><bold>ADD-ONS: </bold>${_escXml(addonTags.map(t => t.toUpperCase()).join('  /  '))}</text-line>`
       : `  <text-line>No add-ons</text-line>`;
 
     // Stop/Route
     const stopRouteXml = (stopNum || routeName)
-      ? `  <text-line>Stop \u00b7 Route: ${_escXml([stopNum, routeName].filter(Boolean).join(' \u00b7 '))}</text-line>`
+      ? `  <text-line>Stop / Route: ${_escXml([stopNum, routeName].filter(Boolean).join(' / '))}</text-line>`
       : '';
 
     // Customer name truncated for double-width (max 20 chars = 40 dots wide)
@@ -7707,22 +7707,22 @@
 
     // Order num + weight on one line
     const orderStr    = '#' + String(orderNum || '');
-    const weightStr   = (weightLbs || bags) ? `${weightLbs || '-'} LBS \u00b7 ${bags || '-'} BAGS` : '';
+    const weightStr   = (weightLbs || bags) ? `${weightLbs || '-'} LBS / ${bags || '-'} BAGS` : '';
     const orderLine   = _escXml(orderStr.padEnd(22) + weightStr);
 
     // Amount due
     const totalStr = fmtAmt(total);
     const amtDueLine = _escXml('AMOUNT DUE' + ' '.repeat(Math.max(1, 22 - 10 - totalStr.length)) + totalStr);
 
-    return `<document>
-  <align mode="center">
+    // Build one copy of the receipt body
+    const oneCopy = `  <align mode="center">
     <text-line size="2:2"><bold>FAMILY LAUNDRY</bold></text-line>
-    <text-line>2609 Foothill Blvd, Oakland CA</text-line>
+    <text-line>2609 Foothill Blvd, Oakland CA 94601</text-line>
     <text-line>${_escXml(ts)}    FL</text-line>
   </align>
   <ruled-line/>
   <text-line size="2:1"><bold>${custNameXml}</bold></text-line>
-  <text-line>${_escXml(custAddr || '')}</text-line>
+${custPhone ? `  <text-line>${_escXml(custPhone)}</text-line>\n` : ''}  <text-line>${_escXml(custAddr || '')}</text-line>
   <ruled-line/>
   <text-line><bold>${orderLine}</bold></text-line>
   <ruled-line/>
@@ -7731,7 +7731,7 @@
 ${stopRouteXml ? stopRouteXml + '\n' : ''}  <ruled-line/>
 ${addonsXml}
   <ruled-line/>
-  <align mode="center"><text-line>\u2014 INVOICE \u2014</text-line></align>
+  <align mode="center"><text-line>-- INVOICE --</text-line></align>
   <ruled-line/>
 ${lineItemsXml}
   <ruled-line/>
@@ -7742,14 +7742,20 @@ ${totalLinesXml}
   </align>
   <ruled-line/>
   <align mode="center">
-    <barcode type="Code128" hri="none" height="50">${_escXml(String(orderNum || ''))}</barcode>
-    <text-line>${_escXml(String(orderNum || ''))}</text-line>
+    <barcode type="Code128" hri="below" height="50">${_escXml(String(orderNum || ''))}</barcode>
   </align>
   <ruled-line/>
   <align mode="center">
     <text-line>Thank you for choosing Family Laundry!</text-line>
     <text-line>Questions? Visit familylaundry.com</text-line>
-  </align>
+  </align>`;
+
+    // Two copies — one for bag, one for customer file
+    return `<document>
+${oneCopy}
+  <feed unit="mm" quantity="10"/>
+  <cut type="partial"/>
+${oneCopy}
   <feed unit="mm" quantity="10"/>
   <cut type="partial"/>
 </document>`;
@@ -7792,7 +7798,7 @@ ${totalLinesXml}
   // Uses the same receiptData shape as CloudPRNT and browser popup.
 
   function _buildPassPrntHtml(data) {
-    const { orderNum: rawOrderNum, custName: rawCustName, custAddr: rawCustAddr, weightLbs, bags,
+    const { orderNum: rawOrderNum, custName: rawCustName, custAddr: rawCustAddr, custPhone: rawCustPhone, weightLbs, bags,
             pickupStr: rawPickupStr, delivStr: rawDelivStr, stopNum: rawStopNum, routeName: rawRouteName,
             addonTags: rawAddonTags, lineItems, total } = data;
 
@@ -7800,6 +7806,7 @@ ${totalLinesXml}
     const orderNum  = _escHtml(rawOrderNum);
     const custName  = _escHtml(rawCustName);
     const custAddr  = _escHtml(rawCustAddr);
+    const custPhone = _escHtml(rawCustPhone);
     const pickupStr = _escHtml(rawPickupStr);
     const delivStr  = _escHtml(rawDelivStr);
     const stopNum   = _escHtml(rawStopNum);
@@ -7856,8 +7863,8 @@ ${totalLinesXml}
     // Schedule box
     const hasRoute = stopNum || routeName;
     const routePart = hasRoute
-      ? `<div style="text-align:right"><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">Stop \u00b7 Route</div>` +
-        `<div style="font-size:11px;font-weight:700">${stopNum}${stopNum && routeName ? ' \u00b7 ' : ''}${routeName}</div></div>` : '';
+      ? `<div style="text-align:right"><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">Stop / Route</div>` +
+        `<div style="font-size:11px;font-weight:700">${stopNum}${stopNum && routeName ? ' / ' : ''}${routeName}</div></div>` : '';
     const schedHtml =
       `<div style="border:2px solid #000;border-radius:3px;padding:7px 9px;margin:7px 0">` +
       `<div style="margin-bottom:5px"><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">PICKUP</div>` +
@@ -7881,15 +7888,16 @@ ${totalLinesXml}
     const receiptBody =
       `<div style="font-family:-apple-system,Helvetica,sans-serif;width:576px;margin:0 auto;padding:8px">` +
       `<div style="font-size:28px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;text-align:center">Family Laundry</div>` +
-      `<div style="font-size:12px;color:#555;text-align:center;line-height:1.5;margin-top:2px">2609 Foothill Blvd \u00b7 Oakland, CA 94601</div>` +
+      `<div style="font-size:12px;color:#555;text-align:center;line-height:1.5;margin-top:2px">2609 Foothill Blvd, Oakland, CA 94601</div>` +
       `<div style="font-size:11px;color:#777;display:flex;justify-content:space-between;margin-top:6px"><span>FL</span><span>${ts}</span></div>` +
       `<hr style="border:none;border-top:2px solid #000;margin:7px 0">` +
       `<div style="font-size:26px;font-weight:900;text-transform:uppercase;letter-spacing:.03em;line-height:1.2;margin-bottom:2px">${custName}</div>` +
+      (custPhone ? `<div style="font-size:13px;color:#333">${custPhone}</div>` : '') +
       (custAddr ? `<div style="font-size:13px;color:#333;line-height:1.5">${custAddr}</div>` : '') +
       `<hr style="border:none;border-top:1px dashed #aaa;margin:7px 0">` +
       `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">` +
       `<div style="font-size:22px;font-weight:900">#${orderNum}</div>` +
-      `<div style="font-size:14px;font-weight:700;color:#333">${bags || '\u2014'} BAGS \u00b7 ${weightLbs ? weightLbs + ' LBS' : '\u2014 LBS'}</div></div>` +
+      `<div style="font-size:14px;font-weight:700;color:#333">${bags || '\u2014'} BAGS / ${weightLbs ? weightLbs + ' LBS' : '\u2014 LBS'}</div></div>` +
       schedHtml + addonHtml +
       `<hr style="border:none;border-top:1px dashed #aaa;margin:7px 0">` +
       `<div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:2px">Invoice</div>` +
@@ -7981,7 +7989,7 @@ ${totalLinesXml}
     const mon  = d.toLocaleDateString('en-US', { timeZone: tz, month: 'numeric' });
     const day  = d.toLocaleDateString('en-US', { timeZone: tz, day: 'numeric' });
     const time = d.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
-    return `${dow} ${mon}/${day} · ${time}`;
+    return `${dow} ${mon}/${day} @ ${time}`;
   }
 
   function _openReceiptWindow(data, copies, win) {
@@ -8139,6 +8147,7 @@ ${totalLinesXml}
     const cust = allCustomers.find(c => c.id === o.customer_id) || o.customers || {};
     const custName = [cust.first_name_cache, cust.last_name_cache].filter(Boolean).join(' ').toUpperCase() || '—';
     const custAddr = cust.address_cache || '';
+    const custPhone = cust.phone_cache || '';
     const orderNum = String(o.order_number || o.id.slice(-5).toUpperCase());
 
     // Fetch delivery route stop info for Stop · Route display
@@ -8175,7 +8184,7 @@ ${totalLinesXml}
       .filter(Boolean);
 
     const receiptData = {
-      orderNum, custName, custAddr,
+      orderNum, custName, custAddr, custPhone,
       weightLbs: o.weight_lbs || 0,
       bags:      o.total_bags || 0,
       pickupStr: _fmtReceiptDate(o.pickup_window_start),
@@ -18140,6 +18149,7 @@ ${totalLinesXml}
     const cust = allCustomers.find(c => c.id === (procCustomerId || o.customer_id)) || {};
     const custName = [cust.first_name_cache, cust.last_name_cache].filter(Boolean).join(' ').toUpperCase() || '—';
     const custAddr = cust.address_cache || '';
+    const custPhone = cust.phone_cache || '';
     const orderNum = String(o.order_number || o.id.slice(-5).toUpperCase());
 
     // Fetch delivery route stop for Stop · Route on the tag
@@ -18163,7 +18173,7 @@ ${totalLinesXml}
       .filter(Boolean);
 
     const receiptData = {
-      orderNum, custName, custAddr,
+      orderNum, custName, custAddr, custPhone,
       weightLbs: bd.weight || 0,
       bags:      bd.bags,
       pickupStr: _fmtReceiptDate(o.pickup_window_start),

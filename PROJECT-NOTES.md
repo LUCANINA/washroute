@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 26, 2026 — Phone required on signup, registration time widget, phone-missing email blast (session 70f)*
+*Last updated: Mar 26, 2026 — Customer merge, receipt CloudPRNT fix, order history wiring (session 70g)*
 
 ---
 
@@ -29,19 +29,16 @@ Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no d
 
 | Item | Decision | Notes |
 |---|---|---|
-| Thermal printer | **Star Micronics TSP654II CloudPRNT** (already owned) | MAC: `00:11:62:0D:B1:B8`. 80mm, 300mm/sec. Using via WiFi + AirPrint for now. |
+| Thermal printer | **Star Micronics mC-Print3** (WiFi+LAN+USB+CloudPRNT) | Replaced TSP654II. 80mm, CloudPRNT native Star Document Markup. |
 | iPad stand (full-size) | **Heckler Design WindFall** (~$150–200) | Not yet purchased |
 | iPad mini stand | **Heckler Design WindFall for iPad mini** (~$100–130) | Not yet purchased |
 | Receipt paper | Standard 80mm thermal roll | Buy in bulk |
 
-### Current printing setup (WiFi / AirPrint)
-Connect TSP654II to WiFi network → add as AirPrint printer on iPad (Settings → Printers) → WashRoute's popup print works via browser print dialog. Manual tap required.
-
-### ✅ CloudPRNT — Live (session 22)
-Receipt prints automatically — no user tap required. Full handshake built and deployed.
+### Current printing setup (CloudPRNT — mC-Print3)
+Receipt prints automatically — no user tap required. Full handshake built and deployed. Edge function serves Star Document Markup natively (v13, session 70g — no more ESC/POS conversion).
 
 **Printer setup (one-time):**
-1. Connect TSP654II to WiFi, navigate to its IP in a browser → CloudPRNT settings
+1. Connect mC-Print3 to WiFi, navigate to its IP in a browser → CloudPRNT settings
 2. Set **Server URL** → `https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/cloudprnt`
 3. Note the **Token** (default = printer MAC address)
 4. In Admin → Settings → Receipt Printer → paste token → Save
@@ -919,6 +916,32 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 26, 2026 (session 70g) — Customer merge, CloudPRNT receipt overhaul, order history logging
+
+- **Customer merge: Melanie Petersen duplicates resolved.** Two Melanie Petersen records merged into one. Moved orders, SMS, addresses, and profile/Stripe/card data from the duplicate (created Mar 23 via new app signup) to the primary (174 legacy orders, $1,204.70 LTV). Deleted duplicate $0 orders that overlapped on the same pickup dates (Mar 24 and Mar 31). Recalculated `total_orders` (176) and `lifetime_value` ($1,273.65) accounting for both legacy stats and new orders.
+
+- **CloudPRNT edge function rewritten (v13 deployed):** Root cause of garbled receipts found — the edge function had a hand-rolled `parseMarkupToEscPos()` converter that was mangling Star Document Markup into raw ESC/POS bytes. The mC-Print3 supports Star Markup natively. Replaced the entire function: now serves `text/vnd.star.markup` content type with raw XML, letting the printer handle fonts, barcodes, alignment, encoding. Removed ~150 lines of ESC/POS conversion code. Fixes: "0" before FAMILY LAUNDRY (ESC/POS byte 0x30 misinterpreted), "ûï" garbage (UTF-8 middot bytes in wrong charset), barcode not rendering (was skipped in converter), "447447" duplicate (barcode HRI + text-line both printing).
+
+- **Receipt markup improvements (`buildStarMarkup` in admin-dashboard):**
+  - Replaced Unicode middots (`·`) with ASCII `/` and `@` for printer safety
+  - Added zip code: "2609 Foothill Blvd, Oakland CA 94601"
+  - Added customer phone number to receipt header
+  - Fixed barcode: `hri="none"` + duplicate text-line → single `hri="below"`
+  - Changed `— INVOICE —` em dashes to ASCII `-- INVOICE --`
+  - Now prints **two copies** (bag tag + customer file) — previously CloudPRNT only printed one
+  - Updated Settings dropdown label: "Star TSP654II" → "Star mC-Print3"
+  - Same fixes applied to PassPRNT and browser transports for consistency
+
+- **Order history tab + `logOrderEvent` wiring:** Already built in session 70d, this session confirmed all `logOrderEvent` calls are correctly placed BEFORE their corresponding DB updates (so if the update fails, the event still records the attempt). 30+ event insertion points cover: status changes (advance, rollback, on-hold), reschedules (pickup/delivery dates, recurrence changes, address changes, route reassignment), detail changes (weight, bags, total), billing (card charges, cash/check/Venmo payments), intake processing, fold assignment, rack assignment, and kanban drag-back. QA confirmed `order_events` table schema matches, `currentUserFirstName` fallback to 'Admin' works, and all event descriptions are properly escaped.
+
+- **QA fixes:** Changed `opLoadHistory()` from `.select('*')` to explicit columns. No high/medium issues found.
+
+**Edge functions deployed:** `cloudprnt` v13
+**DB changes:** None (customer merge via DML only)
+**Files changed:** `admin-dashboard/index.html`, `supabase/functions/cloudprnt/index.ts`
+
+---
 
 ### Mar 26, 2026 (session 70f) — Phone required on signup, registration time widget, phone-missing email blast
 

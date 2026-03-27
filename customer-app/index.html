@@ -1105,7 +1105,7 @@
                 <div class="field"><label>First Name</label><input type="text" id="c-first" placeholder="Jane"></div>
                 <div class="field"><label>Last Name</label><input type="text" id="c-last" placeholder="Doe"></div>
               </div>
-              <div class="field"><label>Phone</label><input type="tel" id="c-phone" placeholder="(415) 555-0100" required></div>
+              <div class="field"><label>Phone</label><input type="tel" id="c-phone" placeholder="(415) 555-0100"></div>
               <div class="field"><label>Email</label><input type="email" id="c-email" placeholder="you@email.com"></div>
               <div class="field"><label>Password</label><input type="password" id="c-pass" placeholder="Min. 8 characters" minlength="8"></div>
               <label class="sms-consent-row">
@@ -1743,7 +1743,6 @@ async function handleNameSubmit() {
     // Ensure global currentUser is set (race condition: auth state change may not have fired yet)
     if (!currentUser) currentUser = user;
     const phoneVal = _pendingPhone || user?.phone || '';
-    if (!phoneVal) { toast('Phone number is missing — please sign up with your phone number'); btn.disabled = false; btn.textContent = 'Let\'s go →'; return; }
     // Ensure profile row exists with all fields
     await db.from('profiles').upsert({
       id:         user.id,
@@ -1849,16 +1848,6 @@ async function handleSignup(e) {
   const btn = document.getElementById('btn-signup');
   const errEl = document.getElementById('signup-err');
   errEl.classList.remove('show');
-  if (!first || !last) {
-    errEl.textContent = 'Please enter your first and last name.';
-    errEl.classList.add('show');
-    return;
-  }
-  if (!phone || phone.replace(/\D/g,'').length < 10) {
-    errEl.textContent = 'Please enter a valid phone number.';
-    errEl.classList.add('show');
-    return;
-  }
   if (!smsConsent) {
     errEl.textContent = 'Please agree to receive SMS updates to continue.';
     errEl.classList.add('show');
@@ -3884,13 +3873,8 @@ async function placeOrder() {
     const pass  = document.getElementById('c-pass')?.value;
     const smsConsent = document.getElementById('c-sms-consent')?.checked || false;
     const referralSource = document.getElementById('c-source')?.value || null;
-    if (!first || !last || !email || !pass || !phone) {
-      if (errEl) { errEl.textContent = 'Please fill in all fields (including name, phone, email, and password).'; errEl.classList.add('show'); }
-      if (btn) { btn.disabled = false; btn.textContent = 'Create Account & Place Order'; }
-      return;
-    }
-    if (phone.replace(/\D/g,'').length < 10) {
-      if (errEl) { errEl.textContent = 'Please enter a valid phone number.'; errEl.classList.add('show'); }
+    if (!first || !email || !pass || !phone) {
+      if (errEl) { errEl.textContent = 'Please fill in all fields.'; errEl.classList.add('show'); }
       if (btn) { btn.disabled = false; btn.textContent = 'Create Account & Place Order'; }
       return;
     }
