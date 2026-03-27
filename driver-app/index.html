@@ -3040,7 +3040,7 @@ async function skipStop(stopId) {
   if (idx >= 0) {
     allStops[idx].status = 'skipped';
     if (stop?.orders?.id) {
-      await db.from('orders').update({ status: 'skipped', cancelled_by: 'customer' }).eq('id', stop.orders.id);
+      await db.from('orders').update({ status: 'skipped', cancelled_by: 'driver' }).eq('id', stop.orders.id);
       allStops[idx].orders.status = 'skipped';
     }
   }

@@ -6337,9 +6337,10 @@
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
     if (!confirm('Skip this order? The next recurring order will be auto-created.')) return;
-    const { error } = await db.from('orders').update({ status: 'skipped', cancelled_by: 'customer' }).eq('id', opCurrentOrderId);
+    await logOrderEvent(opCurrentOrderId, 'status_change', 'Skipped', o.status, 'skipped');
+    const { error } = await db.from('orders').update({ status: 'skipped', cancelled_by: 'admin' }).eq('id', opCurrentOrderId);
     if (error) { showToast('Failed to skip: ' + error.message, 'error'); return; }
-    o.status = 'skipped'; o.cancelled_by = 'customer';
+    o.status = 'skipped'; o.cancelled_by = 'admin';
     document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(o.status);
     opRefreshAdvanceBtn(o);
     updateOrderFilterCounts();
@@ -6767,7 +6768,7 @@
     const payload = { status: newStatus };
     if (newStatus === 'picked_up') payload.actual_pickup_at = new Date().toISOString();
     if (newStatus === 'delivered') payload.actual_delivery_at = new Date().toISOString();
-    if (newStatus === 'skipped') payload.cancelled_by = 'customer'; // skip = routine, keeps recurring chain going
+    if (newStatus === 'skipped') payload.cancelled_by = 'admin'; // admin-initiated skip from dashboard
     else if (['cancelled','pickup_failed','delivery_failed'].includes(newStatus)) payload.cancelled_by = 'admin';
     // Clear routing_error if advancing forward (order was fixed)
     if (newIdx > oldIdx && o.routing_error) payload.routing_error = null;
@@ -8518,7 +8519,7 @@ ${oneCopy}
       const payload = { status: newStatus };
       if (newStatus === 'picked_up')  payload.actual_pickup_at   = now;
       if (newStatus === 'delivered')  payload.actual_delivery_at = now;
-      if (newStatus === 'skipped') payload.cancelled_by = 'customer'; // skip = routine, keeps recurring chain going
+      if (newStatus === 'skipped') payload.cancelled_by = 'admin'; // admin-initiated skip from dashboard
       else if (['cancelled','pickup_failed','delivery_failed'].includes(newStatus)) payload.cancelled_by = 'admin';
       await logOrderEvent(orderId, 'status_change', label, _singleStatusCurrentStatus, newStatus);
       const { error } = await db.from('orders').update(payload).eq('id', orderId);
