@@ -5562,6 +5562,27 @@ function renderPaymentSection() {
     }).join('');
   }
 
+  // Tip block
+  const tipVal  = parseFloat(c?.default_tip || 0);
+  const tipType = c?.default_tip_type || '$';
+  _custTipType  = tipType;
+  const tipHtml = `
+    <div class="card-section" style="margin-bottom:6px">
+      <div class="pref-title">Default Tip</div>
+      <div style="font-size:13px;color:var(--gray-500);margin-bottom:12px">Added automatically to each order</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="tip-type-toggle" style="display:inline-flex;border:1.5px solid var(--gray-200);border-radius:8px;overflow:hidden;flex-shrink:0">
+          <button type="button" class="tip-tog ${tipType === '$' ? 'active' : ''}" data-type="$" onclick="setCustomerTipType('$')"
+            style="padding:7px 14px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all .15s;${tipType === '$' ? 'background:var(--navy);color:white' : 'background:white;color:var(--gray-500)'}">$</button>
+          <button type="button" class="tip-tog ${tipType === '%' ? 'active' : ''}" data-type="%" onclick="setCustomerTipType('%')"
+            style="padding:7px 14px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all .15s;${tipType === '%' ? 'background:var(--navy);color:white' : 'background:white;color:var(--gray-500)'}">%</button>
+        </div>
+        <input type="number" id="cust-tip-input" value="${tipVal}" min="0" step="any" placeholder="0"
+          style="width:80px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:15px;font-weight:500;text-align:center;outline:none">
+        <button id="cust-tip-save" onclick="saveCustomerTip()" style="padding:8px 18px;background:var(--navy);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s">Save</button>
+      </div>
+    </div>`;
+
   const cardHtml = `
     <div class="card-section">
       <div class="pref-title">Payment Cards</div>
@@ -5571,7 +5592,36 @@ function renderPaymentSection() {
       </div>
     </div>`;
 
-  el.innerHTML = creditsHtml + cardHtml;
+  el.innerHTML = creditsHtml + tipHtml + cardHtml;
+}
+
+let _custTipType = currentCustomer?.default_tip_type || '$';
+
+function setCustomerTipType(type) {
+  _custTipType = type;
+  document.querySelectorAll('#tip-type-toggle .tip-tog').forEach(btn => {
+    const isActive = btn.dataset.type === type;
+    btn.style.background = isActive ? 'var(--navy)' : 'white';
+    btn.style.color      = isActive ? 'white' : 'var(--gray-500)';
+  });
+}
+
+async function saveCustomerTip() {
+  if (!currentCustomer?.id) return;
+  const btn = document.getElementById('cust-tip-save');
+  const input = document.getElementById('cust-tip-input');
+  const val = Math.max(0, parseFloat(input.value) || 0);
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const { error } = await db.from('customers').update({
+    default_tip: val,
+    default_tip_type: _custTipType,
+    updated_at: new Date().toISOString()
+  }).eq('id', currentCustomer.id);
+  btn.disabled = false; btn.textContent = 'Save';
+  if (error) { toast('Error saving tip: ' + error.message, 'error'); return; }
+  currentCustomer.default_tip = val;
+  currentCustomer.default_tip_type = _custTipType;
+  toast(val > 0 ? `Default tip saved: ${_custTipType === '%' ? val + '%' : $m(val)}` : 'Default tip removed');
 }
 
 /* ── ACCOUNT ── */
