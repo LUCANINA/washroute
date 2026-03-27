@@ -7813,8 +7813,8 @@
 
   function buildStarMarkup(data) {
     const { orderNum, custName, custAddr, custPhone, weightLbs, bags,
-            pickupStr, delivStr, stopNum, routeName,
-            addonTags, lineItems, total } = data;
+            pickupStr, delivStr, pickupRouteName, deliveryRouteName,
+            stopNum, routeName, addonTags, lineItems, total } = data;
 
     // Timestamp
     const now = new Date();
@@ -7861,18 +7861,22 @@
       ? `  <text-line><bold>ADD-ONS: </bold>${_escXml(addonTags.map(t => t.toUpperCase()).join('  /  '))}</text-line>`
       : `  <text-line>No add-ons</text-line>`;
 
-    // Stop/Route
-    const stopRouteXml = (stopNum || routeName)
-      ? `  <text-line>Stop / Route: ${_escXml([stopNum, routeName].filter(Boolean).join(' / '))}</text-line>`
-      : '';
+    // Customer name truncated for double-size (max 12 chars at 2:2 = 48 dots wide)
+    const custNameXml = _escXml((custName || '').substring(0, 12).toUpperCase());
 
-    // Customer name truncated for double-width (max 20 chars = 40 dots wide)
-    const custNameXml = _escXml((custName || '').substring(0, 20).toUpperCase());
-
-    // Order num + weight on one line
+    // Order num + weight + bags on one line
     const orderStr    = '#' + String(orderNum || '');
-    const weightStr   = (weightLbs || bags) ? `${weightLbs || '-'} LBS / ${bags || '-'} BAGS` : '';
+    const weightStr   = `${weightLbs || '-'} LBS / ${bags || '-'} BAGS`;
     const orderLine   = _escXml(orderStr.padEnd(22) + weightStr);
+
+    // Pickup route line (large font)
+    const pickupRouteXml = pickupRouteName
+      ? `  <text-line size="2:1"><bold>${_escXml('PU: ' + pickupRouteName.toUpperCase())}</bold></text-line>`
+      : '';
+    // Delivery route line (large font)
+    const delivRouteXml = deliveryRouteName
+      ? `  <text-line size="2:1"><bold>${_escXml('DL: ' + deliveryRouteName.toUpperCase())}</bold></text-line>`
+      : '';
 
     // Amount due
     const totalStr = fmtAmt(total);
@@ -7881,18 +7885,18 @@
     // Build one copy of the receipt body
     const oneCopy = `  <align mode="center">
     <text-line size="2:2"><bold>FAMILY LAUNDRY</bold></text-line>
-    <text-line>2609 Foothill Blvd, Oakland CA 94601</text-line>
+    <text-line>www.familylaundry.com</text-line>
     <text-line>${_escXml(ts)}    FL</text-line>
   </align>
   <ruled-line/>
-  <text-line size="2:1"><bold>${custNameXml}</bold></text-line>
+  <text-line size="2:2"><bold>${custNameXml}</bold></text-line>
 ${custPhone ? `  <text-line>${_escXml(custPhone)}</text-line>\n` : ''}  <text-line>${_escXml(custAddr || '')}</text-line>
   <ruled-line/>
   <text-line><bold>${orderLine}</bold></text-line>
   <ruled-line/>
   <text-line><bold>PICKUP   </bold>${_escXml(pickupStr || '\u2014')}</text-line>
   <text-line><bold>DELIVERY </bold>${_escXml(delivStr || '\u2014')}</text-line>
-${stopRouteXml ? stopRouteXml + '\n' : ''}  <ruled-line/>
+${pickupRouteXml ? pickupRouteXml + '\n' : ''}${delivRouteXml ? delivRouteXml + '\n' : ''}  <ruled-line/>
 ${addonsXml}
   <ruled-line/>
   <align mode="center"><text-line>-- INVOICE --</text-line></align>
@@ -7911,7 +7915,7 @@ ${totalLinesXml}
   <ruled-line/>
   <align mode="center">
     <text-line>Thank you for choosing Family Laundry!</text-line>
-    <text-line>Questions? Visit familylaundry.com</text-line>
+    <text-line>Questions? email info@familylaundry.com</text-line>
   </align>`;
 
     // Two copies — one for bag, one for customer file
@@ -8314,28 +8318,20 @@ ${oneCopy}
     const custPhone = cust.phone_cache || '';
     const orderNum = String(o.order_number || o.id.slice(-5).toUpperCase());
 
-    // Fetch delivery route stop info for Stop · Route display
-    let stopNum = '', routeName = '';
+    // Fetch pickup + delivery route stop info
+    let stopNum = '', routeName = '', pickupRouteName = '', deliveryRouteName = '';
     try {
-      const { data: stopData } = await db.from('route_stops')
-        .select('stop_number, routes(name)')
+      const { data: stops } = await db.from('route_stops')
+        .select('stop_number, stop_type, routes(name)')
         .eq('order_id', targetId)
-        .eq('stop_type', 'delivery')
-        .maybeSingle();
-      if (stopData) {
-        stopNum   = stopData.stop_number != null ? String(stopData.stop_number) : '';
-        routeName = stopData.routes?.name || '';
-      } else {
-        // Fallback: pickup stop
-        const { data: pu } = await db.from('route_stops')
-          .select('stop_number, routes(name)')
-          .eq('order_id', targetId)
-          .eq('stop_type', 'pickup')
-          .maybeSingle();
-        if (pu) {
-          stopNum   = pu.stop_number != null ? String(pu.stop_number) : '';
-          routeName = pu.routes?.name || '';
-        }
+        .in('stop_type', ['pickup', 'delivery']);
+      if (stops) {
+        const pu = stops.find(s => s.stop_type === 'pickup');
+        const dl = stops.find(s => s.stop_type === 'delivery');
+        pickupRouteName   = pu?.routes?.name || '';
+        deliveryRouteName = dl?.routes?.name || '';
+        stopNum   = (dl || pu)?.stop_number != null ? String((dl || pu).stop_number) : '';
+        routeName = deliveryRouteName || pickupRouteName;
       }
     } catch (e) { /* no route info — print without it */ }
 
@@ -8353,6 +8349,7 @@ ${oneCopy}
       bags:      o.total_bags || 0,
       pickupStr: _fmtReceiptDate(o.pickup_window_start),
       delivStr:  _fmtReceiptDate(o.delivery_window_start),
+      pickupRouteName, deliveryRouteName,
       stopNum, routeName, addonTags, lineItems, total,
       orderId: targetId,
     };
@@ -18700,17 +18697,20 @@ ${oneCopy}
     const custPhone = cust.phone_cache || '';
     const orderNum = String(o.order_number || o.id.slice(-5).toUpperCase());
 
-    // Fetch delivery route stop for Stop · Route on the tag
-    let stopNum = '', routeName = '';
+    // Fetch pickup + delivery route stop info
+    let stopNum = '', routeName = '', pickupRouteName = '', deliveryRouteName = '';
     try {
-      const { data: stopData } = await db.from('route_stops')
-        .select('stop_number, routes(name)')
+      const { data: stops } = await db.from('route_stops')
+        .select('stop_number, stop_type, routes(name)')
         .eq('order_id', o.id)
-        .eq('stop_type', 'delivery')
-        .maybeSingle();
-      if (stopData) {
-        stopNum   = stopData.stop_number != null ? String(stopData.stop_number) : '';
-        routeName = stopData.routes?.name || '';
+        .in('stop_type', ['pickup', 'delivery']);
+      if (stops) {
+        const pu = stops.find(s => s.stop_type === 'pickup');
+        const dl = stops.find(s => s.stop_type === 'delivery');
+        pickupRouteName   = pu?.routes?.name || '';
+        deliveryRouteName = dl?.routes?.name || '';
+        stopNum   = (dl || pu)?.stop_number != null ? String((dl || pu).stop_number) : '';
+        routeName = deliveryRouteName || pickupRouteName;
       }
     } catch (e) { /* print without route info */ }
 
@@ -18726,6 +18726,7 @@ ${oneCopy}
       bags:      bd.bags,
       pickupStr: _fmtReceiptDate(o.pickup_window_start),
       delivStr:  _fmtReceiptDate(o.delivery_window_start),
+      pickupRouteName, deliveryRouteName,
       stopNum, routeName, addonTags, lineItems, total: bd.total,
       orderId: o.id,
     };
