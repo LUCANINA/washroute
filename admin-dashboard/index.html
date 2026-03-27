@@ -13565,11 +13565,11 @@ ${oneCopy}
     const initials = driverName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);
     return L.divIcon({
       className: '',
-      iconSize: [36, 36],
-      iconAnchor: [18, 18],
-      html: `<div style="width:36px;height:36px;border-radius:50%;background:#635bff;border:3px solid white;box-shadow:0 2px 12px rgba(99,91,255,.5);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:white;position:relative">
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+      html: `<div style="width:22px;height:22px;border-radius:50%;background:#1a1a1a;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:white;letter-spacing:-.3px;position:relative">
         ${initials}
-        <div style="position:absolute;top:-2px;right:-2px;width:10px;height:10px;border-radius:50%;background:#22c55e;border:2px solid white;"></div>
+        <div style="position:absolute;top:-1px;right:-1px;width:7px;height:7px;border-radius:50%;background:#22c55e;border:1.5px solid white;"></div>
       </div>`
     });
   }
@@ -13582,6 +13582,22 @@ ${oneCopy}
       .gte('updated_at', new Date(Date.now() - 30 * 60 * 1000).toISOString()); // last 30 mins
     if (error || !data) return;
 
+    // Fetch today's routes to show which route each driver is on
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    const driverIds = data.map(d => d.driver_id).filter(Boolean);
+    let driverRouteMap = {}; // driver_id → route label
+    if (driverIds.length) {
+      const { data: routes } = await db.from('routes')
+        .select('driver_id, route_templates(name)')
+        .eq('run_date', todayStr)
+        .in('driver_id', driverIds);
+      (routes || []).forEach(r => {
+        const label = r.route_templates?.name || 'Route';
+        driverRouteMap[r.driver_id] = driverRouteMap[r.driver_id]
+          ? driverRouteMap[r.driver_id] + ', ' + label : label;
+      });
+    }
+
     // Clear old driver markers
     Object.values(_driverMarkers).forEach(m => routeLiveMap.removeLayer(m));
     _driverMarkers = {};
@@ -13589,9 +13605,18 @@ ${oneCopy}
     data.forEach(loc => {
       const driver = loc.drivers || {};
       const name = `${driver.first_name || ''} ${driver.last_name || ''}`.trim() || 'Driver';
+      const route = driverRouteMap[loc.driver_id] || '';
+      const updatedAt = new Date(loc.updated_at).toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+      const speedMph = loc.speed ? Math.round(loc.speed * 2.237) : null; // m/s → mph
+      const popup = `<div style="font-family:inherit;min-width:120px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:2px">${name}</div>
+        ${route ? `<div style="font-size:11px;color:#635bff;font-weight:600;margin-bottom:2px">${route}</div>` : ''}
+        <div style="font-size:11px;color:#888">${speedMph !== null ? speedMph + ' mph · ' : ''}${updatedAt}</div>
+      </div>`;
       const marker = L.marker([loc.lat, loc.lng], { icon: makeDriverMarker(name), zIndexOffset: 1000 })
-        .bindPopup(`<strong>${name}</strong><br><span style="font-size:11px;color:#888">Updated ${new Date(loc.updated_at).toLocaleTimeString('en-US', {timeZone: BIZ_TZ})}</span>`);
+        .bindPopup(popup, { closeButton: false, offset: [0, -8] });
       marker._isDriverMarker = true;
+      marker._driverName = name;
       marker.addTo(routeLiveMap);
       _driverMarkers[loc.driver_id] = marker;
     });
@@ -13611,9 +13636,15 @@ ${oneCopy}
           db.from('drivers').select('first_name, last_name').eq('id', loc.driver_id).single()
             .then(({ data: driver }) => {
               const name = driver ? `${driver.first_name||''} ${driver.last_name||''}`.trim() : 'Driver';
+              const updatedAt = new Date().toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+              const popup = `<div style="font-family:inherit;min-width:120px">
+                <div style="font-weight:700;font-size:13px;margin-bottom:2px">${name}</div>
+                <div style="font-size:11px;color:#888">${updatedAt}</div>
+              </div>`;
               const marker = L.marker([loc.lat, loc.lng], { icon: makeDriverMarker(name), zIndexOffset: 1000 })
-                .bindPopup(`<strong>${name}</strong><br><span style="font-size:11px;color:#888">Live</span>`);
+                .bindPopup(popup, { closeButton: false, offset: [0, -8] });
               marker._isDriverMarker = true;
+              marker._driverName = name;
               marker.addTo(routeLiveMap);
               _driverMarkers[loc.driver_id] = marker;
             });
