@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 27, 2026 — Skip attribution, customer tip, issue tracking, CloudPRNT ESC/POS fix (session 70i)*
+*Last updated: Mar 27, 2026 — Receipt template overhaul, CloudPRNT v15 Star Line Mode, QA fixes (session 70i continued)*
 
 ---
 
@@ -35,7 +35,7 @@ Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no d
 | Receipt paper | Standard 80mm thermal roll | Buy in bulk |
 
 ### Current printing setup (CloudPRNT — mC-Print3)
-Receipt prints automatically — no user tap required. Full handshake built and deployed. Edge function converts Star Document Markup XML → ESC/POS binary at serve time (v14, session 70i). The mC-Print3 firmware 5.2 does NOT support Star Document Markup natively — it only accepts `application/vnd.star.starprnt` (ESC/POS binary). v13 broke printing by serving raw XML as `text/vnd.star.markup`; v14 restored the `markupToEscPos()` converter.
+Receipt prints automatically — no user tap required. Full handshake built and deployed. Edge function converts Star Document Markup XML → Star Line Mode binary at serve time (v15, session 70i). The mC-Print3 firmware 5.2 does NOT support Star Document Markup natively — it only accepts `application/vnd.star.starprpt` (binary). v13 broke printing by serving raw XML as `text/vnd.star.markup`; v14 used wrong command set (Epson ESC/POS); v15 uses correct Star Line Mode commands (ESC E/F for bold, ESC GS a for alignment, ESC i for sizing, ESC d for cut, ESC b for barcodes). Includes Unicode→ASCII map for thermal printer compatibility.
 
 **Printer setup (one-time):**
 1. Connect mC-Print3 to WiFi, navigate to its IP in a browser → CloudPRNT settings
@@ -108,7 +108,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `charge-order` | Stripe payment charge — **v26 (session 70h):** sets `billing_status='paid'` + `billed_at` + clears `charge_failed_at` on success; sets `billing_status='failed'` + `charge_failed_at` on decline. Enables admin UI to distinguish "card never tried" vs "card already declined" | On |
 | `stripe-webhook` | Stripe webhook handler — **v24 (session 61):** added `payment_intent.succeeded` and `payment_intent.payment_failed` handlers as backup safety net for billing_status | Off |
 | `send-order-notification` | Status-change notifications | On |
-| `cloudprnt` | CloudPRNT server — printer polls for jobs, gets Star Markup, marks done | Off |
+| `cloudprnt` | CloudPRNT server — **v15 (session 70i):** printer polls for jobs; `markupToStarLineMode()` converts Star Markup XML → Star Line Mode binary; serves as `application/vnd.star.starprnt`. Includes `tokenizeXml()` parser and `UNICODE_MAP` for thermal printer ASCII fallback. | Off |
 | `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. Pickups and deliveries optimized independently. **v12 (session 27):** No-GPS path now uses geographic-extremes algorithm — northernmost and southernmost stops become fixed endpoints; tries both N→S and S→N directions with 2 Google API calls; picks shorter road distance. Eliminates U-shaped routes caused by pinning stop_number extremes as endpoints. When GPS provided: driver position is origin, last pending stop is destination (unchanged). | Off |
 
 ---
@@ -153,7 +153,8 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 
 ### Receipt Printing
 - Browser popup print (2 copies, auto-prints on intake save + 🖨 Print button in order panel + 🖨 Reprint on kanban cards)
-- **CloudPRNT automatic printing (session 22):** Star TSP654II prints automatically, no tap required. Admin queues a `print_jobs` row; printer polls `cloudprnt` Edge Function every few seconds and prints Star Document Markup receipt. Configured via Admin → **Printer** (dedicated sidebar nav item). Falls back to browser popup when no token is set. `buildStarMarkup()` handles the full receipt layout including customer name, schedule, add-ons, invoice lines, barcode, and footer.
+- **CloudPRNT automatic printing (session 22):** Star mC-Print3 prints automatically, no tap required. Admin queues a `print_jobs` row; printer polls `cloudprnt` Edge Function every few seconds and prints Star Line Mode binary. Configured via Admin → **Printer** (dedicated sidebar nav item). Falls back to browser popup when no token is set. `buildStarMarkup()` handles the full receipt layout including customer name, schedule, add-ons, invoice lines, barcode, and footer.
+- **Receipt template overhaul (session 70i):** Header shows `www.familylaundry.com` (removed street address). Customer name in double-size (2:2) bold, max 12 chars. Customer address and phone shown. Pickup and delivery route names displayed in large font bold (e.g. `PU: OAKLAND AM` / `DL: OAKLAND PM`). Weight always shown (`- LBS / - BAGS` when unknown). Footer: "Questions? email info@familylaundry.com". Both print paths (order panel and kanban reprint) fetch pickup AND delivery route stops in a single query using `.in('stop_type', ['pickup', 'delivery'])`.
 
 ### Processing / Racking
 - **Auto-send email receipt on Folding → Rack (session 30, commit `6068c8a`):** `saveRacking()` now fires a fire-and-forget `send-receipt` call after successfully charging the card and advancing status to `ready_for_delivery`. Previously, the receipt was only auto-sent in the POS intake flow — moving an order through the Folding → Rack kanban step charged the card silently with no email to the customer.
@@ -955,21 +956,35 @@ There are actually **two separate hang points** that must both be covered:
 - Categories: pickup, delivery, billing, damaged, schedule, complaint, other.
 - Issue rows on Overview now open detail panel instead of navigating to inbox.
 
-**CloudPRNT edge function fix (v14 deployed):**
-- v13 served raw Star Markup XML as `text/vnd.star.markup` — mC-Print3 firmware 5.2 rejected it (only accepts ESC/POS binary).
-- v14 restores `markupToEscPos()` converter: tokenizes Star Markup XML tags and emits ESC/POS byte sequences (bold, alignment, sizing, ruled lines, Code128 barcodes, feed, cut).
-- Serves as `application/vnd.star.starprnt`. Cleared 65 stuck pending print jobs.
-- **Printer not polling** — zero cloudprnt calls in edge function logs. Likely WiFi disconnect or CloudPRNT polling stopped after repeated v13 failures. Needs on-site check: confirm WiFi, toggle CloudPRNT off/on in printer web config.
+**CloudPRNT edge function fix (v14 → v15 deployed):**
+- v13 served raw Star Markup XML as `text/vnd.star.markup` — mC-Print3 firmware 5.2 rejected it.
+- v14 used Epson ESC/POS commands (GS !, ESC a, GS V, GS k) — printed as garbled text ("!" before bold, "V" at top, raw barcode bytes as ASCII).
+- v15 rewrote converter to Star Line Mode: ESC E/F (bold), ESC GS a (alignment), ESC i (sizing), ESC d (cut), ESC b (barcodes). Added `UNICODE_MAP` for thermal printer ASCII compatibility. Receipts now print correctly.
+- Cleared 65 stuck pending print jobs. Printer resumed polling after delay (had backed off from v13 failures).
 
-**Edge functions deployed:** `cloudprnt` v14
+**Receipt template overhaul (`buildStarMarkup` + both print paths):**
+- Header: `www.familylaundry.com` replaces street address.
+- Customer name: double-size (2:2) bold, max 12 chars. Address + phone shown.
+- Route names: `PU: OAKLAND AM` / `DL: OAKLAND PM` in large bold font.
+- Weight always shown: `- LBS / - BAGS` when unknown.
+- Footer: "Questions? email info@familylaundry.com"
+- Both print paths now fetch pickup + delivery stops in one query (`.in('stop_type', ['pickup', 'delivery'])`).
+
+**QA review — error handling fix:**
+- `saveAssignment()` and `changeIssuePriority()` now check DB response for errors and show error toast on failure (previously fire-and-forget with success toast regardless).
+
+**Registration stats:** 9 new customers on 3/26, 8 on 3/27 (excluding migration/link accounts).
+
+**Edge functions deployed:** `cloudprnt` v15
 **Files changed:** `admin-dashboard/index.html`, `driver-app/index.html`, `customer-app/index.html`, `supabase/functions/cloudprnt/index.ts`
 
 **Pending (carries forward):**
-1. Printer not polling — needs on-site WiFi/CloudPRNT check
-2. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
-3. Tech debt: driver app line 1764 auto-create fallback needs `profile_id` uniqueness guard
-4. Investigate stripe-webhook 400 errors (invalid signature)
-5. Root cause: duplicate account creation — customer app creates new accounts for existing Starchup-migrated customers
+1. Receipt template — iPad POS needs cache clear (Settings > Safari > Clear Website Data) to pick up new template. Old template still cached on-site iPad.
+2. Small "v" character at top of receipt — cosmetic, not yet investigated.
+3. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+4. Tech debt: driver app line 1764 auto-create fallback needs `profile_id` uniqueness guard
+5. Investigate stripe-webhook 400 errors (invalid signature)
+6. Root cause: duplicate account creation — customer app creates new accounts for existing Starchup-migrated customers
 
 ---
 
