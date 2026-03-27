@@ -5327,11 +5327,11 @@
       });
     }
     if (custIds.length && !_cardRequestSent.size) {
-      const { data: smsRows } = await db.from('sms_messages')
-        .select('customer_id')
-        .in('customer_id', custIds)
-        .like('body', '%card on file%');
-      _cardRequestSent = new Set((smsRows || []).map(r => r.customer_id));
+      const [{ data: smsRows }, { data: emailRows }] = await Promise.all([
+        db.from('sms_messages').select('customer_id').in('customer_id', custIds).like('body', '%card on file%'),
+        db.from('email_messages').select('customer_id').in('customer_id', custIds).eq('subject', 'Add your card to Family Laundry'),
+      ]);
+      _cardRequestSent = new Set([...(smsRows||[]).map(r => r.customer_id), ...(emailRows||[]).map(r => r.customer_id)]);
     }
 
     const totalOwed = data.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
@@ -5847,13 +5847,13 @@
       _custCardAddedAt = new Map();
     }
 
-    // Side-fetch: which customers have already been sent a card request SMS?
+    // Side-fetch: which customers have already been sent a card request (SMS or email)?
     if (custIds.length) {
-      const { data: smsRows } = await db.from('sms_messages')
-        .select('customer_id')
-        .in('customer_id', custIds)
-        .like('body', '%card on file%');
-      _cardRequestSent = new Set((smsRows||[]).map(r => r.customer_id));
+      const [{ data: smsRows }, { data: emailRows }] = await Promise.all([
+        db.from('sms_messages').select('customer_id').in('customer_id', custIds).like('body', '%card on file%'),
+        db.from('email_messages').select('customer_id').in('customer_id', custIds).eq('subject', 'Add your card to Family Laundry'),
+      ]);
+      _cardRequestSent = new Set([...(smsRows||[]).map(r => r.customer_id), ...(emailRows||[]).map(r => r.customer_id)]);
     } else {
       _cardRequestSent = new Set();
     }
