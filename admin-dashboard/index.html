@@ -10005,11 +10005,22 @@ ${oneCopy}
       </div>
       <div class="issue-meta-item">
         <div class="issue-meta-label">Priority</div>
-        <div class="issue-meta-value"><span class="issue-pri-badge ${priBadgeClass(iss.priority)}">${iss.priority.toUpperCase()}</span></div>
+        <div class="issue-meta-value">
+          <select id="iss-priority-select" onchange="changeIssuePriority(this.value)" style="padding:3px 6px;border:1.5px solid var(--gray-200);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;outline:none;background:white">
+            <option value="low" ${iss.priority==='low'?'selected':''}>LOW</option>
+            <option value="normal" ${iss.priority==='normal'?'selected':''}>NORMAL</option>
+            <option value="high" ${iss.priority==='high'?'selected':''}>HIGH</option>
+            <option value="urgent" ${iss.priority==='urgent'?'selected':''}>URGENT</option>
+          </select>
+        </div>
       </div>
       <div class="issue-meta-item">
         <div class="issue-meta-label">Assigned</div>
-        <div class="issue-meta-value">${iss.assigned_to || '<span style="color:var(--gray-400)">Unassigned</span>'}</div>
+        <div class="issue-meta-value" id="iss-assigned-cell" style="cursor:pointer" onclick="toggleAssignInput()">
+          ${iss.assigned_to
+            ? `<span>${esc(iss.assigned_to)}</span> <span style="color:var(--gray-300);font-size:10px;margin-left:4px">✎</span>`
+            : '<span style="color:var(--accent);font-size:12px;font-weight:600">+ Assign</span>'}
+        </div>
       </div>
       <div class="issue-meta-item">
         <div class="issue-meta-label">Created</div>
@@ -10058,6 +10069,63 @@ ${oneCopy}
     document.getElementById('issue-detail-panel').classList.remove('open');
     _currentIssueId = null;
     _currentIssueData = null;
+  }
+
+  function toggleAssignInput() {
+    const cell = document.getElementById('iss-assigned-cell');
+    const current = _currentIssueData?.assigned_to || '';
+    cell.innerHTML = `
+      <input type="text" id="iss-assign-input" value="${esc(current)}" placeholder="Name…"
+        style="padding:4px 8px;border:1.5px solid var(--accent);border-radius:6px;font-size:12px;width:120px;outline:none"
+        onkeydown="if(event.key==='Enter')saveAssignment();if(event.key==='Escape')openIssueDetail(_currentIssueId)"
+        autofocus />
+      <button onclick="saveAssignment()" style="margin-left:4px;padding:3px 8px;background:var(--accent);color:white;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">Save</button>`;
+    document.getElementById('iss-assign-input').focus();
+  }
+
+  async function saveAssignment() {
+    if (!_currentIssueId) return;
+    const input = document.getElementById('iss-assign-input');
+    const newAssignee = (input?.value || '').trim();
+    const oldAssignee = _currentIssueData?.assigned_to || null;
+    const author = currentUserFirstName || 'Admin';
+
+    if (newAssignee === (oldAssignee || '')) { openIssueDetail(_currentIssueId); return; }
+
+    // Log the change
+    const desc = newAssignee
+      ? (oldAssignee ? `Reassigned from ${oldAssignee} to ${newAssignee}` : `Assigned to ${newAssignee}`)
+      : `Unassigned (was ${oldAssignee})`;
+    await db.from('cs_issue_comments').insert({
+      issue_id: _currentIssueId, author, body: desc, comment_type: 'assignment_change'
+    });
+    await db.from('cs_issues').update({
+      assigned_to: newAssignee || null, updated_at: new Date().toISOString()
+    }).eq('id', _currentIssueId);
+
+    showToast(desc, 'success');
+    openIssueDetail(_currentIssueId);
+    loadOverviewIssues();
+  }
+
+  async function changeIssuePriority(newPriority) {
+    if (!_currentIssueId || !_currentIssueData) return;
+    const oldPriority = _currentIssueData.priority;
+    if (newPriority === oldPriority) return;
+    const author = currentUserFirstName || 'Admin';
+
+    await db.from('cs_issue_comments').insert({
+      issue_id: _currentIssueId, author,
+      body: `Priority changed from ${oldPriority.toUpperCase()} to ${newPriority.toUpperCase()}`,
+      comment_type: 'priority_change'
+    });
+    await db.from('cs_issues').update({
+      priority: newPriority, updated_at: new Date().toISOString()
+    }).eq('id', _currentIssueId);
+
+    showToast(`Priority → ${newPriority.toUpperCase()}`, 'success');
+    _currentIssueData.priority = newPriority;
+    loadOverviewIssues();
   }
 
   async function addIssueComment() {
