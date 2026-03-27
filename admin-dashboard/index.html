@@ -597,6 +597,41 @@
     .pri-badge-normal { background: #dbeafe; color: #1d4ed8; }
     .pri-badge-low    { background: var(--gray-100); color: var(--gray-500); }
 
+    /* Issue detail slide-over */
+    .issue-detail { position:fixed;top:0;right:0;bottom:0;width:480px;background:white;box-shadow:-6px 0 40px rgba(0,0,0,.18);z-index:1200;transform:translateX(calc(100% + 60px));transition:transform .22s ease;display:flex;flex-direction:column;overflow:hidden; }
+    .issue-detail.open { transform:translateX(0); }
+    .issue-detail-header { padding:16px 20px;border-bottom:1px solid var(--gray-200);flex-shrink:0; }
+    .issue-detail-body { flex:1;overflow-y:auto;padding:20px; }
+    .issue-detail-footer { padding:14px 20px;border-top:1px solid var(--gray-100);flex-shrink:0; }
+    .issue-meta-grid { display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px; }
+    .issue-meta-item { font-size:12px; }
+    .issue-meta-label { color:var(--gray-400);font-weight:600;text-transform:uppercase;letter-spacing:.3px;font-size:10px;margin-bottom:3px; }
+    .issue-meta-value { color:var(--gray-900);font-weight:500; }
+    .issue-timeline { border-left:2px solid var(--gray-200);margin-left:8px;padding-left:16px; }
+    .issue-event { position:relative;padding-bottom:16px; }
+    .issue-event:last-child { padding-bottom:0; }
+    .issue-event::before { content:'';position:absolute;left:-21px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--gray-300);border:2px solid white; }
+    .issue-event.evt-comment::before { background:var(--accent); }
+    .issue-event.evt-status::before { background:#10b981; }
+    .issue-event.evt-system::before { background:var(--gray-300); }
+    .issue-event-body { font-size:13px;color:var(--gray-800);line-height:1.5; }
+    .issue-event-meta { font-size:11px;color:var(--gray-400);margin-top:2px; }
+    .issue-comment-box { display:flex;gap:8px;align-items:flex-end; }
+    .issue-comment-input { flex:1;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:inherit;resize:none;outline:none;min-height:38px;max-height:100px; }
+    .issue-comment-input:focus { border-color:var(--accent); }
+    .issue-cat-badge { font-size:10px;font-weight:600;padding:2px 8px;border-radius:5px;background:#f0fdf4;color:#166534; }
+
+    /* Issue create modal */
+    .issue-create-overlay { position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1300;display:flex;align-items:center;justify-content:center; }
+    .issue-create-modal { background:white;border-radius:14px;width:440px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.2);overflow:hidden; }
+    .issue-create-modal h3 { margin:0;padding:18px 20px;font-size:16px;border-bottom:1px solid var(--gray-100); }
+    .issue-create-body { padding:18px 20px;display:flex;flex-direction:column;gap:12px; }
+    .issue-create-body label { font-size:12px;font-weight:600;color:var(--gray-500);display:block;margin-bottom:4px; }
+    .issue-create-body input, .issue-create-body select, .issue-create-body textarea { width:100%;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:inherit;outline:none; }
+    .issue-create-body textarea { resize:vertical;min-height:60px; }
+    .issue-create-body input:focus, .issue-create-body select:focus, .issue-create-body textarea:focus { border-color:var(--accent); }
+    .issue-create-footer { padding:14px 20px;border-top:1px solid var(--gray-100);display:flex;justify-content:flex-end;gap:8px; }
+
     /* ── MAP VIEWS ── */
     .section-tabs { display: flex; border-bottom: 1px solid var(--gray-200); background: white; }
     .section-tab { padding: 12px 20px; font-size: 13px; font-weight: 500; color: var(--gray-500); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; white-space: nowrap; border-top: none; border-left: none; border-right: none; background: none; }
@@ -1219,7 +1254,10 @@
                 <div class="card-title">Open Issues</div>
                 <div class="card-sub" id="issues-count-sub">Loading…</div>
               </div>
-              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('inbox',document.getElementById('nav-inbox'))">View inbox →</button>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-primary" style="font-size:12px;padding:5px 12px" onclick="openCreateIssue()">+ New Issue</button>
+                <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="showPage('inbox',document.getElementById('nav-inbox'))">Inbox →</button>
+              </div>
             </div>
             <div id="overview-issues-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
@@ -3112,6 +3150,7 @@
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;margin-left:12px">
       <span id="cp-status-badge"></span>
+      <button onclick="openCreateIssue(panelCustomerId)" style="display:flex;align-items:center;gap:5px;padding:5px 12px;background:var(--gray-100);color:var(--gray-700);border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap" title="Create issue for this customer">⚑ Issue</button>
       <button id="cp-new-order-btn" onclick="openOrderForCustomer()" style="display:flex;align-items:center;gap:5px;padding:5px 12px;background:var(--accent);color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Order
@@ -3463,6 +3502,96 @@
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button class="btn" onclick="closeBillModal()">Cancel</button>
       <button class="btn btn-primary" id="bill-modal-confirm-btn" onclick="confirmBilling()">Confirm &amp; Mark Paid</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── ISSUE DETAIL SLIDE-OVER ── -->
+<div class="issue-detail" id="issue-detail-panel">
+  <div class="issue-detail-header">
+    <div style="display:flex;align-items:center;gap:10px">
+      <button onclick="closeIssueDetail()" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--gray-400)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
+      </button>
+      <div>
+        <div style="font-size:16px;font-weight:700;color:var(--gray-900)" id="iss-detail-title">Issue</div>
+        <div style="font-size:11px;color:var(--gray-400)" id="iss-detail-id">#—</div>
+      </div>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:6px;align-items:center" id="iss-detail-actions"></div>
+  </div>
+
+  <div class="issue-detail-body">
+    <!-- Meta grid -->
+    <div class="issue-meta-grid" id="iss-meta-grid"></div>
+
+    <!-- Timeline -->
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--gray-400);margin-bottom:10px">Activity</div>
+    <div class="issue-timeline" id="iss-timeline">
+      <div style="color:var(--gray-400);font-size:12px;padding:8px 0">Loading…</div>
+    </div>
+  </div>
+
+  <div class="issue-detail-footer">
+    <div class="issue-comment-box" style="width:100%">
+      <textarea class="issue-comment-input" id="iss-comment-input" placeholder="Add a note…" rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addIssueComment()}"></textarea>
+      <button class="btn btn-primary" style="padding:8px 16px;font-size:13px;white-space:nowrap" onclick="addIssueComment()">Add Note</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── CREATE ISSUE MODAL ── -->
+<div id="create-issue-modal" style="display:none">
+  <div class="issue-create-overlay" onclick="if(event.target===this)closeCreateIssue()">
+    <div class="issue-create-modal">
+      <h3>Create Issue</h3>
+      <div class="issue-create-body">
+        <div>
+          <label>Customer</label>
+          <select id="ci-customer" style="width:100%">
+            <option value="">— Select customer —</option>
+          </select>
+        </div>
+        <div>
+          <label>Title</label>
+          <input type="text" id="ci-title" placeholder="Brief description of the issue…">
+        </div>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <label>Category</label>
+            <select id="ci-category">
+              <option value="pickup">Pickup Issue</option>
+              <option value="delivery">Delivery Issue</option>
+              <option value="billing">Billing / Payment</option>
+              <option value="damaged">Damaged / Lost Item</option>
+              <option value="schedule">Schedule Change</option>
+              <option value="complaint">Customer Complaint</option>
+              <option value="other" selected>Other</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <label>Priority</label>
+            <select id="ci-priority">
+              <option value="normal" selected>Normal</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label>Assign to</label>
+          <input type="text" id="ci-assignee" placeholder="Name (optional)">
+        </div>
+        <div>
+          <label>Initial note (optional)</label>
+          <textarea id="ci-note" placeholder="Context, what happened, what needs to happen…"></textarea>
+        </div>
+      </div>
+      <div class="issue-create-footer">
+        <button class="btn btn-ghost" onclick="closeCreateIssue()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitCreateIssue()">Create Issue</button>
+      </div>
     </div>
   </div>
 </div>
@@ -5283,9 +5412,11 @@
         ? `${iss.customers.first_name_cache||''} ${iss.customers.last_name_cache||''}`.trim()
         : '—';
       const age = inboxTimeAgo(iss.created_at);
-      return `<div class="issue-row" onclick="showPage('inbox',document.querySelector('.nav-item[data-page=\"inbox\"]'))">
+      const catLabel = ISSUE_CATEGORIES[iss.category] || iss.category || '';
+      return `<div class="issue-row" onclick="openIssueDetail(${iss.id})">
         <span class="issue-pri-badge ${priBadgeClass(iss.priority)}">${iss.priority.toUpperCase()}</span>
         <span class="issue-row-title">${esc(iss.title)}</span>
+        ${catLabel ? `<span class="issue-cat-badge">${esc(catLabel)}</span>` : ''}
         <span class="issue-row-meta">${esc(custName)} · ${age}${iss.assigned_to ? ' · ' + esc(iss.assigned_to) : ''}</span>
       </div>`;
     }).join('');
@@ -9497,6 +9628,18 @@ ${oneCopy}
         </div>
         <div class="issue-form-row">
           <div>
+            <label class="form-label">Category</label>
+            <select id="issue-category" class="form-input">
+              <option value="pickup">Pickup Issue</option>
+              <option value="delivery">Delivery Issue</option>
+              <option value="billing">Billing / Payment</option>
+              <option value="damaged">Damaged / Lost</option>
+              <option value="schedule">Schedule Change</option>
+              <option value="complaint">Complaint</option>
+              <option value="other" selected>Other</option>
+            </select>
+          </div>
+          <div>
             <label class="form-label">Priority</label>
             <select id="issue-priority" class="form-input">
               <option value="low">Low</option>
@@ -9505,6 +9648,8 @@ ${oneCopy}
               <option value="urgent">Urgent</option>
             </select>
           </div>
+        </div>
+        <div class="issue-form-row">
           <div>
             <label class="form-label">Assign to</label>
             <input type="text" id="issue-assignee" class="form-input" placeholder="Staff name…" />
@@ -9600,11 +9745,13 @@ ${oneCopy}
     if (f) f.classList.remove('show');
   }
 
-  // ── saveIssue ──
+  // ── saveIssue (from inbox) ──
   async function saveIssue() {
     const title    = (document.getElementById('issue-title')?.value || '').trim();
     const priority = document.getElementById('issue-priority')?.value || 'normal';
+    const category = document.getElementById('issue-category')?.value || 'other';
     const assignee = (document.getElementById('issue-assignee')?.value || '').trim();
+    const author   = currentUserFirstName || 'Admin';
     if (!title) { showToast('Please add a title for the issue.', 'error'); return; }
 
     const conv = currentConv?.conv_id
@@ -9614,8 +9761,9 @@ ${oneCopy}
     const { data, error } = await db.from('cs_issues').insert({
       conversation_id: conv?.id || null,
       customer_id:     currentConv?.customer_id || null,
-      title, priority,
+      title, priority, category,
       assigned_to:     assignee || null,
+      created_by:      author,
       status: 'open',
     }).select().single();
 
@@ -9625,6 +9773,8 @@ ${oneCopy}
     const tf = document.getElementById('issue-title'); if (tf) tf.value = '';
     const af = document.getElementById('issue-assignee'); if (af) af.value = '';
     const pf = document.getElementById('issue-priority'); if (pf) pf.value = 'normal';
+    const cf = document.getElementById('issue-category'); if (cf) cf.value = 'other';
+    loadOverviewIssues(); // refresh overview count
     // Refresh thread to show issue badge
     if (currentConv) openSMSConversation(currentConv.customer_id||'', currentConv.phone, null, true);
   }
@@ -9795,6 +9945,241 @@ ${oneCopy}
     if (v.length >= 7)      input.value = `(${v.slice(0,3)}) ${v.slice(3,6)}-${v.slice(6)}`;
     else if (v.length >= 4) input.value = `(${v.slice(0,3)}) ${v.slice(3)}`;
     else if (v.length >= 1) input.value = `(${v}`;
+  }
+
+  // ── ISSUE MANAGEMENT ──
+  const ISSUE_CATEGORIES = {
+    pickup: 'Pickup Issue', delivery: 'Delivery Issue', billing: 'Billing / Payment',
+    damaged: 'Damaged / Lost', schedule: 'Schedule Change', complaint: 'Complaint', other: 'Other'
+  };
+
+  let _currentIssueId = null;
+  let _currentIssueData = null;
+
+  async function openIssueDetail(issueId) {
+    _currentIssueId = issueId;
+    const panel = document.getElementById('issue-detail-panel');
+    panel.classList.add('open');
+
+    // Load issue + comments
+    const [{ data: iss, error }, { data: comments }] = await Promise.all([
+      db.from('cs_issues').select('*, customers(first_name_cache, last_name_cache)').eq('id', issueId).single(),
+      db.from('cs_issue_comments').select('*').eq('issue_id', issueId).order('created_at', { ascending: true })
+    ]);
+
+    if (error || !iss) { showToast('Could not load issue', 'error'); return; }
+    _currentIssueData = iss;
+
+    // Header
+    document.getElementById('iss-detail-title').textContent = iss.title;
+    document.getElementById('iss-detail-id').textContent = `#${iss.id}`;
+
+    // Actions
+    const actionsEl = document.getElementById('iss-detail-actions');
+    if (iss.status === 'open' || iss.status === 'in_progress') {
+      actionsEl.innerHTML = `
+        <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="changeIssueStatus('in_progress')">In Progress</button>
+        <button class="btn btn-primary" style="font-size:12px;padding:5px 12px;background:#10b981;border-color:#10b981" onclick="changeIssueStatus('resolved')">✓ Resolve</button>`;
+    } else {
+      actionsEl.innerHTML = `
+        <span style="font-size:12px;color:#10b981;font-weight:700">Resolved</span>
+        <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="changeIssueStatus('open')">Reopen</button>`;
+    }
+
+    // Meta grid
+    const custName = iss.customers
+      ? `${iss.customers.first_name_cache||''} ${iss.customers.last_name_cache||''}`.trim()
+      : '—';
+    const catLabel = ISSUE_CATEGORIES[iss.category] || iss.category || '—';
+    const created = new Date(iss.created_at).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' });
+    const createdTime = new Date(iss.created_at).toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+
+    document.getElementById('iss-meta-grid').innerHTML = `
+      <div class="issue-meta-item">
+        <div class="issue-meta-label">Customer</div>
+        <div class="issue-meta-value">${iss.customer_id ? `<a href="#" onclick="event.preventDefault();closeIssueDetail();openCustomerPanel('${iss.customer_id}')" style="color:var(--accent);text-decoration:none">${esc(custName)}</a>` : '—'}</div>
+      </div>
+      <div class="issue-meta-item">
+        <div class="issue-meta-label">Category</div>
+        <div class="issue-meta-value"><span class="issue-cat-badge">${esc(catLabel)}</span></div>
+      </div>
+      <div class="issue-meta-item">
+        <div class="issue-meta-label">Priority</div>
+        <div class="issue-meta-value"><span class="issue-pri-badge ${priBadgeClass(iss.priority)}">${iss.priority.toUpperCase()}</span></div>
+      </div>
+      <div class="issue-meta-item">
+        <div class="issue-meta-label">Assigned</div>
+        <div class="issue-meta-value">${iss.assigned_to || '<span style="color:var(--gray-400)">Unassigned</span>'}</div>
+      </div>
+      <div class="issue-meta-item">
+        <div class="issue-meta-label">Created</div>
+        <div class="issue-meta-value">${created} ${createdTime}</div>
+      </div>
+      <div class="issue-meta-item">
+        <div class="issue-meta-label">Created by</div>
+        <div class="issue-meta-value">${iss.created_by || 'System'}</div>
+      </div>`;
+
+    // Timeline
+    const timeline = document.getElementById('iss-timeline');
+    const events = [];
+
+    // Created event
+    events.push({ type: 'system', body: 'Issue created', author: iss.created_by || 'System', time: iss.created_at });
+
+    // Initial notes from the issue itself
+    if (iss.notes) {
+      events.push({ type: 'comment', body: iss.notes, author: iss.created_by || 'System', time: iss.created_at });
+    }
+
+    // Comments from cs_issue_comments
+    (comments || []).forEach(c => {
+      const evtType = c.comment_type === 'comment' ? 'comment' : 'status';
+      events.push({ type: evtType, body: c.body, author: c.author, time: c.created_at });
+    });
+
+    if (iss.resolved_at) {
+      events.push({ type: 'status', body: 'Marked as resolved', author: '', time: iss.resolved_at });
+    }
+
+    timeline.innerHTML = events.map(ev => {
+      const dt = new Date(ev.time);
+      const dateStr = dt.toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' });
+      const timeStr = dt.toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+      const cls = ev.type === 'comment' ? 'evt-comment' : ev.type === 'status' ? 'evt-status' : 'evt-system';
+      return `<div class="issue-event ${cls}">
+        <div class="issue-event-body">${esc(ev.body)}</div>
+        <div class="issue-event-meta">${ev.author ? esc(ev.author) + ' · ' : ''}${dateStr} ${timeStr}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function closeIssueDetail() {
+    document.getElementById('issue-detail-panel').classList.remove('open');
+    _currentIssueId = null;
+    _currentIssueData = null;
+  }
+
+  async function addIssueComment() {
+    if (!_currentIssueId) return;
+    const input = document.getElementById('iss-comment-input');
+    const body = input.value.trim();
+    if (!body) return;
+    const author = currentUserFirstName || 'Admin';
+    input.value = '';
+
+    const { error } = await db.from('cs_issue_comments').insert({
+      issue_id: _currentIssueId,
+      author,
+      body,
+      comment_type: 'comment'
+    });
+    if (error) { showToast('Failed to add note: ' + error.message, 'error'); return; }
+
+    // Update issue updated_at
+    await db.from('cs_issues').update({ updated_at: new Date().toISOString() }).eq('id', _currentIssueId);
+
+    // Refresh the panel
+    openIssueDetail(_currentIssueId);
+  }
+
+  async function changeIssueStatus(newStatus) {
+    if (!_currentIssueId) return;
+    const author = currentUserFirstName || 'Admin';
+    const label = newStatus === 'resolved' ? 'Resolved' : newStatus === 'in_progress' ? 'In Progress' : 'Open';
+    const ts = new Date().toISOString();
+
+    // Log status change as a comment
+    await db.from('cs_issue_comments').insert({
+      issue_id: _currentIssueId,
+      author,
+      body: `Status changed to ${label}`,
+      comment_type: 'status_change'
+    });
+
+    const patch = {
+      status: newStatus,
+      updated_at: ts,
+      resolved_at: newStatus === 'resolved' ? ts : null
+    };
+    const { error } = await db.from('cs_issues').update(patch).eq('id', _currentIssueId);
+    if (error) { showToast('Failed to update status: ' + error.message, 'error'); return; }
+
+    showToast(`Issue → ${label}`, 'success');
+    openIssueDetail(_currentIssueId);
+    loadOverviewIssues(); // refresh Overview count
+  }
+
+  // ── Create Issue Modal ──
+  let _ciCustomerId = null; // pre-set when creating from customer profile
+
+  function openCreateIssue(customerId) {
+    _ciCustomerId = customerId || null;
+    const modal = document.getElementById('create-issue-modal');
+    modal.style.display = '';
+
+    // Populate customer dropdown
+    const sel = document.getElementById('ci-customer');
+    sel.innerHTML = '<option value="">— Select customer —</option>' +
+      (allCustomers || [])
+        .filter(c => c.first_name_cache || c.last_name_cache)
+        .sort((a,b) => ((a.first_name_cache||'')+(a.last_name_cache||'')).localeCompare((b.first_name_cache||'')+(b.last_name_cache||'')))
+        .map(c => `<option value="${c.id}">${esc((c.first_name_cache||'')+' '+(c.last_name_cache||''))}</option>`)
+        .join('');
+    if (_ciCustomerId) sel.value = _ciCustomerId;
+
+    // Clear form
+    document.getElementById('ci-title').value = '';
+    document.getElementById('ci-category').value = 'other';
+    document.getElementById('ci-priority').value = 'normal';
+    document.getElementById('ci-assignee').value = '';
+    document.getElementById('ci-note').value = '';
+    document.getElementById('ci-title').focus();
+  }
+
+  function closeCreateIssue() {
+    document.getElementById('create-issue-modal').style.display = 'none';
+    _ciCustomerId = null;
+  }
+
+  async function submitCreateIssue() {
+    const title    = (document.getElementById('ci-title').value || '').trim();
+    const custId   = document.getElementById('ci-customer').value || null;
+    const category = document.getElementById('ci-category').value;
+    const priority = document.getElementById('ci-priority').value;
+    const assignee = (document.getElementById('ci-assignee').value || '').trim();
+    const note     = (document.getElementById('ci-note').value || '').trim();
+    const author   = currentUserFirstName || 'Admin';
+
+    if (!title) { showToast('Please add a title.', 'error'); return; }
+
+    const { data, error } = await db.from('cs_issues').insert({
+      customer_id: custId,
+      title,
+      category,
+      priority,
+      assigned_to: assignee || null,
+      notes: note || null,
+      created_by: author,
+      status: 'open'
+    }).select().single();
+
+    if (error) { showToast('Failed to create issue: ' + error.message, 'error'); return; }
+
+    // Add initial note as a comment too (for the timeline)
+    if (note) {
+      await db.from('cs_issue_comments').insert({
+        issue_id: data.id,
+        author,
+        body: note,
+        comment_type: 'comment'
+      });
+    }
+
+    showToast(`Issue #${data.id} created ✓`, 'success');
+    closeCreateIssue();
+    loadOverviewIssues();
+    openIssueDetail(data.id);
   }
 
   // ── SERVICES CRUD ──
