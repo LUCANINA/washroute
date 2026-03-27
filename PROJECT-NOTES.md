@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 26, 2026 — Customer merge, receipt CloudPRNT fix, order history wiring (session 70g)*
+*Last updated: Mar 27, 2026 — Billing retry flow refinement, audit fixes, driver duplicate fix (session 70h)*
 
 ---
 
@@ -105,7 +105,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `send-email` | Send outbound email via SendGrid. **v14 (session 69):** Auto-appends signed unsubscribe footer (HMAC link) to every email with a `customer_id`. | Off |
 | `geocode-addresses` | **TEMPORARY — deployed & deleted session 41.** Batch-geocoded 5,043 imported customer addresses via Google Maps API. No longer deployed. | N/A |
 | `notify-on-my-way` | Driver "On My Way" button → customer SMS | Off |
-| `charge-order` | Stripe payment charge — **v25 (session 61):** now sets `billing_status='paid'` + `billed_at` on success, `billing_status='failed'` on decline | On |
+| `charge-order` | Stripe payment charge — **v26 (session 70h):** sets `billing_status='paid'` + `billed_at` + clears `charge_failed_at` on success; sets `billing_status='failed'` + `charge_failed_at` on decline. Enables admin UI to distinguish "card never tried" vs "card already declined" | On |
 | `stripe-webhook` | Stripe webhook handler — **v24 (session 61):** added `payment_intent.succeeded` and `payment_intent.payment_failed` handlers as backup safety net for billing_status | Off |
 | `send-order-notification` | Status-change notifications | On |
 | `cloudprnt` | CloudPRNT server — printer polls for jobs, gets Star Markup, marks done | Off |
@@ -260,7 +260,7 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 | Table | Notes |
 |---|---|
 | `customers` | `phone_cache` stores phone in any format (e.g. `(415) 608-5446`) |
-| `orders` | Status pipeline: scheduled → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. (`ready_for_pickup` was removed session 6 — never auto-set, redundant.) `source`: scheduled, walk_in, customer_app, recurring. `cancelled_by`: 'customer', 'driver', 'admin', 'system' (nullable) — set on skip/cancel to distinguish who initiated |
+| `orders` | Status pipeline: scheduled → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. (`ready_for_pickup` was removed session 6 — never auto-set, redundant.) `source`: scheduled, walk_in, customer_app, recurring. `cancelled_by`: 'customer', 'driver', 'admin', 'system' (nullable) — set on skip/cancel to distinguish who initiated. `charge_failed_at` (TIMESTAMPTZ, session 70h): set by charge-order v26 on decline; compared against `customer_payment_methods.created_at` to detect stale cards |
 | `route_templates` | Recurring route definitions: zone, schedule_days (0=Mon..5=Sat), window_start/end, turnaround_days, default drivers, stop_limit |
 | `routes` | Dated route instances (auto-created from templates by `auto_route_order()`). Links to template_id, date, single `driver_id`. `pickup_driver_id`/`delivery_driver_id` columns exist but are not used by app code — auto-cleared by `trg_sync_route_driver` whenever `driver_id` changes, keeping RLS policies consistent |
 | `route_stops` | Stops may have `driver_id = NULL` (inherits from parent route's `driver_id`) or an explicit UUID override. `trg_fill_stop_driver` auto-fills on INSERT. RLS policies handle both cases |
@@ -458,6 +458,7 @@ There are actually **two separate hang points** that must both be covered:
 | 18 | ~~P2 → Fixed~~ | RLS — `route_driver_overrides` | ~~`Allow all access` with no conditions.~~ **FIXED session 21b**: Replaced with `admin_all_route_driver_overrides` + `auth_read_route_driver_overrides`. |
 | 19 | ~~P2 → Fixed~~ | Google Maps API key | ~~Key `AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc` unrestricted in customer app source.~~ **FIXED session 21b**: David restricted key to `*.washroute.vercel.app/*` referrer in GCP Console on 2026-03-16. |
 | 20 | ~~Fixed~~ | RLS — 10 additional tables | ~~Broad anon write/read on `routes`, `route_stops`, `addresses`, `profiles`, `drivers`, `driver_messages`, `route_templates`, `preferences`, `notifications`, `cs_issues`, `conversations`, `launderers`, `racks`, `order_items`, `subscriptions`, `customer_transactions`, `services`, `service_fees`, `service_categories`~~ **FIXED session 21b**: All anon write policies dropped; scoped authenticated policies retained. Migrations: `rls_security_hardening`, `rls_security_hardening_services_v2`. |
+| 21 | P2 Medium | driver-app line 1764 | Auto-create fallback inserts new driver record without checking for existing record with same `profile_id`. Race condition can create duplicates, breaking RLS stop visibility. **Found session 70h** — caused Luis/Hayward route invisibility. Data merged and duplicate deleted, but code fix still needed (add `profile_id` uniqueness check before INSERT). |
 
 ---
 
@@ -825,12 +826,14 @@ There are actually **two separate hang points** that must both be covered:
 - **Backfill:** 74 previously-charged orders (with `stripe_payment_intent_id` but null `billing_status`) updated to `billing_status='paid'` with `billed_at` set from `updated_at`
 - **QA fix (this session):** Removed stale line in `retryChargeFromIssues()` that was overwriting `billing_status` back to null after a successful retry charge — conflicted with v25 which now sets it to 'paid'
 
-**Request Card action column (admin-dashboard/index.html):**
+**Request Card / Retry / Update Card action column (admin-dashboard/index.html):**
 - Added "Request card" button to Issues, Delivered, In Process, and Ready tabs for orders where the customer has no card on file
-- Shows "Retry charge" button for `billing_status='failed'` orders where customer DOES have a card
+- **3-way billing action logic (session 70h):** (1) No card on file → "Request card" button. (2) Card on file + never tried or new card added after last failure → "Retry charge" button. (3) Card on file but same card already declined (`charge_failed_at` newer than `customer_payment_methods.created_at`) → "📞 Update card" button (calls `promptUpdateCard()` with customer name/phone).
 - Tracks which customers already received a card request SMS (queries `sms_messages` for body containing "card on file") — shows greyed-out "✓ Requested" badge instead of duplicate button
+- `_custCardAddedAt` Map tracks latest card `created_at` per customer; refreshed on `loadOrders()` and via realtime INSERT listener on `customer_payment_methods`
 - `_cardRequestSent` Set refreshed on every `loadOrders()` call
 - `_deliveredActionBtn()` function handles all non-Issues tabs; `issueActionBtn()` handles Issues tab
+- `retryChargeFromIssues()` catch block now calls `loadOrders()` on failure so UI picks up new `charge_failed_at` and switches to "Update card" automatically
 
 **Additional timezone fix:**
 - Fixed `loadRouteAssignments()` (customer panel) — was using `new Date().toISOString().slice(0,10)` for "today" comparison against route dates. Changed to use `today()` helper with BIZ_TZ.
@@ -916,6 +919,44 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 27, 2026 (session 70h) — Billing retry flow refinement, audit fixes, driver duplicate fix
+
+**Billing retry flow — prevent repeated failed charges (charge-order v26 + admin UI):**
+- **Problem:** When a card charge failed, admin saw "Retry charge" with no way to know the card had already been tried and declined. Admins kept retrying → customers received multiple failure notifications (Anna Bellomo had 15).
+- **New `charge_failed_at` column** on `orders` table (TIMESTAMPTZ). Set by `charge-order` v26 on decline; cleared on successful charge.
+- **charge-order v26 deployed:** On failure, sets `billing_status='failed'` + `charge_failed_at = NOW()`. On success, sets `billing_status='paid'` + `billed_at` + clears `charge_failed_at`.
+- **Admin UI 3-way button logic:** Compares `charge_failed_at` vs `customer_payment_methods.created_at` to determine card staleness. Stale card → "📞 Update card" (with customer name/phone toast). Fresh card or never tried → "Retry charge". No card → "Request card".
+- **Realtime listener:** INSERT on `customer_payment_methods` updates `_custCardAddedAt` Map in real time — when customer adds a new card, admin UI auto-switches from "Update card" to "Retry charge" without page refresh.
+- **Backfill:** Audited all 10 `billing_status='failed'` orders with cards on file. Checked SMS history — all had payment failure notifications sent AFTER cards were added (confirming cards were already retried and declined). Set `charge_failed_at = NOW()` on orders 203, 272, 430, 753, 816, 830, 857, 867, 872, 890.
+- **`retryChargeFromIssues()` catch block** now calls `loadOrders()` on failure so UI immediately picks up the new `charge_failed_at` and switches to "Update card".
+
+**Daily audit fixes:**
+- **Wrong-date stops:** Moved order #543 stops to correct routes. Orders #642 and #707 (terminal: cancelled/skipped) cleaned up as ghost stops.
+- **Ghost stops:** Set 7 orphaned stops to correct terminal status matching their parent orders.
+- **Duplicate orders:** Deleted $0 stale scheduled orders for Kevin McLaughlin and Elizabeth Gordon. Erin Colcord's two orders (#841, #968) flagged for David — different bag counts, may both be intentional.
+
+**Luis/Hayward driver app fix:**
+- **Symptom:** Stops not showing on Luis's driver app after route reassignment from John.
+- **Root cause:** Duplicate driver record (`6af83112...`) created today alongside original (`2c642af8...`). Both had same `profile_id`. Driver app resolved to the new empty record while routes were assigned to the original.
+- **Fix:** Merged data and deleted duplicate driver record. Stops now visible.
+- **Tech debt flagged:** Driver app line 1764 auto-creates driver records without checking for existing records with same `profile_id` (race condition). Needs uniqueness guard.
+
+**Root-cause rule added to WashRoute skills:**
+- New mandatory rule: every one-time data fix must be accompanied by a root-cause code fix. Added to both `washroute` and `washroute-audit` skill files.
+
+**Edge functions deployed:** `charge-order` v26
+**DB changes:** Added `charge_failed_at` TIMESTAMPTZ column to `orders` table. Backfilled 10 failed orders.
+**Files changed:** `admin-dashboard/index.html`, `supabase/functions/charge-order/index.ts`
+
+**Pending (carries forward):**
+1. David needs to run `git push` from Terminal (VM can't authenticate with GitHub)
+2. Erin Colcord duplicate orders (#841 and #968 for Mar 30) — David to decide if both intentional
+3. Tech debt: driver app line 1764 auto-create fallback needs `profile_id` uniqueness guard to prevent duplicate driver records
+4. Re-enable `review_request` and `reorder_reminder` SMS templates when ready
+5. Credits not applied at charge time — only at Intake. Consider adding credit check to `charge-order`
+
+---
 
 ### Mar 26, 2026 (session 70g) — Customer merge, CloudPRNT receipt overhaul, order history logging
 

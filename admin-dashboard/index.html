@@ -5296,7 +5296,7 @@
     if (!el) return;
 
     const { data, error } = await db.from('orders')
-      .select('id, order_number, status, billing_status, total_amount, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, billing_type)')
+      .select('id, order_number, status, billing_status, charge_failed_at, total_amount, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, billing_type)')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery'])
       .not('billing_status', 'in', '("paid","refunded")')
       .order('created_at', { ascending: false });
@@ -5316,9 +5316,13 @@
     const custIds = [...new Set(data.map(o => o.customers?.id).filter(Boolean))];
     if (custIds.length && !_custWithCard.size) {
       const { data: pmRows } = await db.from('customer_payment_methods')
-        .select('customer_id')
+        .select('customer_id, created_at')
         .in('customer_id', custIds);
-      (pmRows || []).forEach(r => _custWithCard.add(r.customer_id));
+      (pmRows || []).forEach(r => {
+        _custWithCard.add(r.customer_id);
+        const prev = _custCardAddedAt.get(r.customer_id);
+        if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
+      });
     }
     if (custIds.length && !_cardRequestSent.size) {
       const { data: smsRows } = await db.from('sms_messages')
