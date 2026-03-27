@@ -838,7 +838,11 @@
         </div>
         <div class="field">
           <label>Email</label>
-          <input type="email" id="name-email-input" placeholder="you@email.com" autocomplete="email" required
+          <input type="email" id="name-email-input" placeholder="you@email.com" autocomplete="email" required>
+        </div>
+        <div class="field">
+          <label>Phone</label>
+          <input type="tel" id="name-phone-input" placeholder="(415) 555-0100" autocomplete="tel" required
                  onkeydown="if(event.key==='Enter') handleNameSubmit()">
         </div>
         <button class="btn-primary" style="margin-top:14px" id="btn-name" onclick="handleNameSubmit()">Let's go →</button>
@@ -1734,6 +1738,9 @@ async function handleNameSubmit() {
   const email     = (document.getElementById('name-email-input')?.value || '').trim();
   if (!firstName || !lastName) { toast('Please enter your first and last name'); return; }
   if (!email || !email.includes('@')) { toast('Please enter a valid email address'); return; }
+  const phoneInput = (document.getElementById('name-phone-input')?.value || '').trim();
+  const phoneDigits = phoneInput.replace(/\D/g, '');
+  if (!phoneInput || phoneDigits.length < 10) { toast('Please enter a valid phone number'); return; }
 
   const btn = document.getElementById('btn-name');
   btn.disabled = true; btn.textContent = 'Setting up…';
@@ -1742,8 +1749,7 @@ async function handleNameSubmit() {
     if (!user) { toast('Session expired — please sign in again'); btn.disabled = false; btn.textContent = 'Let\'s go →'; return; }
     // Ensure global currentUser is set (race condition: auth state change may not have fired yet)
     if (!currentUser) currentUser = user;
-    const phoneVal = _pendingPhone || user?.phone || '';
-    if (!phoneVal) { toast('Phone number is missing — please sign up with your phone number'); btn.disabled = false; btn.textContent = 'Let\'s go →'; return; }
+    const phoneVal = _pendingPhone || phoneInput || user?.phone || '';
     // Ensure profile row exists with all fields
     await db.from('profiles').upsert({
       id:         user.id,
@@ -2070,12 +2076,20 @@ async function _handleCustomerSession(event, session) {
       showLoading(true);
       try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }
     }
-    // If customer is missing or has no name, redirect to name collection
-    if (!currentCustomer || !(currentCustomer.first_name_cache || '').trim()) {
+    // If customer is missing, has no name, or has no phone, redirect to name collection
+    if (!currentCustomer || !(currentCustomer.first_name_cache || '').trim() || !(currentCustomer.phone_cache || '').trim()) {
       _awaitingName = true;
       _authHandlerRunning = false;
       showAuthPanel('name');
-      setTimeout(() => document.getElementById('name-input')?.focus(), 200);
+      // Pre-fill fields from OTP flow or existing customer with missing phone
+      const prePhone = _pendingPhone || currentCustomer?.phone_cache || '';
+      if (prePhone) { const el = document.getElementById('name-phone-input'); if (el) el.value = prePhone; }
+      if (currentCustomer?.first_name_cache) { const el = document.getElementById('name-input'); if (el) el.value = currentCustomer.first_name_cache; }
+      if (currentCustomer?.last_name_cache) { const el = document.getElementById('name-last-input'); if (el) el.value = currentCustomer.last_name_cache; }
+      if (currentCustomer?.email_cache || currentUser?.email) { const el = document.getElementById('name-email-input'); if (el) el.value = currentCustomer?.email_cache || currentUser?.email || ''; }
+      // Focus the first empty field
+      const focusEl = !document.getElementById('name-input')?.value ? 'name-input' : !document.getElementById('name-phone-input')?.value ? 'name-phone-input' : 'name-input';
+      setTimeout(() => document.getElementById(focusEl)?.focus(), 200);
       return;
     }
     appReady = true;
@@ -2245,10 +2259,11 @@ async function loadUserData() {
     const custEmail = currentProfile.email || currentUser.email || '';
     const custPhone = currentProfile.phone || m.phone || '';
 
-    // If we have no name, do NOT create a blank customer record.
+    // If we have no name or no phone, do NOT create an incomplete customer record.
     // The name gate in _handleCustomerSession will show the name collection
-    // screen, and handleNameSubmit will create the record with a real name.
-    if (!custFirst.trim()) {
+    // screen (which now includes a phone field), and handleNameSubmit will
+    // create the record with all required fields.
+    if (!custFirst.trim() || !custPhone.trim()) {
       currentCustomer = null;
       return;
     }

@@ -5132,18 +5132,20 @@
       el.innerHTML = `<div class="empty"><div class="empty-title">No orders yet</div><div class="empty-sub">Orders will appear here once created.</div></div>`;
       return;
     }
-    el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Total</th></tr></thead><tbody>
+    el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th style="text-align:right">Total</th><th style="text-align:right">Created</th></tr></thead><tbody>
       ${data.map(o=>{
         const cust = o.customers;
         const fn = cust?.first_name_cache || '';
         const ln = cust?.last_name_cache  || '';
+        const created = o.created_at ? new Date(o.created_at).toLocaleString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).replace(',', ' ·') : '';
         // Open order detail panel when clicking a recent order row
         const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
         return `<tr ${clickable}>
           <td class="td-mono">#${o.order_number}</td>
           <td class="td-name">${(fn+' '+ln).trim() || 'Unknown'}</td>
           <td>${statusBadge(o.status)}</td>
-          <td>${fmtMoney(o.total_amount)}</td>
+          <td style="text-align:right">${fmtMoney(o.total_amount)}</td>
+          <td style="text-align:right;color:var(--gray-400);font-size:12px;white-space:nowrap">${created}</td>
         </tr>`;
       }).join('')}
     </tbody></table>`;
