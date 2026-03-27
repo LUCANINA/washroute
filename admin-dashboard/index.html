@@ -17301,7 +17301,7 @@ ${oneCopy}
         // Payment failed — still rack the order, but mark billing as failed.
         // Order moves to ready_for_delivery and appears in Issues tab for admin to resolve.
         showToast(`⚠️ Payment failed: ${e.message} — order racked, charge from Order Details`, 'error');
-        await db.from('orders').update({ billing_status: 'failed' }).eq('id', rackActiveOrder.id);
+        await db.from('orders').update({ billing_status: 'failed', charge_failed_at: new Date().toISOString() }).eq('id', rackActiveOrder.id);
         rackActiveOrder.billing_status = 'failed';
       }
     }
