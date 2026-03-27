@@ -9206,22 +9206,42 @@ ${oneCopy}
         const convRow = m.customer_id ? convByCustomer[m.customer_id] : convByPhone[phone];
         convMap[key] = {
           key, customer_id: m.customer_id, cust: m.customers,
-          phone, latest: m, unread: 0, hasInbound: false, channel: 'sms',
+          phone, latest: m, hasInbound: false, channel: 'sms',
           conv_id: convRow?.id || null,
           db_status: convRow?.status || null,
+          resolved_at: convRow?.resolved_at || null,
+          lastOutbound: null,       // most recent outbound timestamp
+          inboundAfterReply: 0,     // inbound msgs after last admin reply
         };
       }
-      if (m.direction === 'inbound') { convMap[key].unread++; convMap[key].hasInbound = true; }
+      // msgs are sorted desc by created_at, so first outbound we see is the most recent
+      if (m.direction === 'outbound' && !convMap[key].lastOutbound) convMap[key].lastOutbound = m.created_at;
+      // Count inbound messages that arrived after the last admin reply
+      if (m.direction === 'inbound') {
+        convMap[key].hasInbound = true;
+        if (!convMap[key].lastOutbound) convMap[key].inboundAfterReply++;
+      }
     });
 
-    // Determine effective status — only show conversations where the customer has replied
-    const _24hAgo = Date.now() - 24 * 60 * 60 * 1000;
+    // Determine effective status
+    const _48hAgo = Date.now() - 48 * 60 * 60 * 1000;
     const convs = Object.values(convMap).filter(c => c.hasInbound).map(c => {
       const latestIsInbound = c.latest.direction === 'inbound';
+      const latestTime = new Date(c.latest.created_at).getTime();
       let status = c.db_status || 'open';
-      if (latestIsInbound && status === 'waiting') status = 'open'; // re-open only if waiting (not if explicitly archived)
-      // Auto-archive conversations with no activity in the last 24 hours
-      if (status !== 'resolved' && new Date(c.latest.created_at).getTime() < _24hAgo) status = 'resolved';
+
+      // Re-open archived/waiting conversations when customer has texted AFTER the archive
+      if (latestIsInbound && (status === 'waiting' || status === 'resolved')) {
+        const archivedAt = c.resolved_at ? new Date(c.resolved_at).getTime() : 0;
+        if (latestTime > archivedAt) status = 'open';
+      }
+
+      // Auto-archive only if: (a) latest message is OUTBOUND (admin replied), and (b) no activity in 48h
+      if (status !== 'resolved' && !latestIsInbound && latestTime < _48hAgo) status = 'resolved';
+
+      // Unread = inbound messages after last admin reply (genuinely new messages)
+      c.unread = c.inboundAfterReply;
+
       return { ...c, status };
     }).sort((a, b) => new Date(b.latest.created_at) - new Date(a.latest.created_at));
 
