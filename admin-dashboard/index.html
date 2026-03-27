@@ -3717,6 +3717,7 @@
   let allCustomers = [];
   let allOrders = [];
   let _custWithCard = new Set(); // customer IDs that have at least one payment method on file
+  let _custCardAddedAt = new Map(); // customer ID → latest card created_at (ISO string)
   let _cardRequestSent = new Set(); // customer IDs that have been sent a card-request SMS
   let allTemplates = [], allDriversCache = [];
   let allDriversList = [];
@@ -3846,11 +3847,20 @@
   // Returns an inline action button for the Issues tab row
   const issueActionBtn = (o) => {
     if (o.billing_status === 'failed') {
-      const hasCard = _custWithCard.has(o.customers?.id);
+      const custId = o.customers?.id || '';
+      const hasCard = custId && _custWithCard.has(custId);
       if (hasCard) {
+        // Check if the card on file is newer than the last charge failure
+        const cardDate = _custCardAddedAt.get(custId);
+        const cardIsStale = o.charge_failed_at && cardDate && new Date(cardDate) <= new Date(o.charge_failed_at);
+        if (cardIsStale) {
+          // Same card already tried and declined — admin should call customer to update
+          const phone = o.customers?.phone_cache || '';
+          const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
+          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:#7c3aed;background:#ede9fe;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+        }
         return `<button onclick="event.stopPropagation();retryChargeFromIssues('${o.id}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Retry charge</button>`;
       }
-      const custId = o.customers?.id || '';
       const phone  = o.customers?.phone_cache || '';
       if (custId && _cardRequestSent.has(custId)) {
         return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
@@ -3866,6 +3876,14 @@
       const custId = o.customers?.id || '';
       const hasCard = custId && _custWithCard.has(custId);
       if (hasCard) {
+        // Check if the card on file is newer than the last charge failure
+        const cardDate = _custCardAddedAt.get(custId);
+        const cardIsStale = o.charge_failed_at && cardDate && new Date(cardDate) <= new Date(o.charge_failed_at);
+        if (cardIsStale) {
+          const phone = o.customers?.phone_cache || '';
+          const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
+          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:#7c3aed;background:#ede9fe;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+        }
         return `<button onclick="event.stopPropagation();retryChargeFromIssues('${o.id}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Retry charge</button>`;
       }
       const phone = o.customers?.phone_cache || '';
@@ -4697,6 +4715,7 @@
         const custId = payload.new.customer_id;
         if (!custId) return;
         _custWithCard.add(custId);
+        _custCardAddedAt.set(custId, payload.new.created_at || new Date().toISOString());
         _cardRequestSent.delete(custId);
         // Find customer name from cached orders for the toast
         const order = allOrders.find(o => o.customers?.id === custId);
@@ -5793,7 +5812,7 @@
                actual_pickup_at, actual_delivery_at,
                pickup_run_id, delivery_run_id,
                pickup_address_id, delivery_address_id,
-               created_at, updated_at, billed_at, recurring_interval, routing_error, cancelled_by,
+               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, cancelled_by,
                services(name),
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
                pickup_run:pickup_run_id(id, name),
@@ -5809,10 +5828,17 @@
     const custIds = [...new Set((data||[]).map(o => o.customers?.id).filter(Boolean))];
     if (custIds.length) {
       const { data: cardRows } = await db.from('customer_payment_methods')
-        .select('customer_id').in('customer_id', custIds);
+        .select('customer_id, created_at').in('customer_id', custIds);
       _custWithCard = new Set((cardRows||[]).map(r => r.customer_id));
+      // Track the latest card created_at per customer (for retry vs update-card logic)
+      _custCardAddedAt = new Map();
+      for (const r of (cardRows||[])) {
+        const prev = _custCardAddedAt.get(r.customer_id);
+        if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
+      }
     } else {
       _custWithCard = new Set();
+      _custCardAddedAt = new Map();
     }
 
     // Side-fetch: which customers have already been sent a card request SMS?
@@ -8857,6 +8883,14 @@ ${oneCopy}
     }
   }
 
+  // Prompt admin to call customer and update their card (shown after a charge was already attempted and failed)
+  function promptUpdateCard(name, phone, orderNum) {
+    const msg = phone
+      ? `Call ${name || 'customer'} at ${phone} to update their card for order #${orderNum}. Once they add a new card, "Retry charge" will appear automatically.`
+      : `Contact ${name || 'customer'} to update their card for order #${orderNum}. No phone on file.`;
+    showToast(msg, 'info', 10000);
+  }
+
   // One-click retry charge from the Issues tab row — no confirm prompt, immediate feedback
   async function retryChargeFromIssues(orderId, orderNum, btn) {
     btn.disabled = true; btn.textContent = 'Charging…';
@@ -8868,7 +8902,7 @@ ${oneCopy}
       });
       const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
       if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
-      // charge-order v25 already sets billing_status='paid' + billed_at — no client-side update needed
+      // charge-order v26 sets billing_status='paid' + billed_at + clears charge_failed_at
       showToast(`✓ Order #${orderNum} charged — ${result.card || ''}`, 'success');
       // Send receipt email now that charge succeeded
       fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
@@ -8878,8 +8912,10 @@ ${oneCopy}
       }).catch(() => {});
       loadOrders(currentOrderFilter); // Refresh so the order moves out of Issues
     } catch (e) {
-      btn.disabled = false; btn.textContent = 'Retry charge';
       showToast(`Charge failed: ${e.message}`, 'error');
+      // Refresh table — charge-order v26 set charge_failed_at on failure,
+      // so the button will switch from "Retry charge" to "📞 Update card"
+      loadOrders(currentOrderFilter);
     }
   }
 
@@ -11861,11 +11897,12 @@ ${oneCopy}
     }
   }
 
-  function showToast(msg, type='') {
+  function showToast(msg, type='', durationMs=3000) {
     const t = document.getElementById('toast');
     t.textContent = msg;
     t.className = `toast ${type} show`;
-    setTimeout(()=>{ t.className='toast'; }, 3000);
+    clearTimeout(t._hideTimer);
+    t._hideTimer = setTimeout(()=>{ t.className='toast'; }, durationMs);
   }
 
   // ── BULK GEOCODE: fix any addresses missing lat/lng ──
