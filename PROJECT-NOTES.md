@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 28, 2026 — Driver uniqueness guard, customer dedup fix, stripe-webhook diagnostics (session 72)*
+*Last updated: Mar 28, 2026 — OTP progressive fallback flow, Disk IO cleanup (session 73)*
 
 ---
 
@@ -243,6 +243,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **Capacity-aware booking UX (session 69, commits `3ac0b59`, `53ce21d`):** When routes are full, the booking screen now shows a red "Full" badge and disables that time slot. Almost-full slots (≤5 spots left) show an amber badge like "3 spots left". When ALL slots on a day are full, a yellow nudge banner says "Please pick a different day for faster service." Auto-select logic skips full windows. Works for both pickup and delivery date selection.
 - **Per-sub-window capacity enforcement (session 69):** Capacity is now checked per sub-window (e.g. 6–8 PM and 8–10 PM separately) rather than for the whole route template. A route with `stop_limit = 30` and 2 sub-windows gets 15 per sub-window. Both the DB function `auto_route_order()` and the customer app booking flow enforce this. Prevents lopsided booking (e.g. 29 stops in one sub-window, 1 in the other).
 - **Default tip setting in customer app (session 70i):** Customers can now set their own default tip in Account → Payment Method. $/% toggle and numeric input, saves to `default_tip` and `default_tip_type` on the `customers` table — same fields the admin dashboard reads. Tip is auto-applied to each new order.
+- **OTP progressive fallback flow (session 73):** When SMS OTP doesn't arrive, fallback options reveal progressively: "Resend code" appears after 15 seconds, email magic-link fallback after 30 seconds. Email fallback uses the existing `send-magic-link` edge function — customer enters email, gets a one-tap sign-in link. "Need help? Text HELP to (510) 588-4102" support shortcut shown on both the hero (phone entry) and OTP verify screens. Timers reset/clear on panel transitions. No dead-end screens — every state has an escape route.
 - **Cross-method auth re-linking (session 30, commit `778e9d8`):** `ensureProfile()` step 2b — if a customer signs in via email magic link but their account was originally created via phone OTP (or vice versa), the function now detects the existing customer record by `email_cache` even if it already has a `profile_id`, and re-points it to the current auth user. Previously, this created a blank duplicate customer record. Two orphaned records from the first occurrence were deleted from the DB. Note: Supabase creates a new auth UUID per sign-in method; `profile_id` flips to whichever method was used most recently — harmless in practice.
 
 ---
@@ -933,6 +934,36 @@ There are actually **two separate hang points** that must both be covered:
 
 **Files changed:** `admin-dashboard/index.html`
 
+### Mar 28, 2026 (session 73) — OTP progressive fallback flow, Supabase Disk IO cleanup
+
+**Customer app — OTP progressive fallback flow:**
+- #1 customer complaint was OTP failures: no SMS received, expired tokens, invalid tokens. Previously, the OTP verify screen offered only "Resend code" and "Try a different number" — no email escape route.
+- Implemented timed progressive reveal: clean OTP input initially, "Resend code" fades in at 15s, email magic-link fallback at 30s. Uses `fadeSlideIn` CSS animation.
+- Email fallback sends via existing `send-magic-link` edge function with inline success confirmation.
+- "Need help? Text HELP to (510) 588-4102" support shortcut added to hero and OTP screens with `sms:` deep link.
+- Timers managed by `startOtpFallbackTimers()` / `clearOtpFallbackTimers()`, triggered from `showAuthPanel()`.
+
+**Supabase Disk IO Budget fix:**
+- David received Supabase warning email about depleting Disk IO Budget.
+- Diagnosed: `net._http_response` was 8,408 KB for only 45 rows (massive bloat from unvacuumed HTTP response storage). `addresses` table had 166% dead tuples and had never been vacuumed.
+- Cleaned `_http_response` (deleted old rows) — shrunk from 8,408 KB → 3,216 KB.
+- VACUUMed 6 tables: `addresses`, `customer_transactions`, `customer_payment_methods`, `conversations`, `drivers`, `_http_response`.
+- Ongoing IO drivers: `reoptimize_active_routes()` cron every 5 min, CloudPRNT polling every ~5s. Not changed — acceptable load but worth monitoring.
+
+**Commits:**
+- `eed940c` — feat: add progressive OTP fallback flow to reduce auth churn
+
+**Files changed:** `customer-app/index.html`
+
+**Pending (carries forward):**
+1. Receipt template — iPad POS cache clear needed
+2. Small "v" character at top of receipt
+3. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+4. Stripe webhook — verify `STRIPE_WEBHOOK_SECRET` matches Stripe Dashboard signing secret
+5. Monitor Disk IO budget after today's cleanup — if it recurs, consider reducing CloudPRNT poll frequency
+
+---
+
 ### Mar 28, 2026 (session 72) — Driver uniqueness guard, customer dedup fix, stripe-webhook diagnostics
 
 **Driver app — profile_id uniqueness guard (Known Issue #21 closed):**
@@ -954,7 +985,7 @@ There are actually **two separate hang points** that must both be covered:
 - **Action needed:** David to compare `STRIPE_WEBHOOK_SECRET` in Supabase Secrets against the signing secret shown in Stripe Dashboard → Developers → Webhooks for the endpoint.
 
 **Commits:**
-- `[pending push]` — fix: prevent duplicate accounts + driver records, add stripe-webhook diagnostics
+- `ba7c8c6` — fix: prevent duplicate accounts + driver records, add stripe-webhook diagnostics
 
 **Edge functions deployed:** `stripe-webhook` v26
 
