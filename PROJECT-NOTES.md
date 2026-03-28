@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 28, 2026 — Stripe webhook fix, Radar CVC rule, customer/address dedup (session 74)*
+*Last updated: Mar 28, 2026 — Duplicate account RPC fix, same-day delivery fix, credit audit (session 74 cont'd)*
 
 ---
 
@@ -482,6 +482,9 @@ There are actually **two separate hang points** that must both be covered:
 | 22 | ~~P0 → Fixed~~ | Stripe webhooks | ~~Duplicate webhook endpoint ("Delivery App") causing 400 signature failures — cards not saving after Stripe Checkout.~~ **FIXED session 74**: Deleted stale "Delivery App" endpoint in Stripe Dashboard. Only "brilliant-oasis" endpoint remains (0% error rate). |
 | 23 | ~~P0 → Fixed~~ | Stripe Radar | ~~CVC block rule rejecting valid charges — card issuers approved but Radar blocked.~~ **FIXED session 74**: Disabled CVC block rule in Stripe Radar → Rules. Charges with failed CVC checks now allowed through. |
 | 24 | ~~P1 → Fixed~~ | `charge-order` | ~~No status guard — orders at `scheduled`/`picked_up` could be charged prematurely.~~ **FIXED session 74**: v28 added `CHARGEABLE_STATUSES` guard. Issues tab filter also updated to only show `billing_status='failed'` for chargeable-status orders. |
+| 25 | ~~P1 → Fixed~~ | Duplicate customer accounts | ~~Returning customers who signed up again got duplicate accounts because RLS blocked client-side dedup queries.~~ **FIXED session 74**: `claim_existing_customer` SECURITY DEFINER RPC bypasses RLS. All 3 dedup code paths updated. |
+| 26 | ~~P1 → Fixed~~ | Same-day delivery picker | ~~Delivery date picker min was pickup+1 day, blocking same-day delivery selection.~~ **FIXED session 74**: Changed min to pickup same day. Slot-level validation is the real guard. |
+| 27 | ~~P2 → Fixed~~ | $20 promo credit drift | ~~231 customers under-credited ($0 instead of $20) from account merges; 11 over-credited from duplicate signups.~~ **FIXED session 74**: Bulk correction applied, credit_remove txns logged for audit trail. |
 
 ---
 
@@ -989,6 +992,48 @@ There are actually **two separate hang points** that must both be covered:
 5. 33 unpaid orders (~$3,400+) — customers need to add cards before charging
 6. Belt-and-suspenders client-side card sync (proposed, not yet built) — fallback for when webhook fails
 7. Dallas Butler + other dual-order duplicate addresses — need manual reassignment
+
+### Mar 28, 2026 (session 74 cont'd) — Duplicate account RPC fix, same-day delivery, credit audit
+
+**Root cause of duplicate customer accounts found and fixed:**
+- When returning customers signed up again (new Supabase auth UUID), the client-side dedup logic in `ensureProfile()`, `loadUserData()`, and `renderConfirmAuth()` correctly queried for existing accounts by email/phone — but **RLS blocked the queries**. The `customer_read_own` policy (`profile_id = auth.uid()`) prevented the new auth user from seeing the existing customer record linked to the old UUID.
+- **Fix:** Created `claim_existing_customer` Postgres RPC function (`SECURITY DEFINER`) that bypasses RLS. It checks: profile_id match → email orphan → email cross-link → phone match, then repoints `profile_id` to the current auth user. All three client-side dedup code paths now call this RPC instead of direct table queries.
+- **Migration:** `add_claim_existing_customer_rpc` — also added `idx_customers_email_cache` index for fast email lookups.
+- Merged additional duplicates found during session: Baby Lee (152+1 orders), Dallas Butler (again — 4th shell!), David test account.
+
+**Same-day delivery date picker fix:**
+- The delivery date picker's `min` attribute was set to pickup date + 1 day, physically preventing same-day delivery selection via the Edit button. This blocked David from moving Nicolas Rodet's delivery to tonight.
+- **Fix:** Changed `min` to pickup same day. The slot-level validation in `opSaveRouteAndSlot` (delivery start must be after pickup window end) is the real guard — the +1 day constraint was redundant and overly restrictive.
+
+**$20 signup promo credit audit and correction:**
+- **Problem 1 — Duplicate signups got $20 each time:** The `apply_signup_promo_credit` trigger checks `signup_promo_credit_at IS NULL` on the customer record, but duplicate shell accounts had their own fresh NULL, so each signup triggered another $20.
+- **Problem 2 — Merges lost credits:** When shell accounts were merged into keepers, `customer_transactions` FK references moved but the shell's `credits` balance was not added to the keeper's balance.
+- **Audit results:** 231 customers under-credited (should have $20, had $0), 11 customers over-credited (got promo 2-5×), 82 legacy Starchup credits (legitimate, no action needed).
+- **Fix:** Restored $20 for all 231 under-credited customers. Normalized 11 over-credited to exactly 1× $20 with `credit_remove` transactions logged for audit trail. Dallas Butler $40→$20, Virginia Kiley/Rachel Lederman already at $20 (excess txns balanced). Robin Kline $0→$10 (partial credit restored).
+- **Final state:** 0 under-credited, 403 correct (up from 167), 85 legacy over-credited (legitimate Starchup balances).
+
+**Customer merges (session 74 cont'd):**
+- Ecole Bilingue de Berkeley → Anais Wilson (1 order, 1 address, 1 card, 1 txn, 2 sms, 5 emails moved; Anais's phone preserved)
+- Charlene Bachemin → Charlene Davis (1 sms moved)
+- Baby Lee shell → keeper (1 order, 1 address, 1 sms, 1 email moved)
+- Dallas Butler shell → keeper (1 card, 1 txn, 1 sms, 1 email moved) — 4th duplicate!
+- David test account deleted (1 sms moved to real account)
+- Ambiguous duplicates kept separate per David's decision: Myra Greene / Sarang Rahmani (different people, same phone)
+
+**Files changed:** `customer-app/index.html`, `admin-dashboard/index.html`, `PROJECT-NOTES.md`
+
+**Database changes:**
+- Migration: `add_claim_existing_customer_rpc` — new RPC function + email index
+- Data fix: 242 customer credit balances corrected, 12 `credit_remove` transactions logged
+
+**Pending (carries forward):**
+1. Receipt template — iPad POS cache clear needed
+2. Small "v" character at top of receipt
+3. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+4. Monitor Disk IO budget after session 73 cleanup
+5. 33 unpaid orders (~$3,400+) — customers need to add cards before charging
+6. Belt-and-suspenders client-side card sync (proposed, not yet built)
+7. Dallas Butler + other dual-order duplicate addresses — need manual order reassignment
 
 ---
 
