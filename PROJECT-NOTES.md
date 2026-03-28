@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 27, 2026 — Receipt template overhaul, CloudPRNT v15 Star Line Mode, QA fixes (session 70i continued)*
+*Last updated: Mar 27, 2026 — Daily Check engine, recurring order dedup, duplicate stop fixes (session 71)*
 
 ---
 
@@ -286,7 +286,7 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 ### Key DB Functions & Triggers
 | Object | Type | Purpose |
 |---|---|---|
-| `auto_route_order(p_order_id)` | Function | Matches order to template by zone+day+time, finds/creates the dated route, assigns driver, creates stops. Sets `routing_error` on orders if no match found |
+| `auto_route_order(p_order_id)` | Function | Matches order to template by zone+day+time, finds/creates the dated route, assigns driver, creates stops. Sets `routing_error` on orders if no match found. **Session 71: dedup guards added** — before creating pickup/delivery stops, checks if a non-skipped/non-failed stop already exists for that order+type. Prevents duplicate stops when function is called multiple times (e.g. delivery_run_id changes). |
 | `trg_auto_route_new_order` | Trigger (AFTER INSERT on orders) | Fires for all new scheduled orders — sets routing_error for missing zone, calls auto_route_order for valid orders |
 | `trg_create_recurring_order` | Trigger (AFTER UPDATE on orders) | On status → `delivered` OR `skipped` (when `cancelled_by = 'customer'`) with recurring_interval, creates next order. Bumps both pickup AND delivery off Sundays to Monday. **Session 71: dedup check added** — before inserting, checks if customer already has a `scheduled` order on the same pickup date (Pacific time). If so, skips the insert silently. Prevents duplicates when customer manually books via the app before the recurring trigger fires. |
 | `trg_sync_order_status` | Trigger (AFTER UPDATE on route_stops) | When all pickup stops → complete, order → `picked_up`. When all delivery stops → complete, order → `delivered` |
@@ -932,6 +932,48 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 27, 2026 (session 71) — Daily Check engine, recurring order dedup, duplicate stop fixes
+
+**Daily Check engine (admin Overview page):**
+- New "Daily Check" card at top of Overview — button-triggered, runs 10 audit checks in parallel via Supabase queries.
+- Checks: unrouted orders (P0), wrong-date stops (P0), unpaid delivered orders (P0), stop/order desync (P1), duplicate customers (P1), duplicate orders (P1), over-capacity routes (P1), driverless routes next 7 days (P2), SMS opt-out desync (P2), orphaned records (P3).
+- Results display with P0–P3 severity badges, issue counts, detail rows (up to 5 per check), and collapsible "passed" section.
+- `DC_SKIP_PHONES` constant excludes known intentional duplicate phone numbers from the duplicate customer check.
+
+**Recurring order duplicate prevention (DB fix):**
+- Root cause: `trg_create_recurring_order_fn` created next orders without checking if customer already had a scheduled order for the target date. If a customer booked manually via the app before the trigger fired on delivery, they'd get duplicates.
+- Fix: Added COUNT check before INSERT — if customer already has a `scheduled` order on the same Pacific-date pickup, trigger returns silently. Applied via `execute_sql`.
+- Cleaned up 3 duplicate order pairs: #968, #1008, #1043 deleted.
+
+**Duplicate route stop prevention (DB + admin fix):**
+- Root cause A: `auto_route_order()` created pickup/delivery stops without checking for existing non-skipped/non-failed stops on the same order+type. When `delivery_run_id` was NULL and then set, a second stop could be created.
+- Root cause B: Admin `opSaveRouteAndSlot` used `.maybeSingle()` which returns error (not data) when multiple rows match, causing null destructuring → creating yet another stop.
+- DB fix: Added existence guards in `auto_route_order()` — checks for non-skipped/non-failed stops before each INSERT.
+- Admin fix: Changed `.maybeSingle()` → `.limit(1)` with explicit array destructuring in `opSaveRouteAndSlot` (both pickup and delivery blocks).
+- Cleaned up: 4 duplicate delivery stops on orders #817 and #863. 2 ghost stops on order #1012 set to 'skipped'. Franklin Zuniga duplicate order #1061 deleted.
+
+**Data cleanup performed:**
+- Deleted orders: #968, #1008, #1043 (recurring duplicates), #1061 (manual duplicate).
+- Deleted 4 duplicate delivery stops (orders #817, #863).
+- Set 2 ghost stops on order #1012 to `skipped`.
+
+**Commits:**
+- `5ac9323` — fix: add same-date dedup check to recurring order trigger
+- `b7082c6` — fix: prevent duplicate route stops + dedup guards in auto_route_order
+- `bec6529` — feat: add Daily Check engine to admin Overview page
+
+**Files changed:** `admin-dashboard/index.html`, DB functions (`trg_create_recurring_order_fn`, `auto_route_order`) via `execute_sql`
+
+**Pending (carries forward):**
+1. Receipt template — iPad POS cache clear needed
+2. Small "v" character at top of receipt
+3. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+4. Tech debt: driver app line 1764 auto-create fallback needs `profile_id` uniqueness guard
+5. Investigate stripe-webhook 400 errors (invalid signature)
+6. Root cause: duplicate account creation — customer app creates new accounts for existing Starchup-migrated customers
+
+---
 
 ### Mar 27, 2026 (session 70i) — Skip attribution, customer tip, issue tracking, CloudPRNT fix
 
