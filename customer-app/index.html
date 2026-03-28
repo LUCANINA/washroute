@@ -822,15 +822,9 @@
                onkeydown="if(event.key==='Enter') handleOTPVerify()">
         <button class="btn-primary" style="margin-top:14px" id="btn-verify" onclick="handleOTPVerify()">Verify →</button>
 
-        <!-- Fallback options: always visible so customers are never stuck -->
-        <div id="otp-fallback-resend">
-          <div class="auth-divider" style="margin-top:20px"><span>didn't get a code?</span></div>
-          <button class="magic-link-btn" id="btn-resend" onclick="resendOTP()">Resend code</button>
-        </div>
-        <div id="otp-fallback-email" style="margin-top:12px">
-          <div style="text-align:center;margin-bottom:10px">
-            <span style="font-size:13px;color:var(--gray-500)">SMS not working? We can email you a sign-in link.</span>
-          </div>
+        <!-- Email fallback: always visible so customers are never stuck -->
+        <div class="auth-divider" style="margin-top:20px"><span>didn't get a code?</span></div>
+        <div id="otp-fallback-email">
           <div class="field" style="margin-bottom:8px">
             <input type="email" id="otp-fallback-email-input" placeholder="you@email.com" autocomplete="email"
                    style="font-size:15px">
