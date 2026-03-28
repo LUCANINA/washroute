@@ -7299,11 +7299,14 @@
     }
 
     // Upsert route_stop for pickup leg
+    // Uses .limit(1) instead of .maybeSingle() — maybeSingle errors when duplicates exist,
+    // causing the else branch to create yet another duplicate (amplification bug)
     if (leg === 'pickup') {
       const cust   = allCustomers.find(c => c.id === opCurrentCustId);
       const addrs  = Array.isArray(cust?.addresses) ? cust.addresses : [];
       const addrId = o.pickup_address_id || addrs.find(a => a.is_default)?.id || addrs[0]?.id || null;
-      const { data: existStop } = await db.from('route_stops').select('id').eq('order_id', opCurrentOrderId).eq('stop_type','pickup').maybeSingle();
+      const { data: existStops } = await db.from('route_stops').select('id').eq('order_id', opCurrentOrderId).eq('stop_type','pickup').not('status','in','(skipped,failed)').order('created_at',{ascending:true}).limit(1);
+      const existStop = existStops?.[0];
       if (existStop) {
         await db.from('route_stops').update({ route_id: routeId, driver_id: null }).eq('id', existStop.id);
       } else {
@@ -7317,7 +7320,8 @@
       const cust   = allCustomers.find(c => c.id === opCurrentCustId);
       const addrs  = Array.isArray(cust?.addresses) ? cust.addresses : [];
       const addrId = o.delivery_address_id || o.pickup_address_id || addrs.find(a => a.is_default)?.id || addrs[0]?.id || null;
-      const { data: existStop } = await db.from('route_stops').select('id').eq('order_id', opCurrentOrderId).eq('stop_type','delivery').maybeSingle();
+      const { data: existStops } = await db.from('route_stops').select('id').eq('order_id', opCurrentOrderId).eq('stop_type','delivery').not('status','in','(skipped,failed)').order('created_at',{ascending:true}).limit(1);
+      const existStop = existStops?.[0];
       if (existStop) {
         await db.from('route_stops').update({ route_id: routeId, driver_id: null }).eq('id', existStop.id);
       } else {
