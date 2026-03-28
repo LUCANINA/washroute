@@ -17,6 +17,8 @@ Project moved from the old Cowork sandbox path to a proper local git repo:
 
 Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no dead references, no hardcoded strings that should be configurable. Whether the customer sees it or not — the system must be tidy. Clean up after every job.
 
+**⚠️ FIX PERMANENTLY, NOT JUST FOR NOW.** When fixing any bug or issue, always ask: "How do we make sure this can never happen again?" Every fix should come with a suggestion for structural prevention — a DB constraint, a trigger guard, a skill update, or a PROJECT-NOTES warning. Fixing the symptom is step 1. Making the bug impossible to reintroduce is step 2. If a field's meaning changes, check every consumer (app code AND DB triggers/functions). If a previous fix is being reversed, the ⚠️ CRITICAL warnings in this file exist for a reason — read them before changing related code.
+
 **⚠️ DELIVERY WINDOWS MUST MATCH ROUTE TEMPLATES.** When creating orders, always check the route template's `arrival_window_hours` to determine the correct delivery window size. San Francisco and Hayward routes have 3-hour arrival windows (7–10 PM), so the delivery window is the full route window. Berkeley, Alameda, and Oakland routes have 2-hour arrival windows (sub-windows: 6–8 PM or 8–10 PM). Never assume all routes use the same window size. One-time orders use `recurring_interval = NULL` (not `'one_time'`).
 
 **⚠️ BUSINESS TIMEZONE: Oakland CA, Pacific Time (`America/Los_Angeles`).** All "today" checks, stat cards, and date comparisons must use the `BIZ_TZ` constant (loaded from settings table at startup). Never assume UTC or browser local time.
@@ -435,13 +437,17 @@ There are actually **two separate hang points** that must both be covered:
 
 ### Entry points
 - **Customer app:** "Skip this pickup" button on order detail. Sets `status = 'skipped', cancelled_by = 'customer'`.
-- **Driver app:** `skipStop()` sets `cancelled_by = 'customer'` (changed from `'driver'` in session 56). Undo clears it back to null.
-- **Admin:** `opSetOrderStatus()` and `setSingleOrderStatus()` set `cancelled_by = 'customer'` for skips, `cancelled_by = 'admin'` for cancels/failures (changed in session 56).
+- **Driver app:** `skipStop()` sets `cancelled_by = 'driver'`.
+- **Admin:** `opSkipOrder()`, `opSetOrderStatus()`, and `setSingleOrderStatus()` set `cancelled_by = 'admin'` for skips.
 - **SMS automation:** SKIP keyword in `twilio-webhook` sets `cancelled_by = 'customer'`.
 
+### ⚠️ CRITICAL — Recurring order chain rule
+**`trg_create_recurring_order_fn` fires on ANY skip, regardless of `cancelled_by`.** A "skip" means "skip this one occurrence" — the subscription ALWAYS continues. The `cancelled_by` field is for attribution only (who did it), NOT for controlling whether the chain continues.
+
+**History of this bug (do not repeat):** Session 56 made all skips set `cancelled_by = 'customer'` to keep the chain going. Session 70i changed it to actual-actor ('admin'/'driver') for attribution — but forgot to update the trigger, which still checked `cancelled_by = 'customer'`. This silently broke recurring chains for admin/driver skips. Fixed session 73 by removing the `cancelled_by` condition from the trigger entirely.
+
 ### Key behavior
-- Issues tab excludes orders where `cancelled_by = 'customer'` — these are resolved, not actionable.
-- `trg_create_recurring_order` fires on `skipped` **only when `cancelled_by = 'customer'`** — ensures subscription chain continues.
+- Issues tab excludes: (1) orders where `cancelled_by = 'customer'` AND status = 'skipped', (2) skipped recurring orders (any actor — they auto-create next occurrence), (3) recurring `pickup_failed` orders (same reason).
 - `billing_status = 'failed'` orders always surface in Issues regardless of `cancelled_by`.
 - `billing_status` values: `'paid'` (charged successfully), `'failed'` (card declined), `'refunded'`, or `null` (not yet charged). Set by `charge-order` v25 and `stripe-webhook` v24.
 - `billed_at` timestamp: set when Stripe charge succeeds. Used by Revenue Today stat card to show same-day revenue in Pacific time.
@@ -950,10 +956,19 @@ There are actually **two separate hang points** that must both be covered:
 - VACUUMed 6 tables: `addresses`, `customer_transactions`, `customer_payment_methods`, `conversations`, `drivers`, `_http_response`.
 - Ongoing IO drivers: `reoptimize_active_routes()` cron every 5 min, CloudPRNT polling every ~5s. Not changed — acceptable load but worth monitoring.
 
+**Recurring order skip fix (regression from session 70i):**
+- Root cause: Session 70i changed admin/driver skips to set actual actor in `cancelled_by` (for attribution), but forgot to update `trg_create_recurring_order_fn` which still checked `cancelled_by = 'customer'`. Admin/driver skips on recurring orders silently broke the subscription chain.
+- Fix: Removed `cancelled_by` condition from the trigger — any skip on a recurring order now creates the next occurrence regardless of who skipped it.
+- Issues tab updated: skipped recurring orders excluded (auto-continue, not actionable). Non-recurring skipped orders from admin/driver still show.
+- Data repair: Created Lodestar Campus order #1071 (weekly, pickup Apr 4) — the missed next occurrence.
+
 **Commits:**
 - `eed940c` — feat: add progressive OTP fallback flow to reduce auth churn
+- `[local]` — fix: recurring order trigger, OTP cleanup, Issues tab filter
 
-**Files changed:** `customer-app/index.html`
+**Files changed:** `customer-app/index.html`, `admin-dashboard/index.html`
+
+**DB changes applied (execute_sql):** `trg_create_recurring_order_fn` updated — removed `cancelled_by = 'customer'` condition
 
 **Pending (carries forward):**
 1. Receipt template — iPad POS cache clear needed
