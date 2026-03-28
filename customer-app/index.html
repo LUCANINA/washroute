@@ -800,9 +800,6 @@
         <button class="btn-primary" style="margin-top:4px" id="btn-phone" onclick="handlePhoneSubmit()">Send Code →</button>
 
         <button class="auth-text-link" style="margin-top:14px" onclick="showAuthPanel('email')">Sign in with email instead →</button>
-        <div style="text-align:center;margin-top:16px;padding-top:12px;border-top:1px solid var(--gray-200)">
-          <p style="margin:0;font-size:13px;color:var(--gray-400)">Need help? Text <strong style="color:var(--navy)">HELP</strong> to <a href="sms:+15105884102?body=HELP" style="color:var(--navy);font-weight:600;text-decoration:none">(510) 588-4102</a></p>
-        </div>
       </div>
     </div>
 
@@ -823,7 +820,7 @@
         <button class="btn-primary" style="margin-top:14px" id="btn-verify" onclick="handleOTPVerify()">Verify →</button>
 
         <!-- Email fallback: always visible so customers are never stuck -->
-        <div class="auth-divider" style="margin-top:20px"><span>didn't get a code?</span></div>
+        <div class="auth-divider" style="margin-top:20px"><span style="font-size:15px;color:var(--gray-500);font-weight:600">Didn't get a code?</span></div>
         <div id="otp-fallback-email">
           <div class="field" style="margin-bottom:8px">
             <input type="email" id="otp-fallback-email-input" placeholder="you@email.com" autocomplete="email"
@@ -834,9 +831,6 @@
             <p style="margin:0; font-size:14px; color:#166534; font-weight:600">✉️ Check your inbox!</p>
             <p style="margin:4px 0 0; font-size:13px; color:var(--gray-500)">Tap the link we sent to sign in instantly.</p>
           </div>
-        </div>
-        <div style="text-align:center;margin-top:16px;padding-top:12px;border-top:1px solid var(--gray-200)">
-          <p style="margin:0;font-size:13px;color:var(--gray-400)">Need help? Text <strong style="color:var(--navy)">HELP</strong> to <a href="sms:+15105884102?body=HELP" style="color:var(--navy);font-weight:600;text-decoration:none">(510) 588-4102</a></p>
         </div>
       </div>
     </div>
