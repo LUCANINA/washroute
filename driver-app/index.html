@@ -1761,7 +1761,8 @@ async function _loadDriverDataInner() {
     const { data: recheck } = await db.from('drivers').select('*').eq('profile_id', currentUser.id).order('created_at').limit(1).maybeSingle();
     if (recheck) { drv = recheck; }
     else {
-      const { data: nd } = await db.from('drivers').insert({ profile_id: currentUser.id, is_active: true }).select().single();
+      // UPSERT guards against race conditions — profile_id has a UNIQUE constraint
+      const { data: nd } = await db.from('drivers').upsert({ profile_id: currentUser.id, is_active: true }, { onConflict: 'profile_id' }).select().single();
       drv = nd;
     }
   }

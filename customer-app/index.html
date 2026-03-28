@@ -1896,6 +1896,19 @@ async function handleSignup(e) {
   }
 }
 
+// Helper: find existing customer by phone (last 10 digits).
+// Catches Starchup-migrated customers who sign up with a different email.
+async function _findCustomerByPhone(phone) {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, '').slice(-10);
+  if (digits.length < 10) return null;
+  const { data } = await db.rpc('find_customer_by_phone', { digits });
+  if (!data || data.length === 0) return null;
+  const custId = data[0].id;
+  const { data: cust } = await db.from('customers').select('*').eq('id', custId).maybeSingle();
+  return cust;
+}
+
 async function ensureProfile(user, first, last, email, phone, smsConsent = false, referralSource = null) {
   await db.from('profiles').upsert({
     id: user.id,
@@ -1961,9 +1974,25 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
     }
   }
 
+  // 2c. Still nothing — try matching by phone number.
+  //     Catches Starchup-migrated customers who sign up with a different email.
+  if (!ec) {
+    const userPhone = phone || user.user_metadata?.phone || '';
+    const phoneCust = await _findCustomerByPhone(userPhone);
+    if (phoneCust) {
+      const updates = { profile_id: user.id };
+      const firstName = first || user.user_metadata?.first_name || '';
+      const lastName  = last  || user.user_metadata?.last_name  || '';
+      if (firstName && !phoneCust.first_name_cache) updates.first_name_cache = firstName;
+      if (lastName  && !phoneCust.last_name_cache)  updates.last_name_cache  = lastName;
+      if (email && !phoneCust.email_cache)           updates.email_cache      = email || user.email || '';
+      if (referralSource && !phoneCust.referral_source) updates.referral_source = referralSource;
+      await db.from('customers').update(updates).eq('id', phoneCust.id);
+      ec = { ...phoneCust, ...updates };
+    }
+  }
+
   // 3. Still nothing — create a fresh customer record
-  //    (Phone-based matching for OTP logins is handled separately in loadUserData
-  //     via the link_phone_auth_account DB function.)
   if (!ec) {
     await db.from('customers').insert({
       profile_id:       user.id,
@@ -2247,6 +2276,18 @@ async function loadUserData() {
           if (updatedProf) currentProfile = updatedProf;
         }
       }
+    }
+  }
+
+  // ── PHONE-BASED ACCOUNT LINKING (email signup fallback) ──
+  // If email lookups above didn't find a match, try phone. This catches
+  // Starchup-migrated customers who sign up with a different email address.
+  if (!currentCustomer && !currentUser.phone) {
+    const userPhone = currentProfile?.phone || currentUser.user_metadata?.phone || '';
+    const phoneCust = await _findCustomerByPhone(userPhone);
+    if (phoneCust) {
+      await db.from('customers').update({ profile_id: currentUser.id }).eq('id', phoneCust.id);
+      currentCustomer = { ...phoneCust, profile_id: currentUser.id };
     }
   }
 
@@ -3853,12 +3894,30 @@ async function renderConfirmAuth() {
       currentProfile = prof;
     }
 
-    // Ensure customer record exists (check again to avoid race with loadUserData)
+    // Ensure customer record exists (check profile_id, then email, then phone)
     const { data: existingCust } = await db.from('customers')
       .select('*').eq('profile_id', currentUser.id).maybeSingle();
     if (existingCust) {
       currentCustomer = existingCust;
-    } else {
+    }
+    // Try email match (orphan or cross-linked)
+    if (!currentCustomer && email) {
+      const { data: emailCust } = await db.from('customers')
+        .select('*').eq('email_cache', email).limit(1).maybeSingle();
+      if (emailCust) {
+        await db.from('customers').update({ profile_id: currentUser.id }).eq('id', emailCust.id);
+        currentCustomer = { ...emailCust, profile_id: currentUser.id };
+      }
+    }
+    // Try phone match (Starchup migration)
+    if (!currentCustomer && phone) {
+      const phoneCust = await _findCustomerByPhone(phone);
+      if (phoneCust) {
+        await db.from('customers').update({ profile_id: currentUser.id }).eq('id', phoneCust.id);
+        currentCustomer = { ...phoneCust, profile_id: currentUser.id };
+      }
+    }
+    if (!currentCustomer) {
       await db.from('customers').insert({
         profile_id: currentUser.id,
         first_name_cache: first, last_name_cache: last,
