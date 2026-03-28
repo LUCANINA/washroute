@@ -1218,21 +1218,6 @@
         <!-- ── OVERVIEW ── -->
         <div class="page active" id="page-overview">
 
-          <!-- Daily Check panel -->
-          <div class="card" id="daily-check-card" style="margin-bottom:16px;border-left:3px solid var(--accent)">
-            <div class="card-header" style="padding:16px 20px">
-              <div style="flex:1;display:flex;align-items:center;gap:10px">
-                <span style="font-size:18px">🩺</span>
-                <div>
-                  <div class="card-title" style="font-size:15px">Daily Check</div>
-                  <div class="card-sub" id="dc-last-run" style="font-size:12px;color:var(--gray-400)">Not run yet today</div>
-                </div>
-              </div>
-              <button class="btn btn-primary" id="dc-run-btn" style="font-size:12px;padding:6px 14px" onclick="runDailyCheck()">Run Check</button>
-            </div>
-            <div id="dc-results" style="display:none;padding:0 20px 16px;font-size:13px"></div>
-          </div>
-
           <!-- Main two-col: new customers + recent orders (collapsible) -->
           <div class="two-col">
             <div class="card">
@@ -5232,7 +5217,7 @@
     }
   }
 
-  // ── DAILY CHECK ──
+  // ── DAILY CHECK (disabled — WIP, re-enable when ready) ──
   // Known intentional duplicate phones to skip
   const DC_SKIP_PHONES = ['4156085446','5109270366','5109270618'];
 
