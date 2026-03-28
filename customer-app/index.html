@@ -691,6 +691,7 @@
     /* ── STEP TRANSITIONS ── */
     .step-pane { animation: stepFadeIn .18s ease both; }
     @keyframes stepFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
     /* ── SUCCESS SCREEN ENHANCEMENTS ── */
     .success-order-num { font-size: 13px; font-family: monospace; color: var(--gray-400); margin-bottom: 6px; letter-spacing: .5px; }
@@ -799,6 +800,9 @@
         <button class="btn-primary" style="margin-top:4px" id="btn-phone" onclick="handlePhoneSubmit()">Send Code →</button>
 
         <button class="auth-text-link" style="margin-top:14px" onclick="showAuthPanel('email')">Sign in with email instead →</button>
+        <div style="text-align:center;margin-top:16px;padding-top:12px;border-top:1px solid var(--gray-200)">
+          <p style="margin:0;font-size:13px;color:var(--gray-400)">Need help? Text <strong style="color:var(--navy)">HELP</strong> to <a href="sms:+15105884102?body=HELP" style="color:var(--navy);font-weight:600;text-decoration:none">(510) 588-4102</a></p>
+        </div>
       </div>
     </div>
 
@@ -817,9 +821,30 @@
                oninput="if(this.value.length===6) handleOTPVerify()"
                onkeydown="if(event.key==='Enter') handleOTPVerify()">
         <button class="btn-primary" style="margin-top:14px" id="btn-verify" onclick="handleOTPVerify()">Verify →</button>
-        <div class="auth-divider" style="margin-top:20px"><span>didn't get a code?</span></div>
-        <button class="magic-link-btn" id="btn-resend" onclick="resendOTP()">Resend code</button>
+
+        <!-- Progressive fallback: elements hidden initially, revealed on timers -->
+        <div id="otp-fallback-resend" style="display:none">
+          <div class="auth-divider" style="margin-top:20px"><span>didn't get a code?</span></div>
+          <button class="magic-link-btn" id="btn-resend" onclick="resendOTP()">Resend code</button>
+        </div>
+        <div id="otp-fallback-email" style="display:none; margin-top:12px">
+          <div style="text-align:center;margin-bottom:10px">
+            <span style="font-size:13px;color:var(--gray-500)">SMS not working? We can email you a sign-in link.</span>
+          </div>
+          <div class="field" style="margin-bottom:8px">
+            <input type="email" id="otp-fallback-email-input" placeholder="you@email.com" autocomplete="email"
+                   style="font-size:15px">
+          </div>
+          <button class="magic-link-btn" id="btn-otp-email-fallback" onclick="handleOtpEmailFallback()">📧 Email me a sign-in link</button>
+          <div id="otp-email-sent" style="display:none; text-align:center; margin-top:10px; padding:12px; background:#f0f9f4; border-radius:10px;">
+            <p style="margin:0; font-size:14px; color:#166534; font-weight:600">✉️ Check your inbox!</p>
+            <p style="margin:4px 0 0; font-size:13px; color:var(--gray-500)">Tap the link we sent to sign in instantly.</p>
+          </div>
+        </div>
         <button class="auth-text-link" style="margin-top:12px" onclick="showAuthPanel('hero')">← Try a different number</button>
+        <div style="text-align:center;margin-top:16px;padding-top:12px;border-top:1px solid var(--gray-200)">
+          <p style="margin:0;font-size:13px;color:var(--gray-400)">Need help? Text <strong style="color:var(--navy)">HELP</strong> to <a href="sms:+15105884102?body=HELP" style="color:var(--navy);font-weight:600;text-decoration:none">(510) 588-4102</a></p>
+        </div>
       </div>
     </div>
 
@@ -1644,6 +1669,13 @@ function showAuthPanel(name) {
   if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = 'Sign In'; }
   const loginErr = document.getElementById('login-err');
   if (loginErr) { loginErr.classList.remove('show'); loginErr.textContent = ''; }
+
+  // Start / clear OTP progressive fallback timers
+  if (name === 'otp') {
+    startOtpFallbackTimers();
+  } else {
+    clearOtpFallbackTimers();
+  }
 }
 
 function _normalizePhone(raw) {
@@ -1803,6 +1835,65 @@ async function resendOTP() {
     toast(err.message || 'Could not resend — try again');
   }
   btn.disabled = false; btn.textContent = 'Resend code';
+}
+
+// ── OTP PROGRESSIVE FALLBACK ──
+// After sending OTP, progressively reveal fallback options so the user
+// is never stuck on a dead-end screen. Timers start when the OTP panel opens.
+let _otpFallbackTimers = [];
+
+function startOtpFallbackTimers() {
+  clearOtpFallbackTimers();
+  // Hide both fallbacks initially
+  const resendEl = document.getElementById('otp-fallback-resend');
+  const emailEl  = document.getElementById('otp-fallback-email');
+  const sentEl   = document.getElementById('otp-email-sent');
+  if (resendEl) resendEl.style.display = 'none';
+  if (emailEl)  emailEl.style.display = 'none';
+  if (sentEl)   sentEl.style.display = 'none';
+
+  // 15s → show "Resend code"
+  _otpFallbackTimers.push(setTimeout(() => {
+    if (resendEl) { resendEl.style.display = ''; resendEl.style.animation = 'fadeSlideIn .3s ease'; }
+  }, 15000));
+
+  // 30s → show email fallback
+  _otpFallbackTimers.push(setTimeout(() => {
+    if (emailEl) { emailEl.style.display = ''; emailEl.style.animation = 'fadeSlideIn .3s ease'; }
+  }, 30000));
+}
+
+function clearOtpFallbackTimers() {
+  _otpFallbackTimers.forEach(t => clearTimeout(t));
+  _otpFallbackTimers = [];
+}
+
+async function handleOtpEmailFallback() {
+  const emailInput = document.getElementById('otp-fallback-email-input');
+  const email = (emailInput?.value || '').trim();
+  if (!email || !email.includes('@')) { toast('Please enter a valid email address'); return; }
+
+  const btn = document.getElementById('btn-otp-email-fallback');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const redirectUrl = window.location.protocol === 'https:'
+      ? window.location.href.split('?')[0].split('#')[0]
+      : 'https://app.familylaundry.com/';
+    const res = await fetch(`${SUPA_URL}/functions/v1/send-magic-link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
+      body: JSON.stringify({ email, redirectTo: redirectUrl }),
+    });
+    const { ok, error } = await res.json();
+    if (!ok) throw new Error(error || 'Failed to send link');
+    // Show success, hide the form
+    document.getElementById('otp-fallback-email').querySelector('.field').style.display = 'none';
+    btn.style.display = 'none';
+    document.getElementById('otp-email-sent').style.display = '';
+  } catch (err) {
+    toast(err.message || 'Error sending link — try again');
+  }
+  btn.disabled = false; btn.textContent = '📧 Email me a sign-in link';
 }
 
 async function handleLogin(e) {
@@ -6162,7 +6253,8 @@ window.handleSignOut      = handleSignOut;
 window.showMagicLink      = showMagicLink;
 window.showAuthPanel      = showAuthPanel;
 window.handlePhoneSubmit  = handlePhoneSubmit;
-window.handleOTPVerify    = handleOTPVerify;
+window.handleOTPVerify       = handleOTPVerify;
+window.handleOtpEmailFallback = handleOtpEmailFallback;
 window.handleNameSubmit   = handleNameSubmit;
 window.resendOTP          = resendOTP;
 window.handleMagicLink   = handleMagicLink;
