@@ -7300,27 +7300,22 @@
     if (leg === 'pickup') {
       prefillDate = o?.pickup_window_start ? toLocalDate(o.pickup_window_start) : today();
     } else {
-      // For delivery: use existing delivery date only if it's after the pickup date
+      // For delivery: use existing delivery date, or default to pickup date (same-day allowed)
       const pickupDate = o?.pickup_window_start ? toLocalDate(o.pickup_window_start) : today();
       const existingDelivery = o?.delivery_window_start ? toLocalDate(o.delivery_window_start) : null;
-      if (existingDelivery && existingDelivery > pickupDate) {
+      if (existingDelivery && existingDelivery >= pickupDate) {
         prefillDate = existingDelivery;
       } else {
-        // Default to pickup date + 1 day
-        const [yr, mo, dy] = pickupDate.split('-').map(Number);
-        const nextDay = new Date(yr, mo-1, dy+1);
-        prefillDate = `${nextDay.getFullYear()}-${String(nextDay.getMonth()+1).padStart(2,'0')}-${String(nextDay.getDate()).padStart(2,'0')}`;
+        prefillDate = pickupDate;
       }
     }
     dateInput.value = prefillDate;
-    // Set min date: pickup leg = today, delivery leg = day after pickup
+    // Set min date: pickup leg = today, delivery leg = same day as pickup
+    // (slot-level validation in opSaveRouteAndSlot ensures delivery time > pickup end)
     if (leg === 'pickup') {
       dateInput.min = today();
     } else {
-      const pickupDate = o?.pickup_window_start ? toLocalDate(o.pickup_window_start) : today();
-      const [yr, mo, dy] = pickupDate.split('-').map(Number);
-      const nextDay = new Date(yr, mo-1, dy+1);
-      dateInput.min = `${nextDay.getFullYear()}-${String(nextDay.getMonth()+1).padStart(2,'0')}-${String(nextDay.getDate()).padStart(2,'0')}`;
+      dateInput.min = o?.pickup_window_start ? toLocalDate(o.pickup_window_start) : today();
     }
 
     // Determine zones for filtering
@@ -7540,7 +7535,7 @@
     } else {
       // Validate: delivery must be after pickup
       if (startIso && o.pickup_window_end && new Date(startIso) <= new Date(o.pickup_window_end)) {
-        showToast('Delivery must be after the pickup window. Please choose a later date.', 'error');
+        showToast('Delivery must be after the pickup window. Choose a later time slot or date.', 'error');
         document.querySelectorAll(`#op-${leg}-slots .sp-slot-btn`).forEach(b => b.classList.remove('saving'));
         if (btn?.classList) btn.textContent = btn.dataset.label || btn.textContent.replace('Saving…','');
         return;
