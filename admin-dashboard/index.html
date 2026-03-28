@@ -4873,6 +4873,11 @@
           updateOrderFilterCounts();
           renderOrders(getFilteredOrders());
         }
+        // Re-render customer list so payment icon updates instantly
+        if (currentPage === 'customers') {
+          const q = (document.getElementById('cust-search')?.value || '').trim().toLowerCase();
+          applyCustomerFilters(q, custStatusFilter);
+        }
       })
       .subscribe();
   }
@@ -5785,7 +5790,7 @@
     let keepGoing = true;
     while (keepGoing) {
       const { data, error } = await db.from('customers')
-          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
+          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
           .order('created_at', { ascending: false })
           .range(from, from + PAGE - 1);
       if (error) {
@@ -5824,6 +5829,22 @@
         addr_id: def.id   || null,
       };
     });
+    // Ensure _custWithCard is populated for payment indicators on customer list
+    if (!_custWithCard.size) {
+      const custIds = allCustomers.map(c => c.id);
+      // Batch in chunks of 500 to stay within PostgREST limits
+      for (let i = 0; i < custIds.length; i += 500) {
+        const batch = custIds.slice(i, i + 500);
+        const { data: pmRows } = await db.from('customer_payment_methods')
+          .select('customer_id, created_at')
+          .in('customer_id', batch);
+        (pmRows || []).forEach(r => {
+          _custWithCard.add(r.customer_id);
+          const prev = _custCardAddedAt.get(r.customer_id);
+          if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
+        });
+      }
+    }
     updateCustomerStats(allCustomers);
     renderCustomers(allCustomers);
     populateCustMapFilters();
@@ -6009,6 +6030,7 @@
         ${thSort('name','Customer')}
         ${thSort('orders','Orders')}
         ${thSort('ltv','Lifetime Value')}
+        <th style="text-align:center;width:40px">Pay</th>
         ${thSort('last_order','Last Order')}
         ${thSort('status','Activity')}
       </tr></thead><tbody>
@@ -6026,6 +6048,7 @@
           </div></td>
           <td>${c.total_orders||0}</td>
           <td style="font-weight:600">${fmtMoney(c.lifetime_value)}</td>
+          <td style="text-align:center">${_custPayIcon(c)}</td>
           <td style="color:var(--gray-500)">${fmtDate(c.last_order_at)}</td>
           <td>${custActivityBadge(c)}</td>
         </tr>`;
@@ -6192,6 +6215,18 @@
     return `<span class="pay-tip" data-tip="No card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>`;
   }
 
+  // Payment icon for Customer List view (no order context, just customer-level status)
+  // On account > Card on file > No card
+  function _custPayIcon(c) {
+    if (c.billing_type === 'on_account') {
+      return `<span class="pay-tip" data-tip="On account"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 21V12h6v9"/><path d="M3 9h18"/></svg></span>`;
+    }
+    if (_custWithCard.has(c.id)) {
+      return `<span class="pay-tip" data-tip="Card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span>`;
+    }
+    return `<span class="pay-tip" data-tip="No card on file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>`;
+  }
+
   function orderCustomerCell(o) {
     const icon = _recurSvg(o.recurring_interval);
     return `<span style="display:flex;align-items:center;gap:6px">${icon}<span>${orderCustomerName(o)}</span></span>`;
@@ -6325,7 +6360,10 @@
           if (o.status === 'skipped' && o.recurring_interval) return false;
           // Exclude recurring pickup_failed — chain auto-continues, treat like a skip
           if (o.status === 'pickup_failed' && o.recurring_interval) return false;
-          return ORDER_FILTER_GROUPS.issues.includes(o.status) || o.billing_status === 'failed';
+          // Only show billing failures for orders that are actually chargeable (ready_for_delivery+)
+          const chargeableStatuses = ['ready_for_delivery','out_for_delivery','delivered'];
+          if (o.billing_status === 'failed' && chargeableStatuses.includes(o.status)) return true;
+          return ORDER_FILTER_GROUPS.issues.includes(o.status);
         });
       } else if (currentOrderFilter === 'delivered') {
         const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -6349,7 +6387,7 @@
       scheduled:  allOrders.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
       in_process: allOrders.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
       ready:      allOrders.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
-      issues:     allOrders.filter(o => { if (o.status === 'skipped' && o.cancelled_by === 'customer') return false; if (o.status === 'skipped' && o.recurring_interval) return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status) || o.billing_status === 'failed'; }).length,
+      issues:     allOrders.filter(o => { if (o.status === 'skipped' && o.cancelled_by === 'customer') return false; if (o.status === 'skipped' && o.recurring_interval) return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; const _cs = ['ready_for_delivery','out_for_delivery','delivered']; if (o.billing_status === 'failed' && _cs.includes(o.status)) return true; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status); }).length,
       delivered:  (() => { const cutoff = new Date(Date.now() - 24*60*60*1000).toISOString(); return allOrders.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
