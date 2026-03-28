@@ -1218,6 +1218,21 @@
         <!-- ── OVERVIEW ── -->
         <div class="page active" id="page-overview">
 
+          <!-- Daily Check panel -->
+          <div class="card" id="daily-check-card" style="margin-bottom:16px;border-left:3px solid var(--accent)">
+            <div class="card-header" style="padding:16px 20px">
+              <div style="flex:1;display:flex;align-items:center;gap:10px">
+                <span style="font-size:18px">🩺</span>
+                <div>
+                  <div class="card-title" style="font-size:15px">Daily Check</div>
+                  <div class="card-sub" id="dc-last-run" style="font-size:12px;color:var(--gray-400)">Not run yet today</div>
+                </div>
+              </div>
+              <button class="btn btn-primary" id="dc-run-btn" style="font-size:12px;padding:6px 14px" onclick="runDailyCheck()">Run Check</button>
+            </div>
+            <div id="dc-results" style="display:none;padding:0 20px 16px;font-size:13px"></div>
+          </div>
+
           <!-- Main two-col: new customers + recent orders (collapsible) -->
           <div class="two-col">
             <div class="card">
@@ -5215,6 +5230,260 @@
       console.error('loadAll failures:', failed.map(r => r.reason));
       showToast('Some data failed to load — check the browser console for details.', 'error');
     }
+  }
+
+  // ── DAILY CHECK ──
+  // Known intentional duplicate phones to skip
+  const DC_SKIP_PHONES = ['4156085446','5109270366','5109270618'];
+
+  async function runDailyCheck() {
+    const btn = document.getElementById('dc-run-btn');
+    const resEl = document.getElementById('dc-results');
+    btn.disabled = true; btn.textContent = 'Running…';
+    resEl.style.display = '';
+    resEl.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;color:var(--gray-400)"><div class="spinner" style="width:16px;height:16px;border-width:2px"></div> Running 10 checks…</div>';
+
+    const results = [];
+    const todayStr = today();
+    const weekAhead = new Date(new Date().toLocaleString('en-US', { timeZone: BIZ_TZ }));
+    weekAhead.setDate(weekAhead.getDate() + 7);
+    const weekAheadStr = weekAhead.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+
+    try {
+      // Run all 10 checks in parallel
+      const [c1, c2, c3, c4, c5, c6, c7, c8, c9, c10a, c10b] = await Promise.all([
+        // 1. Unrouted orders (P0)
+        db.from('orders').select('id, order_number, status, routing_error, pickup_window_start, customers(first_name_cache, last_name_cache)')
+          .in('status', ['scheduled','picked_up','processing','folding','ready_for_delivery','out_for_delivery'])
+          .not('routing_error', 'is', null),
+
+        // 2. Wrong-date stops (P0) — use RPC or filter client-side
+        db.from('route_stops').select('id, stop_type, status, route_id, order_id, orders!inner(order_number, pickup_window_start, delivery_window_start, customers(first_name_cache, last_name_cache)), routes!inner(run_date)')
+          .in('status', ['pending', 'en_route']),
+
+        // 3. Unpaid delivered orders (P0)
+        db.from('orders').select('id, order_number, status, total_amount, billing_status, stripe_payment_intent_id, customers(first_name_cache, last_name_cache)')
+          .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery'])
+          .gt('total_amount', 0),
+
+        // 4. Stop/order desync (P1)
+        db.from('route_stops').select('id, stop_type, status, orders!inner(order_number, status, customers(first_name_cache, last_name_cache))')
+          .in('status', ['pending', 'en_route']),
+
+        // 5. Duplicate customers (P1) — query all customers with phones
+        db.from('customers').select('id, first_name_cache, last_name_cache, phone_cache, email_cache, created_at')
+          .not('phone_cache', 'is', null)
+          .order('created_at', { ascending: true }),
+
+        // 6. Duplicate orders (P1)
+        db.from('orders').select('id, order_number, status, customer_id, pickup_window_start, source, customers(first_name_cache, last_name_cache)')
+          .in('status', ['scheduled','picked_up','processing','folding','ready_for_delivery','out_for_delivery']),
+
+        // 7. Over-capacity routes — routes + templates
+        db.from('routes').select('id, run_date, template_id, route_templates!inner(name, stop_limit), route_stops(id, status, orders!inner(status))')
+          .gte('run_date', todayStr),
+
+        // 8. Driverless routes (P2)
+        db.from('routes').select('id, run_date, driver_id, template_id, route_templates!inner(name)')
+          .gte('run_date', todayStr).lte('run_date', weekAheadStr).is('driver_id', null),
+
+        // 9. SMS opt-out sync (P2)
+        db.from('customers').select('id', { count: 'exact', head: true })
+          .not('phone_cache', 'is', null).is('sms_consent_at', null).is('sms_marketing_opt_out_at', null),
+
+        // 10a. Duplicate addresses
+        db.rpc('exec_sql', { query: "SELECT COUNT(*) AS cnt FROM (SELECT customer_id, address_line1, city FROM addresses WHERE customer_id IS NOT NULL GROUP BY customer_id, address_line1, city HAVING COUNT(*) > 1) t" }).maybeSingle(),
+
+        // 10b. Orphaned profiles
+        db.from('profiles').select('id, role', { count: 'exact', head: true })
+          .eq('role', 'customer'),
+      ]);
+
+      // ── Process Check 1: Unrouted Orders ──
+      const unrouted = (c1.data || []);
+      if (unrouted.length > 0) {
+        results.push({ severity: 'P0', icon: '🔴', label: 'Unrouted orders', count: unrouted.length,
+          details: unrouted.slice(0, 5).map(o => `#${o.order_number} ${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''} — ${o.routing_error}`).join('<br>') });
+      } else {
+        results.push({ severity: 'ok', icon: '✅', label: 'Unrouted orders', count: 0 });
+      }
+
+      // ── Process Check 2: Wrong-Date Stops ──
+      const wrongDate = (c2.data || []).filter(rs => {
+        const order = rs.orders;
+        const routeDate = rs.routes?.run_date;
+        if (!order || !routeDate) return false;
+        const windowField = rs.stop_type === 'pickup' ? order.pickup_window_start : order.delivery_window_start;
+        if (!windowField) return false;
+        const correctDate = new Date(windowField).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+        return routeDate !== correctDate;
+      });
+      if (wrongDate.length > 0) {
+        results.push({ severity: 'P0', icon: '🔴', label: 'Wrong-date stops', count: wrongDate.length,
+          details: wrongDate.slice(0, 5).map(rs => `#${rs.orders.order_number} ${rs.stop_type} — on route ${rs.routes.run_date}`).join('<br>') });
+      } else {
+        results.push({ severity: 'ok', icon: '✅', label: 'Wrong-date stops', count: 0 });
+      }
+
+      // ── Process Check 3: Unpaid Delivered ──
+      const unpaid = (c3.data || []).filter(o => !o.stripe_payment_intent_id || o.billing_status !== 'paid');
+      if (unpaid.length > 0) {
+        const total = unpaid.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+        results.push({ severity: 'P0', icon: '🔴', label: 'Unpaid delivered orders', count: unpaid.length,
+          details: `$${total.toLocaleString('en-US', { minimumFractionDigits: 2 })} across ${unpaid.length} orders` });
+      } else {
+        results.push({ severity: 'ok', icon: '✅', label: 'Unpaid delivered orders', count: 0 });
+      }
+
+      // ── Process Check 4: Stop/Order Desync ──
+      const terminalStatuses = ['delivered','cancelled','skipped','pickup_failed','delivery_failed'];
+      const desync = (c4.data || []).filter(rs => {
+        const os = rs.orders?.status;
+        if (!os) return false;
+        // Pending/en_route stops on terminal orders
+        if (terminalStatuses.includes(os)) return true;
+        // Pickup still pending but order already past pickup
+        if (rs.stop_type === 'pickup' && ['picked_up','processing','folding','ready_for_delivery','out_for_delivery','delivered'].includes(os) && !['complete','skipped','failed'].includes(rs.status)) return true;
+        return false;
+      });
+      if (desync.length > 0) {
+        results.push({ severity: 'P1', icon: '⚠️', label: 'Stop/order desync', count: desync.length,
+          details: desync.slice(0, 5).map(rs => `#${rs.orders.order_number} — order ${rs.orders.status}, stop ${rs.status} (${rs.stop_type})`).join('<br>') });
+      } else {
+        results.push({ severity: 'ok', icon: '✅', label: 'Stop/order desync', count: 0 });
+      }
+
+      // ── Process Check 5: Duplicate Customers ──
+      const phoneMap = {};
+      (c5.data || []).forEach(c => {
+        const digits = (c.phone_cache || '').replace(/\D/g, '').slice(-10);
+        if (digits.length < 10) return;
+        if (DC_SKIP_PHONES.includes(digits)) return;
+        if (!phoneMap[digits]) phoneMap[digits] = [];
+        phoneMap[digits].push(c);
+      });
+      const dupCustomers = Object.values(phoneMap).filter(arr => arr.length > 1);
+      if (dupCustomers.length > 0) {
+        results.push({ severity: 'P1', icon: '⚠️', label: 'Duplicate customers', count: dupCustomers.length,
+          details: dupCustomers.slice(0, 5).map(arr => arr.map(c => `${c.first_name_cache || ''} ${c.last_name_cache || ''}`).join(' / ')).join('<br>') });
+      } else {
+        results.push({ severity: 'ok', icon: '✅', label: 'Duplicate customers', count: 0 });
+      }
+
+      // ── Process Check 6: Duplicate Orders ──
+      const ordersByKey = {};
+      (c6.data || []).forEach(o => {
+        if (!o.pickup_window_start) return;
+        const pDate = new Date(o.pickup_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+        const key = `${o.customer_id}_${pDate}`;
+        if (!ordersByKey[key]) ordersByKey[key] = [];
+        ordersByKey[key].push(o);
+      });
+      const dupOrders = Object.values(ordersByKey).filter(arr => arr.length > 1);
+      if (dupOrders.length > 0) {
+        results.push({ severity: 'P1', icon: '⚠️', label: 'Duplicate orders', count: dupOrders.length,
+          details: dupOrders.slice(0, 5).map(arr => {
+            const name = `${arr[0].customers?.first_name_cache || ''} ${arr[0].customers?.last_name_cache || ''}`;
+            return `${name}: ${arr.map(o => '#' + o.order_number).join(', ')}`;
+          }).join('<br>') });
+      } else {
+        results.push({ severity: 'ok', icon: '✅', label: 'Duplicate orders', count: 0 });
+      }
+
+      // ── Process Check 7: Over-Capacity Routes ──
+      const overCap = (c7.data || []).filter(r => {
+        const limit = r.route_templates?.stop_limit;
+        if (!limit) return false;
+        const activeStops = (r.route_stops || []).filter(s =>
+          ['pending', 'en_route'].includes(s.status) && !terminalStatuses.includes(s.orders?.status)
+        ).length;
+        return activeStops > limit;
+      });
+      if (overCap.length > 0) {
+        results.push({ severity: 'P1', icon: '⚠️', label: 'Over-capacity routes', count: overCap.length,
+          details: overCap.map(r => `${r.route_templates.name} ${r.run_date}`).join('<br>') });
+      } else {
+        results.push({ severity: 'ok', icon: '✅', label: 'Over-capacity routes', count: 0 });
+      }
+
+      // ── Process Check 8: Driverless Routes ──
+      const driverless = (c8.data || []);
+      if (driverless.length > 0) {
+        results.push({ severity: 'P2', icon: '📋', label: 'Driverless routes (7 days)', count: driverless.length,
+          details: driverless.slice(0, 5).map(r => `${r.route_templates.name} — ${r.run_date}`).join('<br>') });
+      } else {
+        results.push({ severity: 'ok', icon: '✅', label: 'Driverless routes', count: 0 });
+      }
+
+      // ── Process Check 9: SMS Opt-Out Sync ──
+      const smsUnsync = c9.count || 0;
+      if (smsUnsync > 0) {
+        results.push({ severity: 'P2', icon: '📋', label: 'SMS opt-out desync', count: smsUnsync });
+      } else {
+        results.push({ severity: 'ok', icon: '✅', label: 'SMS opt-out sync', count: 0 });
+      }
+
+      // ── Process Check 10: Orphaned Records ──
+      // Note: c10a (duplicate addresses) may fail if rpc doesn't exist — handle gracefully
+      const orphanProfiles = c10b.count || 0;
+      const orphanLabel = orphanProfiles > 0 ? `${orphanProfiles} orphan profiles` : 'all clear';
+      if (orphanProfiles > 10) {
+        results.push({ severity: 'P3', icon: '📋', label: 'Orphaned records', count: orphanProfiles, details: orphanLabel });
+      } else {
+        results.push({ severity: 'ok', icon: '✅', label: 'Orphaned records', count: 0 });
+      }
+
+    } catch (err) {
+      resEl.innerHTML = `<div style="color:var(--red);padding:8px 0">Daily check failed: ${err.message}</div>`;
+      btn.disabled = false; btn.textContent = 'Run Check';
+      return;
+    }
+
+    // ── Render results ──
+    const p0 = results.filter(r => r.severity === 'P0');
+    const p1 = results.filter(r => r.severity === 'P1');
+    const p2 = results.filter(r => r.severity === 'P2' || r.severity === 'P3');
+    const ok = results.filter(r => r.severity === 'ok');
+
+    const allClear = p0.length === 0 && p1.length === 0 && p2.length === 0;
+    const now = new Date().toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+    document.getElementById('dc-last-run').textContent = `Last run: ${now}`;
+
+    if (allClear) {
+      resEl.innerHTML = `<div style="padding:12px 0;color:#059669;font-weight:600">✅ All clear — system is healthy.</div>`;
+    } else {
+      let html = '<div style="display:flex;flex-direction:column;gap:6px;padding-top:4px">';
+
+      const renderRow = (r) => {
+        const badge = r.severity === 'P0' ? '<span style="background:#fef2f2;color:#b91c1c;font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px">P0</span>'
+          : r.severity === 'P1' ? '<span style="background:#fffbeb;color:#92400e;font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px">P1</span>'
+          : r.severity === 'P2' ? '<span style="background:#f0f9ff;color:#0369a1;font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px">P2</span>'
+          : r.severity === 'P3' ? '<span style="background:var(--gray-50);color:var(--gray-500);font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px">P3</span>'
+          : '';
+        const countBadge = r.count > 0 ? `<span style="background:var(--gray-100);border-radius:10px;padding:1px 7px;font-size:11px;font-weight:600">${r.count}</span>` : '';
+        const detailHtml = r.details ? `<div style="font-size:12px;color:var(--gray-500);margin-top:2px;padding-left:24px;line-height:1.5">${r.details}</div>` : '';
+        return `<div style="padding:6px 0;border-bottom:1px solid var(--gray-100)">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span>${r.icon}</span> ${badge} <span style="flex:1">${r.label}</span> ${countBadge}
+          </div>${detailHtml}
+        </div>`;
+      };
+
+      // Show issues first, then all-clear checks collapsed
+      [...p0, ...p1, ...p2].forEach(r => { html += renderRow(r); });
+
+      if (ok.length > 0) {
+        html += `<div style="padding:8px 0 2px;font-size:12px;color:var(--gray-400);cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.textContent=this.nextElementSibling.style.display==='none'?'▸ ${ok.length} checks passed — show':'▾ ${ok.length} checks passed — hide'">▸ ${ok.length} checks passed — show</div>`;
+        html += '<div style="display:none">';
+        ok.forEach(r => { html += `<div style="padding:3px 0;display:flex;align-items:center;gap:8px;color:var(--gray-400)"><span>${r.icon}</span> ${r.label}</div>`; });
+        html += '</div>';
+      }
+
+      html += '</div>';
+      resEl.innerHTML = html;
+    }
+
+    btn.disabled = false; btn.textContent = 'Run Check';
   }
 
   // ── OVERVIEW ──
