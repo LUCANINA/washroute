@@ -822,12 +822,12 @@
                onkeydown="if(event.key==='Enter') handleOTPVerify()">
         <button class="btn-primary" style="margin-top:14px" id="btn-verify" onclick="handleOTPVerify()">Verify →</button>
 
-        <!-- Progressive fallback: elements hidden initially, revealed on timers -->
-        <div id="otp-fallback-resend" style="display:none">
+        <!-- Fallback options: always visible so customers are never stuck -->
+        <div id="otp-fallback-resend">
           <div class="auth-divider" style="margin-top:20px"><span>didn't get a code?</span></div>
           <button class="magic-link-btn" id="btn-resend" onclick="resendOTP()">Resend code</button>
         </div>
-        <div id="otp-fallback-email" style="display:none; margin-top:12px">
+        <div id="otp-fallback-email" style="margin-top:12px">
           <div style="text-align:center;margin-bottom:10px">
             <span style="font-size:13px;color:var(--gray-500)">SMS not working? We can email you a sign-in link.</span>
           </div>
@@ -1670,11 +1670,9 @@ function showAuthPanel(name) {
   const loginErr = document.getElementById('login-err');
   if (loginErr) { loginErr.classList.remove('show'); loginErr.textContent = ''; }
 
-  // Start / clear OTP progressive fallback timers
+  // Reset OTP email fallback state when re-entering the OTP panel
   if (name === 'otp') {
-    startOtpFallbackTimers();
-  } else {
-    clearOtpFallbackTimers();
+    resetOtpFallbackState();
   }
 }
 
@@ -1837,35 +1835,17 @@ async function resendOTP() {
   btn.disabled = false; btn.textContent = 'Resend code';
 }
 
-// ── OTP PROGRESSIVE FALLBACK ──
-// After sending OTP, progressively reveal fallback options so the user
-// is never stuck on a dead-end screen. Timers start when the OTP panel opens.
-let _otpFallbackTimers = [];
+// ── OTP EMAIL FALLBACK ──
+// When SMS OTP isn't arriving, customer can get an email magic link instead.
 
-function startOtpFallbackTimers() {
-  clearOtpFallbackTimers();
-  // Hide both fallbacks initially
-  const resendEl = document.getElementById('otp-fallback-resend');
-  const emailEl  = document.getElementById('otp-fallback-email');
-  const sentEl   = document.getElementById('otp-email-sent');
-  if (resendEl) resendEl.style.display = 'none';
-  if (emailEl)  emailEl.style.display = 'none';
-  if (sentEl)   sentEl.style.display = 'none';
-
-  // 15s → show "Resend code"
-  _otpFallbackTimers.push(setTimeout(() => {
-    if (resendEl) { resendEl.style.display = ''; resendEl.style.animation = 'fadeSlideIn .3s ease'; }
-  }, 15000));
-
-  // 30s → show email fallback
-  _otpFallbackTimers.push(setTimeout(() => {
-    if (emailEl) { emailEl.style.display = ''; emailEl.style.animation = 'fadeSlideIn .3s ease'; }
-  }, 30000));
-}
-
-function clearOtpFallbackTimers() {
-  _otpFallbackTimers.forEach(t => clearTimeout(t));
-  _otpFallbackTimers = [];
+function resetOtpFallbackState() {
+  // Reset the email sent confirmation when re-entering the OTP panel
+  const sentEl = document.getElementById('otp-email-sent');
+  const fieldEl = document.getElementById('otp-fallback-email')?.querySelector('.field');
+  const btnEl = document.getElementById('btn-otp-email-fallback');
+  if (sentEl) sentEl.style.display = 'none';
+  if (fieldEl) fieldEl.style.display = '';
+  if (btnEl) btnEl.style.display = '';
 }
 
 async function handleOtpEmailFallback() {
