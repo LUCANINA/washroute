@@ -1976,79 +1976,20 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
     phone:      phone || user.user_metadata?.phone || ''
   }, { onConflict: 'id' });
 
-  // 1. Look for a customer already linked to this auth account
-  let { data: ec } = await db.from('customers').select('*').eq('profile_id', user.id).maybeSingle();
-
-  // 2. Not found — check if admin pre-created a record for this email (profile_id IS NULL)
-  //    If so, link it rather than creating a duplicate.
-  if (!ec) {
-    const userEmail = email || user.email;
-    if (userEmail) {
-      const { data: orphan } = await db.from('customers')
-        .select('*')
-        .eq('email_cache', userEmail)
-        .is('profile_id', null)
-        .maybeSingle();
-      if (orphan) {
-        // Build update: always link profile_id; backfill name/phone only if
-        // the admin left them blank and the customer provided them at signup.
-        const updates = { profile_id: user.id };
-        const firstName = first || user.user_metadata?.first_name || '';
-        const lastName  = last  || user.user_metadata?.last_name  || '';
-        const userPhone = phone || user.user_metadata?.phone || '';
-        if (firstName && !orphan.first_name_cache) updates.first_name_cache = firstName;
-        if (lastName  && !orphan.last_name_cache)  updates.last_name_cache  = lastName;
-        if (userPhone && !orphan.phone_cache)       updates.phone_cache      = userPhone;
-        if (referralSource && !orphan.referral_source) updates.referral_source = referralSource;
-        await db.from('customers').update(updates).eq('id', orphan.id);
-        ec = { ...orphan, ...updates };
-      }
-    }
-  }
-
-  // 2b. Still nothing — check if an existing customer has this email but is already
-  //     linked to a DIFFERENT auth user (e.g. signed up via phone, now using magic link).
-  //     Re-point profile_id to the current auth user so they land on their real account.
-  if (!ec) {
-    const userEmail = email || user.email;
-    if (userEmail) {
-      const { data: existing } = await db.from('customers')
-        .select('*')
-        .eq('email_cache', userEmail)
-        .not('profile_id', 'is', null)
-        .maybeSingle();
-      if (existing) {
-        await db.from('customers').update({ profile_id: user.id }).eq('id', existing.id);
-        // Also update the profiles table so the new auth user has a name/email record
-        await db.from('profiles').upsert({
-          id: user.id,
-          first_name: existing.first_name_cache || '',
-          last_name:  existing.last_name_cache  || '',
-          email:      userEmail,
-          phone:      existing.phone_cache      || ''
-        }, { onConflict: 'id' });
-        ec = { ...existing, profile_id: user.id };
-      }
-    }
-  }
-
-  // 2c. Still nothing — try matching by phone number.
-  //     Catches Starchup-migrated customers who sign up with a different email.
-  if (!ec) {
-    const userPhone = phone || user.user_metadata?.phone || '';
-    const phoneCust = await _findCustomerByPhone(userPhone);
-    if (phoneCust) {
-      const updates = { profile_id: user.id };
-      const firstName = first || user.user_metadata?.first_name || '';
-      const lastName  = last  || user.user_metadata?.last_name  || '';
-      if (firstName && !phoneCust.first_name_cache) updates.first_name_cache = firstName;
-      if (lastName  && !phoneCust.last_name_cache)  updates.last_name_cache  = lastName;
-      if (email && !phoneCust.email_cache)           updates.email_cache      = email || user.email || '';
-      if (referralSource && !phoneCust.referral_source) updates.referral_source = referralSource;
-      await db.from('customers').update(updates).eq('id', phoneCust.id);
-      ec = { ...phoneCust, ...updates };
-    }
-  }
+  // 1-4. Try to claim an existing customer account via server-side RPC.
+  //      This bypasses RLS so it can find accounts linked to a different auth UUID
+  //      (the root cause of duplicate accounts for returning customers).
+  //      The RPC checks: profile_id match → email orphan → email cross-link → phone match.
+  const { data: claimed } = await db.rpc('claim_existing_customer', {
+    p_profile_id:      user.id,
+    p_email:           email || user.email || null,
+    p_phone:           phone || user.user_metadata?.phone || null,
+    p_first_name:      first || user.user_metadata?.first_name || null,
+    p_last_name:       last  || user.user_metadata?.last_name  || null,
+    p_referral_source: referralSource || null,
+    p_sms_consent:     smsConsent || false
+  });
+  let ec = (claimed && claimed.length > 0) ? claimed[0] : null;
 
   // 3. Still nothing — create a fresh customer record
   if (!ec) {
@@ -2301,51 +2242,23 @@ async function loadUserData() {
     const { data } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
     currentProfile = data;
   }
-  // ── EMAIL-BASED ACCOUNT LINKING ──
-  // Magic link sign-in creates a new auth UUID, so profile_id lookup above returns nothing.
-  // Before creating a fresh customer, check if one already exists for this email address —
-  // either an admin-pre-created orphan (profile_id IS NULL) or a record from a prior
-  // phone-OTP session (profile_id = old UUID). Re-link it rather than creating a duplicate.
-  if (!currentCustomer && !currentUser.phone) {
-    const userEmail = currentUser.email || currentProfile?.email;
-    if (userEmail) {
-      // 1. Orphan record — admin-created, no auth link yet
-      const { data: orphan } = await db.from('customers')
-        .select('*').eq('email_cache', userEmail).is('profile_id', null).maybeSingle();
-      if (orphan) {
-        await db.from('customers').update({ profile_id: currentUser.id }).eq('id', orphan.id);
-        currentCustomer = { ...orphan, profile_id: currentUser.id };
-      }
-      // 2. Linked to a different auth user (e.g. prior phone-OTP account)
-      if (!currentCustomer) {
-        const { data: existing } = await db.from('customers')
-          .select('*').eq('email_cache', userEmail).not('profile_id', 'is', null).maybeSingle();
-        if (existing) {
-          await db.from('customers').update({ profile_id: currentUser.id }).eq('id', existing.id);
-          await db.from('profiles').upsert({
-            id: currentUser.id,
-            first_name: existing.first_name_cache || '',
-            last_name:  existing.last_name_cache  || '',
-            email:      userEmail,
-            phone:      existing.phone_cache      || ''
-          }, { onConflict: 'id' });
-          currentCustomer = { ...existing, profile_id: currentUser.id };
-          const { data: updatedProf } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
-          if (updatedProf) currentProfile = updatedProf;
-        }
-      }
-    }
-  }
-
-  // ── PHONE-BASED ACCOUNT LINKING (email signup fallback) ──
-  // If email lookups above didn't find a match, try phone. This catches
-  // Starchup-migrated customers who sign up with a different email address.
-  if (!currentCustomer && !currentUser.phone) {
-    const userPhone = currentProfile?.phone || currentUser.user_metadata?.phone || '';
-    const phoneCust = await _findCustomerByPhone(userPhone);
-    if (phoneCust) {
-      await db.from('customers').update({ profile_id: currentUser.id }).eq('id', phoneCust.id);
-      currentCustomer = { ...phoneCust, profile_id: currentUser.id };
+  // ── ACCOUNT LINKING via server-side RPC ──
+  // Uses claim_existing_customer (SECURITY DEFINER) to bypass RLS and find the
+  // real customer record by email or phone, even if it's linked to a stale auth UUID.
+  // This prevents duplicate accounts when returning customers sign up again.
+  if (!currentCustomer) {
+    const m = currentUser.user_metadata || {};
+    const { data: claimed } = await db.rpc('claim_existing_customer', {
+      p_profile_id:      currentUser.id,
+      p_email:           currentUser.email || currentProfile?.email || null,
+      p_phone:           currentProfile?.phone || m.phone || null,
+      p_first_name:      currentProfile?.first_name || m.first_name || null,
+      p_last_name:       currentProfile?.last_name  || m.last_name  || null,
+      p_referral_source: null,
+      p_sms_consent:     false
+    });
+    if (claimed && claimed.length > 0) {
+      currentCustomer = claimed[0];
     }
   }
 
@@ -3952,29 +3865,20 @@ async function renderConfirmAuth() {
       currentProfile = prof;
     }
 
-    // Ensure customer record exists (check profile_id, then email, then phone)
-    const { data: existingCust } = await db.from('customers')
-      .select('*').eq('profile_id', currentUser.id).maybeSingle();
-    if (existingCust) {
-      currentCustomer = existingCust;
+    // Use server-side RPC to find/claim existing customer (bypasses RLS)
+    const { data: claimed } = await db.rpc('claim_existing_customer', {
+      p_profile_id:      currentUser.id,
+      p_email:           email || null,
+      p_phone:           phone || null,
+      p_first_name:      first || null,
+      p_last_name:       last  || null,
+      p_referral_source: m.referral_source || null,
+      p_sms_consent:     !!m.sms_consent
+    });
+    if (claimed && claimed.length > 0) {
+      currentCustomer = claimed[0];
     }
-    // Try email match (orphan or cross-linked)
-    if (!currentCustomer && email) {
-      const { data: emailCust } = await db.from('customers')
-        .select('*').eq('email_cache', email).limit(1).maybeSingle();
-      if (emailCust) {
-        await db.from('customers').update({ profile_id: currentUser.id }).eq('id', emailCust.id);
-        currentCustomer = { ...emailCust, profile_id: currentUser.id };
-      }
-    }
-    // Try phone match (Starchup migration)
-    if (!currentCustomer && phone) {
-      const phoneCust = await _findCustomerByPhone(phone);
-      if (phoneCust) {
-        await db.from('customers').update({ profile_id: currentUser.id }).eq('id', phoneCust.id);
-        currentCustomer = { ...phoneCust, profile_id: currentUser.id };
-      }
-    }
+    // RPC returned nothing — create a fresh customer record
     if (!currentCustomer) {
       await db.from('customers').insert({
         profile_id: currentUser.id,

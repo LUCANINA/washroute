@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 28, 2026 — OTP progressive fallback flow, Disk IO cleanup (session 73)*
+*Last updated: Mar 28, 2026 — Stripe webhook fix, Radar CVC rule, customer/address dedup (session 74)*
 
 ---
 
@@ -107,8 +107,8 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `send-email` | Send outbound email via SendGrid. **v14 (session 69):** Auto-appends signed unsubscribe footer (HMAC link) to every email with a `customer_id`. | Off |
 | `geocode-addresses` | **TEMPORARY — deployed & deleted session 41.** Batch-geocoded 5,043 imported customer addresses via Google Maps API. No longer deployed. | N/A |
 | `notify-on-my-way` | Driver "On My Way" button → customer SMS | Off |
-| `charge-order` | Stripe payment charge — **v26 (session 70h):** sets `billing_status='paid'` + `billed_at` + clears `charge_failed_at` on success; sets `billing_status='failed'` + `charge_failed_at` on decline. Enables admin UI to distinguish "card never tried" vs "card already declined" | On |
-| `stripe-webhook` | Stripe webhook handler — **v24 (session 61):** added `payment_intent.succeeded` and `payment_intent.payment_failed` handlers as backup safety net for billing_status | Off |
+| `charge-order` | Stripe payment charge — **v28 (session 74):** Added `CHARGEABLE_STATUSES` guard (`ready_for_delivery`, `out_for_delivery`, `delivered`) — refuses to charge orders not yet at these statuses. Also sets `billing_status='paid'` + `billed_at` + clears `charge_failed_at` on success; sets `billing_status='failed'` + `charge_failed_at` on decline. | On |
+| `stripe-webhook` | Stripe webhook handler — **v26 (session 72):** `checkout.session.completed` saves card to `customer_payment_methods`. Signature verified via `STRIPE_WEBHOOK_SECRET`. **Session 74:** fixed by deleting duplicate "Delivery App" webhook endpoint in Stripe Dashboard that was causing 400 signature failures. | On |
 | `send-order-notification` | Status-change notifications | On |
 | `cloudprnt` | CloudPRNT server — **v15 (session 70i):** printer polls for jobs; `markupToStarLineMode()` converts Star Markup XML → Star Line Mode binary; serves as `application/vnd.star.starprnt`. Includes `tokenizeXml()` parser and `UNICODE_MAP` for thermal printer ASCII fallback. | Off |
 | `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. Pickups and deliveries optimized independently. **v12 (session 27):** No-GPS path now uses geographic-extremes algorithm — northernmost and southernmost stops become fixed endpoints; tries both N→S and S→N directions with 2 Google API calls; picks shorter road distance. Eliminates U-shaped routes caused by pinning stop_number extremes as endpoints. When GPS provided: driver position is origin, last pending stop is destination (unchanged). | Off |
@@ -479,6 +479,9 @@ There are actually **two separate hang points** that must both be covered:
 | 19 | ~~P2 → Fixed~~ | Google Maps API key | ~~Key `AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc` unrestricted in customer app source.~~ **FIXED session 21b**: David restricted key to `*.washroute.vercel.app/*` referrer in GCP Console on 2026-03-16. |
 | 20 | ~~Fixed~~ | RLS — 10 additional tables | ~~Broad anon write/read on `routes`, `route_stops`, `addresses`, `profiles`, `drivers`, `driver_messages`, `route_templates`, `preferences`, `notifications`, `cs_issues`, `conversations`, `launderers`, `racks`, `order_items`, `subscriptions`, `customer_transactions`, `services`, `service_fees`, `service_categories`~~ **FIXED session 21b**: All anon write policies dropped; scoped authenticated policies retained. Migrations: `rls_security_hardening`, `rls_security_hardening_services_v2`. |
 | 21 | ~~P2 → Fixed~~ | driver-app line 1764 | ~~Auto-create fallback inserts new driver record without checking for existing record with same `profile_id`.~~ **FIXED session 72**: Added UNIQUE constraint on `drivers.profile_id` (migration `drivers_profile_id_unique`). Changed INSERT to UPSERT with `onConflict: 'profile_id'` — even a race condition now produces one record. |
+| 22 | ~~P0 → Fixed~~ | Stripe webhooks | ~~Duplicate webhook endpoint ("Delivery App") causing 400 signature failures — cards not saving after Stripe Checkout.~~ **FIXED session 74**: Deleted stale "Delivery App" endpoint in Stripe Dashboard. Only "brilliant-oasis" endpoint remains (0% error rate). |
+| 23 | ~~P0 → Fixed~~ | Stripe Radar | ~~CVC block rule rejecting valid charges — card issuers approved but Radar blocked.~~ **FIXED session 74**: Disabled CVC block rule in Stripe Radar → Rules. Charges with failed CVC checks now allowed through. |
+| 24 | ~~P1 → Fixed~~ | `charge-order` | ~~No status guard — orders at `scheduled`/`picked_up` could be charged prematurely.~~ **FIXED session 74**: v28 added `CHARGEABLE_STATUSES` guard. Issues tab filter also updated to only show `billing_status='failed'` for chargeable-status orders. |
 
 ---
 
@@ -939,6 +942,55 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 28, 2026 (session 74) — Stripe webhook fix, Radar CVC rule, customer/address dedup
+
+**Stripe — Root cause of cards not saving / charges failing (TWO issues found and fixed):**
+
+1. **Duplicate webhook endpoint:** Stripe Dashboard had TWO webhook endpoints ("brilliant-oasis" at 0% errors, "Delivery App" at 100% errors) both pointing to `stripe-webhook`. Every event fired twice — one succeeded, one failed with 400 signature mismatch. Deleted the stale "Delivery App" endpoint. Cards now save reliably through the single working endpoint.
+
+2. **Stripe Radar CVC block rule:** Even after cards saved correctly, charges were being BLOCKED (not declined) by Stripe Radar's "Block if CVC check fails" rule. The card issuers approved the charges, but Radar killed them. Disabled the CVC block rule. This was the root cause of the recurring "CVC mismatch" pattern David reported across multiple customers.
+
+**charge-order v28 deployed — status guard:**
+- Added `CHARGEABLE_STATUSES = ['ready_for_delivery', 'out_for_delivery', 'delivered']` guard. Orders not yet at these statuses cannot be charged. Prevents premature charging of `scheduled`/`picked_up` orders.
+- Fixed order #798 (Rachel Lederman) which was incorrectly showing as declined — it was still `scheduled` and should never have been charged.
+- Issues tab filter updated to only show `billing_status='failed'` for chargeable-status orders.
+
+**Admin Dashboard — Payment indicator on Customer List:**
+- Added "Pay" column to Customer List showing card status: green card icon (card on file), blue building icon (on account), amber warning icon (no card). Uses `_custPayIcon()` function backed by `_custWithCard` Set.
+- Real-time update: when a customer adds a card (via Stripe webhook → `customer_payment_methods` insert), the customer list re-renders to show the updated icon.
+
+**Card cleanup:**
+- Deleted 4 bad cards that were saved during the dual-webhook period: Front Administrator (Visa ···8213), Level Up Wellness (Visa ···0608), Jon Relyea (Visa ···2915), Elizabeth Clements (Mastercard ···4097).
+- Elizabeth Clements re-added her card and charged successfully ($57.95 order #357) — confirmed both fixes work end-to-end.
+
+**Customer merges (session 74):**
+- **Thomas Cannon** — empty duplicate (0 orders, created today from card setup) merged into real account (74 orders, $6,451.40). Card (Mastercard ···5820) moved to keeper.
+- **Virginia Kiley** — empty duplicate merged into real account (10 orders, $751.55). Card (Visa ···1201) moved to keeper.
+
+**Address dedup:**
+- Audited all customers for duplicate addresses on the same `line1`.
+- Deleted 58 duplicate addresses that had zero orders referencing them (safe deletes, no FK issues).
+- Remaining duplicates where both have orders (e.g. Dallas Butler) left for manual review — need to reassign orders before deleting.
+
+**Edge functions deployed:** `charge-order` v28
+
+**Files changed:** `admin-dashboard/index.html`
+
+**⚠️ STRIPE CONFIG CHANGES (external, not in code):**
+- Stripe Dashboard → Webhooks: "Delivery App" endpoint DELETED. Only "brilliant-oasis" remains.
+- Stripe Dashboard → Radar → Rules: CVC block rule DISABLED. Charges with failed CVC checks are now allowed through (card issuer authorization is sufficient).
+
+**Pending (carries forward):**
+1. Receipt template — iPad POS cache clear needed
+2. Small "v" character at top of receipt
+3. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+4. Monitor Disk IO budget after session 73 cleanup
+5. 33 unpaid orders (~$3,400+) — customers need to add cards before charging
+6. Belt-and-suspenders client-side card sync (proposed, not yet built) — fallback for when webhook fails
+7. Dallas Butler + other dual-order duplicate addresses — need manual reassignment
+
+---
 
 ### Mar 28, 2026 (session 73) — OTP progressive fallback flow, Supabase Disk IO cleanup
 
