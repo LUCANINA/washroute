@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 27, 2026 — Daily Check engine, recurring order dedup, duplicate stop fixes (session 71)*
+*Last updated: Mar 28, 2026 — Driver uniqueness guard, customer dedup fix, stripe-webhook diagnostics (session 72)*
 
 ---
 
@@ -471,7 +471,7 @@ There are actually **two separate hang points** that must both be covered:
 | 18 | ~~P2 → Fixed~~ | RLS — `route_driver_overrides` | ~~`Allow all access` with no conditions.~~ **FIXED session 21b**: Replaced with `admin_all_route_driver_overrides` + `auth_read_route_driver_overrides`. |
 | 19 | ~~P2 → Fixed~~ | Google Maps API key | ~~Key `AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc` unrestricted in customer app source.~~ **FIXED session 21b**: David restricted key to `*.washroute.vercel.app/*` referrer in GCP Console on 2026-03-16. |
 | 20 | ~~Fixed~~ | RLS — 10 additional tables | ~~Broad anon write/read on `routes`, `route_stops`, `addresses`, `profiles`, `drivers`, `driver_messages`, `route_templates`, `preferences`, `notifications`, `cs_issues`, `conversations`, `launderers`, `racks`, `order_items`, `subscriptions`, `customer_transactions`, `services`, `service_fees`, `service_categories`~~ **FIXED session 21b**: All anon write policies dropped; scoped authenticated policies retained. Migrations: `rls_security_hardening`, `rls_security_hardening_services_v2`. |
-| 21 | P2 Medium | driver-app line 1764 | Auto-create fallback inserts new driver record without checking for existing record with same `profile_id`. Race condition can create duplicates, breaking RLS stop visibility. **Found session 70h** — caused Luis/Hayward route invisibility. Data merged and duplicate deleted, but code fix still needed (add `profile_id` uniqueness check before INSERT). |
+| 21 | ~~P2 → Fixed~~ | driver-app line 1764 | ~~Auto-create fallback inserts new driver record without checking for existing record with same `profile_id`.~~ **FIXED session 72**: Added UNIQUE constraint on `drivers.profile_id` (migration `drivers_profile_id_unique`). Changed INSERT to UPSERT with `onConflict: 'profile_id'` — even a race condition now produces one record. |
 
 ---
 
@@ -932,6 +932,43 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 28, 2026 (session 72) — Driver uniqueness guard, customer dedup fix, stripe-webhook diagnostics
+
+**Driver app — profile_id uniqueness guard (Known Issue #21 closed):**
+- Added UNIQUE constraint on `drivers.profile_id` via migration `drivers_profile_id_unique`. Verified 0 existing duplicates before applying.
+- Changed auto-create fallback (line 1764) from `INSERT` to `UPSERT` with `onConflict: 'profile_id'`. Even if two browser tabs race, only one driver record is created.
+
+**Customer app — phone-based account matching (root cause fix for duplicate accounts):**
+- Root cause: 4 customer-creation paths in the customer app (`ensureProfile`, `loadUserData`, `handleNameSubmit`, `placeOrder`) only matched by email. If a Starchup-migrated customer signed up with a different email, no path found them → duplicate customer created.
+- Fix: Added `_findCustomerByPhone(phone)` helper that calls the existing `find_customer_by_phone` DB RPC (last-10-digit matching), then fetches the full customer record.
+- Added phone-based matching as step 2c in `ensureProfile` (after email orphan + cross-link lookups fail, before creating a new record). Backfills name/email/referral only if the existing record has blank fields.
+- Added phone-based fallback in `loadUserData` for email-signup users (runs after email-based linking, before customer creation).
+- Added email + phone matching to `handleNameSubmit` path (was only checking `profile_id` before).
+- Matching cascade is now: profile_id → email (orphan) → email (cross-linked) → **phone** → create new.
+
+**stripe-webhook — diagnostic logging (v26 deployed):**
+- Investigated 400 "Invalid signature" errors in edge function logs. Code is correct — this is a configuration issue.
+- Most likely cause: stale `STRIPE_WEBHOOK_SECRET` in Supabase Secrets (e.g., if the signing secret was rotated in Stripe Dashboard). David confirmed most failures are CVC mismatches, meaning these are legitimate `payment_intent.payment_failed` events from the Family Laundry Stripe account that can't be verified.
+- Deployed v26 with pre-verification diagnostic logging: logs event type, account, and livemode before signature check. On 400, also logs the signature prefix. Next occurrence will identify the exact source.
+- **Action needed:** David to compare `STRIPE_WEBHOOK_SECRET` in Supabase Secrets against the signing secret shown in Stripe Dashboard → Developers → Webhooks for the endpoint.
+
+**Commits:**
+- `[pending push]` — fix: prevent duplicate accounts + driver records, add stripe-webhook diagnostics
+
+**Edge functions deployed:** `stripe-webhook` v26
+
+**DB migrations applied:** `drivers_profile_id_unique` (UNIQUE constraint on `drivers.profile_id`)
+
+**Files changed:** `customer-app/index.html`, `driver-app/index.html`, `supabase/functions/stripe-webhook/index.ts`
+
+**Pending (carries forward):**
+1. Receipt template — iPad POS cache clear needed
+2. Small "v" character at top of receipt
+3. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+4. Stripe webhook — verify `STRIPE_WEBHOOK_SECRET` matches Stripe Dashboard signing secret
+
+---
 
 ### Mar 27, 2026 (session 71) — Daily Check engine, recurring order dedup, duplicate stop fixes
 
