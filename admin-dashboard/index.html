@@ -16189,6 +16189,18 @@ ${oneCopy}
         .eq('id', stopId);
       // driver_id reset to NULL so the stop inherits the destination route's default driver.
       // If a specific driver override is needed, use the Reassign Driver button after moving.
+
+      // Keep order's pickup_run_id / delivery_run_id in sync with the route_stop move.
+      // Without this, views that derive route names from the order (driver app, order panel)
+      // show stale route names after RCC drag-and-drop.
+      const orderId = stop.orders?.id || stopObj?.orders?.id;
+      if (orderId) {
+        const runField = stop.stop_type === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
+        await db.from('orders').update({ [runField]: toRouteId }).eq('id', orderId);
+        // Update local allOrders cache too so the order panel reflects the change immediately
+        const localOrder = typeof allOrders !== 'undefined' && allOrders?.find(o => o.id === orderId);
+        if (localOrder) localOrder[runField] = toRouteId;
+      }
       const [{ count: srcCnt }, { count: dstCnt }] = await Promise.all([
         db.from('route_stops').select('*, orders!inner(status)', {count:'exact',head:true}).eq('route_id', fromRouteId).not('orders.status', 'in', `(${DEAD_ORDER_STATUSES.join(',')})`),
         db.from('route_stops').select('*, orders!inner(status)', {count:'exact',head:true}).eq('route_id', toRouteId).not('orders.status', 'in', `(${DEAD_ORDER_STATUSES.join(',')})`),
