@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 28, 2026 — Map address resolution hardening, route creation race fix, address data backfill (session 76)*
+*Last updated: Mar 28, 2026 — Morning audit: billing_status backfill, 13 confirmed-paid orders corrected, audit skill hardened with Check 3b (session 77)*
 
 ---
 
@@ -945,6 +945,46 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 28, 2026 (session 77) — Morning audit: billing_status backfill + audit skill hardening
+
+**Morning audit findings:**
+- ✅ No unrouted orders, wrong-date stops, status desync, duplicate orders
+- ⚠️ Oakland routes over capacity all week (6 routes, peak 26/20 stops) — needs capacity review
+- 📋 11 driverless routes next 7 days (Alameda, Berkeley, Concord routes — expected low-volume)
+- 📋 3 SMS opt-out sync gaps, 18 duplicate addresses, 187 orphan profiles
+
+**Investigation: 13 delivered orders with Stripe payment intent but `billing_status = null`**
+- Root cause split in two groups:
+  1. Orders charged Mar 24–27: predated `charge-order` v26 (session 70h) which first introduced the `billing_status` write. Older versions only stamped `billed_at`.
+  2. Orders charged Mar 28 (including post-v28 Elizabeth Clements, Ariel Ward, Sameer Jain etc.): `charge-order` does two separate DB writes — stamps `billed_at` immediately, then writes `billing_status='paid'` after Stripe confirms. If step 2 silently fails (timeout/edge function error), orders land with `billed_at` set but `billing_status` null.
+- Verified all 13 in Stripe live mode — all show "Succeeded". Money was collected.
+- Bulk corrected: `UPDATE orders SET billing_status = 'paid' WHERE stripe_payment_intent_id IN (...)` — 13 orders, ~$1,388 total.
+
+**Tech debt logged:** `charge-order` needs its two DB writes consolidated into a single atomic UPDATE to eliminate the partial-state window. Next time the function is touched, fix this.
+
+**Morning audit skill (washroute-audit) updated:**
+- Added **Check 3b** — "Charged but billing_status missing": catches `billed_at IS NOT NULL AND charge_failed_at IS NULL AND billing_status NOT IN ('paid','refunded')`. Would have surfaced these 13 orders in seconds.
+- Fixed **Check 10** bug: duplicate-addresses SQL used `address_line1` (wrong column name, errors on run). Corrected to `line1`.
+- Updated file saved to `washroute/washroute-audit-SKILL-updated.md` — David to copy to `.claude/skills/washroute-audit/SKILL.md`.
+
+**Files changed:** `washroute-audit-SKILL-updated.md` (skill update — needs manual copy to `.claude/skills/`)
+
+**Pending (carries forward):**
+1. Receipt template — iPad POS cache clear needed
+2. Small "v" character at top of receipt
+3. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+4. Monitor Disk IO budget after session 73 cleanup
+5. Unpaid orders — customers without cards need to add payment methods
+6. Belt-and-suspenders client-side card sync (proposed, not yet built)
+7. Dallas Butler + other dual-order duplicate addresses — need manual order reassignment
+8. Backfill empty `address_cache` for remaining ~86 customers from `addresses` table
+9. Carol Stevenson address needs geocoding — run `geocodeMissing()` from admin console
+10. **[Tech debt]** `charge-order`: consolidate `billed_at` + `billing_status` into single atomic UPDATE
+11. Copy updated `washroute-audit` skill to `.claude/skills/washroute-audit/SKILL.md`
+12. Oakland route capacity — consider raising stop_limit or splitting into two Oakland routes
+
+---
 
 ### Mar 28, 2026 (session 74) — Stripe webhook fix, Radar CVC rule, customer/address dedup
 
