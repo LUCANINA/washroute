@@ -7452,16 +7452,31 @@
     const routeDate = new Date(dateStr + 'T12:00:00');
     const routeDow  = (routeDate.getDay() + 6) % 7; // 0=Mon..6=Sun
     const schedDriverId = _opDriverSched[`${templateId}-${routeDow}`] || null;
-    const { data: newRoute, error } = await db.from('routes')
-      .insert({ name: templateName, date: dateStr, run_date: dateStr, status: 'scheduled', template_id: templateId, color: tmpl.color || '#635bff', driver_id: schedDriverId })
+
+    // Check if a route already exists for this template+date (avoids unique constraint violation)
+    let route = null;
+    const { data: existing } = await db.from('routes')
       .select('id, name, run_date, status')
-      .single();
+      .eq('template_id', templateId).eq('run_date', dateStr)
+      .limit(1).maybeSingle();
+    if (existing) {
+      route = existing;
+    } else {
+      const { data: created, error } = await db.from('routes')
+        .insert({ name: templateName, date: dateStr, run_date: dateStr, status: 'scheduled', template_id: templateId, color: tmpl.color || '#635bff', driver_id: schedDriverId })
+        .select('id, name, run_date, status')
+        .single();
+      if (error) { rowEl.style.opacity = ''; rowEl.style.pointerEvents = ''; showToast('Failed to create route: ' + error.message, 'error'); return; }
+      route = created;
+    }
+
     rowEl.style.opacity = '';
     rowEl.style.pointerEvents = '';
-    if (error) { showToast('Failed to create route: ' + error.message, 'error'); return; }
-    _opRoutes.push(newRoute);
-    _opRoutes.sort((a,b) => a.run_date.localeCompare(b.run_date));
-    opSelectRoute(leg, newRoute.id, dateStr, rowEl);
+    if (!_opRoutes.find(r => r.id === route.id)) {
+      _opRoutes.push(route);
+      _opRoutes.sort((a,b) => a.run_date.localeCompare(b.run_date));
+    }
+    opSelectRoute(leg, route.id, dateStr, rowEl);
   }
 
   function opSelectRoute(leg, routeId, runDate, rowEl) {
