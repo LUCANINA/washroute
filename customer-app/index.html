@@ -1775,9 +1775,22 @@ async function handleNameSubmit() {
       email:      email,
       phone:      phoneVal
     }, { onConflict: 'id' });
-    // Create or update customer record
-    const { data: existing } = await db.from('customers').select('id').eq('profile_id', user.id).maybeSingle();
+    // Try to claim an existing customer (bypasses RLS — catches returning customers
+    // whose old record has a different profile_id, closing the last dedup gap)
+    const { data: claimedName, error: claimErrName } = await db.rpc('claim_existing_customer', {
+      p_profile_id:      user.id,
+      p_email:           email || null,
+      p_phone:           phoneVal || null,
+      p_first_name:      firstName || null,
+      p_last_name:       lastName || null,
+      p_referral_source: null,
+      p_sms_consent:     true
+    });
+    if (claimErrName) console.warn('[handleNameSubmit] claim_existing_customer RPC error:', claimErrName.message);
+    const existing = (claimedName && claimedName.length > 0) ? claimedName[0] : null;
+
     if (existing) {
+      // Update the claimed record with the freshly collected name/email/phone
       await db.from('customers').update({
         first_name_cache: firstName,
         last_name_cache:  lastName,
@@ -1980,7 +1993,7 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
   //      This bypasses RLS so it can find accounts linked to a different auth UUID
   //      (the root cause of duplicate accounts for returning customers).
   //      The RPC checks: profile_id match → email orphan → email cross-link → phone match.
-  const { data: claimed } = await db.rpc('claim_existing_customer', {
+  const { data: claimed, error: claimErr } = await db.rpc('claim_existing_customer', {
     p_profile_id:      user.id,
     p_email:           email || user.email || null,
     p_phone:           phone || user.user_metadata?.phone || null,
@@ -1989,6 +2002,7 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
     p_referral_source: referralSource || null,
     p_sms_consent:     smsConsent || false
   });
+  if (claimErr) console.warn('[ensureProfile] claim_existing_customer RPC error:', claimErr.message);
   let ec = (claimed && claimed.length > 0) ? claimed[0] : null;
 
   // 3. Still nothing — create a fresh customer record
@@ -2248,7 +2262,7 @@ async function loadUserData() {
   // This prevents duplicate accounts when returning customers sign up again.
   if (!currentCustomer) {
     const m = currentUser.user_metadata || {};
-    const { data: claimed } = await db.rpc('claim_existing_customer', {
+    const { data: claimed, error: claimErr2 } = await db.rpc('claim_existing_customer', {
       p_profile_id:      currentUser.id,
       p_email:           currentUser.email || currentProfile?.email || null,
       p_phone:           currentProfile?.phone || m.phone || null,
@@ -2257,6 +2271,7 @@ async function loadUserData() {
       p_referral_source: null,
       p_sms_consent:     false
     });
+    if (claimErr2) console.warn('[loadUserData] claim_existing_customer RPC error:', claimErr2.message);
     if (claimed && claimed.length > 0) {
       currentCustomer = claimed[0];
     }
@@ -3866,7 +3881,7 @@ async function renderConfirmAuth() {
     }
 
     // Use server-side RPC to find/claim existing customer (bypasses RLS)
-    const { data: claimed } = await db.rpc('claim_existing_customer', {
+    const { data: claimed, error: claimErr3 } = await db.rpc('claim_existing_customer', {
       p_profile_id:      currentUser.id,
       p_email:           email || null,
       p_phone:           phone || null,
@@ -3875,6 +3890,7 @@ async function renderConfirmAuth() {
       p_referral_source: m.referral_source || null,
       p_sms_consent:     !!m.sms_consent
     });
+    if (claimErr3) console.warn('[renderConfirmAuth] claim_existing_customer RPC error:', claimErr3.message);
     if (claimed && claimed.length > 0) {
       currentCustomer = claimed[0];
     }
