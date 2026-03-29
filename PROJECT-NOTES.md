@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 28, 2026 — Morning audit: billing_status backfill, 13 confirmed-paid orders corrected, audit skill hardened with Check 3b (session 77)*
+*Last updated: Mar 29, 2026 — Wrong-date stop root fix: pickup sync trigger + routing_error flag on capacity failure (session 78)*
 
 ---
 
@@ -945,6 +945,40 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 29, 2026 (session 78) — Wrong-date stop root fix: pickup sync trigger + routing_error flag
+
+**P0 investigation: Heather Gould #808 stops on Apr 7 routes despite Mar 30/31 pickup/delivery windows**
+- Root cause confirmed via order_events: order was originally created Mar 24 for Apr 7 (correctly routed). Rescheduled TWICE today in 24-second succession by recurring order system: Apr 7 → Apr 6 → Mar 30. Stops never moved.
+- Two structural gaps identified:
+  1. `trg_sync_delivery_stop_on_window_change` only handles delivery stops — pickup stops have no equivalent trigger and are always left stranded when rescheduled.
+  2. Both triggers fail silently when target route is at capacity — stop stays on wrong-date route with no error flag, audit Check 2 catches it after the fact.
+- **Immediate fix:** Both stops manually moved to correct routes — pickup to Mar 30 Oakland AM (#36), delivery to Mar 31 Oakland PM (#34). `pickup_run_id` and `delivery_run_id` on order updated. `moved_from_route_id` set. ✅
+
+**DB migration applied: `add_pickup_stop_sync_trigger_and_routing_error_flag`**
+- Created `sync_pickup_stop_on_window_change()` function — exact mirror of delivery trigger logic, fires on `pickup_window_start` changes, auto-routes pickup stop to correct date/template.
+- Created `trg_sync_pickup_stop_on_window_change` — BEFORE UPDATE on orders WHEN pickup_window_start changes.
+- Updated `sync_delivery_stop_on_window_change()` — added `v_moved` flag; if loop exhausts without finding eligible route, sets `routing_error = 'rescheduled_no_capacity'`. Morning audit Check 1 catches these immediately.
+- Migration SQL saved to `database/add_pickup_stop_sync_trigger_and_routing_error_flag.sql`.
+
+**Files changed:** `database/add_pickup_stop_sync_trigger_and_routing_error_flag.sql`
+
+**Pending (carries forward):**
+1. Level Up Wellness #522 — charged ($186.95, Mar 28), delivery_failed status, billing_status = null. Investigate.
+2. Receipt template — iPad POS cache clear needed
+3. Small "v" character at top of receipt
+4. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+5. Monitor Disk IO budget after session 73 cleanup
+6. Unpaid orders — customers without cards need to add payment methods (42 orders, $4,494.90)
+7. Belt-and-suspenders client-side card sync (proposed, not yet built)
+8. Dallas Butler + other dual-order duplicate addresses — need manual order reassignment
+9. Backfill empty `address_cache` for remaining ~86 customers from `addresses` table
+10. Carol Stevenson address needs geocoding — run `geocodeMissing()` from admin console
+11. **[Tech debt]** `charge-order`: consolidate `billed_at` + `billing_status` into single atomic UPDATE
+12. Copy updated `washroute-audit` skill to `.claude/skills/washroute-audit/SKILL.md`
+13. Oakland route capacity — consider raising stop_limit or splitting into two Oakland routes
+
+---
 
 ### Mar 28, 2026 (session 77) — Morning audit: billing_status backfill + audit skill hardening
 
