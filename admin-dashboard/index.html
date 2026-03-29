@@ -12611,6 +12611,15 @@ ${oneCopy}
     loadOrders(currentOrderFilter);
     loadOverview();
 
+    // Fire order confirmed SMS (best-effort, don't block)
+    if (newOrderId) {
+      fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+        body: JSON.stringify({ orderId: newOrderId, event: 'confirmed' })
+      }).catch(() => {});
+    }
+
     // Fire booking confirmation email (best-effort, don't block)
     const _cust = allCustomers?.find(c => c.id === customerId);
     const _toEmail = _cust?.email_cache;
