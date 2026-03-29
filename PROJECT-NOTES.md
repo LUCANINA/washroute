@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 28, 2026 — Duplicate account RPC fix, same-day delivery fix, credit audit (session 74 cont'd)*
+*Last updated: Mar 28, 2026 — SMS address fallback, admin order SMS, RCC drag-drop fix, QA hardening (session 75)*
 
 ---
 
@@ -109,7 +109,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `notify-on-my-way` | Driver "On My Way" button → customer SMS | Off |
 | `charge-order` | Stripe payment charge — **v28 (session 74):** Added `CHARGEABLE_STATUSES` guard (`ready_for_delivery`, `out_for_delivery`, `delivered`) — refuses to charge orders not yet at these statuses. Also sets `billing_status='paid'` + `billed_at` + clears `charge_failed_at` on success; sets `billing_status='failed'` + `charge_failed_at` on decline. | On |
 | `stripe-webhook` | Stripe webhook handler — **v26 (session 72):** `checkout.session.completed` saves card to `customer_payment_methods`. Signature verified via `STRIPE_WEBHOOK_SECRET`. **Session 74:** fixed by deleting duplicate "Delivery App" webhook endpoint in Stripe Dashboard that was causing 400 signature failures. | On |
-| `send-order-notification` | Status-change notifications | On |
+| `send-order-notification` | Status-change notifications — **v23 (session 75):** Address fallback: when `customer.address_cache` is empty, now fetches actual address from `addresses` table via `order.pickup_address_id`. Fixes blank "Your pickup at is scheduled for..." SMS. Also added `pickup_address_id` + `delivery_address_id` to order fetch. | Off |
 | `cloudprnt` | CloudPRNT server — **v15 (session 70i):** printer polls for jobs; `markupToStarLineMode()` converts Star Markup XML → Star Line Mode binary; serves as `application/vnd.star.starprnt`. Includes `tokenizeXml()` parser and `UNICODE_MAP` for thermal printer ASCII fallback. | Off |
 | `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. Pickups and deliveries optimized independently. **v12 (session 27):** No-GPS path now uses geographic-extremes algorithm — northernmost and southernmost stops become fixed endpoints; tries both N→S and S→N directions with 2 Google API calls; picks shorter road distance. Eliminates U-shaped routes caused by pinning stop_number extremes as endpoints. When GPS provided: driver position is origin, last pending stop is destination (unchanged). | Off |
 
@@ -992,6 +992,49 @@ There are actually **two separate hang points** that must both be covered:
 5. 33 unpaid orders (~$3,400+) — customers need to add cards before charging
 6. Belt-and-suspenders client-side card sync (proposed, not yet built) — fallback for when webhook fails
 7. Dallas Butler + other dual-order duplicate addresses — need manual reassignment
+
+### Mar 28, 2026 (session 75) — SMS address fallback, admin order SMS, RCC drag-drop fix, QA hardening
+
+**Erroneous SMS investigation (Baby Lee):**
+- Customer Baby Lee received `order_confirmed` SMS at 2:09 PM PT saying "Your pickup at is scheduled for Saturday, Mar 28 between 6 pm – 8 pm" — but her only order (#548) had pickup Mar 25 and was at `ready_for_delivery`.
+- **Root cause:** Order numbers #1087–#1090 are missing from the sequence (created ~21:07 UTC, then hard-deleted via admin's Delete Orders). Baby placed an order via the customer app; the `placeOrder()` fire-and-forget SMS was sent instantly; the order was subsequently deleted. SMS cannot be recalled after sending.
+- Same pattern found for customer Dallas Butler — also received `order_confirmed` SMS with no matching order (also deleted).
+- **Broader finding:** 7 out of 15 `order_confirmed` SMS sent on Mar 28 had blank addresses ("Your pickup at is scheduled for...") because `customer.address_cache` was empty for those customers and the edge function had no fallback. 86 of 5,316 total customers have empty `address_cache`.
+
+**Fix 1 — `send-order-notification` v23 deployed:**
+- When `customer.address_cache` is empty, the function now fetches the actual address from the `addresses` table using `order.pickup_address_id` (falls back to `delivery_address_id`).
+- Added `fmtAddress()` helper to format address rows as one-liners (line1, line2, city/state, zip).
+- Added `pickup_address_id` and `delivery_address_id` to the order fetch query.
+- If the address lookup fails, falls back to empty string (same as previous behavior — no regression risk).
+
+**Fix 2 — Admin dashboard `saveOrder()` now sends `order_confirmed` SMS:**
+- Previously, admin-created orders only sent confirmation email via `send-email`. Now also fires `send-order-notification` with `event: 'confirmed'` (fire-and-forget, same pattern as customer app).
+- Closes the known gap noted in PROJECT-NOTES session 35e: "Admin `saveOrder()` does NOT call `send-order-notification` for the `confirmed` event."
+
+**Fix 3 — RCC drag-and-drop now syncs order run IDs (commit `3a03dc9`):**
+- When route stops were moved between routes via drag-and-drop in the Route Command Center, the order's `pickup_run_id`/`delivery_run_id` was NOT updated to match the new route. This caused stops to display as "AM" when they'd been moved to a PM route (and vice versa), because the order still referenced the old route.
+- **Fix:** `rccDrop()` now updates `orders.pickup_run_id` or `orders.delivery_run_id` (based on `stop_type`) after moving a stop. Also syncs the local `allOrders` cache.
+- **Bulk correction:** 130 stale order run IDs were corrected via SQL to match their current route_stop assignments.
+
+**Fix 4 — QA hardening (commit `76099ea`):**
+- Closed last dedup gap: `handleNameSubmit()` in customer app now uses `claim_existing_customer` RPC instead of direct table query (was the 4th and final code path — `ensureProfile`, `loadUserData`, `renderConfirmAuth` were already fixed in session 74).
+- Added `console.warn` error logging to all 4 `claim_existing_customer` RPC call sites.
+- Blast radius check confirmed: all customer-app queries use RLS-safe `profile_id = auth.uid()` filters. No email/phone direct lookups remain.
+
+**Files changed:** `admin-dashboard/index.html`, `customer-app/index.html`
+**Edge functions deployed:** `send-order-notification` v23
+
+**Pending (carries forward):**
+1. Receipt template — iPad POS cache clear needed
+2. Small "v" character at top of receipt
+3. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+4. Monitor Disk IO budget after session 73 cleanup
+5. 33 unpaid orders (~$3,400+) — customers need to add cards before charging
+6. Belt-and-suspenders client-side card sync (proposed, not yet built)
+7. Dallas Butler + other dual-order duplicate addresses — need manual order reassignment
+8. Backfill empty `address_cache` for remaining 86 customers from `addresses` table
+
+---
 
 ### Mar 28, 2026 (session 74 cont'd) — Duplicate account RPC fix, same-day delivery, credit audit
 
