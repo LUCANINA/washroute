@@ -16376,20 +16376,22 @@ ${oneCopy}
       if (s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY2.includes(s.orders.status)) return false;
       return true;
     });
-    // Resolve addresses: stop address_id → order address → customer default
-    const _addrIds = [...new Set(activeStops.map(s => s.address_id || (s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id)).filter(Boolean))];
+    // Resolve addresses: stop address_id → same-leg order address → other-leg → customer fallback
+    const _addrIds = [...new Set(activeStops.flatMap(s => [s.address_id, s.orders?.pickup_address_id, s.orders?.delivery_address_id].filter(Boolean)))];
     const _custIds = [...new Set(activeStops.map(s => s.orders?.customer_id).filter(Boolean))];
-    let _aById = {}, _aDefault = {};
+    let _aById = {}, _aFallback = {};
     const _af = [];
     if (_addrIds.length) _af.push(db.from('addresses').select('id, customer_id, line1, city, lat, lng').in('id', _addrIds));
-    if (_custIds.length) _af.push(db.from('addresses').select('id, customer_id, line1, city, lat, lng').in('customer_id', _custIds).eq('is_default', true));
+    if (_custIds.length) _af.push(db.from('addresses').select('id, customer_id, line1, city, lat, lng, is_default').in('customer_id', _custIds).order('is_default', { ascending: false }));
     const _ar = await Promise.all(_af);
     if (_addrIds.length && _ar[0]?.data) _ar[0].data.forEach(a => { _aById[a.id] = a; });
     const _di = _addrIds.length ? 1 : 0;
-    if (_custIds.length && _ar[_di]?.data) _ar[_di].data.forEach(a => { _aDefault[a.customer_id] = a; });
+    if (_custIds.length && _ar[_di]?.data) _ar[_di].data.forEach(a => { if (!_aFallback[a.customer_id]) _aFallback[a.customer_id] = a; });
     rd.stops = activeStops.map(s => {
-      const sid = s.address_id || (s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id);
-      return { ...s, _addr: (sid && _aById[sid]) || _aDefault[s.orders?.customer_id] || null };
+      const sameLeg = s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id;
+      const otherLeg = s.stop_type === 'pickup' ? s.orders?.delivery_address_id : s.orders?.pickup_address_id;
+      const sid = s.address_id || sameLeg || otherLeg;
+      return { ...s, _addr: (sid && _aById[sid]) || _aFallback[s.orders?.customer_id] || null };
     });
     rccRenderColumns();
     rccRenderMap();

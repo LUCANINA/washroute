@@ -1908,27 +1908,29 @@ async function _loadDriverDataInner() {
     allStops = [...allStops, ...taggedUpcoming];
   }
 
-  // ── Resolve addresses: use stop/order address_id, fall back to customer default ──
-  const stopAddrIds = [...new Set(allStops.map(s =>
-    s.address_id || (s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id)
-  ).filter(Boolean))];
+  // ── Resolve addresses: use stop/order address_id, fall back to either leg then customer fallback ──
+  const stopAddrIds = [...new Set(allStops.flatMap(s =>
+    [s.address_id, s.orders?.pickup_address_id, s.orders?.delivery_address_id].filter(Boolean)
+  ))];
   const custIds = [...new Set(allStops.map(s => s.orders?.customer_id).filter(Boolean))];
-  let _addrById = {}, _defaultByCust = {};
+  let _addrById = {}, _fallbackByCust = {};
   const addrFetches = [];
   if (stopAddrIds.length) {
     addrFetches.push(db.from('addresses').select('id, customer_id, line1, line2, city, state, zip, lat, lng, delivery_instructions').in('id', stopAddrIds));
   }
   if (custIds.length) {
-    addrFetches.push(db.from('addresses').select('id, customer_id, line1, line2, city, state, zip, lat, lng, delivery_instructions').in('customer_id', custIds).eq('is_default', true));
+    addrFetches.push(db.from('addresses').select('id, customer_id, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default').in('customer_id', custIds).order('is_default', { ascending: false }));
   }
   if (addrFetches.length) {
     const results = await Promise.all(addrFetches);
     if (stopAddrIds.length && results[0]?.data) results[0].data.forEach(a => { _addrById[a.id] = a; });
     const defIdx = stopAddrIds.length ? 1 : 0;
-    if (custIds.length && results[defIdx]?.data) results[defIdx].data.forEach(a => { _defaultByCust[a.customer_id] = a; });
+    if (custIds.length && results[defIdx]?.data) results[defIdx].data.forEach(a => { if (!_fallbackByCust[a.customer_id]) _fallbackByCust[a.customer_id] = a; });
     allStops = allStops.map(s => {
-      const sid = s.address_id || (s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id);
-      return { ...s, _addr: (sid && _addrById[sid]) || _defaultByCust[s.orders?.customer_id] || null };
+      const sameLeg = s.stop_type === 'pickup' ? s.orders?.pickup_address_id : s.orders?.delivery_address_id;
+      const otherLeg = s.stop_type === 'pickup' ? s.orders?.delivery_address_id : s.orders?.pickup_address_id;
+      const sid = s.address_id || sameLeg || otherLeg;
+      return { ...s, _addr: (sid && _addrById[sid]) || _fallbackByCust[s.orders?.customer_id] || null };
     });
   }
 

@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 28, 2026 — SMS address fallback, admin order SMS, RCC drag-drop fix, QA hardening (session 75)*
+*Last updated: Mar 28, 2026 — Map address resolution hardening, route creation race fix, address data backfill (session 76)*
 
 ---
 
@@ -111,7 +111,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `stripe-webhook` | Stripe webhook handler — **v26 (session 72):** `checkout.session.completed` saves card to `customer_payment_methods`. Signature verified via `STRIPE_WEBHOOK_SECRET`. **Session 74:** fixed by deleting duplicate "Delivery App" webhook endpoint in Stripe Dashboard that was causing 400 signature failures. | On |
 | `send-order-notification` | Status-change notifications — **v23 (session 75):** Address fallback: when `customer.address_cache` is empty, now fetches actual address from `addresses` table via `order.pickup_address_id`. Fixes blank "Your pickup at is scheduled for..." SMS. Also added `pickup_address_id` + `delivery_address_id` to order fetch. | Off |
 | `cloudprnt` | CloudPRNT server — **v15 (session 70i):** printer polls for jobs; `markupToStarLineMode()` converts Star Markup XML → Star Line Mode binary; serves as `application/vnd.star.starprnt`. Includes `tokenizeXml()` parser and `UNICODE_MAP` for thermal printer ASCII fallback. | Off |
-| `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. Pickups and deliveries optimized independently. **v12 (session 27):** No-GPS path now uses geographic-extremes algorithm — northernmost and southernmost stops become fixed endpoints; tries both N→S and S→N directions with 2 Google API calls; picks shorter road distance. Eliminates U-shaped routes caused by pinning stop_number extremes as endpoints. When GPS provided: driver position is origin, last pending stop is destination (unchanged). | Off |
+| `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. Pickups and deliveries optimized independently. **v19 (session 76):** Address resolution hardened — cross-leg fallback (delivery falls back to pickup address and vice versa) + customer fallback no longer requires `is_default = true` (prefers default, accepts any). **v12 (session 27):** No-GPS path uses geographic-extremes algorithm. | Off |
 
 ---
 
@@ -992,6 +992,55 @@ There are actually **two separate hang points** that must both be covered:
 5. 33 unpaid orders (~$3,400+) — customers need to add cards before charging
 6. Belt-and-suspenders client-side card sync (proposed, not yet built) — fallback for when webhook fails
 7. Dallas Butler + other dual-order duplicate addresses — need manual reassignment
+
+### Mar 28, 2026 (session 76) — Map address resolution hardening, route creation race fix, address data backfill
+
+**Investigation: Jenn Holloway not appearing on order map**
+- David reported Jenn Holloway's delivery stop wasn't plotting on the route map. Investigation revealed her delivery stop had `address_id = NULL`, her order had `delivery_address_id = NULL`, and her only address wasn't marked `is_default`.
+- The map's address fallback chain (stop address → same-leg order address → customer default) failed at every step because: (1) it only tried the same-leg address (delivery), not the other leg (pickup), and (2) the customer fallback required `is_default = true` — but 13 single-address customers had `is_default = false`.
+
+**Scope: 13 stops across 4 customers affected**
+- Jenn Holloway (order #359) — delivery stop NULL, order had pickup_address_id but not delivery
+- Carol Stevenson (orders #322, #355) — no address record at all, only `address_cache`
+- Sankofa United Elementary (orders #527, #766) — no address IDs on orders
+- Bentley Upper School (orders #554, #1010) — no address IDs on orders
+
+**Fix 1 — Route creation race condition (commit `7ae47e7`):**
+- `opCreateRouteAndSelect()` crashed with "duplicate key value violates unique constraint `routes_template_run_date_udx`" when `auto_route_order()` trigger had already created the route. Now checks for existing route before INSERT.
+
+**Fix 2 — Map address resolution hardened (commit `d4c7973`):**
+- Fallback chain now: stop address → same-leg order address → **other-leg order address** → any customer address (preferring default, accepting any).
+- Customer fallback no longer requires `is_default = true` — queries all addresses sorted by `is_default DESC`, takes first.
+- Pickup stop creation also falls back to `delivery_address_id` when `pickup_address_id` is null.
+
+**Fix 3 — Blast radius: same pattern fixed in 3 more locations (commit pending):**
+- Admin dashboard RCC column address resolver (line ~16380)
+- Driver app stop address resolver (line ~1912)
+- `optimize-route` edge function v19 deployed
+- All now use the cross-leg + non-default-ok fallback chain.
+
+**Data fixes applied via SQL:**
+- Backfilled `address_id` on 9 route_stops from order addresses
+- Backfilled `pickup_address_id`/`delivery_address_id` on 5 orders (Sankofa + Bentley)
+- Set `is_default = true` for 13 single-address customers (Jenn, Sankofa, Bentley, + 10 others)
+- Created address record for Carol Stevenson: 431 Lincoln Way, Unit A, San Francisco, CA 94122 (with delivery instructions)
+- Carol's 4 stops and 2 orders now linked to her new address
+
+**Files changed:** `admin-dashboard/index.html`, `driver-app/index.html`, `supabase/functions/optimize-route/index.ts`
+**Edge functions deployed:** `optimize-route` v19
+
+**Pending (carries forward):**
+1. Receipt template — iPad POS cache clear needed
+2. Small "v" character at top of receipt
+3. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+4. Monitor Disk IO budget after session 73 cleanup
+5. 33 unpaid orders (~$3,400+) — customers need to add cards before charging
+6. Belt-and-suspenders client-side card sync (proposed, not yet built)
+7. Dallas Butler + other dual-order duplicate addresses — need manual order reassignment
+8. Backfill empty `address_cache` for remaining ~86 customers from `addresses` table
+9. Carol Stevenson address needs geocoding (lat/lng) — run `geocodeMissing()` from admin console
+
+---
 
 ### Mar 28, 2026 (session 75) — SMS address fallback, admin order SMS, RCC drag-drop fix, QA hardening
 
