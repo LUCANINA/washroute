@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 29, 2026 — Wrong-date stop root fix: pickup sync trigger + routing_error flag on capacity failure (session 78)*
+*Last updated: Mar 29, 2026 — Session 79: SMS confirmation wrong address bug fixed (send-order-notification v24)*
 
 ---
 
@@ -946,6 +946,43 @@ There are actually **two separate hang points** that must both be covered:
 
 **Files changed:** `admin-dashboard/index.html`
 
+### Mar 29, 2026 (session 79) — SMS confirmation wrong address bug fixed
+
+**Root cause:** `send-order-notification` edge function was using `customer.address_cache` (the customer's default/saved address) as the PRIMARY address source, only falling back to the order's `pickup_address_id` if `address_cache` was empty. Customers who selected a different address at booking received confirmation SMSs showing their old default address instead.
+
+**Discovery:** Selena Bowie (#1148) texted "No this is not the address that I put" — SMS showed "1175 12th Street" (her default) but she booked "71 10th Street" for this order. DB query confirmed 37 orders in the past 30 days had the same mismatch (pickup_address_id resolves to a different street than address_cache).
+
+**Fix (send-order-notification v24, 2026-03-29):**
+- Address resolution now reads from `order.pickup_address_id` (then `delivery_address_id`) FIRST.
+- Only falls back to `address_cache` if the order has no address ID or the lookup returns empty.
+- Added detailed console logging: `Address from order: addrId=... resolved="..."` and `Address fallback to address_cache: "..."` so future debugging is easy.
+- Bug comment in code explains root cause, scope (37 orders / 30 days), and discovery context.
+
+**Preflight check:** LOW risk — code-only deployment, no DB writes, no triggers, no fan-out.
+
+**Files changed:** Edge function `send-order-notification` (v23 → v24, deployed to Supabase)
+
+**Pending (carries forward):**
+1. Receipt template — iPad POS cache clear needed
+2. Small "v" character at top of receipt
+3. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+4. Monitor Disk IO budget after session 73 cleanup
+5. Unpaid orders — customers without cards need to add payment methods (42 orders, ~$4,494.90)
+6. Belt-and-suspenders client-side card sync (proposed, not yet built)
+7. Dallas Butler + other dual-order duplicate addresses — need manual order reassignment
+8. Backfill empty `address_cache` for remaining ~86 customers from `addresses` table
+9. Carol Stevenson address needs geocoding — run `geocodeMissing()` from admin console
+10. **[Tech debt]** `charge-order`: consolidate `billed_at` + `billing_status` into single atomic UPDATE
+11. **[Tech debt]** Stripe retry loop: add backoff/rate limiting
+12. Copy updated `washroute-audit` skill to `.claude/skills/washroute-audit/SKILL.md`
+13. Oakland route capacity — consider raising stop_limit or splitting into two Oakland routes
+14. Russ/Russalynne Griggs — duplicate account (same phone number), needs manual merge
+15. 4 ready-for-delivery orders without billing (#1086 Nicolas Rodet, #1062 Lodestar Campus, #1034 Laura Guevara, #1025 Bentley Upper School) — need billing review
+16. Concord AM route (Mar 30) — 3 stops, no driver assigned
+17. Oakland AM route (Mar 30) — 32 active stops vs 20-stop limit
+
+---
+
 ### Mar 29, 2026 (session 78) — Wrong-date stop root fix: pickup sync trigger + routing_error flag
 
 **P0 investigation: Heather Gould #808 stops on Apr 7 routes despite Mar 30/31 pickup/delivery windows**
@@ -961,20 +998,30 @@ There are actually **two separate hang points** that must both be covered:
 - Updated `sync_delivery_stop_on_window_change()` — added `v_moved` flag; if loop exhausts without finding eligible route, sets `routing_error = 'rescheduled_no_capacity'`. Morning audit Check 1 catches these immediately.
 - Migration SQL saved to `database/add_pickup_stop_sync_trigger_and_routing_error_flag.sql`.
 
-**Files changed:** `database/add_pickup_stop_sync_trigger_and_routing_error_flag.sql`
+**DB migration applied: `fix_reset_failed_delivery_stop_scope_to_active_route`**
+- `reset_failed_delivery_stop()` was resetting ALL failed delivery/pickup stops when run_id changed — including old historical stops on past routes. Discovered when rescheduling Level Up Wellness #522: the Mar 25 failed stop was revived to 'pending' alongside the new Mar 30 stop.
+- Fix: added `AND route_id = NEW.delivery_run_id` / `AND route_id = NEW.pickup_run_id` to both WHERE clauses. Old stops on past routes stay failed permanently.
+- Migration SQL saved to `database/fix_reset_failed_delivery_stop_scope_to_active_route.sql`.
+
+**Level Up Wellness #522 — fully resolved**
+- History: 7 Stripe charge attempts (1 Failed, 6 Blocked by Stripe Radar, 1 Succeeded). Blocking happened before Stripe anti-fraud rules were relaxed. Multiple retries were from WashRoute's own retry logic — no rate limiting/backoff. Charge confirmed Succeeded $186.95 Mar 28 11:43 AM.
+- `billing_status` manually corrected to `paid`. ✅
+- New delivery stop created: Mar 30 Oakland AM, stop #37, 9–11 AM window. Order status → `ready_for_delivery`. ✅
+
+**Files changed:** `database/add_pickup_stop_sync_trigger_and_routing_error_flag.sql`, `database/fix_reset_failed_delivery_stop_scope_to_active_route.sql`
 
 **Pending (carries forward):**
-1. Level Up Wellness #522 — charged ($186.95, Mar 28), delivery_failed status, billing_status = null. Investigate.
-2. Receipt template — iPad POS cache clear needed
-3. Small "v" character at top of receipt
-4. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
-5. Monitor Disk IO budget after session 73 cleanup
-6. Unpaid orders — customers without cards need to add payment methods (42 orders, $4,494.90)
-7. Belt-and-suspenders client-side card sync (proposed, not yet built)
-8. Dallas Butler + other dual-order duplicate addresses — need manual order reassignment
-9. Backfill empty `address_cache` for remaining ~86 customers from `addresses` table
-10. Carol Stevenson address needs geocoding — run `geocodeMissing()` from admin console
-11. **[Tech debt]** `charge-order`: consolidate `billed_at` + `billing_status` into single atomic UPDATE
+1. Receipt template — iPad POS cache clear needed
+2. Small "v" character at top of receipt
+3. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+4. Monitor Disk IO budget after session 73 cleanup
+5. Unpaid orders — customers without cards need to add payment methods (42 orders, $4,494.90)
+6. Belt-and-suspenders client-side card sync (proposed, not yet built)
+7. Dallas Butler + other dual-order duplicate addresses — need manual order reassignment
+8. Backfill empty `address_cache` for remaining ~86 customers from `addresses` table
+9. Carol Stevenson address needs geocoding — run `geocodeMissing()` from admin console
+10. **[Tech debt]** `charge-order`: consolidate `billed_at` + `billing_status` into single atomic UPDATE
+11. **[Tech debt]** Stripe retry loop: add backoff/rate limiting to prevent rapid-fire retries triggering Stripe Radar blocks
 12. Copy updated `washroute-audit` skill to `.claude/skills/washroute-audit/SKILL.md`
 13. Oakland route capacity — consider raising stop_limit or splitting into two Oakland routes
 
