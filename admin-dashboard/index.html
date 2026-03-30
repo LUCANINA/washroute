@@ -12040,7 +12040,8 @@ ${oneCopy}
     document.getElementById('o-bags').value  = '1';
     document.getElementById('o-error').style.display = 'none';
 
-    // Auto-select default service (first non-addon = Wash & Fold Delivery)
+    // Auto-select default service — will be overridden by onOrderCustomerChange
+    // once the customer is known (to pick Commercial vs Delivery service).
     if (!allServices.length) await loadServices();
     const defaultSvc = allServices.find(s => !s.is_addon && s.category === 'Delivery') || allServices.find(s => !s.is_addon);
     document.getElementById('o-service').value = defaultSvc?.id || '';
@@ -12113,8 +12114,18 @@ ${oneCopy}
       _noAddressCity = '';
     }
 
-    // Pre-fill tip from customer defaults
+    // Auto-select service based on customer type — Commercial customers use the
+    // Commercial pricelist service (per lb), everyone else gets the Delivery service (per bag).
     const cust = allCustomers.find(c => c.id === customerId);
+    if (cust) {
+      const isCommercial = cust.customer_type === 'Commercial';
+      const correctSvc = isCommercial
+        ? allServices.find(s => !s.is_addon && s.pricelist === 'Commercial')
+        : allServices.find(s => !s.is_addon && s.category === 'Delivery') || allServices.find(s => !s.is_addon);
+      if (correctSvc) document.getElementById('o-service').value = correctSvc.id;
+    }
+
+    // Pre-fill tip from customer defaults
     if (cust?.default_tip) {
       document.getElementById('o-tip').value = cust.default_tip;
       setNoTipType(cust.default_tip_type === 'percent' ? 'pct' : 'dollar');
@@ -18679,6 +18690,18 @@ ${oneCopy}
     // Normalize customer_type: legacy 'individual' value → treat as 'Delivery'
     const pricelist = (customerType === 'Commercial') ? 'Commercial' : 'Delivery';
 
+    // BUG FIX: orders are always created with the Delivery service regardless of customer type
+    // (saveOrder default picks category === 'Delivery'). For Commercial customers, override
+    // procSvc to the Commercial pricelist service so weight-based pricing is calculated correctly.
+    if (pricelist === 'Commercial') {
+      const commercialSvc = allAddonServicesCache.find(s => !s.is_addon && s.pricelist === 'Commercial');
+      if (commercialSvc) {
+        procSvc = commercialSvc;
+        document.getElementById('intake-subtitle').textContent =
+          `Order #${order.order_number||'—'} · ${commercialSvc.name}`;
+      }
+    }
+
     // Build procAddons from the global preferences table so any preference added in
     // the Preferences section automatically shows up in the intake form — no extra steps.
     // Use the customer's saved choice; fall back to the global default.
@@ -18698,11 +18721,14 @@ ${oneCopy}
       if (def) procAddons[g.id] = { id: def.id, label: def.label, price_mod: parseFloat(def.price_mod) || 0 };
     });
 
-    // All pricelist-relevant services excluding the main service and preference-linked services.
+    // All pricelist-relevant add-on services excluding the main service and preference-linked services.
     // Preference-linked services (Vinegar, Oxi) are billed automatically via the preference chips —
     // they don't need a separate button.
+    // BUG FIX: must check s.is_addon so that main services (e.g. Commercial Wash & Fold)
+    // cannot appear here even when their pricelist matches the customer's type.
     const mainServiceId = order.service_id || procSvc?.id;
     const relevantAddons = allAddonServicesCache.filter(s =>
+      s.is_addon &&
       s.id !== mainServiceId &&
       !s.linked_preference_id &&
       (!s.pricelist || s.pricelist === pricelist || s.pricelist === 'Both')
