@@ -44,7 +44,7 @@ const INTENT_INSTRUCTION: Record<string, string> = {
   complaint:         'The customer is frustrated or reporting a problem. Open with a genuine apology. Do not make excuses. Offer a clear next step or ask what would make it right.',
   cancellation:      'The customer may want to cancel or pause service. Acknowledge warmly and without pressure. Ask if there is anything we can do to help.',
   skip_request:      'The customer wants to skip a pickup. Confirm that the skip has been noted and when we will see them next.',
-  new_order:         'The customer wants to book a pickup or is asking about starting service. Be enthusiastic and direct them to the app at app.familylaundry.com to book, or offer to help manually.',
+  new_order:         'The customer wants to book a pickup or is asking about starting service. Be enthusiastic and direct them to book at app.familylaundry.com, or offer to help manually.',
   general:           'Use the conversation history and order context to draft the most helpful, specific reply you can.',
 };
 
@@ -208,11 +208,11 @@ Deno.serve(async (req: Request) => {
     // ── 6. Fetch real admin voice examples ──
     const voiceExamples = await fetchVoiceExamples();
     const voiceSection  = voiceExamples
-      ? `Here are recent real replies sent by the WashRoute admin team. Match this voice exactly:\n${voiceExamples}`
+      ? `Here are recent real replies sent by the Family Laundry team. Match this voice exactly:\n${voiceExamples}`
       : '';
 
     // ── 7. Build system prompt ──
-    const systemPrompt = `You are a writing assistant for WashRoute (also called Family Laundry), a laundry pickup and delivery service in the East Bay. You help the admin team compose SMS replies to customers.
+    const systemPrompt = `You are a writing assistant for Family Laundry, a laundry pickup and delivery service in the East Bay. You help the admin team compose SMS replies to customers.
 
 Voice and style rules:
 - SHORT: 1 to 3 sentences maximum
@@ -220,7 +220,7 @@ Voice and style rules:
 - Direct and specific — always include actual dates, times, or amounts when available from the order data
 - Warm but not overly casual. Not corporate.
 - No emojis. No markdown. No bullet points. Plain SMS text only.
-- Do not add sign-offs like "WashRoute Team" or "Family Laundry" — the customer knows who they're texting.
+- Do not add sign-offs like "Family Laundry" or "the team" — the customer knows who they're texting.
 - Never make up information you do not have.
 
 ${voiceSection}
