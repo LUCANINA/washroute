@@ -582,6 +582,10 @@
     .inbox-composer { padding: 12px 20px; border-top: 1px solid var(--gray-200); display: flex; gap: 10px; align-items: flex-end; flex-shrink: 0; }
     .inbox-composer-input { flex: 1; padding: 9px 14px; border: 1.5px solid var(--gray-200); border-radius: 10px; font-size: 13.5px; font-family: inherit; outline: none; resize: none; min-height: 38px; max-height: 120px; line-height: 1.4; }
     .inbox-composer-input:focus { border-color: var(--accent); }
+    .inbox-composer-actions { display: flex; gap: 6px; align-items: flex-end; flex-shrink: 0; }
+    .btn-draft { background: none; border: 1.5px solid var(--gray-300); color: var(--gray-600); border-radius: 8px; padding: 8px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all .15s; }
+    .btn-draft:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: #eff6ff; }
+    .btn-draft:disabled { opacity: .5; cursor: not-allowed; }
     .inbox-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--gray-400); flex-direction: column; gap: 8px; }
 
     /* Overview issues panel */
@@ -10016,7 +10020,10 @@ ${oneCopy}
           placeholder="Type a reply…"
           oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"
           onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendSMSReply()}"></textarea>
-        <button class="btn btn-primary" id="sms-reply-btn" onclick="sendSMSReply()">Send</button>
+        <div class="inbox-composer-actions">
+          <button class="btn-draft" id="draft-reply-btn" onclick="draftSMSReply()" title="AI drafts a reply based on conversation history — you review before sending">✦ Draft</button>
+          <button class="btn btn-primary" id="sms-reply-btn" onclick="sendSMSReply()">Send</button>
+        </div>
       </div>`;
 
     if (!silent) setTimeout(() => { const mt = document.getElementById('msg-thread'); if (mt) mt.scrollTop = mt.scrollHeight; }, 50);
@@ -10167,6 +10174,41 @@ ${oneCopy}
       if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
     }
     if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+  }
+
+  // ── draftSMSReply — AI-assisted draft, populates composer for admin review ──
+  async function draftSMSReply() {
+    if (!currentConvPhone && !currentConvCustomerId) return;
+    const btn   = document.getElementById('draft-reply-btn');
+    const input = document.getElementById('compose-input');
+    if (btn) { btn.disabled = true; btn.textContent = '…thinking'; }
+
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/draft-reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+        body: JSON.stringify({
+          customer_id: currentConvCustomerId || null,
+          phone: currentConvPhone || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.draft) throw new Error(data.error || data.detail || 'No draft returned');
+
+      // Populate composer — admin reads, edits if needed, then clicks Send
+      if (input) {
+        input.value = data.draft;
+        input.style.height = 'auto';
+        input.style.height = input.scrollHeight + 'px';
+        input.focus();
+        // Move cursor to end so admin can immediately edit
+        input.selectionStart = input.selectionEnd = input.value.length;
+      }
+    } catch (err) {
+      showToast('Draft failed: ' + err.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '✦ Draft'; }
+    }
   }
 
   // Email compose functions removed — SMS only for now
