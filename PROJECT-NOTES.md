@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 30, 2026 — Session 82: fix confusing order_confirmed SMS + same-day double-booking guard*
+*Last updated: Mar 30, 2026 — Session 82: order_confirmed SMS fix, same-day booking guard, housekeeping (Walewski/Griggs/Sara Allan/draft-reply security)*
 
 ---
 
@@ -512,6 +512,18 @@ There are actually **two separate hang points** that must both be covered:
 - Location: `customer-app/index.html`, right before the `db.from('orders').insert(...)` call in the `placeOrder()` function.
 
 - **Commit:** `c4927d5` — `Fix confusing order_confirmed SMS and prevent accidental same-day double-bookings`
+
+**Housekeeping — DB cleanup + security fix:**
+
+- **Keith Walewski order #1175 deleted:** Exact duplicate of order #1174 (same pickup/delivery windows, bags, amount — booked 12 minutes apart via customer app). Both route stops (pickup + delivery, both pending) deleted first, then order deleted. Order #1174 is the canonical order and remains.
+
+- **Russ/Russalynne Griggs — duplicate accounts merged:** Two accounts for the same person (same phone: 409-599-4087). Old account `7908375a` (name: "Russ", 2022, 9 orders in old system, no email). New account `2d756ba7` (name: "Russalynne", registered Mar 28 2026 via customer app, no orders). Merged: updated old account → `first_name_cache = 'Russalynne'`, `email_cache = 'russalynnegriggs@gmail.com'`. Deleted new duplicate. Two orphaned auth users (phone + email, both created Mar 28) remain in auth.users but have no customer FK — customer app matches by phone/email lookup so they'll resolve correctly on next login.
+
+- **Sara Allan — RESOLVED, no action needed:** Only one account exists (`152df40e`, 191 orders, `sara@wastewhat.org`, phone `(917) 526-0259`, created 2022). The migration session correctly identified a phone collision and did NOT create a duplicate. The existing account is the canonical record. Carry-forward item closed.
+
+- **`draft-reply` security — fixed:** Edge function was `verify_jwt: false`, allowing unauthenticated callers to burn Anthropic API credits. Fix: admin dashboard `draftSMSReply()` now calls `db.auth.getSession()` and passes `session.access_token` as the Authorization header (throws if session missing). Edge function redeployed as **v7** with `verify_jwt: true`. Only logged-in admins can invoke it now.
+
+- **Commit:** `d876a22` — `fix(security): draft-reply now requires valid admin session JWT`
 - **Push:** Run `git push` from `~/Projects/WashRoute`
 
 ---
