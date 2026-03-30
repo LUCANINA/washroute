@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 30, 2026 — Session 80: AI draft reply v3, old-app customer migration (13 new accounts + welcome SMS), Parker Thomas account + order*
+*Last updated: Mar 30, 2026 — Session 81: skip action cards (inbox automation), draft usage tracking, Family Laundry branding, Jon Patchen + Briana Berger route fixes*
 
 ---
 
@@ -492,6 +492,48 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
+### Mar 30, 2026 (session 81) — Skip action cards, draft usage tracking, route fixes
+
+- **Jon Patchen order #1165 — route fix:**
+  - `routing_error = 'rescheduled_no_capacity'` flag was still set even though his pickup stop was correctly placed on Oakland AM Mar 30. Cleared the flag.
+  - Delivery stop was on Oakland PM Mar 30 (wrong date — delivery should be Mar 31). Moved to Oakland PM Mar 31 route.
+
+- **Briana Berger order #869 — route fix:**
+  - Both stops were one day late. Pickup moved from Alameda PM Mar 31 → Mar 30. Delivery moved from Alameda PM Apr 1 → Mar 31.
+  - Fix was via `UPDATE route_stops SET route_id = <correct_route>, driver_id = <route_driver>` targeting both stops by their order_id + stop type.
+
+- **Inbox automation — skip action cards (admin dashboard + `draft-reply` v4):**
+  - When the AI detects a `skip_request` intent and the customer has an upcoming recurring order, the edge function now returns a structured `action` object alongside the draft: `{ type, order_id, order_number, pickup_label, label, confirmation_draft }`.
+  - Admin dashboard renders an animated action card above the compose box. Clicking **✓ Confirm** skips the order in the DB (`status → skipped`, `cancelled_by → customer`) and pre-fills the compose box with a ready-to-send confirmation message. Admin always sends manually — nothing auto-sends.
+  - `_pendingInboxAction` module variable holds the pending action (never serialized into `onclick` — XSS-safe).
+  - `confirmInboxAction()` calls `logOrderEvent()` before the DB write to maintain order history (matching the `opSkipOrder` pattern). Refreshes filter counts and order list after skip.
+  - Action card dismissed when conversation switches, send completes, or user clicks ×.
+  - Only fires for recurring orders — one-time orders return `action: null`.
+
+- **`draft-reply` v5 — Family Laundry branding fix:**
+  - System prompt, voice section header, and conversation history role labels were all using "WashRoute" (internal tooling name). Renamed throughout to "Family Laundry" (the customer-facing brand).
+  - "WashRoute" in this codebase refers to the admin software, not the business name.
+
+- **`draft_events` table — draft usage tracking (migration + `draft-reply` v6):**
+  - New table `draft_events` (columns: `id`, `created_at`, `admin_profile_id` FK→profiles, `customer_id` FK→customers, `phone`, `intent`, `mode`, `action_type`). Indexes on `admin_profile_id`, `customer_id`, `created_at DESC`. RLS enabled — `SELECT` for authenticated admins/managers/laundry_techs only.
+  - `draft-reply` v6: accepts `admin_profile_id` in the request body, fire-and-forget logs one row per draft to `draft_events`. Never blocks the response.
+  - Admin dashboard `draftSMSReply()` passes `admin_profile_id: currentUserId || null` in the fetch body. Enables per-admin usage reports (who uses AI draft, how often, which intents).
+  - Motivation: CloudPRNT polling buries edge function logs; DB-level tracking is the only reliable way to audit usage.
+
+- **`draft-reply` deployed as v6** (Supabase edge function version 6). All four changes (skip actions, branding fix, usage logging, conversation label fix) are live.
+
+- **Commit:** `3722dd9` — `feat(inbox): skip action cards, draft usage tracking, Family Laundry branding`
+
+- **⚠️ Security — Medium (carry-forward):** `draft-reply` has `verify_jwt: false` with no rate limiting. Add IP-based rate limiting or switch to `verify_jwt: true`.
+
+- **Pending P1 (carry-forward):**
+  - Keith Walewski double-booking — delete order #1175
+  - Russ/Russalynne Griggs duplicate account — needs merge
+
+- **Low (carry-forward):** Add `is_automated` boolean to `sms_messages` for cleaner voice example filtering in `draft-reply` (currently uses heuristic body pattern exclusion).
+
+---
+
 ### Mar 30, 2026 (session 80) — AI draft reply: generate + refine modes, intent detection, real voice examples
 
 - **`draft-reply` edge function (v1 → v3):** New Supabase edge function powers AI-assisted SMS reply drafting from the admin inbox. Requires `ANTHROPIC_API_KEY` Supabase secret (David added during session). Uses Claude Haiku for speed.
@@ -523,13 +565,7 @@ There are actually **two separate hang points** that must both be covered:
 
 - **QA run (end of session):** No high-severity issues. Medium: `draft-reply` rate limiting (noted above). Low: voice example filter is heuristic-based (body pattern exclusion) — consider adding `is_automated` boolean to `sms_messages` for cleaner filtering in a future session.
 
-- **Pending commit from terminal:** Changes to `admin-dashboard/index.html`, `supabase/functions/draft-reply/index.ts`, and `PROJECT-NOTES.md` need to be pushed. Run from `~/Projects/WashRoute`:
-  ```
-  rm -f .git/HEAD.lock .git/index.lock
-  git add admin-dashboard/index.html supabase/functions/draft-reply/index.ts PROJECT-NOTES.md
-  git commit -m "feat: AI draft reply v3 (refine mode, intent detection, voice examples); session 80 customer migration + Parker Thomas"
-  git push
-  ```
+- **Commit:** Session 80 changes were bundled into the session 81 commit (`3722dd9`). Push from `~/Projects/WashRoute` when ready: `git push`
 
 ### Mar 15, 2026 (session 12) — Processing intake UX + order data sync fixes
 
