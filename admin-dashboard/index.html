@@ -18751,14 +18751,17 @@ ${oneCopy}
     const ovgRate     = parseFloat(svc.overage_rate_per_lb || 3);
     const bd          = calcProcTotal();
 
+    const isPerLb = procSvc?.pricing_type === 'per_lb';
     let prefsHTML = '';
     const addonEntries = Object.values(procAddonServices);
     // Use the global preferences table directly — any preference added there appears here automatically
     const allIntakePrefs = allPreferencesCache.filter(g => (g.options||[]).length);
     // Split: add-on prefs (exactly 2 options, one default = Yes/No style) vs regular prefs
     const _isIntakeAddon = g => { const o = g.options||[]; return o.length===2 && o.filter(x=>x.is_default).length===1; };
-    const regularPrefs   = allIntakePrefs.filter(g => !_isIntakeAddon(g));
-    const addonPrefsArr  = allIntakePrefs.filter(g =>  _isIntakeAddon(g));
+    // For per-lb (Commercial) customers: hide all preference-based sections (WASH temp, Vinegar/Oxi chips).
+    // Only Commercial-specific add-on service buttons (procAddonServices) are shown.
+    const regularPrefs  = isPerLb ? [] : allIntakePrefs.filter(g => !_isIntakeAddon(g));
+    const addonPrefsArr = isPerLb ? [] : allIntakePrefs.filter(g =>  _isIntakeAddon(g));
     const globalPrefs    = allIntakePrefs; // keep for hasPrefs check
     const hasPrefs       = allIntakePrefs.length > 0;
     if (hasPrefs || addonEntries.length) {
@@ -18868,7 +18871,7 @@ ${oneCopy}
             </div>
           </div>
         </div>
-        <div style="font-size:12px;color:var(--gray-400);margin-top:6px">Up to ${lbsPerBag} lbs/bag — overage billed at ${fmtMoney(ovgRate)}/lb</div>
+        ${isPerLb ? '' : `<div style="font-size:12px;color:var(--gray-400);margin-top:6px">Up to ${lbsPerBag} lbs/bag — overage billed at ${fmtMoney(ovgRate)}/lb</div>`}
         <div id="proc-overage-wrap" style="display:${bd.overage_lbs>0?'':'none'};margin-top:8px">
           <div class="proc-overage">⚠️ <span id="proc-overage-text">${bd.overage_lbs.toFixed(1)} lbs over limit · +${fmtMoney(bd.overage_charge)}</span></div>
         </div>
@@ -18890,8 +18893,14 @@ ${oneCopy}
 
   function renderBreakdownRows(bd, pricePerBag) {
     const ovgRate = parseFloat(procSvc?.overage_rate_per_lb || 3);
+    const isPerLb = procSvc?.pricing_type === 'per_lb';
     let rows = [];
-    rows.push(`<div class="proc-breakdown-row"><span>${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}</span><span class="amount">${fmtMoney(bd.base)}</span></div>`);
+    if (isPerLb) {
+      const wtLabel = bd.weight > 0 ? `${bd.weight} lbs` : 'Pending weight';
+      rows.push(`<div class="proc-breakdown-row"><span>${wtLabel} × ${fmtMoney(pricePerBag)}/lb</span><span class="amount">${fmtMoney(bd.base)}</span></div>`);
+    } else {
+      rows.push(`<div class="proc-breakdown-row"><span>${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}</span><span class="amount">${fmtMoney(bd.base)}</span></div>`);
+    }
     if (bd.overage_charge > 0)
       rows.push(`<div class="proc-breakdown-row overage-row"><span>⚠️ ${bd.overage_lbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}</span><span class="amount">+${fmtMoney(bd.overage_charge)}</span></div>`);
     Object.entries(procAddons).forEach(([groupId, a]) => {
@@ -18958,11 +18967,14 @@ ${oneCopy}
     const pricePerBag = parseFloat(svc.base_price || 0);
     const lbsPerBag   = parseFloat(svc.lbs_per_bag || 25);
     const ovgRate     = parseFloat(svc.overage_rate_per_lb || 3);
+    const isPerLb     = svc.pricing_type === 'per_lb';
     const bags        = procBags;
     const weight      = parseFloat(procWeight) || 0;
-    const base        = bags * pricePerBag;
-    const overage_lbs    = Math.max(0, weight - bags * lbsPerBag);
-    const overage_charge = overage_lbs * ovgRate;
+    // Per-lb services (Commercial): charge weight × rate, no overage concept.
+    // Per-bag services (Delivery): charge bags × rate + overage for weight over limit.
+    const base           = isPerLb ? weight * pricePerBag : bags * pricePerBag;
+    const overage_lbs    = isPerLb ? 0 : Math.max(0, weight - bags * lbsPerBag);
+    const overage_charge = isPerLb ? 0 : overage_lbs * ovgRate;
     // Sum price_mod for prefs WITHOUT a linked service only — prefs with linked services
     // are billed via prefLinkedSvc_total below (otherwise they'd be counted twice)
     const addons_total = Object.entries(procAddons).reduce((s, [groupId, a]) => {
