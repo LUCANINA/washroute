@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 29, 2026 — Session 79: SMS confirmation wrong address bug fixed (send-order-notification v24)*
+*Last updated: Mar 29, 2026 — Session 79b: edge case audit complete, address sync trigger + reschedule SMS notifications*
 
 ---
 
@@ -945,6 +945,47 @@ There are actually **two separate hang points** that must both be covered:
 - 4-phase improvement plan approved: (1) time-window-aware optimization + ETAs, (2) real-time driver app updates, (3) periodic re-optimization via pg_cron, (4) admin dashboard ETA display + at-risk badges.
 
 **Files changed:** `admin-dashboard/index.html`
+
+### Mar 29, 2026 (session 79b) — Edge case audit: address sync trigger + reschedule notifications
+
+**Proactive audit of high-frequency edge cases (8 checks run):**
+
+6 of 8 checks passed clean. Two structural gaps found and fixed:
+
+**Fix 1 — Address change not propagating to route stop (Finding 2, latent bug):**
+- Trigger `trg_sync_stop_address_on_order_address_change` added to `orders` table.
+- Fires AFTER UPDATE on `pickup_address_id` or `delivery_address_id` changes.
+- Updates the corresponding pending route stop's `address_id` to match.
+- Previously, changing an order's address without changing the time window left the driver navigating to the old address. Zero current instances but structurally inevitable.
+- Migration SQL: `database/sync_stop_address_on_order_address_change.sql`
+
+**Fix 2 — No customer notification when pickup/delivery is rescheduled (Finding 1, structural gap):**
+- Two new SMS templates added to `message_templates`: `schedule_changed` (pickup rescheduled) and `delivery_rescheduled` (delivery rescheduled).
+- `send-order-notification` v25: added `schedule_changed` and `delivery_rescheduled` to EVENT_TO_TRIGGER; `delivery_rescheduled` correctly shows delivery window.
+- Admin dashboard: fires `schedule_changed` or `delivery_rescheduled` after saving a reschedule when a new time slot is chosen (not just route reassignment).
+- Customer app `saveEditOrder()`: fires appropriate event after successful schedule save.
+- Both fire best-effort (non-blocking), so a Twilio hiccup never breaks the save flow.
+
+**Audit checks that were clean:** recurring order address inheritance ✅, same-day window overlap ✅, routing_error orphans ✅, stop/order status desync ✅, run_id route date mismatch ✅, split-address order routing ✅, no SMS double-fire on reschedule ✅
+
+**Files changed:** `database/sync_stop_address_on_order_address_change.sql` (new), `admin-dashboard/index.html`, `customer-app/index.html`, edge function `send-order-notification` v24→v25 (deployed)
+
+**Pending (carries forward):**
+1. Receipt template — iPad POS cache clear needed
+2. Small "v" character at top of receipt
+3. Patricia Carroll — no email, needs manual phone call for $68.95 (order #770)
+4. Unpaid orders — customers without cards (~42 orders, ~$4,494.90)
+5. Backfill empty `address_cache` for remaining ~86 customers from `addresses` table
+6. Carol Stevenson address needs geocoding — run `geocodeMissing()` from admin console
+7. **[Tech debt]** `charge-order`: consolidate `billed_at` + `billing_status` into single atomic UPDATE
+8. **[Tech debt]** Stripe retry loop: add backoff/rate limiting
+9. Copy updated `washroute-audit` skill to `.claude/skills/washroute-audit/SKILL.md`
+10. Oakland route capacity — consider raising stop_limit or splitting into two routes
+11. Russ/Russalynne Griggs — duplicate account (same phone), needs merge
+12. 4 ready-for-delivery orders without billing (#1086, #1062, #1034, #1025)
+13. Concord AM route (Mar 30) — no driver assigned
+
+---
 
 ### Mar 29, 2026 (session 79) — SMS confirmation wrong address bug fixed
 
