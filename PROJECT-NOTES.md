@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 29, 2026 — Session 79b: edge case audit complete, address sync trigger + reschedule SMS notifications*
+*Last updated: Mar 30, 2026 — Session 80: AI draft reply feature (generate + refine modes, intent detection, real voice examples)*
 
 ---
 
@@ -112,6 +112,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `send-order-notification` | Status-change notifications — **v23 (session 75):** Address fallback: when `customer.address_cache` is empty, now fetches actual address from `addresses` table via `order.pickup_address_id`. Fixes blank "Your pickup at is scheduled for..." SMS. Also added `pickup_address_id` + `delivery_address_id` to order fetch. | Off |
 | `cloudprnt` | CloudPRNT server — **v15 (session 70i):** printer polls for jobs; `markupToStarLineMode()` converts Star Markup XML → Star Line Mode binary; serves as `application/vnd.star.starprnt`. Includes `tokenizeXml()` parser and `UNICODE_MAP` for thermal printer ASCII fallback. | Off |
 | `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. Pickups and deliveries optimized independently. **v19 (session 76):** Address resolution hardened — cross-leg fallback (delivery falls back to pickup address and vice versa) + customer fallback no longer requires `is_default = true` (prefers default, accepts any). **v12 (session 27):** No-GPS path uses geographic-extremes algorithm. | Off |
+| `draft-reply` | **NEW (session 80):** AI-assisted SMS reply drafting. Accepts `customer_id`, `phone`, and optional `current_draft`. **Generate mode** (no current_draft): classifies customer intent (8 categories), fetches conversation history + order context + real admin voice examples from DB, calls Claude Haiku, returns a fresh draft. **Refine mode** (current_draft provided): polishes the admin's existing text for grammar/clarity/tone while preserving all specific details. Requires `ANTHROPIC_API_KEY` Supabase secret. Never sends — admin always reviews before clicking Send. | Off |
 
 ---
 
@@ -152,6 +153,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - "Compose" button (top right) to start a new SMS to any number
 - Blue dot badge shows unread inbound count
 - Customer auto-matched by last 10 digits of phone (handles any formatting)
+- **✦ Draft button (session 80):** AI-assisted reply drafting sits left of the Send button. Two modes: (1) **Generate** — compose box empty → detects intent from last inbound message (8 categories: pricing, reschedule, status check, payment, complaint, cancellation, skip, new order), pulls real voice examples from `sms_messages` outbound history, fetches order context, returns a fresh draft; (2) **Refine** — compose box has text → polishes admin's draft for grammar/clarity/tone without changing meaning or specific details. Button label changes to "…refining" vs "…thinking" to signal the mode. Draft populates the textarea; admin edits and sends manually. Powered by `draft-reply` edge function + Claude Haiku. `ANTHROPIC_API_KEY` must be set in Supabase Secrets.
 
 ### Receipt Printing
 - Browser popup print (2 copies, auto-prints on intake save + 🖨 Print button in order panel + 🖨 Reprint on kanban cards)
@@ -489,6 +491,16 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Mar 30, 2026 (session 80) — AI draft reply: generate + refine modes, intent detection, real voice examples
+
+- **`draft-reply` edge function (v1 → v3):** New Supabase edge function powers AI-assisted SMS reply drafting from the admin inbox. Requires `ANTHROPIC_API_KEY` Supabase secret (David added during session). Uses Claude Haiku for speed.
+- **Generate mode:** When compose box is empty, detects customer intent from last inbound message (8 categories: `pricing_inquiry`, `reschedule_request`, `status_check`, `payment_issue`, `complaint`, `cancellation`, `skip_request`, `new_order`). Fetches conversation history (last 20 messages), 2 most recent orders, and 8 real admin-sent voice examples from `sms_messages` (de-duplicated, filtered to exclude automated templates). Calls Claude with intent-specific drafting guidance.
+- **Refine mode:** When compose box has text, passes `current_draft` to edge function. Claude polishes grammar, clarity, and tone while preserving all admin-specified details (names, times, addresses, amounts). Button label changes to "…refining" to signal the mode.
+- **Admin dashboard — ✦ Draft button:** Added left of Send button in inbox composer (`inbox-composer-actions` wrapper). CSS: ghost style, blue on hover. JS `draftSMSReply()` reads compose box content to select mode, calls edge function, populates textarea, focuses cursor at end for immediate editing. Admin always clicks Send manually — nothing auto-sends.
+- **Voice grounding:** Edge function fetches last 60 outbound messages, filters automated templates by body patterns, de-duplicates, takes 8 most recent unique human-written replies as few-shot examples in the system prompt. Updates automatically as admin sends more messages.
+- **Commit:** `a844a35` — `feat: AI draft reply button in SMS inbox` (v1 of feature, before refine/intent improvements). Refine + intent improvements deployed directly to edge function v3 (no additional commit yet — pending push).
+- **Next:** Consider intent-based action cards (e.g., reschedule request surfaces a one-click reschedule action alongside the draft reply). Draft scoring/logging to track what admins change over time.
 
 ### Mar 15, 2026 (session 12) — Processing intake UX + order data sync fixes
 

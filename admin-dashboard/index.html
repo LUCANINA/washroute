@@ -10177,19 +10177,26 @@ ${oneCopy}
   }
 
   // ── draftSMSReply — AI-assisted draft, populates composer for admin review ──
+  // GENERATE mode: compose box is empty → writes a fresh context-aware draft.
+  // REFINE mode:   compose box has text → polishes grammar/clarity/tone while
+  //                preserving the admin's intent and all specific details.
   async function draftSMSReply() {
     if (!currentConvPhone && !currentConvCustomerId) return;
-    const btn   = document.getElementById('draft-reply-btn');
-    const input = document.getElementById('compose-input');
-    if (btn) { btn.disabled = true; btn.textContent = '…thinking'; }
+    const btn         = document.getElementById('draft-reply-btn');
+    const input       = document.getElementById('compose-input');
+    const currentText = (input?.value || '').trim();
+    const isRefine    = currentText.length > 0;
+
+    if (btn) { btn.disabled = true; btn.textContent = isRefine ? '…refining' : '…thinking'; }
 
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/draft-reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
         body: JSON.stringify({
-          customer_id: currentConvCustomerId || null,
-          phone: currentConvPhone || null,
+          customer_id:   currentConvCustomerId || null,
+          phone:         currentConvPhone || null,
+          current_draft: currentText || null,  // null = generate fresh; text = refine it
         }),
       });
       const data = await res.json();
@@ -10201,7 +10208,6 @@ ${oneCopy}
         input.style.height = 'auto';
         input.style.height = input.scrollHeight + 'px';
         input.focus();
-        // Move cursor to end so admin can immediately edit
         input.selectionStart = input.selectionEnd = input.value.length;
       }
     } catch (err) {
