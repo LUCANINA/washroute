@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 30, 2026 — Session 81: skip action cards (inbox automation), draft usage tracking, Family Laundry branding, Jon Patchen + Briana Berger route fixes*
+*Last updated: Mar 30, 2026 — Session 82: fix confusing order_confirmed SMS + same-day double-booking guard*
 
 ---
 
@@ -491,6 +491,30 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Mar 30, 2026 (session 82) — Fix confusing order_confirmed SMS + same-day double-booking guard
+
+**Root cause investigation — Gina Ecolino wrong SMS:**
+- David reported: customer had order #1142 in "Processing" with delivery on Mar 31, but received an SMS saying "Your pickup... is scheduled for Tuesday Mar 31 between 7am–9am."
+- Investigation found: the SMS was NOT about order #1142. It was triggered by order #1211 — a brand-new pickup Gina booked herself via the customer app at 2:39pm on Mar 30, for pickup Mar 31 7-9am.
+- The confirmation SMS was technically correct for #1211. The confusion arose because (a) the template never mentioned the delivery date, making it look like a status message rather than a new booking confirmation, and (b) the customer app didn't warn Gina that she already had a delivery coming on the same morning.
+- "Keeps happening" because ANY customer who books a new order while a prior order is in processing gets an ambiguous "pickup" SMS with no delivery context.
+
+**Fix 1 — `order_confirmed` SMS template updated (DB only, no deploy needed):**
+- Old: `"Thank you, {{first_name}}! Your pickup at {{address}} is scheduled for {{pickup_date}} between {{time_window}}."`
+- New: `"Thank you, {{first_name}}! Your pickup at {{address}} is confirmed for {{pickup_date}} between {{time_window}}. Expected back by {{delivery_date}}."`
+- Adding the delivery date makes it unambiguously a new order confirmation — customers and admins can tell it apart from a status/reminder SMS at a glance.
+
+**Fix 2 — Same-day delivery conflict check added to customer app booking flow:**
+- Before inserting the new order, the app now queries the customer's active orders (`status IN ('scheduled', 'processing')`) and checks if any have a delivery on the same calendar day (PT timezone) as the selected pickup date.
+- If a conflict is found, a `confirm()` dialog warns: *"You already have a delivery scheduled for [date] (Order #XXXX). Do you still want to book a new pickup for the same day?"*
+- Customer can cancel or proceed. Non-blocking — if the DB check throws, booking proceeds normally.
+- Location: `customer-app/index.html`, right before the `db.from('orders').insert(...)` call in the `placeOrder()` function.
+
+- **Commit:** `c4927d5` — `Fix confusing order_confirmed SMS and prevent accidental same-day double-bookings`
+- **Push:** Run `git push` from `~/Projects/WashRoute`
+
+---
 
 ### Mar 30, 2026 (session 81) — Skip action cards, draft usage tracking, route fixes
 
