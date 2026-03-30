@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 30, 2026 — Session 80: AI draft reply feature (generate + refine modes, intent detection, real voice examples)*
+*Last updated: Mar 30, 2026 — Session 80: AI draft reply v3, old-app customer migration (13 new accounts + welcome SMS), Parker Thomas account + order*
 
 ---
 
@@ -501,6 +501,35 @@ There are actually **two separate hang points** that must both be covered:
 - **Voice grounding:** Edge function fetches last 60 outbound messages, filters automated templates by body patterns, de-duplicates, takes 8 most recent unique human-written replies as few-shot examples in the system prompt. Updates automatically as admin sends more messages.
 - **Commit:** `a844a35` — `feat: AI draft reply button in SMS inbox` (v1 of feature, before refine/intent improvements). Refine + intent improvements deployed directly to edge function v3 (no additional commit yet — pending push).
 - **Next:** Consider intent-based action cards (e.g., reschedule request surfaces a one-click reschedule action alongside the draft reply). Draft scoring/logging to track what admins change over time.
+- **⚠️ Security — Medium (carry-forward):** `draft-reply` has `verify_jwt: false` with no rate limiting. Unauthenticated callers can burn Anthropic API credits. Add IP-based rate limiting or switch to `verify_jwt: true` (requires admin session token in header).
+
+- **Old-app customer migration — 22 registrants scanned, 13 new accounts created:**
+  - Pulled the 22-person registrant list from the old Family Laundry system. Scanned each against the new DB by last 10 digits of phone + `email_cache`.
+  - 9 already had accounts (matched by phone or email). 1 flagged as collision risk (Sara Allan — same phone as 2022 account with different email, not touched, carry-forward).
+  - 13 new customer accounts created via direct DB insert with `referral_source`, `address_cache`, `access_instructions`, and `notes` fields populated from old-system data.
+  - 3 address patches applied to existing customers whose records lacked address data: DJ Rich, Ellen Mulberg, Oscar Delgadillo.
+  - Welcome SMS sent to all 13 new accounts via `send-sms` edge function using pg_net: *"Hi [name], welcome to Family Laundry! Book your first pickup at app.familylaundry.com — David"*
+  - **N S (Nirmala/initials-only):** Privacy alias email (aleeas.com), initials-only name — account created, privacy flag noted in DB notes field.
+  - **Sara Allan carry-forward:** Phone `(917) 526-0259` matched a 2022 account under a different email. Likely same person with old email. Not merged — needs manual investigation before touching.
+
+- **Parker Thomas — missed migration customer, full account + first order created:**
+  - Account created with full address (2250 Otis Dr, Alameda CA), driver notes ("Gate code: 1234; Park in driveway"), referral_source = `referral`.
+  - Order #1164 scheduled: Monday Mar 31 PM pickup (run `60247823`, Alameda PM route, 18:00–20:00 window), Tuesday Apr 1 PM delivery (run `403e4d01`, 18:00–20:00). Source = `scheduled`, status = `scheduled`, recurring_interval = NULL (one-time).
+  - Route stops created for both pickup and delivery legs.
+  - Welcome SMS sent: same "Hi Parker, welcome to Family Laundry!" message as the batch above.
+  - **Constraint errors resolved during creation:** `orders_source_check` only allows `scheduled/walk_in/customer_app/recurring` (not `admin`); `orders_status_check` does not include `confirmed` (use `scheduled`). Both were hit and corrected — CTE atomicity ensured clean rollback on each attempt.
+
+- **Alameda route reassignment clarification:** With no dedicated Alameda driver for Monday PM, individual stops will be reassigned to other routes via drag-and-drop in RCC. Confirmed that reassignment only updates `route_stop.route_id` — order pickup/delivery windows are NOT changed by drag-and-drop. PM→PM reassignment is safe: customers receive the same window SMS they booked. Cross-window reassignment (e.g., PM stop onto AM route) would require Reschedule modal to keep SMS accurate.
+
+- **QA run (end of session):** No high-severity issues. Medium: `draft-reply` rate limiting (noted above). Low: voice example filter is heuristic-based (body pattern exclusion) — consider adding `is_automated` boolean to `sms_messages` for cleaner filtering in a future session.
+
+- **Pending commit from terminal:** Changes to `admin-dashboard/index.html`, `supabase/functions/draft-reply/index.ts`, and `PROJECT-NOTES.md` need to be pushed. Run from `~/Projects/WashRoute`:
+  ```
+  rm -f .git/HEAD.lock .git/index.lock
+  git add admin-dashboard/index.html supabase/functions/draft-reply/index.ts PROJECT-NOTES.md
+  git commit -m "feat: AI draft reply v3 (refine mode, intent detection, voice examples); session 80 customer migration + Parker Thomas"
+  git push
+  ```
 
 ### Mar 15, 2026 (session 12) — Processing intake UX + order data sync fixes
 
