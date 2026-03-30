@@ -18918,6 +18918,10 @@ ${oneCopy}
       if (!selOpt || selOpt.is_default) return;
       const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
       if (linkedSvc) {
+        // Pricelist guard — same rule as calcProcTotal: skip services that don't match
+        // the current customer's pricelist (e.g. Delivery Vinegar for a Commercial order).
+        const svcPricelist = linkedSvc.pricelist;
+        if (svcPricelist && svcPricelist !== (isPerLb ? 'Commercial' : 'Delivery') && svcPricelist !== 'Both') return;
         const price   = parseFloat(linkedSvc.base_price) || 0;
         const isItem  = linkedSvc.pricing_type === 'per_item';
         const units   = isItem ? (procAddonPrefQty[g.id] || 1) : bd.bags;
@@ -18991,7 +18995,11 @@ ${oneCopy}
         return s + price * units;
       }, 0);
     // Preference-linked services (Vinegar, Oxi, Shirt Service, Air Dry): auto-charged when chip = non-default (Yes)
-    // per_item services use procAddonPrefQty; everything else uses bags
+    // per_item services use procAddonPrefQty; everything else uses bags.
+    // Pricelist guard: skip any linked service that belongs to a different pricelist.
+    // e.g. a Commercial customer with Vinegar saved as a preference won't be billed
+    // for it — Vinegar is a Delivery service and doesn't apply to Commercial orders.
+    const currentPricelist    = isPerLb ? 'Commercial' : 'Delivery';
     const prefLinkedSvc_total = allPreferencesCache.reduce((sum, g) => {
       const selId  = procAddons[g.id]?.id;
       if (!selId) return sum;
@@ -18999,6 +19007,7 @@ ${oneCopy}
       if (!selOpt || selOpt.is_default) return sum;
       const linkedSvc = allAddonServicesCache.find(s => s.linked_preference_id === g.id);
       if (!linkedSvc) return sum;
+      if (linkedSvc.pricelist && linkedSvc.pricelist !== currentPricelist && linkedSvc.pricelist !== 'Both') return sum;
       const price = parseFloat(linkedSvc.base_price) || 0;
       const units = linkedSvc.pricing_type === 'per_item' ? (procAddonPrefQty[g.id] || 1) : bags;
       return sum + price * units;
