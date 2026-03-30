@@ -960,7 +960,18 @@ There are actually **two separate hang points** that must both be covered:
 
 **Preflight check:** LOW risk — code-only deployment, no DB writes, no triggers, no fan-out.
 
-**Files changed:** Edge function `send-order-notification` (v23 → v24, deployed to Supabase)
+**Full address audit across all SMS-sending paths:**
+- `send-order-notification` v24 — FIXED ✅ (root cause, 37 orders/30 days actively affected)
+- `send-scheduled-reminders` v16 — FIXED ✅ (same `address_cache` bug in `runDayBefore` + `runDayOf`; current templates don't use `{{address}}` so no active impact, but it was a time bomb)
+- `notify-on-my-way` — ✅ CLEAN (no address variable in message body)
+- `send-receipt` — ✅ CLEAN (already correctly JOINs `pickup_address_id` from addresses table)
+- Admin dashboard — ✅ CLEAN (`address_cache` only used for CloudPRNT intake label, not outbound SMS)
+- Customer app — ✅ CLEAN (correctly writes `pickup_address_id` at booking; reads back via JOIN)
+- Driver app — ✅ CLEAN (uses `address_id`/`pickup_address_id` for stop display)
+
+**⚠️ Correct pattern going forward:** Always JOIN `pickup_address:pickup_address_id(line1,line2,city,state,zip)` from the `addresses` table when building customer-facing messages. Use `address_cache` ONLY as a last-resort fallback when the order has no `pickup_address_id`.
+
+**Files changed:** Edge functions `send-order-notification` (v23→v24) and `send-scheduled-reminders` (v15→v16), both deployed to Supabase
 
 **Pending (carries forward):**
 1. Receipt template — iPad POS cache clear needed
