@@ -4095,6 +4095,43 @@ async function placeOrder() {
     }
   }
 
+  // Same-day delivery conflict check: warn if the customer already has a delivery
+  // coming on the same calendar day as the new pickup they're booking.
+  // This prevents accidental double-bookings and the resulting confusing SMSes.
+  if (pickupDate && currentCustomer?.id) {
+    try {
+      const { data: activeOrders } = await db.from('orders')
+        .select('id, order_number, delivery_window_start')
+        .eq('customer_id', currentCustomer.id)
+        .in('status', ['scheduled', 'processing'])
+        .not('delivery_window_start', 'is', null)
+        .limit(10);
+
+      if (activeOrders && activeOrders.length > 0) {
+        const [yr, mo, dy] = pickupDate.split('-');
+        const pickupLocalStr = `${mo}/${dy}/${yr}`;
+        const conflicting = activeOrders.filter(o => {
+          const delivLocal = new Date(o.delivery_window_start)
+            .toLocaleDateString('en-US', { timeZone: BIZ_TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+          return delivLocal === pickupLocalStr;
+        });
+        if (conflicting.length > 0) {
+          const c = conflicting[0];
+          const delivDisplay = new Date(c.delivery_window_start)
+            .toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: BIZ_TZ });
+          const proceed = confirm(
+            `You already have a delivery scheduled for ${delivDisplay} (Order #${c.order_number}). Do you still want to book a new pickup for the same day?`
+          );
+          if (!proceed) {
+            btn.disabled = false;
+            btn.textContent = 'Place Order';
+            return;
+          }
+        }
+      }
+    } catch (_) { /* non-blocking — if check fails, allow booking to proceed */ }
+  }
+
   const pad2 = n => String(n).padStart(2,'0');
   const { data: order, error } = await db.from('orders').insert({
     customer_id:          currentCustomer.id,
