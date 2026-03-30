@@ -138,7 +138,7 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured' }), { status: 500, headers: CORS });
     }
 
-    const { customer_id, phone, current_draft } = await req.json();
+    const { customer_id, phone, current_draft, admin_profile_id } = await req.json();
     if (!customer_id && !phone) {
       return new Response(JSON.stringify({ error: 'customer_id or phone is required' }), { status: 400, headers: CORS });
     }
@@ -166,7 +166,7 @@ Deno.serve(async (req: Request) => {
 
     const conversationText = msgs.length > 0
       ? msgs.map((m: any) => {
-          const role = m.direction === 'inbound' ? 'Customer' : 'WashRoute';
+          const role = m.direction === 'inbound' ? 'Customer' : 'Family Laundry';
           const ts   = m.created_at
             ? new Date(m.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ })
             : '';
@@ -284,6 +284,20 @@ Draft a reply to the customer's most recent message.`;
 
     const draft = (result.content?.[0]?.text || '').trim();
     console.log(`[draft-reply] Done: mode=${isRefineMode ? 'refine' : 'generate'} intent=${intent} chars=${draft.length} action=${action?.type || 'none'}`);
+
+    // ── Log usage to draft_events (fire-and-forget, never blocks the response) ──
+    fetch(`${SUPABASE_URL}/rest/v1/draft_events`, {
+      method: 'POST',
+      headers: { ...dbHeaders, 'Prefer': 'return=minimal' },
+      body: JSON.stringify({
+        admin_profile_id: admin_profile_id || null,
+        customer_id:      customer_id || null,
+        phone:            phone || null,
+        intent,
+        mode:             isRefineMode ? 'refine' : 'generate',
+        action_type:      action?.type || null,
+      }),
+    }).catch(e => console.warn('[draft-reply] Usage log failed:', e));
 
     return new Response(JSON.stringify({
       ok:     true,

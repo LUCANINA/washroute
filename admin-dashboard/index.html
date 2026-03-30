@@ -10208,9 +10208,10 @@ ${oneCopy}
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
         body: JSON.stringify({
-          customer_id:   currentConvCustomerId || null,
-          phone:         currentConvPhone || null,
-          current_draft: currentText || null,
+          customer_id:      currentConvCustomerId || null,
+          phone:            currentConvPhone || null,
+          current_draft:    currentText || null,
+          admin_profile_id: currentUserId || null,
         }),
       });
       const data = await res.json();
