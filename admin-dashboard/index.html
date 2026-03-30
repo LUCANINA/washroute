@@ -7634,6 +7634,16 @@
       }
     }
 
+    // Notify customer of schedule change if the time window was updated (best-effort)
+    if (startIso) {
+      const rescheduleEvent = leg === 'delivery' ? 'delivery_rescheduled' : 'schedule_changed';
+      fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+        body: JSON.stringify({ orderId: opCurrentOrderId, event: rescheduleEvent })
+      }).catch(() => {});
+    }
+
     // Silently re-optimize the route in the background now that a new stop was added
     autoOptimizeRoute(routeId);
 

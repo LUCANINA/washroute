@@ -5185,6 +5185,22 @@ async function saveEditOrder() {
   window._cachedOrders = (window._cachedOrders || []).map(ord =>
     ord.id === orderId ? { ...ord, total_bags: bags, special_instructions: instructions, total_amount: total } : ord
   );
+
+  // Notify customer if the schedule window changed (best-effort)
+  // delivery_rescheduled if only delivery changed; schedule_changed for pickup or both
+  if (es) {
+    const pickupChanged  = !!(pw?.slotStart);
+    const deliveryChanged = !!(es.deliveryDate) && !pickupChanged;
+    const rescheduleEvent = deliveryChanged ? 'delivery_rescheduled' : 'schedule_changed';
+    if (pickupChanged || deliveryChanged) {
+      fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
+        body: JSON.stringify({ orderId, event: rescheduleEvent })
+      }).catch(() => {});
+    }
+  }
+
   openDetail(orderId);
 }
 
