@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 30, 2026 — Session 82 (continued): Commercial intake multi-layer bug fix (wrong service, wrong pricing, wrong add-ons, cross-pricelist preference billing)*
+*Last updated: Mar 31, 2026 — Session 83: charge-order bug fix, $2,327 billing recovery, Group B outreach (27 SMS + 26 emails sent)*
 
 ---
 
@@ -554,7 +554,36 @@ Root cause investigation triggered by screenshot showing: (1) Commercial Wash & 
 - **Commits:** `6c6776d` — `fix(intake): correct per-lb pricing and clean up Commercial intake UI`
   `5bb192f` — `fix(intake): skip Delivery preference-linked services for Commercial orders`
 
-- **Push:** Run `rm .git/HEAD.lock && git push` from `~/Projects/WashRoute` to deploy commits `ca01e30`, `6c6776d`, `5bb192f` (and all session 82 commits above).
+- **Commit:** `fa65dc0` — pushed ✅
+
+---
+
+### Mar 31, 2026 (session 83) — charge-order bug fix, billing recovery, customer outreach
+
+**Root cause:** `charge-order` edge function (v28/v29) had a `CHARGEABLE_STATUSES` whitelist `['ready_for_delivery', 'out_for_delivery', 'delivered']`. The dashboard fires the charge call *before* updating the DB status, so the DB still showed `folding` or `rack` at charge time — not in the whitelist — causing silent failure and `billing_status = 'failed'` for every rack-stage charge. Customers with valid cards were being marked as failed and receiving payment_failed SMS unnecessarily.
+
+**Fix — `charge-order` v31** (`supabase/functions/charge-order/index.ts`):
+- Replaced `CHARGEABLE_STATUSES` whitelist with `NON_CHARGEABLE_STATUSES` blacklist: `['scheduled', 'on_hold', 'cancelled', 'skipped', 'pickup_failed']`
+- Also fixed accidental `verify_jwt: true` from v30 (dashboard uses `apikey` header, not a JWT — broke all charges silently)
+
+**Three failure groups identified (61 total orders, $5,498.55):**
+- **Group A** (1 customer, $68.95): No `stripe_customer_id` — Lodestar Campus (commercial). Ignored.
+- **Group B** (27 customers, $2,943.50): Has Stripe ID but no card in `customer_payment_methods`. Genuinely no card on file.
+- **Group C** (33 customers, $2,486.10): Has Stripe ID + card — failed purely due to the whitelist bug.
+
+**Group C batch retry** (`batch-charge-retry.js`): 31/33 succeeded — **$2,327.15 recovered**. 2 still declined by Stripe (Jacqueline McEvoy #281 $89.95, James Petrie #369 $68.95 — card-level declines, not a code issue).
+
+**Group B outreach** (`outreach-sms.js`, `outreach-email.js`):
+- Browser console scripts that live-query the DB to find customers with unpaid orders and no card on file (non-commercial, deduped by customer).
+- Message directs customers to add payment at app.familylaundry.com.
+- **Results: 27/27 SMS sent (0 failed), 26/26 emails sent (1 skipped — no email on file)**. McEvoy and Petrie correctly excluded (they have cards, just Stripe-declined — different problem).
+- Scripts are reusable — re-running always reflects current DB state and won't message customers who've since added cards.
+
+**Outstanding:**
+- McEvoy ($89.95) and Petrie ($68.95) have valid cards that Stripe is declining. May need manual follow-up or to ask them to update their card.
+- Group B customers ($2,943.50) have been contacted. Watch for card additions over the next few days and re-run `batch-charge-retry.js` against any newly added cards.
+
+- **Commit:** `fa65dc0` — `fix(billing): patch charge-order status guard, retry failed charges, outreach to 27 customers`
 
 ---
 
