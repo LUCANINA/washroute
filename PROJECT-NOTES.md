@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 30, 2026 — Session 82: order_confirmed SMS fix, same-day booking guard, housekeeping (Walewski/Griggs/Sara Allan/draft-reply security)*
+*Last updated: Mar 30, 2026 — Session 82 (continued): Commercial intake multi-layer bug fix (wrong service, wrong pricing, wrong add-ons, cross-pricelist preference billing)*
 
 ---
 
@@ -524,7 +524,37 @@ There are actually **two separate hang points** that must both be covered:
 - **`draft-reply` security — fixed:** Edge function was `verify_jwt: false`, allowing unauthenticated callers to burn Anthropic API credits. Fix: admin dashboard `draftSMSReply()` now calls `db.auth.getSession()` and passes `session.access_token` as the Authorization header (throws if session missing). Edge function redeployed as **v7** with `verify_jwt: true`. Only logged-in admins can invoke it now.
 
 - **Commit:** `d876a22` — `fix(security): draft-reply now requires valid admin session JWT`
-- **Push:** Run `git push` from `~/Projects/WashRoute`
+
+**Commercial intake — multi-layer bug fix (admin-dashboard/index.html):**
+
+Root cause investigation triggered by screenshot showing: (1) Commercial Wash & Fold appearing as an add-on button, (2) $1.75/bag pricing instead of $1.75/lb, (3) all Delivery pricelist add-ons visible to Commercial customers, (4) Vinegar/Oxi chips charging via saved customer preferences even when hidden in UI.
+
+- **Bug 1 — Wrong service shown as add-on:**
+  `allAddonServicesCache` fetches ALL active services (no `is_addon` filter) but is misleadingly named. The `relevantAddons` filter was missing an `s.is_addon &&` guard, so the Commercial Wash & Fold service (which has `is_addon=false`) was appearing as a tappable add-on button in the intake panel.
+  Fix: added `s.is_addon &&` to the `relevantAddons` filter in `renderIntakePanel()`.
+  **Commit:** `ca01e30`
+
+- **Bug 2 — `procSvc` always pointed to the Delivery service:**
+  `saveOrder()` always defaulted to the Delivery service when assigning `procSvc`, even for Commercial orders. Two fixes: (a) `onOrderCustomerChange()` now auto-selects the correct base service when the customer is changed in the New Order modal (Commercial → Commercial service, residential → Delivery service); (b) `openIntakePanel()` now overrides `procSvc` with the Commercial service when `pricelist === 'Commercial'`, and updates the intake subtitle accordingly.
+
+- **Bug 3 — Pricing math treated per_lb as per_bag:**
+  `calcProcTotal()` always did `bags × base_price` regardless of `pricing_type`. For Commercial ($1.75/lb) this meant: 10 lbs in 1 bag = $1.75 instead of $17.50.
+  Fix: added `isPerLb = svc.pricing_type === 'per_lb'` branch. Per-lb: `weight × rate`, no overage. Per-bag: existing `bags × rate + overage` logic unchanged.
+  `renderBreakdownRows()` now shows `"X lbs × $1.75/lb"` for per_lb and `"X bags × $59.00"` for per_bag.
+  The overage hint (`"Up to N lbs/bag — overage billed at $X/lb"`) is hidden for per_lb orders.
+
+- **Bug 4 — Delivery add-ons visible to Commercial customers:**
+  `renderIntakePanel()` was showing all preference groups (WASH temp, Vinegar/Oxi, Double Wash, etc.) regardless of pricelist. Commercial customers should see no preference-based add-ons.
+  Fix: `regularPrefs` and `addonPrefsArr` are set to `[]` when `isPerLb` is true, so no preference sections render for Commercial.
+
+- **Bug 5 — Cross-pricelist preference billing (edge case):**
+  Even after hiding chips in the UI, a Commercial customer who previously set preferences via the customer app would still have those preferences trigger charges in `calcProcTotal()` (via `prefLinkedSvc_total`) and appear in `renderBreakdownRows()` (Vinegar × 1 bag, Oxi × 1 bag).
+  Fix: added `currentPricelist` variable (`isPerLb ? 'Commercial' : 'Delivery'`) and a pricelist guard in both `calcProcTotal()` and `renderBreakdownRows()`. Any preference-linked service whose `pricelist` column doesn't match the active pricelist (and isn't `'Both'`) is skipped entirely — no charge, no display row.
+
+- **Commits:** `6c6776d` — `fix(intake): correct per-lb pricing and clean up Commercial intake UI`
+  `5bb192f` — `fix(intake): skip Delivery preference-linked services for Commercial orders`
+
+- **Push:** Run `rm .git/HEAD.lock && git push` from `~/Projects/WashRoute` to deploy commits `ca01e30`, `6c6776d`, `5bb192f` (and all session 82 commits above).
 
 ---
 
