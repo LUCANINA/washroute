@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 31, 2026 — Session 83: charge-order bug fix, $2,327 billing recovery, Group B outreach (27 SMS + 26 emails sent)*
+*Last updated: Mar 30, 2026 — Session 84: morning rounds audit, 5 route fixes, 4 cancelled-order cleanups, duplicate order cancel, SMS consent backfill*
 
 ---
 
@@ -555,6 +555,37 @@ Root cause investigation triggered by screenshot showing: (1) Commercial Wash & 
   `5bb192f` — `fix(intake): skip Delivery preference-linked services for Commercial orders`
 
 - **Commit:** `fa65dc0` — pushed ✅
+
+---
+
+### Mar 30, 2026 (session 84) — Morning rounds audit + route/data cleanup
+
+**Full 10-check audit completed.** Results and fixes below.
+
+**P0 — Route fixes (5 orders):**
+- **Hannah Rosen #317** — Was completely unrouted (no stops). Created pickup stop on Mar 31 Berkeley AM + delivery stop on Apr 1 Berkeley PM.
+- **Devki Patel #1102** — Was completely unrouted (no stops). Created pickup stop on Mar 31 Oakland AM + delivery stop on Apr 1 Oakland PM.
+- **Shane Ruiz #1107** — `rescheduled_no_capacity` error, stops were 2 days late (pickup Apr 3, delivery Apr 4). Moved pickup to Apr 1 Oakland AM, delivery to Apr 2 Oakland PM. Cleared `routing_error`.
+- **Anita Reeding #1122** — Delivery stop was on same route/date as pickup (Mar 30 Hayward PM) — would have attempted same-day delivery. Moved delivery to Mar 31 Hayward PM, reset status to pending.
+- **Melissa Boldridge #889** — Delivery on Apr 1 Berkeley PM but delivery window is Mar 31 Pacific. Moved to Mar 31 Berkeley PM.
+
+**P0 — Cancelled order cleanup (4 orders, 8 stops):**
+- Stacy Kawula #391, Viktoria Kovacs #891, Anders Woodruff #1075, Selena Bowie #1148 — all cancelled orders still had pending pickup + delivery stops on active routes. Set all 8 stops to `skipped`.
+
+**P1 — Duplicate order resolution:**
+- **Wyn Lee #434 vs #1203:** #434 was auto-scheduled ($0.00, source `scheduled`), #1203 was customer-placed ($71.95, source `customer_app`) — same pickup date Apr 1. Cancelled #434 and skipped its stops. #1203 is the real order.
+- **Nit Pixies #730 vs #1179:** Both already picked up and `ready_for_delivery` with different amounts ($48.95 recurring vs $68.95 scheduled). Two legitimate orders — no action needed.
+
+**P1 — SMS consent backfill:**
+- 16 customers had `phone_cache` set but `sms_consent_at = NULL` and `sms_marketing_opt_out_at = NULL`. Backfilled `sms_consent_at` to each customer's `created_at` timestamp. Gap is now 0.
+
+**Audit items still on radar (not urgent):**
+- 8 over-capacity routes (Oakland AM/PM, Mar 31–Apr 4)
+- 11 driverless routes next 7 days (Alameda PM, Concord AM, Berkeley AM)
+- 1 duplicate account pair: Re-Up Refills / Reup Refill Shop (both share `info@wastewhat.org`)
+- 18 duplicate addresses, 236 orphan profiles (DB housekeeping)
+- Briana Berger #869 (`scheduled`, no active pickup stop) — may need re-routing
+- McEvoy ($89.95) and Petrie ($68.95) — Stripe-declined, may need manual follow-up
 
 ---
 
