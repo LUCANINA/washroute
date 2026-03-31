@@ -5735,10 +5735,11 @@
       return;
     }
 
-    // Ensure _custWithCard and _cardRequestSent are populated for action buttons
-    // (these are normally loaded in loadOrders, but Overview may load first)
+    // Always ensure payment methods are loaded for this tab's specific customers.
+    // Do NOT guard with !_custWithCard.size — the Set may have been partially populated
+    // by a prior tab load (e.g. Orders) and miss customers who only appear here.
     const custIds = [...new Set(data.map(o => o.customers?.id).filter(Boolean))];
-    if (custIds.length && !_custWithCard.size) {
+    if (custIds.length) {
       const { data: pmRows } = await db.from('customer_payment_methods')
         .select('customer_id, created_at')
         .in('customer_id', custIds);
@@ -9415,63 +9416,82 @@ ${oneCopy}
   async function requestCardFromIssues(custId, phone, orderNum, btn) {
     btn.disabled = true; btn.textContent = 'Sending…';
     try {
-      // Generate Stripe setup link
-      const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
-        body: JSON.stringify({
-          type: 'setup',
-          customerId: custId,
-          successUrl: 'https://app.familylaundry.com/',
-          cancelUrl: 'https://app.familylaundry.com/',
-        }),
-      });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || 'Failed to create link');
+      // Fetch customer name + email
+      const { data: cust, error: custErr } = await db
+        .from('customers')
+        .select('first_name_cache, email_cache')
+        .eq('id', custId)
+        .single();
+      if (custErr) throw new Error('Could not fetch customer details');
+
+      const firstName = cust?.first_name_cache
+        ? cust.first_name_cache.charAt(0).toUpperCase() + cust.first_name_cache.slice(1)
+        : 'there';
+      const email = cust?.email_cache || null;
+
+      const smsBody = `Hi ${firstName}, this is Family Laundry. We need a payment method on file to process order #${orderNum}. Please log in and add your card at app.familylaundry.com. Thanks.`;
+
+      const emailHtml = `
+<div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#1e293b">
+  <p style="font-size:15px;line-height:1.7;margin:0 0 16px">Hi ${firstName},</p>
+  <p style="font-size:15px;line-height:1.7;margin:0 0 16px">
+    We have order <strong>#${orderNum}</strong> ready but need a payment method on file to complete the charge.
+  </p>
+  <p style="font-size:15px;line-height:1.7;margin:0 0 24px">
+    Please log in and add your card at the link below. It only takes a minute.
+  </p>
+  <div style="text-align:center;margin:28px 0">
+    <a href="https://app.familylaundry.com"
+       style="background:#1e293b;color:#ffffff;padding:14px 32px;border-radius:8px;
+              text-decoration:none;font-weight:600;font-size:15px;display:inline-block">
+      Add Payment Info
+    </a>
+  </div>
+  <p style="font-size:14px;line-height:1.6;color:#64748b;margin:0 0 8px">
+    If you have any questions, just reply to this email or send us a text.
+  </p>
+  <p style="font-size:14px;color:#64748b;margin:0">
+    Thanks,<br>The Family Laundry Team
+  </p>
+</div>`;
+
+      const sends = [];
 
       if (phone) {
-        // Send card setup link via SMS
-        const smsBody = `Hi from Family Laundry! We need a card on file to complete order #${orderNum}. Add yours securely here: ${result.url}`;
-        const smsRes = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
-          body: JSON.stringify({ to: phone, body: smsBody, customer_id: custId }),
-        });
-        if (!smsRes.ok) throw new Error('SMS send failed');
-        _cardRequestSent.set(custId, new Date().toISOString());
-        btn.textContent = '✓ Sent';
-        btn.style.color = '#059669'; btn.style.background = '#ecfdf5';
-        showToast(`Card request SMS sent for order #${orderNum}`, 'success');
-      } else if (result.email) {
-        // Fallback: email
-        await fetch(`${SUPA_URL}/functions/v1/send-email`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
-          body: JSON.stringify({
-            customer_id: custId,
-            to_email: result.email,
-            subject: 'Add your card to Family Laundry',
-            body: `<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-              <h2 style="color:#1e293b;margin-bottom:8px">Add your payment card</h2>
-              <p style="color:#64748b;line-height:1.6">We need a card on file to complete your order #${orderNum}. Tap below to add one securely.</p>
-              <div style="text-align:center;margin:28px 0">
-                <a href="${result.url}" style="background:#635bff;color:white;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Add My Card →</a>
-              </div>
-            </div>`,
-          }),
-        });
-        _cardRequestSent.set(custId, new Date().toISOString());
-        btn.textContent = '✓ Emailed';
-        btn.style.color = '#059669'; btn.style.background = '#ecfdf5';
-        showToast(`Card request emailed for order #${orderNum}`, 'success');
-      } else {
-        // No phone or email — copy link to clipboard
-        await navigator.clipboard.writeText(result.url);
-        _cardRequestSent.set(custId, new Date().toISOString());
-        btn.textContent = '✓ Copied';
-        btn.style.color = '#059669'; btn.style.background = '#ecfdf5';
-        showToast('Card setup link copied to clipboard', 'success');
+        sends.push(
+          fetch(`${SUPA_URL}/functions/v1/send-sms`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+            body: JSON.stringify({ to: phone, body: smsBody, customer_id: custId }),
+          })
+        );
       }
+
+      if (email) {
+        sends.push(
+          fetch(`${SUPA_URL}/functions/v1/send-email`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+            body: JSON.stringify({
+              customer_id: custId,
+              to_email: email,
+              subject: `Action needed: payment for order #${orderNum}`,
+              body: emailHtml,
+            }),
+          })
+        );
+      }
+
+      if (!sends.length) throw new Error('No phone or email on file for this customer');
+
+      const results = await Promise.all(sends);
+      if (results.some(r => !r.ok)) throw new Error('One or more messages failed to send');
+
+      _cardRequestSent.set(custId, new Date().toISOString());
+      btn.textContent = '✓ Sent';
+      btn.style.color = '#059669'; btn.style.background = '#ecfdf5';
+      const channels = [phone ? 'SMS' : null, email ? 'email' : null].filter(Boolean).join(' + ');
+      showToast(`Card request sent via ${channels} for order #${orderNum}`, 'success');
     } catch (e) {
       btn.disabled = false; btn.textContent = 'Request card';
       showToast(`Card request failed: ${e.message}`, 'error');
