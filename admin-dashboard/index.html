@@ -10229,7 +10229,7 @@ ${oneCopy}
       if (!_draftSession?.access_token) throw new Error('Session expired — please reload and try again.');
       const res = await fetch(`${SUPA_URL}/functions/v1/draft-reply`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${_draftSession.access_token}` },
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, 'Authorization': `Bearer ${_draftSession.access_token}` },
         body: JSON.stringify({
           customer_id:      currentConvCustomerId || null,
           phone:            currentConvPhone || null,
