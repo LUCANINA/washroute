@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 1, 2026 — Session 87: morning rounds audit, billing_status backfill ($1,334.20 corrected), desync stop cleanup*
+*Last updated: Apr 1, 2026 — Session 88: card request display fix, duplicate $20 credit cleanup, promo trigger disabled, skip/fail consolidation into "Can't Complete" button*
 
 ---
 
@@ -204,6 +204,9 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **Categories:** pickup, delivery, billing, damaged, schedule, complaint, other.
 - **Resolve/reopen:** Resolved issues disappear from Overview list; can be reopened from detail panel.
 
+### Card Request Button Fix (session 88)
+- **"Request card" / "✓ Requested" / "📞 Update card" button pipeline now works correctly.** The `_cardRequestSent` in-memory map was never populating because SMS lookup matched `'%card on file%'` (wrong) and email lookup matched a single subject that didn't exist in outbound emails. Fixed: SMS matches `'%app.familylaundry.com%'`; email uses `.or()` for all 3 known subject variants. Fixed in both Issues tab and Delivered tab lookup code.
+
 ### Other
 - Customer management, driver management, services & pricing, reports (all built)
 - Driver Messages tab (in-app driver ↔ admin chat, separate from SMS)
@@ -218,7 +221,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **Capture-now-upload-later photo queue (session 70e):** Photos are compressed (1200px max, 80% JPEG — typically 4MB→400KB) and stored locally via IndexedDB. Complete button unlocks immediately after capture — no waiting for upload. Background queue uploads to Supabase Storage with automatic retry every 30s + instant retry on `online` event. Amber badge on Route nav shows pending upload count. Queue persists across app restarts via IndexedDB.
 - **📲 On My Way button** → marks stop `en_route` + sends customer an SMS automatically
 - Undo complete (within same session)
-- Skip stop (with 12-second undo window, requires confirmation)
+- **"Can't Complete" unified stop action (session 88, commit `7decbd3`):** Replaced the two confusing buttons ("Skip This Stop" + "Failed Pickup") with a single "Can't Complete" button. Shows a reason picker bottom sheet with 5 options: Bags not out, Can't access, Customer not home, Customer requested skip, Other. All driver-initiated incompletes now set order status to `pickup_failed` with `cancelled_by: 'driver'` and the reason stored in `orders.driver_skip_reason`. Route stop status uses `skipped`. Customer gets `pickup_failed` SMS notification. 12-second undo window fully restores status, notes, and reason. Admin Issues tab badge shows the reason (e.g. "Can't Complete (Bags not out)"). Customer/admin-initiated skips still use `skipped` status — only driver flow changed.
 - **Realtime stop reassignment:** If admin reassigns a stop to another driver while they're en route, the stop disappears from the original driver's app with a toast. If a stop is newly assigned to a driver, their app triggers a reload to pick it up. Handles `driver_id = NULL` stops correctly (stop appears/disappears based on route ownership, not just explicit driver_id match).
 - **Live GPS always current (session 24):** `_driverLat`/`_driverLng` module-level variables updated on every `watchPosition` fix — not throttled like the DB write. Always reflect the driver's actual current position for re-optimization.
 - **Dynamic route re-optimization (session 24):** After marking any stop complete, failed, or skipped, `reoptimizeRoute(routeId)` fires automatically (non-blocking). Sends driver GPS to `optimize-route` edge function; re-orders pending stops from where the driver actually is; re-sorts `allStops` and re-renders the home screen. Silent fail — driver experience unaffected if optimization fails.
@@ -491,6 +494,39 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 1, 2026 (session 88) — Card request fix, duplicate credit cleanup, skip/fail consolidation
+
+**Bug fix — "Request card" button stuck (commit `189c834`):**
+- David reported Dagny Brown's button stuck at "Request card" despite pressing it multiple times over 2 days.
+- Root cause: SMS lookup used `'%card on file%'` but actual SMS body says `"payment method on file"`. Email lookup matched `eq('subject', 'Add your card to Family Laundry')` but actual subject is `"Action needed: payment for order #..."`. Neither pattern matched → `_cardRequestSent` map was always empty.
+- Fix: SMS lookup now matches `'%app.familylaundry.com%'` (universal marker in all outbound SMS). Email lookup now uses `.or()` filter matching all 3 known subject variants: "Action needed: payment...", "Add your card to Family Laundry", "Your Family Laundry balance".
+- Fixed in both `issueActionBtn` and `_deliveredActionBtn` functions (two parallel lookup locations).
+
+**Duplicate $20 launch promo credits cleaned up:**
+- Audited all customers — found several with duplicate $20 credits from `trg_signup_promo_credit` firing multiple times.
+- Deleted erroneous duplicate `credit_add` entries from `customer_transactions`.
+- Accounted for credits already applied to orders (via `line_items` JSON) to avoid over-correcting balances.
+
+**$20 promo trigger disabled:**
+- `trg_signup_promo_credit` on `customer_payment_methods` — now DISABLED. Promo deadline (March 31) had already passed, but trigger was still enabled. Disabled cleanly.
+
+**Skip/fail consolidation — "Can't Complete" button (commit `7decbd3`):**
+- Drivers confused by two buttons ("Skip This Stop" and "Failed Pickup") doing essentially the same thing.
+- Replaced with single "Can't Complete" button that shows a reason picker bottom sheet: Bags not out, Can't access, Customer not home, Customer requested skip, Other.
+- All driver-initiated incompletes now set `orders.status = 'pickup_failed'`, `cancelled_by = 'driver'`, `driver_skip_reason = [reason]`. Route stop uses `skipped` status (per DB constraint).
+- Customer gets `pickup_failed` SMS notification on all "Can't Complete" actions.
+- Undo (12s window) fully restores: order status, cancelled_by, driver_skip_reason, route_stop status, and driver_notes.
+- Admin Issues tab badge now shows reason: e.g. "Can't Complete (Bags not out)" instead of generic "Pickup Failed".
+- DB migration: added `driver_skip_reason` (text, nullable) to orders table.
+- Customer/admin-initiated skips unchanged — still use `skipped` status.
+- All DB triggers verified compatible: `trg_create_recurring_order_fn` fires on both `skipped` and `pickup_failed`, `sync_stops_on_order_terminal` handles `pickup_failed` correctly.
+
+**Still pending:**
+- Annie Reid order #1021 ($187.95) — delivered, has Visa 4686, never charged. Flagged as chargeable, awaiting go-ahead.
+- Git: David pushed card request fix + consolidation commit from terminal.
+
+---
 
 ### Mar 30, 2026 (session 82) — Fix confusing order_confirmed SMS + same-day double-booking guard
 
