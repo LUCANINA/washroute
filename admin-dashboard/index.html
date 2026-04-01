@@ -1256,8 +1256,8 @@
                 <div style="flex:1">
                   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
                     <div class="card-title" style="font-size:16px">New Customers</div>
-                    <span id="cust-24h-badge" style="font-size:13px;font-weight:700;color:var(--accent);background:#eff6ff;border-radius:8px;padding:3px 10px;display:none"></span>
-                    <span id="cust-conversion-badge" style="font-size:13px;font-weight:700;border-radius:8px;padding:3px 10px;display:none"></span>
+                    <span id="cust-24h-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
+                    <span id="cust-conversion-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
                   </div>
                 </div>
                 <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show last 10">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
@@ -1269,7 +1269,7 @@
                 <div style="flex:1">
                   <div style="display:flex;align-items:center;gap:12px">
                     <div class="card-title" style="font-size:16px">Recent Orders</div>
-                    <span id="orders-24h-badge" style="font-size:13px;font-weight:700;color:var(--green);background:#ecfdf5;border-radius:8px;padding:3px 10px;display:none"></span>
+                    <span id="orders-24h-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
                   </div>
                 </div>
                 <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show last 10">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
@@ -1298,8 +1298,8 @@
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('reschedule-orders-body',this)">
               <div style="flex:1">
                 <div style="display:flex;align-items:center;gap:12px">
-                  <div class="card-title" style="color:#b45309">Requires Rescheduling</div>
-                  <span id="reschedule-count-badge" style="font-size:13px;font-weight:700;color:#b45309;background:#fef3c7;border-radius:8px;padding:3px 10px;display:none"></span>
+                  <div class="card-title">Requires Rescheduling</div>
+                  <span id="reschedule-count-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
               </div>
               <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
@@ -1312,7 +1312,7 @@
             <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('unpaid-orders-body',this)">
               <div style="flex:1">
                 <div style="display:flex;align-items:center;gap:12px">
-                  <div class="card-title" style="color:#b91c1c">Unpaid Delivered Orders</div>
+                  <div class="card-title">Unpaid Delivered Orders</div>
                   <span id="unpaid-count-badge" style="font-size:13px;font-weight:700;color:#b91c1c;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
                 </div>
                 <div class="card-sub" id="unpaid-count-sub" style="margin-top:2px">Loading…</div>
@@ -5648,8 +5648,6 @@
       const ordered = convRes.data.filter(c => (c.total_orders || 0) > 0).length;
       const pct = Math.round((ordered / total) * 100);
       convBadge.textContent = `${pct}% placed order`;
-      convBadge.style.color = pct >= 50 ? '#059669' : '#92400e';
-      convBadge.style.background = pct >= 50 ? '#ecfdf5' : '#fef3c7';
       convBadge.style.display = '';
     }
   }
