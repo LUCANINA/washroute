@@ -6476,7 +6476,7 @@
     allOrders = allData;
 
     // Side-fetch: which customers have a payment card on file?
-    const custIds = [...new Set((data||[]).map(o => o.customers?.id).filter(Boolean))];
+    const custIds = [...new Set(allOrders.map(o => o.customers?.id).filter(Boolean))];
     if (custIds.length) {
       const { data: cardRows } = await db.from('customer_payment_methods')
         .select('customer_id, created_at').in('customer_id', custIds);
