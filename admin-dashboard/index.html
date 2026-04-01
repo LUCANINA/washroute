@@ -6451,7 +6451,8 @@
                services(name),
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
                pickup_run:pickup_run_id(id, name),
-               delivery_run:delivery_run_id(id, name)`);
+               delivery_run:delivery_run_id(id, name)`)
+      .limit(10000);
     if (error) {
       console.error('loadOrders error:', error);
       if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load orders</div><div class="empty-sub">${error.message}</div></div>`;
