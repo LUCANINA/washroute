@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Mar 30, 2026 — Session 84: morning rounds audit, 5 route fixes, 4 cancelled-order cleanups, duplicate order cancel, SMS consent backfill*
+*Last updated: Apr 1, 2026 — Session 87: morning rounds audit, billing_status backfill ($1,334.20 corrected), desync stop cleanup*
 
 ---
 
@@ -555,6 +555,90 @@ Root cause investigation triggered by screenshot showing: (1) Commercial Wash & 
   `5bb192f` — `fix(intake): skip Delivery preference-linked services for Commercial orders`
 
 - **Commit:** `fa65dc0` — pushed ✅
+
+---
+
+### Apr 1, 2026 (session 87) — Morning rounds + billing_status backfill
+
+**Daily audit completed (10 checks).** System is mostly healthy.
+
+**P1 — Stop/order desync (fixed):**
+- Kathrine Long #944 (skipped) — 2 pending stops set to skipped
+- Elizabeth Gettinger #1126 (skipped) — 2 pending stops set to skipped
+
+**P1 — billing_status backfill (15 orders, $1,334.20):**
+- 15 delivered orders had `stripe_payment_intent_id` and `billed_at` set (confirmed paid in Stripe) but `billing_status` was NULL — showing as unpaid on the dashboard
+- Root cause: batch-charge-retry.js (session 83) ran against charge-order **v30**, which set `billed_at` but not `billing_status`. v31 was deployed later in that session and fixed this for future charges. One-time historical gap.
+- Backfilled all 15 to `billing_status = 'paid'`. No more orders with stripe PI + NULL billing_status.
+
+**Billing investigation findings:**
+- Dagny Brown #1244 — "Request card" display is correct (no card, no Stripe customer, charge failed Mar 31). No display bug.
+- David Glasebrook #774 — has Visa 4389 on file but card was declined Mar 31 (same card that was already there). Dashboard correctly shows "Update card".
+- Annie Reid #1021 ($187.95) — delivered, has Visa 4686, Stripe customer set up, but was never charged. No payment intent exists. Chargeable — awaiting David's go-ahead.
+- Remaining unpaid: 29 orders, $3,467.55 (21 failed + 8 null with no card)
+
+**Ongoing from prior audits (not actioned):**
+- Oakland routes consistently over 18-stop capacity (7 routes this week, 21–26 stops each)
+- 15 driverless routes next 7 days (COMMERCIAL, Concord AM, Alameda, Kidango, Berkeley AM)
+- Re-Up Refills / Reup Refill Shop — still a merge candidate (share info@wastewhat.org)
+- Caragh England #905 vs #1296 — duplicate orders for 3/31, not investigated yet
+
+---
+
+### Mar 31, 2026 (session 86) — Kidango Toyon Center, commercial 4/1 orders, laptop layout, geocoding
+
+**Kidango — Toyon Center added:**
+- New customer: Kidango - Toyon Center (id: `0fe2c007-45e7-46e8-92d1-f5083fa0d5a1`)
+- Address: 995 Bard Street, San Jose, CA 95127 (id: `27afbdf6-39c1-41eb-8dd7-071a13419dce`)
+- 5 weekly orders created: #1451–1455 (Apr 2, 9, 16, 23, 30), Thu pickup → Fri delivery
+
+**3 recurring commercial orders for 4/1 (Wed):**
+- #1456 Kasa Hotel Addison, #1457 Kasa Hotels La Monarca, #1458 Homebase Shelter Program
+- All on COMMERCIAL route, Wed pickup 12–3 PM PT → same-day delivery
+
+**Laptop-optimized admin dashboard layout (2 commits):**
+- `9f7b56c` — Scrollable route chip strip with fade-gradient scroll arrows; chips auto-hide arrows when content fits
+- `ccb3a14` — Sidebar narrowed 20% (`--sidebar-w: 175px`), logo/nav/footer padding tightened, orders table restructured from 10→8 columns using combined pickup/delivery cells with compact date/time formatters (`fmtDateShort`, `fmtTimeShort`, `fmtSlotShort`), `table-layout:fixed`, laptop media query at ≤1440px
+
+**Commercial address geocoding:**
+- All 21 commercial customer addresses geocoded with lat/lng for Leaflet map display
+- 3 addresses corrected after accuracy audit: Homebase Shelter (633 Hegenberger Rd), USS Hornet (707 W Hornet Ave), Kasa Addison (2263 Sacramento St)
+
+**Git note:** Laptop layout commits were blocked by `.git/HEAD.lock` in sandbox. David removed lock files and pushed from his terminal. Both commits (`9f7b56c`, `ccb3a14`) confirmed pushed to main.
+
+---
+
+### Mar 31, 2026 (session 85) — Commercial route templates + Starchup customer migration
+
+**Goal:** Create two commercial route templates (Kidango and COMMERCIAL), import all recurring commercial customers from Starchup, and populate April orders.
+
+**Route templates created:**
+- **Kidango** — Thu/Fri, 7–11 AM, 4-hour arrival window. Template ID: `d6a6db9c-98ba-4133-8893-99d702abdb52`
+- **COMMERCIAL** — Mon–Sat, 12–3 PM, 3-hour arrival window. Template ID: `94d436c4-fea5-41c9-8ba6-654082f455e2`
+- Both assigned to **"Commercial" service zone** (ID: `914d20f4-9978-46fd-a13d-a5111c217d73`) — an empty zone with no polygon/cities/city_polygons, so routes never appear in the customer booking flow. All scheduling is admin-only.
+
+**Customers imported (21 total):**
+- **15 Kidango locations** (new accounts): Hillside, Ryan, Unidos, Cesar Chavez, CCELC, Hubbard Center, Meadowfair, Shilling Center, Coyote Hills, Searles, Kitayama, Colonial Acres, Lorenzo Manor, Bay, Dayton. All weekly Thu pickup → Fri delivery. All addresses and delivery instructions migrated from Starchup.
+- **4 existing commercial accounts updated:** Homebase Shelter Program, Kasa Hotel Addison, Kasa Hotels La Monarca, Extended Stay America Emeryville/Oakland. Added missing addresses to Homebase, Kasa Addison, and Kasa La Monarca. Updated all to `customer_type = 'commercial'`.
+- **2 new commercial accounts:** Russell Moore (USS Hornet, weekly Fri), Soul Sanctuary 1888 MLK (Tue/Thu/Sat).
+
+**Orders created: 145 scheduled orders, April 2–30:**
+- 15 Kidango locations × 5 weeks = 75 orders
+- Homebase (Mon/Wed/Fri) = 12, Kasa Addison (Mon/Wed/Fri) = 12, Kasa La Monarca (Mon/Tue/Wed/Fri) = 16
+- Extended Stay (Tue/Thu/Sat) = 13, Soul Sanctuary (Tue/Thu/Sat) = 13, Russell Moore (weekly Fri) = 4
+- **0 routing errors** — auto_route_on_insert trigger handled all route creation and stop assignment
+- All orders use `source = 'scheduled'`, `zone_id = '914d20f4...'` (Commercial zone)
+
+**Preflight safety check passed:** Verified no SMS sent (all commercial customers have `sms_consent_at = NULL`). No customer_registered or order_confirmed SMS fired.
+
+**Data source:** David's uploaded "Orders Feb 26.xlsx" — used to extract addresses, recurring day patterns, and delivery instructions for all commercial customers.
+
+**Recurring day patterns (from Starchup data):**
+- Homebase, Kasa Addison: Mon/Wed/Fri (schedule_days 0,2,4)
+- Kasa La Monarca: Mon/Tue/Wed/Fri (0,1,2,4)
+- Extended Stay, Soul Sanctuary: Tue/Thu/Sat (1,3,5)
+- Russell Moore: Fri (4)
+- All Kidango: Thu (3) pickup, Fri (4) delivery
 
 ---
 
