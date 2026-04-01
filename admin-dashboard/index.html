@@ -4063,7 +4063,9 @@
       label = cb === 'driver' ? 'Skipped by Driver' : cb === 'admin' ? 'Skipped by Admin' : 'Skipped';
       color = '#92400e'; bg = '#fef3c7';
     } else if (s === 'pickup_failed') {
-      label = cb === 'system' ? 'Pickup Failed (Auto)' : 'Pickup Failed';
+      const REASON_LABELS = { bags_not_out: 'Bags not out', cant_access: "Can't access", customer_not_home: 'Not home', customer_requested_skip: 'Cust. requested', other: 'Other' };
+      const reasonTag = o.driver_skip_reason ? ` (${REASON_LABELS[o.driver_skip_reason] || o.driver_skip_reason})` : '';
+      label = cb === 'system' ? 'Pickup Failed (Auto)' : cb === 'driver' ? `Can't Complete${reasonTag}` : 'Pickup Failed';
       color = '#dc2626'; bg = '#fee2e2';
     } else if (s === 'delivery_failed') {
       label = cb === 'system' ? 'Delivery Failed (Auto)' : 'Delivery Failed';
@@ -6364,7 +6366,7 @@
                actual_pickup_at, actual_delivery_at,
                pickup_run_id, delivery_run_id,
                pickup_address_id, delivery_address_id,
-               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, cancelled_by,
+               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, cancelled_by, driver_skip_reason,
                services(name),
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
                pickup_run:pickup_run_id(id, name),

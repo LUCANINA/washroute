@@ -791,18 +791,12 @@
     .bag-expected { font-size: 12px; color: var(--muted); text-align: center; margin-top: 2px; }
 
     /* ── Skip confirmation sheet ── */
-    #skip-confirm-overlay {
+    #cant-complete-overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,0.5);
       z-index: 9995; display: none; align-items: flex-end;
       padding: 0; animation: fadeIn .15s;
     }
-    #skip-confirm-overlay.show { display: flex; }
-    #fail-confirm-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.5);
-      z-index: 9995; display: none; align-items: flex-end;
-      padding: 0; animation: fadeIn .15s;
-    }
-    #fail-confirm-overlay.show { display: flex; }
+    #cant-complete-overlay.show { display: flex; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .skip-confirm-sheet {
       width: 100%; background: var(--navy-mid); border-radius: 20px 20px 0 0;
@@ -817,6 +811,8 @@
       width: 100%; padding: 14px; border-radius: 12px; border: none;
       font-size: 16px; font-weight: 700; cursor: pointer;
     }
+    .btn-skip-confirm.reason-btn { background: rgba(255,255,255,0.12); color: var(--white); text-align: left; padding-left: 18px; }
+    .btn-skip-confirm.reason-btn:active { background: var(--danger); }
     .btn-skip-confirm.danger { background: var(--danger); color: var(--white); }
     .btn-skip-confirm.cancel { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.75); }
   </style>
@@ -838,26 +834,18 @@
   <button class="btn-undo" onclick="triggerUndo()">Undo</button>
 </div>
 
-<!-- Skip confirm sheet -->
-<div id="skip-confirm-overlay" onclick="if(event.target===this)resolveSkipConfirm(false)">
+<!-- Can't Complete sheet (replaces old skip + fail overlays) -->
+<div id="cant-complete-overlay" onclick="if(event.target===this)resolveCantComplete(null)">
   <div class="skip-confirm-sheet">
-    <div class="skip-confirm-title">Skip this stop?</div>
-    <div class="skip-confirm-sub">You can undo this within 12 seconds if you change your mind.</div>
+    <div class="skip-confirm-title">Can't complete this stop?</div>
+    <div class="skip-confirm-sub">Select a reason — you can undo within 12 seconds.</div>
     <div class="skip-confirm-btns">
-      <button class="btn-skip-confirm danger" onclick="resolveSkipConfirm(true)">Yes, Skip Stop</button>
-      <button class="btn-skip-confirm cancel" onclick="resolveSkipConfirm(false)">Cancel</button>
-    </div>
-  </div>
-</div>
-
-<!-- Fail confirm sheet -->
-<div id="fail-confirm-overlay" onclick="if(event.target===this)resolveFailConfirm(false)">
-  <div class="skip-confirm-sheet">
-    <div class="skip-confirm-title">Mark pickup as failed?</div>
-    <div class="skip-confirm-sub">The customer will be notified. Admin will need to reschedule.</div>
-    <div class="skip-confirm-btns">
-      <button class="btn-skip-confirm danger" onclick="resolveFailConfirm(true)">Yes, Mark Failed</button>
-      <button class="btn-skip-confirm cancel" onclick="resolveFailConfirm(false)">Cancel</button>
+      <button class="btn-skip-confirm reason-btn" onclick="resolveCantComplete('bags_not_out')">Bags not out</button>
+      <button class="btn-skip-confirm reason-btn" onclick="resolveCantComplete('cant_access')">Can't access</button>
+      <button class="btn-skip-confirm reason-btn" onclick="resolveCantComplete('customer_not_home')">Customer not home</button>
+      <button class="btn-skip-confirm reason-btn" onclick="resolveCantComplete('customer_requested_skip')">Customer requested skip</button>
+      <button class="btn-skip-confirm reason-btn" onclick="resolveCantComplete('other')">Other</button>
+      <button class="btn-skip-confirm cancel" onclick="resolveCantComplete(null)">Cancel</button>
     </div>
   </div>
 </div>
@@ -2142,10 +2130,10 @@ function renderRoute() {
     const isSkip    = stop.status === 'skipped';
     const isFailed  = stop.status === 'failed';
     const isEnRoute = stop.status === 'en_route';
-    const numClass   = isDone ? 'sn-done' : isSkip ? 'sn-skip' : isFailed ? 'sn-fail' : isEnRoute ? 'sn-enroute' : `sn-${stop.stop_type}`;
+    const numClass   = isDone ? 'sn-done' : (isSkip || isFailed) ? 'sn-skip' : isEnRoute ? 'sn-enroute' : `sn-${stop.stop_type}`;
     const showBadge  = isDone || isSkip || isFailed || isEnRoute;
-    const badgeClass = isDone ? 'sb-done' : isSkip ? 'sb-skipped' : isFailed ? 'sb-failed' : 'sb-enroute';
-    const badgeText  = isDone ? 'Done' : isSkip ? 'Skipped' : isFailed ? 'Failed' : 'En Route';
+    const badgeClass = isDone ? 'sb-done' : (isSkip || isFailed) ? 'sb-skipped' : 'sb-enroute';
+    const badgeText  = isDone ? 'Done' : (isSkip || isFailed) ? 'Incomplete' : 'En Route';
     const cardClass  = isDone || isSkip || isFailed ? ' done' : isEnRoute ? ' en-route' : '';
     const isPickup   = stop.stop_type === 'pickup';
     const typePill   = stop.stop_type
@@ -2261,7 +2249,7 @@ function renderRoute() {
         .filter(s => s.route_id === route.id)
         .sort((a, b) => (a._displayNum || 0) - (b._displayNum || 0));
       if (!rStops.length) return;
-      const rDone = rStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+      const rDone = rStops.filter(s => s.status === 'complete' || s.status === 'skipped' || s.status === 'failed').length;
       if (!firstSection) h += '<div style="height:10px"></div>';
       firstSection = false;
       const carryTag = route._carryForward ? ' <span style="font-size:10px;font-weight:700;color:#dc2626;background:#fef2f2;padding:2px 6px;border-radius:4px;margin-left:4px">OVERDUE</span>' : '';
@@ -2274,7 +2262,7 @@ function renderRoute() {
     // Extra Stops section (reassigned) at the bottom
     const extraStops = allStops.filter(s => s._reassigned).sort((a, b) => (a._displayNum || 0) - (b._displayNum || 0));
     if (extraStops.length > 0) {
-      const eDone = extraStops.filter(s => s.status === 'complete' || s.status === 'skipped').length;
+      const eDone = extraStops.filter(s => s.status === 'complete' || s.status === 'skipped' || s.status === 'failed').length;
       h += `<div style="height:10px"></div>
         <div class="stop-section-hdr">
           <span class="stop-section-pill" style="background:#f5f3ff;color:#7c3aed"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#7c3aed;margin-right:5px;vertical-align:middle"></span>Extra Stops</span>
@@ -2537,8 +2525,7 @@ function renderStopDetail(stopOrId) {
           ${!hasPhoto ? `<div style="text-align:center;font-size:13px;color:var(--muted);margin-top:8px">Photo required to continue</div>` : ''}
           <button class="btn-back-subphase" onclick="prevSubPhase('${stop.id}')">← Back</button>
           <div style="height:1px;background:var(--border);margin:4px 0 2px"></div>
-          <button class="btn-skip-stop" onclick="skipStop('${stop.id}')">Skip This Stop</button>
-          ${isPickup ? `<button class="btn-skip-stop" style="color:var(--danger);border-color:rgba(239,68,68,0.25)" onclick="failStop('${stop.id}')">Failed Pickup</button>` : ''}
+          <button class="btn-skip-stop" onclick="cantCompleteStop('${stop.id}')">Can't Complete</button>
         </div>`;
       }
     }
@@ -2789,17 +2776,18 @@ function clearUndo() {
 async function triggerUndo() {
   if (!pendingUndo) return;
   clearUndo();
-  const { type, stopId, prevStopStatus, prevOrderStatus } = pendingUndo;
+  const { type, stopId, prevStopStatus, prevOrderStatus, prevDriverNotes } = pendingUndo;
   pendingUndo = null;
 
   showLoading(true);
   try {
-    // Reverse the stop status
+    // Reverse the stop status (and restore driver_notes if we appended a reason)
     await db.from('route_stops').update({
       status: prevStopStatus,
       completed_at: null,
       actual_arrival: null,
       on_my_way_sent_at: null,
+      ...(prevDriverNotes !== undefined ? { driver_notes: prevDriverNotes } : {}),
     }).eq('id', stopId);
 
     // Reverse the order status
@@ -2808,7 +2796,7 @@ async function triggerUndo() {
       const clearField = type === 'complete'
         ? (stop.stop_type === 'pickup' ? { actual_pickup_at: null } : { actual_delivery_at: null })
         : {};
-      await db.from('orders').update({ status: prevOrderStatus, cancelled_by: null, ...clearField }).eq('id', stop.orders.id);
+      await db.from('orders').update({ status: prevOrderStatus, cancelled_by: null, driver_skip_reason: null, ...clearField }).eq('id', stop.orders.id);
       stop.orders.status = prevOrderStatus;
     }
 
@@ -2960,54 +2948,58 @@ async function completeStop(stopId, stopType) {
 }
 
 /* ──────────────────────────────
-   SKIP CONFIRM SHEET
+   CAN'T COMPLETE (unified skip/fail)
 ────────────────────────────── */
-let _skipConfirmResolve = null;
-function showSkipConfirm() {
+let _cantCompleteResolve = null;
+function showCantComplete() {
   return new Promise(resolve => {
-    _skipConfirmResolve = resolve;
-    document.getElementById('skip-confirm-overlay').classList.add('show');
+    _cantCompleteResolve = resolve;
+    document.getElementById('cant-complete-overlay').classList.add('show');
   });
 }
-function resolveSkipConfirm(confirmed) {
-  document.getElementById('skip-confirm-overlay').classList.remove('show');
-  if (_skipConfirmResolve) { _skipConfirmResolve(confirmed); _skipConfirmResolve = null; }
+function resolveCantComplete(reason) {
+  document.getElementById('cant-complete-overlay').classList.remove('show');
+  if (_cantCompleteResolve) { _cantCompleteResolve(reason); _cantCompleteResolve = null; }
 }
 
-/* ──────────────────────────────
-   FAIL STOP
-────────────────────────────── */
-let _failConfirmResolve = null;
-function showFailConfirm() {
-  return new Promise(resolve => {
-    _failConfirmResolve = resolve;
-    document.getElementById('fail-confirm-overlay').classList.add('show');
-  });
-}
-function resolveFailConfirm(confirmed) {
-  document.getElementById('fail-confirm-overlay').classList.remove('show');
-  if (_failConfirmResolve) { _failConfirmResolve(confirmed); _failConfirmResolve = null; }
-}
-async function failStop(stopId) {
-  const really = await showFailConfirm();
-  if (!really) return;
+const CANT_COMPLETE_LABELS = {
+  bags_not_out: 'Bags not out',
+  cant_access: "Can't access",
+  customer_not_home: 'Customer not home',
+  customer_requested_skip: 'Customer requested skip',
+  other: 'Other',
+};
+
+async function cantCompleteStop(stopId) {
+  const reason = await showCantComplete();
+  if (!reason) return; // user cancelled
 
   const stop = allStops.find(s => s.id === stopId);
   if (!stop) { toast('Stop no longer exists'); goTo('route'); return; }
-  if (stop.stop_type !== 'pickup') { toast('Only pickups can be marked as failed'); return; }
+  const prevStopStatus = stop.status || 'pending';
+  const prevOrderStatus = stop?.orders?.status || null;
+  const prevDriverNotes = stop.driver_notes || null;
+  const isPickup = stop.stop_type === 'pickup';
 
-  // Mark route stop as failed
-  await db.from('route_stops').update({ status: 'failed' }).eq('id', stopId);
+  // Mark route stop as skipped (route_stops constraint allows 'skipped' but not 'failed')
+  await db.from('route_stops').update({
+    status: 'skipped',
+    driver_notes: (stop.driver_notes ? stop.driver_notes + ' | ' : '') + 'Can\'t complete: ' + CANT_COMPLETE_LABELS[reason],
+  }).eq('id', stopId);
 
-  // Mark order as pickup_failed and update local cache
   const idx = allStops.findIndex(s => s.id === stopId);
   if (idx >= 0) {
-    allStops[idx].status = 'failed';
+    allStops[idx].status = 'skipped';
     if (stop?.orders?.id) {
-      await db.from('orders').update({ status: 'pickup_failed' }).eq('id', stop.orders.id);
+      // All "can't complete" map to pickup_failed on the order
+      await db.from('orders').update({
+        status: 'pickup_failed',
+        cancelled_by: 'driver',
+        driver_skip_reason: reason,
+      }).eq('id', stop.orders.id);
       allStops[idx].orders.status = 'pickup_failed';
 
-      // Notify customer via SMS template
+      // Notify customer via SMS (pickup_failed template)
       try {
         await fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
           method: 'POST',
@@ -3019,42 +3011,13 @@ async function failStop(stopId) {
   }
 
   goTo('route');
-  toast('Stop marked as failed');
 
-  // Re-optimize remaining stops from driver's current location (fire-and-forget)
-  if (stop?.route_id) reoptimizeRoute(stop.route_id);
-}
-
-/* ──────────────────────────────
-   SKIP STOP
-────────────────────────────── */
-async function skipStop(stopId) {
-  const really = await showSkipConfirm();
-  if (!really) return;
-
-  const stop = allStops.find(s => s.id === stopId);
-  if (!stop) { toast('Stop no longer exists'); goTo('route'); return; }
-  const prevStopStatus = stop.status || 'pending';
-  const prevOrderStatus = stop?.orders?.status || null;
-
-  await db.from('route_stops').update({ status: 'skipped' }).eq('id', stopId);
-
-  const idx = allStops.findIndex(s => s.id === stopId);
-  if (idx >= 0) {
-    allStops[idx].status = 'skipped';
-    if (stop?.orders?.id) {
-      await db.from('orders').update({ status: 'skipped', cancelled_by: 'driver' }).eq('id', stop.orders.id);
-      allStops[idx].orders.status = 'skipped';
-    }
-  }
-
-  goTo('route');
-
-  showUndoBar('Stop skipped', {
+  showUndoBar('Stop incomplete — ' + CANT_COMPLETE_LABELS[reason], {
     type: 'skip',
     stopId,
     prevStopStatus,
     prevOrderStatus,
+    prevDriverNotes,
   });
 
   // Re-optimize remaining stops from driver's current location (fire-and-forget)
@@ -3073,13 +3036,13 @@ function renderProfile() {
 
   const done  = allStops.filter(s => s.status === 'complete').length;
   const total = allStops.length;
-  const skipped = allStops.filter(s => s.status === 'skipped').length;
+  const skipped = allStops.filter(s => s.status === 'skipped' || s.status === 'failed').length;
 
   document.getElementById('prof-info').innerHTML = `
     <div class="info-row"><span class="info-icon">${ICONS.mail}</span><div><div class="info-lbl">Email</div><div class="info-val">${currentProfile.email||currentUser?.email||'—'}</div></div></div>
     <div class="info-row"><span class="info-icon">${ICONS.phone}</span><div><div class="info-lbl">Phone</div><div class="info-val">${currentProfile.phone||'—'}</div></div></div>
     <div class="info-row"><span class="info-icon">${ICONS.van}</span><div><div class="info-lbl">Vehicle</div><div class="info-val">${currentDriver?.vehicle_type||'—'} ${currentDriver?.vehicle_plate||''}</div></div></div>
-    <div class="info-row"><span class="info-icon">${ICONS.chart}</span><div><div class="info-lbl">Today's Progress</div><div class="info-val">${done} of ${total} complete${skipped ? ` · ${skipped} skipped` : ''}</div></div></div>
+    <div class="info-row"><span class="info-icon">${ICONS.chart}</span><div><div class="info-lbl">Today's Progress</div><div class="info-val">${done} of ${total} complete${skipped ? ` · ${skipped} incomplete` : ''}</div></div></div>
     <div class="info-row"><span class="info-icon">${ICONS.card}</span><div><div class="info-lbl">License</div><div class="info-val">${currentDriver?.license_number||'—'}</div></div></div>
   `;
 }
