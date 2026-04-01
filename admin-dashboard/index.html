@@ -5903,14 +5903,15 @@
     </tbody></table>`;
   }
 
-  // ── Requires Rescheduling (pickup_failed + delivery_failed) ──
+  // ── Requires Rescheduling (mirrors Issues tab "Reschedule →" subset) ──
   async function loadRescheduleOrders() {
     const el = document.getElementById('reschedule-orders-body');
     if (!el) return;
 
+    // Same statuses as ORDER_FILTER_GROUPS.issues: pickup_failed, delivery_failed, on_hold, skipped
     const { data, error } = await db.from('orders')
-      .select('id, order_number, status, total_amount, cancelled_by, driver_skip_reason, pickup_window_start, delivery_window_start, recurring_interval, customers(id, first_name_cache, last_name_cache, phone_cache)')
-      .in('status', ['pickup_failed', 'delivery_failed'])
+      .select('id, order_number, status, total_amount, billing_status, cancelled_by, driver_skip_reason, pickup_window_start, delivery_window_start, recurring_interval, customers(id, first_name_cache, last_name_cache, phone_cache)')
+      .in('status', ['pickup_failed', 'delivery_failed', 'on_hold', 'skipped'])
       .order('created_at', { ascending: false });
 
     if (error || !data) {
@@ -5918,8 +5919,14 @@
       return;
     }
 
-    // Exclude recurring orders that auto-create the next occurrence (they don't need manual rescheduling)
-    const needsReschedule = data.filter(o => !o.recurring_interval);
+    // Match exact Issues tab filter logic, then keep only non-billing-failed (those get card/retry, not reschedule)
+    const needsReschedule = data.filter(o => {
+      if (o.status === 'skipped' && o.cancelled_by === 'customer') return false;
+      if (o.status === 'skipped' && o.recurring_interval) return false;
+      if (o.status === 'pickup_failed' && o.recurring_interval) return false;
+      if (o.billing_status === 'failed') return false; // these get card/retry actions, not reschedule
+      return true;
+    });
 
     const badge = document.getElementById('reschedule-count-badge');
     if (!needsReschedule.length) {
@@ -5937,13 +5944,16 @@
         const cust = o.customers;
         const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
         const reasonText = o.driver_skip_reason ? (REASON_LABELS[o.driver_skip_reason] || o.driver_skip_reason)
-          : o.cancelled_by === 'system' ? 'Auto-failed' : '—';
+          : o.cancelled_by === 'system' ? 'Auto-failed'
+          : o.cancelled_by === 'driver' ? 'Skipped by driver'
+          : o.status === 'on_hold' ? 'On hold'
+          : '—';
         const pickupDate = o.pickup_window_start ? fmtDate(o.pickup_window_start) : '—';
         const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
         return `<tr ${clickable}>
           <td class="td-mono">#${o.order_number}</td>
           <td class="td-name">${esc(name)}</td>
-          <td>${statusBadge(o.status)}</td>
+          <td>${issueBadge(o)}</td>
           <td style="font-size:12px;color:var(--gray-500)">${esc(reasonText)}</td>
           <td style="font-size:12px">${pickupDate}</td>
           <td style="text-align:right"><button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="event.stopPropagation();showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">Reschedule →</button></td>
