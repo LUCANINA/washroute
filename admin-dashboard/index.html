@@ -5840,8 +5840,8 @@
     }
     if (custIds.length && !_cardRequestSent.size) {
       const [{ data: smsRows }, { data: emailRows }] = await Promise.all([
-        db.from('sms_messages').select('customer_id, created_at').in('customer_id', custIds).like('body', '%card on file%'),
-        db.from('email_messages').select('customer_id, created_at').in('customer_id', custIds).eq('subject', 'Add your card to Family Laundry'),
+        db.from('sms_messages').select('customer_id, created_at').in('customer_id', custIds).like('body', '%app.familylaundry.com%'),
+        db.from('email_messages').select('customer_id, created_at').in('customer_id', custIds).or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance'),
       ]);
       _cardRequestSent = new Map();
       [...(smsRows||[]), ...(emailRows||[])].forEach(r => {
@@ -6396,8 +6396,8 @@
     // Side-fetch: which customers have already been sent a card request (SMS or email)?
     if (custIds.length) {
       const [{ data: smsRows }, { data: emailRows }] = await Promise.all([
-        db.from('sms_messages').select('customer_id, created_at').in('customer_id', custIds).like('body', '%card on file%'),
-        db.from('email_messages').select('customer_id, created_at').in('customer_id', custIds).eq('subject', 'Add your card to Family Laundry'),
+        db.from('sms_messages').select('customer_id, created_at').in('customer_id', custIds).like('body', '%app.familylaundry.com%'),
+        db.from('email_messages').select('customer_id, created_at').in('customer_id', custIds).or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance'),
       ]);
       _cardRequestSent = new Map();
       [...(smsRows||[]), ...(emailRows||[])].forEach(r => {
