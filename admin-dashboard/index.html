@@ -5934,10 +5934,12 @@
 
     const REASON_LABELS = { bags_not_out: 'Bags not out', cant_access: "Can't access", customer_not_home: 'Not home', customer_requested_skip: 'Cust. requested', other: 'Other' };
 
-    el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Reason</th><th>Pickup Date</th><th style="text-align:right">Action</th></tr></thead><tbody>
+    el.innerHTML = `<table><thead><tr><th style="width:32px;padding:8px 6px"><input type="checkbox" id="select-all-reschedule" onchange="toggleSelectAllOrders(this)" title="Select all"></th><th>Order</th><th>Customer</th><th>Status</th><th>Reason</th><th>Pickup Date</th><th style="text-align:right">Action</th></tr></thead><tbody>
       ${needsReschedule.map(o => {
         const cust = o.customers;
+        const custId = cust?.id || '';
         const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
+        const phone = cust?.phone_cache || '';
         const reasonText = o.driver_skip_reason ? (REASON_LABELS[o.driver_skip_reason] || o.driver_skip_reason)
           : o.cancelled_by === 'system' ? 'Auto-failed'
           : o.cancelled_by === 'driver' ? 'Skipped by driver'
@@ -5946,6 +5948,7 @@
         const pickupDate = o.pickup_window_start ? fmtDate(o.pickup_window_start) : '—';
         const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
         return `<tr ${clickable}>
+          <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${phone}" data-cust-name="${esc(name)}" onchange="updateOrderBatchBar()"></td>
           <td class="td-mono">#${o.order_number}</td>
           <td class="td-name">${esc(name)}</td>
           <td>${issueBadge(o)}</td>
@@ -6710,7 +6713,10 @@
 
   // ── BATCH BAR HELPERS ──
   function toggleSelectAllOrders(cb) {
-    document.querySelectorAll('.order-select-cb').forEach(c => c.checked = cb.checked);
+    // Scope to the same table as the select-all checkbox
+    const table = cb.closest('table');
+    if (table) table.querySelectorAll('.order-select-cb').forEach(c => c.checked = cb.checked);
+    else document.querySelectorAll('.order-select-cb').forEach(c => c.checked = cb.checked);
     updateOrderBatchBar();
   }
 
@@ -6746,8 +6752,10 @@
 
   function clearOrderSelection() {
     document.querySelectorAll('.order-select-cb').forEach(c => c.checked = false);
-    const selAll = document.getElementById('select-all-orders');
-    if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+    ['select-all-orders', 'select-all-reschedule'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.checked = false; el.indeterminate = false; }
+    });
     updateOrderBatchBar();
   }
 
