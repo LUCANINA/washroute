@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 1, 2026 — Session 88: card request display fix, duplicate $20 credit cleanup, promo trigger disabled, skip/fail consolidation into "Can't Complete" button*
+*Last updated: Apr 1, 2026 — Session 89: orders stat cards fix (Supabase 1000-row limit), commercial accounts billing fix, COMMERCIAL route window, overview UX improvements*
 
 ---
 
@@ -525,6 +525,36 @@ There are actually **two separate hang points** that must both be covered:
 **Still pending:**
 - Annie Reid order #1021 ($187.95) — delivered, has Visa 4686, never charged. Flagged as chargeable, awaiting go-ahead.
 - Git: David pushed card request fix + consolidation commit from terminal.
+
+---
+
+### Apr 1, 2026 (session 89) — Stat cards fix, commercial accounts, overview UX
+
+**⚠️ CRITICAL BUG FIX — Orders stat cards showing wrong numbers (commits `8293b73`, `f0cd6c9`, `384f581`):**
+- David noticed Revenue Today ($503.70) didn't match Stripe ($4,181.80). Every stat card was wrong.
+- Root cause: Supabase PostgREST enforces a server-side max of 1,000 rows per request. `loadOrders()` fetched all orders with no pagination — once the table exceeded 1,000 rows (now at 1,250), the newest ~250 orders were silently dropped. All stat cards (Picked Up Today, Delivered Today, Processing, Ready, $ In Process, Revenue Today) were calculated from truncated data.
+- The numbers were accurate last week because total orders were under 1,000 then.
+- Fix: Replaced single query with paginated fetch (same pattern as `loadCustomers`) — fetches in batches of 1,000 using `.range()` until all rows are retrieved.
+- **⚠️ WARNING: Supabase default max-rows is 1,000.** Any query that could return >1,000 rows MUST use pagination with `.range()`. The `.limit()` client method does NOT override the server cap. Other queries at risk (health checks at lines ~5369-5400) are currently safe due to status filters but should be monitored as data grows.
+
+**Commercial accounts billing fix (DB update, 22 rows):**
+- All recently created commercial accounts (16 Kidango locations + Soul Sanctuary, Russell Moore, Extended Stay America, Reup Refill Shop, Nit Pixies, Fitnesse Training Club) were set to `billing_type: 'automatic'` / `payment_method: 'credit_card'` instead of `billing_type: 'on_account'` / `payment_method: 'check'`.
+- Updated all 22 to correct values. Charlotte Maxwell Clinic was already correct.
+- Pricelist is driven by `customer_type` field (not a separate pricelist column on customers). `customer_type = 'commercial'` → Commercial pricelist services.
+
+**COMMERCIAL route template window change (DB update):**
+- Commercial pickups weren't showing on MAP view because the template had `window_start: 12:00 PM` (PM slot only). When driver Javier arrived early, the AM-defaulting MAP hid the route.
+- Changed `window_start` from `12:00` to `09:00` so COMMERCIAL route shows in AM slot. Window is now 9:00 AM – 3:00 PM.
+
+**Overview page UX improvements (commits from session 88, pushed this session):**
+- Unpaid Delivered Orders section made collapsible (collapsed by default)
+- Added "Requires Rescheduling" section showing orders from Issues tab that need admin action
+- Simplified color palette: black headers, neutral badges (except unpaid total stays red, reschedule count red)
+- New Customers + Recent Orders moved from Overview to Reports page
+- Multi-select checkboxes added to Requires Rescheduling table with same batch actions as Orders page
+
+**Still pending:**
+- Annie Reid order #1021 ($187.95) — delivered, has Visa 4686, never charged. Awaiting go-ahead.
 
 ---
 
