@@ -1249,35 +1249,6 @@
         <!-- ── OVERVIEW ── -->
         <div class="page active" id="page-overview">
 
-          <!-- Main two-col: new customers + recent orders (collapsible) -->
-          <div class="two-col">
-            <div class="card">
-              <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('new-customers-body',this)">
-                <div style="flex:1">
-                  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                    <div class="card-title" style="font-size:16px">New Customers</div>
-                    <span id="cust-24h-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
-                    <span id="cust-conversion-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
-                  </div>
-                </div>
-                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show last 10">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
-              </div>
-              <div id="new-customers-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
-            </div>
-            <div class="card">
-              <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('recent-orders-body',this)">
-                <div style="flex:1">
-                  <div style="display:flex;align-items:center;gap:12px">
-                    <div class="card-title" style="font-size:16px">Recent Orders</div>
-                    <span id="orders-24h-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
-                  </div>
-                </div>
-                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show last 10">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
-              </div>
-              <div id="recent-orders-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
-            </div>
-          </div>
-
           <!-- Open Issues -->
           <div class="card issues-panel">
             <div class="card-header">
@@ -1883,6 +1854,35 @@
 
         <!-- ── REPORTS ── -->
         <div class="page" id="page-reports">
+
+          <!-- New Customers + Recent Orders (moved from Overview) -->
+          <div class="two-col" style="margin-bottom:20px">
+            <div class="card">
+              <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('new-customers-body',this)">
+                <div style="flex:1">
+                  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                    <div class="card-title" style="font-size:16px">New Customers</div>
+                    <span id="cust-24h-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
+                    <span id="cust-conversion-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
+                  </div>
+                </div>
+                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show last 10">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+              </div>
+              <div id="new-customers-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            </div>
+            <div class="card">
+              <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('recent-orders-body',this)">
+                <div style="flex:1">
+                  <div style="display:flex;align-items:center;gap:12px">
+                    <div class="card-title" style="font-size:16px">Recent Orders</div>
+                    <span id="orders-24h-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
+                  </div>
+                </div>
+                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show last 10">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+              </div>
+              <div id="recent-orders-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            </div>
+          </div>
 
           <!-- Period selector + tab bar combined card -->
           <div class="card" style="padding:0;margin-bottom:20px">
@@ -5615,12 +5615,9 @@
   }
 
   async function loadOverview() {
-    loadNewCustomers();
-    loadRecentOrders();
     loadOverviewIssues();
     loadRescheduleOrders();
     loadUnpaidOrders();
-    load24hStats();
   }
 
   async function load24hStats() {
@@ -19588,6 +19585,11 @@ ${oneCopy}
   }
 
   async function loadReports() {
+    // Load the New Customers + Recent Orders panels (moved from Overview)
+    loadNewCustomers();
+    loadRecentOrders();
+    load24hStats();
+
     const { start, end, prevStart, prevEnd } = rptDateRange(rptPeriod);
     ['rpt-revenue','rpt-orders','rpt-lbs','rpt-bags','rpt-aov','rpt-rev-per-lb','rpt-ontime','rpt-repeat',
      'rpt-drv-routes','rpt-drv-stops','rpt-drv-rating']
