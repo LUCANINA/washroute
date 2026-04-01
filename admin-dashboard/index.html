@@ -16485,6 +16485,21 @@ ${oneCopy}
     panel.innerHTML = html;
   }
 
+  // ── RCC: Check if an ETA is past the route template's operating window ──
+  // Compares the ETA's local time-of-day against the template's window_end.
+  // This avoids false "late" flags when an order's individual window doesn't
+  // match the route it was assigned to (e.g. order has AM window but is on PM route).
+  function rccIsEtaPastRouteWindow(etaTime, routeId) {
+    const rd = _rccRouteData[routeId];
+    const tpl = rd ? _dsTemplates.find(t => t.id === rd.route.template_id) : null;
+    if (!tpl?.window_end) return false;
+    const etaLocal = new Date(etaTime.toLocaleString('en-US', { timeZone: BIZ_TZ }));
+    const etaMins = etaLocal.getHours() * 60 + etaLocal.getMinutes();
+    const p = tpl.window_end.split(':');
+    const tplEndMins = parseInt(p[0]) * 60 + parseInt(p[1] || 0);
+    return etaMins > tplEndMins;
+  }
+
   // ── RCC: Build a single draggable stop card ──
   function rccBuildCard(s, routeId, color) {
     const cust = s.orders?.customers || {};
@@ -16520,12 +16535,11 @@ ${oneCopy}
     if (s.estimated_arrival && s.status === 'pending') {
       const etaTime = new Date(s.estimated_arrival);
       const etaStr = etaTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ });
-      // Check if at-risk: ETA past the order's delivery/pickup window end
-      const order = s.orders || {};
-      const windowEnd = isDelivery ? order.delivery_window_end : order.pickup_window_end;
-      const isAtRisk = windowEnd && etaTime > new Date(windowEnd);
+      // Check if at-risk: ETA past the ROUTE TEMPLATE's window end (not the order's
+      // individual window, which can be stale if the order was moved between routes)
+      const isAtRisk = rccIsEtaPastRouteWindow(etaTime, routeId);
       if (isAtRisk) {
-        etaBadge = `<span class="rcc-card-dot"></span><span style="font-size:9.5px;font-weight:600;color:#dc2626;background:#fef2f2;padding:1px 5px;border-radius:4px;" title="ETA past window">⚠ ${etaStr}</span>`;
+        etaBadge = `<span class="rcc-card-dot"></span><span style="font-size:9.5px;font-weight:600;color:#dc2626;background:#fef2f2;padding:1px 5px;border-radius:4px;" title="ETA past route window">⚠ ${etaStr}</span>`;
       } else {
         etaBadge = `<span class="rcc-card-dot"></span><span style="font-size:9.5px;color:#6b7280;" title="Estimated arrival">${etaStr}</span>`;
       }
@@ -16719,10 +16733,8 @@ ${oneCopy}
         const popupNameHtml = popupCustId
           ? `<strong style="cursor:pointer;color:var(--accent);text-decoration:underline;" onclick="openCustomerPanel('${popupCustId}')">${custName}</strong>`
           : `<strong>${custName}</strong>`;
-        // At-risk detection for map pin
-        const isDelivery = s.stop_type === 'delivery';
-        const windowEnd = isDelivery ? s.orders?.delivery_window_end : s.orders?.pickup_window_end;
-        const isAtRisk = s.estimated_arrival && windowEnd && new Date(s.estimated_arrival) > new Date(windowEnd);
+        // At-risk detection for map pin — use route template window, not order window
+        const isAtRisk = s.estimated_arrival && rccIsEtaPastRouteWindow(new Date(s.estimated_arrival), routeId);
         const etaInfo = s.estimated_arrival
           ? `<br><span style="font-size:11px;color:${isAtRisk ? '#dc2626;font-weight:600' : '#6b7280'}">ETA: ${new Date(s.estimated_arrival).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:BIZ_TZ})}${isAtRisk ? ' ⚠ LATE' : ''}</span>`
           : '';
