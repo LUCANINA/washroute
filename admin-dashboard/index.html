@@ -6439,8 +6439,12 @@
     if (el) el.innerHTML = `<div class="loading"><div class="spinner"></div> Loading…</div>`;
 
     // Always fetch all orders — filtering is done client-side so pill counts stay accurate
-    const { data, error } = await db.from('orders')
-      .select(`id, order_number, status, total_amount, stripe_payment_intent_id, billing_status,
+    // Supabase PostgREST caps at 1000 rows per request — paginate to fetch all
+    const PAGE = 1000;
+    let allData = [];
+    let from = 0;
+    let keepGoing = true;
+    const selectCols = `id, order_number, status, total_amount, stripe_payment_intent_id, billing_status,
                weight_lbs, total_bags, service_id, special_instructions, line_items,
                pickup_window_start, pickup_window_end,
                delivery_window_start, delivery_window_end,
@@ -6451,14 +6455,25 @@
                services(name),
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
                pickup_run:pickup_run_id(id, name),
-               delivery_run:delivery_run_id(id, name)`)
-      .limit(10000);
-    if (error) {
-      console.error('loadOrders error:', error);
-      if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load orders</div><div class="empty-sub">${error.message}</div></div>`;
-      return;
+               delivery_run:delivery_run_id(id, name)`;
+    while (keepGoing) {
+      const { data: page, error } = await db.from('orders')
+        .select(selectCols)
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error) {
+        console.error('loadOrders error:', error);
+        if (!allData.length) {
+          if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load orders</div><div class="empty-sub">${error.message}</div></div>`;
+          return;
+        }
+        break;
+      }
+      allData = allData.concat(page || []);
+      keepGoing = (page || []).length === PAGE;
+      from += PAGE;
     }
-    allOrders = data || [];
+    allOrders = allData;
 
     // Side-fetch: which customers have a payment card on file?
     const custIds = [...new Set((data||[]).map(o => o.customers?.id).filter(Boolean))];
