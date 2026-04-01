@@ -1260,7 +1260,7 @@
                     <span id="cust-conversion-badge" style="font-size:13px;font-weight:700;border-radius:8px;padding:3px 10px;display:none"></span>
                   </div>
                 </div>
-                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show last 10">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
               </div>
               <div id="new-customers-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
@@ -1272,7 +1272,7 @@
                     <span id="orders-24h-badge" style="font-size:13px;font-weight:700;color:var(--green);background:#ecfdf5;border-radius:8px;padding:3px 10px;display:none"></span>
                   </div>
                 </div>
-                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+                <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta" data-show-text="Show last 10">Show last 10</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
               </div>
               <div id="recent-orders-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
             </div>
@@ -1293,15 +1293,33 @@
             <div id="overview-issues-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
 
+          <!-- Requires Rescheduling -->
+          <div class="card" style="margin-top:0">
+            <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('reschedule-orders-body',this)">
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <div class="card-title" style="color:#b45309">Requires Rescheduling</div>
+                  <span id="reschedule-count-badge" style="font-size:13px;font-weight:700;color:#b45309;background:#fef3c7;border-radius:8px;padding:3px 10px;display:none"></span>
+                </div>
+              </div>
+              <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
+            </div>
+            <div id="reschedule-orders-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+          </div>
+
           <!-- Unpaid Delivered Orders -->
           <div class="card" style="margin-top:0">
-            <div class="card-header">
-              <div>
-                <div class="card-title" style="color:#b91c1c">Unpaid Delivered Orders</div>
-                <div class="card-sub" id="unpaid-count-sub">Loading…</div>
+            <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('unpaid-orders-body',this)">
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <div class="card-title" style="color:#b91c1c">Unpaid Delivered Orders</div>
+                  <span id="unpaid-count-badge" style="font-size:13px;font-weight:700;color:#b91c1c;background:#fee2e2;border-radius:8px;padding:3px 10px;display:none"></span>
+                </div>
+                <div class="card-sub" id="unpaid-count-sub" style="margin-top:2px">Loading…</div>
               </div>
+              <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--gray-400)"><span class="overview-cta">Show</span><span class="overview-chevron" style="font-size:20px;transition:transform .2s">▸</span></span>
             </div>
-            <div id="unpaid-orders-body"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            <div id="unpaid-orders-body" style="display:none"><div class="loading"><div class="spinner"></div> Loading…</div></div>
           </div>
 
         </div>
@@ -5590,13 +5608,17 @@
     const isHidden = body.style.display === 'none';
     body.style.display = isHidden ? '' : 'none';
     if (chevron) chevron.textContent = isHidden ? '▾' : '▸';
-    if (cta) cta.textContent = isHidden ? 'Hide' : 'Show last 10';
+    if (cta) {
+      const showText = cta.dataset.showText || 'Show last 10';
+      cta.textContent = isHidden ? 'Hide' : showText;
+    }
   }
 
   async function loadOverview() {
     loadNewCustomers();
     loadRecentOrders();
     loadOverviewIssues();
+    loadRescheduleOrders();
     loadUnpaidOrders();
     load24hStats();
   }
@@ -5857,6 +5879,8 @@
     const parts = [`${data.length} order${data.length !== 1 ? 's' : ''}`, fmtMoney(totalOwed) + ' outstanding'];
     if (failedCount) parts.push(`${failedCount} failed`);
     if (subEl) subEl.textContent = parts.join(' · ');
+    const unpaidBadge = document.getElementById('unpaid-count-badge');
+    if (unpaidBadge) { unpaidBadge.textContent = `${data.length} orders · ${fmtMoney(totalOwed)}`; unpaidBadge.style.display = ''; }
 
     el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Billing</th><th style="text-align:right">Amount</th><th style="text-align:right">Action</th></tr></thead><tbody>
       ${data.map(o => {
@@ -5874,6 +5898,55 @@
           <td>${billingBadge}</td>
           <td style="text-align:right;font-weight:600">${fmtMoney(o.total_amount)}</td>
           <td style="text-align:right">${action}</td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>`;
+  }
+
+  // ── Requires Rescheduling (pickup_failed + delivery_failed) ──
+  async function loadRescheduleOrders() {
+    const el = document.getElementById('reschedule-orders-body');
+    if (!el) return;
+
+    const { data, error } = await db.from('orders')
+      .select('id, order_number, status, total_amount, cancelled_by, driver_skip_reason, pickup_window_start, delivery_window_start, recurring_interval, customers(id, first_name_cache, last_name_cache, phone_cache)')
+      .in('status', ['pickup_failed', 'delivery_failed'])
+      .order('created_at', { ascending: false });
+
+    if (error || !data) {
+      el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Could not load orders.</div>';
+      return;
+    }
+
+    // Exclude recurring orders that auto-create the next occurrence (they don't need manual rescheduling)
+    const needsReschedule = data.filter(o => !o.recurring_interval);
+
+    const badge = document.getElementById('reschedule-count-badge');
+    if (!needsReschedule.length) {
+      if (badge) badge.style.display = 'none';
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No orders need rescheduling</div>';
+      return;
+    }
+
+    if (badge) { badge.textContent = `${needsReschedule.length} order${needsReschedule.length !== 1 ? 's' : ''}`; badge.style.display = ''; }
+
+    const REASON_LABELS = { bags_not_out: 'Bags not out', cant_access: "Can't access", customer_not_home: 'Not home', customer_requested_skip: 'Cust. requested', other: 'Other' };
+
+    el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Reason</th><th>Pickup Date</th><th style="text-align:right">Action</th></tr></thead><tbody>
+      ${needsReschedule.map(o => {
+        const cust = o.customers;
+        const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
+        const reasonText = o.driver_skip_reason ? (REASON_LABELS[o.driver_skip_reason] || o.driver_skip_reason)
+          : o.cancelled_by === 'system' ? 'Auto-failed' : '—';
+        const pickupDate = o.pickup_window_start ? fmtDate(o.pickup_window_start) : '—';
+        const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
+        return `<tr ${clickable}>
+          <td class="td-mono">#${o.order_number}</td>
+          <td class="td-name">${esc(name)}</td>
+          <td>${statusBadge(o.status)}</td>
+          <td style="font-size:12px;color:var(--gray-500)">${esc(reasonText)}</td>
+          <td style="font-size:12px">${pickupDate}</td>
+          <td style="text-align:right"><button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="event.stopPropagation();showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">Reschedule →</button></td>
         </tr>`;
       }).join('')}
     </tbody></table>`;
