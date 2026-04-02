@@ -14030,8 +14030,8 @@ ${oneCopy}
         const paidBadge = isPaid
           ? `<span style="font-size:11px;font-weight:600;color:#059669;white-space:nowrap">✅ Paid${methodLabel}</span>`
           : `<span style="font-size:11px;font-weight:600;color:#b45309;white-space:nowrap">◻ Outstanding</span>`;
-        return `<div class="cp-order-row billing-row${checked?' billing-selected':''}${isPaid?' billing-paid':''}" id="brow-${o.id}" onclick="${isPaid ? '' : `toggleBillingOrder('${o.id}')`}" style="${isPaid ? 'opacity:0.6;cursor:default' : ''}">
-          <input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} ${isPaid?'disabled':''} onclick="event.stopPropagation();${isPaid ? '' : `toggleBillingOrder('${o.id}')`}">
+        return `<div class="cp-order-row billing-row${checked?' billing-selected':''}${isPaid?' billing-paid':''}" id="brow-${o.id}" onclick="toggleBillingOrder('${o.id}')" style="${isPaid ? 'opacity:0.7' : ''}">
+          <input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} onclick="event.stopPropagation();toggleBillingOrder('${o.id}')">
           <span class="cp-order-num">#${o.order_number}</span>
           <div class="cp-order-svc">
             <div style="font-weight:500">${o.services?.name||'—'}</div>
@@ -14090,11 +14090,18 @@ ${oneCopy}
       bar.classList.remove('visible'); return;
     }
     bar.classList.add('visible');
-    const selectedUnpaid = cpAllOrders.filter(o => cpBillingSelection.has(o.id) && !o.stripe_payment_intent_id);
-    const total = selectedUnpaid.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
-    document.getElementById('billing-bar-count').textContent = selectedUnpaid.length;
-    document.getElementById('billing-bar-plural').textContent = selectedUnpaid.length === 1 ? '' : 's';
+    const selectedAll = cpAllOrders.filter(o => cpBillingSelection.has(o.id));
+    const selectedUnpaid = selectedAll.filter(o => !o.stripe_payment_intent_id && o.billing_status !== 'paid');
+    const selectedPaid   = selectedAll.filter(o => !!o.stripe_payment_intent_id || o.billing_status === 'paid');
+    const total = selectedAll.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
+    document.getElementById('billing-bar-count').textContent = selectedAll.length;
+    document.getElementById('billing-bar-plural').textContent = selectedAll.length === 1 ? '' : 's';
     document.getElementById('billing-bar-total').textContent = fmtMoney(total);
+    // Show/hide buttons based on selection mix
+    const billBtn = bar.querySelector('.btn-primary');
+    const printBtn = bar.querySelector('.btn:not(.btn-primary)');
+    if (billBtn) billBtn.style.display = selectedUnpaid.length > 0 ? '' : 'none';
+    if (printBtn) printBtn.style.display = '';
   }
 
   function onBillMethodChange() {
@@ -14361,7 +14368,7 @@ ${oneCopy}
       : [];
     const today    = new Date().toLocaleDateString('en-US', { weekday:'short', month:'numeric', day:'numeric', year:'2-digit' });
     const totalAmount = orders.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
-    const totalPaid   = orders.filter(o => !!o.stripe_payment_intent_id).reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+    const totalPaid   = orders.filter(o => !!o.stripe_payment_intent_id || o.billing_status === 'paid').reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
     const totalDue    = totalAmount - totalPaid;
 
     function fmtInvMoney(n) { return '$' + parseFloat(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
@@ -14369,7 +14376,7 @@ ${oneCopy}
 
     const orderBlocks = orders.map(o => {
       const items = Array.isArray(o.line_items) ? o.line_items : [];
-      const isPaid = !!o.stripe_payment_intent_id;
+      const isPaid = !!o.stripe_payment_intent_id || o.billing_status === 'paid';
       const docType = isPaid ? 'RECEIPT' : 'INVOICE';
       // Show charge items (>0) and credit items (<0), skip $0 preference flags
       const displayItems = items.filter(li => parseFloat(li.amount || 0) !== 0);
@@ -14394,9 +14401,10 @@ ${oneCopy}
               <td style="text-align:right;padding:2px 0;font-size:12px;color:#059669">−${fmtInvMoney(Math.abs(li.amount))}</td>
             </tr>`).join('');
       // Payment status row
+      const paidMethodLabel = o.billing_payment_method === 'credit' ? ' (Account Credit)' : o.billing_payment_method === 'check' ? ' (Check)' : o.billing_payment_method === 'cash' ? ' (Cash)' : o.stripe_payment_intent_id ? ' (Card)' : '';
       const paidRow = isPaid ? `
             <tr>
-              <td style="padding:4px 0 0 24px;font-size:12px;font-weight:600;color:#059669">✓ PAID</td>
+              <td style="padding:4px 0 0 24px;font-size:12px;font-weight:600;color:#059669">✓ PAID${paidMethodLabel}</td>
               <td style="text-align:right;font-size:12px;font-weight:600;color:#059669;padding:4px 0 0">−${fmtInvMoney(o.total_amount)}</td>
             </tr>
             <tr>
