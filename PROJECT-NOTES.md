@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 1, 2026 — Session 89: orders stat cards fix (Supabase 1000-row limit), commercial accounts billing fix, COMMERCIAL route window, overview UX improvements*
+*Last updated: Apr 2, 2026 — Session 90: RCC chip strip AM/PM stacked rows, discount system wired to intake, Kidango billing corrected (Delivery pricelist + NON PROFIT 5%), saveIntake now persists service_id + discount_id*
 
 ---
 
@@ -490,6 +490,7 @@ There are actually **two separate hang points** that must both be covered:
 | 25 | ~~P1 → Fixed~~ | Duplicate customer accounts | ~~Returning customers who signed up again got duplicate accounts because RLS blocked client-side dedup queries.~~ **FIXED session 74**: `claim_existing_customer` SECURITY DEFINER RPC bypasses RLS. All 3 dedup code paths updated. |
 | 26 | ~~P1 → Fixed~~ | Same-day delivery picker | ~~Delivery date picker min was pickup+1 day, blocking same-day delivery selection.~~ **FIXED session 74**: Changed min to pickup same day. Slot-level validation is the real guard. |
 | 27 | ~~P2 → Fixed~~ | $20 promo credit drift | ~~231 customers under-credited ($0 instead of $20) from account merges; 11 over-credited from duplicate signups.~~ **FIXED session 74**: Bulk correction applied, credit_remove txns logged for audit trail. |
+| 28 | P1 Tech Debt | `stripe-webhook` | **`payment_method.detached` not handled.** When Stripe auto-detaches a card after a failed off-session charge, our DB still shows it as active in `customer_payment_methods`. Next charge attempt against that customer will fail again. Fix: add `payment_method.detached` handler in `stripe-webhook` to mark the row inactive or delete it. Root cause of Rae Kaplan's recurring charge failures (session 90). |
 
 ---
 
@@ -525,6 +526,57 @@ There are actually **two separate hang points** that must both be covered:
 **Still pending:**
 - Annie Reid order #1021 ($187.95) — delivered, has Visa 4686, never charged. Flagged as chargeable, awaiting go-ahead.
 - Git: David pushed card request fix + consolidation commit from terminal.
+
+---
+
+### Apr 2, 2026 (session 90) — RCC chip strip redesign, discount intake wiring, Kidango billing fix
+
+**RCC chip strip — stacked AM/PM rows (commits `97ca001`, `53c29a1`):**
+- Luis (colleague) couldn't see all routes on the Order Schedule map — AM/PM toggle was functioning as a hard filter, hiding any route not matching the active slot, and closing columns when the slot switched.
+- Fix 1: `rccSetSlot()` neutered to no-op; `rccAutoOpenSlotRoutes()` now opens ALL routes with ≥1 pending stop regardless of slot.
+- Fix 2: Chip strip redesigned from a single scrolling row with AM/PM toggle to two stacked rows with static "AM" / "PM" labels. `rccRenderChips()` splits templates into `amTemplates` (window_start < 12) and `pmTemplates` (window_start ≥ 12) and renders each as a `.rcc-chip-row`. Scroll arrows and arrow nav functions removed.
+- Routes are now always visible — no filter, no toggle, no hiding.
+
+**Overview "Requires Rescheduling" — recurring icon added:**
+- Orders with a `recurring_interval` now show the green ↺ recurring icon next to the customer name in the Requires Rescheduling table, matching the styling on the Orders list page.
+- Uses existing `_recurSvg(interval)` helper.
+
+**Rae Kaplan card investigation (root cause found, not auto-fixed):**
+- Stripe auto-detaches a payment method after a failed off-session charge attempt. Our `stripe-webhook` has no `payment_method.detached` handler, so `customer_payment_methods` in the DB still shows the card as active even after Stripe has removed it.
+- This is the same drift bug that caused Rae's "Update card" error loop.
+- Short-term: David will send Rae a new checkout link to re-add her card.
+- **⚠️ Tech debt:** `stripe-webhook` needs a `payment_method.detached` handler that sets `customer_payment_methods.is_active = false` (or deletes the row) when Stripe fires this event. Without it, charge-order will keep trying detached cards and failing.
+
+**Commercial billing root-cause fix — `saveIntake()` never wrote `service_id` (commit `5f683b8`):**
+- All 110 Kidango orders created March 31 had `service_id = NULL` from a bulk migration that didn't set it.
+- Additionally, `saveIntake()` never included `service_id` in its DB update object, so the service linkage was permanently lost at intake even when `procSvc` was correctly set in memory.
+- Fix: `saveIntake()` now writes `service_id: procSvc?.id || null` on every intake save.
+- Backfill: All 110 Kidango orders updated to correct service_id.
+
+**Kidango billing corrected — Delivery pricelist + NON PROFIT discount (commit `5f683b8`):**
+- David clarified: Kidango (non-profit) should be on the **Delivery pricelist** ($59/bag), not Commercial ($1.75/lb).
+- Discount: NON PROFIT (5% off) applies to the base service charge only (not delivery fee), shown as a separate line item at the bottom of the itemization.
+- DB changes:
+  - 16 Kidango customer profiles: `discount_id` set to NON PROFIT discount UUID.
+  - 110 Kidango orders: `service_id` switched from Commercial W&F → Delivery W&F (`d97ba33a`).
+  - 16 processing orders: `total_amount` and `line_items` recalculated at bags × $59 − 5% + $9.95 delivery. Range: $66.00 (1 bag) to $458.35 (8 bags).
+
+**Discount system wired to intake flow (commit `5f683b8`):**
+- Discounts were stored on customer profiles (`discount_id`) but never applied during intake — the `calcProcTotal()` / `_buildIntakeLineItems()` pipeline ignored them entirely.
+- Added `procCustomerDiscount` variable (alongside `procCustomerCredits`).
+- `openIntakePanel()` fresh customer fetch now includes `discount_id` and resolves it against `allDiscounts` cache.
+- `calcProcTotal()`: computes `discountAmt = base × pct / 100`; subtracts from subtotal before credit application.
+- `_buildIntakeLineItems()`: appends a `discount` line item (negative amount, label shows name + %) after delivery fee, before credits.
+- `saveIntake()`: now writes both `service_id` and `discount_id` to the order record.
+- Works for any discount in the system (percent or fixed), not just NON PROFIT.
+
+**Still pending from this session:**
+- Rae Kaplan: send new checkout link to re-add card.
+- `stripe-webhook` `payment_method.detached` handler — tech debt, not yet built.
+- Annie Reid order #1021 ($187.95) — awaiting David's go-ahead to charge.
+- Wrong-date stops: Suzanne Stroebe #949 (Apr 8 → Apr 4), Katie Guadagno #1569 (Apr 2 → Apr 3).
+- Ghost stops: 15 pending stops on 7 closed/skipped orders need terminal status.
+- AlbertH HartIII duplicate orders #1545 / #1584 — investigate and likely delete newer one.
 
 ---
 
