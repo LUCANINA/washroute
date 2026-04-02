@@ -5943,7 +5943,7 @@
         return `<tr ${clickable}>
           <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${phone}" data-cust-name="${esc(name)}" onchange="updateOrderBatchBar()"></td>
           <td class="td-mono">#${o.order_number}</td>
-          <td class="td-name">${esc(name)}</td>
+          <td class="td-name"><span style="display:flex;align-items:center;gap:6px">${_recurSvg(o.recurring_interval)}<span>${esc(name)}</span></span></td>
           <td>${issueBadge(o)}</td>
           <td style="font-size:12px;color:var(--gray-500)">${esc(reasonText)}</td>
           <td style="font-size:12px">${pickupDate}</td>
@@ -18599,8 +18599,9 @@ ${oneCopy}
   let procAddonPrefQty  = {}; // { [prefGroupId]: qty } — per-item qty for preference-linked services (Shirt Service, Air Dry)
   let procFeeExempt = false;  // true when customer has fee_exempt checked
   let procIsSameDay = false;  // true when pickup date === delivery date
-  let procCustomerCredits = 0; // customer's available credit balance
-  let procCustomerId = null;   // customer ID for credit deduction
+  let procCustomerCredits = 0;   // customer's available credit balance
+  let procCustomerId = null;     // customer ID for credit deduction
+  let procCustomerDiscount = null; // { id, name, type:'percent'|'fixed', value } or null
   // _intakeEditMode removed — intake panel is only used for Intake column now
   let allAddonServicesCache = []; // active is_addon services with pricelist + linked_preference_id
   let allPreferencesCache  = []; // global preferences table (for pre-fill logic)
@@ -18843,7 +18844,7 @@ ${oneCopy}
     let customerPrefs = order.customers?.preferences   || {};
     if (custId) {
       const { data: fresh } = await db.from('customers')
-        .select('customer_type, preferences, fee_exempt, credits')
+        .select('customer_type, preferences, fee_exempt, credits, discount_id')
         .eq('id', custId)
         .single();
       if (fresh) {
@@ -18852,6 +18853,9 @@ ${oneCopy}
         procFeeExempt = !!fresh.fee_exempt;
         procCustomerCredits = parseFloat(fresh.credits || 0);
         procCustomerId = custId;
+        procCustomerDiscount = fresh.discount_id
+          ? (allDiscounts.find(d => d.id === fresh.discount_id) || null)
+          : null;
       }
     }
 
@@ -19189,11 +19193,14 @@ ${oneCopy}
       return sum + price * units;
     }, 0);
     const { deliveryFee, sameDaySurcharge, deliveryTotal } = getDeliveryFees();
-    const subtotal = base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total + deliveryTotal;
+    // Discount applies to the service base only (not delivery fee)
+    const discountPct = (procCustomerDiscount?.type === 'percent') ? parseFloat(procCustomerDiscount.value) / 100 : 0;
+    const discountAmt = discountPct > 0 ? Math.round(base * discountPct * 100) / 100 : 0;
+    const subtotal = base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total + deliveryTotal - discountAmt;
     const creditApplied = Math.min(procCustomerCredits, subtotal); // never exceed total
     const total = Math.max(0, subtotal - creditApplied);
     return { bags, weight, base, overage_lbs, overage_charge, addons_total, addonSvc_total, prefLinkedSvc_total,
-             deliveryFee, sameDaySurcharge, deliveryTotal, subtotal, creditApplied,
+             deliveryFee, sameDaySurcharge, deliveryTotal, discountAmt, subtotal, creditApplied,
              total };
   }
 
@@ -19340,6 +19347,12 @@ ${oneCopy}
       if (bd.sameDaySurcharge > 0)
         lineItems.push({ type: 'same_day_surcharge', label: 'Same-day surcharge', amount: bd.sameDaySurcharge });
     }
+    if (bd.discountAmt > 0 && procCustomerDiscount) {
+      const discLabel = procCustomerDiscount.type === 'percent'
+        ? `${procCustomerDiscount.name} (${procCustomerDiscount.value}% off)`
+        : procCustomerDiscount.name;
+      lineItems.push({ type: 'discount', label: discLabel, amount: -bd.discountAmt });
+    }
     if (bd.creditApplied > 0) {
       lineItems.push({ type: 'credit', label: 'Account credit applied', amount: -bd.creditApplied });
     }
@@ -19416,6 +19429,8 @@ ${oneCopy}
       status: 'processing', weight_lbs: weight, total_bags: bd.bags,
       total_amount: bd.total, line_items: lineItems,
       is_same_day: procIsSameDay,
+      service_id: procSvc?.id || null,
+      discount_id: procCustomerDiscount?.id || null,
       special_instructions: procNotes || null,
       updated_at: new Date().toISOString()
     }).eq('id', procActiveOrder.id);
