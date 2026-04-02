@@ -3464,11 +3464,7 @@
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="filter-tab active" id="cpof-scheduled" onclick="filterCpOrders('scheduled',this)">Scheduled</button>
         <button class="filter-tab" id="cpof-active" onclick="filterCpOrders('active',this)">Active</button>
-        <button class="filter-tab" id="cpof-done" onclick="filterCpOrders('done',this)">Completed</button>
-        <button class="filter-tab" id="cpof-cancelled" onclick="filterCpOrders('cancelled',this)" style="color:var(--gray-400)">Cancelled</button>
-        <button class="filter-tab" id="cpof-billing" onclick="filterCpOrders('billing',this)" style="border-color:var(--accent);color:var(--accent)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;display:inline;margin-right:3px"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Billing
-        </button>
+        <button class="filter-tab" id="cpof-done" onclick="filterCpOrders('billing',this)">Completed</button>
       </div>
     </div>
     <div class="cp-card" style="padding:0;overflow:hidden">
@@ -14007,14 +14003,11 @@ ${oneCopy}
     let filtered = data;
     if (filter==='scheduled') filtered = data.filter(o=>scheduledStatuses.includes(o.status));
     if (filter==='active')    filtered = data.filter(o=>activeStatuses.includes(o.status));
-    if (filter==='done')      filtered = data.filter(o=>doneStatuses.includes(o.status));
-    if (filter==='cancelled') filtered = data.filter(o=>o.status === 'cancelled');
     if (filter==='billing')   filtered = data.filter(o=>o.status==='delivered' || o.billing_status);
     const el = document.getElementById('cp-orders-list');
     if (!filtered.length) {
-      const msg = filter==='scheduled'  ? 'No scheduled orders.'
-                : filter==='billing'   ? 'No delivered orders to bill yet.'
-                : filter==='cancelled' ? 'No cancelled orders.'
+      const msg = filter==='scheduled' ? 'No scheduled orders.'
+                : filter==='billing'  ? 'No completed orders yet.'
                 : 'No orders in this filter.';
       el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">${msg}</div>`;
       return;
@@ -14214,7 +14207,7 @@ ${oneCopy}
         if (successIds.length > 0) {
           cpBillingSelection.clear();
           await loadPanelOrders(panelCustomerId);
-          filterCpOrders('billing', document.getElementById('cpof-billing'));
+          filterCpOrders('billing', document.getElementById('cpof-done'));
           closeBillModal();
         }
         return;
@@ -14232,7 +14225,7 @@ ${oneCopy}
         }).catch(e => console.warn('Receipt failed for', orderId, e));
       }
       await loadPanelOrders(panelCustomerId);
-      filterCpOrders('billing', document.getElementById('cpof-billing'));
+      filterCpOrders('billing', document.getElementById('cpof-done'));
       return;
     }
 
@@ -14258,7 +14251,7 @@ ${oneCopy}
     cpBillingSelection.clear();
     showToast(`${ids.length} order${ids.length > 1 ? 's' : ''} marked as paid ✓`, 'success');
     await loadPanelOrders(panelCustomerId);
-    filterCpOrders('billing', document.getElementById('cpof-billing'));
+    filterCpOrders('billing', document.getElementById('cpof-done'));
   }
 
   function printInvoice() {
