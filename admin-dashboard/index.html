@@ -14264,52 +14264,61 @@ ${oneCopy}
 
     // ── CREDIT: deduct from account credit balance ──
     if (method === 'credit') {
-      const { data: freshCust } = await db.from('customers').select('credits').eq('id', panelCustomerId).single();
-      const creditBal = parseFloat(freshCust?.credits || 0);
-      const total = cpAllOrders.filter(o => ids.includes(o.id)).reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
-      if (creditBal <= 0) { showToast('No credit balance available', 'error'); return; }
-      const applied = Math.min(creditBal, total);
-      const ok = confirm(`Apply ${fmtMoney(applied)} in account credits to ${ids.length} order${ids.length !== 1 ? 's' : ''}?${creditBal < total ? `\n\n${fmtMoney(total - applied)} will remain outstanding.` : ''}`);
-      if (!ok) return;
+      try {
+        const { data: freshCust } = await db.from('customers').select('credits').eq('id', panelCustomerId).single();
+        const creditBal = parseFloat(freshCust?.credits || 0);
+        const total = cpAllOrders.filter(o => ids.includes(o.id)).reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+        if (creditBal <= 0) { showToast('No credit balance available', 'error'); return; }
+        const applied = Math.min(creditBal, total);
+        const ok = confirm(`Apply ${fmtMoney(applied)} in account credits to ${ids.length} order${ids.length !== 1 ? 's' : ''}?${creditBal < total ? `\n\n${fmtMoney(total - applied)} will remain outstanding.` : ''}`);
+        if (!ok) return;
 
-      btn.disabled = true; btn.textContent = 'Applying…';
-      // Deduct credits from customer
-      const newBal = Math.round((creditBal - applied) * 100) / 100;
-      const { error: credErr } = await db.from('customers').update({ credits: newBal, updated_at: new Date().toISOString() }).eq('id', panelCustomerId);
-      if (credErr) { showToast('Failed to deduct credits: ' + credErr.message, 'error'); btn.disabled = false; btn.textContent = 'Confirm & Apply Credit'; return; }
+        btn.disabled = true; btn.textContent = 'Applying…';
 
-      // Log credit_use transaction
-      await db.from('customer_transactions').insert({
-        customer_id: panelCustomerId,
-        type: 'credit_use',
-        amount: applied,
-        description: `Applied to ${ids.length} order${ids.length !== 1 ? 's' : ''}: ${ids.map(id => { const o = cpAllOrders.find(x => x.id === id); return '#' + (o?.order_number || '?'); }).join(', ')}`,
-        payment_method: 'credit',
-        note: notes || null,
-      });
+        // Step 1: Mark orders as paid FIRST (most important)
+        const { error: ordErr } = await db.from('orders').update({
+          billing_status: 'paid',
+          billing_payment_method: 'credit',
+          billing_notes: notes || null,
+          billed_at: new Date().toISOString()
+        }).in('id', ids);
+        if (ordErr) { showToast('Failed to mark orders paid: ' + ordErr.message, 'error'); btn.disabled = false; btn.textContent = 'Confirm & Apply Credit'; return; }
 
-      // Log billing event per order and mark paid
-      for (const oid of ids) {
-        const ord = cpAllOrders.find(x => x.id === oid);
-        await logOrderEvent(oid, 'billing', `Paid via account credit — ${fmtMoney(ord?.total_amount || 0)}`, null, 'paid');
+        // Step 2: Deduct credits (only after orders are marked paid)
+        const newBal = Math.round((creditBal - applied) * 100) / 100;
+        await db.from('customers').update({ credits: newBal, updated_at: new Date().toISOString() }).eq('id', panelCustomerId);
+
+        // Step 3: Log credit_use transaction (best-effort)
+        await db.from('customer_transactions').insert({
+          customer_id: panelCustomerId,
+          type: 'credit_use',
+          amount: applied,
+          description: `Applied to ${ids.length} order${ids.length !== 1 ? 's' : ''}: ${ids.map(id => '#' + (cpAllOrders.find(x => x.id === id)?.order_number || '?')).join(', ')}`,
+          payment_method: 'credit',
+          note: notes || null,
+        });
+
+        // Step 4: Log billing events (best-effort)
+        for (const oid of ids) {
+          const ord = cpAllOrders.find(x => x.id === oid);
+          await logOrderEvent(oid, 'billing', `Paid via account credit — ${fmtMoney(ord?.total_amount || 0)}`, null, 'paid');
+        }
+
+        // Update in-memory credit balance
+        _panelCustomerData.credits = newBal;
+        const credDisp = document.getElementById('cpb-credits-display');
+        if (credDisp) credDisp.textContent = fmtMoney(newBal);
+
+        closeBillModal();
+        cpBillingSelection.clear();
+        showToast(`${fmtMoney(applied)} credit applied to ${ids.length} order${ids.length !== 1 ? 's' : ''} ✓`, 'success');
+        await loadPanelOrders(panelCustomerId);
+        filterCpOrders('billing', document.getElementById('cpof-done'));
+      } catch (e) {
+        console.error('Credit billing error:', e);
+        showToast('Error applying credit: ' + (e.message || 'Unknown error'), 'error');
+        btn.disabled = false; btn.textContent = 'Confirm & Apply Credit';
       }
-      const { error } = await db.from('orders').update({
-        billing_status: 'paid',
-        billing_payment_method: 'credit',
-        billing_notes: notes || null,
-        billed_at: new Date().toISOString()
-      }).in('id', ids);
-      if (error) { showToast('Failed to mark orders paid: ' + error.message, 'error'); btn.disabled = false; btn.textContent = 'Confirm & Apply Credit'; return; }
-
-      // Update in-memory credit balance
-      _panelCustomerData.credits = newBal;
-      document.getElementById('cpb-credits-display').textContent = fmtMoney(newBal);
-
-      closeBillModal();
-      cpBillingSelection.clear();
-      showToast(`${fmtMoney(applied)} credit applied to ${ids.length} order${ids.length !== 1 ? 's' : ''} ✓`, 'success');
-      await loadPanelOrders(panelCustomerId);
-      filterCpOrders('billing', document.getElementById('cpof-done'));
       return;
     }
 
