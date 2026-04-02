@@ -18621,7 +18621,7 @@ ${oneCopy}
         .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
                  stripe_payment_intent_id, pickup_window_start, delivery_window_start, total_amount, line_items,
                  customers(id, first_name_cache, last_name_cache, customer_type, preferences, billing_type),
-                 services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
+                 services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
         .eq('status', 'picked_up')
         .order('actual_pickup_at', { ascending: true }),
     ]);
@@ -18665,7 +18665,7 @@ ${oneCopy}
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                actual_pickup_at, pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, customer_type, preferences, billing_type, addresses(id,label,line1,city)),
-               services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
+               services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('status', 'picked_up')
       .order('actual_pickup_at', { ascending: true });
@@ -18796,7 +18796,7 @@ ${oneCopy}
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id, total_amount, line_items,
                customers(id, first_name_cache, last_name_cache, customer_type, preferences, addresses(id,label,line1,city)),
-               services(id, name, base_price, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
+               services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('id', orderId)
       .single();
