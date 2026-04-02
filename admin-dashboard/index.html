@@ -3533,7 +3533,13 @@
           <input type="radio" name="bill-method" value="credit_card" style="accent-color:var(--accent)" onchange="onBillMethodChange()">
           <span>Credit Card</span>
         </label>
+        <label class="bill-method-opt" data-val="credit" id="bill-method-credit-label" style="grid-column:span 2">
+          <input type="radio" name="bill-method" value="credit" style="accent-color:var(--accent)" onchange="onBillMethodChange()">
+          <span>Account Credit</span>
+          <span id="bill-credit-balance" style="margin-left:auto;font-size:11px;font-weight:600;color:var(--accent)"></span>
+        </label>
       </div>
+      <div id="bill-credit-warning" style="display:none;margin-top:6px;padding:8px 10px;border-radius:8px;background:#fef3c7;font-size:12px;color:#92400e"></div>
     </div>
 
     <div style="margin-bottom:22px">
@@ -14094,7 +14100,9 @@ ${oneCopy}
     const method = document.querySelector('#bill-method-btns input:checked')?.value;
     const btn    = document.getElementById('bill-modal-confirm-btn');
     if (!btn) return;
-    btn.textContent = method === 'credit_card' ? 'Confirm & Charge Card' : 'Confirm & Mark Paid';
+    btn.textContent = method === 'credit_card' ? 'Confirm & Charge Card'
+                    : method === 'credit'      ? 'Confirm & Apply Credit'
+                    : 'Confirm & Mark Paid';
     // Show/hide a helper tip when credit card is selected
     let tip = document.getElementById('bill-cc-tip');
     if (method === 'credit_card') {
@@ -14109,6 +14117,22 @@ ${oneCopy}
       tip.style.display = '';
     } else if (tip) {
       tip.style.display = 'none';
+    }
+    // Show/hide credit balance warning
+    const creditWarn = document.getElementById('bill-credit-warning');
+    if (method === 'credit') {
+      const creditBal = parseFloat(_panelCustomerData?.credits || 0);
+      const total = cpAllOrders.filter(o => cpBillingSelection.has(o.id) && !o.stripe_payment_intent_id)
+        .reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+      if (creditBal < total) {
+        creditWarn.textContent = `Credit balance (${fmtMoney(creditBal)}) is less than total (${fmtMoney(total)}). ${fmtMoney(creditBal)} will be applied; remaining ${fmtMoney(total - creditBal)} stays outstanding.`;
+        creditWarn.style.display = '';
+        btn.textContent = 'Confirm & Apply Credit';
+      } else {
+        creditWarn.style.display = 'none';
+      }
+    } else if (creditWarn) {
+      creditWarn.style.display = 'none';
     }
   }
 
@@ -14130,6 +14154,15 @@ ${oneCopy}
     // Hide the credit card tip if visible
     const tip = document.getElementById('bill-cc-tip');
     if (tip) tip.style.display = 'none';
+    // Show credit balance on the Credit option
+    const creditBal = parseFloat(_panelCustomerData?.credits || 0);
+    const creditLabel = document.getElementById('bill-method-credit-label');
+    const creditBalEl = document.getElementById('bill-credit-balance');
+    const creditRadio = creditLabel?.querySelector('input[type=radio]');
+    if (creditBalEl) creditBalEl.textContent = creditBal > 0 ? fmtMoney(creditBal) + ' available' : '$0.00';
+    if (creditRadio) creditRadio.disabled = creditBal <= 0;
+    if (creditLabel) creditLabel.style.opacity = creditBal > 0 ? '1' : '0.45';
+    document.getElementById('bill-credit-warning').style.display = 'none';
     document.getElementById('bill-modal').style.display = 'flex';
   }
 
@@ -14224,6 +14257,57 @@ ${oneCopy}
           body: JSON.stringify({ order_id: orderId }),
         }).catch(e => console.warn('Receipt failed for', orderId, e));
       }
+      await loadPanelOrders(panelCustomerId);
+      filterCpOrders('billing', document.getElementById('cpof-done'));
+      return;
+    }
+
+    // ── CREDIT: deduct from account credit balance ──
+    if (method === 'credit') {
+      const { data: freshCust } = await db.from('customers').select('credits').eq('id', panelCustomerId).single();
+      const creditBal = parseFloat(freshCust?.credits || 0);
+      const total = cpAllOrders.filter(o => ids.includes(o.id)).reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+      if (creditBal <= 0) { showToast('No credit balance available', 'error'); return; }
+      const applied = Math.min(creditBal, total);
+      const ok = confirm(`Apply ${fmtMoney(applied)} in account credits to ${ids.length} order${ids.length !== 1 ? 's' : ''}?${creditBal < total ? `\n\n${fmtMoney(total - applied)} will remain outstanding.` : ''}`);
+      if (!ok) return;
+
+      btn.disabled = true; btn.textContent = 'Applying…';
+      // Deduct credits from customer
+      const newBal = Math.round((creditBal - applied) * 100) / 100;
+      const { error: credErr } = await db.from('customers').update({ credits: newBal, updated_at: new Date().toISOString() }).eq('id', panelCustomerId);
+      if (credErr) { showToast('Failed to deduct credits: ' + credErr.message, 'error'); btn.disabled = false; btn.textContent = 'Confirm & Apply Credit'; return; }
+
+      // Log credit_use transaction
+      await db.from('customer_transactions').insert({
+        customer_id: panelCustomerId,
+        type: 'credit_use',
+        amount: applied,
+        description: `Applied to ${ids.length} order${ids.length !== 1 ? 's' : ''}: ${ids.map(id => { const o = cpAllOrders.find(x => x.id === id); return '#' + (o?.order_number || '?'); }).join(', ')}`,
+        created_by: currentAdmin?.first_name || 'Admin',
+        note: notes || null,
+      });
+
+      // Log billing event per order and mark paid
+      for (const oid of ids) {
+        const ord = cpAllOrders.find(x => x.id === oid);
+        await logOrderEvent(oid, 'billing', `Paid via account credit — ${fmtMoney(ord?.total_amount || 0)}`, null, 'paid');
+      }
+      const { error } = await db.from('orders').update({
+        billing_status: 'paid',
+        billing_payment_method: 'credit',
+        billing_notes: notes || null,
+        billed_at: new Date().toISOString()
+      }).in('id', ids);
+      if (error) { showToast('Failed to mark orders paid: ' + error.message, 'error'); btn.disabled = false; btn.textContent = 'Confirm & Apply Credit'; return; }
+
+      // Update in-memory credit balance
+      _panelCustomerData.credits = newBal;
+      document.getElementById('cpb-credits-display').textContent = fmtMoney(newBal);
+
+      closeBillModal();
+      cpBillingSelection.clear();
+      showToast(`${fmtMoney(applied)} credit applied to ${ids.length} order${ids.length !== 1 ? 's' : ''} ✓`, 'success');
       await loadPanelOrders(panelCustomerId);
       filterCpOrders('billing', document.getElementById('cpof-done'));
       return;
