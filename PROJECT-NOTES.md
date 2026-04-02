@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 2, 2026 — Session 90: RCC chip strip AM/PM stacked rows, discount system wired to intake, Kidango billing corrected (Delivery pricelist + NON PROFIT 5%), saveIntake now persists service_id + discount_id*
+*Last updated: Apr 2, 2026 — Session 91: Commercial Cleaning backfill (3 orders), ghost stops cleared, wrong-date stops fixed, customer profile Orders tabs consolidated (removed Cancelled, merged Billing into Completed)*
 
 ---
 
@@ -203,6 +203,12 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **Issue detail slide-over panel:** Opens from Overview issue rows. Shows meta grid (customer, priority, category, assigned to), full timeline of comments/status changes/assignment changes, and comment input box. Inline editing for assignment and priority — changes auto-logged to audit trail.
 - **Categories:** pickup, delivery, billing, damaged, schedule, complaint, other.
 - **Resolve/reopen:** Resolved issues disappear from Overview list; can be reopened from detail panel.
+
+### Customer Profile Orders Tab — Consolidated (session 91, commit `ab216aa`)
+- Removed the **Cancelled** tab from the customer profile Orders section (not actionable for ops).
+- Merged **Completed** and **Billing** into a single **Completed** tab. Clicking "Completed" now renders the billing UI directly: checkboxes, Paid/Outstanding badges, Bill Orders button, Print Invoice — no separate tab needed.
+- Post-billing callbacks updated to reference `cpof-done` (the Completed button) instead of the removed `cpof-billing` element.
+- Tabs are now: Scheduled · Active · Completed (3 instead of 5).
 
 ### Card Request Button Fix (session 88)
 - **"Request card" / "✓ Requested" / "📞 Update card" button pipeline now works correctly.** The `_cardRequestSent` in-memory map was never populating because SMS lookup matched `'%card on file%'` (wrong) and email lookup matched a single subject that didn't exist in outbound emails. Fixed: SMS matches `'%app.familylaundry.com%'`; email uses `.or()` for all 3 known subject variants. Fixed in both Issues tab and Delivered tab lookup code.
@@ -570,13 +576,46 @@ There are actually **two separate hang points** that must both be covered:
 - `saveIntake()`: now writes both `service_id` and `discount_id` to the order record.
 - Works for any discount in the system (percent or fixed), not just NON PROFIT.
 
-**Still pending from this session:**
+**Completed in session 91 continuation (same day):**
+- ✅ Backfilled 3 commercial orders in Cleaning with NULL service_id: Kasa Hotel Addison ($9.95 → $44.95), Kasa Hotels La Monarca (label fixed, amount already correct at $400.20), Homebase Shelter Program ($9.95 → $270.70). All set to Commercial W&F (per_lb, $1.75/lb).
+- ✅ Ghost stops cleared: 12 pending route_stops on cancelled/skipped orders → all set to `skipped`.
+- ✅ Wrong-date stops fixed: Katie Guadagno #1569 delivery moved from Apr 2 → Apr 3 route; Suzanne Stroebe #949 delivery moved from Apr 8 → Apr 4 Oakland route (94609, route `ce177574`).
+- ✅ Customer profile Orders tabs consolidated: removed Cancelled + Billing tabs, merged into single Completed tab (billing UI).
+- AlbertH HartIII duplicate orders #1545/#1584 — deferred to customer service. #1584 pickup is complete/ready_for_delivery, #1545 is still scheduled with pickup en_route. Keep #1584, cancel #1545 if confirmed duplicate.
+
+**Still pending:**
 - Rae Kaplan: send new checkout link to re-add card.
 - `stripe-webhook` `payment_method.detached` handler — tech debt, not yet built.
 - Annie Reid order #1021 ($187.95) — awaiting David's go-ahead to charge.
-- Wrong-date stops: Suzanne Stroebe #949 (Apr 8 → Apr 4), Katie Guadagno #1569 (Apr 2 → Apr 3).
-- Ghost stops: 15 pending stops on 7 closed/skipped orders need terminal status.
-- AlbertH HartIII duplicate orders #1545 / #1584 — investigate and likely delete newer one.
+
+---
+
+### Apr 2, 2026 (session 91) — Commercial Cleaning backfill, ghost stops, Orders tab consolidation
+
+**Commercial Cleaning backfill (3 orders with NULL service_id):**
+- `pricing_type` was missing from the services join in all three kanban column queries (`loadProcessing`, `loadCleaning`, `loadFolding`) — `commit 3152204`. Without it, `isPerLb` was always false, causing commercial per-lb orders to show "X bags × $1.75" instead of "X lbs × $1.75/lb".
+- 3 orders in Cleaning (status=processing) had NULL service_id and wrong amounts:
+  - Kasa Hotel Addison: 20 lbs → $9.95 (was) → $44.95 (fixed). Service set to Commercial W&F.
+  - Kasa Hotels La Monarca: 223 lbs → label "8 bags × $1.75" corrected to "223 lbs × $1.75/lb". Amount was already $400.20. Service_id set.
+  - Homebase Shelter Program: 149 lbs → $9.95 (was) → $270.70 (fixed). Service set to Commercial W&F. No discount (confirmed by David).
+
+**Ghost stops cleared:**
+- Found 12 route_stops still in `pending` status on cancelled or skipped orders.
+- Bulk-updated all to `skipped` (only valid terminal for route_stops per check constraint).
+- Zero ghost stops remaining.
+
+**Wrong-date stops fixed:**
+- Katie Guadagno #1569 delivery: moved from Apr 2 route → Apr 3 route (`5a71a9f0`, same driver, stop #13).
+- Suzanne Stroebe #949 delivery: moved from Apr 8 route → Apr 4 Oakland route (`ce177574`, 94609 zip coverage, stop #28).
+
+**AlbertH HartIII duplicate orders #1545/#1584:**
+- #1584 (Apr 2 morning): pickup complete, ready_for_delivery. #1545 (Apr 1 night): pickup en_route, still scheduled. Both delivery Apr 3.
+- Deferred to customer service to confirm duplication before deleting either.
+
+**Customer profile Orders tab consolidation (commit `ab216aa`):**
+- Removed Cancelled tab (not actionable). Merged Billing tab into Completed.
+- Completed tab now renders in billing mode: checkboxes, Paid/Outstanding badges, Bill Orders + Print Invoice actions inline.
+- Tabs: Scheduled · Active · Completed (was: Scheduled · Active · Completed · Cancelled · Billing).
 
 ---
 
