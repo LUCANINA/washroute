@@ -14284,7 +14284,7 @@ ${oneCopy}
         type: 'credit_use',
         amount: applied,
         description: `Applied to ${ids.length} order${ids.length !== 1 ? 's' : ''}: ${ids.map(id => { const o = cpAllOrders.find(x => x.id === id); return '#' + (o?.order_number || '?'); }).join(', ')}`,
-        created_by: currentAdmin?.first_name || 'Admin',
+        payment_method: 'credit',
         note: notes || null,
       });
 
