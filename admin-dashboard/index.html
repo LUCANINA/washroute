@@ -689,15 +689,10 @@
     .rsl-pin { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 2px; color: white; }
 
     /* ── ROUTE COMMAND CENTER ── */
-    /* Chip strip wrapper */
-    .rcc-chips-wrap { position:relative;display:flex;align-items:center;border-bottom:1px solid var(--gray-200);background:#fff;flex-shrink:0; }
-    .rcc-chips-wrap .rcc-scroll-arrow { position:absolute;top:0;bottom:0;width:32px;display:flex;align-items:center;justify-content:center;z-index:5;cursor:pointer;border:none;background:transparent;color:var(--gray-500);font-size:18px;font-weight:700;padding:0;transition:opacity .18s;opacity:0;pointer-events:none; }
-    .rcc-chips-wrap .rcc-scroll-arrow.visible { opacity:1;pointer-events:auto; }
-    .rcc-chips-wrap .rcc-scroll-arrow:hover { color:var(--gray-900); }
-    .rcc-chips-wrap .rcc-scroll-arrow.left { left:0;background:linear-gradient(to right,#fff 70%,transparent);padding-right:6px; }
-    .rcc-chips-wrap .rcc-scroll-arrow.right { right:0;background:linear-gradient(to left,#fff 70%,transparent);padding-left:6px; }
-    #rcc-chips { scrollbar-width:none; }
-    #rcc-chips::-webkit-scrollbar { display: none; }
+    /* Chip strip wrapper — two stacked rows (AM / PM) */
+    .rcc-chips-wrap { border-bottom:1px solid var(--gray-200);background:#fff;flex-shrink:0; }
+    .rcc-chip-row { display:flex;align-items:center;flex-wrap:wrap;gap:5px; }
+    .rcc-slot-label { font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--gray-400);width:22px;flex-shrink:0;user-select:none; }
     .rcc-chip { display:flex;align-items:center;gap:5px;padding:4px 9px 4px 7px;border-radius:7px;border:1.5px solid var(--gray-200);background:#fff;cursor:pointer;transition:all .14s;white-space:nowrap;user-select:none;flex-shrink:0; }
     .rcc-chip:hover { border-color:var(--gray-400);background:var(--gray-50); }
     .rcc-chip.rcc-on { border-color:var(--rcc-color);background:color-mix(in srgb,var(--rcc-color) 7%,#fff); }
@@ -1425,11 +1420,9 @@
               <input type="date" id="runs-date-picker" class="form-input" style="width:155px;padding:5px 10px;font-size:13px;" onchange="loadDailyRuns()">
               <button class="btn btn-ghost" id="btn-optimize" style="font-size:12px;padding:5px 12px;display:none;margin-left:auto;" onclick="optimizeRoute()">Optimize</button>
             </div>
-            <!-- ── RCC: Route chip strip ── -->
+            <!-- ── RCC: Route chip strip (2-row: AM top, PM bottom) ── -->
             <div class="rcc-chips-wrap">
-              <button class="rcc-scroll-arrow left" id="rcc-arrow-left" onclick="rccScrollChips(-1)">‹</button>
-              <div id="rcc-chips" style="display:flex;align-items:center;gap:6px;padding:0 32px;height:42px;overflow-x:auto;flex-shrink:0;background:#fff;flex:1;"></div>
-              <button class="rcc-scroll-arrow right" id="rcc-arrow-right" onclick="rccScrollChips(1)">›</button>
+              <div id="rcc-chips" style="display:flex;flex-direction:column;gap:5px;padding:7px 12px;width:100%;box-sizing:border-box;"></div>
             </div>
             <!-- ── RCC: Map + columns workspace ── -->
             <div id="rcc-workspace" style="display:flex;flex:1;overflow:hidden;min-height:0;">
@@ -16107,24 +16100,22 @@ ${oneCopy}
     const el = document.getElementById('rcc-chips');
     if (!el) return;
 
-    let html = '';
-
     if (!_dsTemplates.length) {
-      html += '<span style="font-size:12.5px;color:var(--gray-400);">No route templates configured</span>';
-      el.innerHTML = html;
+      el.innerHTML = '<span style="font-size:12.5px;color:var(--gray-400);padding:6px 0;">No route templates configured</span>';
       return;
     }
 
     const fmtH = hr => { const p = hr >= 12 ? 'PM' : 'AM'; return `${hr > 12 ? hr-12 : (hr===0?12:hr)}${p}`; };
 
-    // Show ALL templates sorted by window_start — no AM/PM filtering
-    const sorted = [..._dsTemplates].sort((a, b) => {
-      const aH = a.window_start ? parseInt(a.window_start) : 0;
-      const bH = b.window_start ? parseInt(b.window_start) : 0;
-      return aH - bH;
-    });
+    // Split templates into AM (window_start < 12 or unset) and PM (≥ 12), sorted within each group
+    const amTemplates = [..._dsTemplates]
+      .filter(t => !t.window_start || parseInt(t.window_start) < 12)
+      .sort((a, b) => (parseInt(a.window_start)||0) - (parseInt(b.window_start)||0));
+    const pmTemplates = [..._dsTemplates]
+      .filter(t => t.window_start && parseInt(t.window_start) >= 12)
+      .sort((a, b) => parseInt(a.window_start) - parseInt(b.window_start));
 
-    sorted.forEach(t => {
+    const buildChip = t => {
       const route = _dsRoutes.find(r => r.template_id === t.id) || null;
       const routeId = route?.id || null;
       const isActive = routeId && _rccActiveRoutes.has(routeId);
@@ -16137,36 +16128,27 @@ ${oneCopy}
       const cntBadge = cnt > 0 ? `<span class="rcc-chip-cnt">${cnt}</span>` : '';
       const noRunBadge = noRun ? `<span class="rcc-chip-sub">no run</span>` : '';
       const winLabel = t.window_start ? `${fmtH(parseInt(t.window_start))}–${fmtH(parseInt(t.window_end))}` : '';
-      html += `<button class="rcc-chip${onClass}" style="--rcc-color:${c};${disabledStyle}" data-route-id="${routeId||''}" ${clickAttr}>
+      return `<button class="rcc-chip${onClass}" style="--rcc-color:${c};${disabledStyle}" data-route-id="${routeId||''}" ${clickAttr}>
         <div class="rcc-dot" style="background:${c};"></div>
         <span class="rcc-chip-name">${t.name}</span>
         ${winLabel ? `<span class="rcc-chip-sub">${winLabel}</span>` : ''}
         ${cntBadge}${noRunBadge}
       </button>`;
-    });
+    };
+
+    let html = '';
+    if (amTemplates.length) {
+      html += `<div class="rcc-chip-row"><span class="rcc-slot-label">AM</span>${amTemplates.map(buildChip).join('')}</div>`;
+    }
+    if (pmTemplates.length) {
+      html += `<div class="rcc-chip-row"><span class="rcc-slot-label">PM</span>${pmTemplates.map(buildChip).join('')}</div>`;
+    }
     el.innerHTML = html;
-    rccUpdateScrollArrows();
   }
 
-  // ── RCC: Scroll arrows for chip strip ──
-  function rccScrollChips(dir) {
-    const el = document.getElementById('rcc-chips');
-    if (!el) return;
-    el.scrollBy({ left: dir * 200, behavior: 'smooth' });
-  }
-  function rccUpdateScrollArrows() {
-    const el = document.getElementById('rcc-chips');
-    const left = document.getElementById('rcc-arrow-left');
-    const right = document.getElementById('rcc-arrow-right');
-    if (!el || !left || !right) return;
-    const update = () => {
-      left.classList.toggle('visible', el.scrollLeft > 4);
-      right.classList.toggle('visible', el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
-    };
-    update();
-    el.removeEventListener('scroll', update);
-    el.addEventListener('scroll', update, { passive: true });
-  }
+  // ── RCC: Scroll helpers kept as no-ops for any lingering references ──
+  function rccScrollChips() {}
+  function rccUpdateScrollArrows() {}
 
   // ── RCC: rccSetSlot kept for backwards-compat but AM/PM no longer filters routes ──
   function rccSetSlot(slot) {
