@@ -6821,9 +6821,27 @@
   let _opTemplates     = [];   // route_templates cache
   let _opDriverSched   = {};   // route_driver_schedule: `${template_id}-${day_of_week}` → driver_id
 
-  function openOrderPanel(orderId) {
-    const o = allOrders.find(x => x.id === orderId);
-    if (!o) return;
+  async function openOrderPanel(orderId) {
+    let o = allOrders.find(x => x.id === orderId);
+    // If not in global cache (stale or paginated out), fetch directly from DB
+    if (!o) {
+      const selectCols = `id, order_number, status, total_amount, stripe_payment_intent_id, billing_status,
+                 weight_lbs, total_bags, service_id, special_instructions, line_items,
+                 pickup_window_start, pickup_window_end,
+                 delivery_window_start, delivery_window_end,
+                 actual_pickup_at, actual_delivery_at,
+                 pickup_run_id, delivery_run_id,
+                 pickup_address_id, delivery_address_id,
+                 created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, cancelled_by, driver_skip_reason,
+                 services(name),
+                 customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
+                 pickup_run:pickup_run_id(id, name),
+                 delivery_run:delivery_run_id(id, name)`;
+      const { data, error } = await db.from('orders').select(selectCols).eq('id', orderId).single();
+      if (error || !data) { showToast('Could not load order — try refreshing the page', 'error'); return; }
+      o = data;
+      allOrders.push(o); // add to cache so subsequent opens work
+    }
     opCurrentOrderId = orderId;
     opCurrentCustId  = o.customers?.id || null;
     _opHistoryLoaded = null; // reset history cache for new order
@@ -9180,7 +9198,8 @@ ${oneCopy}
     const orderId = _singleStatusOrderId, orderNum = _singleStatusOrderNum;
     if (newStatus === 'cancel_delete') {
       if (!confirm(`Delete order #${orderNum}? This cannot be undone.`)) return;
-      const { error } = await db.from('orders').delete().eq('id', orderId);
+      // Use the same RPC as batch delete — handles cascade on route_stops + notifications
+      const { error } = await db.rpc('delete_orders', { p_ids: [orderId] });
       if (error) { showToast('Error: ' + error.message, 'error'); return; }
       showToast(`✓ Order #${orderNum} deleted`);
     } else {
