@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 2, 2026 — Session 91: Commercial Cleaning backfill (3 orders), ghost stops cleared, wrong-date stops fixed, customer profile Orders tabs consolidated (removed Cancelled, merged Billing into Completed)*
+*Last updated: Apr 2, 2026 — Session 92: Account Credit billing, isPaid fix for non-Stripe payments, paid-order invoice export, unpaid orders audit*
 
 ---
 
@@ -203,6 +203,12 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **Issue detail slide-over panel:** Opens from Overview issue rows. Shows meta grid (customer, priority, category, assigned to), full timeline of comments/status changes/assignment changes, and comment input box. Inline editing for assignment and priority — changes auto-logged to audit trail.
 - **Categories:** pickup, delivery, billing, damaged, schedule, complaint, other.
 - **Resolve/reopen:** Resolved issues disappear from Overview list; can be reopened from detail panel.
+
+### Account Credit Billing + Paid-Order Invoice Export (session 92)
+- **Account Credit** added as a payment method in the Bill Orders modal. Deducts from customer `credits` balance, marks orders `billing_status='paid'` / `billing_payment_method='credit'`, logs `credit_use` transaction.
+- **isPaid check** now recognizes all payment methods: `!!o.stripe_payment_intent_id || o.billing_status === 'paid'`. Previously only Stripe payments showed as paid.
+- **Paid orders are selectable** in the Completed tab for invoice export. Checkboxes enabled, "Bill Orders" button auto-hides when only paid orders are selected. "Print Invoice" always available.
+- **Invoice receipts** show payment method: "✓ PAID (Account Credit)", "✓ PAID (Card)", "✓ PAID (Check)", "✓ PAID (Cash)".
 
 ### Customer Profile Orders Tab — Consolidated (session 91, commit `ab216aa`)
 - Removed the **Cancelled** tab from the customer profile Orders section (not actionable for ops).
@@ -584,9 +590,45 @@ There are actually **two separate hang points** that must both be covered:
 - AlbertH HartIII duplicate orders #1545/#1584 — deferred to customer service. #1584 pickup is complete/ready_for_delivery, #1545 is still scheduled with pickup en_route. Keep #1584, cancel #1545 if confirmed duplicate.
 
 **Still pending:**
-- Rae Kaplan: send new checkout link to re-add card.
+- Rae Kaplan: resolved per David.
 - `stripe-webhook` `payment_method.detached` handler — tech debt, not yet built.
-- Annie Reid order #1021 ($187.95) — awaiting David's go-ahead to charge.
+- Annie Reid order #1021 ($187.95) — charged successfully by David.
+- David Glasebrook order #774 — insufficient funds, needs card request outreach.
+- 13 no-card customers need card request outreach.
+- 6 on-account customers need invoicing.
+
+---
+
+### Apr 2, 2026 (session 92) — Account Credit billing, isPaid fix, paid-order invoice export
+
+**Account Credit billing (commit `01000bc`):**
+- Added "Account Credit" as a payment method in the Bill Orders modal.
+- When selected, deducts from customer's `credits` balance, marks orders as `billing_status='paid'` + `billing_payment_method='credit'`, logs a `credit_use` transaction in `customer_transactions`, and logs billing events per order.
+- Shows real-time credit balance in the modal; warns if balance is insufficient.
+- Applied successfully to Oakland Roots & Soul — $727.90 in credits applied to 2 outstanding orders.
+
+**Credit billing freeze fix (commits `9f96fb1`, `b962083`):**
+- First attempt froze because `created_by` column doesn't exist on `customer_transactions` and `currentAdmin` variable doesn't exist. Fixed to use `payment_method: 'credit'`.
+- Second attempt: orders were marked paid in DB but UI still showed "Outstanding". Root cause: reordered operations — mark orders paid FIRST, deduct credits SECOND. Wrapped in try/catch with error toasts.
+
+**isPaid check fix (commit `69fb4ff`):**
+- `isPaid` in `renderCpOrders()` only checked `stripe_payment_intent_id`, missing credit/check/cash payments.
+- Fixed to: `const isPaid = !!o.stripe_payment_intent_id || o.billing_status === 'paid'`
+- Added payment method labels: "Paid (credit)", "Paid (check)", "Paid (cash)" badges.
+
+**Paid-order invoice export (commit `5d3e041`):**
+- Paid orders in the Completed tab were grayed out with disabled checkboxes — couldn't select them.
+- Removed isPaid guards on checkbox disabled state and onclick handlers. Paid orders now selectable (slightly dimmed at 0.7 opacity, green Paid badge stays).
+- `updateBillingBar()` now counts all selected orders (not just unpaid). When only paid orders are selected, "Bill Orders" button hides (nothing to bill) but "Print Invoice" stays visible.
+- `printInvoice()` isPaid check also fixed to include `billing_status === 'paid'` (was only checking `stripe_payment_intent_id`). Receipts now show payment method: "✓ PAID (Account Credit)", "✓ PAID (Card)", etc.
+
+**Unpaid orders audit:**
+- 16 unpaid delivered orders audited for cards on file.
+- David Glasebrook #774: attempted charge, insufficient funds.
+- Annie Reid #1021: charged successfully by David.
+- Rae Kaplan: resolved.
+- 13 remaining customers have no card on file — need outreach.
+- 6 on-account customers need invoicing separately.
 
 ---
 
