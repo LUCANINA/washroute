@@ -1882,10 +1882,10 @@
             <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap;gap:10px">
               <div style="font-size:12.5px;color:var(--gray-500)">Figures shown vs. the prior period.</div>
               <div class="filter-tabs" id="rpt-period-tabs">
-                <button class="filter-tab active" onclick="setRptPeriod('week',this)">This Week</button>
-                <button class="filter-tab" onclick="setRptPeriod('month',this)">This Month</button>
-                <button class="filter-tab" onclick="setRptPeriod('quarter',this)">Last 3 Months</button>
-                <button class="filter-tab" onclick="setRptPeriod('all',this)">All Time</button>
+                <button class="filter-tab active" onclick="setRptPeriod('today',this)">Today</button>
+                <button class="filter-tab" onclick="setRptPeriod('7d',this)">7 Days</button>
+                <button class="filter-tab" onclick="setRptPeriod('30d',this)">30 Days</button>
+                <button class="filter-tab" onclick="setRptPeriod('90d',this)">90 Days</button>
               </div>
             </div>
             <div class="rpt-page-tabs">
@@ -19631,7 +19631,7 @@ ${oneCopy}
   }
 
   // ── REPORTS ──
-  let rptPeriod = 'week';
+  let rptPeriod = 'today';
   let rptTab = 'snapshot';
 
   function setRptPeriod(period, btn) {
@@ -19655,22 +19655,12 @@ ${oneCopy}
     const now = new Date();
     const end = new Date(now); end.setHours(23,59,59,999);
     let start, prevStart, prevEnd;
-    if (period === 'week') {
-      const day = now.getDay() || 7;
-      start = new Date(now); start.setDate(now.getDate() - (day-1)); start.setHours(0,0,0,0);
-      prevEnd = new Date(start); prevEnd.setMilliseconds(-1);
-      prevStart = new Date(start); prevStart.setDate(prevStart.getDate()-7);
-    } else if (period === 'month') {
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
-      prevEnd = new Date(start); prevEnd.setMilliseconds(-1);
-      prevStart = new Date(now.getFullYear(), now.getMonth()-1, 1);
-    } else if (period === 'quarter') {
-      start = new Date(now); start.setMonth(now.getMonth()-3); start.setDate(1); start.setHours(0,0,0,0);
-      prevEnd = new Date(start); prevEnd.setMilliseconds(-1);
-      prevStart = new Date(start); prevStart.setMonth(prevStart.getMonth()-3);
-    } else {
-      start = new Date('2020-01-01'); prevStart = null; prevEnd = null;
-    }
+    // Trailing-day periods: today, 7d, 30d, 90d
+    const days = period === 'today' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 90;
+    start = new Date(now); start.setDate(now.getDate() - (days - 1)); start.setHours(0,0,0,0);
+    // Previous period = same number of days immediately before
+    prevEnd = new Date(start); prevEnd.setMilliseconds(-1);
+    prevStart = new Date(start); prevStart.setDate(prevStart.getDate() - days);
     return { start, end, prevStart, prevEnd };
   }
 
@@ -19699,9 +19689,10 @@ ${oneCopy}
       .select(`id, order_number, total_amount, status, created_at, customer_id,
                weight_lbs, total_bags, actual_pickup_at, actual_delivery_at,
                delivery_window_end, driver_rating, pickup_run_id,
-               customers(first_name_cache, last_name_cache), services(name)`)
+               billing_status, billing_payment_method, stripe_payment_intent_id,
+               customers(first_name_cache, last_name_cache, billing_type), services(name)`)
       .order('created_at', { ascending: false });
-    if (rptPeriod !== 'all') q = q.gte('created_at', start.toISOString()).lte('created_at', end.toISOString());
+    q = q.gte('created_at', start.toISOString()).lte('created_at', end.toISOString());
     const { data: currOrders } = await q;
     const orders = currOrders || [];
 
@@ -19709,7 +19700,7 @@ ${oneCopy}
     let prevOrders = [];
     if (prevStart && prevEnd) {
       const { data: prev } = await db.from('orders')
-        .select('id, total_amount, status, created_at, customer_id, weight_lbs, total_bags, actual_delivery_at, delivery_window_end')
+        .select('id, total_amount, status, created_at, customer_id, weight_lbs, total_bags, actual_delivery_at, delivery_window_end, billing_status, billing_payment_method, stripe_payment_intent_id, customers(billing_type)')
         .gte('created_at', prevStart.toISOString()).lte('created_at', prevEnd.toISOString());
       prevOrders = prev || [];
     }
@@ -19717,7 +19708,7 @@ ${oneCopy}
     // ── Fetch routes with driver info ──
     let rQ = db.from('routes')
       .select('id, run_date, status, total_stops, completed_stops, started_at, completed_at, driver_id');
-    if (rptPeriod !== 'all') rQ = rQ.gte('run_date', start.toLocaleDateString('en-CA', {timeZone: BIZ_TZ})).lte('run_date', end.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}));
+    rQ = rQ.gte('run_date', start.toLocaleDateString('en-CA', {timeZone: BIZ_TZ})).lte('run_date', end.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}));
     const { data: routes } = await rQ;
     const routeList = routes || [];
 
@@ -19730,7 +19721,12 @@ ${oneCopy}
     const totalLbs    = orders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
     const totalBags   = orders.reduce((s,o) => s + Number(o.total_bags||0), 0);
     const aov         = orderCount ? revenue / orderCount : 0;
-    const revPerLb    = totalLbs  ? revenue / totalLbs   : null;
+    // Revenue/LB: card charged + on-account (billed or pending invoice)
+    const chargedOrders = orders.filter(o =>
+      !!o.stripe_payment_intent_id || o.billing_status === 'paid' || o.customers?.billing_type === 'on_account');
+    const chargedRevenue = chargedOrders.reduce((s,o) => s + Number(o.total_amount||0), 0);
+    const chargedLbs     = chargedOrders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
+    const revPerLb       = chargedLbs ? chargedRevenue / chargedLbs : null;
 
     // On-time delivery: delivered orders with actual_delivery_at ≤ delivery_window_end
     const deliveredOrders = orders.filter(o => o.status === 'delivered' && o.actual_delivery_at);
@@ -19750,7 +19746,11 @@ ${oneCopy}
     const prevLbs        = prevOrders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
     const prevBags       = prevOrders.reduce((s,o) => s + Number(o.total_bags||0), 0);
     const prevAov        = prevOrderCount ? prevRevenue / prevOrderCount : 0;
-    const prevRevPerLb   = prevLbs ? prevRevenue / prevLbs : null;
+    const prevChargedOrders = prevOrders.filter(o =>
+      !!o.stripe_payment_intent_id || o.billing_status === 'paid' || o.customers?.billing_type === 'on_account');
+    const prevChargedRev = prevChargedOrders.reduce((s,o) => s + Number(o.total_amount||0), 0);
+    const prevChargedLbs = prevChargedOrders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
+    const prevRevPerLb   = prevChargedLbs ? prevChargedRev / prevChargedLbs : null;
     const prevDelivered  = prevOrders.filter(o => o.status === 'delivered' && o.actual_delivery_at);
     const prevOnTime     = prevDelivered.filter(o =>
       o.delivery_window_end && new Date(o.actual_delivery_at) <= new Date(o.delivery_window_end)
