@@ -2382,6 +2382,20 @@ async function loadServices() {
   defaultService = allServices.find(s => !s.is_addon) || null;
   globalPrefs    = _buildGlobalPrefs(svcs, prefs);
   allServiceFees = fees  || [];
+  // Pre-fetch Commercial pricelist service (not show_in_app, so not in allServices)
+  if (!_commercialService) {
+    db.from('services').select('*').eq('pricelist', 'Commercial').eq('is_active', true).eq('is_addon', false).limit(1).single()
+      .then(({ data }) => { if (data) _commercialService = data; });
+  }
+}
+
+// Pick the correct base service for this customer's type/pricelist
+let _commercialService = null;
+function getCustomerService() {
+  if (currentCustomer?.customer_type === 'Commercial' && _commercialService) {
+    return _commercialService;
+  }
+  return defaultService;
 }
 
 /* ── HOME ── */
@@ -2865,7 +2879,7 @@ function changeBags(delta) {
 }
 
 function updateEstimate() {
-  const svc         = defaultService;
+  const svc         = getCustomerService();
   const pricePerBag = parseFloat(svc?.base_price || 0);
   const bags        = draft.bags;
   const addonsTotal = Object.entries(draft.prefs).reduce((s, [gid, p]) => {
@@ -3696,7 +3710,7 @@ function toggleSameDay(checked) {
 }
 
 function buildConfirmSummary() {
-  const svc         = defaultService;
+  const svc         = getCustomerService();
   const bags           = draft.bags;
   const addonsTotal    = Object.entries(draft.prefs).reduce((s,[gid,p])=>{
     if(!p.priceMod) return s;
@@ -4017,7 +4031,7 @@ async function placeOrder() {
     } catch (_) { /* continue — order will just have null address */ }
   }
 
-  const svc           = defaultService;
+  const svc           = getCustomerService();
   const bags          = draft.bags;
   const addonsTotal   = Object.entries(draft.prefs).reduce((s,[gid,p])=>{
     if(!p.priceMod) return s;
@@ -5170,7 +5184,7 @@ async function saveEditOrder() {
   const existingAddons = (existing?.line_items || []).filter(li => li.type !== 'base');
   const addonTotal     = existingAddons.reduce((s, li) => s + (li.amount || 0), 0);
 
-  const svc            = defaultService;
+  const svc            = getCustomerService();
   const basePrice      = svc?.base_price || 0;
   const editRouteFees  = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const editRouteFeeTotal = editRouteFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);

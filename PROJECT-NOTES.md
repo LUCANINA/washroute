@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 2, 2026 — Session 92: Account Credit billing, isPaid fix for non-Stripe payments, paid-order invoice export, unpaid orders audit*
+*Last updated: Apr 3, 2026 — Session 93: Commercial pricelist fix (customer app + recurring trigger + bulk backfill), Reports trailing-day periods + Revenue/LB + Revenue/bag, order deletion fix, order panel cache miss fix*
 
 ---
 
@@ -596,6 +596,52 @@ There are actually **two separate hang points** that must both be covered:
 - David Glasebrook order #774 — insufficient funds, needs card request outreach.
 - 13 no-card customers need card request outreach.
 - 6 on-account customers need invoicing.
+
+---
+
+### Apr 3, 2026 (session 93) — Commercial pricelist fix, Reports overhaul, order deletion + panel fixes
+
+**Order deletion on active routes (commit `dba54c6`):**
+- David reported inability to delete orders on an active route (customer Golden State).
+- Root cause: `route_stops.order_id` FK has NO `ON DELETE CASCADE`. Raw `orders.delete()` fails with FK violation.
+- Fix: Switched `deleteOrder()` from raw delete to existing `delete_orders` RPC (SECURITY DEFINER function that cascades deletes on route_stops + notifications).
+
+**Order panel cache miss (commit `dba54c6`):**
+- David reported order panel not opening from customer profile.
+- Root cause: `openOrderPanel()` searched global `allOrders` cache — customer profile orders not in cache = silent failure.
+- Fix: Made `openOrderPanel()` async with DB fallback. If order not in cache, fetches from DB with full select (including joins), pushes to cache, then opens panel.
+
+**Reports trailing-day periods (commit `cfc0500`):**
+- Replaced calendar-based period tabs (This Week/Month/Quarter) with trailing-day tabs: Today, Yesterday, 7 Days, 30 Days, 90 Days.
+- `rptDateRange()` rewritten to support trailing days with proper comparison periods.
+
+**Revenue/LB calculation fix (commit `cfc0500`):**
+- Was dividing ALL orders' revenue by ALL orders' weight — included scheduled/unprocessed orders inflating the number ($11.64/lb was wrong).
+- Fixed to only include charged orders: Stripe-charged + billing_status='paid' + on_account customers.
+
+**Revenue/bag stat card added:**
+- New stat card on Reports page: Revenue/bag = chargedRevenue / chargedBags.
+- Same filtering logic as Revenue/LB.
+
+**⚠️ Commercial pricelist assignment — root cause + 3-layer fix:**
+- **Problem discovered via Anita Hodzic order #1072**: Commercial customer showing Delivery pricelist ($59/bag) instead of Commercial ($1.75/lb).
+- **Root cause**: Three broken pathways were assigning the wrong service to commercial customers:
+  1. **Customer app**: `loadServices()` filters `.eq('show_in_app', true)`, but the Commercial W&F service has `show_in_app: false`. So `defaultService` was always the Delivery service, even for commercial customers.
+  2. **Recurring trigger**: `trg_create_recurring_order_fn()` copied `service_id` from the previous order — if that order had the wrong service, all future recurring orders inherited it.
+  3. **NULL service_id orders**: 30+ Kasa Hotel / Homebase orders created with NULL service_id from bulk migrations.
+- **Fix 1 — Customer app** (`customer-app/index.html`): Added `getCustomerService()` helper. Pre-fetches the Commercial W&F service separately (bypassing `show_in_app` filter). When `currentCustomer.customer_type === 'Commercial'`, returns Commercial service instead of `defaultService`. All 4 call sites updated.
+- **Fix 2 — Recurring trigger** (DB function `trg_create_recurring_order_fn`): Added service override block — looks up `customer_type`, and if Commercial, resolves the correct Commercial service_id regardless of what the previous order had.
+- **Fix 3 — Bulk backfill**: 41 active commercial orders with wrong or NULL service_id updated to Commercial W&F (`14f01afc`). Affected customers: Ruth Pardue (1), Kasa Hotel Addison (12), Kasa Hotels La Monarca (16), Homebase Shelter Program (12), Anita Hodzic (1).
+- **⚠️ CRITICAL: `customer_type = 'Commercial'` determines pricelist, not `billing_type`.** Not all commercial customers are on_account — some pay by card. The service selection logic must check `customer_type`, never `billing_type`.
+
+**Still pending:**
+- `stripe-webhook` `payment_method.detached` handler — tech debt.
+- David Glasebrook #774 — insufficient funds, needs card request outreach.
+- 13 no-card customers need card request outreach.
+- 6 on-account customers need invoicing.
+- Ghost stops: 4 stops need skipping (Amanda Fales, Monica Alarcon, Bessie Weiss).
+- Duplicate orders: Madeleine Stephens, Bronwyn Ayla — deferred.
+- Over-capacity routes: Oakland AM Apr 6 (21/18), Oakland PM Apr 8 (20/18), Oakland PM Apr 9 (19/18).
 
 ---
 

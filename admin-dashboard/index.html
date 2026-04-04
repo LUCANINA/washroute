@@ -1883,6 +1883,7 @@
               <div style="font-size:12.5px;color:var(--gray-500)">Figures shown vs. the prior period.</div>
               <div class="filter-tabs" id="rpt-period-tabs">
                 <button class="filter-tab active" onclick="setRptPeriod('today',this)">Today</button>
+                <button class="filter-tab" onclick="setRptPeriod('yesterday',this)">Yesterday</button>
                 <button class="filter-tab" onclick="setRptPeriod('7d',this)">7 Days</button>
                 <button class="filter-tab" onclick="setRptPeriod('30d',this)">30 Days</button>
                 <button class="filter-tab" onclick="setRptPeriod('90d',this)">90 Days</button>
@@ -1951,6 +1952,11 @@
                 <div class="stat-label">Revenue / lb</div>
                 <div class="stat-value" id="rpt-rev-per-lb">—</div>
                 <div class="stat-card-trend" id="rpt-rev-per-lb-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Revenue / bag</div>
+                <div class="stat-value" id="rpt-rev-per-bag">—</div>
+                <div class="stat-card-trend" id="rpt-rev-per-bag-trend"></div>
               </div>
             </div>
             <div class="card">
@@ -19655,9 +19661,13 @@ ${oneCopy}
     const now = new Date();
     const end = new Date(now); end.setHours(23,59,59,999);
     let start, prevStart, prevEnd;
-    // Trailing-day periods: today, 7d, 30d, 90d
-    const days = period === 'today' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 90;
-    start = new Date(now); start.setDate(now.getDate() - (days - 1)); start.setHours(0,0,0,0);
+    // Trailing-day periods: today, yesterday, 7d, 30d, 90d
+    if (period === 'yesterday') {
+      start = new Date(now); start.setDate(now.getDate() - 1); start.setHours(0,0,0,0);
+      end.setTime(start.getTime()); end.setHours(23,59,59,999);
+    }
+    const days = period === 'today' || period === 'yesterday' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 90;
+    if (period !== 'yesterday') { start = new Date(now); start.setDate(now.getDate() - (days - 1)); start.setHours(0,0,0,0); }
     // Previous period = same number of days immediately before
     prevEnd = new Date(start); prevEnd.setMilliseconds(-1);
     prevStart = new Date(start); prevStart.setDate(prevStart.getDate() - days);
@@ -19680,7 +19690,7 @@ ${oneCopy}
     load24hStats();
 
     const { start, end, prevStart, prevEnd } = rptDateRange(rptPeriod);
-    ['rpt-revenue','rpt-orders','rpt-lbs','rpt-bags','rpt-aov','rpt-rev-per-lb','rpt-ontime','rpt-repeat',
+    ['rpt-revenue','rpt-orders','rpt-lbs','rpt-bags','rpt-aov','rpt-rev-per-lb','rpt-rev-per-bag','rpt-ontime','rpt-repeat',
      'rpt-drv-routes','rpt-drv-stops','rpt-drv-rating']
       .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '…'; });
 
@@ -19726,7 +19736,9 @@ ${oneCopy}
       !!o.stripe_payment_intent_id || o.billing_status === 'paid' || o.customers?.billing_type === 'on_account');
     const chargedRevenue = chargedOrders.reduce((s,o) => s + Number(o.total_amount||0), 0);
     const chargedLbs     = chargedOrders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
-    const revPerLb       = chargedLbs ? chargedRevenue / chargedLbs : null;
+    const chargedBags    = chargedOrders.reduce((s,o) => s + Number(o.total_bags||0), 0);
+    const revPerLb       = chargedLbs  ? chargedRevenue / chargedLbs  : null;
+    const revPerBag      = chargedBags ? chargedRevenue / chargedBags : null;
 
     // On-time delivery: delivered orders with actual_delivery_at ≤ delivery_window_end
     const deliveredOrders = orders.filter(o => o.status === 'delivered' && o.actual_delivery_at);
@@ -19749,8 +19761,10 @@ ${oneCopy}
     const prevChargedOrders = prevOrders.filter(o =>
       !!o.stripe_payment_intent_id || o.billing_status === 'paid' || o.customers?.billing_type === 'on_account');
     const prevChargedRev = prevChargedOrders.reduce((s,o) => s + Number(o.total_amount||0), 0);
-    const prevChargedLbs = prevChargedOrders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
-    const prevRevPerLb   = prevChargedLbs ? prevChargedRev / prevChargedLbs : null;
+    const prevChargedLbs  = prevChargedOrders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
+    const prevChargedBags = prevChargedOrders.reduce((s,o) => s + Number(o.total_bags||0), 0);
+    const prevRevPerLb    = prevChargedLbs  ? prevChargedRev / prevChargedLbs  : null;
+    const prevRevPerBag   = prevChargedBags ? prevChargedRev / prevChargedBags : null;
     const prevDelivered  = prevOrders.filter(o => o.status === 'delivered' && o.actual_delivery_at);
     const prevOnTime     = prevDelivered.filter(o =>
       o.delivery_window_end && new Date(o.actual_delivery_at) <= new Date(o.delivery_window_end)
@@ -19763,7 +19777,8 @@ ${oneCopy}
     document.getElementById('rpt-lbs').textContent        = totalLbs ? totalLbs.toFixed(1) + ' lb' : '—';
     document.getElementById('rpt-bags').textContent       = totalBags || '—';
     document.getElementById('rpt-aov').textContent        = fmtMoney(aov);
-    document.getElementById('rpt-rev-per-lb').textContent = revPerLb ? '$' + revPerLb.toFixed(2) : '—';
+    document.getElementById('rpt-rev-per-lb').textContent  = revPerLb  ? '$' + revPerLb.toFixed(2)  : '—';
+    document.getElementById('rpt-rev-per-bag').textContent = revPerBag ? '$' + revPerBag.toFixed(2) : '—';
     document.getElementById('rpt-ontime').textContent     = onTimePct !== null ? onTimePct + '%' : (deliveredOrders.length ? '—' : 'No data');
     document.getElementById('rpt-repeat').textContent     = repeatPct !== null ? repeatPct + '%' : '—';
 
@@ -19772,7 +19787,8 @@ ${oneCopy}
     document.getElementById('rpt-lbs-trend').innerHTML        = rptTrendHTML(totalLbs, prevOrders.length ? prevLbs : null);
     document.getElementById('rpt-bags-trend').innerHTML       = rptTrendHTML(totalBags, prevOrders.length ? prevBags : null);
     document.getElementById('rpt-aov-trend').innerHTML        = rptTrendHTML(aov, prevOrders.length ? prevAov : null);
-    document.getElementById('rpt-rev-per-lb-trend').innerHTML = revPerLb && prevRevPerLb ? rptTrendHTML(revPerLb, prevRevPerLb) : '';
+    document.getElementById('rpt-rev-per-lb-trend').innerHTML  = revPerLb  && prevRevPerLb  ? rptTrendHTML(revPerLb, prevRevPerLb)   : '';
+    document.getElementById('rpt-rev-per-bag-trend').innerHTML = revPerBag && prevRevPerBag ? rptTrendHTML(revPerBag, prevRevPerBag) : '';
     document.getElementById('rpt-ontime-trend').innerHTML     = onTimePct !== null && prevOnTimePct !== null ? rptTrendHTML(onTimePct, prevOnTimePct) : '';
     document.getElementById('rpt-repeat-sub').textContent     = repeatPct !== null
       ? `${repeatOrders} of ${orderCount} orders from returning customers`
