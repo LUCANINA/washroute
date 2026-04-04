@@ -36,10 +36,13 @@ if (!html.includes('capacitor.js')) {
   html = html.replace('</head>', '  <script src="capacitor.js"></script>\n</head>');
 }
 
-// Add native bridge script before closing </body> tag
+// Add native bridge script before the LAST </body> tag (not one inside JS strings like email templates)
 // This handles push notifications, deep links, status bar, etc.
 if (!html.includes('native-bridge.js')) {
-  html = html.replace('</body>', '  <script src="native-bridge.js"></script>\n</body>');
+  const lastBodyIdx = html.lastIndexOf('</body>');
+  if (lastBodyIdx !== -1) {
+    html = html.slice(0, lastBodyIdx) + '  <script src="native-bridge.js"></script>\n' + html.slice(lastBodyIdx);
+  }
 }
 
 // Add safe-area CSS for iOS notch/Dynamic Island
