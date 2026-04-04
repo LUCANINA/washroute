@@ -1,0 +1,25 @@
+{
+  "name": "family-laundry",
+  "version": "1.0.0",
+  "description": "Family Laundry — laundry pickup & delivery service",
+  "scripts": {
+    "sync": "node scripts/copy-web-assets.js && npx cap sync",
+    "sync:ios": "node scripts/copy-web-assets.js && npx cap sync ios",
+    "sync:android": "node scripts/copy-web-assets.js && npx cap sync android",
+    "open:ios": "npx cap open ios",
+    "open:android": "npx cap open android",
+    "build": "node scripts/copy-web-assets.js",
+    "prepare": "node scripts/copy-web-assets.js"
+  },
+  "dependencies": {
+    "@capacitor/app": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/push-notifications": "^7.0.0",
+    "@capacitor/splash-screen": "^7.0.0",
+    "@capacitor/status-bar": "^7.0.0",
+    "@capacitor/keyboard": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0"
+  }
+}

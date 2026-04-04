@@ -18583,8 +18583,18 @@ ${oneCopy}
     if (chargingEl) chargingEl.style.display = '';
     errEl.style.display = 'none';
 
+    // Re-fetch billing fields to avoid stale data (prevents double-charge race condition)
+    const { data: _freshBilling } = await db.from('orders')
+      .select('stripe_payment_intent_id, billing_status, rack_id')
+      .eq('id', rackActiveOrder.id).single();
+    if (_freshBilling) {
+      rackActiveOrder.stripe_payment_intent_id = _freshBilling.stripe_payment_intent_id;
+      rackActiveOrder.billing_status = _freshBilling.billing_status;
+      if (!rackActiveOrder.rack_id) rackActiveOrder.rack_id = _freshBilling.rack_id;
+    }
+
     const isRerack = !!rackActiveOrder.rack_id; // re-racking = just moving racks, no charge
-    const alreadyCharged = !!rackActiveOrder.stripe_payment_intent_id;
+    const alreadyCharged = !!rackActiveOrder.stripe_payment_intent_id || rackActiveOrder.billing_status === 'paid';
     const hasAmount = Number(rackActiveOrder.total_amount) > 0;
     const isOnAccount = rackActiveOrder.customers?.billing_type === 'on_account';
 
@@ -18614,11 +18624,17 @@ ${oneCopy}
         if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
         showToast(`💳 Order #${rackActiveOrder.order_number} charged — ${result.card || ''}`, 'success');
       } catch (e) {
-        // Payment failed — still rack the order, but mark billing as failed.
-        // Order moves to ready_for_delivery and appears in Issues tab for admin to resolve.
-        showToast(`⚠️ Payment failed: ${e.message} — order racked, charge from Order Details`, 'error');
-        await db.from('orders').update({ billing_status: 'failed', charge_failed_at: new Date().toISOString() }).eq('id', rackActiveOrder.id);
-        rackActiveOrder.billing_status = 'failed';
+        // If error says "already been charged", the order IS paid — don't overwrite to failed
+        if (e.message && e.message.includes('already been charged')) {
+          showToast(`💳 Order #${rackActiveOrder.order_number} was already charged — no duplicate charge`, 'info');
+          rackActiveOrder.billing_status = 'paid';
+        } else {
+          // Genuine payment failure — mark billing as failed.
+          // Order moves to ready_for_delivery and appears in Issues tab for admin to resolve.
+          showToast(`⚠️ Payment failed: ${e.message} — order racked, charge from Order Details`, 'error');
+          await db.from('orders').update({ billing_status: 'failed', charge_failed_at: new Date().toISOString() }).eq('id', rackActiveOrder.id);
+          rackActiveOrder.billing_status = 'failed';
+        }
       }
     }
 
