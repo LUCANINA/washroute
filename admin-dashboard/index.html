@@ -3262,6 +3262,13 @@
           </select>
         </div>
       </div>
+      <div class="cp-field">
+        <div class="cp-field-label">Route Override</div>
+        <select class="cp-input" id="cpe-route-override">
+          <option value="">— Default (zone-based) —</option>
+        </select>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:3px">When set, orders auto-route to this route instead of the customer's zone.</div>
+      </div>
     </div>
 
     <div class="cp-section-head">
@@ -13229,7 +13236,7 @@ ${oneCopy}
     document.getElementById('cp-add-addr-form').style.display = 'none';
 
     const { data: c } = await db.from('customers')
-      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at)')
+      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id')
       .eq('id', customerId).single();
     if (!c) return;
     _panelCustomerData = c;  // save for invoice generation
@@ -13285,6 +13292,15 @@ ${oneCopy}
     typeEl.value = c.customer_type || 'Delivery';
     if (!typeEl.value) typeEl.value = typeEl.options[0]?.value || 'Delivery';
     document.getElementById('cpe-source').value = c.referral_source || '';
+
+    // Route override dropdown — populate from route_templates
+    const roEl = document.getElementById('cpe-route-override');
+    if (roEl) {
+      const { data: rts } = await db.from('route_templates').select('id, name').eq('is_active', true).order('name');
+      roEl.innerHTML = '<option value="">— Default (zone-based) —</option>'
+        + (rts || []).map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
+      roEl.value = c.route_template_override_id || '';
+    }
 
     // ── Billing tab ──
     document.getElementById('cpb-billing-type').value   = c.billing_type    || 'automatic';
@@ -13541,9 +13557,10 @@ ${oneCopy}
     const email = document.getElementById('cpe-email').value.trim();
     const type   = document.getElementById('cpe-type').value;
     const src    = document.getElementById('cpe-source').value;
+    const routeOverride = document.getElementById('cpe-route-override').value || null;
     const { data: c } = await db.from('customers').select('profile_id').eq('id',panelCustomerId).single();
     if (c?.profile_id) await db.from('profiles').update({ first_name:fn, last_name:ln, phone, email }).eq('id', c.profile_id);
-    const { error } = await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, customer_type:type||null, referral_source:src||null }).eq('id', panelCustomerId);
+    const { error } = await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, customer_type:type||null, referral_source:src||null, route_template_override_id:routeOverride }).eq('id', panelCustomerId);
     btn.disabled=false; btn.textContent=origText;
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';

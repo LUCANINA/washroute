@@ -12,14 +12,18 @@
     "prepare": "node scripts/copy-web-assets.js"
   },
   "dependencies": {
+    "@capacitor/android": "^7.0.0",
     "@capacitor/app": "^7.0.0",
     "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "@capacitor/keyboard": "^7.0.0",
     "@capacitor/push-notifications": "^7.0.0",
     "@capacitor/splash-screen": "^7.0.0",
     "@capacitor/status-bar": "^7.0.0",
-    "@capacitor/keyboard": "^7.0.0"
+    "fs-extra": "^11.3.4"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.0.0"
+    "@capacitor/cli": "^7.0.0",
+    "sharp": "^0.34.5"
   }
 }
