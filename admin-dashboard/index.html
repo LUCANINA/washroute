@@ -5985,7 +5985,7 @@
     let keepGoing = true;
     while (keepGoing) {
       const { data, error } = await db.from('customers')
-          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
+          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, customer_type, route_template_override_id, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
           .order('created_at', { ascending: false })
           .range(from, from + PAGE - 1);
       if (error) {
@@ -7515,6 +7515,7 @@
 
   // Zone IDs cached per picker session
   let _opPickerZoneIds = new Set();
+  let _opRouteOverrideId = null;
 
   async function opLoadRoutePicker(leg) {
     const listEl = document.getElementById(`op-${leg}-route-list`);
@@ -7550,12 +7551,13 @@
     // Determine zones for filtering
     _opPickerZoneIds = new Set();
     const cust   = allCustomers.find(c => c.id === opCurrentCustId);
+    _opRouteOverrideId = cust?.route_template_override_id || null;
     const addrs  = Array.isArray(cust?.addresses) ? cust.addresses : [];
     const addrId = leg === 'pickup' ? o?.pickup_address_id : o?.delivery_address_id;
     const addr   = addrs.find(a => a.id === addrId) || addrs.find(a => a.is_default) || addrs[0];
 
-    if (addr?.lat && addr?.lng) {
-      // PostGIS polygon match + city-list match handled server-side
+    if (!_opRouteOverrideId && addr?.lat && addr?.lng) {
+      // PostGIS polygon match + city-list match handled server-side (skip if override is set)
       const { data: zones, error: zoneErr } = await db.rpc('get_zones_for_point', {
         lat: parseFloat(addr.lat), lng: parseFloat(addr.lng), p_city: addr.city || null
       });
@@ -7591,17 +7593,21 @@
     const dayRoutes = _opRoutes.filter(r => r.run_date === dateStr);
 
     let html = '';
-    if (_opPickerZoneIds.size > 0) {
-      // Zone is known — show ALL eligible options: existing instances + un-instantiated templates.
-      // This ensures both AM and PM always appear even if only one has been created for that date.
+    // Route override: filter to just the override template
+    const overrideFilter = _opRouteOverrideId
+      ? (t) => t.id === _opRouteOverrideId
+      : (_opPickerZoneIds.size > 0 ? (t) => t.zone_id && _opPickerZoneIds.has(t.zone_id) : null);
 
-      const zoneRoutes = dayRoutes.filter(r => {
+    if (overrideFilter) {
+      // Filtered view — show matching routes + un-instantiated templates
+
+      const filteredRoutes = dayRoutes.filter(r => {
         const t = _opTemplates.find(x => x.name === r.name) || {};
-        return t.zone_id && _opPickerZoneIds.has(t.zone_id);
+        return overrideFilter(t);
       });
-      const instantiatedNames = new Set(zoneRoutes.map(r => r.name));
+      const instantiatedNames = new Set(filteredRoutes.map(r => r.name));
 
-      const existingRows = zoneRoutes.map(r => {
+      const existingRows = filteredRoutes.map(r => {
         const tmpl  = _opTemplates.find(t => t.name === r.name) || {};
         const color = tmpl.color || '#8b93a7';
         const sel   = r.id === currentId ? ' selected' : '';
@@ -7611,10 +7617,10 @@
         </div>`;
       });
 
-      // Templates for this zone + day that don't have a route instance yet
+      // Templates for this filter + day that don't have a route instance yet
       const missingTemplates = _opTemplates.filter(t => {
         if (Array.isArray(t.schedule_days) && !t.schedule_days.includes(schedDay)) return false;
-        if (!t.zone_id || !_opPickerZoneIds.has(t.zone_id)) return false;
+        if (!overrideFilter(t)) return false;
         return !instantiatedNames.has(t.name);
       });
       const templateRows = missingTemplates.map(t => {
@@ -7628,7 +7634,7 @@
       const allRows = [...existingRows, ...templateRows];
       html = allRows.length
         ? allRows.join('')
-        : `<span style="color:var(--gray-400);font-size:13px">No routes run on ${dayName}s for this zone.</span>`;
+        : `<span style="color:var(--gray-400);font-size:13px">No routes run on ${dayName}s for this ${_opRouteOverrideId ? 'override route' : 'zone'}.</span>`;
     } else {
       // Zone unknown — show all pre-generated routes as fallback
       const allRows = dayRoutes.map(r => {
@@ -12171,6 +12177,7 @@ ${oneCopy}
   let _noAddressCity  = '';   // city of selected address — used as fallback for zone detection
   let _noAddresses    = [];  // loaded addresses for the current customer
   let _noZoneIds      = new Set(); // zone IDs detected via PostGIS for the selected address
+  let _noRouteOverrideId = null;   // route_template_override_id from customer profile
 
   // ── CUSTOMER COMBOBOX (New Order modal) ──
   let _custComboHighlight = -1;
@@ -12257,6 +12264,7 @@ ${oneCopy}
     _noDelivTmpl    = null;
     _noIsSameDay    = false;
     _noSameDaySurcharge = 0;
+    _noRouteOverrideId = null;
     _noDayLimit     = 28;
     _noTipType      = 'dollar';
     _noAddressCity  = '';
@@ -12352,6 +12360,7 @@ ${oneCopy}
     // Auto-select service based on customer type — Commercial customers use the
     // Commercial pricelist service (per lb), everyone else gets the Delivery service (per bag).
     const cust = allCustomers.find(c => c.id === customerId);
+    _noRouteOverrideId = cust?.route_template_override_id || null;
     if (cust) {
       const isCommercial = cust.customer_type === 'Commercial';
       const correctSvc = isCommercial
@@ -12417,9 +12426,13 @@ ${oneCopy}
   function renderNoRoutes() {
     const el = document.getElementById('no-routes');
 
-    // Filter templates to routes whose zone matches the customer's address (PostGIS)
+    // If customer has a route override, show only that template
     let templates = _noTemplates;
-    if (_noZoneIds.size > 0) {
+    if (_noRouteOverrideId) {
+      const override = templates.filter(t => t.id === _noRouteOverrideId);
+      if (override.length) templates = override;
+    } else if (_noZoneIds.size > 0) {
+      // Otherwise filter by zone as before
       const zoneMatches = templates.filter(t => t.zone_id && _noZoneIds.has(t.zone_id));
       if (zoneMatches.length) templates = zoneMatches;
     }
@@ -12667,7 +12680,10 @@ ${oneCopy}
 
     const qualifying = [];
     let templates = _noTemplates;
-    if (_noZoneIds.size > 0) {
+    if (_noRouteOverrideId) {
+      const override = templates.filter(t => t.id === _noRouteOverrideId);
+      if (override.length) templates = override;
+    } else if (_noZoneIds.size > 0) {
       const zoneMatches = templates.filter(t => t.zone_id && _noZoneIds.has(t.zone_id));
       if (zoneMatches.length) templates = zoneMatches;
     }
@@ -12749,7 +12765,10 @@ ${oneCopy}
   // Render route template pills for the delivery section
   function _renderNdRoutes() {
     let templates = _noTemplates;
-    if (_noZoneIds.size > 0) {
+    if (_noRouteOverrideId) {
+      const override = templates.filter(t => t.id === _noRouteOverrideId);
+      if (override.length) templates = override;
+    } else if (_noZoneIds.size > 0) {
       const zoneMatches = templates.filter(t => t.zone_id && _noZoneIds.has(t.zone_id));
       if (zoneMatches.length) templates = zoneMatches;
     }
