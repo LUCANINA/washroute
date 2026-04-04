@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 3, 2026 — Session 93: Commercial pricelist fix (customer app + recurring trigger + bulk backfill), Reports trailing-day periods + Revenue/LB + Revenue/bag, order deletion fix, order panel cache miss fix*
+*Last updated: Apr 4, 2026 — Session 94: Route template override feature, rack flow race condition fix, Capacitor native app scaffold*
 
 ---
 
@@ -596,6 +596,43 @@ There are actually **two separate hang points** that must both be covered:
 - David Glasebrook order #774 — insufficient funds, needs card request outreach.
 - 13 no-card customers need card request outreach.
 - 6 on-account customers need invoicing.
+
+---
+
+### Apr 4, 2026 (session 94) — Route template override, rack flow race condition fix, native app scaffold
+
+**Route template override — assign customers to non-zone routes (commits `2500653` + DB migration):**
+- David needed Mama Meg Massage (Meg Lamberton) on the COMMERCIAL route instead of her zone-based route.
+- Added `route_template_override_id` column to `customers` table (FK → `route_templates`, ON DELETE SET NULL).
+- Updated `auto_route_order()` DB function: when a customer has an override set, both pickup and delivery template matching use the override template ID instead of zone-based matching. Falls back to zone logic when override is NULL.
+- Added "Route Override" dropdown to customer profile Contact tab in admin dashboard. Loads all active route templates, defaults to "— Default (zone-based) —". Saves on contact tab save.
+- Meg Lamberton set to COMMERCIAL route (`94d436c4`). Her future orders will auto-route to COMMERCIAL regardless of her address zone.
+
+**Rack flow race condition fix (commit `709db6a`):**
+- Lauren Ripley order #1110: card charged successfully by Stripe but `billing_status` showed 'failed' in admin.
+- Root cause: when an order is racked twice in quick succession, the second rack attempt uses stale in-memory data (no `stripe_payment_intent_id`). The `charge-order` edge function correctly rejects with "already been charged", but the dashboard error handler blindly wrote `billing_status = 'failed'`, overwriting the 'paid' status from the first successful charge.
+- Two-layer fix in `admin-dashboard/index.html`:
+  1. **Re-fetch before charge**: Before calling `charge-order`, re-fetch `stripe_payment_intent_id`, `billing_status`, and `rack_id` from DB. Skip charge if already paid.
+  2. **Smart error handler**: "already been charged" errors now show an info toast and set `billing_status = 'paid'` (not 'failed'). Only genuine failures write 'failed'.
+- Audit confirmed Lauren Ripley was the only affected order — all other 12 'failed' orders genuinely have no card on file.
+- Lauren's `billing_status` corrected to 'paid' in DB.
+
+**Capacitor native app scaffold (commit `709db6a`):**
+- Created `customer-app-native/` project to wrap the customer web app as a downloadable iOS/Android app using Capacitor 7.
+- Files: `capacitor.config.json`, `package.json`, `scripts/copy-web-assets.js` (build script), `scripts/native-bridge.js` (StatusBar, Keyboard, PushNotifications, App lifecycle), `scripts/generate-icons.js` (sharp-based icon/splash generation), `BUILD-GUIDE.md`, `.gitignore`.
+- David installed Homebrew + Node.js on his Mac, ran `npm install`, `npx cap add ios`.
+- **⚠️ Xcode build issue**: `LaunchScreen.storyboard` and `Main.storyboard` not found errors. Likely caused by corrupted initial `cap add ios`. Fix: `rm -rf ios && npx cap add ios && cp -R www/* ios/App/App/public/ && cd ios/App && pod install`. **David hasn't confirmed this fix yet — switched to route override feature.**
+
+**Still pending:**
+- Xcode storyboard fix — David needs to retry the `rm -rf ios && npx cap add ios` sequence.
+- Firebase setup for push notifications in native app.
+- `customer_push_tokens` table creation in Supabase.
+- Privacy policy URL for App Store / Google Play submissions.
+- `stripe-webhook` `payment_method.detached` handler — tech debt.
+- David Glasebrook #774 — insufficient funds, needs card request outreach.
+- 13 no-card customers need card request outreach.
+- 6 on-account customers need invoicing.
+- Duplicate orders: Madeleine Stephens, Bronwyn Ayla — deferred.
 
 ---
 
@@ -4352,6 +4389,14 @@ WashRoute/
 │   └── index.html              # Full admin dashboard SPA
 ├── customer-app/
 │   └── index.html              # Customer-facing app
+├── customer-app-native/        # Capacitor wrapper for iOS/Android
+│   ├── capacitor.config.json
+│   ├── package.json
+│   ├── scripts/
+│   │   ├── copy-web-assets.js  # Build: copies web app → www/
+│   │   ├── native-bridge.js    # StatusBar, Keyboard, Push, App lifecycle
+│   │   └── generate-icons.js   # Icon/splash generation via sharp
+│   └── BUILD-GUIDE.md
 ├── driver-app/
 │   └── index.html              # Driver app
 ├── receipt-mockup.html         # Thermal bag tag + email receipt mockup
