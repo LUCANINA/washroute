@@ -6721,7 +6721,7 @@
           actionCell = _deliveredActionBtn(o);
         }
         return `<tr style="cursor:pointer" onclick="openOrderPanel('${o.id}')">
-          <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${o.customers?.phone_cache||''}" data-cust-name="${(o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||'')}" onchange="updateOrderBatchBar()"></td>
+          <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${esc(o.customers?.phone_cache||'')}" data-cust-name="${esc((o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||''))}" onchange="updateOrderBatchBar()"></td>
           <td style="font-size:11.5px;color:var(--gray-400);font-weight:600;white-space:nowrap;padding:8px 4px">${o.order_number ? '#'+o.order_number : '—'}</td>
           <td class="td-name" style="padding:8px 8px">${orderCustomerCell(o)}</td>
           <td style="padding:8px 6px">${inIssues ? issueBadge(o) : statusBadge(o.status)}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:3px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : ''}</td>
@@ -13315,7 +13315,8 @@ ${oneCopy}
     // Route override dropdown — populate from route_templates
     const roEl = document.getElementById('cpe-route-override');
     if (roEl) {
-      const { data: rts } = await db.from('route_templates').select('id, name').eq('is_active', true).order('name');
+      const { data: rts, error: rtErr } = await db.from('route_templates').select('id, name').eq('is_active', true).order('name');
+      if (rtErr) console.warn('[RouteOverride] Failed to load templates:', rtErr.message);
       roEl.innerHTML = '<option value="">— Default (zone-based) —</option>'
         + (rts || []).map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
       roEl.value = c.route_template_override_id || '';
@@ -14422,10 +14423,10 @@ ${oneCopy}
       .filter(o => cpBillingSelection.has(o.id))
       .sort((a, b) => (a.pickup_window_start || a.created_at) < (b.pickup_window_start || b.created_at) ? -1 : 1);
     const c = _panelCustomerData;
-    const customerName = [c?.first_name_cache, c?.last_name_cache].filter(Boolean).join(' ') || 'Customer';
+    const customerName = esc([c?.first_name_cache, c?.last_name_cache].filter(Boolean).join(' ') || 'Customer');
     const defaultAddr  = c?.addresses?.find(a => a.is_default) || c?.addresses?.[0];
     const addrLines    = defaultAddr
-      ? [defaultAddr.line1, defaultAddr.line2, `${defaultAddr.city}, ${defaultAddr.state} ${defaultAddr.zip}`].filter(Boolean)
+      ? [defaultAddr.line1, defaultAddr.line2, `${defaultAddr.city}, ${defaultAddr.state} ${defaultAddr.zip}`].filter(Boolean).map(l => esc(l))
       : [];
     const today    = new Date().toLocaleDateString('en-US', { weekday:'short', month:'numeric', day:'numeric', year:'2-digit' });
     const totalAmount = orders.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
@@ -14446,7 +14447,7 @@ ${oneCopy}
       const lineRows = chargeItems.length
         ? chargeItems.map(li => `
             <tr>
-              <td style="padding:2px 0 2px 24px;font-size:12px;color:#333">${li.label||li.description||'Service'}</td>
+              <td style="padding:2px 0 2px 24px;font-size:12px;color:#333">${esc(li.label||li.description||'Service')}</td>
               <td style="text-align:right;padding:2px 0;font-size:12px">${fmtInvMoney(li.amount)}</td>
             </tr>`).join('')
         : `<tr>
@@ -14545,8 +14546,8 @@ ${oneCopy}
         <div style="font-size:12px;line-height:1.8">
           <strong>TO: ${customerName}</strong><br>
           ${addrLines.join('<br>')}${addrLines.length?'<br>':''}
-          ${c?.email_cache ? c.email_cache + '<br>' : ''}
-          ${c?.phone_cache || ''}
+          ${c?.email_cache ? esc(c.email_cache) + '<br>' : ''}
+          ${c?.phone_cache ? esc(c.phone_cache) : ''}
         </div>
       </td>
       <td style="vertical-align:top;text-align:right">
@@ -20363,7 +20364,7 @@ ${oneCopy}
     }
 
     showToast(results.join(' | '), results.some(r => r.startsWith('❌')) ? 'error' : 'success');
-    console.log(`[Launch] ${c.first_name_cache} ${c.email_cache}: ${results.join(', ')}`);
+    console.log(`[Launch] ${c.first_name_cache}: ${results.join(', ')}`);
     return results;
   }
 
