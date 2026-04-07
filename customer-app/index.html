@@ -2881,8 +2881,10 @@ function changeBags(delta) {
 
 function updateEstimate() {
   const svc         = getCustomerService();
-  const pricePerBag = parseFloat(svc?.base_price || 0);
+  const basePrice   = parseFloat(svc?.base_price || 0);
   const bags        = draft.bags;
+  const isPerLb     = svc?.pricing_type === 'per_lb';
+  const estLbs      = isPerLb ? bags * (parseFloat(svc?.lbs_per_bag) || 25) : 0;
   const addonsTotal = Object.entries(draft.prefs).reduce((s, [gid, p]) => {
     if (!p.priceMod) return s;
     const grp = globalPrefs.find(g => g.id === gid);
@@ -2892,7 +2894,7 @@ function updateEstimate() {
     if (!p.priceMod) return false;
     return globalPrefs.find(g => g.id === gid)?.pricing_type === 'per_item';
   });
-  const base        = pricePerBag * bags;
+  const base        = isPerLb ? (estLbs * basePrice) : (bags * basePrice);
 
   // Only include fees explicitly categorized as Delivery or Pickup — never Penalty/Reward/Surcharge
   const routeFees     = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
@@ -2904,7 +2906,9 @@ function updateEstimate() {
   const total = base + addonsTotal + routeFeeTotal + sameDayFee;
 
   // Build compact breakdown line
-  const parts = [`${bags} bag${bags!==1?'s':''} × ${$m(pricePerBag)}`];
+  const parts = [isPerLb
+    ? `Est. ${estLbs} lbs × ${$m(basePrice)}/lb`
+    : `${bags} bag${bags!==1?'s':''} × ${$m(basePrice)}`];
   if (addonsTotal > 0) parts.push(`add-ons +${$m(addonsTotal)}`);
   if (hasPerItemAddons) parts.push('+ per-item services billed at processing');
   if (routeFeeTotal > 0) {
@@ -4034,6 +4038,10 @@ async function placeOrder() {
 
   const svc           = getCustomerService();
   const bags          = draft.bags;
+  const isPerLb       = svc?.pricing_type === 'per_lb';
+  const basePrice     = parseFloat(svc?.base_price || 0);
+  const estLbs        = isPerLb ? bags * (parseFloat(svc?.lbs_per_bag) || 25) : 0;
+  const baseTotal     = isPerLb ? (estLbs * basePrice) : (bags * basePrice);
   const addonsTotal   = Object.entries(draft.prefs).reduce((s,[gid,p])=>{
     if(!p.priceMod) return s;
     const grp=globalPrefs.find(g=>g.id===gid);
@@ -4042,7 +4050,7 @@ async function placeOrder() {
   const sameDayFee    = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
   const routeFees     = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const routeFeeTotal = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
-  const total         = Math.round(((svc?.base_price||0)*bags + addonsTotal + routeFeeTotal + sameDayFee)*100)/100;
+  const total         = Math.round((baseTotal + addonsTotal + routeFeeTotal + sameDayFee)*100)/100;
 
   const pickupDate   = draft.pickupDate;
   // Same-day: delivery is same day. Otherwise use chosen date or fallback calculation.
@@ -4051,8 +4059,11 @@ async function placeOrder() {
     : (draft.deliveryDate || await getNextDeliveryDay(pickupDate, draft.zoneId));
 
   // Build line_items from prefs
+  const baseLabel = isPerLb
+    ? `Est. ${estLbs} lbs × ${$m(basePrice)}/lb`
+    : `${bags} bag${bags!==1?'s':''} × ${$m(basePrice)}`;
   const lineItems = [
-    { type:'base', label:`${bags} bag${bags!==1?'s':''} × ${$m(svc?.base_price||0)}`, amount:(svc?.base_price||0)*bags },
+    { type:'base', label:baseLabel, amount:baseTotal },
     ...Object.entries(draft.prefs).filter(([,p])=>p.priceMod).map(([groupId,p])=>{
       const grp=globalPrefs.find(g=>g.id===groupId);
       const isPerItem=grp?.pricing_type==='per_item';
@@ -5186,12 +5197,18 @@ async function saveEditOrder() {
   const addonTotal     = existingAddons.reduce((s, li) => s + (li.amount || 0), 0);
 
   const svc            = getCustomerService();
-  const basePrice      = svc?.base_price || 0;
+  const basePrice      = parseFloat(svc?.base_price || 0);
+  const isPerLb        = svc?.pricing_type === 'per_lb';
+  const estLbs         = isPerLb ? bags * (parseFloat(svc?.lbs_per_bag) || 25) : 0;
+  const baseTotal      = isPerLb ? (estLbs * basePrice) : (bags * basePrice);
   const editRouteFees  = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const editRouteFeeTotal = editRouteFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
-  const total          = Math.round((basePrice * bags + addonTotal + editRouteFeeTotal) * 100) / 100;
+  const total          = Math.round((baseTotal + addonTotal + editRouteFeeTotal) * 100) / 100;
+  const editBaseLabel  = isPerLb
+    ? `Est. ${estLbs} lbs × ${$m(basePrice)}/lb`
+    : `${bags} bag${bags !== 1 ? 's' : ''} × ${$m(basePrice)}`;
   const lineItems = [
-    { type: 'base', label: `${bags} bag${bags !== 1 ? 's' : ''} × ${$m(basePrice)}`, amount: basePrice * bags },
+    { type: 'base', label: editBaseLabel, amount: baseTotal },
     ...existingAddons
   ];
 
