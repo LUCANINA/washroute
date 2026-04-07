@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 4, 2026 — Session 94: Route template override feature, rack flow race condition fix, Capacitor native app scaffold*
+*Last updated: Apr 7, 2026 — Session 95: SECURITY DEFINER fix for stop sync triggers + reconcile safety net*
 
 ---
 
@@ -22,6 +22,8 @@ Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no d
 **⚠️ DELIVERY WINDOWS MUST MATCH ROUTE TEMPLATES.** When creating orders, always check the route template's `arrival_window_hours` to determine the correct delivery window size. San Francisco and Hayward routes have 3-hour arrival windows (7–10 PM), so the delivery window is the full route window. Berkeley, Alameda, and Oakland routes have 2-hour arrival windows (sub-windows: 6–8 PM or 8–10 PM). Never assume all routes use the same window size. One-time orders use `recurring_interval = NULL` (not `'one_time'`).
 
 **⚠️ BUSINESS TIMEZONE: Oakland CA, Pacific Time (`America/Los_Angeles`).** All "today" checks, stat cards, and date comparisons must use the `BIZ_TZ` constant (loaded from settings table at startup). Never assume UTC or browser local time.
+
+**⚠️ ALL trigger functions that write to `route_stops` MUST be SECURITY DEFINER.** The `route_stops` table has RLS restricting writes to `is_admin()`. Trigger functions default to SECURITY INVOKER (caller's permissions). If a trigger running as a customer or system user tries to INSERT/UPDATE route_stops, it will silently fail — zero rows affected, no error. This caused the #1 recurring bug (wrong-date stops) across sessions 62-95. Pattern: `auto_route_order`, `sync_pickup_stop_on_window_change`, `sync_delivery_stop_on_window_change`, and `reconcile_stop_route_on_run_change` are all SECURITY DEFINER. Any new function that touches route_stops from a trigger context must be too.
 
 **⚠️ NEVER use `.toISOString()` for local date comparisons.** `toISOString()` returns UTC — after 5 PM Pacific it rolls to the next calendar day and breaks every "is this today?" check. Always use the `today()` helper or `getFullYear()/getMonth()/getDate()` formatting. This caused a critical bug where route schedule cells locked every evening. Applies to all three apps.
 
@@ -507,6 +509,16 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 7, 2026 (session 95) — Wrong-date stops root cause fix (SECURITY DEFINER + reconcile trigger)
+
+- **Root cause identified and fixed (migration `fix_stop_sync_security_definer_and_reconcile_trigger`):** The #1 recurring bug across sessions 62-94 — stops landing on wrong-date routes — was caused by `sync_pickup_stop_on_window_change()` and `sync_delivery_stop_on_window_change()` being SECURITY INVOKER. When a non-admin user (customer app edit, recurring order trigger, system process) changed order windows, the trigger tried to UPDATE route_stops but was silently blocked by RLS (only `is_admin()` can write to route_stops). The order's `pickup_run_id`/`delivery_run_id` got updated to the correct new route, but the actual route_stop record stayed stranded on the old route. Fixed by promoting both functions to SECURITY DEFINER — same pattern as `auto_route_order` and `trg_auto_route_new_order`.
+
+- **Safety-net reconcile trigger added (`trg_reconcile_stop_route`):** AFTER UPDATE trigger on orders that fires whenever `pickup_run_id` or `delivery_run_id` changes. Verifies the corresponding route_stop is on the correct route; moves it if not. Catches the edge case where the BEFORE trigger skips (when both window and run_id change in the same UPDATE, the trigger exits early) but the admin JS stop-move doesn't execute. SECURITY DEFINER, idempotent — if the stop is already on the right route, no-op.
+
+- **8 existing mismatched stops fixed:** Orders #1242 (Briana Berger), #1603 (Cosmin Radoi), #1605 (Sahlee Tongson), #1830 (Jennifer Stahl), #1904 (Elizabeth Clements) all had pending stops stranded on old routes. Moved to correct routes in a single reconciliation query.
+
+- **⚠️ IMPORTANT for future sessions:** All trigger functions that write to `route_stops` MUST be SECURITY DEFINER. Route_stops has RLS that restricts writes to `is_admin()`. If a new trigger is added that needs to move/create/update route_stops, make it SECURITY DEFINER or the writes will silently fail for non-admin callers.
 
 ### Apr 1, 2026 (session 88) — Card request fix, duplicate credit cleanup, skip/fail consolidation
 
