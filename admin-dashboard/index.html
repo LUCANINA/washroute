@@ -6554,12 +6554,14 @@
   }
 
   // Returns allOrders filtered by currentOrderFilter + orderSearchTerm
-  // When a search term is active, search spans ALL tabs (universal search)
+  // When a search term is active, search spans ALL tabs but excludes inactive orders
+  const INACTIVE_STATUSES = ['delivered', 'cancelled', 'skipped', 'pickup_failed', 'delivery_failed'];
   function getFilteredOrders() {
     let data = allOrders;
-    // If user is searching, skip tab filter — search across everything
+    // If user is searching, skip tab filter — search across active orders only
     if (orderSearchTerm) {
       data = data.filter(o => {
+        if (INACTIVE_STATUSES.includes(o.status)) return false;
         const name = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.toLowerCase();
         const phone = (o.customers?.phone_cache||'').toLowerCase();
         const num = String(o.order_number||'');
@@ -6684,11 +6686,11 @@
     // Keep subtitle count in sync with the visible (filtered) set
     const countEl = document.getElementById('orders-count-label');
     if (countEl) countEl.textContent = orderSearchTerm
-      ? `${data.length} result${data.length!==1?'s':''} for "${orderSearchTerm}"`
+      ? `${data.length} active result${data.length!==1?'s':''} for "${orderSearchTerm}"`
       : `${data.length} order${data.length!==1?'s':''}`;
     if (!data.length) {
       const emptyMsg = orderSearchTerm
-        ? `<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">No orders match "${orderSearchTerm}"</div><div class="empty-sub">Try a different name, phone number, or order #.</div></div>`
+        ? `<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">No active orders match "${orderSearchTerm}"</div><div class="empty-sub">Try a different name, phone, or order #. Past orders are on the customer's profile.</div></div>`
         : `<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">No orders found</div><div class="empty-sub">Create your first order to get started.</div><button class="btn btn-primary" style="margin-top:16px" onclick="openModal('add-order')">+ New Order</button></div>`;
       el.innerHTML = emptyMsg;
       return;
