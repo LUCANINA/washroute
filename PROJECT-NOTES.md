@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 7, 2026 — Session 95: SECURITY DEFINER fix for stop sync triggers + reconcile safety net*
+*Last updated: Apr 7, 2026 — Session 96: Code audit fixes — batched .in() queries, 4 more SECURITY DEFINER promotions, ghost stop cleanup, pricelist race fix*
 
 ---
 
@@ -23,7 +23,7 @@ Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no d
 
 **⚠️ BUSINESS TIMEZONE: Oakland CA, Pacific Time (`America/Los_Angeles`).** All "today" checks, stat cards, and date comparisons must use the `BIZ_TZ` constant (loaded from settings table at startup). Never assume UTC or browser local time.
 
-**⚠️ ALL trigger functions that write to `route_stops` MUST be SECURITY DEFINER.** The `route_stops` table has RLS restricting writes to `is_admin()`. Trigger functions default to SECURITY INVOKER (caller's permissions). If a trigger running as a customer or system user tries to INSERT/UPDATE route_stops, it will silently fail — zero rows affected, no error. This caused the #1 recurring bug (wrong-date stops) across sessions 62-95. Pattern: `auto_route_order`, `sync_pickup_stop_on_window_change`, `sync_delivery_stop_on_window_change`, and `reconcile_stop_route_on_run_change` are all SECURITY DEFINER. Any new function that touches route_stops from a trigger context must be too.
+**⚠️ ALL trigger functions that write to `route_stops` MUST be SECURITY DEFINER.** The `route_stops` table has RLS restricting writes to `is_admin()`. Trigger functions default to SECURITY INVOKER (caller's permissions). If a trigger running as a customer or system user tries to INSERT/UPDATE route_stops, it will silently fail — zero rows affected, no error. This caused the #1 recurring bug (wrong-date stops) across sessions 62-95, and also caused ghost stops (session 96). All 8 functions that write to route_stops are now SECURITY DEFINER: `auto_route_order`, `sync_pickup_stop_on_window_change`, `sync_delivery_stop_on_window_change`, `reconcile_stop_route_on_run_change`, `sync_stops_on_order_terminal`, `sync_stops_on_order_status_advance`, `reset_failed_delivery_stop`, `sync_stop_address_on_order_address_change`. Any new function that touches route_stops from a trigger context must be too.
 
 **⚠️ NEVER use `.toISOString()` for local date comparisons.** `toISOString()` returns UTC — after 5 PM Pacific it rolls to the next calendar day and breaks every "is this today?" check. Always use the `today()` helper or `getFullYear()/getMonth()/getDate()` formatting. This caused a critical bug where route schedule cells locked every evening. Applies to all three apps.
 
@@ -509,6 +509,26 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 7, 2026 (session 96) — Code audit: batched queries, SECURITY DEFINER sweep, ghost stops, pricelist race
+
+**Critical fix — "No card on file" on all orders (commit `43a4c97`):**
+- David woke up to every order showing ⚠️ "Request card" / "No card on file" warnings. Cards were fine in the DB (659 cards).
+- Root cause: The `.in('customer_id', custIds)` query in `loadOrders` passed 632 UUIDs in a single GET request URL, generating a ~23KB query string that exceeded the Supabase API gateway limit (~16KB). The query silently failed, `_custWithCard` became an empty Set, and every order showed no card.
+- Fix: Added `batchedIn()` helper that chunks large ID arrays into groups of 200 (well under URL limit). Applied to all 5 `.in()` calls in loadOrders (payment methods, SMS requests, email requests) and the billing/customer list views.
+- **⚠️ For future sessions:** Never pass more than ~200 UUIDs to a single Supabase `.in()` filter. Use the `batchedIn()` helper for any large ID array query.
+
+**Migration `promote_remaining_route_stop_triggers_to_security_definer`:**
+- Discovered 4 more trigger functions writing to route_stops as SECURITY INVOKER: `sync_stops_on_order_terminal`, `sync_stops_on_order_status_advance`, `reset_failed_delivery_stop`, `sync_stop_address_on_order_address_change`. All promoted to SECURITY DEFINER.
+- This was the root cause of ghost stops — when orders were cancelled/skipped, the cascade trigger couldn't update route_stops due to RLS, leaving orphaned "pending" stops.
+
+**Data fixes:**
+- Cleaned 9 ghost stops (orders #1278, #1283, #1771, #1830, #1838) — marked as skipped.
+- Recalculated `total_stops` on 44 routes that had drifted from actual pending stop counts.
+
+**Code fixes:**
+- `confirmMoveStop()` (admin dashboard) now syncs the order's `pickup_run_id`/`delivery_run_id` when a stop is moved between routes in the RCC map view. Previously the stop moved but the order record still pointed to the old route.
+- Customer app: Commercial pricelist fetch changed from fire-and-forget to `await`. Previously, if a Commercial customer started an order before the async fetch completed, they got residential (per-bag) pricing instead of commercial (per-lb).
 
 ### Apr 7, 2026 (session 95) — Wrong-date stops root cause fix (SECURITY DEFINER + reconcile trigger)
 
