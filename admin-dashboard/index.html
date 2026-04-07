@@ -3909,6 +3909,20 @@
   let _custWithCard = new Set(); // customer IDs that have at least one payment method on file
   let _custCardAddedAt = new Map(); // customer ID → latest card created_at (ISO string)
   let _cardRequestSent = new Map(); // customer ID → ISO timestamp of when card-request was sent
+
+  // Batched .in() helper — Supabase/PostgREST URLs break above ~16 KB, so we chunk large ID arrays
+  const IN_BATCH = 200; // ~200 UUIDs × 37 chars ≈ 7.4 KB per request — safe margin
+  async function batchedIn(table, selectCols, filterCol, ids, extraFn) {
+    let all = [];
+    for (let i = 0; i < ids.length; i += IN_BATCH) {
+      let q = db.from(table).select(selectCols).in(filterCol, ids.slice(i, i + IN_BATCH));
+      if (extraFn) q = extraFn(q);
+      const { data, error } = await q;
+      if (error) console.error(`batchedIn ${table} chunk ${i}:`, error);
+      all = all.concat(data || []);
+    }
+    return all;
+  }
   let allTemplates = [], allDriversCache = [];
   let allDriversList = [];
   let currentDriverId        = null;
@@ -5854,24 +5868,23 @@
     // Always ensure payment methods are loaded for this tab's specific customers.
     // Do NOT guard with !_custWithCard.size — the Set may have been partially populated
     // by a prior tab load (e.g. Orders) and miss customers who only appear here.
+    // Batched to avoid exceeding PostgREST URL length limits with many customer IDs
     const custIds = [...new Set(data.map(o => o.customers?.id).filter(Boolean))];
     if (custIds.length) {
-      const { data: pmRows } = await db.from('customer_payment_methods')
-        .select('customer_id, created_at')
-        .in('customer_id', custIds);
-      (pmRows || []).forEach(r => {
+      const pmRows = await batchedIn('customer_payment_methods', 'customer_id, created_at', 'customer_id', custIds);
+      pmRows.forEach(r => {
         _custWithCard.add(r.customer_id);
         const prev = _custCardAddedAt.get(r.customer_id);
         if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
       });
     }
     if (custIds.length && !_cardRequestSent.size) {
-      const [{ data: smsRows }, { data: emailRows }] = await Promise.all([
-        db.from('sms_messages').select('customer_id, created_at').in('customer_id', custIds).like('body', '%app.familylaundry.com%'),
-        db.from('email_messages').select('customer_id, created_at').in('customer_id', custIds).or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance'),
+      const [smsRows, emailRows] = await Promise.all([
+        batchedIn('sms_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.like('body', '%app.familylaundry.com%')),
+        batchedIn('email_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance')),
       ]);
       _cardRequestSent = new Map();
-      [...(smsRows||[]), ...(emailRows||[])].forEach(r => {
+      [...smsRows, ...emailRows].forEach(r => {
         const prev = _cardRequestSent.get(r.customer_id);
         if (!prev || r.created_at > prev) _cardRequestSent.set(r.customer_id, r.created_at);
       });
@@ -6027,18 +6040,12 @@
     // Ensure _custWithCard is populated for payment indicators on customer list
     if (!_custWithCard.size) {
       const custIds = allCustomers.map(c => c.id);
-      // Batch in chunks of 500 to stay within PostgREST limits
-      for (let i = 0; i < custIds.length; i += 500) {
-        const batch = custIds.slice(i, i + 500);
-        const { data: pmRows } = await db.from('customer_payment_methods')
-          .select('customer_id, created_at')
-          .in('customer_id', batch);
-        (pmRows || []).forEach(r => {
-          _custWithCard.add(r.customer_id);
-          const prev = _custCardAddedAt.get(r.customer_id);
-          if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
-        });
-      }
+      const pmRows = await batchedIn('customer_payment_methods', 'customer_id, created_at', 'customer_id', custIds);
+      pmRows.forEach(r => {
+        _custWithCard.add(r.customer_id);
+        const prev = _custCardAddedAt.get(r.customer_id);
+        if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
+      });
     }
     updateCustomerStats(allCustomers);
     renderCustomers(allCustomers);
@@ -6484,14 +6491,14 @@
     allOrders = allData;
 
     // Side-fetch: which customers have a payment card on file?
+    // Batched to avoid exceeding PostgREST URL length limits with many customer IDs
     const custIds = [...new Set(allOrders.map(o => o.customers?.id).filter(Boolean))];
     if (custIds.length) {
-      const { data: cardRows } = await db.from('customer_payment_methods')
-        .select('customer_id, created_at').in('customer_id', custIds);
-      _custWithCard = new Set((cardRows||[]).map(r => r.customer_id));
+      const cardRows = await batchedIn('customer_payment_methods', 'customer_id, created_at', 'customer_id', custIds);
+      _custWithCard = new Set(cardRows.map(r => r.customer_id));
       // Track the latest card created_at per customer (for retry vs update-card logic)
       _custCardAddedAt = new Map();
-      for (const r of (cardRows||[])) {
+      for (const r of cardRows) {
         const prev = _custCardAddedAt.get(r.customer_id);
         if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
       }
@@ -6502,12 +6509,12 @@
 
     // Side-fetch: which customers have already been sent a card request (SMS or email)?
     if (custIds.length) {
-      const [{ data: smsRows }, { data: emailRows }] = await Promise.all([
-        db.from('sms_messages').select('customer_id, created_at').in('customer_id', custIds).like('body', '%app.familylaundry.com%'),
-        db.from('email_messages').select('customer_id, created_at').in('customer_id', custIds).or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance'),
+      const [smsRows, emailRows] = await Promise.all([
+        batchedIn('sms_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.like('body', '%app.familylaundry.com%')),
+        batchedIn('email_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance')),
       ]);
       _cardRequestSent = new Map();
-      [...(smsRows||[]), ...(emailRows||[])].forEach(r => {
+      [...smsRows, ...emailRows].forEach(r => {
         const prev = _cardRequestSent.get(r.customer_id);
         if (!prev || r.created_at > prev) _cardRequestSent.set(r.customer_id, r.created_at);
       });
