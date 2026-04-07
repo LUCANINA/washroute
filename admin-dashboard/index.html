@@ -17035,11 +17035,19 @@ ${oneCopy}
     const targetRouteId = document.getElementById('move-stop-target-route').value;
     document.getElementById('move-stop-modal').style.display = 'none';
     try {
+      // Fetch stop details so we can sync the order's run_id
+      const { data: stopData } = await db.from('route_stops')
+        .select('order_id, stop_type').eq('id', routeStopMoving.stopId).single();
       const { data: tgt } = await db.from('route_stops')
         .select('stop_number').eq('route_id', targetRouteId).order('stop_number', {ascending:false}).limit(1);
       const nextNum = (tgt?.[0]?.stop_number || 0) + 1;
       const sourceRouteId = routeLiveRouteId; // capture before any state change
       await db.from('route_stops').update({ route_id: targetRouteId, stop_number: nextNum }).eq('id', routeStopMoving.stopId);
+      // Keep order's run_id in sync with the stop's new route
+      if (stopData) {
+        const runCol = stopData.stop_type === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
+        await db.from('orders').update({ [runCol]: targetRouteId }).eq('id', stopData.order_id);
+      }
       const [{ count: srcCnt }, { count: dstCnt }] = await Promise.all([
         db.from('route_stops').select('*, orders!inner(status)', {count:'exact',head:true}).eq('route_id', sourceRouteId).not('orders.status', 'in', `(${DEAD_ORDER_STATUSES.join(',')})`),
         db.from('route_stops').select('*, orders!inner(status)', {count:'exact',head:true}).eq('route_id', targetRouteId).not('orders.status', 'in', `(${DEAD_ORDER_STATUSES.join(',')})`),

@@ -2382,10 +2382,11 @@ async function loadServices() {
   defaultService = allServices.find(s => !s.is_addon) || null;
   globalPrefs    = _buildGlobalPrefs(svcs, prefs);
   allServiceFees = fees  || [];
-  // Pre-fetch Commercial pricelist service (not show_in_app, so not in allServices)
+  // Fetch Commercial pricelist service (not show_in_app, so not in allServices).
+  // Must be awaited so commercial customers always get the correct pricing.
   if (!_commercialService) {
-    db.from('services').select('*').eq('pricelist', 'Commercial').eq('is_active', true).eq('is_addon', false).limit(1).single()
-      .then(({ data }) => { if (data) _commercialService = data; });
+    const { data: commSvc } = await db.from('services').select('*').eq('pricelist', 'Commercial').eq('is_active', true).eq('is_addon', false).limit(1).single();
+    if (commSvc) _commercialService = commSvc;
   }
 }
 
