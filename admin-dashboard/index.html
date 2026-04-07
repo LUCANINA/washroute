@@ -8198,15 +8198,19 @@
     const basePrice  = svc ? parseFloat(svc.base_price || 0) : 0;
     const lbsPerBag  = svc ? parseFloat(svc.lbs_per_bag || 25) : 25;
     const ovgRate    = svc ? parseFloat(svc.overage_rate_per_lb || 3) : 3;
+    const isPerLb    = svc?.pricing_type === 'per_lb';
+    const hasOverage = svc?.has_weight_overage && !isPerLb;
 
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     const sameDayFeeObj = allFees.find(f => (f.category === 'Surcharge' || f.category === 'surcharge') && (f.name || '').toLowerCase().includes('same'));
     const sameDaySurcharge = opIsSameDay ? (sameDayFeeObj ? parseFloat(sameDayFeeObj.amount || 0) : 10) : 0;
 
-    const bagTotal = bags * basePrice;
+    // Per-lb pricing: weight × rate, no bags, no overage
+    // Per-bag pricing: bags × rate + weight overage (if enabled)
+    const baseTotal  = isPerLb ? (weight * basePrice) : (bags * basePrice);
     const allowedLbs = bags * lbsPerBag;
-    const overageLbs = weight > 0 && weight > allowedLbs ? weight - allowedLbs : 0;
+    const overageLbs = hasOverage && weight > 0 && weight > allowedLbs ? weight - allowedLbs : 0;
     const overageAmt = overageLbs > 0 ? overageLbs * ovgRate : 0;
 
     // Active add-ons (only the ones toggled on in _opEditAddons)
@@ -8217,9 +8221,12 @@
     let html = '';
     let total = 0;
 
-    if (bags > 0 && basePrice > 0) {
-      html += `<div style="display:flex;justify-content:space-between"><span>${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}</span><span>${fmtMoney(bagTotal)}</span></div>`;
-      total += bagTotal;
+    if (baseTotal > 0) {
+      const baseLabel = isPerLb
+        ? `${weight} lbs × ${fmtMoney(basePrice)}/lb`
+        : `${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}`;
+      html += `<div style="display:flex;justify-content:space-between"><span>${baseLabel}</span><span>${fmtMoney(baseTotal)}</span></div>`;
+      total += baseTotal;
     }
     if (overageAmt > 0) {
       html += `<div style="display:flex;justify-content:space-between"><span>${overageLbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb</span><span>${fmtMoney(overageAmt)}</span></div>`;
@@ -8264,13 +8271,17 @@
     const basePrice  = svc ? parseFloat(svc.base_price || 0) : 0;
     const lbsPerBag  = svc ? parseFloat(svc.lbs_per_bag || 25) : 25;
     const ovgRate    = svc ? parseFloat(svc.overage_rate_per_lb || 3) : 3;
+    const isPerLb    = svc?.pricing_type === 'per_lb';
+    const hasOverage = svc?.has_weight_overage && !isPerLb;
 
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
-    const bagTotal = bags * basePrice;
+    // Per-lb pricing: weight × rate, no bags, no overage
+    // Per-bag pricing: bags × rate + weight overage (if enabled)
+    const baseTotal = isPerLb ? (weight * basePrice) : (bags * basePrice);
 
     const allowedLbs = bags * lbsPerBag;
-    const overageLbs = weight > 0 && weight > allowedLbs ? weight - allowedLbs : 0;
+    const overageLbs = hasOverage && weight > 0 && weight > allowedLbs ? weight - allowedLbs : 0;
     const overageAmt = overageLbs > 0 ? overageLbs * ovgRate : 0;
 
     const sameDayFeeObj = allFees.find(f => (f.category === 'Surcharge' || f.category === 'surcharge') && (f.name || '').toLowerCase().includes('same'));
@@ -8284,7 +8295,10 @@
     const newLineItems = [];
     let addonTotal = 0;
 
-    if (bags > 0 && basePrice > 0) newLineItems.push({ type: 'base', label: `${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}`, amount: bagTotal });
+    const baseLabel = isPerLb
+      ? `${weight} lbs × ${fmtMoney(basePrice)}/lb`
+      : `${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}`;
+    if (baseTotal > 0) newLineItems.push({ type: 'base', label: baseLabel, amount: baseTotal });
     if (overageAmt > 0) newLineItems.push({ type: 'overage', label: `${overageLbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb`, amount: overageAmt });
     if (deliveryFee > 0) newLineItems.push({ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee });
     if (sameDaySurcharge > 0) newLineItems.push({ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge });
@@ -8298,7 +8312,7 @@
     });
     if (creditItem) newLineItems.push(creditItem);
 
-    const newTotal = Math.max(0, bagTotal + overageAmt + deliveryFee + sameDaySurcharge + addonTotal - creditAmt);
+    const newTotal = Math.max(0, baseTotal + overageAmt + deliveryFee + sameDaySurcharge + addonTotal - creditAmt);
 
     const update = {
       special_instructions: notes || null,
@@ -19489,8 +19503,12 @@ ${oneCopy}
 
   // ── Build line_items array from current panel state ──
   function _buildIntakeLineItems(bd, pricePerBag, ovgRate) {
+    const isPerLb = procSvc?.pricing_type === 'per_lb';
+    const baseLabel = isPerLb
+      ? `${bd.weight} lbs × ${fmtMoney(pricePerBag)}/lb`
+      : `${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}`;
     const lineItems = [
-      { type:'base', label:`${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}`, amount: bd.base }
+      { type:'base', label: baseLabel, amount: bd.base }
     ];
     if (bd.overage_charge > 0)
       lineItems.push({ type:'overage', label:`${bd.overage_lbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb`, amount: bd.overage_charge });
