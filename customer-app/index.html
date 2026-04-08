@@ -2390,10 +2390,12 @@ async function loadServices() {
   }
 }
 
-// Pick the correct base service for this customer's type/pricelist
+// Pick the correct base service for this customer's price list.
+// Price list is assigned manually by admin — it is NOT derived from customer self-selection.
+// A customer on the Commercial price list gets Commercial pricing in the app.
 let _commercialService = null;
 function getCustomerService() {
-  if (currentCustomer?.customer_type === 'Commercial' && _commercialService) {
+  if (currentCustomer?.pricelist === 'Commercial' && _commercialService) {
     return _commercialService;
   }
   return defaultService;

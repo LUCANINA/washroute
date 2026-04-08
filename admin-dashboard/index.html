@@ -3242,6 +3242,7 @@
           <div class="cp-field-label">Price List</div>
           <select class="cp-input" id="cpe-type">
             <option value="Delivery">Delivery</option>
+            <option value="Commercial">Commercial</option>
           </select>
         </div>
         <div class="cp-field">
@@ -5998,7 +5999,7 @@
     let keepGoing = true;
     while (keepGoing) {
       const { data, error } = await db.from('customers')
-          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, customer_type, route_template_override_id, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
+          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, pricelist, route_template_override_id, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
           .order('created_at', { ascending: false })
           .range(from, from + PAGE - 1);
       if (error) {
@@ -12385,7 +12386,7 @@ ${oneCopy}
     const cust = allCustomers.find(c => c.id === customerId);
     _noRouteOverrideId = cust?.route_template_override_id || null;
     if (cust) {
-      const isCommercial = cust.customer_type === 'Commercial';
+      const isCommercial = cust.pricelist === 'Commercial';
       const correctSvc = isCommercial
         ? allServices.find(s => !s.is_addon && s.pricelist === 'Commercial')
         : allServices.find(s => !s.is_addon && s.category === 'Delivery') || allServices.find(s => !s.is_addon);
@@ -12932,7 +12933,7 @@ ${oneCopy}
         referral_source:      source || null,
         ambassador_code:      ambassador,
         subscription_plan_id: planId || null,
-        customer_type:        'Delivery',
+        pricelist:            'Delivery',
         account_type:         accountType,
         first_name_cache:     first,
         last_name_cache:      last || null,
@@ -13278,7 +13279,7 @@ ${oneCopy}
     document.getElementById('cp-add-addr-form').style.display = 'none';
 
     const { data: c } = await db.from('customers')
-      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, customer_type, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id')
+      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id')
       .eq('id', customerId).single();
     if (!c) return;
     _panelCustomerData = c;  // save for invoice generation
@@ -13325,14 +13326,10 @@ ${oneCopy}
       }
     }
 
-    // Populate price list from service categories — fetch if not yet loaded
+    // Price list dropdown is hardcoded to the two valid price lists (Delivery, Commercial).
+    // Pre-select the customer's current pricelist, defaulting to Delivery.
     const typeEl = document.getElementById('cpe-type');
-    if (!allCategories.length) await loadCategories();
-    typeEl.innerHTML = allCategories.length
-      ? allCategories.map(cat => `<option value="${svcEsc(cat.name)}">${svcEsc(cat.name)}</option>`).join('')
-      : '<option value="Delivery">Delivery</option>';
-    typeEl.value = c.customer_type || 'Delivery';
-    if (!typeEl.value) typeEl.value = typeEl.options[0]?.value || 'Delivery';
+    typeEl.value = (c.pricelist === 'Commercial') ? 'Commercial' : 'Delivery';
     document.getElementById('cpe-source').value = c.referral_source || '';
 
     // Route override dropdown — populate from route_templates
@@ -13603,7 +13600,7 @@ ${oneCopy}
     const routeOverride = document.getElementById('cpe-route-override').value || null;
     const { data: c } = await db.from('customers').select('profile_id').eq('id',panelCustomerId).single();
     if (c?.profile_id) await db.from('profiles').update({ first_name:fn, last_name:ln, phone, email }).eq('id', c.profile_id);
-    const { error } = await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, customer_type:type||null, referral_source:src||null, route_template_override_id:routeOverride }).eq('id', panelCustomerId);
+    const { error } = await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, pricelist:type||'Delivery', referral_source:src||null, route_template_override_id:routeOverride }).eq('id', panelCustomerId);
     btn.disabled=false; btn.textContent=origText;
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
@@ -18286,11 +18283,12 @@ ${oneCopy}
       allLaunCache = data || [];
     }
     const { data: orders } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, zone_id,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, zone_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
-               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, addresses(id,label,line1,city)),
-               services(name), service_zones(name, color),
+               customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, billing_type, addresses(id,label,line1,city)),
+               services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, pricelist),
+               service_zones(name, color),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('status', 'folding')
       .order('updated_at', { ascending: true });
@@ -18824,7 +18822,7 @@ ${oneCopy}
       db.from('orders')
         .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
                  stripe_payment_intent_id, pickup_window_start, delivery_window_start, total_amount, line_items,
-                 customers(id, first_name_cache, last_name_cache, customer_type, preferences, billing_type),
+                 customers(id, first_name_cache, last_name_cache, pricelist, preferences, billing_type),
                  services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
         .eq('status', 'picked_up')
         .order('actual_pickup_at', { ascending: true }),
@@ -18868,7 +18866,7 @@ ${oneCopy}
                stripe_payment_intent_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                actual_pickup_at, pickup_address_id, delivery_address_id,
-               customers(id, first_name_cache, last_name_cache, customer_type, preferences, billing_type, addresses(id,label,line1,city)),
+               customers(id, first_name_cache, last_name_cache, pricelist, preferences, billing_type, addresses(id,label,line1,city)),
                services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('status', 'picked_up')
@@ -18886,11 +18884,11 @@ ${oneCopy}
     const wrap = document.getElementById('clean-queue-wrap');
     if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
     const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
-               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, addresses(id,label,line1,city)),
-               services(name),
+               customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, billing_type, addresses(id,label,line1,city)),
+               services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, pricelist),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('status', 'processing')
       .order('updated_at', { ascending: true });
@@ -18999,7 +18997,7 @@ ${oneCopy}
       .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id, total_amount, line_items,
-               customers(id, first_name_cache, last_name_cache, customer_type, preferences, addresses(id,label,line1,city)),
+               customers(id, first_name_cache, last_name_cache, pricelist, preferences, addresses(id,label,line1,city)),
                services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('id', orderId)
@@ -19044,15 +19042,15 @@ ${oneCopy}
     // Fresh fetch of customer preferences so changes made in the customer panel
     // are always reflected — even if preferences were updated after page load
     const custId = order.customers?.id || order.customer_id;
-    let customerType  = order.customers?.customer_type || 'Delivery';
+    let customerPricelist = order.customers?.pricelist || 'Delivery';
     let customerPrefs = order.customers?.preferences   || {};
     if (custId) {
       const { data: fresh } = await db.from('customers')
-        .select('customer_type, preferences, fee_exempt, credits, discount_id')
+        .select('pricelist, preferences, fee_exempt, credits, discount_id')
         .eq('id', custId)
         .single();
       if (fresh) {
-        customerType  = fresh.customer_type  || customerType;
+        customerPricelist = fresh.pricelist || customerPricelist;
         customerPrefs = fresh.preferences    || {};
         procFeeExempt = !!fresh.fee_exempt;
         procCustomerCredits = parseFloat(fresh.credits || 0);
@@ -19071,8 +19069,8 @@ ${oneCopy}
       ? new Date(order.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;
     procIsSameDay = !!(_puLocal && _dlLocal && _puLocal === _dlLocal);
 
-    // Normalize customer_type: legacy 'individual' value → treat as 'Delivery'
-    const pricelist = (customerType === 'Commercial') ? 'Commercial' : 'Delivery';
+    // Resolve the customer's price list — defaults to Delivery
+    const pricelist = (customerPricelist === 'Commercial') ? 'Commercial' : 'Delivery';
 
     // BUG FIX: orders are always created with the Delivery service regardless of customer type
     // (saveOrder default picks category === 'Delivery'). For Commercial customers, override

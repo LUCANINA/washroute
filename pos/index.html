@@ -743,12 +743,13 @@
       const first = document.getElementById('cust-first').value.trim();
       const last  = document.getElementById('cust-last').value.trim();
       if (!first) { showToast('Enter a first name', 'error'); return; }
-      // Create the customer
+      // Create the customer. Walk-ins go on the Delivery price list by default;
+      // admin can promote them to Commercial later via the customer panel.
       const { data, error } = await db.from('customers').insert({
         first_name_cache: first,
         last_name_cache:  last || null,
         phone_cache:      currentCust.phone_cache,
-        customer_type:    'retail',
+        pricelist:        'Delivery',
       }).select().single();
       if (error) { showToast(error.message, 'error'); return; }
       currentCust = { ...data, is_new: false };

@@ -13,14 +13,14 @@ const DRY_RUN = true;
 (async () => {
   console.log(DRY_RUN ? '--- DRY RUN MODE (no emails will be sent) ---' : '--- LIVE MODE ---');
 
-  // ── 1. Fetch all failed/unpaid orders (non-commercial) ──────────────────
+  // ── 1. Fetch all failed/unpaid orders ────────────────────────────────────
   const { data: orders, error: ordersErr } = await db
     .from('orders')
     .select(`
       id, total_amount, order_number, customer_id, billing_status, status,
       customers!inner(
         id, first_name_cache, last_name_cache, phone_cache, email_cache,
-        stripe_customer_id, customer_type
+        stripe_customer_id, pricelist
       )
     `)
     .or('billing_status.eq.failed,billing_status.is.null')
@@ -29,11 +29,8 @@ const DRY_RUN = true;
   if (ordersErr) { console.error('Failed to fetch orders:', ordersErr.message); return; }
   console.log(`Found ${orders.length} total unpaid/failed orders`);
 
-  // ── 2. Exclude commercial customers ─────────────────────────────────────
-  const nonCommercial = orders.filter(o => {
-    const ct = (o.customers?.customer_type || '').toLowerCase();
-    return ct !== 'commercial';
-  });
+  // ── 2. Exclude Commercial-price-list customers (they're invoiced, not card-charged) ──
+  const nonCommercial = orders.filter(o => o.customers?.pricelist !== 'Commercial');
 
   // ── 3. Identify unique customers who have a Stripe ID ────────────────────
   const customerMap = {};
