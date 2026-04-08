@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 7, 2026 — Session 96: Code audit fixes — batched .in() queries, 4 more SECURITY DEFINER promotions, ghost stop cleanup, pricelist race fix*
+*Last updated: Apr 8, 2026 — Session 97: Route template override now respected by 4 routing functions (PM-bridging guard + sync triggers + new-order trigger). Fixes Meg Lamberton wrong-date-stop bug.*
 
 ---
 
@@ -509,6 +509,38 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 8, 2026 (session 97) — Route template override respected by all 4 routing functions
+
+**Symptom:** Morning audit flagged a wrong-date stop on Meg Lamberton order #1937. Recurring weekly: pickup Mon Apr 13 12:00 PT, delivery Tue Apr 14 09:00 PT, but the delivery stop landed on the **Apr 15** COMMERCIAL route instead of Apr 14.
+
+**Root cause (latent since session 94):** When `route_template_override_id` was added to customers (session 94 — needed for non-zone-based commercial accounts like Meg Lamberton and Always Fishing), only the **template-lookup loops** in `auto_route_order` were updated. Three other code paths still assumed zone-based residential routing:
+
+1. **`auto_route_order` PM-bridging block** — A residential-AM/PM heuristic: when `pickup_time >= 12:00` AND `delivery_time < 12:00` AND `delivery_date <= pickup+1`, it searches for "any template in this zone with `window_start >= 12:00`". For an override customer, `zone_id` doesn't match COMMERCIAL (zone_id is NULL on the template), so no PM template is found, and the fallback path bumps `delivery_date += 1`. Meg's Apr 14 delivery slid to Apr 15.
+
+2. **`sync_pickup_stop_on_window_change`** — Trigger that moves a pickup stop when the order's pickup window date changes. Its template lookup hardcoded `WHERE zone_id = NEW.zone_id`, so any pickup edit on an override customer would fail to find a template (latent bug — would have surfaced the next time anyone edited Meg's pickup window).
+
+3. **`sync_delivery_stop_on_window_change`** — Same pattern, same latent bug for delivery edits.
+
+4. **`trg_auto_route_new_order`** — Pre-flight check refused to call `auto_route_order` for orders with `zone_id IS NULL`, even if the customer had an override. This meant new override orders silently got `routing_error = 'No zone assigned to this order'` and never routed.
+
+**Why Always Fishing (the other override customer) wasn't affected by symptom 1:** Always Fishing #1940 was admin-created via the new-order modal, which pre-sets `pickup_run_id` and `delivery_run_id` directly — bypassing `trg_auto_route_new_order` entirely. The PM-bridging bug only fires when `auto_route_order` is invoked from the recurring-order trigger (which doesn't pre-set run_ids).
+
+**Fix (migration `fix_route_template_override_in_routing_functions`):**
+- All 4 functions now check `customers.route_template_override_id` first.
+- `auto_route_order`: PM-bridging block now skipped entirely when override is set (the override IS the customer's template choice — bridging is residential AM/PM logic that doesn't apply to single-window override templates like COMMERCIAL 09–15).
+- The two `sync_*_window_change` triggers: template lookup now matches `(override_id IS NOT NULL AND id = override_id) OR (override_id IS NULL AND zone_id = NEW.zone_id)`.
+- `trg_auto_route_new_order`: now allows override customers to route even without `zone_id`.
+- All 4 remain SECURITY DEFINER (required because they write to `route_stops`).
+
+**Data fix:** Moved Meg #1937's delivery stop (id `6a18fde6...`) from the Apr 15 COMMERCIAL route to the Apr 14 COMMERCIAL route. `moved_from_route_id` set so it shows up in the audit dashboard. `delivery_run_id` on the order updated to match. Verified with the wrong-date stop check: zero rows.
+
+**⚠️ For future sessions:** When adding a new code path that uses zone-based routing, always check if `route_template_override_id` should also be respected. The 2 customers currently using overrides (Meg Lamberton, Always Fishing) both have a NULL `zone_id` because COMMERCIAL is a non-zone template — any code that requires `zone_id` will silently break for them. The pattern is: `IF override IS NOT NULL THEN match by template id, ELSE match by zone_id`.
+
+**Files touched:**
+- DB: 4 functions replaced via migration
+- Rollback SQL saved at `migration-route-override-fix.sql` + `rollback-route-override-fix.sql`
+- No app code changes (admin/driver/customer apps are unaffected)
 
 ### Apr 7, 2026 (session 96) — Code audit: batched queries, SECURITY DEFINER sweep, ghost stops, pricelist race
 
