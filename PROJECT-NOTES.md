@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 8, 2026 — Session 97: Route template override now respected by 4 routing functions (PM-bridging guard + sync triggers + new-order trigger). Fixes Meg Lamberton wrong-date-stop bug.*
+*Last updated: Apr 8, 2026 — Session 97: (1) Route template override respected by 4 routing functions (Meg Lamberton fix), (2) delivery_failed cascade + en_route stop filter (Elvis Kahoro fix).*
 
 ---
 
@@ -510,7 +510,31 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
-### Apr 8, 2026 (session 97) — Route template override respected by all 4 routing functions
+### Apr 8, 2026 (session 97 part 2) — Elvis Kahoro status desync (delivery_failed cascade missing + en_route stop filter)
+
+**Symptom:** Order #1459 (Elvis Kahoro) showed `delivery_failed` on the order but its delivery route_stop was stuck in `en_route`. This was the morning audit's issue #2.
+
+**Root cause — TWO bugs both contributed:**
+
+1. **`auto_fail_expired_orders` only updated `pending` stops, not `en_route`.** The driver hit "On My Way" at 5:20pm Apr 7 (stop → `en_route`) but never confirmed delivery. The cron `auto-fail-expired-orders` (runs every 30 min) caught the order at midnight Pacific, set `order.status = 'delivery_failed'`, and tried to mark the stop failed — but its WHERE clause was `status = 'pending'`. The `en_route` stop didn't match → orphaned. The pickup branch had the same bug (latent — would only manifest if a driver hit "On My Way" on a pickup stop and then never returned to confirm).
+
+2. **`sync_stops_on_order_terminal` had no `delivery_failed` branch at all.** The cascade trigger (which is supposed to be a safety net regardless of which code path sets the order status) handles `delivered`, `cancelled`, `pickup_failed`, `skipped` — but not `delivery_failed`. So even if `auto_fail_expired_orders` were fixed, ANY other caller setting `delivery_failed` (admin manual, future automation, edge function) would still leave delivery stops orphaned. The trigger's WHEN clause also missed `delivery_failed`, so even adding a body branch wouldn't have fired.
+
+**Fix (migration `fix_delivery_failed_cascade_and_en_route_filter`):**
+- `sync_stops_on_order_terminal`: added a `delivery_failed` branch that marks the delivery stop as `failed` (pickup is left alone — bags are already with us, so pickup must be `complete` already by the time delivery fails).
+- Recreated `trg_sync_stops_on_order_terminal` with `delivery_failed` added to the WHEN clause so the trigger actually fires for that status.
+- `auto_fail_expired_orders`: both pickup and delivery stop UPDATEs now match `status IN ('pending', 'en_route')` instead of just `pending`. Also added `updated_at = NOW()` so the audit dashboard can sort by recency.
+- All 3 functions remain SECURITY DEFINER.
+
+**Why this is belt-and-suspenders, not redundant:** The cron's stop-update is the primary path during automatic expiration. The cascade trigger is the safety net for any OTHER code path (admin, edge function, manual SQL) that sets `delivery_failed`. Both should leave the same final state, and the trigger's UPDATE is a no-op on rows already in `failed`/`skipped`/`complete`.
+
+**Data fix:** Manually updated Elvis #1459's stuck stop (`8cda6e8b...`) from `en_route` → `failed`. Re-ran the desync check across all `delivery_failed`, `pickup_failed`, `delivered`, and `cancelled` orders → zero rows.
+
+**SMS fan-out check:** No change to the cron's SMS behavior. Same orders get caught, same `pickup_failed` template body gets sent, same recipients. The fix is strictly about route_stops state.
+
+**⚠️ For future sessions:** When checking the cascade trigger's coverage, the rule is: every value in the order status enum that should propagate to route_stops must appear in BOTH the function body AND the trigger WHEN clause. The current covered set is: `delivered`, `cancelled`, `pickup_failed`, `delivery_failed`, `skipped`. If a new order status is added (e.g., `partial_delivery`, `lost_in_processing`), update both places.
+
+### Apr 8, 2026 (session 97 part 1) — Route template override respected by all 4 routing functions
 
 **Symptom:** Morning audit flagged a wrong-date stop on Meg Lamberton order #1937. Recurring weekly: pickup Mon Apr 13 12:00 PT, delivery Tue Apr 14 09:00 PT, but the delivery stop landed on the **Apr 15** COMMERCIAL route instead of Apr 14.
 
