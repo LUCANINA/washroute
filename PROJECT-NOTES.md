@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 8, 2026 — Session 97: (1) Route template override respected by 4 routing functions (Meg Lamberton fix), (2) delivery_failed cascade + en_route stop filter (Elvis Kahoro fix).*
+*Last updated: Apr 8, 2026 — Session 97p3: customers.customer_type → pricelist rename (migration 1 of 2, zero-downtime via bidirectional sync trigger).*
 
 ---
 
@@ -294,7 +294,7 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 
 | Table | Notes |
 |---|---|
-| `customers` | `phone_cache` stores phone in any format (e.g. `(415) 608-5446`) |
+| `customers` | `phone_cache` stores phone in any format (e.g. `(415) 608-5446`). **`pricelist`** (session 97p3, Apr 8 2026): replaces the old `customer_type` column. NOT NULL, default `'Delivery'`, CHECK constraint `pricelist IN ('Delivery', 'Commercial')`. Every customer belongs to exactly ONE price list — assigned manually by admin, never derived from customer self-selection. A Commercial customer gets Commercial pricing everywhere (admin intake, customer app, recurring orders, new orders). During the migration window, `customer_type` still exists as a legacy column kept in perfect sync with `pricelist` via the `trg_sync_customer_type_pricelist` BEFORE INSERT/UPDATE trigger — this lets old cached clients and the new code coexist. Migration 2 will drop `customer_type` + the sync trigger once we've confirmed nothing still reads the old column. |
 | `orders` | Status pipeline: scheduled → picked_up → processing → ready_for_delivery → out_for_delivery → delivered. (`ready_for_pickup` was removed session 6 — never auto-set, redundant.) `source`: scheduled, walk_in, customer_app, recurring. `cancelled_by`: 'customer', 'driver', 'admin', 'system' (nullable) — set on skip/cancel to distinguish who initiated. **Session 70i fix:** admin dashboard now sets `'admin'`, driver app sets `'driver'`, customer app sets `'customer'` (was all hardcoded to `'customer'`). Skip events also logged in `order_events`. `charge_failed_at` (TIMESTAMPTZ, session 70h): set by charge-order v26 on decline; compared against `customer_payment_methods.created_at` to detect stale cards |
 | `route_templates` | Recurring route definitions: zone, schedule_days (0=Mon..5=Sat), window_start/end, turnaround_days, default drivers, stop_limit |
 | `routes` | Dated route instances (auto-created from templates by `auto_route_order()`). Links to template_id, date, single `driver_id`. `pickup_driver_id`/`delivery_driver_id` columns exist but are not used by app code — auto-cleared by `trg_sync_route_driver` whenever `driver_id` changes, keeping RLS policies consistent |
@@ -509,6 +509,52 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 8, 2026 (session 97 part 3) — customer_type → pricelist rename (migration 1 of 2, zero-downtime)
+
+**Why this was needed:** The `customers.customer_type` column had become a tangled mess. Its original purpose ("is this a residential or commercial customer?") had drifted over time and was being (mis)read in several places — sometimes as a price list selector, sometimes as a service category proxy. The admin dashboard's "Price List" dropdown was even populating from `service_categories` (which had a stray "Retail" entry), so admins could accidentally assign a non-existent price list. The whole concept needed a clean rename + a hardened, opinionated meaning.
+
+**The new definition (David's policy):**
+- Every customer belongs to exactly ONE price list — `'Delivery'` or `'Commercial'`.
+- Admin assigns the price list manually. It is NEVER auto-derived and NEVER driven by customer self-selection.
+- A customer on the Commercial price list gets Commercial pricing EVERYWHERE: admin intake panel, customer-app self-serve, recurring orders, new orders.
+
+**Zero-downtime strategy — bidirectional sync trigger (migration 1 of 2):**
+The classic risk with a rename is the ~60s Vercel deploy window where old cached clients still write `customer_type` while new code reads `pricelist`. Instead of a high-risk big-bang rename, this session introduced a transition window:
+
+1. **Added `pricelist` column** (NOT NULL, default `'Delivery'`, CHECK `IN ('Delivery', 'Commercial')`). Backfilled all 5,399 rows from normalized `customer_type` values → 5,371 Delivery / 28 Commercial.
+2. **Installed `trg_sync_customer_type_pricelist`** — a BEFORE INSERT/UPDATE trigger that keeps both columns in perfect agreement. Old code writing to `customer_type` gets normalized into `pricelist`; new code writing to `pricelist` mirrors back to `customer_type`. Both directions handled.
+3. **Updated `trg_create_recurring_order_fn`** to read `pricelist` instead of `customer_type`.
+4. **Shipped all app code on `pricelist`** in a single atomic commit (`d9e1f4f`).
+5. **Migration 2 (next session or tomorrow):** drop `customer_type` + drop the sync trigger.
+
+**App code changes (commit `d9e1f4f`, 5 files):**
+- **admin-dashboard/index.html:** Every customer SELECT/UPDATE now uses `pricelist`. Customer panel price list dropdown is now hardcoded to the two valid price lists (previously it was being populated from `service_categories`, which included a stray "Retail" option — a latent bug where admins could accidentally assign a price list that didn't exist in `services.pricelist`). The `customerType` variable in `openIntakePanel` was renamed to `customerPricelist` throughout.
+- **customer-app/index.html:** `getCustomerService()` reads `currentCustomer.pricelist` instead of `customer_type`. Added explicit comments clarifying that price list is admin-assigned and NOT derived from customer self-selection — this was the root of earlier confusion about whether the customer app should "offer" residential vs commercial.
+- **pos/index.html:** Walk-in customer creation writes `pricelist: 'Delivery'` (was `customer_type: 'retail'` — another stale value that didn't match the CHECK constraint anyway). Admin can promote walk-ins to Commercial later via the customer panel.
+- **outreach-sms.js / outreach-email.js:** Group B queries now filter Commercial price list customers (`pricelist !== 'Commercial'`) instead of a toLowerCase match on the old field.
+
+**Drive-by fixes caught while touching these files:**
+- `loadFolding` and `loadCleaning` were only pulling `services(name)` — a latent display/billing gap where the folding and cleaning queues couldn't correctly render per-lb vs per-bag pricing for Commercial orders. Both now join the full services shape (`id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, pricelist`) and pull `line_items`, matching the Intake query pattern.
+
+**Pre-commit QA (washroute-qa with blast radius check):**
+- Zero remaining `customer_type` references anywhere in `.html` or `.js` files across all three apps + POS + outreach scripts.
+- Only the sync trigger function itself references `customer_type` in the DB (intentional — it's the bridge).
+- Spot-checked 6 critical edge functions (charge-order, stripe-webhook, on-customer-created, send-order-notification, send-scheduled-reminders, backfill-stripe-ids) — none reference `customer_type`. No edge function changes required.
+- No customer pricelist assignments changed as a side effect of this work (David explicitly confirmed: "leave as is" — no retroactive credits for the two earlier over-charged Level Up Wellness orders).
+
+**⚠️ For future sessions:**
+1. **Migration 2 is still pending.** Before dropping `customer_type`, run this across the codebase one last time: `grep -rn "customer_type" customer-app/ admin-dashboard/ driver-app/ pos/ outreach-*.js supabase/functions/` — expect zero hits. Also check `pg_proc` for any DB functions that still reference it. If clean, drop the sync trigger first, then drop the column.
+2. **The "Price List" dropdown is now hardcoded** to Delivery/Commercial. If a future requirement adds a third price list (e.g. a new "Wholesale" tier), remember you need to: (a) add it to the `pricelist` CHECK constraint, (b) add the `<option>` to the admin dashboard dropdown, (c) update `getCustomerService()` in customer-app, (d) update the `services.pricelist` CHECK constraint if services also need it, and (e) ensure outreach scripts don't exclude the new tier accidentally.
+3. **Never drive price list from customer self-selection in the app.** The customer app reads `currentCustomer.pricelist` as ground truth. If a product decision later allows customers to choose their own tier, the assignment still needs to flow through an admin-approved path — not a direct write from the customer session.
+
+**Files touched:**
+- DB: `customers` table (+ `pricelist` column, CHECK constraint, sync trigger, `trg_create_recurring_order_fn` updated). Migration names: `add_pricelist_column_alongside_customer_type`.
+- `admin-dashboard/index.html` (12 targeted edits)
+- `customer-app/index.html` (1 edit + clarifying comments)
+- `pos/index.html` (1 edit)
+- `outreach-sms.js`, `outreach-email.js` (query + filter updates)
+- Commit: `d9e1f4f` refactor: rename customers.customer_type → pricelist (migration 1 of 2)
 
 ### Apr 8, 2026 (session 97 part 2) — Elvis Kahoro status desync (delivery_failed cascade missing + en_route stop filter)
 
@@ -4291,6 +4337,7 @@ Second pass (33 orders bulk-inserted from Starchup-filtered page):
 ---
 
 ## Pending / Next Up
+- **Migration 2: drop `customer_type` column + sync trigger** (session 97p3 → next session): After confirming nothing still reads the legacy column for ~24h, drop `trg_sync_customer_type_pricelist` first, then `DROP COLUMN customers.customer_type`. Pre-check: `grep -rn "customer_type"` across all app files and `pg_proc` should return zero hits. Only proceed if clean.
 - ~~Twilio A2P 10DLC registration~~ ✅ — Approved 2026-03-16. SMS fully live.
 - ~~Receipt printing~~ ✅ — thermal 80mm, 2 copies, auto-prints on intake save + 🖨 Print button on order panel (session 13)
 - ~~UX audit top 5 fixes~~ ✅ — double-tap, res.ok guard, batch button disable, stop card styling, slot CSS (session 15)
