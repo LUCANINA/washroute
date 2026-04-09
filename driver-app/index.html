@@ -10,6 +10,19 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Family Laundry Driver" />
   <meta name="theme-color" content="#f5a623" />
+  <!-- ── AUTO-UPDATE: see admin-dashboard for full explanation.
+       UPDATE BUILD_TS whenever deploying changes that should reach driver iPads. ── -->
+  <script>
+    (function() {
+      var BUILD_TS = '20260409_s101';
+      try {
+        if (localStorage.getItem('wr_driver_build') !== BUILD_TS) {
+          localStorage.setItem('wr_driver_build', BUILD_TS);
+          location.reload(true);
+        }
+      } catch(e) {}
+    })();
+  </script>
   <style>
     :root {
       --navy:    #0f2744;

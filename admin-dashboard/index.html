@@ -10,6 +10,23 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Family Laundry Admin" />
   <meta name="theme-color" content="#0f2744" />
+  <!-- ── AUTO-UPDATE: iOS web clip ignores HTTP cache headers and serves a
+       stale snapshot. This snippet runs before anything else: if the
+       embedded BUILD_TS differs from what's in localStorage the app reloads
+       once to fetch fresh content. Loop-safe because localStorage is written
+       BEFORE reload, so on the second load the values match and we stop.
+       UPDATE BUILD_TS whenever deploying changes that should reach the iPads. ── -->
+  <script>
+    (function() {
+      var BUILD_TS = '20260409_s101';
+      try {
+        if (localStorage.getItem('wr_admin_build') !== BUILD_TS) {
+          localStorage.setItem('wr_admin_build', BUILD_TS);
+          location.reload(true);
+        }
+      } catch(e) {}
+    })();
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
