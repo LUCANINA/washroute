@@ -13219,7 +13219,10 @@ ${oneCopy}
     // Calculate total from service base price × bags + delivery fee + same-day surcharge
     const svc = allServices.find(s => s.id === serviceId);
     const basePrice = svc ? parseFloat(svc.base_price || 0) : 0;
-    const subtotal  = basePrice * bags;
+    const isPerLb   = svc?.pricing_type === 'per_lb';
+    // Per-lb (Commercial): weight is unknown at order creation — base billed at intake.
+    // Per-bag (Delivery): estimate up front as bags × rate.
+    const subtotal  = isPerLb ? 0 : basePrice * bags;
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     const sameDaySurcharge = _noIsSameDay ? (_noSameDaySurcharge || 0) : 0;
@@ -13274,11 +13277,14 @@ ${oneCopy}
       tip_type:              _noTipType,
       discount_id:           discountId,
       is_same_day:           _noIsSameDay || false,
-      line_items:            [
-        { type: 'base', label: `${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`, amount: subtotal },
-        ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : []),
-        ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge }] : [])
-      ],
+      line_items:            isPerLb
+        // Per-lb: weight unknown until intake — don't write a misleading bags × rate label.
+        ? (deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : [])
+        : [
+            { type: 'base', label: `${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`, amount: subtotal },
+            ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : []),
+            ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge }] : [])
+          ],
       source:                'scheduled',
     }).select('id, order_number').single();
 
