@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 9, 2026 — Session 99: Order Recall feature — delivered orders can now be searched and recalled onto a new route (admin + manager), with no SMS fan-out. Widened Delivered tab window from 24h to 7 days.*
+*Last updated: Apr 9, 2026 — Session 100: POS mockup — added Oxi / Vinegar / Double Wash add-ons inside the weight modal, halved tile heights, and swapped all purple-accent buttons/tiles for a sober white + gray-outline aesthetic matching the admin processing queue. UI-only work on `pos-mockup.html` — no app code, no DB changes.*
 
 ---
 
@@ -511,6 +511,44 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 9, 2026 (session 100) — POS mockup: add-ons, tile shrink, sober aesthetic
+
+**Context:** Continued the POS mockup work started in session ~95 on Apr 8. Goal for this session was "UI first — get it looking right." Scope was explicitly design-only on the single-file mockup `pos-mockup.html` at the repo root (not wired to Supabase yet, not in production). David flagged three things over the course of the session.
+
+**1. Wash add-ons (Oxi, Vinegar, Double Wash).** David's open question from the prior session was "how do we charge add-ons like Oxi and/or vinegar?" After walking through the options, we decided:
+- Add-ons live **inside the weight modal**, right below the numpad — one modal, one decision, no extra screen.
+- **Flat per-drop-off** pricing (not per-pound), matching how they're invoiced today: ✨ Oxi $3, 💧 Vinegar $3, 🔄 Double Wash $5.
+- Add-ons are per-service-line: they attach to the specific W&F or W&D batch the cashier is weighing, so a customer can ask for Oxi on whites only while a second W&F line stays plain.
+- Implemented as toggleable chips in a 3-column grid. Active state shows a purple check badge + accent-light fill. The weight modal's calculation line now shows `base + add-ons = total` when any add-on is active.
+- Cart lines render small purple pill badges under each add-on-enabled line (`✨ Oxi +3.00` etc).
+- A `WEIGHT_ADDONS` catalog constant at the top of the JS makes it trivial to extend later (starch, scent boost, bleach, whatever). `addToCart()` now accepts an `addons` array; `lineTotal()` sums base price × weight + flat add-on total.
+- New flow-picker scenario "Weight + add-ons" opens the weight modal pre-populated with 14.5 lb and Oxi+Vinegar selected, so the whole thing demos in one click.
+
+**2. Cut tile heights in half.** The product/service tiles (Wash & Fold, Drinks, etc.) were unnecessarily tall. `.tile` `min-height` dropped from 120 → 72px, padding 16/14 → 10/12, gap 8 → 3, emoji 30 → 22, name 14 → 13 with `flex: 1` removed so the tile only takes its content height. **First attempt didn't visibly change anything** — the root cause was that `.tile-grid` had `flex: 1` filling the vertical product panel and, with no `grid-auto-rows`, the grid rows stretched to fill that extra space regardless of `min-height` on the tiles. Fix: added `grid-auto-rows: min-content; align-content: start` to `.tile-grid`. Tiles now pack at the top and only take their own height.
+
+**3. "Replace the purple buttons with white + black outline — sober, clean."** David pointed at the admin processing queue kanban column headers as the target aesthetic. Three places were affected:
+- **`.flow-btn`** (the scenario/flow picker at the top of the mockup page) — `.flow-btn.active` was `var(--accent)` purple. Changed to white background + `1.5px solid var(--gray-200)`, active flips to `--gray-900` fill with white text.
+- **`.tile.service`** (the laundry service tiles — W&F, W&D, Dry Only, Comforter, Hang Dry, Rush) — had a purple linear gradient (`#ede9fe → #f5f3ff`) with a lavender border. Now white with `var(--gray-200)` border.
+- **`.tile-price`** (all tile price labels) — was `color: var(--accent-dark)` globally, making every price purple. Now `var(--gray-900)`.
+- **`.tile:hover`** glow — was purple (`rgba(99,91,255,0.12)`). Now neutral `rgba(0,0,0,0.06)` with a `--gray-400` border.
+
+The product-category tabs (`.tab`) at the top of the products panel were already in the target style — white with gray outline, dark fill on active — so no change needed there.
+
+**Design note added to the mockup** (rendered below the device, alongside the existing "Scale & weight" and "Receipt" notes) explaining the add-on rationale: where they live, how they're priced, and why they're attached to the specific service line instead of the cart total.
+
+**Files touched:**
+- `pos-mockup.html` — **this file was previously untracked** (the whole mockup was started in session ~95 on Apr 8 but never committed). This commit adds the entire file, including all of today's session-100 work, to git for the first time.
+- `PROJECT-NOTES.md` — this entry.
+
+**⚠️ For future sessions:**
+1. **POS is design-only right now.** `pos-mockup.html` is a self-contained HTML demo with fake `SERVICES`, `FAKE_CUSTOMERS`, and flow-picker buttons. It has zero Supabase wiring, no auth, no order insertion. Treat it as a Figma substitute, not a feature branch. When we eventually wire it up, the add-on model needs a corresponding DB shape decision (a JSON column on `order_items` vs a dedicated `order_item_addons` table — TBD).
+2. **The add-on catalog is hardcoded in JS** as `WEIGHT_ADDONS`. When this goes live, it should come from a `pos_addons` table or a `settings` row so cashiers can add/remove items without a code push.
+3. **Flat-per-drop-off pricing assumption.** If any add-on ever needs to be per-pound (e.g. a premium soap priced per lb), `lineTotal()` needs to accept a per-addon `priceType` field. Right now every add-on is flat.
+4. **Retail POS pricing tier is still TBD.** See the `pricelist` rename notes from session 97p3 — POS walk-in transactions should pull from a third pricelist (`retail`) tied to the transaction channel, not the customer profile. Not blocking, but worth revisiting when wiring this up.
+5. **Sober aesthetic is the new baseline.** If anything new is added to the POS mockup, match the white + gray-200 outline + dark fill pattern instead of using `--accent` as a fill. Accent is still fine for small hits (active chip check badges, cart add-on pills, the `POS — CASHIER TERMINAL` screen label), just not for large filled buttons.
+
+---
 
 ### Apr 9, 2026 (session 99) — Order Recall feature (delivered → back on a route, no SMS)
 

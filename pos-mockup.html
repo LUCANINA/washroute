@@ -1,0 +1,2029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1200, initial-scale=1" />
+<title>Family Laundry POS — Mockup</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --accent:       #635bff;
+    --accent-dark:  #4f46e5;
+    --accent-light: #ede9fe;
+    --green:        #059669;
+    --green-light:  #d1fae5;
+    --red:          #ef4444;
+    --red-light:    #fee2e2;
+    --amber:        #f59e0b;
+    --amber-light:  #fef3c7;
+    --gray-50:      #f9fafb;
+    --gray-100:     #f3f4f6;
+    --gray-150:     #ececf0;
+    --gray-200:     #e5e7eb;
+    --gray-300:     #d1d5db;
+    --gray-400:     #9ca3af;
+    --gray-500:     #6b7280;
+    --gray-600:     #4b5563;
+    --gray-700:     #374151;
+    --gray-800:     #1f2937;
+    --gray-900:     #111827;
+    --radius:       16px;
+    --radius-sm:    10px;
+  }
+
+  html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+    background: #e9eaf3;
+    color: var(--gray-900);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ═════════════════════════════════════════════════════════════
+     MOCKUP FRAME — simulates an iPad in landscape
+     ═════════════════════════════════════════════════════════════ */
+  .page {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 28px 24px 60px;
+  }
+  .page-header {
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  .page-title {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--gray-900);
+    letter-spacing: -0.02em;
+  }
+  .page-sub {
+    font-size: 15px;
+    color: var(--gray-500);
+    margin-top: 6px;
+  }
+  .screen-label {
+    display: inline-block;
+    background: var(--accent);
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 14px;
+    border-radius: 999px;
+    margin-bottom: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .device {
+    width: 100%;
+    max-width: 1180px;
+    margin: 0 auto;
+    background: #1a1a1f;
+    border-radius: 28px;
+    padding: 14px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.25), 0 10px 30px rgba(0,0,0,0.1);
+  }
+  .device-screen {
+    width: 100%;
+    aspect-ratio: 1180 / 820;
+    background: var(--gray-50);
+    border-radius: 16px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ═════════════════════════════════════════════════════════════
+     TOP BAR — customer chip + store info + clock
+     ═════════════════════════════════════════════════════════════ */
+  .topbar {
+    height: 68px;
+    background: white;
+    border-bottom: 1px solid var(--gray-200);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  .logo {
+    width: 42px;
+    height: 42px;
+    background: var(--accent);
+    border-radius: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .logo svg { width: 24px; height: 24px; }
+  .store-info {
+    display: flex;
+    flex-direction: column;
+  }
+  .store-name { font-size: 15px; font-weight: 700; color: var(--gray-900); line-height: 1.2; }
+  .store-emp  { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
+
+  /* Customer chip */
+  .customer-chip {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--gray-100);
+    border-radius: 999px;
+    padding: 8px 18px 8px 10px;
+    cursor: pointer;
+    border: none;
+    transition: background .15s;
+  }
+  .customer-chip:hover,
+  .customer-chip:active { background: var(--gray-200); }
+  .customer-chip.attached {
+    background: var(--accent-light);
+    color: var(--accent-dark);
+  }
+  .customer-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--gray-300);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; color: var(--gray-600);
+    flex-shrink: 0;
+  }
+  .customer-chip.attached .customer-avatar {
+    background: var(--accent);
+    color: white;
+  }
+  .customer-chip-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1.15;
+  }
+  .customer-chip-name { font-size: 14px; font-weight: 700; }
+  .customer-chip-sub  { font-size: 11px; color: var(--gray-500); margin-top: 1px; }
+  .customer-chip.attached .customer-chip-sub { color: var(--accent-dark); opacity: 0.7; }
+
+  .clock {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-500);
+    padding: 0 10px;
+    border-left: 1px solid var(--gray-200);
+    height: 32px;
+    display: flex;
+    align-items: center;
+    margin-left: 4px;
+  }
+
+  /* ═════════════════════════════════════════════════════════════
+     MAIN GRID — products on the left, cart on the right
+     ═════════════════════════════════════════════════════════════ */
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    min-height: 0;
+  }
+
+  /* ═════════════════════════════════════════════════════════════
+     LEFT — product area
+     ═════════════════════════════════════════════════════════════ */
+  .products {
+    padding: 16px 20px 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Category tabs */
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-shrink: 0;
+  }
+  .tab {
+    padding: 12px 20px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--gray-600);
+    background: white;
+    border: 1.5px solid var(--gray-200);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all .15s;
+  }
+  .tab:hover { background: var(--gray-100); }
+  .tab.active {
+    background: var(--gray-900);
+    border-color: var(--gray-900);
+    color: white;
+  }
+  .tab-emoji { font-size: 18px; }
+
+  /* Product tile grid */
+  .tile-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: min-content;
+    align-content: start;
+    gap: 12px;
+    flex: 1;
+  }
+
+  .tile {
+    background: white;
+    border: 1.5px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: all .12s;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-height: 72px;
+    position: relative;
+    overflow: hidden;
+  }
+  .tile:hover {
+    border-color: var(--gray-400);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+  }
+  .tile:active { transform: translateY(0); }
+  .tile-emoji {
+    font-size: 22px;
+    line-height: 1;
+  }
+  .tile-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gray-900);
+    line-height: 1.2;
+  }
+  .tile-price {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--gray-900);
+    margin-top: 2px;
+  }
+  .tile-price-sub {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--gray-400);
+    margin-left: 3px;
+  }
+  .tile.service {
+    background: white;
+    border-color: var(--gray-200);
+  }
+  .tile.service .tile-name { color: var(--gray-900); }
+  .tile.out-of-stock {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .tile.out-of-stock::after {
+    content: 'OUT';
+    position: absolute;
+    top: 8px; right: 8px;
+    background: var(--gray-500);
+    color: white;
+    font-size: 9px;
+    font-weight: 800;
+    padding: 3px 7px;
+    border-radius: 999px;
+    letter-spacing: 0.05em;
+  }
+
+  /* ═════════════════════════════════════════════════════════════
+     RIGHT — cart panel
+     ═════════════════════════════════════════════════════════════ */
+  .cart {
+    background: white;
+    border-left: 1px solid var(--gray-200);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .cart-header {
+    padding: 16px 18px 12px;
+    border-bottom: 1px solid var(--gray-150);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .cart-header-title {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--gray-900);
+  }
+  .cart-clear {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--red);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 6px;
+  }
+  .cart-clear:hover { text-decoration: underline; }
+
+  .cart-items {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .cart-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 10px;
+    padding: 10px 8px;
+    border-radius: 10px;
+    align-items: start;
+  }
+  .cart-item:hover { background: var(--gray-50); }
+  .cart-item-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--gray-900);
+    line-height: 1.25;
+  }
+  .cart-item-sub {
+    font-size: 11px;
+    color: var(--gray-500);
+    margin-top: 2px;
+    grid-column: 1 / 2;
+  }
+  .cart-item-addons {
+    grid-column: 1 / -1;
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .cart-item-addon-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--accent-light);
+    color: var(--accent-dark);
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .cart-item-addon-pill-price {
+    color: var(--accent);
+    font-weight: 800;
+  }
+  .cart-item-price {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--gray-900);
+    text-align: right;
+    white-space: nowrap;
+  }
+  .cart-item-qty {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    grid-column: 1 / -1;
+  }
+  .qty-btn {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--gray-100);
+    border: none;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--gray-700);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .qty-btn:hover { background: var(--gray-200); }
+  .qty-num {
+    font-size: 14px;
+    font-weight: 700;
+    min-width: 20px;
+    text-align: center;
+  }
+  .qty-remove {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--red);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    padding: 4px;
+  }
+  .cart-empty {
+    text-align: center;
+    color: var(--gray-400);
+    font-size: 13px;
+    padding: 60px 20px 40px;
+    font-weight: 500;
+  }
+  .cart-empty-emoji { font-size: 36px; margin-bottom: 8px; display: block; }
+
+  /* Totals */
+  .cart-totals {
+    padding: 14px 18px 12px;
+    border-top: 1px solid var(--gray-150);
+    flex-shrink: 0;
+  }
+  .total-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: var(--gray-600);
+    margin-bottom: 6px;
+  }
+  .total-row.grand {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--gray-900);
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--gray-150);
+    margin-bottom: 12px;
+  }
+  .charge-btn {
+    width: 100%;
+    padding: 18px 16px;
+    background: var(--green);
+    color: white;
+    border: none;
+    border-radius: 14px;
+    font-size: 17px;
+    font-weight: 800;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: background .15s;
+    letter-spacing: 0.01em;
+  }
+  .charge-btn:hover:not(:disabled) { background: #047857; }
+  .charge-btn:disabled {
+    background: var(--gray-200);
+    color: var(--gray-400);
+    cursor: not-allowed;
+  }
+
+  /* ═════════════════════════════════════════════════════════════
+     MODAL FOUNDATION
+     ═════════════════════════════════════════════════════════════ */
+  .modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(17, 24, 39, 0.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 20px;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: white;
+    border-radius: 22px;
+    width: 100%;
+    max-width: 520px;
+    overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.3);
+    display: flex;
+    flex-direction: column;
+    max-height: 95%;
+  }
+  .modal-header {
+    padding: 20px 24px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .modal-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--gray-900);
+  }
+  .modal-sub {
+    font-size: 13px;
+    color: var(--gray-500);
+    margin-top: 3px;
+  }
+  .modal-close {
+    width: 32px; height: 32px; border-radius: 10px;
+    background: var(--gray-100);
+    border: none;
+    font-size: 18px;
+    color: var(--gray-500);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal-body {
+    padding: 8px 24px 24px;
+    overflow-y: auto;
+  }
+
+  /* ── Numpad ─────────────────────────────────────────────────── */
+  .numpad-display {
+    background: var(--gray-50);
+    border: 2px solid var(--gray-200);
+    border-radius: 14px;
+    padding: 22px 20px;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+  .numpad-display-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .numpad-display-value {
+    font-size: 48px;
+    font-weight: 800;
+    color: var(--gray-900);
+    line-height: 1;
+    margin-top: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .numpad-display-unit {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--gray-400);
+    margin-left: 4px;
+  }
+  .numpad-display-calc {
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 700;
+    margin-top: 6px;
+  }
+
+  .numpad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .numkey {
+    padding: 18px;
+    border-radius: 14px;
+    background: var(--gray-100);
+    border: none;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--gray-900);
+    cursor: pointer;
+    transition: background .1s;
+  }
+  .numkey:hover { background: var(--gray-200); }
+  .numkey.zero { grid-column: span 2; }
+  .numkey.back { background: var(--red-light); color: var(--red); }
+  .numkey.back:hover { background: #fecaca; }
+
+  /* ── Weight-modal add-on chips ──────────────────────────────── */
+  .addon-section {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--gray-200);
+  }
+  .addon-section-label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--gray-500);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .addon-section-hint {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--gray-400);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .addon-chips {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .addon-chip {
+    position: relative;
+    padding: 12px 10px 10px;
+    border-radius: 12px;
+    border: 1.5px solid var(--gray-200);
+    background: white;
+    cursor: pointer;
+    transition: all .12s;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .addon-chip:hover {
+    border-color: var(--gray-300);
+    background: var(--gray-50);
+  }
+  .addon-chip.active {
+    border-color: var(--accent);
+    background: var(--accent-light);
+    box-shadow: 0 0 0 1px var(--accent) inset;
+  }
+  .addon-chip-emoji {
+    font-size: 22px;
+    line-height: 1;
+  }
+  .addon-chip-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gray-900);
+    line-height: 1.1;
+  }
+  .addon-chip.active .addon-chip-name { color: var(--accent-dark); }
+  .addon-chip-price {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--gray-500);
+    line-height: 1;
+  }
+  .addon-chip.active .addon-chip-price { color: var(--accent); }
+  .addon-chip-check {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: white;
+    font-size: 11px;
+    font-weight: 900;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+  .addon-chip.active .addon-chip-check { display: flex; }
+
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+  }
+  .btn {
+    flex: 1;
+    padding: 16px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    border: none;
+    transition: background .15s;
+  }
+  .btn-ghost {
+    background: var(--gray-100);
+    color: var(--gray-700);
+  }
+  .btn-ghost:hover { background: var(--gray-200); }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover { background: var(--accent-dark); }
+  .btn-primary:disabled { background: var(--gray-200); color: var(--gray-400); cursor: not-allowed; }
+  .btn-success {
+    background: var(--green);
+    color: white;
+  }
+  .btn-success:hover { background: #047857; }
+
+  /* ── Customer lookup modal ──────────────────────────────────── */
+  .phone-input {
+    width: 100%;
+    padding: 20px;
+    font-size: 28px;
+    font-weight: 700;
+    text-align: center;
+    border: 2px solid var(--gray-200);
+    border-radius: 14px;
+    background: var(--gray-50);
+    margin-bottom: 16px;
+    font-variant-numeric: tabular-nums;
+    color: var(--gray-900);
+    letter-spacing: 0.02em;
+  }
+  .customer-results {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+  }
+  .customer-result {
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1.5px solid var(--gray-200);
+    margin-bottom: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: all .12s;
+  }
+  .customer-result:hover {
+    border-color: var(--accent);
+    background: var(--accent-light);
+  }
+  .customer-result-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--gray-900);
+  }
+  .customer-result-phone {
+    font-size: 12px;
+    color: var(--gray-500);
+    margin-top: 2px;
+  }
+  .customer-result-badge {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--green-light);
+    color: var(--green);
+  }
+  .walk-in-btn {
+    width: 100%;
+    padding: 18px;
+    background: var(--gray-900);
+    color: white;
+    border: none;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+  .walk-in-btn:hover { background: var(--gray-800); }
+
+  /* ── "No match" empty state inside lookup modal ─────────────── */
+  .no-match {
+    padding: 18px 16px 14px;
+    border-radius: 12px;
+    border: 1.5px dashed var(--gray-300);
+    background: var(--gray-50);
+    margin-bottom: 10px;
+    text-align: center;
+  }
+  .no-match-icon {
+    font-size: 28px;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .no-match-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--gray-700);
+  }
+  .no-match-sub {
+    font-size: 12px;
+    color: var(--gray-500);
+    margin-top: 2px;
+    margin-bottom: 12px;
+  }
+  .create-customer-btn {
+    width: 100%;
+    padding: 14px 16px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .create-customer-btn:hover { background: var(--accent-dark); }
+
+  /* ── Create-customer modal form ─────────────────────────────── */
+  .form-field {
+    margin-bottom: 14px;
+  }
+  .form-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray-600);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .form-label .req {
+    color: var(--red);
+    margin-left: 3px;
+  }
+  .form-label .opt {
+    color: var(--gray-400);
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-left: 6px;
+    font-size: 11px;
+  }
+  .form-input {
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 16px;
+    font-weight: 600;
+    border: 2px solid var(--gray-200);
+    border-radius: 12px;
+    background: white;
+    color: var(--gray-900);
+    outline: none;
+    transition: border-color .12s;
+  }
+  .form-input:focus { border-color: var(--accent); }
+  .form-input.phone-locked {
+    background: var(--gray-100);
+    color: var(--gray-600);
+    font-variant-numeric: tabular-nums;
+  }
+  .form-row-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .sms-disclosure {
+    font-size: 11px;
+    color: var(--gray-500);
+    line-height: 1.45;
+    padding: 10px 12px;
+    background: var(--gray-50);
+    border-radius: 10px;
+    border: 1px solid var(--gray-200);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .sms-disclosure-icon {
+    font-size: 14px;
+    line-height: 1;
+    margin-top: 1px;
+  }
+  .email-invite-hint {
+    font-size: 11px;
+    color: var(--accent-dark);
+    line-height: 1.4;
+    margin-top: 6px;
+    padding-left: 2px;
+  }
+
+  /* ── Payment modal ──────────────────────────────────────────── */
+  .pay-total {
+    background: var(--gray-900);
+    color: white;
+    border-radius: 16px;
+    padding: 24px;
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .pay-total-label {
+    font-size: 12px;
+    color: var(--gray-400);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .pay-total-value {
+    font-size: 54px;
+    font-weight: 800;
+    margin-top: 4px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .pay-methods {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .pay-method {
+    padding: 22px 12px;
+    border: 2px solid var(--gray-200);
+    border-radius: 14px;
+    background: white;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    transition: all .15s;
+  }
+  .pay-method:hover {
+    border-color: var(--accent);
+    background: var(--accent-light);
+  }
+  .pay-method-icon { font-size: 32px; line-height: 1; }
+  .pay-method-name { font-size: 15px; font-weight: 700; color: var(--gray-900); }
+  .pay-method-sub { font-size: 11px; color: var(--gray-500); }
+
+  /* ── Stripe Terminal waiting state ─────────────────────────── */
+  .terminal-wait {
+    text-align: center;
+    padding: 30px 20px;
+  }
+  .terminal-wait-anim {
+    width: 80px; height: 80px;
+    margin: 0 auto 16px;
+    border-radius: 50%;
+    background: var(--accent-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 40px;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(99,91,255,0.4); }
+    50%      { transform: scale(1.05); box-shadow: 0 0 0 20px rgba(99,91,255,0); }
+  }
+  .terminal-wait-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--gray-900);
+  }
+  .terminal-wait-sub {
+    font-size: 14px;
+    color: var(--gray-500);
+    margin-top: 6px;
+  }
+
+  /* ── Receipt / success screen ───────────────────────────────── */
+  .success-anim {
+    width: 100px; height: 100px;
+    margin: 10px auto 14px;
+    border-radius: 50%;
+    background: var(--green-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 52px;
+    color: var(--green);
+  }
+  .success-title {
+    text-align: center;
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--gray-900);
+  }
+  .success-amount {
+    text-align: center;
+    font-size: 36px;
+    font-weight: 800;
+    color: var(--gray-900);
+    margin-top: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .success-sub {
+    text-align: center;
+    font-size: 13px;
+    color: var(--gray-500);
+    margin-top: 4px;
+  }
+  .receipt-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .receipt-btn {
+    padding: 14px 8px;
+    border-radius: 12px;
+    background: var(--gray-100);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray-700);
+  }
+  .receipt-btn:hover { background: var(--gray-200); }
+  .receipt-btn-icon { font-size: 22px; line-height: 1; }
+
+  /* ═════════════════════════════════════════════════════════════
+     ANNOTATIONS STRIP — design notes under the device
+     ═════════════════════════════════════════════════════════════ */
+  .notes {
+    max-width: 1180px;
+    margin: 36px auto 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .note {
+    background: white;
+    border-radius: 14px;
+    padding: 18px 20px;
+    border: 1px solid var(--gray-200);
+  }
+  .note-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--accent-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .note-body {
+    font-size: 14px;
+    color: var(--gray-700);
+    line-height: 1.5;
+  }
+
+  /* ═════════════════════════════════════════════════════════════
+     FLOW PICKER (switch between screens for David)
+     ═════════════════════════════════════════════════════════════ */
+  .flow-picker {
+    max-width: 1180px;
+    margin: 0 auto 20px;
+    background: white;
+    border-radius: 14px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    border: 1px solid var(--gray-200);
+  }
+  .flow-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-right: 4px;
+  }
+  .flow-btn {
+    padding: 9px 16px;
+    border-radius: 10px;
+    background: white;
+    border: 1.5px solid var(--gray-200);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gray-700);
+    cursor: pointer;
+    transition: all .12s;
+  }
+  .flow-btn.active {
+    background: var(--gray-900);
+    border-color: var(--gray-900);
+    color: white;
+  }
+  .flow-btn:hover:not(.active) { background: var(--gray-100); border-color: var(--gray-300); }
+
+  /* Smooth modal transitions */
+  .modal-overlay { transition: opacity .2s; opacity: 0; }
+  .modal-overlay.show { opacity: 1; }
+  .modal { transform: scale(0.96); transition: transform .2s; }
+  .modal-overlay.show .modal { transform: scale(1); }
+
+  /* Small screens */
+  @media (max-width: 900px) {
+    .notes { grid-template-columns: 1fr; }
+    .page-title { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <div class="page-header">
+    <span class="screen-label">Mockup · April 8, 2026</span>
+    <div class="page-title">Family Laundry — Retail POS</div>
+    <div class="page-sub">iPad landscape · ultra-simple register for walk-in services &amp; vending</div>
+  </div>
+
+  <!-- Flow picker lets David tap through the key states without having to trigger them via the mockup -->
+  <div class="flow-picker">
+    <span class="flow-label">Try a flow:</span>
+    <button class="flow-btn active" onclick="showFlow('register')">Register (empty)</button>
+    <button class="flow-btn" onclick="showFlow('with-cart')">Cart with items</button>
+    <button class="flow-btn" onclick="showFlow('weight')">Weight entry (W&amp;F)</button>
+    <button class="flow-btn" onclick="showFlow('weight-addons')">Weight + add-ons</button>
+    <button class="flow-btn" onclick="showFlow('lookup')">Customer lookup</button>
+    <button class="flow-btn" onclick="showFlow('no-match')">No match found</button>
+    <button class="flow-btn" onclick="showFlow('new-customer')">New customer signup</button>
+    <button class="flow-btn" onclick="showFlow('attached')">Customer attached</button>
+    <button class="flow-btn" onclick="showFlow('pay')">Payment method</button>
+    <button class="flow-btn" onclick="showFlow('terminal')">Waiting on card</button>
+    <button class="flow-btn" onclick="showFlow('success')">Sale complete</button>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       THE DEVICE FRAME
+       ══════════════════════════════════════════════════════════════ -->
+  <div class="device">
+    <div class="device-screen">
+
+      <!-- ─── Topbar ─────────────────────────────────────────── -->
+      <div class="topbar">
+        <div class="logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="13" r="6"/>
+            <circle cx="12" cy="13" r="2.5"/>
+            <path d="M8 3h8v3H8z"/>
+          </svg>
+        </div>
+        <div class="store-info">
+          <div class="store-name">Family Laundry · Oakland</div>
+          <div class="store-emp" id="empName">Employee: Maria</div>
+        </div>
+        <button class="customer-chip" id="customerChip" onclick="openLookup()">
+          <div class="customer-avatar" id="custAvatar">+</div>
+          <div class="customer-chip-text">
+            <div class="customer-chip-name" id="custName">Walk-in</div>
+            <div class="customer-chip-sub" id="custSub">Tap to find customer</div>
+          </div>
+        </button>
+        <div class="clock" id="clock">Wed · 2:47 PM</div>
+      </div>
+
+      <!-- ─── Main grid ──────────────────────────────────────── -->
+      <div class="main">
+
+        <!-- ─── LEFT: products ────────────────────────────── -->
+        <div class="products">
+          <div class="tabs">
+            <button class="tab active" onclick="switchTab('services', this)"><span class="tab-emoji">🧺</span> Laundry Services</button>
+            <button class="tab" onclick="switchTab('drinks', this)"><span class="tab-emoji">🥤</span> Drinks</button>
+            <button class="tab" onclick="switchTab('snacks', this)"><span class="tab-emoji">🍫</span> Snacks</button>
+            <button class="tab" onclick="switchTab('supplies', this)"><span class="tab-emoji">🧴</span> Detergents &amp; Supplies</button>
+          </div>
+          <div class="tile-grid" id="tileGrid">
+            <!-- Tiles injected by JS -->
+          </div>
+        </div>
+
+        <!-- ─── RIGHT: cart ────────────────────────────────── -->
+        <aside class="cart">
+          <div class="cart-header">
+            <div class="cart-header-title">Cart</div>
+            <button class="cart-clear" id="clearBtn" onclick="clearCart()">Clear all</button>
+          </div>
+          <div class="cart-items" id="cartItems">
+            <div class="cart-empty" id="cartEmpty">
+              <span class="cart-empty-emoji">🛒</span>
+              Tap products to add to cart
+            </div>
+          </div>
+          <div class="cart-totals">
+            <div class="total-row"><span>Subtotal</span><span id="subtotal">$0.00</span></div>
+            <div class="total-row"><span>Tax (9.25%)</span><span id="tax">$0.00</span></div>
+            <div class="total-row grand"><span>Total</span><span id="grand">$0.00</span></div>
+            <button class="charge-btn" id="chargeBtn" disabled onclick="openPay()">
+              <span>Charge</span>
+              <span id="chargeAmt"></span>
+            </button>
+          </div>
+        </aside>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════
+           MODAL: Weight entry
+           ══════════════════════════════════════════════════════ -->
+      <div class="modal-overlay" id="weightModal">
+        <div class="modal" style="max-width: 440px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title" id="weightTitle">Wash &amp; Fold — enter weight</div>
+              <div class="modal-sub">Read the weight from the scale display</div>
+            </div>
+            <button class="modal-close" onclick="closeAll()">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="numpad-display">
+              <div class="numpad-display-label">Weight</div>
+              <div class="numpad-display-value"><span id="wDisplay">0.0</span><span class="numpad-display-unit">lbs</span></div>
+              <div class="numpad-display-calc" id="wCalc">$0.00 at $2.50 / lb</div>
+            </div>
+            <div class="numpad">
+              <button class="numkey" onclick="numKey('1')">1</button>
+              <button class="numkey" onclick="numKey('2')">2</button>
+              <button class="numkey" onclick="numKey('3')">3</button>
+              <button class="numkey" onclick="numKey('4')">4</button>
+              <button class="numkey" onclick="numKey('5')">5</button>
+              <button class="numkey" onclick="numKey('6')">6</button>
+              <button class="numkey" onclick="numKey('7')">7</button>
+              <button class="numkey" onclick="numKey('8')">8</button>
+              <button class="numkey" onclick="numKey('9')">9</button>
+              <button class="numkey" onclick="numKey('.')">.</button>
+              <button class="numkey zero" onclick="numKey('0')">0</button>
+              <button class="numkey back" onclick="numKey('back')">⌫</button>
+            </div>
+            <div class="addon-section">
+              <div class="addon-section-label">
+                <span>Add-ons</span>
+                <span class="addon-section-hint">Tap to include</span>
+              </div>
+              <div class="addon-chips" id="addonChips">
+                <!-- populated by renderWeightAddons() -->
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button class="btn btn-ghost" onclick="closeAll()">Cancel</button>
+              <button class="btn btn-primary" id="addWeightBtn" onclick="addWeightToCart()">Add to cart</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════
+           MODAL: Customer lookup
+           ══════════════════════════════════════════════════════ -->
+      <div class="modal-overlay" id="lookupModal">
+        <div class="modal" style="max-width: 440px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Find customer</div>
+              <div class="modal-sub">Enter phone number or start a walk-in sale</div>
+            </div>
+            <button class="modal-close" onclick="closeAll()">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="phone-input" id="phoneInput">(___) ___-____</div>
+            <div class="customer-results" id="custResults">
+              <!-- populated when 10 digits entered -->
+            </div>
+            <div class="numpad" style="margin-bottom: 12px;">
+              <button class="numkey" onclick="phoneKey('1')">1</button>
+              <button class="numkey" onclick="phoneKey('2')">2</button>
+              <button class="numkey" onclick="phoneKey('3')">3</button>
+              <button class="numkey" onclick="phoneKey('4')">4</button>
+              <button class="numkey" onclick="phoneKey('5')">5</button>
+              <button class="numkey" onclick="phoneKey('6')">6</button>
+              <button class="numkey" onclick="phoneKey('7')">7</button>
+              <button class="numkey" onclick="phoneKey('8')">8</button>
+              <button class="numkey" onclick="phoneKey('9')">9</button>
+              <button class="numkey" style="visibility:hidden"></button>
+              <button class="numkey" onclick="phoneKey('0')">0</button>
+              <button class="numkey back" onclick="phoneKey('back')">⌫</button>
+            </div>
+            <button class="walk-in-btn" onclick="setWalkIn(); closeAll();">
+              <span>👋</span> Continue as walk-in
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════
+           MODAL: Create new customer
+           ══════════════════════════════════════════════════════ -->
+      <div class="modal-overlay" id="createCustomerModal">
+        <div class="modal" style="max-width: 440px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">New customer</div>
+              <div class="modal-sub">Under 10 seconds — attach to this sale</div>
+            </div>
+            <button class="modal-close" onclick="closeAll()">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-row-2">
+              <div class="form-field">
+                <label class="form-label">First name<span class="req">*</span></label>
+                <input class="form-input" id="newFirstName" type="text" placeholder="Sarah" autocomplete="off">
+              </div>
+              <div class="form-field">
+                <label class="form-label">Last name<span class="req">*</span></label>
+                <input class="form-input" id="newLastName" type="text" placeholder="Chen" autocomplete="off">
+              </div>
+            </div>
+            <div class="form-field">
+              <label class="form-label">Phone</label>
+              <input class="form-input phone-locked" id="newPhone" type="tel" value="(415) 555-0134" readonly>
+              <div class="sms-disclosure" style="margin-top:8px;margin-bottom:0;">
+                <span class="sms-disclosure-icon">💬</span>
+                <span>We'll text this number when the order is ready for pickup. Standard message rates apply.</span>
+              </div>
+            </div>
+            <div class="form-field">
+              <label class="form-label">Email<span class="opt">optional</span></label>
+              <input class="form-input" id="newEmail" type="email" placeholder="sarah@example.com" autocomplete="off">
+              <div class="email-invite-hint">📱 If provided, we'll send a link to download the Family Laundry app for delivery service.</div>
+            </div>
+            <div class="modal-actions">
+              <button class="btn btn-ghost" onclick="backToLookup()">← Back</button>
+              <button class="btn btn-primary" id="saveCustomerBtn" onclick="saveNewCustomer()">Save &amp; attach</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════
+           MODAL: Payment method picker
+           ══════════════════════════════════════════════════════ -->
+      <div class="modal-overlay" id="payModal">
+        <div class="modal" style="max-width: 440px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Take payment</div>
+              <div class="modal-sub">Choose how the customer is paying</div>
+            </div>
+            <button class="modal-close" onclick="closeAll()">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="pay-total">
+              <div class="pay-total-label">Total due</div>
+              <div class="pay-total-value" id="payTotal">$0.00</div>
+            </div>
+            <div class="pay-methods">
+              <button class="pay-method" onclick="startTerminal()">
+                <div class="pay-method-icon">💳</div>
+                <div class="pay-method-name">Card</div>
+                <div class="pay-method-sub">Stripe Terminal</div>
+              </button>
+              <button class="pay-method" onclick="showSuccess()">
+                <div class="pay-method-icon">💵</div>
+                <div class="pay-method-name">Cash</div>
+                <div class="pay-method-sub">Enter amount tendered</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════
+           MODAL: Stripe Terminal waiting
+           ══════════════════════════════════════════════════════ -->
+      <div class="modal-overlay" id="terminalModal">
+        <div class="modal" style="max-width: 440px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Waiting for card</div>
+              <div class="modal-sub">Customer: tap, insert, or swipe on the reader</div>
+            </div>
+            <button class="modal-close" onclick="closeAll()">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="terminal-wait">
+              <div class="terminal-wait-anim">💳</div>
+              <div class="terminal-wait-title">Present card on reader</div>
+              <div class="terminal-wait-sub" id="terminalAmt">$0.00</div>
+            </div>
+            <div class="modal-actions">
+              <button class="btn btn-ghost" onclick="closeAll()">Cancel</button>
+              <button class="btn btn-success" onclick="showSuccess()">Simulate success →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════
+           MODAL: Sale complete
+           ══════════════════════════════════════════════════════ -->
+      <div class="modal-overlay" id="successModal">
+        <div class="modal" style="max-width: 420px;">
+          <div class="modal-body" style="padding: 28px 28px 24px;">
+            <div class="success-anim">✓</div>
+            <div class="success-title">Payment accepted</div>
+            <div class="success-amount" id="successAmt">$0.00</div>
+            <div class="success-sub">Paid in full · Thank you!</div>
+            <div class="receipt-options">
+              <button class="receipt-btn">
+                <div class="receipt-btn-icon">🖨</div>
+                <div>Print</div>
+              </button>
+              <button class="receipt-btn">
+                <div class="receipt-btn-icon">✉️</div>
+                <div>Email</div>
+              </button>
+              <button class="receipt-btn">
+                <div class="receipt-btn-icon">💬</div>
+                <div>Text</div>
+              </button>
+            </div>
+            <div class="modal-actions" style="margin-top: 20px;">
+              <button class="btn btn-primary" onclick="newSale()">Start new sale</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /device-screen -->
+  </div><!-- /device -->
+
+  <!-- ══════════════════════════════════════════════════════════════
+       DESIGN NOTES
+       ══════════════════════════════════════════════════════════════ -->
+  <div class="notes">
+    <div class="note">
+      <div class="note-title">Layout philosophy</div>
+      <div class="note-body">
+        One-screen register. Products left, cart right, customer chip top. No hidden nav, no submenus. An employee can ring up a soda in under 2 seconds: tap Coke → tap Charge → tap Card.
+      </div>
+    </div>
+    <div class="note">
+      <div class="note-title">Data source</div>
+      <div class="note-body">
+        Tiles are driven by the existing <code>services</code> table where <code>pricelist = 'Retail'</code>. Each service has a <code>pricing_type</code> (per_lb / per_bag / per_item) and a new <code>category</code> (Laundry / Drinks / Snacks / Supplies) that maps to the 4 tabs.
+      </div>
+    </div>
+    <div class="note">
+      <div class="note-title">Scale &amp; weight</div>
+      <div class="note-body">
+        Per-lb services (Wash &amp; Fold, Wash &amp; Dry) open a big number pad. Employee reads the weight from the scale display and types it in. Live price calculation shows immediately so the customer sees the math before adding.
+      </div>
+    </div>
+    <div class="note">
+      <div class="note-title">Add-ons (Oxi, Vinegar, Double Wash)</div>
+      <div class="note-body">
+        Add-ons live <em>inside</em> the weight modal, right below the numpad — one modal, one decision, no extra screen. Each is a flat per-drop-off charge ($3 Oxi, $3 Vinegar, $5 Double Wash) that travels with the specific W&amp;F or W&amp;D batch. The live total line above the numpad updates as the attendant toggles chips, so the customer sees the all-in price before anything is committed. In the cart, add-ons appear as small purple pills directly under the W&amp;F line — visibly tied to the drop-off they belong to — and the pills will print as line items on the receipt. Tap the <strong>Weight + add-ons</strong> flow button above to see the modal mid-entry with Oxi and Vinegar already selected.
+      </div>
+    </div>
+    <div class="note">
+      <div class="note-title">Customer chip</div>
+      <div class="note-body">
+        Defaults to "Walk-in" — the POS never blocks a sale. Tap the chip to open phone lookup. If the number is already in our system, one tap attaches them (name, history, credits). If not, we fall through to the new-customer flow — see next card.
+      </div>
+    </div>
+    <div class="note">
+      <div class="note-title">New customer onboarding</div>
+      <div class="note-body">
+        When phone lookup returns no match, the attendant sees a <strong>+ Create new customer</strong> button. The create form asks for first name, last name, and (optional) email — phone is pre-filled from the lookup. Saves in under 10 seconds, attaches to the current sale, creates a <code>customers</code> row with <code>pricelist = 'Delivery'</code>. A small on-screen disclosure notes that the number will be used for ready-for-pickup texts (implicit consent; transactional only, not marketing).
+      </div>
+    </div>
+    <div class="note">
+      <div class="note-title">App invite (email only)</div>
+      <div class="note-body">
+        If the attendant captures an email during onboarding, we auto-queue a welcome email after the sale with a link to download the delivery app. No email = no invite. This keeps the counter experience fast while still giving loyal walk-ins a path into the full delivery service later — on their terms.
+      </div>
+    </div>
+    <div class="note">
+      <div class="note-title">Payment</div>
+      <div class="note-body">
+        Two big buttons: Card (Stripe Terminal) and Cash. Card flow shows a waiting state with a pulsing animation while the reader processes. Cash flow (not fully drawn here) pops a quick "amount tendered" numpad and calculates change.
+      </div>
+    </div>
+    <div class="note">
+      <div class="note-title">Receipt</div>
+      <div class="note-body">
+        After payment: three equal options — Print (CloudPRNT to the mC-Print3, same path as delivery receipts), Email, or Text. A walk-in with no customer attached only gets Print. Auto-advances back to a fresh register after 5 seconds.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  /* ─────────────────────────────────────────────────────────────
+     Mock data — reflects Retail price list structure
+     ───────────────────────────────────────────────────────────── */
+  const SERVICES = {
+    services: [
+      { id:'wf',  emoji:'🧺', name:'Wash & Fold',   price:2.50, unit:'lb', type:'per_lb', service:true },
+      { id:'wd',  emoji:'🫧', name:'Wash & Dry',    price:1.75, unit:'lb', type:'per_lb', service:true },
+      { id:'dry', emoji:'👕', name:'Dry Only',      price:1.00, unit:'lb', type:'per_lb', service:true },
+      { id:'com', emoji:'🛏️', name:'Comforter',     price:18.00, unit:'ea', type:'per_item', service:true },
+      { id:'hang',emoji:'👔', name:'Hang Dry',      price:4.00, unit:'lb', type:'per_lb', service:true },
+      { id:'rush',emoji:'⚡', name:'Rush (Same-Day)',price:10.00, unit:'ea', type:'per_item', service:true },
+    ],
+    drinks: [
+      { id:'coke',    emoji:'🥤', name:'Coca-Cola 20oz',  price:2.50, unit:'ea', type:'per_item' },
+      { id:'dcoke',   emoji:'🥤', name:'Diet Coke 20oz',  price:2.50, unit:'ea', type:'per_item' },
+      { id:'sprite',  emoji:'🥤', name:'Sprite 20oz',     price:2.50, unit:'ea', type:'per_item' },
+      { id:'water',   emoji:'💧', name:'Dasani Water',    price:1.50, unit:'ea', type:'per_item' },
+      { id:'gat',     emoji:'🏃', name:'Gatorade',        price:3.00, unit:'ea', type:'per_item' },
+      { id:'monster', emoji:'⚡', name:'Monster Energy',  price:3.50, unit:'ea', type:'per_item' },
+      { id:'topo',    emoji:'🍋', name:'Topo Chico',      price:2.75, unit:'ea', type:'per_item' },
+      { id:'coffee',  emoji:'☕', name:'Iced Coffee',     price:3.00, unit:'ea', type:'per_item', stock:0 },
+    ],
+    snacks: [
+      { id:'chips',   emoji:'🥨', name:'Lay\'s Classic',  price:2.00, unit:'ea', type:'per_item' },
+      { id:'doritos', emoji:'🧀', name:'Doritos',         price:2.00, unit:'ea', type:'per_item' },
+      { id:'snick',   emoji:'🍫', name:'Snickers',        price:1.75, unit:'ea', type:'per_item' },
+      { id:'mms',     emoji:'🍬', name:'M&M Peanut',      price:1.75, unit:'ea', type:'per_item' },
+      { id:'bar',     emoji:'🥜', name:'Clif Bar',        price:2.50, unit:'ea', type:'per_item' },
+      { id:'nuts',    emoji:'🥜', name:'Mixed Nuts',      price:3.00, unit:'ea', type:'per_item' },
+      { id:'gum',     emoji:'🍬', name:'Trident Gum',     price:1.50, unit:'ea', type:'per_item' },
+      { id:'cookies', emoji:'🍪', name:'Oreos 6-pk',      price:2.00, unit:'ea', type:'per_item' },
+    ],
+    supplies: [
+      { id:'tide',  emoji:'🧴', name:'Tide Pod (each)',  price:1.00, unit:'ea', type:'per_item' },
+      { id:'ariel', emoji:'🧴', name:'Ariel Powder',     price:2.50, unit:'ea', type:'per_item' },
+      { id:'bleach',emoji:'🧼', name:'Bleach (sm)',      price:2.00, unit:'ea', type:'per_item' },
+      { id:'soft', emoji:'🌸', name:'Fabric Softener',  price:1.50, unit:'ea', type:'per_item' },
+      { id:'dsheet',emoji:'📄', name:'Dryer Sheets',     price:1.00, unit:'ea', type:'per_item' },
+      { id:'bag',  emoji:'🛍️', name:'Family Laundry Bag',price:8.00, unit:'ea', type:'per_item' },
+      { id:'hang2',emoji:'🪝', name:'Hanger (10pk)',    price:3.00, unit:'ea', type:'per_item' },
+      { id:'stain',emoji:'🧽', name:'Stain Remover',    price:4.50, unit:'ea', type:'per_item' },
+    ]
+  };
+
+  /* ─────────────────────────────────────────────────────────────
+     Add-on catalog — flat per-drop-off prices.
+     These appear in the weight modal for per-lb services only.
+     In the live build, pulled from the `preferences` / services
+     table where `is_addon = true`.
+     ───────────────────────────────────────────────────────────── */
+  const WEIGHT_ADDONS = [
+    { id:'oxi',     emoji:'✨', name:'Oxi',         price: 3.00 },
+    { id:'vinegar', emoji:'💧', name:'Vinegar',     price: 3.00 },
+    { id:'double',  emoji:'🔄', name:'Double Wash', price: 5.00 },
+  ];
+
+  /* State */
+  let currentTab = 'services';
+  let cart = [];
+  let currentCustomer = null; // null = walk-in
+  let activeWeightService = null;
+  let weightStr = '';
+  let activeAddonIds = new Set(); // add-ons selected inside the weight modal
+  let phoneDigits = '';
+  const TAX_RATE = 0.0925;
+
+  /* ─── Tile rendering ───────────────────────────────────────── */
+  function renderTiles() {
+    const grid = document.getElementById('tileGrid');
+    const items = SERVICES[currentTab];
+    grid.innerHTML = items.map(s => {
+      const oos = s.stock === 0;
+      const isService = s.service;
+      return `
+        <button class="tile ${isService ? 'service' : ''} ${oos ? 'out-of-stock' : ''}"
+                ${oos ? 'disabled' : ''}
+                onclick="tileTap('${s.id}')">
+          <div class="tile-emoji">${s.emoji}</div>
+          <div class="tile-name">${s.name}</div>
+          <div class="tile-price">$${s.price.toFixed(2)}<span class="tile-price-sub">/ ${s.unit}</span></div>
+        </button>
+      `;
+    }).join('');
+  }
+
+  function switchTab(tab, btn) {
+    currentTab = tab;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    renderTiles();
+  }
+
+  /* ─── Tile tap: add item or open weight modal ─────────────── */
+  function tileTap(id) {
+    const item = SERVICES[currentTab].find(s => s.id === id);
+    if (!item) return;
+    if (item.type === 'per_lb') {
+      openWeightModal(item);
+    } else {
+      addToCart(item, 1);
+    }
+  }
+
+  /* ─── Cart ─────────────────────────────────────────────────── */
+  function addToCart(item, qty, weight, addons) {
+    // For per_item: if already in cart, bump qty
+    if (item.type === 'per_item') {
+      const existing = cart.find(c => c.id === item.id && !c.weight);
+      if (existing) { existing.qty += qty; }
+      else { cart.push({ ...item, qty, weight: null, addons: [] }); }
+    } else {
+      // Per-lb items always get their own line — each drop-off is its
+      // own batch and can have its own add-ons (Oxi, Vinegar, etc).
+      cart.push({ ...item, qty: 1, weight, addons: addons || [] });
+    }
+    renderCart();
+  }
+
+  function removeFromCart(idx) {
+    cart.splice(idx, 1);
+    renderCart();
+  }
+
+  function bumpQty(idx, delta) {
+    const item = cart[idx];
+    item.qty += delta;
+    if (item.qty <= 0) cart.splice(idx, 1);
+    renderCart();
+  }
+
+  function clearCart() {
+    cart = [];
+    renderCart();
+  }
+
+  function lineTotal(line) {
+    const addonTotal = (line.addons || []).reduce((s, a) => s + a.price, 0);
+    if (line.type === 'per_lb') return (line.price * line.weight) + addonTotal;
+    return line.price * line.qty;
+  }
+
+  function renderCart() {
+    const wrap = document.getElementById('cartItems');
+    const empty = document.getElementById('cartEmpty');
+    if (!cart.length) {
+      wrap.innerHTML = '<div class="cart-empty"><span class="cart-empty-emoji">🛒</span>Tap products to add to cart</div>';
+    } else {
+      wrap.innerHTML = cart.map((line, i) => {
+        const sub = line.type === 'per_lb'
+          ? `${line.weight.toFixed(1)} lb × $${line.price.toFixed(2)}/lb`
+          : `$${line.price.toFixed(2)} each`;
+        const qtyControl = line.type === 'per_lb'
+          ? `<button class="qty-remove" onclick="removeFromCart(${i})">Remove</button>`
+          : `
+            <div class="cart-item-qty">
+              <button class="qty-btn" onclick="bumpQty(${i}, -1)">−</button>
+              <div class="qty-num">${line.qty}</div>
+              <button class="qty-btn" onclick="bumpQty(${i}, 1)">+</button>
+              <button class="qty-remove" onclick="removeFromCart(${i})">Remove</button>
+            </div>
+          `;
+        const addonPills = (line.addons && line.addons.length)
+          ? `<div class="cart-item-addons">${
+              line.addons.map(a => `
+                <span class="cart-item-addon-pill">
+                  ${a.emoji} ${a.name}
+                  <span class="cart-item-addon-pill-price">+$${a.price.toFixed(2)}</span>
+                </span>
+              `).join('')
+            }</div>`
+          : '';
+        return `
+          <div class="cart-item">
+            <div>
+              <div class="cart-item-name">${line.emoji} ${line.name}</div>
+              <div class="cart-item-sub">${sub}</div>
+              ${line.type !== 'per_lb' ? qtyControl : ''}
+            </div>
+            <div class="cart-item-price">$${lineTotal(line).toFixed(2)}</div>
+            ${addonPills}
+            ${line.type === 'per_lb' ? qtyControl : ''}
+          </div>
+        `;
+      }).join('');
+    }
+    updateTotals();
+  }
+
+  function updateTotals() {
+    const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const tax = subtotal * TAX_RATE;
+    const grand = subtotal + tax;
+    document.getElementById('subtotal').textContent = '$' + subtotal.toFixed(2);
+    document.getElementById('tax').textContent = '$' + tax.toFixed(2);
+    document.getElementById('grand').textContent = '$' + grand.toFixed(2);
+    const btn = document.getElementById('chargeBtn');
+    btn.disabled = cart.length === 0;
+    document.getElementById('chargeAmt').textContent = cart.length ? `· $${grand.toFixed(2)}` : '';
+    document.getElementById('payTotal').textContent = '$' + grand.toFixed(2);
+    document.getElementById('terminalAmt').textContent = '$' + grand.toFixed(2);
+    document.getElementById('successAmt').textContent = '$' + grand.toFixed(2);
+  }
+
+  /* ─── Weight modal ─────────────────────────────────────────── */
+  function openWeightModal(service) {
+    activeWeightService = service;
+    weightStr = '';
+    activeAddonIds = new Set();
+    document.getElementById('weightTitle').textContent = `${service.name} — enter weight`;
+    renderWeightAddons();
+    renderWeightDisplay();
+    showModal('weightModal');
+  }
+
+  function numKey(k) {
+    if (k === 'back') {
+      weightStr = weightStr.slice(0, -1);
+    } else if (k === '.') {
+      if (!weightStr.includes('.')) weightStr += weightStr.length ? '.' : '0.';
+    } else {
+      weightStr += k;
+    }
+    renderWeightDisplay();
+  }
+
+  /* Build the row of add-on chips inside the weight modal */
+  function renderWeightAddons() {
+    const wrap = document.getElementById('addonChips');
+    wrap.innerHTML = WEIGHT_ADDONS.map(a => {
+      const isActive = activeAddonIds.has(a.id);
+      return `
+        <button class="addon-chip ${isActive ? 'active' : ''}" onclick="toggleAddon('${a.id}')">
+          <span class="addon-chip-check">✓</span>
+          <div class="addon-chip-emoji">${a.emoji}</div>
+          <div class="addon-chip-name">${a.name}</div>
+          <div class="addon-chip-price">+$${a.price.toFixed(2)}</div>
+        </button>
+      `;
+    }).join('');
+  }
+
+  function toggleAddon(id) {
+    if (activeAddonIds.has(id)) activeAddonIds.delete(id);
+    else activeAddonIds.add(id);
+    renderWeightAddons();
+    renderWeightDisplay();
+  }
+
+  function renderWeightDisplay() {
+    const val = parseFloat(weightStr) || 0;
+    document.getElementById('wDisplay').textContent = weightStr || '0.0';
+    const price = activeWeightService ? activeWeightService.price : 0;
+    const base = val * price;
+    const addonTotal = WEIGHT_ADDONS
+      .filter(a => activeAddonIds.has(a.id))
+      .reduce((s, a) => s + a.price, 0);
+    const lineTotalVal = base + addonTotal;
+    const calcEl = document.getElementById('wCalc');
+    if (addonTotal > 0) {
+      calcEl.innerHTML =
+        `$${base.toFixed(2)} at $${price.toFixed(2)} / lb` +
+        ` <span style="color:var(--gray-400);font-weight:600">+</span> ` +
+        `$${addonTotal.toFixed(2)} add-ons` +
+        ` <span style="color:var(--gray-400);font-weight:600">=</span> ` +
+        `<span style="color:var(--gray-900);font-weight:800">$${lineTotalVal.toFixed(2)}</span>`;
+    } else {
+      calcEl.textContent = `$${base.toFixed(2)} at $${price.toFixed(2)} / lb`;
+    }
+    document.getElementById('addWeightBtn').disabled = val <= 0;
+  }
+
+  function addWeightToCart() {
+    const val = parseFloat(weightStr) || 0;
+    if (val <= 0) return;
+    const addons = WEIGHT_ADDONS.filter(a => activeAddonIds.has(a.id));
+    addToCart(activeWeightService, 1, val, addons);
+    closeAll();
+  }
+
+  /* ─── Customer lookup ──────────────────────────────────────── */
+  function openLookup() {
+    phoneDigits = '';
+    renderPhoneInput();
+    showModal('lookupModal');
+  }
+
+  function phoneKey(k) {
+    if (k === 'back') {
+      phoneDigits = phoneDigits.slice(0, -1);
+    } else if (phoneDigits.length < 10) {
+      phoneDigits += k;
+    }
+    renderPhoneInput();
+  }
+
+  // Fake "database" for the mockup — any other number returns "no match"
+  const DEMO_CUSTOMER_PHONE = '5106085446';
+
+  function renderPhoneInput() {
+    const d = phoneDigits.padEnd(10, '_');
+    const formatted = `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+    document.getElementById('phoneInput').textContent = formatted;
+
+    const results = document.getElementById('custResults');
+    if (phoneDigits.length >= 10) {
+      if (phoneDigits === DEMO_CUSTOMER_PHONE) {
+        // Found an existing customer
+        results.innerHTML = `
+          <div class="customer-result" onclick="attachCustomer('David Hernandez', '${formatted}', 24)">
+            <div class="customer-avatar" style="background:var(--accent);color:white;">DH</div>
+            <div>
+              <div class="customer-result-name">David Hernandez</div>
+              <div class="customer-result-phone">${formatted} · 24 orders</div>
+            </div>
+            <div class="customer-result-badge">Regular</div>
+          </div>
+        `;
+      } else {
+        // No match — offer to create
+        results.innerHTML = `
+          <div class="no-match">
+            <div class="no-match-icon">🔍</div>
+            <div class="no-match-title">No customer found</div>
+            <div class="no-match-sub">${formatted} isn't in our system yet</div>
+            <button class="create-customer-btn" onclick="openCreateCustomer()">
+              <span>+</span> Create new customer
+            </button>
+          </div>
+        `;
+      }
+    } else if (phoneDigits.length >= 7) {
+      results.innerHTML = `<div style="text-align:center;font-size:12px;color:var(--gray-400);padding:10px;">Keep typing…</div>`;
+    } else {
+      results.innerHTML = '';
+    }
+  }
+
+  /* ─── Create new customer ──────────────────────────────────── */
+  function openCreateCustomer() {
+    // Pre-fill phone from the lookup we just did
+    const d = phoneDigits.padEnd(10, '_');
+    const formatted = `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+    document.getElementById('newPhone').value = formatted;
+    document.getElementById('newFirstName').value = '';
+    document.getElementById('newLastName').value = '';
+    document.getElementById('newEmail').value = '';
+    showModal('createCustomerModal');
+    // Focus first name on open
+    setTimeout(() => document.getElementById('newFirstName').focus(), 250);
+  }
+
+  function backToLookup() {
+    closeAll();
+    setTimeout(() => showModal('lookupModal'), 200);
+  }
+
+  function saveNewCustomer() {
+    const first = document.getElementById('newFirstName').value.trim();
+    const last  = document.getElementById('newLastName').value.trim();
+    const phone = document.getElementById('newPhone').value.trim();
+    const email = document.getElementById('newEmail').value.trim();
+    if (!first || !last) {
+      // In a real build, we'd surface inline errors. For the mockup, bail.
+      alert('First and last name are required.');
+      return;
+    }
+    const name = `${first} ${last}`;
+    // Attach as a brand-new customer (0 orders)
+    attachCustomer(name, phone, 0);
+    // NOTE (design): on save we'd also:
+    //   1. INSERT into customers with pricelist = 'Delivery', source = 'pos_walkin'
+    //   2. If email present → enqueue welcome email with app download link
+    //   3. Log the create to the POS shift audit trail
+  }
+
+  function attachCustomer(name, phone, orderCount) {
+    currentCustomer = { name, phone, orderCount };
+    const chip = document.getElementById('customerChip');
+    chip.classList.add('attached');
+    const initials = name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
+    document.getElementById('custAvatar').textContent = initials;
+    document.getElementById('custName').textContent = name;
+    const sub = orderCount === 0
+      ? 'New customer · tap to change'
+      : `${orderCount} orders · tap to change`;
+    document.getElementById('custSub').textContent = sub;
+    closeAll();
+  }
+
+  function setWalkIn() {
+    currentCustomer = null;
+    const chip = document.getElementById('customerChip');
+    chip.classList.remove('attached');
+    document.getElementById('custAvatar').textContent = '+';
+    document.getElementById('custName').textContent = 'Walk-in';
+    document.getElementById('custSub').textContent = 'Tap to find customer';
+  }
+
+  /* ─── Payment ──────────────────────────────────────────────── */
+  function openPay()      { showModal('payModal'); }
+  function startTerminal(){ closeAll(); setTimeout(() => showModal('terminalModal'), 200); }
+  function showSuccess()  { closeAll(); setTimeout(() => showModal('successModal'), 200); }
+  function newSale()      { closeAll(); cart = []; setWalkIn(); renderCart(); }
+
+  /* ─── Modal helpers ────────────────────────────────────────── */
+  function showModal(id) {
+    closeAll();
+    document.getElementById(id).classList.add('show');
+  }
+  function closeAll() {
+    document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('show'));
+  }
+
+  /* ─── Flow picker (lets David jump between states) ────────── */
+  function showFlow(flow) {
+    document.querySelectorAll('.flow-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+    closeAll();
+
+    // Reset
+    cart = [];
+    setWalkIn();
+
+    switch(flow) {
+      case 'register':
+        // empty register
+        break;
+      case 'with-cart':
+        // preload a representative cart (first W&F line shows add-ons)
+        addToCart(
+          SERVICES.services[0], 1, 14.5,
+          [WEIGHT_ADDONS[1]] // Vinegar on the W&F drop-off
+        );
+        addToCart(SERVICES.drinks[0], 2);         // Coke x2
+        addToCart(SERVICES.snacks[2], 1);         // Snickers
+        addToCart(SERVICES.supplies[0], 3);       // Tide Pod x3
+        break;
+      case 'weight':
+        addToCart(SERVICES.drinks[0], 1);
+        openWeightModal(SERVICES.services[0]);
+        weightStr = '14.5';
+        renderWeightDisplay();
+        break;
+      case 'weight-addons':
+        // Show the weight modal mid-entry with two add-ons already tapped
+        addToCart(SERVICES.drinks[0], 1);
+        openWeightModal(SERVICES.services[0]);
+        weightStr = '14.5';
+        activeAddonIds = new Set(['oxi','vinegar']);
+        renderWeightAddons();
+        renderWeightDisplay();
+        break;
+      case 'lookup':
+        openLookup();
+        phoneDigits = '5106085446';
+        renderPhoneInput();
+        break;
+      case 'no-match':
+        // Simulate a brand-new number the system has never seen
+        openLookup();
+        phoneDigits = '4155550134';
+        renderPhoneInput();
+        break;
+      case 'new-customer':
+        // Full onboarding: user just typed a new phone, now at the create screen
+        phoneDigits = '4155550134';
+        openCreateCustomer();
+        // Pre-populate so David can see what a filled form looks like
+        setTimeout(() => {
+          document.getElementById('newFirstName').value = 'Sarah';
+          document.getElementById('newLastName').value  = 'Chen';
+          document.getElementById('newEmail').value     = 'sarah.chen@gmail.com';
+        }, 50);
+        break;
+      case 'attached':
+        addToCart(SERVICES.services[0], 1, 14.5);
+        addToCart(SERVICES.drinks[0], 1);
+        attachCustomer('David Hernandez', '(510) 608-5446', 24);
+        break;
+      case 'pay':
+        addToCart(SERVICES.services[0], 1, 14.5);
+        addToCart(SERVICES.drinks[0], 2);
+        addToCart(SERVICES.snacks[2], 1);
+        openPay();
+        break;
+      case 'terminal':
+        addToCart(SERVICES.services[0], 1, 14.5);
+        addToCart(SERVICES.drinks[0], 2);
+        showModal('terminalModal');
+        updateTotals();
+        break;
+      case 'success':
+        addToCart(SERVICES.services[0], 1, 14.5);
+        addToCart(SERVICES.drinks[0], 2);
+        addToCart(SERVICES.snacks[2], 1);
+        showModal('successModal');
+        updateTotals();
+        break;
+    }
+    renderCart();
+  }
+
+  /* ─── Init ─────────────────────────────────────────────────── */
+  renderTiles();
+  renderCart();
+
+  // Live clock
+  function updateClock() {
+    const d = new Date();
+    const day = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+    let h = d.getHours();
+    const m = d.getMinutes().toString().padStart(2, '0');
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    document.getElementById('clock').textContent = `${day} · ${h}:${m} ${ampm}`;
+  }
+  updateClock();
+  setInterval(updateClock, 30000);
+</script>
+
+</body>
+</html>
