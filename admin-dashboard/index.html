@@ -18704,8 +18704,7 @@ ${oneCopy}
                services(name),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('status', 'ready_for_delivery')
-      .order('racked_at', { ascending: false })
-      .limit(20); // only show recently racked
+      .order('racked_at', { ascending: false });
     allRackOrders = data || [];
     document.getElementById('ptab-badge-rack')?.textContent !== undefined &&
       (document.getElementById('ptab-badge-rack').textContent = allRackOrders.length);
