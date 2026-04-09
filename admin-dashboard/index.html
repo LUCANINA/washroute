@@ -13279,7 +13279,11 @@ ${oneCopy}
       is_same_day:           _noIsSameDay || false,
       line_items:            isPerLb
         // Per-lb: weight unknown until intake — don't write a misleading bags × rate label.
-        ? (deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : [])
+        // Include known fees (delivery, same-day) so the order shows correct upfront costs.
+        ? [
+            ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : []),
+            ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge }] : [])
+          ]
         : [
             { type: 'base', label: `${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`, amount: subtotal },
             ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : []),
