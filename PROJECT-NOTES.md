@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 8, 2026 — Session 97p3: customers.customer_type → pricelist rename (migration 1 of 2, zero-downtime via bidirectional sync trigger).*
+*Last updated: Apr 9, 2026 — Session 98: hardened reschedule sync triggers with 3 structural fixes (time-of-day hard filter, capacity advisory, window revert on no-match). Fixed 4 stranded stops from the morning audit.*
 
 ---
 
@@ -24,6 +24,8 @@ Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no d
 **⚠️ BUSINESS TIMEZONE: Oakland CA, Pacific Time (`America/Los_Angeles`).** All "today" checks, stat cards, and date comparisons must use the `BIZ_TZ` constant (loaded from settings table at startup). Never assume UTC or browser local time.
 
 **⚠️ ALL trigger functions that write to `route_stops` MUST be SECURITY DEFINER.** The `route_stops` table has RLS restricting writes to `is_admin()`. Trigger functions default to SECURITY INVOKER (caller's permissions). If a trigger running as a customer or system user tries to INSERT/UPDATE route_stops, it will silently fail — zero rows affected, no error. This caused the #1 recurring bug (wrong-date stops) across sessions 62-95, and also caused ghost stops (session 96). All 8 functions that write to route_stops are now SECURITY DEFINER: `auto_route_order`, `sync_pickup_stop_on_window_change`, `sync_delivery_stop_on_window_change`, `reconcile_stop_route_on_run_change`, `sync_stops_on_order_terminal`, `sync_stops_on_order_status_advance`, `reset_failed_delivery_stop`, `sync_stop_address_on_order_address_change`. Any new function that touches route_stops from a trigger context must be too.
+
+**⚠️ Reschedule sync triggers are hardened (session 98).** `sync_pickup_stop_on_window_change` and `sync_delivery_stop_on_window_change` have three additional structural protections on top of SECURITY DEFINER: (1) template `FOR` loops filter by time-of-day in the `WHERE` clause (not `ORDER BY`), so wrong-time templates can never be selected; (2) capacity is advisory — the stop is always moved and `routing_error = 'over_capacity_after_reschedule'` is set if the target route is over its `stop_limit`, so stops never get stranded on the old date; (3) if NO time-matching template exists, the trigger reverts `pickup_window_start`/`pickup_window_end` (or delivery equivalents) to `OLD` values and sets `routing_error = 'reschedule_no_matching_template'`, so a bad window change fails cleanly instead of leaving the order half-moved. When modifying these functions, preserve all three protections AND the `SECURITY DEFINER` attribute. The daily audit should surface any rows with `routing_error IN ('over_capacity_after_reschedule','reschedule_no_matching_template')`.
 
 **⚠️ NEVER use `.toISOString()` for local date comparisons.** `toISOString()` returns UTC — after 5 PM Pacific it rolls to the next calendar day and breaks every "is this today?" check. Always use the `today()` helper or `getFullYear()/getMonth()/getDate()` formatting. This caused a critical bug where route schedule cells locked every evening. Applies to all three apps.
 
@@ -509,6 +511,68 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 9, 2026 (session 98) — Hardened reschedule sync triggers (time-of-day hard filter + capacity advisory + window revert)
+
+**Context:** Morning audit surfaced 3 wrong-date stops AND 1 wrong-template stop — the exact same bug class session 95 claimed to have "permanently fixed" via SECURITY DEFINER. David asked: "Explain how wrong date stops are still happening given the work we did yesterday to permanently resolve this."
+
+**The answer:** Session 95's SECURITY DEFINER fix solved the RLS silent-failure problem (triggers can now successfully WRITE to `route_stops`). But it did NOT fix two other defects in the same trigger bodies that were independent of permissions:
+
+1. **Template selection was sloppy.** The `FOR v_tmpl IN SELECT ... ORDER BY CASE WHEN v_new_pickup_time BETWEEN window_start AND window_end THEN 0 ELSE 1 END` loop used `ORDER BY` as a preference, not a filter. If the preferred template was full (capacity check `CONTINUE`d it), the loop would silently fall back to the next template — which could be an **AM template for a PM time**, producing a wrong-template stop. This is how Lisa Sturges' 8pm delivery landed on the Apr 11 Oakland AM route.
+
+2. **Over-capacity meant silent stranding.** The capacity check inside the template loop was `IF v_stop_count >= v_tmpl.stop_limit THEN CONTINUE; END IF;`. If EVERY matching template was over capacity, the loop finished with `v_moved = FALSE`, the trigger set `NEW.routing_error := 'rescheduled_no_capacity'` — and then did nothing else. The window change went through, but the route_stop stayed on the OLD date. The downstream `reconcile_stop_route_on_run_change` safety-net trigger couldn't save it because `run_id` never changed on the stop. The order looked rescheduled in the admin UI, but the physical stop was still on yesterday's route.
+
+**Why the audit caught 3 new cases overnight:** This bug fires any time an admin drags an order to a new date/time AND the target route is at capacity OR no matching template exists. It's been silently producing wrong-date stops since long before session 95 — SECURITY DEFINER just wasn't the whole story.
+
+**The morning audit data fixes (4 stops moved):**
+- **#2011 Lisa Sturges** — pickup moved to Oakland AM Apr 10 (`df790074...`), delivery moved to Oakland PM Apr 11 (`3484edfb...`), `routing_error` cleared. This order also had Bug #1 (wrong-template) on the delivery side — it was on Oakland AM Apr 11 at 8pm.
+- **#2026 Kalen Gleeson** — delivery moved to Oakland AM Apr 10 (`df790074...`).
+- **#2070 Ian Knox** — delivery moved to Oakland PM Apr 10 (`d793b126...`), `routing_error` cleared.
+
+The moves were done via `UPDATE orders SET pickup_run_id/delivery_run_id = ...` and the `reconcile_stop_route_on_run_change` trigger handled the route_stop relocation automatically.
+
+**The permanent fix (migration `harden_reschedule_sync_triggers_session98`):** Both `sync_pickup_stop_on_window_change()` and `sync_delivery_stop_on_window_change()` were replaced with hardened versions containing three structural changes:
+
+1. **Time-of-day hard filter in `WHERE` clause** — The template `FOR` loop now has:
+   ```sql
+   AND v_new_pickup_time >= window_start
+   AND v_new_pickup_time < window_end
+   ```
+   A wrong-time template literally cannot be considered. This eliminates Bug #1 (wrong-template fallback).
+
+2. **Capacity is advisory, not gating** — The capacity check no longer does `CONTINUE`. The stop is ALWAYS moved to the correct date/route. If the target is over its `stop_limit`, the trigger sets `NEW.routing_error := 'over_capacity_after_reschedule'` so the order shows up in the morning audit for manual rebalancing. Eliminates Bug #2 when a matching template exists.
+
+3. **Window revert when NO time-matching template exists** — If the loop finishes without finding ANY template that matches the new time-of-day, the trigger:
+   - Reverts `NEW.pickup_window_start := OLD.pickup_window_start`, same for `pickup_window_end` (delivery equivalent on the delivery trigger).
+   - Sets `NEW.routing_error := 'reschedule_no_matching_template'`.
+   - `RAISE WARNING` so it shows up in Postgres logs.
+   The reschedule fails cleanly — the order stays on its old window and the admin gets an obvious error state instead of a silently half-moved order.
+
+Both functions remain `SECURITY DEFINER` (session 95 protection preserved).
+
+**Migration review completed (washroute-migration-review skill):**
+- No schema changes, no column adds/drops, no FK changes, no RLS changes, no new tables.
+- Two function bodies replaced, trigger definitions untouched.
+- Fully reversible — prior function source was captured in the session before the migration ran, and a rollback script can restore it verbatim if needed.
+- Post-migration verification confirmed both functions have `security_definer = true`, `has_revert_fix = YES`, `has_capacity_advisory = YES`, `has_time_hard_filter = YES`. All three triggers (`trg_sync_pickup_stop_on_window_change`, `trg_sync_delivery_stop_on_window_change`, `trg_reconcile_stop_route`) are still enabled (`tgenabled = 'O'`).
+
+**⚠️ For future sessions:**
+1. **The daily audit must now include `routing_error` surveillance.** Add a check for `orders WHERE routing_error IN ('over_capacity_after_reschedule', 'reschedule_no_matching_template') AND pickup_window_start >= CURRENT_DATE`. These are orders that tried to reschedule and got flagged by the hardened trigger — they need manual admin attention.
+2. **The capacity check is now advisory.** This means you can legitimately end up with routes over their `stop_limit` after a reschedule. The morning audit's over-capacity check remains essential — it's now the primary feedback loop for "this route is full" instead of the (now-removed) silent `CONTINUE`.
+3. **Carry-forward from morning audit (not yet addressed this session):**
+   - Over-capacity Oakland routes: Apr 10 AM 29/18, Apr 10 PM 22/18, Apr 11 PM 19/18 — need rebalancing.
+   - Duplicate customer investigation: Homebase/Soul Sanctuary share a phone number; Reup/Re-Up share an email.
+   - Nit Pixies duplicate orders #1934/#1935.
+   - ~15 `billing_status='failed'` orders worth a batch retry.
+   - 19 SMS opt-out sync issues between `customers` and Twilio.
+   - 8 driverless routes across the next 7 days.
+
+**Files touched:**
+- DB migration: `harden_reschedule_sync_triggers_session98` (replaces both sync functions).
+- Data: 3 order rows updated (pickup_run_id / delivery_run_id / routing_error).
+- No app code changes (admin/driver/customer unchanged).
+
+---
 
 ### Apr 8, 2026 (session 97 part 3) — customer_type → pricelist rename (migration 1 of 2, zero-downtime)
 
