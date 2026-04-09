@@ -5015,8 +5015,7 @@
             else opRenderDetailsReadonly(allOrders[idx]);
             opPopulateBilling(allOrders[idx]); // refresh Billing tab charge button
           }
-          // Refresh RCC columns/map when order status changes (delivery stops may appear/disappear
-          // based on NOT_READY_FOR_DELIVERY filter as orders advance through the pipeline)
+          // Refresh RCC columns/map when order status changes
           if (_rccActiveRoutes.size > 0) {
             if (updated.pickup_run_id && _rccActiveRoutes.has(updated.pickup_run_id)) rccRefreshRoute(updated.pickup_run_id);
             if (updated.delivery_run_id && _rccActiveRoutes.has(updated.delivery_run_id)) rccRefreshRoute(updated.delivery_run_id);
@@ -16568,11 +16567,8 @@ ${oneCopy}
       .eq('route_id', routeId)
       .order('stop_number');
 
-    const NOT_READY_FOR_DELIVERY = ['processing', 'folding', 'picked_up'];
     const activeStops = (stops||[]).filter(s => {
       if (!s.orders || DEAD_ORDER_STATUSES.includes(s.orders.status)) return false;
-      // Hide delivery stops for orders still being processed — not ready to hand to driver
-      if (s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY.includes(s.orders.status)) return false;
       return true;
     });
 
@@ -17108,10 +17104,8 @@ ${oneCopy}
       .eq('route_id', routeId)
       .order('stop_number');
 
-    const NOT_READY_FOR_DELIVERY2 = ['processing', 'folding', 'picked_up'];
     const activeStops = (stops||[]).filter(s => {
       if (!s.orders || DEAD_ORDER_STATUSES.includes(s.orders.status)) return false;
-      if (s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY2.includes(s.orders.status)) return false;
       return true;
     });
     // Resolve addresses: stop address_id → same-leg order address → other-leg → customer fallback
