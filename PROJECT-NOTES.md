@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 9, 2026 — Session 100: POS mockup — added Oxi / Vinegar / Double Wash add-ons inside the weight modal, halved tile heights, and swapped all purple-accent buttons/tiles for a sober white + gray-outline aesthetic matching the admin processing queue. UI-only work on `pos-mockup.html` — no app code, no DB changes.*
+*Last updated: Apr 9, 2026 — Session 101: Three bug fixes (RCC hiding delivery stops, RACK column 20-order cap, pricelist backfill issue) + Kidango and Russell Moore pricelist corrections.*
 
 ---
 
@@ -511,6 +511,46 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 9, 2026 (session 101) — Three bug fixes + pricelist data corrections
+
+**1. RCC hiding delivery stops for picked_up / processing orders (`admin-dashboard/index.html`)**
+
+The Route Command Center had a `NOT_READY_FOR_DELIVERY` filter in two places (`rccOpenRoute` and `rccRefreshRoute`) that silently suppressed delivery stops whenever the order status was `picked_up`, `processing`, or `folding`. This caused admins to see no stop at all on the route for customers whose laundry had been picked up but not yet processed — reported today as Lilly Huddy and Jeanette Coburn missing from their delivery routes.
+
+Root cause: the filter comment said "not ready to hand to driver" — a driver-side concern that was accidentally applied to the admin view. Admins need full stop visibility at all times. Removed from both locations. `DEAD_ORDER_STATUSES` (delivered, cancelled, skipped, etc.) still filter correctly.
+
+**Files touched:** `admin-dashboard/index.html`
+**Commit:** `e99fd5c`
+
+---
+
+**2. RACK column silently hiding orders past a 20-item cap (`admin-dashboard/index.html`)**
+
+`loadRacking()` had `.limit(20)` causing any order ranked 21+ by `racked_at` to be invisible in the Processing Queue RACK column. With 36 orders at `ready_for_delivery` today, 16 orders were hidden — reported as Jennifer Polk (rank 23) not appearing in the RACK column. Several orders from Apr 7–8 (Constance Moore, Ellie Johnson, Lodestar Campus) were also invisible and potentially overdue.
+
+Removed the limit entirely. All `ready_for_delivery` orders now show.
+
+**Files touched:** `admin-dashboard/index.html`
+**Commit:** `dc915b5`
+
+⚠️ **For future sessions:** Do not add back `.limit()` to `loadRacking()`. If performance becomes a concern at very high volume, consider pagination rather than a hard cut-off that hides real work.
+
+---
+
+**3. Pricelist backfill investigation + Kidango and Russell Moore corrections (DB-only)**
+
+Session 97's migration `20260408224501` backfilled the new `pricelist` column from `customer_type` using: `WHEN customer_type IN ('commercial', 'Commercial') THEN 'Commercial' ELSE 'Delivery'`. This correctly set most commercial accounts but wrongly set Kidango (and Russell Moore / USS Hornet) to `Commercial` — both are accounts that use Delivery-model pricing despite being commercial clients.
+
+**Kidango (16 sites):** Corrected `pricelist = 'Delivery'`. All historical orders were already priced at Delivery rates ($59/bag), so no order backfill was needed. The `pricelist` column error was display/routing only.
+
+**Russell Moore (USS Hornet, `events@uss-hornet.org`):** Corrected `pricelist = 'Delivery'`. No discount applied (David's decision). Note: two accounts share this email — Faye Navarro (already Delivery/residential) and Russell Moore. Both are now correctly on Delivery.
+
+**All other Commercial accounts reviewed and confirmed correct:** Anita Hodzic (BA House Cleaning), Suz Burroughs, Level Up Wellness & PT, Meg Lamberton, Brooke Rosenberg (Title Nine), Ruth Pardue (CrossFit SL), Kasa Hotel Addison, Kasa Hotels La Monarca, Homebase Shelter Program, Extended Stay America Emeryville/Oakland, Soul Sanctuary 1888 MLK (the three HCEB accounts are correctly on Commercial per David), David Macquart-Moulin (test account).
+
+**⚠️ For future sessions:** The `pricelist` backfill in migration `20260408224501` assumed `customer_type = 'commercial'` always means Commercial pricelist. That's not universally true — some commercial clients (nonprofits, museums) are billed at Delivery rates. Any new account tagged `commercial` should have its pricelist confirmed explicitly at setup time.
+
+---
 
 ### Apr 9, 2026 (session 100) — POS mockup: add-ons, tile shrink, sober aesthetic
 
