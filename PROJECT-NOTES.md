@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 9, 2026 — Session 98: hardened reschedule sync triggers with 3 structural fixes (time-of-day hard filter, capacity advisory, window revert on no-match). Fixed 4 stranded stops from the morning audit.*
+*Last updated: Apr 9, 2026 — Session 99: Order Recall feature — delivered orders can now be searched and recalled onto a new route (admin + manager), with no SMS fan-out. Widened Delivered tab window from 24h to 7 days.*
 
 ---
 
@@ -511,6 +511,58 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 9, 2026 (session 99) — Order Recall feature (delivered → back on a route, no SMS)
+
+**Context:** David flagged a recurring operational pain point: "occasionally a driver will mistakenly deliver an order, or wish to add comments to an order, and ask management to place the order back on the route. This happens at least once a day. As of right now this is impossible: once delivered, the order disappears from the Order list, and cannot be edited (or placed back into an 'active' status) from the customer profile."
+
+**The fix — three parts:**
+
+1. **Delivered orders are now findable in search.** `getFilteredOrders()` no longer excludes delivered/cancelled/failed orders from search results. The `INACTIVE_STATUSES` filter was removed entirely. Staff can now type a name, phone, address, or order # and see past delivered orders right in the orders list. Tab filters still work exactly as before — the change only affects active searches.
+
+2. **Delivered tab widened from 24h to 7 days.** New constant `DELIVERED_TAB_WINDOW_DAYS = 7` replaces the two hardcoded `24 * 60 * 60 * 1000` expressions in `getFilteredOrders` and `updateOrderFilterCounts`. Past-week deliveries are now one click away on the Delivered pill. Raising the window further is a one-line change.
+
+3. **"Recall to Route" button.** When the order panel is open on a delivered order, the primary footer button flips from "Advance Status" (hidden — doesn't apply) to "↩ Recall to Route" (amber/warning colored). Clicking it opens a modal with:
+   - Order summary (#N — customer name)
+   - An amber info banner reminding staff "No SMS is sent to the customer"
+   - A dropdown of upcoming routes from the existing `_opRoutes` cache (reused from the reschedule flow — no extra query)
+   - An optional free-text "reason" field (e.g. "Delivered by mistake")
+   - Cancel + "Recall to Route" buttons
+
+**The recall flow (`confirmRecallOrder`):**
+1. Pulls the picked route's `window_start`/`window_end` from the DB so the order inherits a sensible new delivery window.
+2. UPDATEs the orders row atomically: `status = 'out_for_delivery'` (if route runs today) or `'ready_for_delivery'` (if future), `actual_delivery_at = null`, `delivery_run_id = picked`, `routing_error = null`, plus the new window.
+3. Finds the existing delivery stop for this order (any status) and UPDATEs it back to `pending` on the picked route with `driver_id = null`, `completed_at = null`, `proof_photo_url = null`. If the stop no longer exists (edge case for previously-deleted stops), INSERTs a fresh pending one with the next available `stop_number`.
+4. Logs an `order_events` row with `event_type = 'recalled'`, description including the route name and optional reason, `actor_name = currentUserFirstName || 'Admin'`.
+5. Calls `autoOptimizeRoute(routeId)` in the background to re-sequence the stops on the new route.
+6. Closes the panel, refreshes the list, toasts success.
+7. **No SMS.** Verified that `send-order-notification` is only invoked from explicit app code (admin-dashboard, driver-app, customer-app) and never from DB triggers — skipping the call on the recall path guarantees the customer won't be notified.
+
+**Trigger safety audit:** Before shipping, every trigger on the `orders` table was reviewed for behavior when transitioning delivered → out_for_delivery / ready_for_delivery:
+- `sync_stops_on_order_terminal` — only fires for terminal statuses; recall target isn't terminal → no-op.
+- `trg_create_recurring_order_fn` — only fires for delivered/skipped/pickup_failed; recall target isn't → no-op.
+- `sync_delivery_stop_on_window_change` — early-returns if `delivery_run_id` changed (which it does in recall) → no-op.
+- `reconcile_stop_route_on_run_change` — only moves `pending` stops; the stop is still `complete` at the moment this trigger fires → no-op. Our JS then updates the stop manually.
+- `sync_stops_on_order_status_advance` — marks pickup stop complete (already is) → no-op.
+- `log_order_change` — writes benign audit entries for status_change + routed + rescheduled. Additive, harmless.
+
+**Permissions:** David was explicit — "this rollback feature needs to be available to anyone with access to orders, not just ADMIN permissions. This includes users with MANAGER permission set as well." The recall button inherits page-level `canAccessPage('orders')` gating just like every other order action; no additional role check. Works for admin AND manager AND any custom role with orders access.
+
+**Latent bug fixed as a side-effect:** The `#op-advance-btn` element had `style="flex:1;display:none"` in HEAD with no JS ever setting `display` back to visible, meaning the primary Advance button was invisible in production. The old `opRefreshAdvanceBtn` never touched `display`. The refactor for recall now explicitly toggles display per status, so the Advance button is also visible again for all non-delivered statuses. David's team had been using the status-badge dropdown instead and never noticed.
+
+**New `'recalled'` event type:** `opRenderHistoryEvent` switch now has a case for `'recalled'` with a ↩️ icon so history entries render cleanly alongside `status_change`, `rescheduled`, etc.
+
+**Known minor bookkeeping drift:** `routes.total_stops` may be off by 1 on the old/new route after a recall because `reconcile_stop_route_on_run_change` looks for pending stops and the recalled stop is still `complete` when the trigger fires. Impact is cosmetic — the RCC re-queries stop counts on refresh. Not blocking. Can be addressed in a follow-up if badge counts become an operational issue.
+
+**Files touched:**
+- `admin-dashboard/index.html` — added `recall-order-modal` HTML (above MODALS section), added `opRecallOrder` / `closeRecallModal` / `confirmRecallOrder` JS (after `opSkipOrder`), refactored `opRefreshAdvanceBtn` to toggle Advance vs Recall button, added `'recalled'` icon to history renderer, removed `INACTIVE_STATUSES` constant, introduced `DELIVERED_TAB_WINDOW_DAYS = 7`, updated filter badge, updated empty-state copy, updated `ORDER_FILTER_GROUPS` comment. Added `op-recall-btn` to order panel footer.
+
+**⚠️ For future sessions:**
+- `DELIVERED_TAB_WINDOW_DAYS` is the single place to tune how much delivered history the Delivered tab shows. Search is unbounded (bounded only by `allOrders` which is paginated-all).
+- If you add another event type to `order_events`, remember to add a case to `opRenderHistoryEvent` so it renders with a matching icon.
+- When adding new order-panel actions that should show only for a specific status, mirror the recall pattern: add an HTML button with `display:none`, toggle visibility in `opRefreshAdvanceBtn`, no role check needed (inherits page access).
+
+---
 
 ### Apr 9, 2026 (session 98) — Hardened reschedule sync triggers (time-of-day hard filter + capacity advisory + window revert)
 

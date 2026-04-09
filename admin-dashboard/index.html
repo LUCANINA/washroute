@@ -2500,6 +2500,33 @@
   </div>
 </div>
 
+<!-- Recall Order modal — put a delivered order back onto a route -->
+<div id="recall-order-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1002;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title">↩ Recall Order</div>
+        <div id="recall-modal-subtitle" style="font-size:12px;color:var(--gray-400);margin-top:2px;"></div>
+      </div>
+      <button class="modal-close" onclick="closeRecallModal()"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:12px;padding:10px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#92400e;line-height:1.45">
+        This will remove the delivered status and place the order back on a route. <b>No SMS is sent to the customer.</b>
+      </div>
+      <label class="form-label">Select Route</label>
+      <select class="form-input" id="recall-route-select"><option value="">Loading routes…</option></select>
+      <label class="form-label" style="margin-top:12px">Reason (optional)</label>
+      <input type="text" class="form-input" id="recall-reason-input" placeholder="e.g. Delivered by mistake, needs notes added">
+      <div id="recall-error" style="color:var(--red);font-size:12px;margin-top:8px;display:none;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeRecallModal()">Cancel</button>
+      <button class="btn btn-primary" id="recall-confirm-btn" onclick="confirmRecallOrder()" style="background:#f59e0b;border-color:#f59e0b">Recall to Route</button>
+    </div>
+  </div>
+</div>
+
 <!-- ─── MODALS ─── -->
 <div class="modal-overlay" id="modal-add-customer">
   <div class="modal" style="width:620px;max-width:96vw;">
@@ -3184,7 +3211,8 @@
 
   <!-- Footer (always visible) -->
   <div class="op-actions">
-    <button class="btn btn-primary" id="op-advance-btn" onclick="opAdvanceStatus()" style="flex:1;display:none">Advance Status</button>
+    <button class="btn btn-primary" id="op-advance-btn" onclick="opAdvanceStatus()" style="flex:1">Advance Status</button>
+    <button class="btn btn-primary" id="op-recall-btn" onclick="opRecallOrder()" style="flex:1;display:none;background:#f59e0b;border-color:#f59e0b">↩ Recall to Route</button>
     <button class="btn" id="op-skip-btn" onclick="opSkipOrder()" style="display:none;color:#ef4444;border-color:#fca5a5">Skip</button>
     <button class="btn" onclick="printBagTag()" style="color:var(--gray-700)">🖨 Print</button>
     <button class="btn" onclick="opViewCustomer()" style="color:var(--accent)">View Customer</button>
@@ -6441,7 +6469,7 @@
     in_process: ['picked_up','processing','folding'],
     ready:      ['ready_for_delivery','out_for_delivery'],
     issues:     ['pickup_failed','delivery_failed','on_hold','skipped'],
-    delivered:  ['delivered'],  // last 24h delivered orders only (cancelled are archived)
+    delivered:  ['delivered'],  // last DELIVERED_TAB_WINDOW_DAYS (7d) of delivered orders; cancelled are archived
   };
 
   async function loadOrders(statusFilter) {
@@ -6555,14 +6583,14 @@
   }
 
   // Returns allOrders filtered by currentOrderFilter + orderSearchTerm
-  // When a search term is active, search spans ALL tabs but excludes inactive orders
-  const INACTIVE_STATUSES = ['delivered', 'cancelled', 'skipped', 'pickup_failed', 'delivery_failed'];
+  // When a search term is active, search spans ALL orders including delivered/cancelled
+  // so staff can locate past orders for recall, comments, or reference.
+  const DELIVERED_TAB_WINDOW_DAYS = 7;
   function getFilteredOrders() {
     let data = allOrders;
-    // If user is searching, skip tab filter — search across active orders only
+    // If user is searching, skip tab filter — search across ALL orders (active + inactive)
     if (orderSearchTerm) {
       data = data.filter(o => {
-        if (INACTIVE_STATUSES.includes(o.status)) return false;
         const name = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.toLowerCase();
         const phone = (o.customers?.phone_cache||'').toLowerCase();
         const num = String(o.order_number||'');
@@ -6587,7 +6615,7 @@
           return ORDER_FILTER_GROUPS.issues.includes(o.status);
         });
       } else if (currentOrderFilter === 'delivered') {
-        const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const cutoff = new Date(Date.now() - DELIVERED_TAB_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
         data = data.filter(o =>
           o.status === 'delivered' &&
           (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff
@@ -6609,7 +6637,7 @@
       in_process: allOrders.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
       ready:      allOrders.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
       issues:     allOrders.filter(o => { if (o.status === 'skipped' && o.cancelled_by === 'customer') return false; if (o.status === 'skipped' && o.recurring_interval) return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; const _cs = ['ready_for_delivery','out_for_delivery','delivered']; if (o.billing_status === 'failed' && _cs.includes(o.status)) return true; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status); }).length,
-      delivered:  (() => { const cutoff = new Date(Date.now() - 24*60*60*1000).toISOString(); return allOrders.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
+      delivered:  (() => { const cutoff = new Date(Date.now() - DELIVERED_TAB_WINDOW_DAYS*24*60*60*1000).toISOString(); return allOrders.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
       const key = btn.dataset.filter;
@@ -6687,11 +6715,11 @@
     // Keep subtitle count in sync with the visible (filtered) set
     const countEl = document.getElementById('orders-count-label');
     if (countEl) countEl.textContent = orderSearchTerm
-      ? `${data.length} active result${data.length!==1?'s':''} for "${orderSearchTerm}"`
+      ? `${data.length} result${data.length!==1?'s':''} for "${orderSearchTerm}"`
       : `${data.length} order${data.length!==1?'s':''}`;
     if (!data.length) {
       const emptyMsg = orderSearchTerm
-        ? `<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">No active orders match "${orderSearchTerm}"</div><div class="empty-sub">Try a different name, phone, or order #. Past orders are on the customer's profile.</div></div>`
+        ? `<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">No orders match "${orderSearchTerm}"</div><div class="empty-sub">Try a different name, phone, address, or order #.</div></div>`
         : `<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">No orders found</div><div class="empty-sub">Create your first order to get started.</div><button class="btn btn-primary" style="margin-top:16px" onclick="openModal('add-order')">+ New Order</button></div>`;
       el.innerHTML = emptyMsg;
       return;
@@ -7008,13 +7036,24 @@
 
   function opRefreshAdvanceBtn(o) {
     const advBtn = document.getElementById('op-advance-btn');
-    const next = STATUS_FLOW[o.status];
-    advBtn.disabled = !next;
-    advBtn.style.opacity = next ? '1' : '0.45';
-    advBtn.style.cursor  = next ? 'pointer' : 'not-allowed';
-    advBtn.textContent   = next
-      ? `Advance to ${next.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}`
-      : 'Fully Delivered';
+    const recallBtn = document.getElementById('op-recall-btn');
+    const isDelivered = o.status === 'delivered';
+
+    // When order is delivered, hide Advance and show Recall instead.
+    if (isDelivered) {
+      advBtn.style.display = 'none';
+      if (recallBtn) recallBtn.style.display = '';
+    } else {
+      advBtn.style.display = '';
+      if (recallBtn) recallBtn.style.display = 'none';
+      const next = STATUS_FLOW[o.status];
+      advBtn.disabled = !next;
+      advBtn.style.opacity = next ? '1' : '0.45';
+      advBtn.style.cursor  = next ? 'pointer' : 'not-allowed';
+      advBtn.textContent   = next
+        ? `Advance to ${next.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}`
+        : 'Fully Delivered';
+    }
 
     // Show Skip button only for recurring orders that aren't in a terminal state
     const skipBtn = document.getElementById('op-skip-btn');
@@ -7036,6 +7075,173 @@
     updateOrderFilterCounts();
     renderOrders(getFilteredOrders());
     showToast('Order skipped — next recurring order created', 'success');
+  }
+
+  // ── RECALL ORDER (delivered → back onto a route) ──
+  // Opens a modal that lets staff pick a route and place the order back on it.
+  // Deliberately does NOT send any SMS to the customer.
+  async function opRecallOrder() {
+    if (!opCurrentOrderId) return;
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) {
+      showToast('Order not loaded', 'error');
+      return;
+    }
+    if (o.status !== 'delivered') {
+      showToast('Only delivered orders can be recalled', 'error');
+      return;
+    }
+    // Ensure routes cache is ready
+    await opPrefetchRoutes();
+
+    // Populate the subtitle and route dropdown
+    const custName = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.trim() || 'Customer';
+    const subtitleEl = document.getElementById('recall-modal-subtitle');
+    if (subtitleEl) subtitleEl.textContent = `Order #${o.order_number} — ${custName}`;
+
+    const sel = document.getElementById('recall-route-select');
+    const errEl = document.getElementById('recall-error');
+    if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+    const reasonInput = document.getElementById('recall-reason-input');
+    if (reasonInput) reasonInput.value = '';
+
+    // List routes from today onward, freshest first by run_date ascending
+    const routes = (_opRoutes || [])
+      .filter(r => r.status !== 'cancelled')
+      .sort((a, b) => String(a.run_date).localeCompare(String(b.run_date)));
+
+    if (!routes.length) {
+      sel.innerHTML = '<option value="">No upcoming routes — create one first</option>';
+    } else {
+      sel.innerHTML = '<option value="">— Select a route —</option>' +
+        routes.map(r => {
+          const dateLabel = fmtDate(r.run_date);
+          const name = (r.name || 'Route').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          return `<option value="${r.id}" data-run-date="${r.run_date}">${name} · ${dateLabel}</option>`;
+        }).join('');
+    }
+
+    document.getElementById('recall-order-modal').style.display = 'flex';
+  }
+
+  function closeRecallModal() {
+    const m = document.getElementById('recall-order-modal');
+    if (m) m.style.display = 'none';
+  }
+
+  async function confirmRecallOrder() {
+    if (!opCurrentOrderId) return;
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+
+    const sel = document.getElementById('recall-route-select');
+    const errEl = document.getElementById('recall-error');
+    const btn = document.getElementById('recall-confirm-btn');
+    const routeId = sel.value;
+    if (!routeId) {
+      errEl.textContent = 'Please select a route.';
+      errEl.style.display = '';
+      return;
+    }
+
+    const opt = sel.selectedOptions[0];
+    const runDate = opt?.dataset?.runDate || '';
+    const routeLabel = opt ? opt.textContent.trim() : 'route';
+    const reason = (document.getElementById('recall-reason-input')?.value || '').trim();
+
+    // If the route runs today, the order is effectively out for delivery;
+    // otherwise it's ready for delivery (i.e. queued for a future day).
+    const todayStr = today();
+    const newStatus = (runDate && runDate <= todayStr) ? 'out_for_delivery' : 'ready_for_delivery';
+
+    btn.disabled = true;
+    btn.textContent = 'Recalling…';
+    errEl.style.display = 'none';
+
+    try {
+      // 1) Pull the picked route's window so the order shows a sensible delivery window.
+      const { data: routeRow, error: routeErr } = await db.from('routes')
+        .select('id, name, run_date, window_start, window_end')
+        .eq('id', routeId)
+        .maybeSingle();
+      if (routeErr) throw routeErr;
+
+      const update = {
+        status: newStatus,
+        actual_delivery_at: null,
+        delivery_run_id: routeId,
+        routing_error: null,
+      };
+      if (routeRow?.window_start) update.delivery_window_start = routeRow.window_start;
+      if (routeRow?.window_end)   update.delivery_window_end   = routeRow.window_end;
+
+      // 2) Update the order row.
+      const { error: updErr } = await db.from('orders').update(update).eq('id', opCurrentOrderId);
+      if (updErr) throw updErr;
+
+      // 3) Re-open the delivery stop on the picked route. If the stop was deleted
+      //    (or the order was rolled back previously), create a fresh pending stop.
+      const cust   = allCustomers.find(c => c.id === opCurrentCustId);
+      const addrs  = Array.isArray(cust?.addresses) ? cust.addresses : [];
+      const addrId = o.delivery_address_id || o.pickup_address_id || addrs.find(a => a.is_default)?.id || addrs[0]?.id || null;
+
+      const { data: existStops } = await db.from('route_stops')
+        .select('id')
+        .eq('order_id', opCurrentOrderId)
+        .eq('stop_type','delivery')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      const existStop = existStops?.[0];
+      if (existStop) {
+        await db.from('route_stops').update({
+          route_id: routeId,
+          driver_id: null,
+          status: 'pending',
+          completed_at: null,
+          proof_photo_url: null,
+        }).eq('id', existStop.id);
+      } else {
+        const { data: maxS } = await db.from('route_stops').select('stop_number').eq('route_id', routeId).order('stop_number',{ascending:false}).limit(1);
+        await db.from('route_stops').insert({
+          route_id: routeId,
+          order_id: opCurrentOrderId,
+          stop_type: 'delivery',
+          stop_number: (maxS?.[0]?.stop_number || 0) + 1,
+          address_id: addrId,
+          status: 'pending',
+        });
+      }
+
+      // 4) Audit trail — no SMS side-effects.
+      const desc = reason
+        ? `Recalled from Delivered → re-routed to ${routeLabel} (${reason})`
+        : `Recalled from Delivered → re-routed to ${routeLabel}`;
+      await logOrderEvent(opCurrentOrderId, 'recalled', desc, 'delivered', newStatus);
+
+      // 5) Sync local cache.
+      Object.assign(o, update);
+      const rCached = _opRoutes.find(r => r.id === routeId);
+      o.delivery_run = { id: routeId, name: rCached?.name || routeRow?.name || '' };
+
+      // 6) Background route optimization.
+      if (typeof autoOptimizeRoute === 'function') {
+        try { autoOptimizeRoute(routeId); } catch(_) {}
+      }
+
+      // 7) UI cleanup.
+      closeRecallModal();
+      closeOrderPanel();
+      updateOrderFilterCounts();
+      renderOrders(getFilteredOrders());
+      showToast(`✓ Order #${o.order_number} recalled to ${routeLabel}`, 'success');
+    } catch (err) {
+      console.error('[recall] failed', err);
+      errEl.textContent = err.message || 'Recall failed';
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Recall to Route';
+    }
   }
 
   // Fetch proof photos from route_stops and render them in the Details tab
@@ -7307,6 +7513,7 @@
       case 'routed':          icon = '🗺️'; break;
       case 'billing':         icon = ev.new_value === 'failed' ? '⚠️' : '💳'; break;
       case 'rescheduled':     icon = '📅'; break;
+      case 'recalled':        icon = '↩️'; break;
       default:                icon = '•'; break;
     }
 
