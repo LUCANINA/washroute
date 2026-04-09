@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 9, 2026 — Session 101: Three bug fixes (RCC hiding delivery stops, RACK column 20-order cap, pricelist backfill issue) + Kidango and Russell Moore pricelist corrections.*
+*Last updated: Apr 9, 2026 — Session 102: Per-lb pricing root cause fix in saveOrder() + DB correction for order #1407 (Kasa Hotels, $130.70 → $464.95).*
 
 ---
 
@@ -511,6 +511,42 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 9, 2026 (session 102) — Per-lb pricing root cause fix + order #1407 data correction
+
+**Context:** Continued from session 101. David flagged "weird display issues for some Commercial price list customers — Level Up being charged $1.75 per bag + overage." Investigation found the display rendering code was actually correct. The root cause was upstream in `saveOrder()`.
+
+**Root cause: `saveOrder()` always wrote per-bag line_items for per-lb services**
+
+The admin "Add Order" modal's `saveOrder()` function (admin-dashboard, ~line 13219) computed:
+```javascript
+const subtotal = basePrice * bags;  // WRONG for per-lb — weight unknown at creation
+line_items: [{ type:'base', label:`${bags} bags × ${fmtMoney(basePrice)}`, amount: subtotal }]
+```
+This always wrote `"N bags × $1.75"` regardless of whether the service was per_lb or per_bag. For Delivery customers this was fine. For Commercial (per-lb) customers it created a misleading base line item. When `saveIntake()` eventually ran with a correct version of the code, it overwrote the line_items correctly. But order #1407 went through intake with an older version before the per-lb guard was in `_buildIntakeLineItems()` — so the wrong label got permanently stored as `"9 bags × $1.75 = $15.75"` with a $105 overage line.
+
+**Fix applied to `saveOrder()`:**
+- Added `const isPerLb = svc?.pricing_type === 'per_lb'`
+- `subtotal = isPerLb ? 0 : basePrice * bags` (weight unknown until intake)
+- `line_items` for per-lb orders: delivery fee only (no misleading base entry)
+- `total_amount` for per-lb orders: just the delivery fee until intake
+
+**Files touched:** `admin-dashboard/index.html`
+**Commit:** `5b58079`
+
+---
+
+**Order #1407 direct DB correction (Kasa Hotels La Monarca)**
+
+Found via query: order #1407 at status `ready_for_delivery` had wrong stored line_items `"9 bags × $1.75 = $15.75"` + `"35.0 lbs overage × $3.00/lb = $105"` = total $130.70. Correct calculation: 260 lbs × $1.75/lb = $455 + $9.95 delivery = **$464.95**.
+
+Confirmed: `billing_status = null`, `stripe_payment_intent_id = null`, `billing_type = 'on_account'` — not yet charged. Corrected directly in DB via SQL.
+
+No other active Commercial orders had wrong line_items. No delivered orders were affected.
+
+**⚠️ For future sessions:** If a Commercial (per-lb) order shows `"N bags × $1.75"` plus an overage row in the fold/rack panel, that means it was saved during the pre-fix era. The correct fix is to either push it back to intake and save (which triggers `saveIntake()` recalculation), or correct `line_items` and `total_amount` directly in the DB. `saveIntake()` has been correct for some time — the bug was only in `saveOrder()` at creation time.
+
+---
 
 ### Apr 9, 2026 (session 101) — Three bug fixes + pricelist data corrections
 
