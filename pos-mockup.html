@@ -168,6 +168,149 @@
   .customer-chip-sub  { font-size: 11px; color: var(--gray-500); margin-top: 1px; }
   .customer-chip.attached .customer-chip-sub { color: var(--accent-dark); opacity: 0.7; }
 
+  .admin-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border: 1px solid var(--gray-200);
+    background: white;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray-700);
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-left: 4px;
+  }
+  .admin-pill:hover { border-color: var(--accent); color: var(--accent-dark); }
+  .admin-pill.signed-in { background: var(--green-light); border-color: var(--green); color: var(--green); }
+
+  .queue-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 10px;
+    border: 1px solid var(--gray-200);
+    background: white;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray-700);
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-left: 4px;
+    position: relative;
+  }
+  .queue-badge:hover { border-color: var(--accent); color: var(--accent-dark); }
+  .queue-badge.has-items { background: var(--amber-light); border-color: var(--amber); color: var(--amber); }
+  .queue-badge.active { background: var(--gray-900); border-color: var(--gray-900); color: white; }
+  .queue-badge-icon { font-size: 13px; }
+  .queue-badge-count { min-width: 12px; text-align: center; }
+
+  /* ─── Queue panel (overlays the cart area) ─────────────────── */
+  .queue-panel {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+    background: white;
+  }
+  .queue-panel.show { display: flex; }
+  .cart-view { display: flex; flex-direction: column; height: 100%; }
+  .queue-panel.show ~ .cart-view { display: none; }
+
+  .queue-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 14px;
+  }
+  .queue-section-label {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--gray-500);
+    margin: 12px 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .queue-section-label:first-child { margin-top: 0; }
+
+  .queue-card {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 8px;
+  }
+  .queue-card-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .queue-card-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--gray-300);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+  .queue-card-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--gray-900);
+  }
+  .queue-card-order {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--gray-400);
+    margin-left: auto;
+  }
+  .queue-card-detail {
+    font-size: 12px;
+    color: var(--gray-600);
+    line-height: 1.4;
+    margin-bottom: 8px;
+  }
+  .queue-card-time {
+    font-size: 11px;
+    color: var(--gray-400);
+    margin-bottom: 8px;
+  }
+  .queue-card-btn {
+    width: 100%;
+    padding: 9px 0;
+    border: 1px solid var(--gray-200);
+    border-radius: 8px;
+    background: white;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .queue-card-btn:hover { background: var(--gray-50); border-color: var(--gray-400); }
+  .queue-card-btn.ready { color: var(--green); border-color: var(--green); }
+  .queue-card-btn.ready:hover { background: var(--green-light); }
+  .queue-card-btn.pickup { color: var(--accent); border-color: var(--accent); }
+  .queue-card-btn.pickup:hover { background: var(--accent-light); }
+  .queue-card-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .queue-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--gray-400);
+    font-size: 13px;
+  }
+  .queue-empty-icon { font-size: 28px; margin-bottom: 8px; }
+
   .clock {
     font-size: 13px;
     font-weight: 600;
@@ -511,7 +654,7 @@
     max-height: 95%;
   }
   .modal-header {
-    padding: 20px 24px 12px;
+    padding: 14px 20px 8px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -536,58 +679,65 @@
     display: flex; align-items: center; justify-content: center;
   }
   .modal-body {
-    padding: 8px 24px 24px;
+    padding: 6px 20px 12px;
     overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  .modal-footer {
+    padding: 10px 20px 14px;
+    border-top: 1px solid var(--gray-100);
+    flex-shrink: 0;
   }
 
-  /* ── Numpad ─────────────────────────────────────────────────── */
+  /* ── Numpad (compact — everything must fit without scrolling) ── */
   .numpad-display {
     background: var(--gray-50);
     border: 2px solid var(--gray-200);
-    border-radius: 14px;
-    padding: 22px 20px;
+    border-radius: 12px;
+    padding: 18px 16px;
     text-align: center;
-    margin-bottom: 16px;
+    margin-bottom: 10px;
   }
   .numpad-display-label {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--gray-500);
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
   .numpad-display-value {
-    font-size: 48px;
+    font-size: 34px;
     font-weight: 800;
     color: var(--gray-900);
     line-height: 1;
-    margin-top: 8px;
+    margin-top: 4px;
     font-variant-numeric: tabular-nums;
   }
   .numpad-display-unit {
-    font-size: 22px;
+    font-size: 18px;
     font-weight: 700;
     color: var(--gray-400);
     margin-left: 4px;
   }
   .numpad-display-calc {
-    font-size: 13px;
+    font-size: 12px;
     color: var(--accent);
     font-weight: 700;
-    margin-top: 6px;
+    margin-top: 4px;
   }
 
   .numpad {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    gap: 5px;
   }
   .numkey {
-    padding: 18px;
-    border-radius: 14px;
+    padding: 12px;
+    border-radius: 10px;
     background: var(--gray-100);
     border: none;
-    font-size: 22px;
+    font-size: 18px;
     font-weight: 700;
     color: var(--gray-900);
     cursor: pointer;
@@ -600,23 +750,23 @@
 
   /* ── Weight-modal add-on chips ──────────────────────────────── */
   .addon-section {
-    margin-top: 18px;
-    padding-top: 16px;
+    margin-top: 10px;
+    padding-top: 10px;
     border-top: 1px solid var(--gray-200);
   }
   .addon-section-label {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--gray-500);
-    margin-bottom: 10px;
+    margin-bottom: 6px;
     display: flex;
     align-items: center;
     justify-content: space-between;
   }
   .addon-section-hint {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     color: var(--gray-400);
     text-transform: none;
@@ -625,12 +775,12 @@
   .addon-chips {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    gap: 6px;
   }
   .addon-chip {
     position: relative;
-    padding: 12px 10px 10px;
-    border-radius: 12px;
+    padding: 8px 8px 7px;
+    border-radius: 10px;
     border: 1.5px solid var(--gray-200);
     background: white;
     cursor: pointer;
@@ -639,7 +789,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 2px;
   }
   .addon-chip:hover {
     border-color: var(--gray-300);
@@ -651,18 +801,18 @@
     box-shadow: 0 0 0 1px var(--accent) inset;
   }
   .addon-chip-emoji {
-    font-size: 22px;
+    font-size: 18px;
     line-height: 1;
   }
   .addon-chip-name {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--gray-900);
     line-height: 1.1;
   }
   .addon-chip.active .addon-chip-name { color: var(--accent-dark); }
   .addon-chip-price {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     color: var(--gray-500);
     line-height: 1;
@@ -670,14 +820,14 @@
   .addon-chip.active .addon-chip-price { color: var(--accent); }
   .addon-chip-check {
     position: absolute;
-    top: 6px;
-    right: 6px;
-    width: 18px;
-    height: 18px;
+    top: 4px;
+    right: 4px;
+    width: 16px;
+    height: 16px;
     border-radius: 999px;
     background: var(--accent);
     color: white;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 900;
     display: none;
     align-items: center;
@@ -689,13 +839,13 @@
   .modal-actions {
     display: flex;
     gap: 10px;
-    margin-top: 16px;
+    margin-top: 0;
   }
   .btn {
     flex: 1;
-    padding: 16px;
-    border-radius: 12px;
-    font-size: 15px;
+    padding: 12px;
+    border-radius: 10px;
+    font-size: 14px;
     font-weight: 700;
     cursor: pointer;
     border: none;
@@ -1175,6 +1325,14 @@
             <div class="customer-chip-sub" id="custSub">Tap to find customer</div>
           </div>
         </button>
+        <button class="admin-pill" id="adminPill" onclick="openAdminLogin()" title="Sign in to enable real customer lookup">
+          <span id="adminPillIcon">🔒</span>
+          <span id="adminPillText">Sign in</span>
+        </button>
+        <button class="queue-badge" id="queueBadge" onclick="toggleQueue()" title="Walk-in orders in process">
+          <span class="queue-badge-icon">📦</span>
+          <span class="queue-badge-count" id="queueCount">0</span>
+        </button>
         <div class="clock" id="clock">Wed · 2:47 PM</div>
       </div>
 
@@ -1194,8 +1352,23 @@
           </div>
         </div>
 
-        <!-- ─── RIGHT: cart ────────────────────────────────── -->
+        <!-- ─── RIGHT: cart + queue panel ────────────────────── -->
         <aside class="cart">
+          <!-- Queue panel (hidden by default, slides over cart) -->
+          <div class="queue-panel" id="queuePanel">
+            <div class="cart-header">
+              <div class="cart-header-title">📦 Walk-in Queue</div>
+              <button class="cart-clear" onclick="toggleQueue()">← Back to cart</button>
+            </div>
+            <div class="queue-list" id="queueList">
+              <div style="text-align:center; padding:40px 20px; color:var(--gray-400); font-size:13px;">
+                Loading…
+              </div>
+            </div>
+          </div>
+
+          <!-- Normal cart view -->
+          <div class="cart-view" id="cartView">
           <div class="cart-header">
             <div class="cart-header-title">Cart</div>
             <button class="cart-clear" id="clearBtn" onclick="clearCart()">Clear all</button>
@@ -1215,6 +1388,7 @@
               <span id="chargeAmt"></span>
             </button>
           </div>
+          </div><!-- /cart-view -->
         </aside>
       </div>
 
@@ -1259,9 +1433,51 @@
                 <!-- populated by renderWeightAddons() -->
               </div>
             </div>
+          </div>
+          <!-- Pinned footer — always visible regardless of scroll -->
+          <div class="modal-footer">
             <div class="modal-actions">
               <button class="btn btn-ghost" onclick="closeAll()">Cancel</button>
               <button class="btn btn-primary" id="addWeightBtn" onclick="addWeightToCart()">Add to cart</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════
+           MODAL: Admin sign-in (enables real customer lookup)
+           ══════════════════════════════════════════════════════ -->
+      <div class="modal-overlay" id="adminLoginModal">
+        <div class="modal" style="max-width: 380px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Sign in</div>
+              <div class="modal-sub">Required to look up real customers</div>
+            </div>
+            <button class="modal-close" onclick="closeAll()">×</button>
+          </div>
+          <div class="modal-body">
+            <div style="display:flex; flex-direction:column; gap:12px;">
+              <div>
+                <label style="display:block; font-size:12px; font-weight:700; color:var(--gray-600); margin-bottom:6px;">Email</label>
+                <input id="adminEmail" type="email" autocomplete="username"
+                  style="width:100%; padding:12px; border:1px solid var(--gray-300); border-radius:10px; font-size:15px;"
+                  placeholder="you@familylaundry.com" />
+              </div>
+              <div>
+                <label style="display:block; font-size:12px; font-weight:700; color:var(--gray-600); margin-bottom:6px;">Password</label>
+                <input id="adminPassword" type="password" autocomplete="current-password"
+                  style="width:100%; padding:12px; border:1px solid var(--gray-300); border-radius:10px; font-size:15px;"
+                  placeholder="••••••••" />
+              </div>
+              <div id="adminLoginError" style="display:none; padding:10px; background:var(--red-light); color:var(--red); border-radius:8px; font-size:13px; font-weight:600;"></div>
+              <button onclick="submitAdminLogin()"
+                style="width:100%; padding:14px; background:var(--accent); color:white; border:none; border-radius:10px; font-size:15px; font-weight:700; cursor:pointer;">
+                Sign in
+              </button>
+              <div style="font-size:12px; color:var(--gray-500); text-align:center; line-height:1.5;">
+                Without sign-in, customer lookup falls back to a single demo customer.
+              </div>
             </div>
           </div>
         </div>
@@ -1367,17 +1583,18 @@
               <div class="pay-total-value" id="payTotal">$0.00</div>
             </div>
             <div class="pay-methods">
-              <button class="pay-method" onclick="startTerminal()">
+              <button class="pay-method" onclick="payWithCard()">
                 <div class="pay-method-icon">💳</div>
                 <div class="pay-method-name">Card</div>
                 <div class="pay-method-sub">Stripe Terminal</div>
               </button>
-              <button class="pay-method" onclick="showSuccess()">
+              <button class="pay-method" onclick="payWithCash()">
                 <div class="pay-method-icon">💵</div>
                 <div class="pay-method-name">Cash</div>
-                <div class="pay-method-sub">Enter amount tendered</div>
+                <div class="pay-method-sub">Tap to charge</div>
               </button>
             </div>
+            <div id="payError" style="display:none; margin-top:14px; padding:10px 12px; background:var(--red-light); color:var(--red); border-radius:8px; font-size:13px; font-weight:600;"></div>
           </div>
         </div>
       </div>
@@ -1402,7 +1619,7 @@
             </div>
             <div class="modal-actions">
               <button class="btn btn-ghost" onclick="closeAll()">Cancel</button>
-              <button class="btn btn-success" onclick="showSuccess()">Simulate success →</button>
+              <button class="btn btn-success" onclick="simulateCardSuccess()">Simulate success →</button>
             </div>
           </div>
         </div>
@@ -1417,7 +1634,8 @@
             <div class="success-anim">✓</div>
             <div class="success-title">Payment accepted</div>
             <div class="success-amount" id="successAmt">$0.00</div>
-            <div class="success-sub">Paid in full · Thank you!</div>
+            <div class="success-sub" id="successSub">Paid in full · Thank you!</div>
+            <div id="successOrderNum" style="display:none; margin-top:4px; font-size:13px; font-weight:700; color:var(--accent-dark);"></div>
             <div class="receipt-options">
               <button class="receipt-btn">
                 <div class="receipt-btn-icon">🖨</div>
@@ -1504,19 +1722,25 @@
 
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
   /* ─────────────────────────────────────────────────────────────
-     Mock data — reflects Retail price list structure
+     Supabase client
      ───────────────────────────────────────────────────────────── */
-  const SERVICES = {
-    services: [
-      { id:'wf',  emoji:'🧺', name:'Wash & Fold',   price:2.50, unit:'lb', type:'per_lb', service:true },
-      { id:'wd',  emoji:'🫧', name:'Wash & Dry',    price:1.75, unit:'lb', type:'per_lb', service:true },
-      { id:'dry', emoji:'👕', name:'Dry Only',      price:1.00, unit:'lb', type:'per_lb', service:true },
-      { id:'com', emoji:'🛏️', name:'Comforter',     price:18.00, unit:'ea', type:'per_item', service:true },
-      { id:'hang',emoji:'👔', name:'Hang Dry',      price:4.00, unit:'lb', type:'per_lb', service:true },
-      { id:'rush',emoji:'⚡', name:'Rush (Same-Day)',price:10.00, unit:'ea', type:'per_item', service:true },
-    ],
+  const SUPABASE_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, storageKey: 'washroute-pos-auth' }
+  });
+
+  /* ─────────────────────────────────────────────────────────────
+     Service catalog — populated from Supabase `services` table
+     where pricelist = 'Retail' and is_active = true.
+     Drinks / snacks / supplies are still hardcoded until we build
+     the merchandise table.
+     ───────────────────────────────────────────────────────────── */
+  let SERVICES = {
+    services: [], // loaded from DB
     drinks: [
       { id:'coke',    emoji:'🥤', name:'Coca-Cola 20oz',  price:2.50, unit:'ea', type:'per_item' },
       { id:'dcoke',   emoji:'🥤', name:'Diet Coke 20oz',  price:2.50, unit:'ea', type:'per_item' },
@@ -1552,14 +1776,10 @@
   /* ─────────────────────────────────────────────────────────────
      Add-on catalog — flat per-drop-off prices.
      These appear in the weight modal for per-lb services only.
-     In the live build, pulled from the `preferences` / services
-     table where `is_addon = true`.
+     Loaded from `services` table where pricelist = 'Retail' AND
+     is_addon = true.
      ───────────────────────────────────────────────────────────── */
-  const WEIGHT_ADDONS = [
-    { id:'oxi',     emoji:'✨', name:'Oxi',         price: 3.00 },
-    { id:'vinegar', emoji:'💧', name:'Vinegar',     price: 3.00 },
-    { id:'double',  emoji:'🔄', name:'Double Wash', price: 5.00 },
-  ];
+  let WEIGHT_ADDONS = []; // loaded from DB
 
   /* State */
   let currentTab = 'services';
@@ -1784,6 +2004,78 @@
     closeAll();
   }
 
+  /* ─── Admin sign-in ─────────────────────────────────────────
+     The `customers` table is behind admin-only RLS (is_admin()),
+     so to look up real customers we need a signed-in admin. When
+     nobody is signed in, customer lookup falls back to a single
+     hardcoded demo customer so the mockup still demos end-to-end.
+     ─────────────────────────────────────────────────────────── */
+  let adminSession = null; // { email } when signed in
+
+  function openAdminLogin() {
+    if (adminSession) {
+      // Already signed in — pill click = sign out
+      if (confirm(`Sign out ${adminSession.email}?`)) signOutAdmin();
+      return;
+    }
+    document.getElementById('adminEmail').value = '';
+    document.getElementById('adminPassword').value = '';
+    document.getElementById('adminLoginError').style.display = 'none';
+    showModal('adminLoginModal');
+    setTimeout(() => document.getElementById('adminEmail').focus(), 200);
+  }
+
+  async function submitAdminLogin() {
+    const email = document.getElementById('adminEmail').value.trim();
+    const password = document.getElementById('adminPassword').value;
+    const errEl = document.getElementById('adminLoginError');
+    errEl.style.display = 'none';
+    if (!email || !password) {
+      errEl.textContent = 'Email and password are required.';
+      errEl.style.display = 'block';
+      return;
+    }
+    const { data, error } = await db.auth.signInWithPassword({ email, password });
+    if (error) {
+      errEl.textContent = error.message || 'Sign-in failed.';
+      errEl.style.display = 'block';
+      return;
+    }
+    adminSession = { email: data.user?.email || email };
+    closeAll();
+    refreshAdminUi();
+  }
+
+  async function signOutAdmin() {
+    await db.auth.signOut();
+    adminSession = null;
+    refreshAdminUi();
+  }
+
+  // Reflect current auth state in the topbar pill.
+  async function refreshAdminUi() {
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      adminSession = session ? { email: session.user.email } : null;
+    } catch (e) {
+      adminSession = null;
+    }
+    const pill = document.getElementById('adminPill');
+    const text = document.getElementById('adminPillText');
+    const icon = document.getElementById('adminPillIcon');
+    if (adminSession) {
+      pill.classList.add('signed-in');
+      icon.textContent = '✓';
+      text.textContent = adminSession.email.split('@')[0];
+      pill.title = `Signed in as ${adminSession.email} — click to sign out`;
+    } else {
+      pill.classList.remove('signed-in');
+      icon.textContent = '🔒';
+      text.textContent = 'Sign in';
+      pill.title = 'Sign in to enable real customer lookup';
+    }
+  }
+
   /* ─── Customer lookup ──────────────────────────────────────── */
   function openLookup() {
     phoneDigits = '';
@@ -1800,9 +2092,20 @@
     renderPhoneInput();
   }
 
-  // Fake "database" for the mockup — any other number returns "no match"
+  // Demo fallback used when no admin is signed in (the customers
+  // table is gated by admin RLS, so anon reads return zero rows).
   const DEMO_CUSTOMER_PHONE = '5106085446';
 
+  // Strip everything but digits and return the last 10. Phone numbers
+  // in `customers.phone_cache` are stored in many formats — E.164,
+  // formatted with parens, or bare digits — so normalize before
+  // comparing.
+  function normalizePhone(s) {
+    return (s || '').replace(/\D/g, '').slice(-10);
+  }
+
+  // Render the keypad display + results pane. Customer search is
+  // kicked off asynchronously when 10 digits are entered.
   function renderPhoneInput() {
     const d = phoneDigits.padEnd(10, '_');
     const formatted = `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
@@ -1810,36 +2113,101 @@
 
     const results = document.getElementById('custResults');
     if (phoneDigits.length >= 10) {
-      if (phoneDigits === DEMO_CUSTOMER_PHONE) {
-        // Found an existing customer
-        results.innerHTML = `
-          <div class="customer-result" onclick="attachCustomer('David Hernandez', '${formatted}', 24)">
-            <div class="customer-avatar" style="background:var(--accent);color:white;">DH</div>
-            <div>
-              <div class="customer-result-name">David Hernandez</div>
-              <div class="customer-result-phone">${formatted} · 24 orders</div>
-            </div>
-            <div class="customer-result-badge">Regular</div>
-          </div>
-        `;
-      } else {
-        // No match — offer to create
-        results.innerHTML = `
-          <div class="no-match">
-            <div class="no-match-icon">🔍</div>
-            <div class="no-match-title">No customer found</div>
-            <div class="no-match-sub">${formatted} isn't in our system yet</div>
-            <button class="create-customer-btn" onclick="openCreateCustomer()">
-              <span>+</span> Create new customer
-            </button>
-          </div>
-        `;
-      }
+      results.innerHTML = `<div style="text-align:center;font-size:12px;color:var(--gray-400);padding:14px;">Searching…</div>`;
+      const search = phoneDigits;
+      // Fire-and-forget; the most recent search wins via _lookupSeq.
+      _lookupSeq++;
+      const mySeq = _lookupSeq;
+      lookupCustomerByPhone(search).then(matches => {
+        if (mySeq !== _lookupSeq || phoneDigits !== search) return; // stale
+        renderLookupResults(matches, formatted);
+      });
     } else if (phoneDigits.length >= 7) {
       results.innerHTML = `<div style="text-align:center;font-size:12px;color:var(--gray-400);padding:10px;">Keep typing…</div>`;
     } else {
       results.innerHTML = '';
     }
+  }
+
+  // Bumped on each new search so out-of-order responses can be ignored.
+  let _lookupSeq = 0;
+
+  // Look up a customer by 10-digit phone. When admin is signed in we
+  // hit Supabase directly. When not signed in (anon), the customers
+  // table RLS returns zero rows, so we fall back to the demo customer.
+  async function lookupCustomerByPhone(digits) {
+    if (!adminSession) {
+      if (digits === DEMO_CUSTOMER_PHONE) {
+        return [{
+          id: 'demo-customer',
+          first_name_cache: 'David',
+          last_name_cache: 'Hernandez',
+          phone_cache: '(510) 608-5446',
+          total_orders: 24,
+          pricelist: 'Delivery',
+          _demo: true
+        }];
+      }
+      return [];
+    }
+    // Signed in — query Supabase. Use the last 7 digits as a broad
+    // filter (last 4 has too many false positives, last 7 is unique
+    // enough), then verify exact match client-side after normalizing.
+    const last7 = digits.slice(-7);
+    try {
+      const { data, error } = await db
+        .from('customers')
+        .select('id, first_name_cache, last_name_cache, phone_cache, total_orders, pricelist')
+        .ilike('phone_cache', `%${last7}%`)
+        .limit(20);
+      if (error) {
+        console.error('[POS] customer lookup error:', error);
+        return [];
+      }
+      return (data || []).filter(c => normalizePhone(c.phone_cache) === digits);
+    } catch (e) {
+      console.error('[POS] customer lookup fatal:', e);
+      return [];
+    }
+  }
+
+  // Paint the matched customers (or no-match state) into the lookup modal.
+  function renderLookupResults(matches, formatted) {
+    const results = document.getElementById('custResults');
+    if (!matches.length) {
+      results.innerHTML = `
+        <div class="no-match">
+          <div class="no-match-icon">🔍</div>
+          <div class="no-match-title">No customer found</div>
+          <div class="no-match-sub">${formatted} isn't in our system yet</div>
+          <button class="create-customer-btn" onclick="openCreateCustomer()">
+            <span>+</span> Create new customer
+          </button>
+        </div>
+      `;
+      return;
+    }
+    results.innerHTML = matches.map(c => {
+      const first = (c.first_name_cache || '').trim();
+      const last  = (c.last_name_cache || '').trim();
+      const name  = `${first} ${last}`.trim() || 'Unnamed customer';
+      const initials = (first[0] || '?') + (last[0] || '');
+      const orderCount = c.total_orders || 0;
+      const badge = c._demo ? 'Demo' : (orderCount >= 10 ? 'Regular' : (orderCount > 0 ? 'Customer' : 'New'));
+      // Escape single quotes for the inline onclick payload
+      const safeName = name.replace(/'/g, "\\'");
+      const safePhone = (c.phone_cache || formatted).replace(/'/g, "\\'");
+      return `
+        <div class="customer-result" onclick="attachCustomer('${safeName}', '${safePhone}', ${orderCount})">
+          <div class="customer-avatar" style="background:var(--accent);color:white;">${initials.toUpperCase()}</div>
+          <div>
+            <div class="customer-result-name">${name}</div>
+            <div class="customer-result-phone">${c.phone_cache || formatted} · ${orderCount} orders</div>
+          </div>
+          <div class="customer-result-badge">${badge}</div>
+        </div>
+      `;
+    }).join('');
   }
 
   /* ─── Create new customer ──────────────────────────────────── */
@@ -1903,11 +2271,469 @@
     document.getElementById('custSub').textContent = 'Tap to find customer';
   }
 
+  /* ─── Walk-in queue ───────────────────────────────────────────
+     Shows all walk-in orders currently in the processing pipeline
+     (status = 'processing' or 'ready_for_delivery') so the counter
+     staff can advance them: processing → ready_for_delivery (laundry
+     done) → delivered (customer picked up).
+
+     The panel overlays the cart area. The badge in the topbar shows
+     the count of items in the queue.
+     ────────────────────────────────────────────────────────────── */
+  let queueOpen = false;
+  let queueOrders = [];       // cached result from last fetch
+  let _queueTimer = null;     // auto-refresh interval
+  const BIZ_TZ = 'America/Los_Angeles';
+
+  function toggleQueue() {
+    queueOpen = !queueOpen;
+    const panel = document.getElementById('queuePanel');
+    const badge = document.getElementById('queueBadge');
+    if (queueOpen) {
+      panel.classList.add('show');
+      badge.classList.add('active');
+      loadWalkInQueue();  // refresh on open
+    } else {
+      panel.classList.remove('show');
+      badge.classList.remove('active');
+    }
+  }
+
+  // Fetch walk-in orders from Supabase. Only orders with
+  // source = 'walk_in' and a non-terminal status are shown.
+  // Needs admin auth (orders table has admin-only RLS).
+  async function loadWalkInQueue() {
+    if (!adminSession) {
+      renderQueue([]);
+      return;
+    }
+    try {
+      const { data, error } = await db
+        .from('orders')
+        .select('id, order_number, status, customer_id, total_amount, weight_lbs, line_items, created_at, updated_at')
+        .eq('source', 'walk_in')
+        .in('status', ['processing', 'ready_for_delivery'])
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('[POS] loadWalkInQueue error:', error);
+        renderQueue([]);
+        return;
+      }
+
+      // Hydrate customer names where available. Since we already
+      // have admin session, we can query customers.
+      const custIds = [...new Set((data || []).map(o => o.customer_id).filter(Boolean))];
+      let custMap = {};
+      if (custIds.length) {
+        const { data: custs } = await db
+          .from('customers')
+          .select('id, first_name_cache, last_name_cache')
+          .in('id', custIds);
+        for (const c of (custs || [])) {
+          custMap[c.id] = `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || 'Customer';
+        }
+      }
+
+      // Attach name to each order
+      queueOrders = (data || []).map(o => ({
+        ...o,
+        _customerName: o.customer_id ? (custMap[o.customer_id] || 'Customer') : 'Walk-in'
+      }));
+
+      renderQueue(queueOrders);
+    } catch (e) {
+      console.error('[POS] loadWalkInQueue fatal:', e);
+      renderQueue([]);
+    }
+  }
+
+  function renderQueue(orders) {
+    const list = document.getElementById('queueList');
+    const badge = document.getElementById('queueCount');
+
+    // Update badge count (always, even when panel is closed)
+    const total = orders.length;
+    badge.textContent = total;
+    const badgeEl = document.getElementById('queueBadge');
+    if (total > 0 && !queueOpen) {
+      badgeEl.classList.add('has-items');
+    } else {
+      badgeEl.classList.remove('has-items');
+    }
+
+    if (!queueOpen) return; // panel not visible, skip DOM work
+
+    if (!orders.length) {
+      list.innerHTML = `
+        <div class="queue-empty">
+          <div class="queue-empty-icon">✨</div>
+          No orders in the queue${adminSession ? '' : '<br><span style="font-size:11px;margin-top:4px;display:inline-block;">Sign in to view walk-in orders</span>'}
+        </div>
+      `;
+      return;
+    }
+
+    const processing = orders.filter(o => o.status === 'processing');
+    const ready      = orders.filter(o => o.status === 'ready_for_delivery');
+
+    let html = '';
+    if (processing.length) {
+      html += `<div class="queue-section-label">🧼 Washing (${processing.length})</div>`;
+      html += processing.map(o => renderQueueCard(o, 'processing')).join('');
+    }
+    if (ready.length) {
+      html += `<div class="queue-section-label">✅ Ready for Pickup (${ready.length})</div>`;
+      html += ready.map(o => renderQueueCard(o, 'ready_for_delivery')).join('');
+    }
+    list.innerHTML = html;
+  }
+
+  function renderQueueCard(order, status) {
+    const name = order._customerName || 'Walk-in';
+    const initials = name === 'Walk-in' ? 'WI' :
+      name.split(' ').map(n => (n[0] || '')).join('').slice(0, 2).toUpperCase();
+
+    // Build a short service summary from line_items
+    const items = (order.line_items || []).filter(li => li.kind === 'service' || li.kind === 'merchandise');
+    let detail = '';
+    const svcItems = items.filter(li => li.kind === 'service');
+    const merchItems = items.filter(li => li.kind === 'merchandise');
+    if (svcItems.length) {
+      detail = svcItems.map(li => {
+        const w = li.weight_lbs ? `${li.weight_lbs} lb ` : '';
+        const addons = (li.addons || []).map(a => a.name).join(', ');
+        return `${w}${li.name}${addons ? ' + ' + addons : ''}`;
+      }).join(', ');
+    }
+    if (merchItems.length) {
+      const merchStr = merchItems.map(li => `${li.qty}× ${li.name}`).join(', ');
+      detail = detail ? `${detail} · ${merchStr}` : merchStr;
+    }
+
+    // Time ago
+    const created = new Date(order.created_at);
+    const timeAgo = relativeTime(created);
+
+    // Action button
+    let btnHtml = '';
+    if (status === 'processing') {
+      btnHtml = `<button class="queue-card-btn ready" onclick="advanceQueueOrder('${order.id}', 'ready_for_delivery')">✅ Mark Ready</button>`;
+    } else if (status === 'ready_for_delivery') {
+      btnHtml = `<button class="queue-card-btn pickup" onclick="advanceQueueOrder('${order.id}', 'delivered')">📦 Mark Picked Up</button>`;
+    }
+
+    return `
+      <div class="queue-card">
+        <div class="queue-card-top">
+          <div class="queue-card-avatar" style="${name !== 'Walk-in' ? 'background:var(--accent);' : ''}">${initials}</div>
+          <div class="queue-card-name">${name}</div>
+          <div class="queue-card-order">#${order.order_number}</div>
+        </div>
+        <div class="queue-card-detail">${detail || 'No items'}</div>
+        <div class="queue-card-time">${status === 'processing' ? 'Dropped off' : 'Ready'} ${timeAgo}</div>
+        ${btnHtml}
+      </div>
+    `;
+  }
+
+  // Simple relative-time helper: "3m ago", "1h ago", "2d ago"
+  function relativeTime(date) {
+    const diff = Date.now() - date.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  }
+
+  // Advance a walk-in order's status (processing → ready, ready → delivered).
+  async function advanceQueueOrder(orderId, newStatus) {
+    if (!adminSession) return;
+    // Optimistic: disable the button
+    const btn = event?.target;
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    const updates = { status: newStatus };
+    // When marking delivered, stamp actual_delivery_at.
+    if (newStatus === 'delivered') {
+      updates.actual_delivery_at = new Date().toISOString();
+    }
+
+    const { error } = await db.from('orders').update(updates).eq('id', orderId);
+    if (error) {
+      console.error('[POS] advanceQueueOrder error:', error);
+      if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
+      return;
+    }
+
+    // Refresh the queue
+    await loadWalkInQueue();
+  }
+
+  // Start auto-refreshing the queue badge count every 30s.
+  // The full list only refreshes when the panel is open.
+  function startQueueRefresh() {
+    if (_queueTimer) clearInterval(_queueTimer);
+    _queueTimer = setInterval(async () => {
+      if (!adminSession) return;
+      // Quick count query — lightweight
+      const { count, error } = await db
+        .from('orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('source', 'walk_in')
+        .in('status', ['processing', 'ready_for_delivery']);
+      if (!error) {
+        const badge = document.getElementById('queueCount');
+        const badgeEl = document.getElementById('queueBadge');
+        badge.textContent = count || 0;
+        if (count > 0 && !queueOpen) {
+          badgeEl.classList.add('has-items');
+        } else if (!queueOpen) {
+          badgeEl.classList.remove('has-items');
+        }
+      }
+      // If panel is open, do a full refresh
+      if (queueOpen) loadWalkInQueue();
+    }, 30000);
+  }
+
   /* ─── Payment ──────────────────────────────────────────────── */
-  function openPay()      { showModal('payModal'); }
-  function startTerminal(){ closeAll(); setTimeout(() => showModal('terminalModal'), 200); }
-  function showSuccess()  { closeAll(); setTimeout(() => showModal('successModal'), 200); }
-  function newSale()      { closeAll(); cart = []; setWalkIn(); renderCart(); }
+  // The last-created POS order — powers the success screen's order #
+  // display and will later drive the Print/Email/Text receipt buttons.
+  let lastPosOrder = null;
+
+  function openPay() {
+    document.getElementById('payError').style.display = 'none';
+    showModal('payModal');
+  }
+
+  // Cash flow: post the order to Supabase as a walk-in, paid in cash,
+  // then flash the success screen. TODO(future session): replace this
+  // with an amount-tendered numpad + change calculation.
+  async function payWithCash() {
+    await chargeAndFinish('cash');
+  }
+
+  // Card flow: jump to the (stubbed) terminal screen. When "Simulate
+  // success" is clicked, the order actually gets posted. Real Stripe
+  // Terminal integration is a future session.
+  function payWithCard() {
+    closeAll();
+    setTimeout(() => showModal('terminalModal'), 200);
+  }
+
+  // Called from the terminal screen's "Simulate success" button —
+  // acts as if the card read succeeded.
+  async function startTerminal() {
+    // Back-compat shim in case anything still references this name.
+    payWithCard();
+  }
+
+  async function simulateCardSuccess() {
+    await chargeAndFinish('card');
+  }
+
+  // Shared finish: guard, create the order in Supabase, show success.
+  async function chargeAndFinish(method) {
+    if (cart.length === 0) return;
+
+    // Admin sign-in is required to write to `orders` (RLS).
+    if (!adminSession) {
+      // If user hit Cash/Card from the pay modal, surface the error
+      // inline there; if we're mid-terminal flow, show an alert.
+      const errEl = document.getElementById('payError');
+      const msg = 'Sign in as admin before charging a sale.';
+      if (document.getElementById('payModal').classList.contains('show')) {
+        errEl.textContent = msg;
+        errEl.style.display = 'block';
+      } else {
+        closeAll();
+        setTimeout(() => {
+          showModal('payModal');
+          errEl.textContent = msg;
+          errEl.style.display = 'block';
+        }, 200);
+      }
+      return;
+    }
+
+    // Lock the buttons so double-tap can't create two orders.
+    const methodButtons = document.querySelectorAll('#payModal .pay-method, #terminalModal .btn');
+    methodButtons.forEach(b => b.disabled = true);
+
+    try {
+      const order = await createPosOrder({ paymentMethod: method });
+      lastPosOrder = order;
+      // Refresh queue badge immediately so the new order appears
+      loadWalkInQueue();
+      closeAll();
+      setTimeout(() => {
+        // Update success screen copy with real order number
+        const sub = document.getElementById('successSub');
+        const num = document.getElementById('successOrderNum');
+        sub.textContent = method === 'cash' ? 'Paid in cash · Thank you!' : 'Paid by card · Thank you!';
+        if (order?.order_number) {
+          num.textContent = `Order #${order.order_number}`;
+          num.style.display = 'block';
+        } else {
+          num.style.display = 'none';
+        }
+        showModal('successModal');
+      }, 150);
+    } catch (e) {
+      console.error('[POS] chargeAndFinish error:', e);
+      const errEl = document.getElementById('payError');
+      errEl.textContent = e.message || 'Could not save the order. Please try again.';
+      errEl.style.display = 'block';
+      // Make sure the pay modal is visible
+      if (!document.getElementById('payModal').classList.contains('show')) {
+        closeAll();
+        setTimeout(() => showModal('payModal'), 150);
+      }
+    } finally {
+      methodButtons.forEach(b => b.disabled = false);
+    }
+  }
+
+  function showSuccess() {
+    // Preserved for the flow picker demo — just opens the success
+    // screen with whatever mock totals are in the cart, no DB write.
+    closeAll();
+    setTimeout(() => showModal('successModal'), 200);
+  }
+
+  function newSale() {
+    closeAll();
+    cart = [];
+    lastPosOrder = null;
+    setWalkIn();
+    renderCart();
+    // Reset success screen to default state for next time
+    const sub = document.getElementById('successSub');
+    const num = document.getElementById('successOrderNum');
+    if (sub) sub.textContent = 'Paid in full · Thank you!';
+    if (num) { num.style.display = 'none'; num.textContent = ''; }
+  }
+
+  /* ─── createPosOrder: insert a POS walk-in order into Supabase ─
+     Walk-in semantics are different from delivery orders:
+       - source = 'walk_in'
+       - no pickup/delivery windows, no route stops
+       - status = 'processing' (laundry was just handed over the
+         counter — there's no pickup to schedule) OR 'delivered'
+         when the cart is merchandise-only
+       - paid at time of sale (cash / card)
+     ───────────────────────────────────────────────────────────── */
+  async function createPosOrder({ paymentMethod }) {
+    // --- Build totals from the current cart ---
+    const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const tax      = subtotal * TAX_RATE;
+    const total    = subtotal + tax;
+
+    // --- Shape line_items for storage ---
+    // Each cart line becomes one entry; weight-based services carry
+    // their weight and any attached add-ons. Merchandise items carry
+    // qty. A final 'tax' row makes receipts reproducible without
+    // needing to re-derive TAX_RATE.
+    const lineItems = cart.map(line => {
+      const isService = line.type === 'per_lb' || (line.service === true);
+      if (line.type === 'per_lb') {
+        return {
+          kind:          'service',
+          service_id:    line.id,         // real UUID from `services` table
+          name:          line.name,
+          emoji:         line.emoji,
+          pricing_type:  'per_lb',
+          unit_price:    line.price,
+          weight_lbs:    line.weight,
+          qty:           1,
+          addons: (line.addons || []).map(a => ({
+            service_id: a.id,
+            name:       a.name,
+            emoji:      a.emoji,
+            price:      a.price
+          })),
+          subtotal:      lineTotal(line)
+        };
+      }
+      // per_item — either a retail service (Comforter, Rush) or
+      // merchandise (drinks/snacks/supplies). Services have real
+      // UUIDs; merchandise has the hardcoded short-id until we build
+      // a merchandise table.
+      const isRealService = typeof line.id === 'string' && line.id.length === 36 && line.id.includes('-');
+      return {
+        kind:         isRealService && isService ? 'service' : 'merchandise',
+        service_id:   isRealService ? line.id : null,
+        merch_id:     isRealService ? null : line.id,
+        name:         line.name,
+        emoji:        line.emoji,
+        pricing_type: 'per_item',
+        unit_price:   line.price,
+        qty:          line.qty,
+        subtotal:     lineTotal(line)
+      };
+    });
+    lineItems.push({ kind: 'tax', rate: TAX_RATE, amount: Number(tax.toFixed(2)) });
+
+    // --- Derive order-level aggregates ---
+    // total_bags = count of distinct per-lb service lines (rough "bag count" proxy)
+    const totalBags = cart.filter(l => l.type === 'per_lb').length || 1;
+    // weight_lbs = sum of all weighed drop-offs (or null if no per-lb lines)
+    const weightSum = cart
+      .filter(l => l.type === 'per_lb')
+      .reduce((s, l) => s + (Number(l.weight) || 0), 0);
+    const weightLbs = weightSum > 0 ? Number(weightSum.toFixed(2)) : null;
+
+    // Has any laundry work? (either per_lb service OR a real retail service like Comforter)
+    const hasLaundry = cart.some(l =>
+      l.type === 'per_lb' ||
+      (l.service === true && typeof l.id === 'string' && l.id.includes('-'))
+    );
+
+    // Merchandise-only sales are complete at the moment of payment.
+    // Laundry drop-offs enter the processing queue.
+    const status = hasLaundry ? 'processing' : 'delivered';
+    const nowIso = new Date().toISOString();
+
+    // --- Assemble the insert payload ---
+    const payload = {
+      customer_id:           currentCustomer?.id || null,
+      source:                'walk_in',
+      status:                status,
+      total_bags:            totalBags,
+      weight_lbs:            weightLbs,
+      total_amount:          Number(total.toFixed(2)),
+      tip_amount:            0,
+      line_items:            lineItems,
+      special_instructions:  null,
+      // Payment bookkeeping — POS transactions are paid at time of sale.
+      paid_at:               nowIso,
+      billed_at:             nowIso,
+      billing_status:        'paid',
+      billing_payment_method: paymentMethod, // 'cash' or 'card'
+      // Merchandise-only sales are immediately "delivered" at the counter.
+      actual_delivery_at:    status === 'delivered' ? nowIso : null,
+    };
+
+    // A real customer that's on the walk-in/retail plan doesn't need
+    // an address, but if we ever attach a retail customer who has one,
+    // we'll include their default address later. For now, no address.
+
+    const { data, error } = await db
+      .from('orders')
+      .insert(payload)
+      .select('id, order_number, status, total_amount')
+      .single();
+
+    if (error) {
+      // Surface the Postgres error message to the caller.
+      throw new Error(error.message || 'Order insert failed');
+    }
+    console.log('[POS] Created order', data);
+    return data;
+  }
 
   /* ─── Modal helpers ────────────────────────────────────────── */
   function showModal(id) {
@@ -1932,31 +2758,36 @@
       case 'register':
         // empty register
         break;
-      case 'with-cart':
+      case 'with-cart': {
         // preload a representative cart (first W&F line shows add-ons)
+        const vinegar = WEIGHT_ADDONS.find(a => /vinegar/i.test(a.name)) || WEIGHT_ADDONS[1];
         addToCart(
           SERVICES.services[0], 1, 14.5,
-          [WEIGHT_ADDONS[1]] // Vinegar on the W&F drop-off
+          vinegar ? [vinegar] : []
         );
         addToCart(SERVICES.drinks[0], 2);         // Coke x2
         addToCart(SERVICES.snacks[2], 1);         // Snickers
         addToCart(SERVICES.supplies[0], 3);       // Tide Pod x3
         break;
+      }
       case 'weight':
         addToCart(SERVICES.drinks[0], 1);
         openWeightModal(SERVICES.services[0]);
         weightStr = '14.5';
         renderWeightDisplay();
         break;
-      case 'weight-addons':
+      case 'weight-addons': {
         // Show the weight modal mid-entry with two add-ons already tapped
         addToCart(SERVICES.drinks[0], 1);
         openWeightModal(SERVICES.services[0]);
         weightStr = '14.5';
-        activeAddonIds = new Set(['oxi','vinegar']);
+        const oxi = WEIGHT_ADDONS.find(a => /oxi/i.test(a.name));
+        const vin = WEIGHT_ADDONS.find(a => /vinegar/i.test(a.name));
+        activeAddonIds = new Set([oxi?.id, vin?.id].filter(Boolean));
         renderWeightAddons();
         renderWeightDisplay();
         break;
+      }
       case 'lookup':
         openLookup();
         phoneDigits = '5106085446';
@@ -2007,9 +2838,65 @@
     renderCart();
   }
 
+  /* ─── Supabase loaders ─────────────────────────────────────── */
+
+  // Map a DB row from `services` to the shape the POS UI expects.
+  function dbRowToTile(row) {
+    return {
+      id:      row.id,                      // real UUID — used later when creating order line items
+      emoji:   row.emoji || '🧺',
+      name:    row.name,
+      price:   Number(row.base_price),
+      unit:    row.pricing_type === 'per_lb' ? 'lb' : 'ea',
+      type:    row.pricing_type,            // 'per_lb' or 'per_item'
+      service: !row.is_addon                // services tab tiles get the gradient style
+    };
+  }
+
+  // Load Retail services + add-ons from Supabase. The `services` table
+  // has anon read access (RLS policy `anon_read_services`), so this
+  // works without admin sign-in.
+  async function loadRetailServices() {
+    try {
+      const { data, error } = await db
+        .from('services')
+        .select('id, name, emoji, base_price, pricing_type, is_addon, is_active, sort_order')
+        .eq('pricelist', 'Retail')
+        .eq('is_active', true)
+        .order('is_addon', { ascending: true })
+        .order('sort_order', { ascending: true });
+
+      if (error) {
+        console.error('[POS] loadRetailServices error:', error);
+        return;
+      }
+
+      const services = [];
+      const addons = [];
+      for (const row of (data || [])) {
+        const tile = dbRowToTile(row);
+        if (row.is_addon) addons.push(tile);
+        else services.push(tile);
+      }
+      SERVICES.services = services;
+      WEIGHT_ADDONS = addons;
+      console.log(`[POS] Loaded ${services.length} services + ${addons.length} add-ons from Supabase`);
+    } catch (e) {
+      console.error('[POS] loadRetailServices fatal:', e);
+    }
+  }
+
   /* ─── Init ─────────────────────────────────────────────────── */
-  renderTiles();
-  renderCart();
+  (async () => {
+    await loadRetailServices();
+    renderTiles();
+    renderCart();
+    // Reflect any persisted admin session in the topbar
+    await refreshAdminUi();
+    // Load queue badge count + start auto-refresh
+    await loadWalkInQueue();
+    startQueueRefresh();
+  })();
 
   // Live clock
   function updateClock() {

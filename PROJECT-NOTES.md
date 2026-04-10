@@ -512,6 +512,7 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
+<<<<<<< HEAD
 ### Apr 9, 2026 (session 102) — Per-lb pricing root cause fix + order #1407 data correction
 
 **Context:** Continued from session 101. David flagged "weird display issues for some Commercial price list customers — Level Up being charged $1.75 per bag + overage." Investigation found the display rendering code was actually correct. The root cause was upstream in `saveOrder()`.
@@ -585,6 +586,77 @@ Session 97's migration `20260408224501` backfilled the new `pricelist` column fr
 **All other Commercial accounts reviewed and confirmed correct:** Anita Hodzic (BA House Cleaning), Suz Burroughs, Level Up Wellness & PT, Meg Lamberton, Brooke Rosenberg (Title Nine), Ruth Pardue (CrossFit SL), Kasa Hotel Addison, Kasa Hotels La Monarca, Homebase Shelter Program, Extended Stay America Emeryville/Oakland, Soul Sanctuary 1888 MLK (the three HCEB accounts are correctly on Commercial per David), David Macquart-Moulin (test account).
 
 **⚠️ For future sessions:** The `pricelist` backfill in migration `20260408224501` assumed `customer_type = 'commercial'` always means Commercial pricelist. That's not universally true — some commercial clients (nonprofits, museums) are billed at Delivery rates. Any new account tagged `commercial` should have its pricelist confirmed explicitly at setup time.
+=======
+### Apr 10, 2026 (session 101) — POS wired to Supabase: live services, order creation, walk-in queue
+
+**Context:** Session 100 left the POS mockup as a design-only prototype with hardcoded data. This session wired it to the real Supabase database — the POS now creates actual orders, loads real service prices, and has a queue for managing walk-in laundry through the processing pipeline.
+
+**1. Supabase client + Retail pricelist (migration: `add_retail_pricelist_and_emoji_to_services`).**
+- Added `emoji TEXT` column to the `services` table.
+- Added CHECK constraint on `pricelist` allowing 'Delivery', 'Commercial', 'Retail'.
+- Seeded 9 Retail service rows: Wash & Fold ($2.50/lb), Wash & Dry ($1.75/lb), Dry Only ($1.00/lb), Comforter ($18/ea), Hang Dry ($4.00/lb), Rush ($10/ea), Oxi ($3 flat addon), Vinegar ($3 flat addon), Double Wash ($5 flat addon).
+- Data fix: 3 addon rows had `pricing_type='per_lb'` but are flat per-drop-off charges — corrected to `per_item`.
+- POS loads `<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">` + initializes `db` client with anon key. Services tab and weight-modal add-ons now fetch from `services WHERE pricelist='Retail' AND is_active=true` on page load. Drinks/snacks/supplies remain hardcoded (merchandise table TBD).
+
+**2. Admin sign-in for customer lookup.**
+- Added a 🔒 **Sign in** pill in the topbar. Opens a login modal using `db.auth.signInWithPassword()`. Session persists via `storageKey: 'washroute-pos-auth'`.
+- When signed in: customer phone lookup queries `customers` table (admin RLS via `is_admin()`). Phone normalization strips all non-digits and compares last 10 digits (handles E.164, formatted, bare).
+- When not signed in: falls back to a single hardcoded demo customer (510-608-5446 → David Hernandez) so the mockup is still demoable.
+- Pill turns green when signed in, shows email prefix. Click to sign out.
+
+**3. Order creation (Charge → real `orders` row).**
+- `createPosOrder({ paymentMethod })` builds a full order payload:
+  - `source = 'walk_in'`, no pickup/delivery windows, no route stops.
+  - `status = 'processing'` if cart has any laundry service; `'delivered'` if merchandise-only.
+  - `line_items` JSONB carries each service line with real UUID `service_id`, weight, qty, addons, and a final tax row.
+  - `paid_at`, `billed_at`, `billing_status='paid'`, `billing_payment_method='cash'|'card'` — POS transactions are paid at time of sale.
+- Cash button calls `chargeAndFinish('cash')` → creates order → shows success screen with real order number (e.g. `Order #2131`).
+- Card button opens the existing terminal animation; "Simulate success" creates the order as card payment. Real Stripe Terminal integration is a future session.
+- Guard: refuses to charge unless admin is signed in (RLS would reject anyway, but the error is shown inline instead of a cryptic Postgres message).
+- Double-tap protection: buttons disable while insert is in-flight.
+
+**4. Walk-in queue panel.**
+- **📦 badge** in the topbar shows count of walk-in orders in `processing` or `ready_for_delivery` status. Amber highlight when items are in the queue.
+- Tapping the badge slides a queue panel over the cart area. Two sections:
+  - 🧼 **Washing** — orders in `processing`. Each card shows customer name (or "Walk-in"), order number, service summary from `line_items`, time-ago. Green "Mark Ready" button → advances to `ready_for_delivery`.
+  - ✅ **Ready for Pickup** — orders awaiting customer return. Purple "Mark Picked Up" button → stamps `actual_delivery_at` and moves to `delivered`.
+- Auto-refreshes every 30s (count-only when panel closed, full refresh when open). Also refreshes immediately after every POS sale.
+- "← Back to cart" returns to normal register view.
+
+**5. Weight modal compact layout.**
+- The "Cancel" / "Add to cart" buttons were off-screen (scrolled below the fold). Moved them to a pinned `.modal-footer` outside the scrollable `.modal-body`.
+- Compressed numpad display (48→34px weight font), key sizes (18→12px padding), add-on chips (smaller padding/fonts), and modal header/footer padding so the entire modal — numpad, add-ons, and action buttons — fits without scrolling.
+
+**6. Profile fix: `david@familylaundry.com` role changed from `driver` → `admin`.** This account had `role='driver'` (probably from testing the driver app). `is_admin()` only allows `admin`/`manager`/`laundry_tech`, so POS order creation was failing with "new row violates row-level security policy for table orders". Fixed via `UPDATE profiles SET role = 'admin'`.
+
+**7. Flow picker hardened for DB-sourced IDs.** The demo flow picker (showFlow) previously referenced hardcoded short IDs like `'oxi'` and `'vinegar'`. Now uses `WEIGHT_ADDONS.find(a => /oxi/i.test(a.name))` to look up by name, which works with both the old short IDs and the new UUIDs from the database.
+
+**Trigger safety audit for walk-in orders:**
+- `auto_route_on_insert` — only fires when `status='scheduled' AND pickup_run_id IS NULL`. POS inserts with `status='processing'` → trigger is a no-op. ✅
+- `log_order_created` — writes an `order_events` entry. Actor resolves to 'Customer' for `source='walk_in'` (minor — not blocking). ✅
+- `trg_create_recurring_order_fn` — only fires on delivered/skipped/pickup_failed UPDATE. No-op on INSERT. ✅
+- All UPDATE triggers (stop sync, reschedule, etc.) — irrelevant on INSERT. ✅
+
+**End-to-end test (then deleted):** Inserted a test order (#2130) directly via SQL with the exact POS payload shape. Verified: 0 route_stops, 1 order_event ('created'), no routing_error, 3 line_items. Deleted after verification.
+
+**Files touched:**
+- `pos-mockup.html` — 983 insertions, 96 deletions (Supabase wiring, admin auth, order creation, queue panel, layout fixes).
+- `PROJECT-NOTES.md` — this entry.
+
+**DB changes:**
+- Migration: `add_retail_pricelist_and_emoji_to_services` (emoji column, pricelist CHECK, 9 Retail rows).
+- Data fix: 3 addon rows `pricing_type` corrected from `per_lb` to `per_item`.
+- Profile fix: `david@familylaundry.com` role `driver` → `admin`.
+
+**⚠️ For future sessions:**
+1. **POS is now live-data but not production-deployed.** `pos-mockup.html` creates real orders in the production Supabase database. It's still a standalone file opened locally — not deployed to Vercel. Treat orders from it as real.
+2. **Merchandise (drinks/snacks/supplies) is still hardcoded.** These items use short string IDs like `'coke'` and `'chips'` stored in `line_items` as `merch_id`. When a merchandise table is built, these should become real UUIDs. The `kind` field in line_items distinguishes `'service'` (real UUID) from `'merchandise'` (short ID).
+3. **Card payment is stubbed.** The terminal modal's "Simulate success" creates a real order with `billing_payment_method='card'` but no actual Stripe charge. Wiring Stripe Terminal is its own session.
+4. **Cash payment has no change calculator.** Tapping Cash immediately charges the full amount. The amount-tendered numpad with change calculation is a future feature.
+5. **log_order_created actor for walk-in orders.** The trigger sets `actor_name='Customer'` for `source='walk_in'`. Would be more accurate as `'POS'` or the signed-in admin's name. Minor — not blocking.
+6. **Queue shows all walk-in orders, not just today's.** If old walk-in orders are left in `processing` or `ready_for_delivery` status, they'll appear in the queue. The daily audit should catch these as stale.
+7. **Session 100's "future sessions" note #1 is now resolved.** The POS is no longer design-only. Note #2 (add-on catalog from DB) is resolved. Note #4 (Retail pricelist) is resolved. Notes #3 (flat pricing assumption) and #5 (sober aesthetic baseline) still apply.
+>>>>>>> 0de950a (feat: POS wired to Supabase — live services, order creation, walk-in queue (session 101))
 
 ---
 
