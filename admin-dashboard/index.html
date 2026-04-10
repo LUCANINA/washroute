@@ -11383,34 +11383,21 @@ ${oneCopy}
       el.innerHTML = `<div style="padding:40px;text-align:center;color:var(--gray-400);font-size:13.5px">No services found. Add one below.</div>`;
       return;
     }
-    function renderCategoryGroups(items) {
-      const cats = [...new Set(items.map(s => s.category || 'Uncategorized'))].sort();
-      return cats.map(cat => {
-        const rows = items
-          .filter(s => (s.category||'Uncategorized') === cat)
-          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-        return `<div class="svc-category-group">
-          <div class="svc-cat-header">
-            ${cat}
-          </div>
-          ${rows.map((s, i) => svcRow(s, i, rows.length)).join('')}
-        </div>`;
-      }).join('');
+    function renderSortedRows(items) {
+      return items
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+        .map((s, i) => svcRow(s, i, items.length)).join('');
     }
     const main   = data.filter(s => !s.is_addon);
     const addons = data.filter(s =>  s.is_addon);
     el.innerHTML =
       `<div class="svc-drop-zone" id="drop-main">
-        <div class="svc-section-divider">
-          <span class="svc-section-title">Main Services</span>
-        </div>
-        ${main.length ? renderCategoryGroups(main) : `<div style="padding:12px 20px 28px;font-size:13px;color:var(--gray-400)">No main services yet. Use the Add-on button on a service to promote it.</div>`}
+        <div class="svc-cat-header">Main Services</div>
+        ${main.length ? renderSortedRows(main) : `<div style="padding:12px 20px 28px;font-size:13px;color:var(--gray-400)">No main services yet. Use the Add-on button on a service to promote it.</div>`}
       </div>` +
       `<div class="svc-drop-zone" id="drop-addon">
-        <div class="svc-section-divider">
-          <span class="svc-section-title">Add-ons</span>
-        </div>
-        ${addons.length ? renderCategoryGroups(addons) : `<div style="padding:12px 20px 28px;font-size:13px;color:var(--gray-400)">No add-ons yet. Use the Main button on a service to make it an add-on.</div>`}
+        <div class="svc-cat-header">Add-ons</div>
+        ${addons.length ? renderSortedRows(addons) : `<div style="padding:12px 20px 28px;font-size:13px;color:var(--gray-400)">No add-ons yet. Use the Main button on a service to make it an add-on.</div>`}
       </div>`;
   }
 
