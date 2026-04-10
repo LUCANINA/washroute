@@ -2114,6 +2114,16 @@ async function _handleCustomerSession(event, session) {
       currentCustomer = cached.customer;
       currentCards    = cached.cards || [];
       showLoading(false);
+      // Verify cached session is actually alive — if the refresh token expired
+      // while the tab was in the background, the cache will show the user as
+      // logged in but API calls will fail with RLS errors.
+      db.auth.getSession().then(({ data: { session: s } }) => {
+        if (!s && appReady) {
+          console.warn('Cached session expired — forcing re-auth');
+          clearUserCache(currentUser.id);
+          db.auth.signOut();
+        }
+      });
     } else {
       showLoading(true);
       try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }
@@ -4160,6 +4170,18 @@ async function placeOrder() {
     } catch (_) { /* non-blocking — if check fails, allow booking to proceed */ }
   }
 
+  // ── Session validation: ensure JWT is still alive before INSERT ──
+  // If the user's session expired (e.g. tab left open too long), the server-side
+  // auth.uid() returns null and RLS blocks the insert. Catch this early with a
+  // clear message instead of a cryptic "row-level security policy" error.
+  const { data: { session: _sess } } = await db.auth.getSession();
+  if (!_sess) {
+    btn.disabled = false; btn.textContent = 'Place Order';
+    toast('Your session has expired — please sign in again.');
+    setTimeout(() => db.auth.signOut(), 1500);
+    return;
+  }
+
   const pad2 = n => String(n).padStart(2,'0');
   const { data: order, error } = await db.from('orders').insert({
     customer_id:          currentCustomer.id,
@@ -4198,7 +4220,15 @@ async function placeOrder() {
   }).select().single();
 
   btn.disabled = false; btn.textContent = currentCustomer ? 'Place Order' : 'Create Account & Place Order';
-  if (error) { toast('Error: ' + error.message); return; }
+  if (error) {
+    if (error.message?.includes('row-level security')) {
+      toast('Your session has expired — please sign in again.');
+      setTimeout(() => db.auth.signOut(), 1500);
+    } else {
+      toast('Error: ' + error.message);
+    }
+    return;
+  }
 
   // ── Route assignment handled by DB trigger (auto_route_order) ──
   // No client-side route assignment needed — the AFTER INSERT trigger
