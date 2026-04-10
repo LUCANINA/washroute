@@ -348,6 +348,19 @@
     .svc-section-divider:first-child { border-top:none; margin-top:0; }
     .svc-section-title { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.07em; color:var(--gray-500); }
     .svc-addon-toggle { font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; border:none; cursor:pointer; transition:all .15s; margin-left:auto; }
+    /* POS / Merchandise tab */
+    .pos-merch-filter.active { background:var(--accent-light);color:var(--accent);font-weight:600; }
+    .merch-row { display:grid; grid-template-columns:36px 1fr 90px 90px 52px 36px; align-items:center; gap:10px; padding:10px 20px; border-bottom:1px solid var(--gray-100); transition:background .1s; }
+    .merch-row:hover { background:var(--gray-50); }
+    .merch-emoji { font-size:20px; text-align:center; }
+    .merch-name { font-size:14px; font-weight:500; color:var(--gray-800); }
+    .merch-name input { font-size:14px; font-weight:500; color:var(--gray-800); border:none; background:transparent; width:100%; padding:0; font-family:inherit; }
+    .merch-name input:focus { outline:none; background:var(--gray-50); border-radius:4px; padding:2px 4px; }
+    .merch-cat { font-size:12px; color:var(--gray-400); font-weight:500; }
+    .merch-price input { font-size:13px; font-weight:600; color:var(--gray-600); border:1px solid var(--gray-200); border-radius:6px; padding:4px 8px; width:72px; text-align:right; font-family:inherit; }
+    .merch-price input:focus { outline:none; border-color:var(--accent); }
+    .pos-retail-row { display:grid; grid-template-columns:36px 1fr 90px 90px; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--gray-100); }
+    .pos-retail-row:last-child { border-bottom:none; }
     /* Prices tab */
     .prices-section { border-bottom:1px solid var(--gray-100); padding-bottom:4px; margin-bottom:4px; }
     .prices-section-header { display:flex; align-items:center; gap:8px; padding:14px 20px 8px; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.07em; color:var(--gray-500); }
@@ -1769,6 +1782,7 @@
               <button class="svc-page-tab"        id="svctab-btn-fees"         onclick="svcPageTab('fees',this)">Fees</button>
               <button class="svc-page-tab"        id="svctab-btn-preferences"  onclick="svcPageTab('preferences',this)">Preferences</button>
               <button class="svc-page-tab"        id="svctab-btn-categories"   onclick="svcPageTab('categories',this)">Categories</button>
+              <button class="svc-page-tab"        id="svctab-btn-pos"          onclick="svcPageTab('pos',this)">Point of Sale</button>
             </div>
             <!-- Services tab -->
             <div id="svctab-services">
@@ -1834,6 +1848,41 @@
               <div class="svc-add-row" style="grid-template-columns:1fr auto;gap:10px">
                 <input class="svc-add-input" id="nc-name" placeholder="New category name…  (e.g. Hotel Pricing)" onkeydown="if(event.key==='Enter')addCategory()" />
                 <button class="btn btn-primary" onclick="addCategory()" style="font-size:12.5px;padding:6px 14px">+ Add Category</button>
+              </div>
+            </div>
+            <!-- Point of Sale tab -->
+            <div id="svctab-pos" style="display:none">
+              <div style="padding:16px 20px 8px;">
+                <div class="svc-section-title" style="margin-bottom:4px;">RETAIL LAUNDRY SERVICES</div>
+                <div style="font-size:12px;color:var(--gray-400);margin-bottom:10px;">Managed under the Retail pricelist in the Services tab</div>
+              </div>
+              <div id="pos-retail-services-body" style="padding:0 20px 12px;"></div>
+              <div style="padding:4px 20px 8px;border-top:1px solid var(--gray-100);">
+                <div class="svc-section-title" style="margin-bottom:4px;">MERCHANDISE</div>
+                <div style="font-size:12px;color:var(--gray-400);margin-bottom:10px;">Drinks, snacks &amp; supplies sold at the counter</div>
+              </div>
+              <!-- Merchandise category filter -->
+              <div style="padding:0 20px 10px;display:flex;gap:6px;">
+                <button class="btn btn-ghost pos-merch-filter active" onclick="filterMerch('all',this)" style="font-size:12px;padding:4px 12px;">All</button>
+                <button class="btn btn-ghost pos-merch-filter" onclick="filterMerch('Drinks',this)" style="font-size:12px;padding:4px 12px;">🥤 Drinks</button>
+                <button class="btn btn-ghost pos-merch-filter" onclick="filterMerch('Snacks',this)" style="font-size:12px;padding:4px 12px;">🍫 Snacks</button>
+                <button class="btn btn-ghost pos-merch-filter" onclick="filterMerch('Supplies',this)" style="font-size:12px;padding:4px 12px;">🧴 Supplies</button>
+              </div>
+              <div id="pos-merch-body" style="padding:0 20px;"></div>
+              <!-- Add new merchandise row -->
+              <div class="svc-add-row" style="gap:8px;">
+                <input class="svc-add-input" id="nm-name" placeholder="New product name…" onkeydown="if(event.key==='Enter')saveNewMerch()" style="flex:1" />
+                <input class="svc-add-input" id="nm-emoji" placeholder="📦" style="width:42px;text-align:center" />
+                <div class="svc-price-wrap">
+                  <span class="svc-price-prefix">$</span>
+                  <input class="svc-add-input" id="nm-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
+                </div>
+                <select class="svc-add-select" id="nm-category">
+                  <option value="Drinks">Drinks</option>
+                  <option value="Snacks">Snacks</option>
+                  <option value="Supplies">Supplies</option>
+                </select>
+                <button class="btn btn-primary" onclick="saveNewMerch()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
               </div>
             </div>
           </div>
@@ -11300,7 +11349,7 @@ ${oneCopy}
   }
 
   function svcPageTab(name, btn) {
-    ['services','display','fees','preferences','categories'].forEach(n => {
+    ['services','display','fees','preferences','categories','pos'].forEach(n => {
       const el = document.getElementById('svctab-'+n);
       if (el) el.style.display = n===name ? '' : 'none';
       const b = document.getElementById('svctab-btn-'+n);
@@ -11312,6 +11361,7 @@ ${oneCopy}
     if (name==='categories')  renderCategoryManager();
     if (name==='fees')        renderFees();
     if (name==='display')     renderPrices();
+    if (name==='pos')         loadPosTab();
   }
 
   function filterServices() {
@@ -11897,6 +11947,148 @@ ${oneCopy}
   // ── GLOBAL PREFERENCES BUILDER ──
   const svcEsc = v => (v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const rndId  = () => Math.random().toString(36).slice(2,9);
+
+  // ── POS TAB — Retail services + Merchandise management ──
+
+  let allMerchandise = [];
+  let merchFilter = 'all';
+
+  async function loadPosTab() {
+    // Load retail services (read-only view) + merchandise in parallel
+    const [svcRes, merchRes] = await Promise.all([
+      db.from('services').select('id,name,emoji,base_price,pricing_type,is_addon,is_active').eq('pricelist','Retail').eq('is_active',true).order('is_addon').order('sort_order'),
+      db.from('merchandise').select('*').order('category').order('sort_order').order('name')
+    ]);
+    // Render retail services (read-only summary)
+    const retailSvcs = svcRes.data || [];
+    const retailBody = document.getElementById('pos-retail-services-body');
+    if (retailBody) {
+      if (retailSvcs.length === 0) {
+        retailBody.innerHTML = '<div style="padding:12px 0;color:var(--gray-400);font-size:13px;">No Retail services found. Add them in the Services tab with pricelist = Retail.</div>';
+      } else {
+        const mainSvcs = retailSvcs.filter(s => !s.is_addon);
+        const addons = retailSvcs.filter(s => s.is_addon);
+        let html = mainSvcs.map(s => `
+          <div class="pos-retail-row">
+            <div style="font-size:20px;text-align:center;">${svcEsc(s.emoji||'🧺')}</div>
+            <div style="font-size:14px;font-weight:500;color:var(--gray-800);">${svcEsc(s.name)}</div>
+            <div style="font-size:13px;font-weight:600;color:var(--gray-600);text-align:right;">$${Number(s.base_price).toFixed(2)}</div>
+            <div style="font-size:12px;color:var(--gray-400);">${s.pricing_type === 'per_lb' ? 'Per lb' : s.pricing_type === 'per_item' ? 'Per item' : s.pricing_type}</div>
+          </div>
+        `).join('');
+        if (addons.length) {
+          html += '<div style="padding:8px 0 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);border-top:1px solid var(--gray-100);margin-top:4px;">Add-ons</div>';
+          html += addons.map(s => `
+            <div class="pos-retail-row">
+              <div style="font-size:20px;text-align:center;">${svcEsc(s.emoji||'✨')}</div>
+              <div style="font-size:14px;font-weight:500;color:var(--gray-800);">${svcEsc(s.name)}</div>
+              <div style="font-size:13px;font-weight:600;color:var(--gray-600);text-align:right;">$${Number(s.base_price).toFixed(2)}</div>
+              <div style="font-size:12px;color:var(--gray-400);">Per drop-off</div>
+            </div>
+          `).join('');
+        }
+        retailBody.innerHTML = html;
+      }
+    }
+    // Store and render merchandise
+    allMerchandise = merchRes.data || [];
+    renderMerchandise();
+  }
+
+  function filterMerch(cat, btn) {
+    merchFilter = cat;
+    document.querySelectorAll('.pos-merch-filter').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderMerchandise();
+  }
+
+  function renderMerchandise() {
+    const body = document.getElementById('pos-merch-body');
+    if (!body) return;
+    const items = merchFilter === 'all' ? allMerchandise : allMerchandise.filter(m => m.category === merchFilter);
+    if (items.length === 0) {
+      body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px;">No merchandise found.</div>';
+      return;
+    }
+    let lastCat = '';
+    let html = '';
+    items.forEach(m => {
+      if (merchFilter === 'all' && m.category !== lastCat) {
+        lastCat = m.category;
+        html += `<div style="padding:10px 0 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);${lastCat !== items[0].category ? 'border-top:1px solid var(--gray-100);margin-top:4px;' : ''}">${svcEsc(lastCat)}</div>`;
+      }
+      const active = m.is_active !== false;
+      html += `
+        <div class="merch-row" style="${active ? '' : 'opacity:.45;'}">
+          <div class="merch-emoji">${svcEsc(m.emoji||'📦')}</div>
+          <div class="merch-name"><input value="${svcEsc(m.name)}" onblur="updateMerch('${m.id}','name',this.value)" /></div>
+          <div class="merch-price"><input type="number" step="0.01" min="0" value="${Number(m.price).toFixed(2)}" onblur="updateMerch('${m.id}','price',this.value)" /></div>
+          <div class="merch-cat" style="font-size:12px;color:var(--gray-400);">${svcEsc(m.category)}</div>
+          <div style="text-align:center;">
+            <label class="toggle" style="--h:22px;--w:40px;">
+              <input type="checkbox" ${active ? 'checked' : ''} onchange="updateMerch('${m.id}','is_active',this.checked)" />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+          </div>
+          <div style="text-align:center;">
+            <button onclick="deleteMerch('${m.id}','${svcEsc(m.name)}')" style="background:none;border:none;cursor:pointer;font-size:14px;opacity:.4;padding:4px;" title="Delete">🗑</button>
+          </div>
+        </div>`;
+    });
+    body.innerHTML = html;
+  }
+
+  async function updateMerch(id, field, value) {
+    const update = {};
+    if (field === 'price') {
+      const num = parseFloat(value);
+      if (isNaN(num) || num < 0) { showToast('Invalid price', 'error'); loadPosTab(); return; }
+      update.price = num;
+    } else if (field === 'is_active') {
+      update.is_active = !!value;
+    } else if (field === 'name') {
+      if (!value.trim()) { showToast('Name cannot be empty', 'error'); loadPosTab(); return; }
+      update.name = value.trim();
+    }
+    const { error } = await db.from('merchandise').update(update).eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    // Update local array
+    allMerchandise = allMerchandise.map(m => m.id === id ? { ...m, ...update } : m);
+    if (field === 'is_active') renderMerchandise();
+    showToast('Updated');
+  }
+
+  async function saveNewMerch() {
+    const name = document.getElementById('nm-name').value.trim();
+    const emoji = document.getElementById('nm-emoji').value.trim() || '📦';
+    const price = parseFloat(document.getElementById('nm-price').value);
+    const category = document.getElementById('nm-category').value;
+    if (!name) { showToast('Enter a product name', 'error'); return; }
+    if (isNaN(price) || price < 0) { showToast('Enter a valid price', 'error'); return; }
+    const maxSort = allMerchandise.filter(m => m.category === category).reduce((max, m) => Math.max(max, m.sort_order || 0), 0);
+    const { data, error } = await db.from('merchandise').insert({
+      name, emoji, price, category, sort_order: maxSort + 1
+    }).select().single();
+    if (error) { showToast(error.message, 'error'); return; }
+    allMerchandise.push(data);
+    renderMerchandise();
+    // Clear inputs
+    document.getElementById('nm-name').value = '';
+    document.getElementById('nm-emoji').value = '';
+    document.getElementById('nm-price').value = '';
+    showToast(`${emoji} ${name} added`);
+  }
+
+  async function deleteMerch(id, name) {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    const { error } = await db.from('merchandise').delete().eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    allMerchandise = allMerchandise.filter(m => m.id !== id);
+    renderMerchandise();
+    showToast(`"${name}" deleted`);
+  }
+
+  // ── GLOBAL PREFERENCES ──
 
   let allGlobalPrefs = [];
   let globalPrefsLocalState = {}; // prefId → { name, options: [{id,label,is_default}] }

@@ -748,6 +748,93 @@
   .numkey.back { background: var(--red-light); color: var(--red); }
   .numkey.back:hover { background: #fecaca; }
 
+  /* ── Cash numpad modal ───────────────────────────────────────── */
+  .cash-due-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--gray-100);
+    margin-bottom: 10px;
+  }
+  .cash-due-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .cash-due-value {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--gray-900);
+    font-variant-numeric: tabular-nums;
+  }
+  .cash-tendered-display {
+    background: var(--gray-50);
+    border: 2px solid var(--gray-200);
+    border-radius: 12px;
+    padding: 14px 16px;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .cash-tendered-display.has-value {
+    border-color: var(--accent);
+  }
+  .cash-tendered-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .cash-tendered-value {
+    font-size: 36px;
+    font-weight: 800;
+    color: var(--gray-900);
+    line-height: 1;
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .cash-change-row {
+    text-align: center;
+    padding: 6px 0 8px;
+    font-size: 15px;
+    font-weight: 700;
+    min-height: 28px;
+  }
+  .cash-change-row.positive {
+    color: var(--green);
+  }
+  .cash-change-row.negative {
+    color: var(--red);
+  }
+  .cash-quick-amounts {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .cash-quick-btn {
+    flex: 1;
+    min-width: 54px;
+    padding: 8px 4px;
+    border-radius: 8px;
+    background: var(--accent-light);
+    border: none;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent-dark);
+    cursor: pointer;
+    transition: background .1s;
+  }
+  .cash-quick-btn:hover { background: #d0e8ff; }
+  .cash-quick-btn.exact {
+    background: var(--green-light);
+    color: var(--green);
+  }
+  .cash-quick-btn.exact:hover { background: #d1fae5; }
+
   /* ── Weight-modal add-on chips ──────────────────────────────── */
   .addon-section {
     margin-top: 10px;
@@ -1626,6 +1713,57 @@
       </div>
 
       <!-- ══════════════════════════════════════════════════════
+           MODAL: Cash numpad — amount tendered + change
+           ══════════════════════════════════════════════════════ -->
+      <div class="modal-overlay" id="cashModal">
+        <div class="modal" style="max-width: 380px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Cash payment</div>
+              <div class="modal-sub">Enter amount tendered</div>
+            </div>
+            <button class="modal-close" onclick="closeCashModal()">×</button>
+          </div>
+          <div class="modal-body" style="padding: 10px 20px 6px;">
+            <div class="cash-due-row">
+              <span class="cash-due-label">Total due</span>
+              <span class="cash-due-value" id="cashDueAmt">$0.00</span>
+            </div>
+            <div class="cash-tendered-display" id="cashTenderedBox">
+              <div class="cash-tendered-label">Amount tendered</div>
+              <div class="cash-tendered-value" id="cashTenderedValue">$0.00</div>
+            </div>
+            <div class="cash-change-row" id="cashChangeRow"></div>
+            <div class="cash-quick-amounts">
+              <button class="cash-quick-btn" onclick="cashQuickAmount(500)">$5</button>
+              <button class="cash-quick-btn" onclick="cashQuickAmount(1000)">$10</button>
+              <button class="cash-quick-btn" onclick="cashQuickAmount(2000)">$20</button>
+              <button class="cash-quick-btn" onclick="cashQuickAmount(5000)">$50</button>
+              <button class="cash-quick-btn" onclick="cashQuickAmount(10000)">$100</button>
+              <button class="cash-quick-btn exact" onclick="cashExact()">Exact</button>
+            </div>
+            <div class="numpad" style="margin-bottom: 6px;">
+              <button class="numkey" onclick="cashKey('1')">1</button>
+              <button class="numkey" onclick="cashKey('2')">2</button>
+              <button class="numkey" onclick="cashKey('3')">3</button>
+              <button class="numkey" onclick="cashKey('4')">4</button>
+              <button class="numkey" onclick="cashKey('5')">5</button>
+              <button class="numkey" onclick="cashKey('6')">6</button>
+              <button class="numkey" onclick="cashKey('7')">7</button>
+              <button class="numkey" onclick="cashKey('8')">8</button>
+              <button class="numkey" onclick="cashKey('9')">9</button>
+              <button class="numkey zero" onclick="cashKey('0')">0</button>
+              <button class="numkey back" onclick="cashKey('back')">⌫</button>
+            </div>
+          </div>
+          <div class="modal-footer" style="display:flex; gap:10px;">
+            <button class="btn btn-ghost" style="flex:1;" onclick="closeCashModal()">Cancel</button>
+            <button class="btn btn-success" style="flex:2;" id="cashCompleteBtn" disabled onclick="cashCompleteSale()">Complete sale</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════
            MODAL: Sale complete
            ══════════════════════════════════════════════════════ -->
       <div class="modal-overlay" id="successModal">
@@ -1636,6 +1774,7 @@
             <div class="success-amount" id="successAmt">$0.00</div>
             <div class="success-sub" id="successSub">Paid in full · Thank you!</div>
             <div id="successOrderNum" style="display:none; margin-top:4px; font-size:13px; font-weight:700; color:var(--accent-dark);"></div>
+            <div id="successChange" style="display:none; margin-top:6px; padding:8px 14px; background:var(--green-light); color:var(--green); border-radius:8px; font-size:15px; font-weight:700;"></div>
             <div class="receipt-options">
               <button class="receipt-btn">
                 <div class="receipt-btn-icon">🖨</div>
@@ -1734,43 +1873,15 @@
   });
 
   /* ─────────────────────────────────────────────────────────────
-     Service catalog — populated from Supabase `services` table
-     where pricelist = 'Retail' and is_active = true.
-     Drinks / snacks / supplies are still hardcoded until we build
-     the merchandise table.
+     Service & merchandise catalog — all loaded from Supabase.
+     Services come from `services` (pricelist = 'Retail').
+     Drinks / snacks / supplies come from the `merchandise` table.
      ───────────────────────────────────────────────────────────── */
   let SERVICES = {
-    services: [], // loaded from DB
-    drinks: [
-      { id:'coke',    emoji:'🥤', name:'Coca-Cola 20oz',  price:2.50, unit:'ea', type:'per_item' },
-      { id:'dcoke',   emoji:'🥤', name:'Diet Coke 20oz',  price:2.50, unit:'ea', type:'per_item' },
-      { id:'sprite',  emoji:'🥤', name:'Sprite 20oz',     price:2.50, unit:'ea', type:'per_item' },
-      { id:'water',   emoji:'💧', name:'Dasani Water',    price:1.50, unit:'ea', type:'per_item' },
-      { id:'gat',     emoji:'🏃', name:'Gatorade',        price:3.00, unit:'ea', type:'per_item' },
-      { id:'monster', emoji:'⚡', name:'Monster Energy',  price:3.50, unit:'ea', type:'per_item' },
-      { id:'topo',    emoji:'🍋', name:'Topo Chico',      price:2.75, unit:'ea', type:'per_item' },
-      { id:'coffee',  emoji:'☕', name:'Iced Coffee',     price:3.00, unit:'ea', type:'per_item', stock:0 },
-    ],
-    snacks: [
-      { id:'chips',   emoji:'🥨', name:'Lay\'s Classic',  price:2.00, unit:'ea', type:'per_item' },
-      { id:'doritos', emoji:'🧀', name:'Doritos',         price:2.00, unit:'ea', type:'per_item' },
-      { id:'snick',   emoji:'🍫', name:'Snickers',        price:1.75, unit:'ea', type:'per_item' },
-      { id:'mms',     emoji:'🍬', name:'M&M Peanut',      price:1.75, unit:'ea', type:'per_item' },
-      { id:'bar',     emoji:'🥜', name:'Clif Bar',        price:2.50, unit:'ea', type:'per_item' },
-      { id:'nuts',    emoji:'🥜', name:'Mixed Nuts',      price:3.00, unit:'ea', type:'per_item' },
-      { id:'gum',     emoji:'🍬', name:'Trident Gum',     price:1.50, unit:'ea', type:'per_item' },
-      { id:'cookies', emoji:'🍪', name:'Oreos 6-pk',      price:2.00, unit:'ea', type:'per_item' },
-    ],
-    supplies: [
-      { id:'tide',  emoji:'🧴', name:'Tide Pod (each)',  price:1.00, unit:'ea', type:'per_item' },
-      { id:'ariel', emoji:'🧴', name:'Ariel Powder',     price:2.50, unit:'ea', type:'per_item' },
-      { id:'bleach',emoji:'🧼', name:'Bleach (sm)',      price:2.00, unit:'ea', type:'per_item' },
-      { id:'soft', emoji:'🌸', name:'Fabric Softener',  price:1.50, unit:'ea', type:'per_item' },
-      { id:'dsheet',emoji:'📄', name:'Dryer Sheets',     price:1.00, unit:'ea', type:'per_item' },
-      { id:'bag',  emoji:'🛍️', name:'Family Laundry Bag',price:8.00, unit:'ea', type:'per_item' },
-      { id:'hang2',emoji:'🪝', name:'Hanger (10pk)',    price:3.00, unit:'ea', type:'per_item' },
-      { id:'stain',emoji:'🧽', name:'Stain Remover',    price:4.50, unit:'ea', type:'per_item' },
-    ]
+    services: [], // from services table
+    drinks: [],   // from merchandise table
+    snacks: [],   // from merchandise table
+    supplies: []  // from merchandise table
   };
 
   /* ─────────────────────────────────────────────────────────────
@@ -2509,10 +2620,90 @@
     showModal('payModal');
   }
 
-  // Cash flow: post the order to Supabase as a walk-in, paid in cash,
-  // then flash the success screen. TODO(future session): replace this
-  // with an amount-tendered numpad + change calculation.
-  async function payWithCash() {
+  // ── Cash numpad state ──────────────────────────────────────
+  let cashStr = '';        // raw digit string (cents implied: "2000" = $20.00)
+  let cashDueTotal = 0;   // the grand total in dollars
+  let lastCashChange = 0; // stored for success screen
+
+  function payWithCash() {
+    // Calculate the total due right now
+    const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const tax = subtotal * TAX_RATE;
+    cashDueTotal = Math.round((subtotal + tax) * 100) / 100;
+
+    // Reset numpad
+    cashStr = '';
+    lastCashChange = 0;
+    renderCashDisplay();
+
+    // Show the cash modal
+    closeAll();
+    setTimeout(() => showModal('cashModal'), 150);
+  }
+
+  function cashKey(k) {
+    if (k === 'back') {
+      cashStr = cashStr.slice(0, -1);
+    } else {
+      // Cap at 7 digits ($99,999.99 max)
+      if (cashStr.length < 7) cashStr += k;
+    }
+    renderCashDisplay();
+  }
+
+  function cashQuickAmount(cents) {
+    cashStr = String(cents);
+    renderCashDisplay();
+  }
+
+  function cashExact() {
+    // Set tendered to exactly the amount due
+    cashStr = String(Math.round(cashDueTotal * 100));
+    renderCashDisplay();
+  }
+
+  function renderCashDisplay() {
+    const cents = parseInt(cashStr || '0', 10);
+    const dollars = cents / 100;
+    const change = dollars - cashDueTotal;
+
+    // Due amount
+    document.getElementById('cashDueAmt').textContent = '$' + cashDueTotal.toFixed(2);
+
+    // Tendered display
+    const tenderedEl = document.getElementById('cashTenderedValue');
+    const tenderedBox = document.getElementById('cashTenderedBox');
+    tenderedEl.textContent = '$' + dollars.toFixed(2);
+    tenderedBox.classList.toggle('has-value', cashStr.length > 0);
+
+    // Change row
+    const changeRow = document.getElementById('cashChangeRow');
+    if (cashStr.length === 0) {
+      changeRow.textContent = '';
+      changeRow.className = 'cash-change-row';
+    } else if (change >= 0) {
+      changeRow.textContent = change === 0 ? 'Exact amount' : `Change due: $${change.toFixed(2)}`;
+      changeRow.className = 'cash-change-row positive';
+    } else {
+      changeRow.textContent = `Short $${Math.abs(change).toFixed(2)}`;
+      changeRow.className = 'cash-change-row negative';
+    }
+
+    // Enable/disable complete button
+    const btn = document.getElementById('cashCompleteBtn');
+    btn.disabled = cashStr.length === 0 || change < 0;
+  }
+
+  function closeCashModal() {
+    closeAll();
+    // Re-show the payment method picker
+    setTimeout(() => showModal('payModal'), 150);
+  }
+
+  async function cashCompleteSale() {
+    const cents = parseInt(cashStr || '0', 10);
+    const tendered = cents / 100;
+    lastCashChange = tendered - cashDueTotal;
     await chargeAndFinish('cash');
   }
 
@@ -2580,6 +2771,14 @@
         } else {
           num.style.display = 'none';
         }
+        // Show change due on success screen for cash payments
+        const changeEl = document.getElementById('successChange');
+        if (method === 'cash' && lastCashChange > 0.004) {
+          changeEl.textContent = `💵 Change due: $${lastCashChange.toFixed(2)}`;
+          changeEl.style.display = 'block';
+        } else {
+          changeEl.style.display = 'none';
+        }
         showModal('successModal');
       }, 150);
     } catch (e) {
@@ -2615,6 +2814,11 @@
     const num = document.getElementById('successOrderNum');
     if (sub) sub.textContent = 'Paid in full · Thank you!';
     if (num) { num.style.display = 'none'; num.textContent = ''; }
+    const chg = document.getElementById('successChange');
+    if (chg) chg.style.display = 'none';
+    // Reset cash state
+    cashStr = '';
+    lastCashChange = 0;
   }
 
   /* ─── createPosOrder: insert a POS walk-in order into Supabase ─
@@ -2858,29 +3062,50 @@
   // works without admin sign-in.
   async function loadRetailServices() {
     try {
-      const { data, error } = await db
-        .from('services')
-        .select('id, name, emoji, base_price, pricing_type, is_addon, is_active, sort_order')
-        .eq('pricelist', 'Retail')
-        .eq('is_active', true)
-        .order('is_addon', { ascending: true })
-        .order('sort_order', { ascending: true });
+      // Load services + merchandise in parallel
+      const [svcRes, merchRes] = await Promise.all([
+        db.from('services')
+          .select('id, name, emoji, base_price, pricing_type, is_addon, is_active, sort_order')
+          .eq('pricelist', 'Retail')
+          .eq('is_active', true)
+          .order('is_addon', { ascending: true })
+          .order('sort_order', { ascending: true }),
+        db.from('merchandise')
+          .select('id, name, emoji, category, price, is_active')
+          .eq('is_active', true)
+          .order('sort_order', { ascending: true })
+      ]);
 
-      if (error) {
-        console.error('[POS] loadRetailServices error:', error);
-        return;
-      }
+      if (svcRes.error) console.error('[POS] loadRetailServices error:', svcRes.error);
+      if (merchRes.error) console.error('[POS] loadMerchandise error:', merchRes.error);
 
+      // Map services
       const services = [];
       const addons = [];
-      for (const row of (data || [])) {
+      for (const row of (svcRes.data || [])) {
         const tile = dbRowToTile(row);
         if (row.is_addon) addons.push(tile);
         else services.push(tile);
       }
       SERVICES.services = services;
       WEIGHT_ADDONS = addons;
-      console.log(`[POS] Loaded ${services.length} services + ${addons.length} add-ons from Supabase`);
+
+      // Map merchandise → POS tile shape
+      const drinks = [], snacks = [], supplies = [];
+      for (const m of (merchRes.data || [])) {
+        const tile = {
+          id: m.id, emoji: m.emoji || '📦', name: m.name,
+          price: Number(m.price), unit: 'ea', type: 'per_item'
+        };
+        if (m.category === 'Drinks') drinks.push(tile);
+        else if (m.category === 'Snacks') snacks.push(tile);
+        else if (m.category === 'Supplies') supplies.push(tile);
+      }
+      SERVICES.drinks = drinks;
+      SERVICES.snacks = snacks;
+      SERVICES.supplies = supplies;
+
+      console.log(`[POS] Loaded ${services.length} services + ${addons.length} add-ons + ${drinks.length + snacks.length + supplies.length} merchandise from Supabase`);
     } catch (e) {
       console.error('[POS] loadRetailServices fatal:', e);
     }
