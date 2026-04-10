@@ -303,7 +303,7 @@
     .toggle-slider::before { content:''; position: absolute; width: 14px; height: 14px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: .2s; }
     .toggle-switch input:checked + .toggle-slider { background: var(--green); }
     .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
-    .svc-add-row { display: grid; grid-template-columns: 1fr 110px 130px 130px 64px 110px; gap: 10px; padding: 12px 20px; align-items: center; border-top: 2px dashed var(--gray-200); background: var(--gray-50); border-radius: 0 0 var(--radius) var(--radius); }
+    .svc-add-row { display: grid; grid-template-columns: 1fr 112px 116px 52px 136px; gap: 10px; padding: 9px 20px; align-items: center; border-top: 2px dashed var(--gray-200); background: var(--gray-50); border-radius: 0 0 var(--radius) var(--radius); }
     .svc-add-input { width: 100%; border: 1.5px solid var(--gray-200); border-radius: 6px; padding: 6px 10px; font-size: 13px; color: var(--gray-800); background: white; font-family: inherit; }
     .svc-add-input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
     .svc-add-select { width: 100%; border: 1.5px solid var(--gray-200); border-radius: 6px; padding: 6px 10px; font-size: 13px; color: var(--gray-700); background: white; font-family: inherit; }
@@ -1762,7 +1762,7 @@
               <div style="display:flex;gap:8px;align-items:center" id="svc-header-controls">
                 <span style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;">Price List</span>
                 <select class="form-select" id="svc-cat-filter" onchange="filterServices()" style="font-size:13px;padding:6px 10px;width:190px"></select>
-                <button class="btn btn-ghost" id="svc-edit-toggle" onclick="toggleSvcEditMode()" style="font-size:11px;padding:3px 10px;display:inline-flex;align-items:center;gap:4px;color:var(--gray-400);border:1px solid var(--gray-200);border-radius:6px;transition:all .15s;margin-left:4px;" title="Edit services"><i data-lucide="lock" style="width:14px;height:14px;"></i> Edit</button>
+                <button class="btn btn-ghost" id="svc-edit-toggle" onclick="toggleSvcEditMode()" style="font-size:13px;padding:6px 10px;display:inline-flex;align-items:center;gap:4px;color:var(--gray-400);border:1px solid var(--gray-200);border-radius:6px;transition:all .15s;margin-left:4px;" title="Edit services"><i data-lucide="lock" style="width:14px;height:14px;"></i> Edit</button>
               </div>
             </div>
             <!-- Tab bar -->
@@ -1790,11 +1790,11 @@
                   <option value="per_item">Per item</option>
                   <option value="flat">Flat rate</option>
                 </select>
-                <select class="svc-add-select" id="ns-addon">
-                  <option value="false">Main service</option>
+                <select class="svc-add-select" id="ns-addon" style="width:100%">
+                  <option value="false">Main</option>
                   <option value="true">Add-on</option>
                 </select>
-                <button class="btn btn-primary" onclick="saveNewService()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
+                <button class="btn btn-primary" onclick="saveNewService()" style="font-size:12.5px;padding:6px 14px;width:100%">+ Add</button>
               </div>
             </div>
             <!-- Display tab -->
