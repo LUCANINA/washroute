@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Family Laundry — Admin</title>
+  <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="apple-touch-icon" sizes="180x180" href="../assets/icon-admin-180.png" />
   <link rel="icon" type="image/png" sizes="512x512" href="../assets/icon-admin.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -335,7 +336,8 @@
     .pos-merch-filter.active { background:var(--accent-light);color:var(--accent);font-weight:600; }
     .merch-row { display:grid; grid-template-columns:36px 1fr 90px 90px 52px 36px; align-items:center; gap:10px; padding:10px 20px; border-bottom:1px solid var(--gray-100); transition:background .1s; }
     .merch-row:hover { background:var(--gray-50); }
-    .merch-emoji { font-size:20px; text-align:center; }
+    .merch-icon { text-align:center; color:var(--gray-500); }
+    .merch-icon svg { width:20px; height:20px; }
     .merch-name { font-size:14px; font-weight:500; color:var(--gray-800); }
     .merch-name input { font-size:14px; font-weight:500; color:var(--gray-800); border:none; background:transparent; width:100%; padding:0; font-family:inherit; }
     .merch-name input:focus { outline:none; background:var(--gray-50); border-radius:4px; padding:2px 4px; }
@@ -1849,7 +1851,7 @@
                 <div id="pos-retail-services-body" style="padding:8px 20px 0;"></div>
                 <div class="svc-add-row" style="gap:8px;">
                   <input class="svc-add-input" id="nrs-name" placeholder="New service name…" onkeydown="if(event.key==='Enter')saveNewRetailSvc()" style="flex:1" />
-                  <input class="svc-add-input" id="nrs-emoji" placeholder="🧺" style="width:42px;text-align:center" />
+                  <input class="svc-add-input" id="nrs-icon" placeholder="shirt" style="width:80px;text-align:center;font-size:12px;" title="Lucide icon name (e.g. shirt, waves, zap)" />
                   <div class="svc-price-wrap">
                     <span class="svc-price-prefix">$</span>
                     <input class="svc-add-input" id="nrs-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
@@ -1873,7 +1875,7 @@
                 <!-- Add new merchandise row -->
                 <div class="svc-add-row" style="gap:8px;">
                   <input class="svc-add-input" id="nm-name" placeholder="New product name…" onkeydown="if(event.key==='Enter')saveNewMerch()" style="flex:1" />
-                  <input class="svc-add-input" id="nm-emoji" placeholder="📦" style="width:42px;text-align:center" />
+                  <input class="svc-add-input" id="nm-icon" placeholder="package" style="width:80px;text-align:center;font-size:12px;" title="Lucide icon name (e.g. cup-soda, coffee, candy)" />
                   <div class="svc-price-wrap">
                     <span class="svc-price-prefix">$</span>
                     <input class="svc-add-input" id="nm-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
@@ -11970,7 +11972,7 @@ ${oneCopy}
 
   async function loadPosTab() {
     const [svcRes, merchRes] = await Promise.all([
-      db.from('services').select('id,name,emoji,base_price,pricing_type,is_addon,is_active,sort_order').eq('pricelist','Retail').order('is_addon').order('sort_order'),
+      db.from('services').select('id,name,icon,base_price,pricing_type,is_addon,is_active,sort_order').eq('pricelist','Retail').order('is_addon').order('sort_order'),
       db.from('merchandise').select('*').order('category').order('sort_order').order('name')
     ]);
     allRetailSvcs = svcRes.data || [];
@@ -11978,6 +11980,17 @@ ${oneCopy}
     allMerchandise = merchRes.data || [];
     rebuildMerchCategories();
     renderMerchandise();
+  }
+
+  // ── Lucide icon helper ──
+  function lucideIcon(name, size) {
+    size = size || 20;
+    const pascal = (name || 'package').replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperCase());
+    const iconData = (typeof lucide !== 'undefined' && lucide.icons) ? lucide.icons[pascal] : null;
+    if (!iconData) return `<span style="font-size:${size}px;color:var(--gray-400);" title="${name||'?'}">?</span>`;
+    const [, attrs, children] = iconData;
+    const svgAttrs = Object.entries({...attrs, width: size, height: size}).map(([k,v]) => `${k}="${v}"`).join(' ');
+    return `<svg ${svgAttrs}>${children.map(([tag, a]) => `<${tag} ${Object.entries(a).map(([k,v])=>`${k}="${v}"`).join(' ')}/>`).join('')}</svg>`;
   }
 
   // ── Retail laundry services (sub-tab 1) ──
@@ -11997,7 +12010,7 @@ ${oneCopy}
       const typeLabel = s.pricing_type === 'per_lb' ? 'Per lb' : s.pricing_type === 'per_item' ? 'Per item' : s.pricing_type;
       return `
         <div class="pos-retail-row" style="${active ? '' : 'opacity:.45;'}">
-          <div style="font-size:20px;text-align:center;">${svcEsc(s.emoji||'🧺')}</div>
+          <div class="merch-icon">${lucideIcon(s.icon||'package')}</div>
           <div class="merch-name"><input value="${svcEsc(s.name)}" onblur="updateRetailSvc('${s.id}','name',this.value)" /></div>
           <div class="merch-price"><input type="number" step="0.01" min="0" value="${Number(s.base_price).toFixed(2)}" onblur="updateRetailSvc('${s.id}','base_price',this.value)" /></div>
           <div style="font-size:12px;color:var(--gray-400);">${typeLabel}</div>
@@ -12008,7 +12021,7 @@ ${oneCopy}
             </label>
           </div>
           <div style="text-align:center;">
-            <button onclick="deleteRetailSvc('${s.id}','${svcEsc(s.name)}')" style="background:none;border:none;cursor:pointer;font-size:14px;opacity:.4;padding:4px;" title="Delete">🗑</button>
+            <button onclick="deleteRetailSvc('${s.id}','${svcEsc(s.name)}')" style="background:none;border:none;cursor:pointer;opacity:.4;padding:4px;color:var(--gray-500);" title="Delete">${lucideIcon('trash-2', 16)}</button>
           </div>
         </div>`;
     }
@@ -12042,7 +12055,7 @@ ${oneCopy}
 
   async function saveNewRetailSvc() {
     const name = document.getElementById('nrs-name').value.trim();
-    const emoji = document.getElementById('nrs-emoji').value.trim() || '🧺';
+    const icon = document.getElementById('nrs-icon').value.trim() || 'package';
     const price = parseFloat(document.getElementById('nrs-price').value);
     const pricingType = document.getElementById('nrs-type').value;
     const isAddon = document.getElementById('nrs-addon').value === 'true';
@@ -12050,7 +12063,7 @@ ${oneCopy}
     if (isNaN(price) || price < 0) { showToast('Enter a valid price', 'error'); return; }
     const maxSort = allRetailSvcs.reduce((max, s) => Math.max(max, s.sort_order || 0), 0);
     const { data, error } = await db.from('services').insert({
-      name, emoji, base_price: price, pricing_type: pricingType,
+      name, icon, base_price: price, pricing_type: pricingType,
       is_addon: isAddon, pricelist: 'Retail', category: 'Retail',
       sort_order: maxSort + 1, is_active: true
     }).select().single();
@@ -12058,9 +12071,9 @@ ${oneCopy}
     allRetailSvcs.push(data);
     renderRetailServices();
     document.getElementById('nrs-name').value = '';
-    document.getElementById('nrs-emoji').value = '';
+    document.getElementById('nrs-icon').value = '';
     document.getElementById('nrs-price').value = '';
-    showToast(`${emoji} ${name} added`);
+    showToast(`${name} added`);
   }
 
   async function deleteRetailSvc(id, name) {
@@ -12078,12 +12091,17 @@ ${oneCopy}
     // Derive categories from actual merchandise data
     const catSet = new Set(allMerchandise.map(m => m.category).filter(Boolean));
     merchCategories = [...catSet].sort();
-    // Rebuild filter pills
+    // Rebuild filter pills with edit/delete controls
     const bar = document.getElementById('pos-merch-filter-bar');
     if (bar) {
       let html = `<button class="btn btn-ghost pos-merch-filter${merchFilter==='all'?' active':''}" onclick="filterMerch('all',this)" style="font-size:12px;padding:4px 12px;">All</button>`;
       merchCategories.forEach(cat => {
-        html += `<button class="btn btn-ghost pos-merch-filter${merchFilter===cat?' active':''}" onclick="filterMerch('${svcEsc(cat)}',this)" style="font-size:12px;padding:4px 12px;">${svcEsc(cat)}</button>`;
+        const esc = svcEsc(cat);
+        html += `<span style="display:inline-flex;align-items:center;gap:2px;">
+          <button class="btn btn-ghost pos-merch-filter${merchFilter===cat?' active':''}" onclick="filterMerch('${esc}',this)" style="font-size:12px;padding:4px 12px;">${esc}</button>
+          <button onclick="renameMerchCategory('${esc}')" style="background:none;border:none;cursor:pointer;padding:2px;opacity:.35;color:var(--gray-500);" title="Rename category">${lucideIcon('pencil', 12)}</button>
+          <button onclick="deleteMerchCategory('${esc}')" style="background:none;border:none;cursor:pointer;padding:2px;opacity:.35;color:var(--red);" title="Delete category">${lucideIcon('x', 12)}</button>
+        </span>`;
       });
       html += `<button class="btn btn-ghost" onclick="promptNewMerchCategory()" style="font-size:12px;padding:4px 10px;color:var(--accent);border:1px dashed var(--accent);opacity:.7;" title="Add a new category">+ Category</button>`;
       bar.innerHTML = html;
@@ -12113,6 +12131,41 @@ ${oneCopy}
     showToast(`"${trimmed}" category created — add products below`);
   }
 
+  async function renameMerchCategory(oldName) {
+    const newName = prompt(`Rename "${oldName}" to:`, oldName);
+    if (!newName || !newName.trim() || newName.trim() === oldName) return;
+    const trimmed = newName.trim();
+    if (merchCategories.includes(trimmed)) { showToast(`"${trimmed}" already exists`, 'error'); return; }
+    // Update all merchandise in this category
+    const { error } = await db.from('merchandise').update({ category: trimmed }).eq('category', oldName);
+    if (error) { showToast(error.message, 'error'); return; }
+    allMerchandise.forEach(m => { if (m.category === oldName) m.category = trimmed; });
+    if (merchFilter === oldName) merchFilter = trimmed;
+    rebuildMerchCategories();
+    renderMerchandise();
+    showToast(`Renamed "${oldName}" to "${trimmed}"`);
+  }
+
+  async function deleteMerchCategory(catName) {
+    const count = allMerchandise.filter(m => m.category === catName).length;
+    const msg = count > 0
+      ? `Delete "${catName}" and its ${count} product${count > 1 ? 's' : ''}? This cannot be undone.`
+      : `Delete the empty "${catName}" category?`;
+    if (!confirm(msg)) return;
+    if (count > 0) {
+      // Delete all merchandise in this category from DB
+      const { error } = await db.from('merchandise').delete().eq('category', catName);
+      if (error) { showToast(error.message, 'error'); return; }
+      allMerchandise = allMerchandise.filter(m => m.category !== catName);
+    }
+    // If it was a placeholder category (no products), just remove from list
+    merchCategories = merchCategories.filter(c => c !== catName);
+    if (merchFilter === catName) merchFilter = 'all';
+    rebuildMerchCategories();
+    renderMerchandise();
+    showToast(`"${catName}" deleted`);
+  }
+
   function filterMerch(cat, btn) {
     merchFilter = cat;
     document.querySelectorAll('.pos-merch-filter').forEach(b => b.classList.remove('active'));
@@ -12139,7 +12192,7 @@ ${oneCopy}
       const active = m.is_active !== false;
       html += `
         <div class="merch-row" style="${active ? '' : 'opacity:.45;'}">
-          <div class="merch-emoji">${svcEsc(m.emoji||'📦')}</div>
+          <div class="merch-icon">${lucideIcon(m.icon||'package')}</div>
           <div class="merch-name"><input value="${svcEsc(m.name)}" onblur="updateMerch('${m.id}','name',this.value)" /></div>
           <div class="merch-price"><input type="number" step="0.01" min="0" value="${Number(m.price).toFixed(2)}" onblur="updateMerch('${m.id}','price',this.value)" /></div>
           <div class="merch-cat" style="font-size:12px;color:var(--gray-400);">${svcEsc(m.category)}</div>
@@ -12150,7 +12203,7 @@ ${oneCopy}
             </label>
           </div>
           <div style="text-align:center;">
-            <button onclick="deleteMerch('${m.id}','${svcEsc(m.name)}')" style="background:none;border:none;cursor:pointer;font-size:14px;opacity:.4;padding:4px;" title="Delete">🗑</button>
+            <button onclick="deleteMerch('${m.id}','${svcEsc(m.name)}')" style="background:none;border:none;cursor:pointer;opacity:.4;padding:4px;color:var(--gray-500);" title="Delete">${lucideIcon('trash-2', 16)}</button>
           </div>
         </div>`;
     });
@@ -12178,7 +12231,7 @@ ${oneCopy}
 
   async function saveNewMerch() {
     const name = document.getElementById('nm-name').value.trim();
-    const emoji = document.getElementById('nm-emoji').value.trim() || '📦';
+    const icon = document.getElementById('nm-icon').value.trim() || 'package';
     const price = parseFloat(document.getElementById('nm-price').value);
     const category = document.getElementById('nm-category').value;
     if (!name) { showToast('Enter a product name', 'error'); return; }
@@ -12186,16 +12239,16 @@ ${oneCopy}
     if (isNaN(price) || price < 0) { showToast('Enter a valid price', 'error'); return; }
     const maxSort = allMerchandise.filter(m => m.category === category).reduce((max, m) => Math.max(max, m.sort_order || 0), 0);
     const { data, error } = await db.from('merchandise').insert({
-      name, emoji, price, category, sort_order: maxSort + 1
+      name, icon, price, category, sort_order: maxSort + 1
     }).select().single();
     if (error) { showToast(error.message, 'error'); return; }
     allMerchandise.push(data);
     rebuildMerchCategories();
     renderMerchandise();
     document.getElementById('nm-name').value = '';
-    document.getElementById('nm-emoji').value = '';
+    document.getElementById('nm-icon').value = '';
     document.getElementById('nm-price').value = '';
-    showToast(`${emoji} ${name} added`);
+    showToast(`${name} added`);
   }
 
   async function deleteMerch(id, name) {

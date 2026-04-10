@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=1200, initial-scale=1" />
 <title>Family Laundry POS — Mockup</title>
+<script src="https://unpkg.com/lucide@latest"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -370,7 +371,8 @@
     border-color: var(--gray-900);
     color: white;
   }
-  .tab-emoji { font-size: 18px; }
+  .tab-icon { display:inline-flex; vertical-align:middle; margin-right:4px; }
+  .tab-icon svg { width:18px; height:18px; }
 
   /* Product tile grid */
   .tile-grid {
@@ -402,10 +404,11 @@
     box-shadow: 0 4px 14px rgba(0,0,0,0.06);
   }
   .tile:active { transform: translateY(0); }
-  .tile-emoji {
-    font-size: 22px;
+  .tile-icon {
     line-height: 1;
+    color: var(--gray-600);
   }
+  .tile-icon svg { width:22px; height:22px; }
   .tile-name {
     font-size: 13px;
     font-weight: 700;
@@ -580,7 +583,8 @@
     padding: 60px 20px 40px;
     font-weight: 500;
   }
-  .cart-empty-emoji { font-size: 36px; margin-bottom: 8px; display: block; }
+  .cart-empty-icon { margin-bottom: 8px; display: block; color: var(--gray-400); }
+  .cart-empty-icon svg { width:36px; height:36px; }
 
   /* Totals */
   .cart-totals {
@@ -887,10 +891,11 @@
     background: var(--accent-light);
     box-shadow: 0 0 0 1px var(--accent) inset;
   }
-  .addon-chip-emoji {
-    font-size: 18px;
+  .addon-chip-icon {
+    color: var(--gray-600);
     line-height: 1;
   }
+  .addon-chip-icon svg { width:18px; height:18px; }
   .addon-chip-name {
     font-size: 12px;
     font-weight: 700;
@@ -1429,7 +1434,7 @@
         <!-- ─── LEFT: products ────────────────────────────── -->
         <div class="products">
           <div class="tabs" id="posTabs">
-            <button class="tab active" onclick="switchTab('services', this)"><span class="tab-emoji">🧺</span> Laundry Services</button>
+            <button class="tab active" onclick="switchTab('services', this)"><span class="tab-icon"><i data-lucide="shirt"></i></span> Laundry Services</button>
             <!-- Merchandise tabs built dynamically from DB -->
           </div>
           <div class="tile-grid" id="tileGrid">
@@ -1460,7 +1465,7 @@
           </div>
           <div class="cart-items" id="cartItems">
             <div class="cart-empty" id="cartEmpty">
-              <span class="cart-empty-emoji">🛒</span>
+              <span class="cart-empty-icon"><i data-lucide="shopping-cart"></i></span>
               Tap products to add to cart
             </div>
           </div>
@@ -1897,6 +1902,26 @@
   let phoneDigits = '';
   const TAX_RATE = 0.0925;
 
+  /* ─── SVG icon helper ─────────────────────────────────────── */
+  // Renders a Lucide icon by its kebab-case name (e.g. 'cup-soda').
+  // Returns an inline SVG string. Falls back to 'package' if not found.
+  function lucideIcon(name, size) {
+    size = size || 22;
+    // Convert kebab-case to PascalCase for lucide lookup
+    const pascal = (name || 'package').replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperCase());
+    const iconData = lucide.icons[pascal];
+    if (!iconData) {
+      const fallback = lucide.icons['Package'];
+      if (!fallback) return '';
+      const [, attrs, children] = fallback;
+      const svgAttrs = Object.entries({...attrs, width: size, height: size}).map(([k,v]) => `${k}="${v}"`).join(' ');
+      return `<svg ${svgAttrs}>${children.map(([tag, a]) => `<${tag} ${Object.entries(a).map(([k,v])=>`${k}="${v}"`).join(' ')}/>`).join('')}</svg>`;
+    }
+    const [, attrs, children] = iconData;
+    const svgAttrs = Object.entries({...attrs, width: size, height: size}).map(([k,v]) => `${k}="${v}"`).join(' ');
+    return `<svg ${svgAttrs}>${children.map(([tag, a]) => `<${tag} ${Object.entries(a).map(([k,v])=>`${k}="${v}"`).join(' ')}/>`).join('')}</svg>`;
+  }
+
   /* ─── Tile rendering ───────────────────────────────────────── */
   function renderTiles() {
     const grid = document.getElementById('tileGrid');
@@ -1908,7 +1933,7 @@
         <button class="tile ${isService ? 'service' : ''} ${oos ? 'out-of-stock' : ''}"
                 ${oos ? 'disabled' : ''}
                 onclick="tileTap('${s.id}')">
-          <div class="tile-emoji">${s.emoji}</div>
+          <div class="tile-icon">${lucideIcon(s.icon)}</div>
           <div class="tile-name">${s.name}</div>
           <div class="tile-price">$${s.price.toFixed(2)}<span class="tile-price-sub">/ ${s.unit}</span></div>
         </button>
@@ -1976,7 +2001,7 @@
     const wrap = document.getElementById('cartItems');
     const empty = document.getElementById('cartEmpty');
     if (!cart.length) {
-      wrap.innerHTML = '<div class="cart-empty"><span class="cart-empty-emoji">🛒</span>Tap products to add to cart</div>';
+      wrap.innerHTML = '<div class="cart-empty"><span class="cart-empty-icon">' + lucideIcon('shopping-cart', 36) + '</span>Tap products to add to cart</div>';
     } else {
       wrap.innerHTML = cart.map((line, i) => {
         const sub = line.type === 'per_lb'
@@ -1996,7 +2021,7 @@
           ? `<div class="cart-item-addons">${
               line.addons.map(a => `
                 <span class="cart-item-addon-pill">
-                  ${a.emoji} ${a.name}
+                  ${lucideIcon(a.icon, 14)} ${a.name}
                   <span class="cart-item-addon-pill-price">+$${a.price.toFixed(2)}</span>
                 </span>
               `).join('')
@@ -2005,7 +2030,7 @@
         return `
           <div class="cart-item">
             <div>
-              <div class="cart-item-name">${line.emoji} ${line.name}</div>
+              <div class="cart-item-name">${lucideIcon(line.icon, 16)} ${line.name}</div>
               <div class="cart-item-sub">${sub}</div>
               ${line.type !== 'per_lb' ? qtyControl : ''}
             </div>
@@ -2064,7 +2089,7 @@
       return `
         <button class="addon-chip ${isActive ? 'active' : ''}" onclick="toggleAddon('${a.id}')">
           <span class="addon-chip-check">✓</span>
-          <div class="addon-chip-emoji">${a.emoji}</div>
+          <div class="addon-chip-icon">${lucideIcon(a.icon, 18)}</div>
           <div class="addon-chip-name">${a.name}</div>
           <div class="addon-chip-price">+$${a.price.toFixed(2)}</div>
         </button>
@@ -2843,7 +2868,7 @@
           kind:          'service',
           service_id:    line.id,         // real UUID from `services` table
           name:          line.name,
-          emoji:         line.emoji,
+          icon:          line.icon,
           pricing_type:  'per_lb',
           unit_price:    line.price,
           weight_lbs:    line.weight,
@@ -2851,7 +2876,7 @@
           addons: (line.addons || []).map(a => ({
             service_id: a.id,
             name:       a.name,
-            emoji:      a.emoji,
+            icon:       a.icon,
             price:      a.price
           })),
           subtotal:      lineTotal(line)
@@ -2867,7 +2892,7 @@
         service_id:   isRealService ? line.id : null,
         merch_id:     isRealService ? null : line.id,
         name:         line.name,
-        emoji:        line.emoji,
+        icon:         line.icon,
         pricing_type: 'per_item',
         unit_price:   line.price,
         qty:          line.qty,
@@ -3049,7 +3074,7 @@
   function dbRowToTile(row) {
     return {
       id:      row.id,                      // real UUID — used later when creating order line items
-      emoji:   row.emoji || '🧺',
+      icon:    row.icon || 'package',
       name:    row.name,
       price:   Number(row.base_price),
       unit:    row.pricing_type === 'per_lb' ? 'lb' : 'ea',
@@ -3066,13 +3091,13 @@
       // Load services + merchandise in parallel
       const [svcRes, merchRes] = await Promise.all([
         db.from('services')
-          .select('id, name, emoji, base_price, pricing_type, is_addon, is_active, sort_order')
+          .select('id, name, icon, base_price, pricing_type, is_addon, is_active, sort_order')
           .eq('pricelist', 'Retail')
           .eq('is_active', true)
           .order('is_addon', { ascending: true })
           .order('sort_order', { ascending: true }),
         db.from('merchandise')
-          .select('id, name, emoji, category, price, is_active')
+          .select('id, name, icon, category, price, is_active')
           .eq('is_active', true)
           .order('sort_order', { ascending: true })
       ]);
@@ -3096,7 +3121,7 @@
       let merchTotal = 0;
       for (const m of (merchRes.data || [])) {
         const tile = {
-          id: m.id, emoji: m.emoji || '📦', name: m.name,
+          id: m.id, icon: m.icon || 'package', name: m.name,
           price: Number(m.price), unit: 'ea', type: 'per_item'
         };
         const catKey = (m.category || 'Other').toLowerCase().replace(/[^a-z0-9]/g, '_');
@@ -3132,6 +3157,8 @@
     await loadRetailServices();
     renderTiles();
     renderCart();
+    // Render static Lucide icons (tab bar, empty cart, etc.)
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
     // Reflect any persisted admin session in the topbar
     await refreshAdminUi();
     // Load queue badge count + start auto-refresh
