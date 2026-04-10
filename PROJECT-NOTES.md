@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 10, 2026 — Session 104: Services & POS UI polish. Fixed Lucide icons (switched to createIcons API). Implemented edit-lock toggle pattern for Services and Merchandise. Simplified add-row layouts across all tabs: removed developer-facing icon fields, auto-assign category/pricelist from active filter, cleaner grid alignment. QA blast-radius fix caught broken POS Laundry Services add-row. Session 103 replaced emojis with Lucide SVG icons + editable merchandise categories.*
+*Last updated: Apr 10, 2026 — Session 104: Services & POS UI polish + expired-session fix. Fixed Lucide icons (createIcons API). Edit-lock toggles for Services and Merchandise. Simplified add-row layouts. Fixed critical customer-facing bug: expired JWT caused "row-level security policy" error on order placement — added 3-layer session validation in customer app + increased JWT expiry to 24h. Session 103 replaced emojis with Lucide SVG icons.*
 
 ---
 
@@ -555,6 +555,19 @@ There are actually **two separate hang points** that must both be covered:
 1. **`lucideIcon()` now uses `data-lucide` attributes.** After any DOM update that inserts icon elements, call `refreshLucideIcons()` to activate them.
 2. **Add-rows auto-assign category/pricelist from active filter.** If user is on "All" view, they get a toast prompting them to select a category first.
 3. **David's feedback: "Spend more time on UI details."** Alignment, consistent heights, grid column matching — these matter. Check add-rows against their parent table grids before committing.
+
+**6. Fixed expired-session RLS error on customer order placement.**
+- **Customer report:** Nicole Pena (Berkeley Rep) got "new row violates row-level security policy for orders" when placing an order. Root cause: her JWT expired while the browser tab was in the background. The app showed her as logged in (from localStorage cache), but `auth.uid()` returned null server-side → RLS correctly blocked the INSERT.
+- **Three-layer fix in `customer-app/index.html`:**
+  1. Pre-flight `db.auth.getSession()` check right before the order INSERT. If session is dead → "session expired" toast → redirect to sign-in.
+  2. RLS-specific error catch: if the RLS error still slips through, catches `row-level security` in the error message and shows the friendly "session expired" message instead of raw DB jargon.
+  3. Background session validation on cache-load startup: when `_handleCustomerSession` loads from `loadUserCache()`, it immediately calls `db.auth.getSession()` and signs out if the session is dead — so users can't navigate with a stale session.
+- **Config change:** Supabase JWT access token expiry increased from 3600s (1 hour) to 86400s (24 hours) via Dashboard → Settings → JWT Keys → Access token expiry time. This gives a much larger buffer before a sleeping tab's token expires.
+- **Nicole's data is fine** — auth user, profile, and customer record all correctly linked. She just needs to refresh the page and sign in again.
+
+**⚠️ For future sessions:**
+4. **Expired sessions now handled gracefully**, but the root cause (browser suspending tabs and killing refresh timers) can't be fully prevented client-side. The 3-layer fix ensures users always get a clear "session expired" message instead of cryptic RLS errors.
+5. **JWT expiry is now 24 hours.** If this needs to be changed, it's under Supabase Dashboard → Settings → JWT Keys → Legacy JWT Secret tab → Access token expiry time.
 
 ---
 
