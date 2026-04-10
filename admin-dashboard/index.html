@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Family Laundry — Admin</title>
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
   <link rel="apple-touch-icon" sizes="180x180" href="../assets/icon-admin-180.png" />
   <link rel="icon" type="image/png" sizes="512x512" href="../assets/icon-admin.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -11959,6 +11959,7 @@ ${oneCopy}
   let allRetailSvcs = [];
   let merchFilter = 'all';
   let merchCategories = []; // derived from DB data
+  let merchEditMode = false;
 
   // ── POS inner sub-tabs ──
   function posSubTab(name, btn) {
@@ -11971,25 +11972,34 @@ ${oneCopy}
   }
 
   async function loadPosTab() {
-    const [svcRes, merchRes] = await Promise.all([
-      db.from('services').select('id,name,icon,base_price,pricing_type,is_addon,is_active,sort_order').eq('pricelist','Retail').order('is_addon').order('sort_order'),
-      db.from('merchandise').select('*').order('category').order('sort_order').order('name')
-    ]);
-    allRetailSvcs = svcRes.data || [];
-    renderRetailServices();
-    allMerchandise = merchRes.data || [];
-    rebuildMerchCategories();
-    renderMerchandise();
+    try {
+      const [svcRes, merchRes] = await Promise.all([
+        db.from('services').select('id,name,icon,base_price,pricing_type,is_addon,is_active,sort_order').eq('pricelist','Retail').order('is_addon').order('sort_order'),
+        db.from('merchandise').select('*').order('category').order('sort_order').order('name')
+      ]);
+      if (svcRes.error) { console.error('POS services query error:', svcRes.error); showToast('Failed to load retail services: ' + svcRes.error.message, 'error'); }
+      if (merchRes.error) { console.error('POS merchandise query error:', merchRes.error); showToast('Failed to load merchandise: ' + merchRes.error.message, 'error'); }
+      allRetailSvcs = svcRes.data || [];
+      renderRetailServices();
+      allMerchandise = merchRes.data || [];
+      rebuildMerchCategories();
+      renderMerchandise();
+    } catch (err) {
+      console.error('loadPosTab failed:', err);
+      showToast('Failed to load POS tab — check console', 'error');
+    }
   }
 
   // ── Lucide icon helper ──
   function lucideIcon(name, size) {
     size = size || 20;
-    const pascal = (name || 'package').replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperCase());
-    // lucide.icons[Name] is an array of [tag, attrs] child elements
-    const children = (typeof lucide !== 'undefined' && lucide.icons) ? lucide.icons[pascal] : null;
-    if (!children) return `<span style="font-size:${size}px;color:var(--gray-400);" title="${name||'?'}">?</span>`;
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${children.map(([tag, a]) => `<${tag} ${Object.entries(a).map(([k,v])=>`${k}="${v}"`).join(' ')}/>`).join('')}</svg>`;
+    const fallback = `<span style="font-size:${size}px;color:var(--gray-400);" title="${name||'?'}">&#9679;</span>`;
+    try {
+      const pascal = (name || 'package').replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperCase());
+      const children = (typeof lucide !== 'undefined' && lucide.icons) ? lucide.icons[pascal] : null;
+      if (!children || !Array.isArray(children)) return fallback;
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${children.map(([tag, a]) => `<${tag} ${Object.entries(a).map(([k,v])=>`${k}="${v}"`).join(' ')}/>`).join('')}</svg>`;
+    } catch (e) { return fallback; }
   }
 
   // ── Retail laundry services (sub-tab 1) ──
@@ -12086,23 +12096,41 @@ ${oneCopy}
 
   // ── Merchandise (sub-tab 2) — dynamic categories ──
 
+  function toggleMerchEditMode() {
+    merchEditMode = !merchEditMode;
+    rebuildMerchCategories();
+  }
+
   function rebuildMerchCategories() {
     // Derive categories from actual merchandise data
     const catSet = new Set(allMerchandise.map(m => m.category).filter(Boolean));
     merchCategories = [...catSet].sort();
-    // Rebuild filter pills with edit/delete controls
+    // Rebuild filter pills — edit controls only visible in edit mode
     const bar = document.getElementById('pos-merch-filter-bar');
     if (bar) {
       let html = `<button class="btn btn-ghost pos-merch-filter${merchFilter==='all'?' active':''}" onclick="filterMerch('all',this)" style="font-size:12px;padding:4px 12px;">All</button>`;
       merchCategories.forEach(cat => {
         const esc = svcEsc(cat);
-        html += `<span style="display:inline-flex;align-items:center;gap:2px;">
-          <button class="btn btn-ghost pos-merch-filter${merchFilter===cat?' active':''}" onclick="filterMerch('${esc}',this)" style="font-size:12px;padding:4px 12px;">${esc}</button>
-          <button onclick="renameMerchCategory('${esc}')" style="background:none;border:none;cursor:pointer;padding:2px;opacity:.35;color:var(--gray-500);" title="Rename category">${lucideIcon('pencil', 12)}</button>
-          <button onclick="deleteMerchCategory('${esc}')" style="background:none;border:none;cursor:pointer;padding:2px;opacity:.35;color:var(--red);" title="Delete category">${lucideIcon('x', 12)}</button>
-        </span>`;
+        html += `<button class="btn btn-ghost pos-merch-filter${merchFilter===cat?' active':''}" onclick="filterMerch('${esc}',this)" style="font-size:12px;padding:4px 12px;">${esc}</button>`;
       });
-      html += `<button class="btn btn-ghost" onclick="promptNewMerchCategory()" style="font-size:12px;padding:4px 10px;color:var(--accent);border:1px dashed var(--accent);opacity:.7;" title="Add a new category">+ Category</button>`;
+      // Edit-mode toggle button (lock/unlock icon)
+      const editIcon = merchEditMode ? 'lock-open' : 'lock';
+      const editLabel = merchEditMode ? 'Done' : 'Edit';
+      html += `<button class="btn btn-ghost" onclick="toggleMerchEditMode()" style="font-size:11px;padding:3px 10px;margin-left:auto;display:inline-flex;align-items:center;gap:4px;color:${merchEditMode ? 'var(--accent)' : 'var(--gray-400)'};border:1px solid ${merchEditMode ? 'var(--accent)' : 'var(--gray-200)'};border-radius:6px;transition:all .15s;" title="${merchEditMode ? 'Lock categories' : 'Edit categories'}">${lucideIcon(editIcon, 14)} ${editLabel}</button>`;
+      // Edit-mode controls: rename, delete, + add — only when unlocked
+      if (merchEditMode) {
+        html += `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;width:100%;padding-top:8px;border-top:1px dashed var(--gray-200);margin-top:4px;">`;
+        merchCategories.forEach(cat => {
+          const esc = svcEsc(cat);
+          html += `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;padding:4px 10px;font-size:12px;font-weight:500;color:var(--gray-700);">
+            ${esc}
+            <button onclick="renameMerchCategory('${esc}')" style="background:none;border:none;cursor:pointer;padding:2px;color:var(--gray-400);" title="Rename">${lucideIcon('pencil', 13)}</button>
+            <button onclick="deleteMerchCategory('${esc}')" style="background:none;border:none;cursor:pointer;padding:2px;color:var(--red);opacity:.6;" title="Delete category">${lucideIcon('trash-2', 13)}</button>
+          </span>`;
+        });
+        html += `<button class="btn btn-ghost" onclick="promptNewMerchCategory()" style="font-size:12px;padding:4px 10px;color:var(--accent);border:1px dashed var(--accent);border-radius:6px;opacity:.7;" title="Add a new category">+ Category</button>`;
+        html += `</div>`;
+      }
       bar.innerHTML = html;
     }
     // Rebuild the "add new product" category dropdown
