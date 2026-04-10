@@ -13025,7 +13025,7 @@ ${oneCopy}
     // Pre-fill tip from customer defaults
     if (cust?.default_tip) {
       document.getElementById('o-tip').value = cust.default_tip;
-      setNoTipType(cust.default_tip_type === 'percent' ? 'pct' : 'dollar');
+      setNoTipType(cust.default_tip_type === '%' ? 'pct' : 'dollar');
     }
 
     // Re-filter routes by the new customer's address city
