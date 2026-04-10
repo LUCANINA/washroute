@@ -1874,14 +1874,12 @@
                 <div style="padding:12px 20px 10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;" id="pos-merch-filter-bar"></div>
                 <div id="pos-merch-body" style="padding:0 20px;"></div>
                 <!-- Add new merchandise row -->
-                <div class="svc-add-row" style="gap:8px;">
-                  <input class="svc-add-input" id="nm-name" placeholder="New product name…" onkeydown="if(event.key==='Enter')saveNewMerch()" style="flex:1" />
-                  <input class="svc-add-input" id="nm-icon" placeholder="package" style="width:80px;text-align:center;font-size:12px;" title="Lucide icon name (e.g. cup-soda, coffee, candy)" />
+                <div class="svc-add-row" style="grid-template-columns:1fr 112px auto;gap:10px;max-width:500px;">
+                  <input class="svc-add-input" id="nm-name" placeholder="Product name…" onkeydown="if(event.key==='Enter')saveNewMerch()" />
                   <div class="svc-price-wrap">
                     <span class="svc-price-prefix">$</span>
                     <input class="svc-add-input" id="nm-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
                   </div>
-                  <select class="svc-add-select" id="nm-category"></select>
                   <button class="btn btn-primary" onclick="saveNewMerch()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
                 </div>
               </div>
@@ -12157,12 +12155,7 @@ ${oneCopy}
       bar.innerHTML = html;
       refreshLucideIcons();
     }
-    // Rebuild the "add new product" category dropdown
-    const sel = document.getElementById('nm-category');
-    if (sel) {
-      const prev = sel.value;
-      sel.innerHTML = merchCategories.map(c => `<option value="${svcEsc(c)}"${c===prev?' selected':''}>${svcEsc(c)}</option>`).join('');
-    }
+    // Category is now auto-assigned from active filter — no dropdown needed
   }
 
   function promptNewMerchCategory() {
@@ -12176,9 +12169,6 @@ ${oneCopy}
     merchFilter = trimmed; // switch to the new category
     rebuildMerchCategories();
     renderMerchandise();
-    // Pre-select in the add-product dropdown
-    const sel = document.getElementById('nm-category');
-    if (sel) sel.value = trimmed;
     showToast(`"${trimmed}" category created — add products below`);
   }
 
@@ -12283,11 +12273,11 @@ ${oneCopy}
 
   async function saveNewMerch() {
     const name = document.getElementById('nm-name').value.trim();
-    const icon = document.getElementById('nm-icon').value.trim() || 'package';
+    const icon = 'package';
     const price = parseFloat(document.getElementById('nm-price').value);
-    const category = document.getElementById('nm-category').value;
+    const category = merchFilter !== 'all' ? merchFilter : '';
     if (!name) { showToast('Enter a product name', 'error'); return; }
-    if (!category) { showToast('Select a category', 'error'); return; }
+    if (!category) { showToast('Select a category first (click a category tab above)', 'error'); return; }
     if (isNaN(price) || price < 0) { showToast('Enter a valid price', 'error'); return; }
     const maxSort = allMerchandise.filter(m => m.category === category).reduce((max, m) => Math.max(max, m.sort_order || 0), 0);
     const { data, error } = await db.from('merchandise').insert({
@@ -12298,9 +12288,8 @@ ${oneCopy}
     rebuildMerchCategories();
     renderMerchandise();
     document.getElementById('nm-name').value = '';
-    document.getElementById('nm-icon').value = '';
     document.getElementById('nm-price').value = '';
-    showToast(`${name} added`);
+    showToast(`${name} added to ${category}`);
   }
 
   async function deleteMerch(id, name) {
