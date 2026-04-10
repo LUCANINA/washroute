@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 10, 2026 — Session 103: Replaced all emojis with Lucide SVG icons in POS and admin dashboard. Migration renamed `emoji` → `icon` column on services and merchandise tables, seeded Lucide icon names. Added merchandise category rename/delete in admin. Session 102 added cash numpad, merchandise DB table, POS admin tab with sub-tabs.*
+*Last updated: Apr 10, 2026 — Session 104: Services & POS UI polish. Fixed Lucide icons (switched to createIcons API). Implemented edit-lock toggle pattern for Services and Merchandise. Simplified add-row layouts across all tabs: removed developer-facing icon fields, auto-assign category/pricelist from active filter, cleaner grid alignment. QA blast-radius fix caught broken POS Laundry Services add-row. Session 103 replaced emojis with Lucide SVG icons + editable merchandise categories.*
 
 ---
 
@@ -511,6 +511,52 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 10, 2026 (session 104) — Services & POS UI polish + edit-lock toggles + add-row simplification
+
+**Context:** Session 103 switched to Lucide SVG icons but the `lucideIcon()` helper parsed internal library data incorrectly, causing gray circles. David also found the edit/delete buttons too easy to fat-finger, and asked for cleaner UI across Services and POS tabs.
+
+**1. Fixed Lucide icon rendering.**
+- The `lucideIcon()` function was manually parsing `lucide.icons` internal data, which didn't match the actual library structure. Rewrote to use official `data-lucide` attributes + `lucide.createIcons()` API.
+- Added `refreshLucideIcons()` debounced helper — called after any DOM update that adds new icon elements.
+- Fixed CDN URL to `unpkg.com/lucide@latest/dist/umd/lucide.min.js` (UMD build).
+
+**2. Edit-lock toggle for Services tab.**
+- Default state: locked — clean read-only rows showing name, price, type (3-column grid via `svcRowLocked()`).
+- Unlock button in header reveals full editing controls (inline inputs, type dropdown, active toggle, reorder/delete).
+- Add-new-service row hidden when locked, shown when unlocked.
+- Same pattern as Merchandise category edit-lock from session 103.
+
+**3. Services tab header simplification.**
+- Removed redundant "MAIN SERVICES" header and nested category grouping.
+- Flat layout: Price List dropdown (Delivery / Commercial / Add-ons) → filtered service list.
+- Edit toggle button height matched to Price List dropdown (`font-size:13px; padding:6px 10px`).
+
+**4. Add-row alignment and simplification (all tabs).**
+- **Services tab:** Grid columns aligned to match `svc-row` edit grid. Add button moved to its own right-aligned row. Addon dropdown now auto-assigns from active price list filter (same logic as category).
+- **POS Merchandise:** Removed icon input field (defaults to 'package'). Removed category dropdown — auto-assigns from active category filter. Error message if on "All" tab.
+- **POS Laundry Services:** (QA blast-radius fix) Same cleanup — removed icon input, fixed broken grid layout, consistent button placement.
+
+**5. Misc cleanup.**
+- Hid "Retail" from Price Lists tab (`renderCategoryManager()` filters it out).
+- Reordered tabs: Services, Price Lists, App Display, Fees, Preferences, Point of Sale.
+- `saveNewService()` auto-assigns `pricelist` from `svc-cat-filter` value.
+
+**Files touched:**
+- `admin-dashboard/index.html` — ~15 edits across CSS, HTML, and JS.
+- `pos-mockup.html` — Lucide CDN fix + `lucideIcon()` rewrite.
+
+**QA blast-radius findings:**
+- Base `.svc-add-row` CSS change (4-col grid) broke POS Laundry Services add-row (had 6 children without inline grid override). Fixed by adding explicit inline grid-template-columns.
+- All `nm-icon`, `nrs-icon` DOM references cleaned from both HTML and JS.
+- No security issues, no sensitive data logging, all inputs use parameterized Supabase queries.
+
+**⚠️ For future sessions:**
+1. **`lucideIcon()` now uses `data-lucide` attributes.** After any DOM update that inserts icon elements, call `refreshLucideIcons()` to activate them.
+2. **Add-rows auto-assign category/pricelist from active filter.** If user is on "All" view, they get a toast prompting them to select a category first.
+3. **David's feedback: "Spend more time on UI details."** Alignment, consistent heights, grid column matching — these matter. Check add-rows against their parent table grids before committing.
+
+---
 
 ### Apr 10, 2026 (session 103) — Replace emojis with Lucide SVG icons + editable merchandise categories
 
