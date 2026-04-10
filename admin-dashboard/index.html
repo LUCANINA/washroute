@@ -1768,10 +1768,10 @@
             <!-- Tab bar -->
             <div class="svc-page-tabs">
               <button class="svc-page-tab active" id="svctab-btn-services"     onclick="svcPageTab('services',this)">Services</button>
+              <button class="svc-page-tab"        id="svctab-btn-categories"   onclick="svcPageTab('categories',this)">Price Lists</button>
               <button class="svc-page-tab"        id="svctab-btn-display"      onclick="svcPageTab('display',this)">App Display</button>
               <button class="svc-page-tab"        id="svctab-btn-fees"         onclick="svcPageTab('fees',this)">Fees</button>
               <button class="svc-page-tab"        id="svctab-btn-preferences"  onclick="svcPageTab('preferences',this)">Preferences</button>
-              <button class="svc-page-tab"        id="svctab-btn-categories"   onclick="svcPageTab('categories',this)">Price Lists</button>
               <button class="svc-page-tab"        id="svctab-btn-pos"          onclick="svcPageTab('pos',this)">Point of Sale</button>
             </div>
             <!-- Services tab -->
@@ -11631,7 +11631,9 @@ ${oneCopy}
       body.innerHTML = '<div class="cat-empty" style="padding:24px 20px;color:var(--gray-400);font-size:14px;text-align:center;">No categories yet. Add one below.</div>';
       return;
     }
-    body.innerHTML = allCategories.map(c => {
+    // Hide Retail — managed exclusively in the POS tab
+    const visibleCats = allCategories.filter(c => c.name !== 'Retail');
+    body.innerHTML = visibleCats.map(c => {
       const inUse = allServices.filter(s => s.category === c.name).length;
       return `
         <div class="cat-row" id="cat-row-${c.id}">
