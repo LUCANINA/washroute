@@ -1850,9 +1850,8 @@
               <!-- Sub-tab: Laundry Services -->
               <div id="pos-subtab-laundry">
                 <div id="pos-retail-services-body" style="padding:8px 20px 0;"></div>
-                <div class="svc-add-row" style="gap:8px;">
-                  <input class="svc-add-input" id="nrs-name" placeholder="New service name…" onkeydown="if(event.key==='Enter')saveNewRetailSvc()" style="flex:1" />
-                  <input class="svc-add-input" id="nrs-icon" placeholder="shirt" style="width:80px;text-align:center;font-size:12px;" title="Lucide icon name (e.g. shirt, waves, zap)" />
+                <div class="svc-add-row" style="grid-template-columns:1fr 112px 116px 120px;gap:10px;max-width:600px;">
+                  <input class="svc-add-input" id="nrs-name" placeholder="Service name…" onkeydown="if(event.key==='Enter')saveNewRetailSvc()" />
                   <div class="svc-price-wrap">
                     <span class="svc-price-prefix">$</span>
                     <input class="svc-add-input" id="nrs-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
@@ -1862,10 +1861,12 @@
                     <option value="per_item">Per item</option>
                   </select>
                   <select class="svc-add-select" id="nrs-addon">
-                    <option value="false">Main</option>
+                    <option value="false">Main service</option>
                     <option value="true">Add-on</option>
                   </select>
-                  <button class="btn btn-primary" onclick="saveNewRetailSvc()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
+                  <div style="grid-column:1/-1;display:flex;justify-content:flex-end;padding-top:2px">
+                    <button class="btn btn-primary" onclick="saveNewRetailSvc()" style="font-size:12.5px;padding:6px 18px">+ Add Service</button>
+                  </div>
                 </div>
               </div>
               <!-- Sub-tab: Merchandise -->
@@ -12085,7 +12086,7 @@ ${oneCopy}
 
   async function saveNewRetailSvc() {
     const name = document.getElementById('nrs-name').value.trim();
-    const icon = document.getElementById('nrs-icon').value.trim() || 'package';
+    const icon = 'package';
     const price = parseFloat(document.getElementById('nrs-price').value);
     const pricingType = document.getElementById('nrs-type').value;
     const isAddon = document.getElementById('nrs-addon').value === 'true';
@@ -12101,7 +12102,6 @@ ${oneCopy}
     allRetailSvcs.push(data);
     renderRetailServices();
     document.getElementById('nrs-name').value = '';
-    document.getElementById('nrs-icon').value = '';
     document.getElementById('nrs-price').value = '';
     showToast(`${name} added`);
   }
