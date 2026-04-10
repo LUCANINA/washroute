@@ -1790,8 +1790,6 @@
                   <option value="per_item">Per item</option>
                   <option value="flat">Flat rate</option>
                 </select>
-                <!-- Populated dynamically by rebuildCategoryDropdowns() -->
-                <select class="svc-add-select" id="ns-category"></select>
                 <select class="svc-add-select" id="ns-addon">
                   <option value="false">Main service</option>
                   <option value="true">Add-on</option>
@@ -11604,12 +11602,12 @@ ${oneCopy}
     const name    = document.getElementById('ns-name').value.trim();
     const price   = parseFloat(document.getElementById('ns-price').value) || 0;
     const type    = document.getElementById('ns-type').value;
-    const cat     = document.getElementById('ns-category').value;
+    const cat     = document.getElementById('svc-cat-filter')?.value || 'Delivery';
     const isAddon = document.getElementById('ns-addon')?.value === 'true';
     if (!name) { document.getElementById('ns-name').focus(); document.getElementById('ns-name').style.borderColor='var(--red)'; setTimeout(()=>document.getElementById('ns-name').style.borderColor='',1500); return; }
     const maxSort = Math.max(0, ...allServices.map(s => s.sort_order||0));
     const { data, error } = await db.from('services').insert({
-      name, base_price: price, pricing_type: type, category: cat,
+      name, base_price: price, pricing_type: type, category: cat, pricelist: cat,
       is_active: true, show_in_app: true, is_addon: isAddon, sort_order: maxSort + 1
     }).select().single();
     if (error) { showToast(error.message,'error'); return; }
