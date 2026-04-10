@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=1200, initial-scale=1" />
 <title>Family Laundry POS — Mockup</title>
-<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1907,16 +1907,14 @@
   // Returns an inline SVG string. Falls back to 'package' if not found.
   function lucideIcon(name, size) {
     size = size || 22;
-    // Convert kebab-case to PascalCase for lucide lookup
-    const pascal = (name || 'package').replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperCase());
-    // lucide.icons[Name] is an array of [tag, attrs] child elements
-    const children = (typeof lucide !== 'undefined' && lucide.icons) ? lucide.icons[pascal] : null;
-    if (!children) {
-      const fb = (typeof lucide !== 'undefined' && lucide.icons) ? lucide.icons['Package'] : null;
-      if (!fb) return `<span style="font-size:${size}px;color:var(--gray-400);">?</span>`;
-      return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${fb.map(([tag, a]) => `<${tag} ${Object.entries(a).map(([k,v])=>`${k}="${v}"`).join(' ')}/>`).join('')}</svg>`;
-    }
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${children.map(([tag, a]) => `<${tag} ${Object.entries(a).map(([k,v])=>`${k}="${v}"`).join(' ')}/>`).join('')}</svg>`;
+    return `<i data-lucide="${name || 'package'}" style="width:${size}px;height:${size}px;"></i>`;
+  }
+  let _lucideRefreshTimer = null;
+  function refreshLucideIcons() {
+    clearTimeout(_lucideRefreshTimer);
+    _lucideRefreshTimer = setTimeout(() => {
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    }, 0);
   }
 
   /* ─── Tile rendering ───────────────────────────────────────── */
@@ -1936,6 +1934,7 @@
         </button>
       `;
     }).join('');
+    refreshLucideIcons();
   }
 
   function switchTab(tab, btn) {
@@ -2039,6 +2038,7 @@
       }).join('');
     }
     updateTotals();
+    refreshLucideIcons();
   }
 
   function updateTotals() {
@@ -2092,6 +2092,7 @@
         </button>
       `;
     }).join('');
+    refreshLucideIcons();
   }
 
   function toggleAddon(id) {

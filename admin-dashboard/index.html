@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Family Laundry — Admin</title>
-  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <link rel="apple-touch-icon" sizes="180x180" href="../assets/icon-admin-180.png" />
   <link rel="icon" type="image/png" sizes="512x512" href="../assets/icon-admin.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -11991,15 +11991,18 @@ ${oneCopy}
   }
 
   // ── Lucide icon helper ──
+  // Returns a placeholder <i> tag; call refreshLucideIcons() after setting innerHTML
   function lucideIcon(name, size) {
     size = size || 20;
-    const fallback = `<span style="font-size:${size}px;color:var(--gray-400);" title="${name||'?'}">&#9679;</span>`;
-    try {
-      const pascal = (name || 'package').replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperCase());
-      const children = (typeof lucide !== 'undefined' && lucide.icons) ? lucide.icons[pascal] : null;
-      if (!children || !Array.isArray(children)) return fallback;
-      return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${children.map(([tag, a]) => `<${tag} ${Object.entries(a).map(([k,v])=>`${k}="${v}"`).join(' ')}/>`).join('')}</svg>`;
-    } catch (e) { return fallback; }
+    return `<i data-lucide="${name || 'package'}" style="width:${size}px;height:${size}px;"></i>`;
+  }
+  // Call after any innerHTML update that includes lucideIcon() placeholders
+  let _lucideRefreshTimer = null;
+  function refreshLucideIcons() {
+    clearTimeout(_lucideRefreshTimer);
+    _lucideRefreshTimer = setTimeout(() => {
+      if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    }, 0);
   }
 
   // ── Retail laundry services (sub-tab 1) ──
@@ -12041,6 +12044,7 @@ ${oneCopy}
       html += addons.map(svcRow).join('');
     }
     body.innerHTML = html;
+    refreshLucideIcons();
   }
 
   async function updateRetailSvc(id, field, value) {
@@ -12132,6 +12136,7 @@ ${oneCopy}
         html += `</div>`;
       }
       bar.innerHTML = html;
+      refreshLucideIcons();
     }
     // Rebuild the "add new product" category dropdown
     const sel = document.getElementById('nm-category');
@@ -12235,6 +12240,7 @@ ${oneCopy}
         </div>`;
     });
     body.innerHTML = html;
+    refreshLucideIcons();
   }
 
   async function updateMerch(id, field, value) {
