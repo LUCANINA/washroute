@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 9, 2026 — Session 102: Per-lb pricing root cause fix in saveOrder() + DB correction for order #1407 (Kasa Hotels, $130.70 → $464.95).*
+*Last updated: Apr 10, 2026 — Session 101: POS wired to Supabase — service catalog + add-ons load from DB (Retail pricelist), customer lookup hits real customers table (admin auth required), Charge button creates real `orders` rows with `source='walk_in'`, walk-in queue panel with status advance (processing → ready → delivered). Migration: emoji column + Retail pricelist + 9 service rows. Fixed david@familylaundry.com role (driver → admin).*
 
 ---
 
@@ -512,81 +512,6 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
-<<<<<<< HEAD
-### Apr 9, 2026 (session 102) — Per-lb pricing root cause fix + order #1407 data correction
-
-**Context:** Continued from session 101. David flagged "weird display issues for some Commercial price list customers — Level Up being charged $1.75 per bag + overage." Investigation found the display rendering code was actually correct. The root cause was upstream in `saveOrder()`.
-
-**Root cause: `saveOrder()` always wrote per-bag line_items for per-lb services**
-
-The admin "Add Order" modal's `saveOrder()` function (admin-dashboard, ~line 13219) computed:
-```javascript
-const subtotal = basePrice * bags;  // WRONG for per-lb — weight unknown at creation
-line_items: [{ type:'base', label:`${bags} bags × ${fmtMoney(basePrice)}`, amount: subtotal }]
-```
-This always wrote `"N bags × $1.75"` regardless of whether the service was per_lb or per_bag. For Delivery customers this was fine. For Commercial (per-lb) customers it created a misleading base line item. When `saveIntake()` eventually ran with a correct version of the code, it overwrote the line_items correctly. But order #1407 went through intake with an older version before the per-lb guard was in `_buildIntakeLineItems()` — so the wrong label got permanently stored as `"9 bags × $1.75 = $15.75"` with a $105 overage line.
-
-**Fix applied to `saveOrder()`:**
-- Added `const isPerLb = svc?.pricing_type === 'per_lb'`
-- `subtotal = isPerLb ? 0 : basePrice * bags` (weight unknown until intake)
-- `line_items` for per-lb orders: delivery fee only (no misleading base entry)
-- `total_amount` for per-lb orders: just the delivery fee until intake
-
-**Files touched:** `admin-dashboard/index.html`
-**Commit:** `5b58079`
-
----
-
-**Order #1407 direct DB correction (Kasa Hotels La Monarca)**
-
-Found via query: order #1407 at status `ready_for_delivery` had wrong stored line_items `"9 bags × $1.75 = $15.75"` + `"35.0 lbs overage × $3.00/lb = $105"` = total $130.70. Correct calculation: 260 lbs × $1.75/lb = $455 + $9.95 delivery = **$464.95**.
-
-Confirmed: `billing_status = null`, `stripe_payment_intent_id = null`, `billing_type = 'on_account'` — not yet charged. Corrected directly in DB via SQL.
-
-No other active Commercial orders had wrong line_items. No delivered orders were affected.
-
-**⚠️ For future sessions:** If a Commercial (per-lb) order shows `"N bags × $1.75"` plus an overage row in the fold/rack panel, that means it was saved during the pre-fix era. The correct fix is to either push it back to intake and save (which triggers `saveIntake()` recalculation), or correct `line_items` and `total_amount` directly in the DB. `saveIntake()` has been correct for some time — the bug was only in `saveOrder()` at creation time.
-
----
-
-### Apr 9, 2026 (session 101) — Three bug fixes + pricelist data corrections
-
-**1. RCC hiding delivery stops for picked_up / processing orders (`admin-dashboard/index.html`)**
-
-The Route Command Center had a `NOT_READY_FOR_DELIVERY` filter in two places (`rccOpenRoute` and `rccRefreshRoute`) that silently suppressed delivery stops whenever the order status was `picked_up`, `processing`, or `folding`. This caused admins to see no stop at all on the route for customers whose laundry had been picked up but not yet processed — reported today as Lilly Huddy and Jeanette Coburn missing from their delivery routes.
-
-Root cause: the filter comment said "not ready to hand to driver" — a driver-side concern that was accidentally applied to the admin view. Admins need full stop visibility at all times. Removed from both locations. `DEAD_ORDER_STATUSES` (delivered, cancelled, skipped, etc.) still filter correctly.
-
-**Files touched:** `admin-dashboard/index.html`
-**Commit:** `e99fd5c`
-
----
-
-**2. RACK column silently hiding orders past a 20-item cap (`admin-dashboard/index.html`)**
-
-`loadRacking()` had `.limit(20)` causing any order ranked 21+ by `racked_at` to be invisible in the Processing Queue RACK column. With 36 orders at `ready_for_delivery` today, 16 orders were hidden — reported as Jennifer Polk (rank 23) not appearing in the RACK column. Several orders from Apr 7–8 (Constance Moore, Ellie Johnson, Lodestar Campus) were also invisible and potentially overdue.
-
-Removed the limit entirely. All `ready_for_delivery` orders now show.
-
-**Files touched:** `admin-dashboard/index.html`
-**Commit:** `dc915b5`
-
-⚠️ **For future sessions:** Do not add back `.limit()` to `loadRacking()`. If performance becomes a concern at very high volume, consider pagination rather than a hard cut-off that hides real work.
-
----
-
-**3. Pricelist backfill investigation + Kidango and Russell Moore corrections (DB-only)**
-
-Session 97's migration `20260408224501` backfilled the new `pricelist` column from `customer_type` using: `WHEN customer_type IN ('commercial', 'Commercial') THEN 'Commercial' ELSE 'Delivery'`. This correctly set most commercial accounts but wrongly set Kidango (and Russell Moore / USS Hornet) to `Commercial` — both are accounts that use Delivery-model pricing despite being commercial clients.
-
-**Kidango (16 sites):** Corrected `pricelist = 'Delivery'`. All historical orders were already priced at Delivery rates ($59/bag), so no order backfill was needed. The `pricelist` column error was display/routing only.
-
-**Russell Moore (USS Hornet, `events@uss-hornet.org`):** Corrected `pricelist = 'Delivery'`. No discount applied (David's decision). Note: two accounts share this email — Faye Navarro (already Delivery/residential) and Russell Moore. Both are now correctly on Delivery.
-
-**All other Commercial accounts reviewed and confirmed correct:** Anita Hodzic (BA House Cleaning), Suz Burroughs, Level Up Wellness & PT, Meg Lamberton, Brooke Rosenberg (Title Nine), Ruth Pardue (CrossFit SL), Kasa Hotel Addison, Kasa Hotels La Monarca, Homebase Shelter Program, Extended Stay America Emeryville/Oakland, Soul Sanctuary 1888 MLK (the three HCEB accounts are correctly on Commercial per David), David Macquart-Moulin (test account).
-
-**⚠️ For future sessions:** The `pricelist` backfill in migration `20260408224501` assumed `customer_type = 'commercial'` always means Commercial pricelist. That's not universally true — some commercial clients (nonprofits, museums) are billed at Delivery rates. Any new account tagged `commercial` should have its pricelist confirmed explicitly at setup time.
-=======
 ### Apr 10, 2026 (session 101) — POS wired to Supabase: live services, order creation, walk-in queue
 
 **Context:** Session 100 left the POS mockup as a design-only prototype with hardcoded data. This session wired it to the real Supabase database — the POS now creates actual orders, loads real service prices, and has a queue for managing walk-in laundry through the processing pipeline.
@@ -656,7 +581,6 @@ Session 97's migration `20260408224501` backfilled the new `pricelist` column fr
 5. **log_order_created actor for walk-in orders.** The trigger sets `actor_name='Customer'` for `source='walk_in'`. Would be more accurate as `'POS'` or the signed-in admin's name. Minor — not blocking.
 6. **Queue shows all walk-in orders, not just today's.** If old walk-in orders are left in `processing` or `ready_for_delivery` status, they'll appear in the queue. The daily audit should catch these as stale.
 7. **Session 100's "future sessions" note #1 is now resolved.** The POS is no longer design-only. Note #2 (add-on catalog from DB) is resolved. Note #4 (Retail pricelist) is resolved. Notes #3 (flat pricing assumption) and #5 (sober aesthetic baseline) still apply.
->>>>>>> 0de950a (feat: POS wired to Supabase — live services, order creation, walk-in queue (session 101))
 
 ---
 

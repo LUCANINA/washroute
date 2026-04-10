@@ -10,23 +10,6 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Family Laundry Admin" />
   <meta name="theme-color" content="#0f2744" />
-  <!-- ── AUTO-UPDATE: iOS web clip ignores HTTP cache headers and serves a
-       stale snapshot. This snippet runs before anything else: if the
-       embedded BUILD_TS differs from what's in localStorage the app reloads
-       once to fetch fresh content. Loop-safe because localStorage is written
-       BEFORE reload, so on the second load the values match and we stop.
-       UPDATE BUILD_TS whenever deploying changes that should reach the iPads. ── -->
-  <script>
-    (function() {
-      var BUILD_TS = '20260409_s101';
-      try {
-        if (localStorage.getItem('wr_admin_build') !== BUILD_TS) {
-          localStorage.setItem('wr_admin_build', BUILD_TS);
-          location.reload(true);
-        }
-      } catch(e) {}
-    })();
-  </script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -359,8 +342,12 @@
     .merch-cat { font-size:12px; color:var(--gray-400); font-weight:500; }
     .merch-price input { font-size:13px; font-weight:600; color:var(--gray-600); border:1px solid var(--gray-200); border-radius:6px; padding:4px 8px; width:72px; text-align:right; font-family:inherit; }
     .merch-price input:focus { outline:none; border-color:var(--accent); }
-    .pos-retail-row { display:grid; grid-template-columns:36px 1fr 90px 90px; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--gray-100); }
+    .pos-retail-row { display:grid; grid-template-columns:36px 1fr 90px 90px 52px 36px; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--gray-100); }
     .pos-retail-row:last-child { border-bottom:none; }
+    .pos-retail-row .merch-name input { font-size:14px; font-weight:500; color:var(--gray-800); border:none; background:transparent; width:100%; padding:0; font-family:inherit; }
+    .pos-retail-row .merch-name input:focus { outline:none; background:var(--gray-50); border-radius:4px; padding:2px 4px; }
+    .pos-retail-row .merch-price input { font-size:13px; font-weight:600; color:var(--gray-600); border:1px solid var(--gray-200); border-radius:6px; padding:4px 8px; width:72px; text-align:right; font-family:inherit; }
+    .pos-retail-row .merch-price input:focus { outline:none; border-color:var(--accent); }
     /* Prices tab */
     .prices-section { border-bottom:1px solid var(--gray-100); padding-bottom:4px; margin-bottom:4px; }
     .prices-section-header { display:flex; align-items:center; gap:8px; padding:14px 20px 8px; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.07em; color:var(--gray-500); }
@@ -1771,7 +1758,7 @@
                 <div class="card-sub" id="svc-count-label">Loading…</div>
               </div>
               <div style="display:flex;gap:8px;align-items:center" id="svc-header-controls">
-                <!-- Populated dynamically by rebuildCategoryDropdowns() -->
+                <span style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;">Price List</span>
                 <select class="form-select" id="svc-cat-filter" onchange="filterServices()" style="font-size:13px;padding:6px 10px;width:190px"></select>
               </div>
             </div>
@@ -1781,7 +1768,7 @@
               <button class="svc-page-tab"        id="svctab-btn-display"      onclick="svcPageTab('display',this)">App Display</button>
               <button class="svc-page-tab"        id="svctab-btn-fees"         onclick="svcPageTab('fees',this)">Fees</button>
               <button class="svc-page-tab"        id="svctab-btn-preferences"  onclick="svcPageTab('preferences',this)">Preferences</button>
-              <button class="svc-page-tab"        id="svctab-btn-categories"   onclick="svcPageTab('categories',this)">Categories</button>
+              <button class="svc-page-tab"        id="svctab-btn-categories"   onclick="svcPageTab('categories',this)">Price Lists</button>
               <button class="svc-page-tab"        id="svctab-btn-pos"          onclick="svcPageTab('pos',this)">Point of Sale</button>
             </div>
             <!-- Services tab -->
@@ -1853,10 +1840,28 @@
             <!-- Point of Sale tab -->
             <div id="svctab-pos" style="display:none">
               <div style="padding:16px 20px 8px;">
-                <div class="svc-section-title" style="margin-bottom:4px;">RETAIL LAUNDRY SERVICES</div>
-                <div style="font-size:12px;color:var(--gray-400);margin-bottom:10px;">Managed under the Retail pricelist in the Services tab</div>
+                <div class="svc-section-title" style="margin-bottom:4px;">LAUNDRY SERVICES</div>
+                <div style="font-size:12px;color:var(--gray-400);margin-bottom:10px;">Walk-in laundry services and add-ons shown on the POS register</div>
               </div>
-              <div id="pos-retail-services-body" style="padding:0 20px 12px;"></div>
+              <div id="pos-retail-services-body" style="padding:0 20px 0;"></div>
+              <!-- Add new retail service row -->
+              <div class="svc-add-row" style="gap:8px;" id="pos-svc-add-row">
+                <input class="svc-add-input" id="nrs-name" placeholder="New service name…" onkeydown="if(event.key==='Enter')saveNewRetailSvc()" style="flex:1" />
+                <input class="svc-add-input" id="nrs-emoji" placeholder="🧺" style="width:42px;text-align:center" />
+                <div class="svc-price-wrap">
+                  <span class="svc-price-prefix">$</span>
+                  <input class="svc-add-input" id="nrs-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
+                </div>
+                <select class="svc-add-select" id="nrs-type">
+                  <option value="per_lb">Per lb</option>
+                  <option value="per_item">Per item</option>
+                </select>
+                <select class="svc-add-select" id="nrs-addon">
+                  <option value="false">Main</option>
+                  <option value="true">Add-on</option>
+                </select>
+                <button class="btn btn-primary" onclick="saveNewRetailSvc()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
+              </div>
               <div style="padding:4px 20px 8px;border-top:1px solid var(--gray-100);">
                 <div class="svc-section-title" style="margin-bottom:4px;">MERCHANDISE</div>
                 <div style="font-size:12px;color:var(--gray-400);margin-bottom:10px;">Drinks, snacks &amp; supplies sold at the counter</div>
@@ -5081,7 +5086,8 @@
             else opRenderDetailsReadonly(allOrders[idx]);
             opPopulateBilling(allOrders[idx]); // refresh Billing tab charge button
           }
-          // Refresh RCC columns/map when order status changes
+          // Refresh RCC columns/map when order status changes (delivery stops may appear/disappear
+          // based on NOT_READY_FOR_DELIVERY filter as orders advance through the pipeline)
           if (_rccActiveRoutes.size > 0) {
             if (updated.pickup_run_id && _rccActiveRoutes.has(updated.pickup_run_id)) rccRefreshRoute(updated.pickup_run_id);
             if (updated.delivery_run_id && _rccActiveRoutes.has(updated.delivery_run_id)) rccRefreshRoute(updated.delivery_run_id);
@@ -11323,7 +11329,9 @@ ${oneCopy}
   }
 
   function rebuildCategoryDropdowns() {
-    const opts = allCategories.map(c => `<option value="${svcEsc(c.name)}">${svcEsc(c.name)}</option>`).join('');
+    // Hide "Retail" from the Services tab — retail is managed in the POS tab
+    const nonRetailCats = allCategories.filter(c => c.name !== 'Retail');
+    const opts = nonRetailCats.map(c => `<option value="${svcEsc(c.name)}">${svcEsc(c.name)}</option>`).join('');
     // Filter header dropdown — no "All" option, default to Delivery
     const filter = document.getElementById('svc-cat-filter');
     if (filter) {
@@ -11342,8 +11350,10 @@ ${oneCopy}
   }
 
   // Build <option> elements for a service row, pre-selecting the service's current category
+  // Hides "Retail" — retail services are managed exclusively in the POS tab
   function svcCatOptions(selected) {
-    return allCategories.map(c =>
+    const cats = allCategories.filter(c => c.name !== 'Retail' || c.name === selected);
+    return cats.map(c =>
       `<option value="${svcEsc(c.name)}"${c.name === selected ? ' selected' : ''}>${svcEsc(c.name)}</option>`
     ).join('') || `<option value="${svcEsc(selected)}">${svcEsc(selected)}</option>`;
   }
@@ -11951,48 +11961,109 @@ ${oneCopy}
   // ── POS TAB — Retail services + Merchandise management ──
 
   let allMerchandise = [];
+  let allRetailSvcs = [];
   let merchFilter = 'all';
 
   async function loadPosTab() {
-    // Load retail services (read-only view) + merchandise in parallel
+    // Load retail services + merchandise in parallel
     const [svcRes, merchRes] = await Promise.all([
-      db.from('services').select('id,name,emoji,base_price,pricing_type,is_addon,is_active').eq('pricelist','Retail').eq('is_active',true).order('is_addon').order('sort_order'),
+      db.from('services').select('id,name,emoji,base_price,pricing_type,is_addon,is_active,sort_order').eq('pricelist','Retail').order('is_addon').order('sort_order'),
       db.from('merchandise').select('*').order('category').order('sort_order').order('name')
     ]);
-    // Render retail services (read-only summary)
-    const retailSvcs = svcRes.data || [];
-    const retailBody = document.getElementById('pos-retail-services-body');
-    if (retailBody) {
-      if (retailSvcs.length === 0) {
-        retailBody.innerHTML = '<div style="padding:12px 0;color:var(--gray-400);font-size:13px;">No Retail services found. Add them in the Services tab with pricelist = Retail.</div>';
-      } else {
-        const mainSvcs = retailSvcs.filter(s => !s.is_addon);
-        const addons = retailSvcs.filter(s => s.is_addon);
-        let html = mainSvcs.map(s => `
-          <div class="pos-retail-row">
-            <div style="font-size:20px;text-align:center;">${svcEsc(s.emoji||'🧺')}</div>
-            <div style="font-size:14px;font-weight:500;color:var(--gray-800);">${svcEsc(s.name)}</div>
-            <div style="font-size:13px;font-weight:600;color:var(--gray-600);text-align:right;">$${Number(s.base_price).toFixed(2)}</div>
-            <div style="font-size:12px;color:var(--gray-400);">${s.pricing_type === 'per_lb' ? 'Per lb' : s.pricing_type === 'per_item' ? 'Per item' : s.pricing_type}</div>
-          </div>
-        `).join('');
-        if (addons.length) {
-          html += '<div style="padding:8px 0 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);border-top:1px solid var(--gray-100);margin-top:4px;">Add-ons</div>';
-          html += addons.map(s => `
-            <div class="pos-retail-row">
-              <div style="font-size:20px;text-align:center;">${svcEsc(s.emoji||'✨')}</div>
-              <div style="font-size:14px;font-weight:500;color:var(--gray-800);">${svcEsc(s.name)}</div>
-              <div style="font-size:13px;font-weight:600;color:var(--gray-600);text-align:right;">$${Number(s.base_price).toFixed(2)}</div>
-              <div style="font-size:12px;color:var(--gray-400);">Per drop-off</div>
-            </div>
-          `).join('');
-        }
-        retailBody.innerHTML = html;
-      }
-    }
-    // Store and render merchandise
+    allRetailSvcs = svcRes.data || [];
+    renderRetailServices();
     allMerchandise = merchRes.data || [];
     renderMerchandise();
+  }
+
+  function renderRetailServices() {
+    const body = document.getElementById('pos-retail-services-body');
+    if (!body) return;
+    if (allRetailSvcs.length === 0) {
+      body.innerHTML = '<div style="padding:12px 0;color:var(--gray-400);font-size:13px;">No retail services yet. Add one below.</div>';
+      return;
+    }
+    const mainSvcs = allRetailSvcs.filter(s => !s.is_addon);
+    const addons = allRetailSvcs.filter(s => s.is_addon);
+
+    function svcRow(s) {
+      const active = s.is_active !== false;
+      const typeLabel = s.pricing_type === 'per_lb' ? 'Per lb' : s.pricing_type === 'per_item' ? 'Per item' : s.pricing_type;
+      return `
+        <div class="pos-retail-row" style="${active ? '' : 'opacity:.45;'}">
+          <div style="font-size:20px;text-align:center;">${svcEsc(s.emoji||'🧺')}</div>
+          <div class="merch-name"><input value="${svcEsc(s.name)}" onblur="updateRetailSvc('${s.id}','name',this.value)" /></div>
+          <div class="merch-price"><input type="number" step="0.01" min="0" value="${Number(s.base_price).toFixed(2)}" onblur="updateRetailSvc('${s.id}','base_price',this.value)" /></div>
+          <div style="font-size:12px;color:var(--gray-400);">${typeLabel}</div>
+          <div style="text-align:center;">
+            <label class="toggle" style="--h:22px;--w:40px;">
+              <input type="checkbox" ${active ? 'checked' : ''} onchange="updateRetailSvc('${s.id}','is_active',this.checked)" />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+          </div>
+          <div style="text-align:center;">
+            <button onclick="deleteRetailSvc('${s.id}','${svcEsc(s.name)}')" style="background:none;border:none;cursor:pointer;font-size:14px;opacity:.4;padding:4px;" title="Delete">🗑</button>
+          </div>
+        </div>`;
+    }
+
+    let html = mainSvcs.map(svcRow).join('');
+    if (addons.length) {
+      html += '<div style="padding:8px 0 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);border-top:1px solid var(--gray-100);margin-top:4px;">ADD-ONS</div>';
+      html += addons.map(svcRow).join('');
+    }
+    body.innerHTML = html;
+  }
+
+  async function updateRetailSvc(id, field, value) {
+    const update = {};
+    if (field === 'base_price') {
+      const num = parseFloat(value);
+      if (isNaN(num) || num < 0) { showToast('Invalid price', 'error'); renderRetailServices(); return; }
+      update.base_price = num;
+    } else if (field === 'is_active') {
+      update.is_active = !!value;
+    } else if (field === 'name') {
+      if (!value.trim()) { showToast('Name cannot be empty', 'error'); renderRetailServices(); return; }
+      update.name = value.trim();
+    }
+    const { error } = await db.from('services').update(update).eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    allRetailSvcs = allRetailSvcs.map(s => s.id === id ? { ...s, ...update } : s);
+    if (field === 'is_active') renderRetailServices();
+    showToast('Updated');
+  }
+
+  async function saveNewRetailSvc() {
+    const name = document.getElementById('nrs-name').value.trim();
+    const emoji = document.getElementById('nrs-emoji').value.trim() || '🧺';
+    const price = parseFloat(document.getElementById('nrs-price').value);
+    const pricingType = document.getElementById('nrs-type').value;
+    const isAddon = document.getElementById('nrs-addon').value === 'true';
+    if (!name) { showToast('Enter a service name', 'error'); return; }
+    if (isNaN(price) || price < 0) { showToast('Enter a valid price', 'error'); return; }
+    const maxSort = allRetailSvcs.reduce((max, s) => Math.max(max, s.sort_order || 0), 0);
+    const { data, error } = await db.from('services').insert({
+      name, emoji, base_price: price, pricing_type: pricingType,
+      is_addon: isAddon, pricelist: 'Retail', category: 'Retail',
+      sort_order: maxSort + 1, is_active: true
+    }).select().single();
+    if (error) { showToast(error.message, 'error'); return; }
+    allRetailSvcs.push(data);
+    renderRetailServices();
+    document.getElementById('nrs-name').value = '';
+    document.getElementById('nrs-emoji').value = '';
+    document.getElementById('nrs-price').value = '';
+    showToast(`${emoji} ${name} added`);
+  }
+
+  async function deleteRetailSvc(id, name) {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    const { error } = await db.from('services').delete().eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    allRetailSvcs = allRetailSvcs.filter(s => s.id !== id);
+    renderRetailServices();
+    showToast(`"${name}" deleted`);
   }
 
   function filterMerch(cat, btn) {
@@ -13411,10 +13482,7 @@ ${oneCopy}
     // Calculate total from service base price × bags + delivery fee + same-day surcharge
     const svc = allServices.find(s => s.id === serviceId);
     const basePrice = svc ? parseFloat(svc.base_price || 0) : 0;
-    const isPerLb   = svc?.pricing_type === 'per_lb';
-    // Per-lb (Commercial): weight is unknown at order creation — base billed at intake.
-    // Per-bag (Delivery): estimate up front as bags × rate.
-    const subtotal  = isPerLb ? 0 : basePrice * bags;
+    const subtotal  = basePrice * bags;
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     const sameDaySurcharge = _noIsSameDay ? (_noSameDaySurcharge || 0) : 0;
@@ -13469,18 +13537,11 @@ ${oneCopy}
       tip_type:              _noTipType,
       discount_id:           discountId,
       is_same_day:           _noIsSameDay || false,
-      line_items:            isPerLb
-        // Per-lb: weight unknown until intake — don't write a misleading bags × rate label.
-        // Include known fees (delivery, same-day) so the order shows correct upfront costs.
-        ? [
-            ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : []),
-            ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge }] : [])
-          ]
-        : [
-            { type: 'base', label: `${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`, amount: subtotal },
-            ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : []),
-            ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge }] : [])
-          ],
+      line_items:            [
+        { type: 'base', label: `${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`, amount: subtotal },
+        ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : []),
+        ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge }] : [])
+      ],
       source:                'scheduled',
     }).select('id, order_number').single();
 
@@ -16786,8 +16847,11 @@ ${oneCopy}
       .eq('route_id', routeId)
       .order('stop_number');
 
+    const NOT_READY_FOR_DELIVERY = ['processing', 'folding', 'picked_up'];
     const activeStops = (stops||[]).filter(s => {
       if (!s.orders || DEAD_ORDER_STATUSES.includes(s.orders.status)) return false;
+      // Hide delivery stops for orders still being processed — not ready to hand to driver
+      if (s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY.includes(s.orders.status)) return false;
       return true;
     });
 
@@ -17323,8 +17387,10 @@ ${oneCopy}
       .eq('route_id', routeId)
       .order('stop_number');
 
+    const NOT_READY_FOR_DELIVERY2 = ['processing', 'folding', 'picked_up'];
     const activeStops = (stops||[]).filter(s => {
       if (!s.orders || DEAD_ORDER_STATUSES.includes(s.orders.status)) return false;
+      if (s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY2.includes(s.orders.status)) return false;
       return true;
     });
     // Resolve addresses: stop address_id → same-leg order address → other-leg → customer fallback
@@ -18923,7 +18989,8 @@ ${oneCopy}
                services(name),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
       .eq('status', 'ready_for_delivery')
-      .order('racked_at', { ascending: false });
+      .order('racked_at', { ascending: false })
+      .limit(20); // only show recently racked
     allRackOrders = data || [];
     document.getElementById('ptab-badge-rack')?.textContent !== undefined &&
       (document.getElementById('ptab-badge-rack').textContent = allRackOrders.length);
