@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 10, 2026 — Session 101: POS wired to Supabase — service catalog + add-ons load from DB (Retail pricelist), customer lookup hits real customers table (admin auth required), Charge button creates real `orders` rows with `source='walk_in'`, walk-in queue panel with status advance (processing → ready → delivered). Migration: emoji column + Retail pricelist + 9 service rows. Fixed david@familylaundry.com role (driver → admin).*
+*Last updated: Apr 10, 2026 — Session 103: Replaced all emojis with Lucide SVG icons in POS and admin dashboard. Migration renamed `emoji` → `icon` column on services and merchandise tables, seeded Lucide icon names. Added merchandise category rename/delete in admin. Session 102 added cash numpad, merchandise DB table, POS admin tab with sub-tabs.*
 
 ---
 
@@ -512,6 +512,87 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
+### Apr 10, 2026 (session 103) — Replace emojis with Lucide SVG icons + editable merchandise categories
+
+**Context:** Session 102 added the merchandise table and POS admin tab with emoji-based icons. David said emojis "drive him crazy" and asked for real SVG icons. Also wanted merchandise category names to be editable and deletable.
+
+**1. Database migration: `rename_emoji_to_icon_and_seed_lucide_names`.**
+- Renamed `emoji` column → `icon` on both `services` and `merchandise` tables.
+- Seeded all rows with Lucide icon names (kebab-case): `shirt`, `waves`, `wind`, `bed-double`, `zap`, `sparkles`, `droplet`, `refresh-cw` for services; `cup-soda`, `coffee`, `glass-water`, `candy`, `cookie`, `package`, `droplets`, `flask-conical`, `flower-2`, `file-text`, `spray-can`, `shopping-bag` for merchandise.
+
+**2. Lucide CDN + icon helper function in both apps.**
+- Added `<script src="https://unpkg.com/lucide@latest"></script>` to both `pos-mockup.html` and `admin-dashboard/index.html`.
+- Created `lucideIcon(name, size)` helper that converts kebab-case icon names to PascalCase, looks up the icon in `lucide.icons`, and returns an inline SVG string. Falls back to `Package` icon if not found.
+
+**3. POS app (pos-mockup.html) — all emoji references replaced.**
+- CSS: `.tile-emoji` → `.tile-icon`, `.cart-empty-emoji` → `.cart-empty-icon`, `.addon-chip-emoji` → `.addon-chip-icon`, `.tab-emoji` → `.tab-icon`.
+- Tile rendering uses `lucideIcon(s.icon)` instead of `s.emoji`.
+- Cart item names, addon pills, addon chips all use `lucideIcon()`.
+- Supabase queries select `icon` instead of `emoji`.
+- `dbRowToTile()` maps `row.icon` instead of `row.emoji`.
+- Order line items payload uses `icon` field instead of `emoji`.
+- Static HTML icons (tab bar, empty cart) use `data-lucide` attributes + `lucide.createIcons()` on init.
+
+**4. Admin dashboard — emoji inputs replaced with icon-name inputs.**
+- `#nrs-emoji` input → `#nrs-icon` (placeholder: "shirt", width: 80px).
+- `#nm-emoji` input → `#nm-icon` (placeholder: "package", width: 80px).
+- `renderRetailServices()` and `renderMerchandise()` use `lucideIcon()` instead of emoji text.
+- `saveNewRetailSvc()` and `saveNewMerch()` save `icon` field instead of `emoji`.
+- Trash-can emojis (🗑) replaced with `lucideIcon('trash-2', 16)`.
+- CSS: `.merch-emoji` → `.merch-icon`.
+
+**5. Merchandise category rename and delete.**
+- Each category pill in the filter bar now has pencil (rename) and X (delete) icon buttons.
+- `renameMerchCategory(oldName)` — prompts for new name, updates all merchandise in that category via `UPDATE merchandise SET category = newName WHERE category = oldName`.
+- `deleteMerchCategory(catName)` — confirms with product count, deletes all merchandise in the category from DB, removes from local state.
+
+**Files touched:**
+- `pos-mockup.html` — ~30 edits (Lucide CDN, icon helper, all emoji→icon replacements).
+- `admin-dashboard/index.html` — ~30 edits (Lucide CDN, icon helper, emoji→icon replacements, category edit/delete).
+- `PROJECT-NOTES.md` — this entry.
+
+**DB changes:**
+- Migration: `rename_emoji_to_icon_and_seed_lucide_names` (column rename + data seed).
+
+**⚠️ For future sessions:**
+1. **Lucide icon names are kebab-case strings** stored in the `icon` column. The `lucideIcon()` helper converts to PascalCase for lookup. When adding new services or merchandise, use valid Lucide icon names from https://lucide.dev/icons.
+2. **Other emojis remain in the codebase** — order status icons (🧺, 📦), queue badge, notification text, etc. These are UI decorations, not from the database. Replace them if desired in a future session.
+3. **Session 101 "future sessions" items #2 and #4 are now resolved** (merchandise table + cash numpad, done in session 102).
+
+---
+
+### Apr 10, 2026 (session 102) — Cash numpad + merchandise table + POS admin tab
+
+**Context:** Follow-up to session 101. Built three features: cash amount-tendered numpad with change calculation, a `merchandise` database table to replace hardcoded drinks/snacks/supplies, and a "Point of Sale" admin tab in Services & Pricing.
+
+**1. Cash numpad modal.**
+- New `#cashModal` with 10-key numpad, quick-amount buttons ($5, $10, $20, $50, $100, Exact), and real-time change calculation display.
+- Functions: `payWithCash()`, `cashKey()`, `cashQuickAmount()`, `cashExact()`, `renderCashDisplay()`, `closeCashModal()`, `cashCompleteSale()`.
+- Success screen shows change due via `#successChange` element.
+
+**2. Merchandise database table (migration: `create_merchandise_table`).**
+- New `merchandise` table: `id UUID`, `name TEXT`, `emoji TEXT` (later renamed to `icon` in session 103), `category TEXT`, `price NUMERIC`, `is_active BOOLEAN DEFAULT true`, `sort_order INTEGER`, `created_at TIMESTAMPTZ`.
+- RLS: anon read access, admin-only writes via `is_admin()`.
+- Seeded 24 products across 3 categories: Drinks (8), Snacks (8), Supplies (8).
+- POS app loads merchandise from DB, builds dynamic tab buttons per category.
+
+**3. POS admin tab in Services & Pricing.**
+- Added "Point of Sale" tab to the existing tab bar in Services & Pricing (not a sidebar nav item).
+- Two sub-tabs: "Laundry Services" and "Merchandise".
+- **Laundry Services sub-tab**: Editable inline name/price, active toggle, delete button, add-new row. Source of truth for Retail services (replaces the old Retail pricelist view).
+- **Merchandise sub-tab**: Dynamic category filter pills, editable product rows, add-new row with category dropdown, "+ Category" button for creating new categories.
+- Renamed "Categories" tab → "Price Lists" and added "Price List" label above the dropdown.
+- Hid Retail from the pricelist dropdown (it's managed in the POS tab now).
+
+**Files touched:**
+- `pos-mockup.html` — cash numpad modal + dynamic merchandise loading.
+- `admin-dashboard/index.html` — POS tab, sub-tabs, all CRUD functions.
+
+**DB changes:**
+- Migration: `create_merchandise_table` (new table + RLS + seed data).
+
+---
+
 ### Apr 10, 2026 (session 101) — POS wired to Supabase: live services, order creation, walk-in queue
 
 **Context:** Session 100 left the POS mockup as a design-only prototype with hardcoded data. This session wired it to the real Supabase database — the POS now creates actual orders, loads real service prices, and has a queue for managing walk-in laundry through the processing pipeline.
@@ -575,9 +656,9 @@ There are actually **two separate hang points** that must both be covered:
 
 **⚠️ For future sessions:**
 1. **POS is now live-data but not production-deployed.** `pos-mockup.html` creates real orders in the production Supabase database. It's still a standalone file opened locally — not deployed to Vercel. Treat orders from it as real.
-2. **Merchandise (drinks/snacks/supplies) is still hardcoded.** These items use short string IDs like `'coke'` and `'chips'` stored in `line_items` as `merch_id`. When a merchandise table is built, these should become real UUIDs. The `kind` field in line_items distinguishes `'service'` (real UUID) from `'merchandise'` (short ID).
+2. **~~Merchandise (drinks/snacks/supplies) is still hardcoded.~~** ✅ Resolved session 102 — `merchandise` table created, POS loads from DB, admin dashboard has Merchandise sub-tab.
 3. **Card payment is stubbed.** The terminal modal's "Simulate success" creates a real order with `billing_payment_method='card'` but no actual Stripe charge. Wiring Stripe Terminal is its own session.
-4. **Cash payment has no change calculator.** Tapping Cash immediately charges the full amount. The amount-tendered numpad with change calculation is a future feature.
+4. **~~Cash payment has no change calculator.~~** ✅ Resolved session 102 — cash numpad with quick-amount buttons and change calculation.
 5. **log_order_created actor for walk-in orders.** The trigger sets `actor_name='Customer'` for `source='walk_in'`. Would be more accurate as `'POS'` or the signed-in admin's name. Minor — not blocking.
 6. **Queue shows all walk-in orders, not just today's.** If old walk-in orders are left in `processing` or `ready_for_delivery` status, they'll appear in the queue. The daily audit should catch these as stale.
 7. **Session 100's "future sessions" note #1 is now resolved.** The POS is no longer design-only. Note #2 (add-on catalog from DB) is resolved. Note #4 (Retail pricelist) is resolved. Notes #3 (flat pricing assumption) and #5 (sober aesthetic baseline) still apply.
