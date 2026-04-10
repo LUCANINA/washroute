@@ -11986,11 +11986,10 @@ ${oneCopy}
   function lucideIcon(name, size) {
     size = size || 20;
     const pascal = (name || 'package').replace(/(^|-)([a-z])/g, (_, __, c) => c.toUpperCase());
-    const iconData = (typeof lucide !== 'undefined' && lucide.icons) ? lucide.icons[pascal] : null;
-    if (!iconData) return `<span style="font-size:${size}px;color:var(--gray-400);" title="${name||'?'}">?</span>`;
-    const [, attrs, children] = iconData;
-    const svgAttrs = Object.entries({...attrs, width: size, height: size}).map(([k,v]) => `${k}="${v}"`).join(' ');
-    return `<svg ${svgAttrs}>${children.map(([tag, a]) => `<${tag} ${Object.entries(a).map(([k,v])=>`${k}="${v}"`).join(' ')}/>`).join('')}</svg>`;
+    // lucide.icons[Name] is an array of [tag, attrs] child elements
+    const children = (typeof lucide !== 'undefined' && lucide.icons) ? lucide.icons[pascal] : null;
+    if (!children) return `<span style="font-size:${size}px;color:var(--gray-400);" title="${name||'?'}">?</span>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${children.map(([tag, a]) => `<${tag} ${Object.entries(a).map(([k,v])=>`${k}="${v}"`).join(' ')}/>`).join('')}</svg>`;
   }
 
   // ── Retail laundry services (sub-tab 1) ──
