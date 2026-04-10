@@ -1839,55 +1839,48 @@
             </div>
             <!-- Point of Sale tab -->
             <div id="svctab-pos" style="display:none">
-              <div style="padding:16px 20px 8px;">
-                <div class="svc-section-title" style="margin-bottom:4px;">LAUNDRY SERVICES</div>
-                <div style="font-size:12px;color:var(--gray-400);margin-bottom:10px;">Walk-in laundry services and add-ons shown on the POS register</div>
+              <!-- POS inner sub-tabs -->
+              <div style="display:flex;gap:0;border-bottom:1px solid var(--gray-100);padding:0 20px;background:var(--gray-50);">
+                <button class="svc-page-tab active pos-inner-tab" id="pos-subtab-btn-laundry" onclick="posSubTab('laundry',this)" style="font-size:13px;">Laundry Services</button>
+                <button class="svc-page-tab pos-inner-tab" id="pos-subtab-btn-merch" onclick="posSubTab('merch',this)" style="font-size:13px;">Merchandise</button>
               </div>
-              <div id="pos-retail-services-body" style="padding:0 20px 0;"></div>
-              <!-- Add new retail service row -->
-              <div class="svc-add-row" style="gap:8px;" id="pos-svc-add-row">
-                <input class="svc-add-input" id="nrs-name" placeholder="New service name…" onkeydown="if(event.key==='Enter')saveNewRetailSvc()" style="flex:1" />
-                <input class="svc-add-input" id="nrs-emoji" placeholder="🧺" style="width:42px;text-align:center" />
-                <div class="svc-price-wrap">
-                  <span class="svc-price-prefix">$</span>
-                  <input class="svc-add-input" id="nrs-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
+              <!-- Sub-tab: Laundry Services -->
+              <div id="pos-subtab-laundry">
+                <div id="pos-retail-services-body" style="padding:8px 20px 0;"></div>
+                <div class="svc-add-row" style="gap:8px;">
+                  <input class="svc-add-input" id="nrs-name" placeholder="New service name…" onkeydown="if(event.key==='Enter')saveNewRetailSvc()" style="flex:1" />
+                  <input class="svc-add-input" id="nrs-emoji" placeholder="🧺" style="width:42px;text-align:center" />
+                  <div class="svc-price-wrap">
+                    <span class="svc-price-prefix">$</span>
+                    <input class="svc-add-input" id="nrs-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
+                  </div>
+                  <select class="svc-add-select" id="nrs-type">
+                    <option value="per_lb">Per lb</option>
+                    <option value="per_item">Per item</option>
+                  </select>
+                  <select class="svc-add-select" id="nrs-addon">
+                    <option value="false">Main</option>
+                    <option value="true">Add-on</option>
+                  </select>
+                  <button class="btn btn-primary" onclick="saveNewRetailSvc()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
                 </div>
-                <select class="svc-add-select" id="nrs-type">
-                  <option value="per_lb">Per lb</option>
-                  <option value="per_item">Per item</option>
-                </select>
-                <select class="svc-add-select" id="nrs-addon">
-                  <option value="false">Main</option>
-                  <option value="true">Add-on</option>
-                </select>
-                <button class="btn btn-primary" onclick="saveNewRetailSvc()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
               </div>
-              <div style="padding:4px 20px 8px;border-top:1px solid var(--gray-100);">
-                <div class="svc-section-title" style="margin-bottom:4px;">MERCHANDISE</div>
-                <div style="font-size:12px;color:var(--gray-400);margin-bottom:10px;">Drinks, snacks &amp; supplies sold at the counter</div>
-              </div>
-              <!-- Merchandise category filter -->
-              <div style="padding:0 20px 10px;display:flex;gap:6px;">
-                <button class="btn btn-ghost pos-merch-filter active" onclick="filterMerch('all',this)" style="font-size:12px;padding:4px 12px;">All</button>
-                <button class="btn btn-ghost pos-merch-filter" onclick="filterMerch('Drinks',this)" style="font-size:12px;padding:4px 12px;">🥤 Drinks</button>
-                <button class="btn btn-ghost pos-merch-filter" onclick="filterMerch('Snacks',this)" style="font-size:12px;padding:4px 12px;">🍫 Snacks</button>
-                <button class="btn btn-ghost pos-merch-filter" onclick="filterMerch('Supplies',this)" style="font-size:12px;padding:4px 12px;">🧴 Supplies</button>
-              </div>
-              <div id="pos-merch-body" style="padding:0 20px;"></div>
-              <!-- Add new merchandise row -->
-              <div class="svc-add-row" style="gap:8px;">
-                <input class="svc-add-input" id="nm-name" placeholder="New product name…" onkeydown="if(event.key==='Enter')saveNewMerch()" style="flex:1" />
-                <input class="svc-add-input" id="nm-emoji" placeholder="📦" style="width:42px;text-align:center" />
-                <div class="svc-price-wrap">
-                  <span class="svc-price-prefix">$</span>
-                  <input class="svc-add-input" id="nm-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
+              <!-- Sub-tab: Merchandise -->
+              <div id="pos-subtab-merch" style="display:none;">
+                <!-- Dynamic category pills + "New Category" button -->
+                <div style="padding:12px 20px 10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;" id="pos-merch-filter-bar"></div>
+                <div id="pos-merch-body" style="padding:0 20px;"></div>
+                <!-- Add new merchandise row -->
+                <div class="svc-add-row" style="gap:8px;">
+                  <input class="svc-add-input" id="nm-name" placeholder="New product name…" onkeydown="if(event.key==='Enter')saveNewMerch()" style="flex:1" />
+                  <input class="svc-add-input" id="nm-emoji" placeholder="📦" style="width:42px;text-align:center" />
+                  <div class="svc-price-wrap">
+                    <span class="svc-price-prefix">$</span>
+                    <input class="svc-add-input" id="nm-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
+                  </div>
+                  <select class="svc-add-select" id="nm-category"></select>
+                  <button class="btn btn-primary" onclick="saveNewMerch()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
                 </div>
-                <select class="svc-add-select" id="nm-category">
-                  <option value="Drinks">Drinks</option>
-                  <option value="Snacks">Snacks</option>
-                  <option value="Supplies">Supplies</option>
-                </select>
-                <button class="btn btn-primary" onclick="saveNewMerch()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
               </div>
             </div>
           </div>
@@ -11963,9 +11956,19 @@ ${oneCopy}
   let allMerchandise = [];
   let allRetailSvcs = [];
   let merchFilter = 'all';
+  let merchCategories = []; // derived from DB data
+
+  // ── POS inner sub-tabs ──
+  function posSubTab(name, btn) {
+    ['laundry','merch'].forEach(n => {
+      const el = document.getElementById('pos-subtab-'+n);
+      if (el) el.style.display = n===name ? '' : 'none';
+      const b = document.getElementById('pos-subtab-btn-'+n);
+      if (b) b.classList.toggle('active', n===name);
+    });
+  }
 
   async function loadPosTab() {
-    // Load retail services + merchandise in parallel
     const [svcRes, merchRes] = await Promise.all([
       db.from('services').select('id,name,emoji,base_price,pricing_type,is_addon,is_active,sort_order').eq('pricelist','Retail').order('is_addon').order('sort_order'),
       db.from('merchandise').select('*').order('category').order('sort_order').order('name')
@@ -11973,14 +11976,17 @@ ${oneCopy}
     allRetailSvcs = svcRes.data || [];
     renderRetailServices();
     allMerchandise = merchRes.data || [];
+    rebuildMerchCategories();
     renderMerchandise();
   }
+
+  // ── Retail laundry services (sub-tab 1) ──
 
   function renderRetailServices() {
     const body = document.getElementById('pos-retail-services-body');
     if (!body) return;
     if (allRetailSvcs.length === 0) {
-      body.innerHTML = '<div style="padding:12px 0;color:var(--gray-400);font-size:13px;">No retail services yet. Add one below.</div>';
+      body.innerHTML = '<div style="padding:12px 0;color:var(--gray-400);font-size:13px;">No services yet. Add one below.</div>';
       return;
     }
     const mainSvcs = allRetailSvcs.filter(s => !s.is_addon);
@@ -12066,6 +12072,47 @@ ${oneCopy}
     showToast(`"${name}" deleted`);
   }
 
+  // ── Merchandise (sub-tab 2) — dynamic categories ──
+
+  function rebuildMerchCategories() {
+    // Derive categories from actual merchandise data
+    const catSet = new Set(allMerchandise.map(m => m.category).filter(Boolean));
+    merchCategories = [...catSet].sort();
+    // Rebuild filter pills
+    const bar = document.getElementById('pos-merch-filter-bar');
+    if (bar) {
+      let html = `<button class="btn btn-ghost pos-merch-filter${merchFilter==='all'?' active':''}" onclick="filterMerch('all',this)" style="font-size:12px;padding:4px 12px;">All</button>`;
+      merchCategories.forEach(cat => {
+        html += `<button class="btn btn-ghost pos-merch-filter${merchFilter===cat?' active':''}" onclick="filterMerch('${svcEsc(cat)}',this)" style="font-size:12px;padding:4px 12px;">${svcEsc(cat)}</button>`;
+      });
+      html += `<button class="btn btn-ghost" onclick="promptNewMerchCategory()" style="font-size:12px;padding:4px 10px;color:var(--accent);border:1px dashed var(--accent);opacity:.7;" title="Add a new category">+ Category</button>`;
+      bar.innerHTML = html;
+    }
+    // Rebuild the "add new product" category dropdown
+    const sel = document.getElementById('nm-category');
+    if (sel) {
+      const prev = sel.value;
+      sel.innerHTML = merchCategories.map(c => `<option value="${svcEsc(c)}"${c===prev?' selected':''}>${svcEsc(c)}</option>`).join('');
+    }
+  }
+
+  function promptNewMerchCategory() {
+    const name = prompt('New category name (e.g. "Detergent", "Accessories"):');
+    if (!name || !name.trim()) return;
+    const trimmed = name.trim();
+    if (merchCategories.includes(trimmed)) { showToast(`"${trimmed}" already exists`, 'error'); return; }
+    // Add it to the list immediately — it becomes real once a product is added to it
+    merchCategories.push(trimmed);
+    merchCategories.sort();
+    merchFilter = trimmed; // switch to the new category
+    rebuildMerchCategories();
+    renderMerchandise();
+    // Pre-select in the add-product dropdown
+    const sel = document.getElementById('nm-category');
+    if (sel) sel.value = trimmed;
+    showToast(`"${trimmed}" category created — add products below`);
+  }
+
   function filterMerch(cat, btn) {
     merchFilter = cat;
     document.querySelectorAll('.pos-merch-filter').forEach(b => b.classList.remove('active'));
@@ -12078,7 +12125,8 @@ ${oneCopy}
     if (!body) return;
     const items = merchFilter === 'all' ? allMerchandise : allMerchandise.filter(m => m.category === merchFilter);
     if (items.length === 0) {
-      body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px;">No merchandise found.</div>';
+      const msg = merchFilter === 'all' ? 'No merchandise yet. Add products below.' : `No products in "${merchFilter}" yet. Add one below.`;
+      body.innerHTML = `<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px;">${msg}</div>`;
       return;
     }
     let lastCat = '';
@@ -12113,17 +12161,16 @@ ${oneCopy}
     const update = {};
     if (field === 'price') {
       const num = parseFloat(value);
-      if (isNaN(num) || num < 0) { showToast('Invalid price', 'error'); loadPosTab(); return; }
+      if (isNaN(num) || num < 0) { showToast('Invalid price', 'error'); renderMerchandise(); return; }
       update.price = num;
     } else if (field === 'is_active') {
       update.is_active = !!value;
     } else if (field === 'name') {
-      if (!value.trim()) { showToast('Name cannot be empty', 'error'); loadPosTab(); return; }
+      if (!value.trim()) { showToast('Name cannot be empty', 'error'); renderMerchandise(); return; }
       update.name = value.trim();
     }
     const { error } = await db.from('merchandise').update(update).eq('id', id);
     if (error) { showToast(error.message, 'error'); return; }
-    // Update local array
     allMerchandise = allMerchandise.map(m => m.id === id ? { ...m, ...update } : m);
     if (field === 'is_active') renderMerchandise();
     showToast('Updated');
@@ -12135,6 +12182,7 @@ ${oneCopy}
     const price = parseFloat(document.getElementById('nm-price').value);
     const category = document.getElementById('nm-category').value;
     if (!name) { showToast('Enter a product name', 'error'); return; }
+    if (!category) { showToast('Select a category', 'error'); return; }
     if (isNaN(price) || price < 0) { showToast('Enter a valid price', 'error'); return; }
     const maxSort = allMerchandise.filter(m => m.category === category).reduce((max, m) => Math.max(max, m.sort_order || 0), 0);
     const { data, error } = await db.from('merchandise').insert({
@@ -12142,8 +12190,8 @@ ${oneCopy}
     }).select().single();
     if (error) { showToast(error.message, 'error'); return; }
     allMerchandise.push(data);
+    rebuildMerchCategories();
     renderMerchandise();
-    // Clear inputs
     document.getElementById('nm-name').value = '';
     document.getElementById('nm-emoji').value = '';
     document.getElementById('nm-price').value = '';
@@ -12155,6 +12203,7 @@ ${oneCopy}
     const { error } = await db.from('merchandise').delete().eq('id', id);
     if (error) { showToast(error.message, 'error'); return; }
     allMerchandise = allMerchandise.filter(m => m.id !== id);
+    rebuildMerchCategories();
     renderMerchandise();
     showToast(`"${name}" deleted`);
   }

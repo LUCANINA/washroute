@@ -1428,11 +1428,9 @@
 
         <!-- ─── LEFT: products ────────────────────────────── -->
         <div class="products">
-          <div class="tabs">
+          <div class="tabs" id="posTabs">
             <button class="tab active" onclick="switchTab('services', this)"><span class="tab-emoji">🧺</span> Laundry Services</button>
-            <button class="tab" onclick="switchTab('drinks', this)"><span class="tab-emoji">🥤</span> Drinks</button>
-            <button class="tab" onclick="switchTab('snacks', this)"><span class="tab-emoji">🍫</span> Snacks</button>
-            <button class="tab" onclick="switchTab('supplies', this)"><span class="tab-emoji">🧴</span> Detergents &amp; Supplies</button>
+            <!-- Merchandise tabs built dynamically from DB -->
           </div>
           <div class="tile-grid" id="tileGrid">
             <!-- Tiles injected by JS -->
@@ -1878,10 +1876,7 @@
      Drinks / snacks / supplies come from the `merchandise` table.
      ───────────────────────────────────────────────────────────── */
   let SERVICES = {
-    services: [], // from services table
-    drinks: [],   // from merchandise table
-    snacks: [],   // from merchandise table
-    supplies: []  // from merchandise table
+    services: []  // from services table; merchandise categories added dynamically
   };
 
   /* ─────────────────────────────────────────────────────────────
@@ -2948,6 +2943,12 @@
     document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('show'));
   }
 
+  // Helper: find merchandise items by category name (dynamic keys)
+  function getMerchCategory(name) {
+    const key = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    return SERVICES[key] || [];
+  }
+
   /* ─── Flow picker (lets David jump between states) ────────── */
   function showFlow(flow) {
     document.querySelectorAll('.flow-btn').forEach(b => b.classList.remove('active'));
@@ -2969,20 +2970,20 @@
           SERVICES.services[0], 1, 14.5,
           vinegar ? [vinegar] : []
         );
-        addToCart(SERVICES.drinks[0], 2);         // Coke x2
-        addToCart(SERVICES.snacks[2], 1);         // Snickers
-        addToCart(SERVICES.supplies[0], 3);       // Tide Pod x3
+        addToCart(getMerchCategory('Drinks')[0], 2);         // Coke x2
+        addToCart(getMerchCategory('Snacks')[2], 1);         // Snickers
+        addToCart(getMerchCategory('Supplies')[0], 3);       // Tide Pod x3
         break;
       }
       case 'weight':
-        addToCart(SERVICES.drinks[0], 1);
+        addToCart(getMerchCategory('Drinks')[0], 1);
         openWeightModal(SERVICES.services[0]);
         weightStr = '14.5';
         renderWeightDisplay();
         break;
       case 'weight-addons': {
         // Show the weight modal mid-entry with two add-ons already tapped
-        addToCart(SERVICES.drinks[0], 1);
+        addToCart(getMerchCategory('Drinks')[0], 1);
         openWeightModal(SERVICES.services[0]);
         weightStr = '14.5';
         const oxi = WEIGHT_ADDONS.find(a => /oxi/i.test(a.name));
@@ -3016,25 +3017,25 @@
         break;
       case 'attached':
         addToCart(SERVICES.services[0], 1, 14.5);
-        addToCart(SERVICES.drinks[0], 1);
+        addToCart(getMerchCategory('Drinks')[0], 1);
         attachCustomer('David Hernandez', '(510) 608-5446', 24);
         break;
       case 'pay':
         addToCart(SERVICES.services[0], 1, 14.5);
-        addToCart(SERVICES.drinks[0], 2);
-        addToCart(SERVICES.snacks[2], 1);
+        addToCart(getMerchCategory('Drinks')[0], 2);
+        addToCart(getMerchCategory('Snacks')[2], 1);
         openPay();
         break;
       case 'terminal':
         addToCart(SERVICES.services[0], 1, 14.5);
-        addToCart(SERVICES.drinks[0], 2);
+        addToCart(getMerchCategory('Drinks')[0], 2);
         showModal('terminalModal');
         updateTotals();
         break;
       case 'success':
         addToCart(SERVICES.services[0], 1, 14.5);
-        addToCart(SERVICES.drinks[0], 2);
-        addToCart(SERVICES.snacks[2], 1);
+        addToCart(getMerchCategory('Drinks')[0], 2);
+        addToCart(getMerchCategory('Snacks')[2], 1);
         showModal('successModal');
         updateTotals();
         break;
@@ -3090,22 +3091,37 @@
       SERVICES.services = services;
       WEIGHT_ADDONS = addons;
 
-      // Map merchandise → POS tile shape
-      const drinks = [], snacks = [], supplies = [];
+      // Map merchandise → POS tile shape, grouped by category
+      const merchByCategory = {};
+      let merchTotal = 0;
       for (const m of (merchRes.data || [])) {
         const tile = {
           id: m.id, emoji: m.emoji || '📦', name: m.name,
           price: Number(m.price), unit: 'ea', type: 'per_item'
         };
-        if (m.category === 'Drinks') drinks.push(tile);
-        else if (m.category === 'Snacks') snacks.push(tile);
-        else if (m.category === 'Supplies') supplies.push(tile);
+        const catKey = (m.category || 'Other').toLowerCase().replace(/[^a-z0-9]/g, '_');
+        if (!merchByCategory[catKey]) merchByCategory[catKey] = { label: m.category, items: [] };
+        merchByCategory[catKey].items.push(tile);
+        merchTotal++;
       }
-      SERVICES.drinks = drinks;
-      SERVICES.snacks = snacks;
-      SERVICES.supplies = supplies;
+      // Assign each category to SERVICES and build tab buttons
+      const tabBar = document.getElementById('posTabs');
+      // Remove old dynamic tabs (keep the first "Laundry Services" button)
+      const existingBtns = tabBar.querySelectorAll('.tab.merch-tab');
+      existingBtns.forEach(b => b.remove());
+      // Clear old dynamic keys from SERVICES (keep 'services')
+      Object.keys(SERVICES).forEach(k => { if (k !== 'services') delete SERVICES[k]; });
 
-      console.log(`[POS] Loaded ${services.length} services + ${addons.length} add-ons + ${drinks.length + snacks.length + supplies.length} merchandise from Supabase`);
+      for (const [catKey, { label, items }] of Object.entries(merchByCategory).sort((a,b) => a[1].label.localeCompare(b[1].label))) {
+        SERVICES[catKey] = items;
+        const btn = document.createElement('button');
+        btn.className = 'tab merch-tab';
+        btn.onclick = function() { switchTab(catKey, this); };
+        btn.innerHTML = `${label}`;
+        tabBar.appendChild(btn);
+      }
+
+      console.log(`[POS] Loaded ${services.length} services + ${addons.length} add-ons + ${merchTotal} merchandise (${Object.keys(merchByCategory).length} categories) from Supabase`);
     } catch (e) {
       console.error('[POS] loadRetailServices fatal:', e);
     }
