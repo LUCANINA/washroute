@@ -1762,6 +1762,7 @@
               <div style="display:flex;gap:8px;align-items:center" id="svc-header-controls">
                 <span style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;">Price List</span>
                 <select class="form-select" id="svc-cat-filter" onchange="filterServices()" style="font-size:13px;padding:6px 10px;width:190px"></select>
+                <button class="btn btn-ghost" id="svc-edit-toggle" onclick="toggleSvcEditMode()" style="font-size:11px;padding:3px 10px;display:inline-flex;align-items:center;gap:4px;color:var(--gray-400);border:1px solid var(--gray-200);border-radius:6px;transition:all .15s;margin-left:4px;" title="Edit services"><i data-lucide="lock" style="width:14px;height:14px;"></i> Edit</button>
               </div>
             </div>
             <!-- Tab bar -->
@@ -1776,8 +1777,8 @@
             <!-- Services tab -->
             <div id="svctab-services">
               <div id="services-table-body"></div>
-              <!-- Add new service row -->
-              <div class="svc-add-row">
+              <!-- Add new service row (hidden when locked) -->
+              <div class="svc-add-row" style="display:none">
                 <input class="svc-add-input" id="ns-name" placeholder="New service or product name…" onkeydown="if(event.key==='Enter')saveNewService()" />
                 <div class="svc-price-wrap">
                   <span class="svc-price-prefix">$</span>
@@ -4028,6 +4029,7 @@
   let allCategories      = []; // { id, name, sort_order }
   let allFees            = []; // { id, name, amount, fee_type, category, is_active, sort_order }
   let svcAutoSaveTimers  = {}; // debounced auto-save per service id
+  let svcEditMode        = false; // locked = clean read-only view
   let feeAutoSaveTimers  = {}; // debounced auto-save per fee id
   let currentConversation    = null;
   let currentConvPhone       = null;
@@ -11369,6 +11371,21 @@ ${oneCopy}
     if (name==='pos')         loadPosTab();
   }
 
+  function toggleSvcEditMode() {
+    svcEditMode = !svcEditMode;
+    const btn = document.getElementById('svc-edit-toggle');
+    if (btn) {
+      btn.innerHTML = `<i data-lucide="${svcEditMode ? 'lock-open' : 'lock'}" style="width:14px;height:14px;"></i> ${svcEditMode ? 'Done' : 'Edit'}`;
+      btn.style.color = svcEditMode ? 'var(--accent)' : 'var(--gray-400)';
+      btn.style.borderColor = svcEditMode ? 'var(--accent)' : 'var(--gray-200)';
+      refreshLucideIcons();
+    }
+    // Show/hide the add-new-service row
+    const addRow = document.querySelector('#svctab-services .svc-add-row');
+    if (addRow) addRow.style.display = svcEditMode ? '' : 'none';
+    filterServices();
+  }
+
   function filterServices() {
     const cat = document.getElementById('svc-cat-filter')?.value || '';
     const filtered = cat ? allServices.filter(s => (s.category||'') === cat) : allServices;
@@ -11384,9 +11401,9 @@ ${oneCopy}
       return;
     }
     function renderSortedRows(items) {
-      return items
-        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-        .map((s, i) => svcRow(s, i, items.length)).join('');
+      const sorted = items.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      if (!svcEditMode) return sorted.map(s => svcRowLocked(s)).join('');
+      return sorted.map((s, i) => svcRow(s, i, sorted.length)).join('');
     }
     const main   = data.filter(s => !s.is_addon);
     const addons = data.filter(s =>  s.is_addon);
@@ -11399,6 +11416,19 @@ ${oneCopy}
         <div class="svc-cat-header">Add-ons</div>
         ${addons.length ? renderSortedRows(addons) : `<div style="padding:12px 20px 28px;font-size:13px;color:var(--gray-400)">No add-ons yet. Use the Main button on a service to make it an add-on.</div>`}
       </div>`;
+  }
+
+  function svcRowLocked(s) {
+    const esc = v => (v||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    const typeLabels = { per_lb: 'Per lb', per_item: 'Per item', flat: 'Flat rate', per_bag: 'Per bag' };
+    const typeLabel = typeLabels[s.pricing_type] || s.pricing_type;
+    const activeColor = s.is_active ? 'var(--gray-800)' : 'var(--gray-300)';
+    const priceColor = s.is_active ? 'var(--gray-600)' : 'var(--gray-300)';
+    return `<div style="display:grid;grid-template-columns:1fr 100px 90px;gap:10px;padding:10px 20px;align-items:center;border-bottom:1px solid var(--gray-100);${s.is_active ? '' : 'opacity:.5;'}">
+      <div style="font-size:14px;font-weight:500;color:${activeColor}">${esc(s.name)}</div>
+      <div style="font-size:14px;font-weight:600;color:${priceColor};text-align:right">$${parseFloat(s.base_price||0).toFixed(2)}</div>
+      <div style="font-size:12px;color:var(--gray-400);text-align:right">${typeLabel}</div>
+    </div>`;
   }
 
   function svcRow(s, idx, total) {
