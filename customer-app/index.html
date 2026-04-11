@@ -1389,12 +1389,13 @@
 
       <div class="cd-divider"></div>
 
-      <!-- ── Password ── -->
-      <div class="cd-section">
+      <!-- ── Password (change existing) ── -->
+      <div class="cd-section" id="cd-pw-change-section">
         <div class="cd-section-label">Change Password</div>
         <div class="field">
           <label>Current password</label>
           <input type="password" id="cd-cur-pw" placeholder="Your current password" autocomplete="current-password">
+          <a href="#" id="cd-forgot-pw-link" onclick="sendPasswordResetEmail(event)" style="display:inline-block;margin-top:6px;font-size:13px;color:var(--accent);text-decoration:none;">Forgot password?</a>
         </div>
         <div class="field">
           <label>New password</label>
@@ -1405,8 +1406,30 @@
           <input type="password" id="cd-confirm-pw" placeholder="Repeat new password" autocomplete="new-password">
         </div>
       </div>
-
       <button class="cd-save-btn" id="cd-save-pw-btn" onclick="savePasswordChange()">Change Password</button>
+
+      <!-- ── Password (set first password — shown for passwordless users) ── -->
+      <div class="cd-section" id="cd-pw-set-section" style="display:none;">
+        <div class="cd-section-label">Set a Password</div>
+        <p id="cd-pw-set-desc" style="font-size:13px;color:#666;margin:0 0 12px;">You signed up without a password. Set one now so you can log in with email &amp; password in the future.</p>
+        <button class="cd-save-btn" id="cd-send-set-pw-btn" onclick="sendPasswordResetEmail(event)">Send Password Setup Email</button>
+      </div>
+
+      <!-- ── Password Recovery (shown when arriving via reset link) ── -->
+      <div id="cd-pw-recovery-section" style="display:none;padding:20px;">
+        <div class="cd-section">
+          <div class="cd-section-label">Set New Password</div>
+          <div class="field">
+            <label>New password</label>
+            <input type="password" id="cd-recovery-new-pw" placeholder="At least 8 characters" autocomplete="new-password">
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Confirm new password</label>
+            <input type="password" id="cd-recovery-confirm-pw" placeholder="Repeat new password" autocomplete="new-password">
+          </div>
+        </div>
+        <button class="cd-save-btn" id="cd-recovery-pw-btn" onclick="saveRecoveryPassword()">Set Password</button>
+      </div>
 
     </div>
   </div>
@@ -2191,6 +2214,25 @@ async function _handleCustomerSession(event, session) {
   }
 }
 db.auth.onAuthStateChange((event, session) => {
+  // ── PASSWORD RECOVERY ── let normal flow run first, then show recovery UI
+  if (event === 'PASSWORD_RECOVERY' && session?.user) {
+    // Let the normal handler load profile data so the app is functional
+    setTimeout(() => _handleCustomerSession(event, session), 0);
+    // After a short delay (to let profile load), show the recovery form
+    setTimeout(() => {
+      goTo('account');
+      // Hide normal password sections, show recovery form
+      const changeSection   = document.getElementById('cd-pw-change-section');
+      const setSection      = document.getElementById('cd-pw-set-section');
+      const recoverySection = document.getElementById('cd-pw-recovery-section');
+      if (changeSection)   changeSection.style.display   = 'none';
+      if (setSection)      setSection.style.display      = 'none';
+      if (recoverySection) recoverySection.style.display = '';
+      openSubPanel('sub-contact');
+      showToast('Welcome back! Please set your new password below.', 'success');
+    }, 800);
+    return; // don't run normal handler again below
+  }
   setTimeout(() => _handleCustomerSession(event, session), 0);
 });
 
@@ -6058,6 +6100,8 @@ function loadContactDetails() {
   document.getElementById('cd-cur-pw').value    = '';
   document.getElementById('cd-new-pw').value    = '';
   document.getElementById('cd-confirm-pw').value = '';
+  // Show the right password section based on whether the user has a password
+  renderPasswordSections();
 }
 
 async function saveContactInfo() {
@@ -6135,6 +6179,103 @@ async function saveEmailChange() {
     showToast(e.message || 'Could not update email — please try again', 'error');
   } finally {
     btn.disabled = false; btn.textContent = 'Update Email';
+  }
+}
+
+/* ── Password Reset / Set Password ── */
+async function sendPasswordResetEmail(e) {
+  if (e) e.preventDefault();
+  const email = currentUser?.email;
+  if (!email) { showToast('No email on file — please add an email address first.', 'error'); return; }
+
+  const btn = e?.target;
+  if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.textContent = 'Sending…'; }
+
+  try {
+    const redirectUrl = window.location.protocol === 'https:'
+      ? window.location.href.split('?')[0].split('#')[0]
+      : 'https://app.familylaundry.com/';
+    const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl });
+    if (error) throw error;
+    showToast('Check your inbox — we sent a link to reset your password.', 'success');
+  } catch (err) {
+    console.error('sendPasswordResetEmail:', err);
+    showToast(err.message || 'Could not send reset email — please try again.', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || 'Send'; }
+  }
+}
+
+async function saveRecoveryPassword() {
+  const btn       = document.getElementById('cd-recovery-pw-btn');
+  const newPw     = document.getElementById('cd-recovery-new-pw').value;
+  const confirmPw = document.getElementById('cd-recovery-confirm-pw').value;
+
+  if (newPw.length < 8)    { showToast('Password must be at least 8 characters', 'error'); return; }
+  if (newPw !== confirmPw) { showToast("Passwords don't match", 'error'); return; }
+
+  btn.disabled = true; btn.textContent = 'Setting password…';
+  try {
+    const { error } = await db.auth.updateUser({ password: newPw });
+    if (error) throw error;
+    document.getElementById('cd-recovery-new-pw').value     = '';
+    document.getElementById('cd-recovery-confirm-pw').value = '';
+    showToast('Password set successfully! You can now log in with your email and password.', 'success');
+    // Hide recovery section and show normal UI after a brief pause
+    setTimeout(() => {
+      document.getElementById('cd-pw-recovery-section').style.display = 'none';
+      // Clean the URL hash so recovery doesn't re-trigger on refresh
+      if (window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search);
+      // Show normal password change section
+      const changeSection = document.getElementById('cd-pw-change-section');
+      if (changeSection) changeSection.style.display = '';
+      const setSection = document.getElementById('cd-pw-set-section');
+      if (setSection) setSection.style.display = 'none';
+    }, 1500);
+  } catch (err) {
+    console.error('saveRecoveryPassword:', err);
+    showToast(err.message || 'Could not set password — please try again.', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Set Password';
+  }
+}
+
+/** Detect whether the current user has ever set a password.
+ *  Heuristic: if they have NO identities with provider === 'email' that
+ *  include a confirmed_at (i.e. they only signed in via phone or magic link),
+ *  they are passwordless. Also returns true if the only identity providers
+ *  are 'phone' or if identities array is empty. */
+function isPasswordlessUser() {
+  if (!currentUser) return false;
+  const identities = currentUser.identities || [];
+  if (identities.length === 0) return true;
+  // If every identity is phone-only, they have no password
+  const hasEmailIdentity = identities.some(i => i.provider === 'email');
+  if (!hasEmailIdentity) return true;
+  return false;
+}
+
+/** Show/hide the right password section based on whether the user has a password */
+function renderPasswordSections() {
+  const changeSection = document.getElementById('cd-pw-change-section');
+  const setSection    = document.getElementById('cd-pw-set-section');
+  if (!changeSection || !setSection) return;
+  if (isPasswordlessUser()) {
+    changeSection.style.display = 'none';
+    setSection.style.display    = '';
+    // If no email on file, adjust the message and disable the button
+    const desc = document.getElementById('cd-pw-set-desc');
+    const btn  = document.getElementById('cd-send-set-pw-btn');
+    if (!currentUser?.email) {
+      if (desc) desc.textContent = 'To set a password, first add an email address above, then come back here.';
+      if (btn) { btn.disabled = true; btn.textContent = 'Email required'; }
+    } else {
+      if (desc) desc.textContent = 'You signed up without a password. Set one now so you can log in with email & password in the future.';
+      if (btn) { btn.disabled = false; btn.textContent = 'Send Password Setup Email'; }
+    }
+  } else {
+    changeSection.style.display = '';
+    setSection.style.display    = 'none';
   }
 }
 
