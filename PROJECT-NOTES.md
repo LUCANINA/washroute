@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 10, 2026 — Session 105: Tip picker on order confirmation + password reset feature. Tips are now front-and-center when placing an order (preset buttons + custom input + $/% toggle). Pre-fills from customer default, saves to order and updates default for next time. Migrated 119 consistent tippers from old system. Also added password reset/set for passwordless users. Session 104: Services & POS UI polish + expired-session fix.*
+*Last updated: Apr 11, 2026 — Session 106: Split order feature for Processing Queue + tip type bug fix + commit.sh helper script. Launderers can now split any order equally between 2 or 3 people; bags and weight divide fractionally. New DB table: order_folding_assignments. Also fixed pre-existing admin bug where percentage tip defaults showed as dollar amounts in new-order form.*
 
 ---
 
@@ -511,6 +511,33 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 11, 2026 (session 106) — Split order feature + tip type bug fix + commit.sh
+
+**1. Split order between 2–3 launderers (Processing Queue → Folding panel)**
+- New DB table: `order_folding_assignments` (order_id, launderer_id, bags, weight_lbs) with RLS + indexes.
+- Fold panel (opened from Cleaning column) now has a "↔ Split between multiple people" toggle below the launderer grid.
+- Split mode shows a 2/3 people selector + per-slot launderer dropdowns. Bags and weight divide equally and fractionally (e.g. 1.5 bags · 9.5 lbs each). Same person can't appear twice.
+- "✓ Confirm Split" writes to `order_folding_assignments` + sets `folded_by_id` to first person for backward compat.
+- Single-person tap flow completely unchanged.
+- Fold card shows: `👥 Split: Maria, James (1.5 bags · 9.5 lbs each)`.
+- `assignFolderInline` (inline reassign dropdown on fold cards) also clears split rows + local map so card reverts to single-person display.
+
+**⚠️ For future sessions:**
+- `folded_by_id` on `orders` remains the "primary" launderer for all existing reports. Full split detail is in `order_folding_assignments`. When building launderer stats/reports, JOIN this table to get per-person fractional bags/weight.
+- `foldAssignmentsMap` (order_id → array of assignments) is populated in `loadFolding()` and used by both `renderFoldQueue()` and `renderFoldPanel()`.
+
+**2. Fixed admin tip type bug (pre-existing)**
+- `renderFoldPanel()` line checked `default_tip_type === 'percent'` but DB stores `'%'`. Percentage tip defaults showed as dollar amounts in admin's new-order form. Fixed to `=== '%'`.
+
+**3. `commit.sh` helper script**
+- Added `commit.sh` to repo root. Clears stale `.git/*.lock` files, stages all three app files, commits, and pushes. Usage: `./commit.sh "message"`. Run `chmod +x commit.sh` once to activate.
+
+**Files touched:**
+- `admin-dashboard/index.html` — split feature (all JS), tip type fix
+- `commit.sh` — new helper script (committed separately from David's terminal due to sandbox lock issue)
+
+---
 
 ### Apr 10, 2026 (session 105) — Password reset/set feature + old-system data migration
 
