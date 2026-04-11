@@ -3955,7 +3955,7 @@ function buildConfirmSummary() {
         const tipAmt = parseFloat(draft.tipAmount || 0);
         if (tipAmt <= 0) return '';
         const tipDollars = draft.tipType === '%' ? Math.round(total * tipAmt) / 100 : tipAmt;
-        const tipLabel = draft.tipType === '%' ? `Team tip (${tipAmt}%)` : 'Team tip';
+        const tipLabel = draft.tipType === '%' ? `Team Tip (${tipAmt}%)` : 'Team Tip';
         return `<div class="d-row"><span class="d-key">${tipLabel}</span><span class="d-val" style="color:var(--green);font-weight:600;">+${$m(tipDollars)}</span></div>`;
       })()}
       <div class="d-row" style="border-top:1.5px solid var(--gray-200);margin-top:4px;padding-top:14px">
