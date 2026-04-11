@@ -1423,11 +1423,6 @@
       <div class="cd-section" id="cd-pw-change-section">
         <div class="cd-section-label">Change Password</div>
         <div class="field">
-          <label>Current password</label>
-          <input type="password" id="cd-cur-pw" placeholder="Your current password" autocomplete="current-password">
-          <a href="#" id="cd-forgot-pw-link" onclick="sendPasswordResetEmail(event)" style="display:inline-block;margin-top:6px;font-size:13px;color:var(--accent);text-decoration:none;">Forgot password?</a>
-        </div>
-        <div class="field">
           <label>New password</label>
           <input type="password" id="cd-new-pw" placeholder="At least 8 characters" autocomplete="new-password">
         </div>
@@ -6402,38 +6397,21 @@ function renderPasswordSections() {
 
 async function savePasswordChange() {
   const btn       = document.getElementById('cd-save-pw-btn');
-  const curPw     = document.getElementById('cd-cur-pw').value;
   const newPw     = document.getElementById('cd-new-pw').value;
   const confirmPw = document.getElementById('cd-confirm-pw').value;
 
-  if (!curPw)                  { showToast('Please enter your current password', 'error'); return; }
-  if (newPw.length < 8)        { showToast('New password must be at least 8 characters', 'error'); return; }
-  if (newPw !== confirmPw)     { showToast("New passwords don't match", 'error'); return; }
-  if (newPw === curPw)         { showToast('New password must differ from your current one', 'error'); return; }
+  if (newPw.length < 8)    { showToast('Password must be at least 8 characters', 'error'); return; }
+  if (newPw !== confirmPw) { showToast("Passwords don't match", 'error'); return; }
 
-  btn.disabled = true; btn.textContent = 'Verifying…';
+  btn.disabled = true; btn.textContent = 'Updating…';
 
   try {
-    // Step 1 — re-authenticate to prove they know the current password
-    const { error: authErr } = await db.auth.signInWithPassword({
-      email:    currentUser.email,
-      password: curPw,
-    });
-    if (authErr) throw new Error('Current password is incorrect');
-
-    // Step 2 — set the new password
-    btn.textContent = 'Updating…';
-    const { error: pwErr } = await db.auth.updateUser({ password: newPw });
-    if (pwErr) throw pwErr;
-
-    // Clear fields so they don't linger
-    document.getElementById('cd-cur-pw').value    = '';
-    document.getElementById('cd-new-pw').value    = '';
+    const { error } = await db.auth.updateUser({ password: newPw });
+    if (error) throw error;
+    document.getElementById('cd-new-pw').value     = '';
     document.getElementById('cd-confirm-pw').value = '';
-
     showToast('Password changed successfully!', 'success');
   } catch (e) {
-    console.error('savePasswordChange:', e);
     showToast(e.message || 'Could not change password — please try again', 'error');
   } finally {
     btn.disabled = false; btn.textContent = 'Change Password';
