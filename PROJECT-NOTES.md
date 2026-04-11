@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 10, 2026 — Session 104: Services & POS UI polish + expired-session fix. Fixed Lucide icons (createIcons API). Edit-lock toggles for Services and Merchandise. Simplified add-row layouts. Fixed critical customer-facing bug: expired JWT caused "row-level security policy" error on order placement — added 3-layer session validation in customer app + increased JWT expiry to 24h. Session 103 replaced emojis with Lucide SVG icons.*
+*Last updated: Apr 10, 2026 — Session 105: Password reset/set feature for customer app. Passwordless users (phone OTP / magic link signups) can now set a password. Added "Forgot password?" link, Supabase recovery landing handler, and smart passwordless-user detection. Also migrated customer data from old system (discounts, access instructions, 3 new accounts). Session 104: Services & POS UI polish + expired-session fix.*
 
 ---
 
@@ -511,6 +511,40 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 10, 2026 (session 105) — Password reset/set feature + old-system data migration
+
+**Context:** Colleague John signed up via phone OTP and discovered there was no way to set a password — the Change Password form requires a current password that never existed. Also migrated customer data (discounts, delivery instructions) from the old Starchup system CSV exports.
+
+**1. Password reset/set feature for customer app (`customer-app/index.html`).**
+Three-part solution following industry best practices:
+
+- **"Forgot password?" link** — Added below the Current Password field. Calls `db.auth.resetPasswordForEmail()` with redirect back to `app.familylaundry.com`. Shows toast confirmation.
+- **Recovery landing handler** — `onAuthStateChange` intercepts `PASSWORD_RECOVERY` events (from Supabase reset email link). Navigates to Account Details, hides the normal password form, and shows a "Set New Password" form (new password + confirm only, no current password required). Calls `db.auth.updateUser({password})`. Cleans up URL hash after success so recovery doesn't re-trigger on refresh.
+- **Passwordless user detection** — `isPasswordlessUser()` checks `currentUser.identities` for `provider === 'email'`. If no email identity exists (phone-only or magic-link-only users), the "Change Password" section is hidden and a "Set a Password" section is shown instead, with a button to trigger the reset email flow. If user has no email on file, the button is disabled with a note to add an email first.
+
+New functions: `sendPasswordResetEmail()`, `saveRecoveryPassword()`, `isPasswordlessUser()`, `renderPasswordSections()`.
+`renderPasswordSections()` is called from `loadContactDetails()` so the right section shows every time Account Details opens.
+
+**2. Customer data migration from old system (Starchup CSV exports).**
+- **Discount mapping:** Matched customers from Feb/March 2026 order CSVs to Supabase by phone number (last 10 digits). Applied discounts: SENIORDISC → SENIORS (27 customers), NONPROFIT → NON PROFIT (7), EDUCATEDISC → EDUCATORS (3), VETERANDISC → VETERANS (3). LOVELAUNDRY skipped for now.
+- **Access instructions migration:** Migrated pickup/delivery instructions from CSVs into `customers.access_instructions` — 470 from February, 75 additional from March. Only filled empty fields (idempotent `WHERE access_instructions IS NULL OR = ''`).
+- **New accounts created:** Bobby Carver, Eugene Smith, Joyce Young — all with SENIORS discount pre-applied.
+
+**Files touched:**
+- `customer-app/index.html` — Password reset HTML sections + 4 new JS functions + recovery handler in `onAuthStateChange`.
+
+**QA findings:**
+- Blast radius clean — admin dashboard already has its own password recovery flow, driver app has no password change form.
+- Recovery handler initially skipped normal session loading (would leave `currentProfile` null). Fixed: now runs `_handleCustomerSession` first, then overlays recovery UI after 800ms delay.
+- Phone-only users with no email handled gracefully — button disabled with explanatory text.
+
+**⚠️ For future sessions:**
+1. **LOVELAUNDRY discount** not yet migrated — David explicitly skipped it. Also skipped: BERKREP, LAUNDRYDONE, 20PERCENTOFF, and one-time promo codes.
+2. **`isPasswordlessUser()` uses `currentUser.identities`** — this is populated by Supabase auth. If a user sets a password via recovery, their identity list updates to include `provider: 'email'`, so next time they open Account Details they'll see the normal "Change Password" form.
+3. **Supabase email templates** must be branded (already done in session 81) — the reset password email uses the Family Laundry template.
+
+---
 
 ### Apr 10, 2026 (session 104) — Services & POS UI polish + edit-lock toggles + add-row simplification
 
