@@ -1509,6 +1509,23 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
 <script>
+// ── AUTO-UPDATE (PWA tablet reload) ──────────────────────────────────────
+(function() {
+  let _wrVer = null;
+  async function _wrCheckVer() {
+    try {
+      const r = await fetch('/build-version.txt?t=' + Date.now(), { cache: 'no-store' });
+      const v = (await r.text()).trim();
+      if (_wrVer && v !== _wrVer) { window.location.reload(true); return; }
+      _wrVer = v;
+    } catch(e) {}
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _wrCheckVer(); });
+  setInterval(_wrCheckVer, 5 * 60 * 1000);
+  _wrCheckVer();
+})();
+// ─────────────────────────────────────────────────────────────────────────
+
 /* ── SUPABASE ── */
 const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';

@@ -10,9 +10,12 @@ fi
 # Clear any stale git lock files
 find .git -name "*.lock" -delete 2>/dev/null
 
-# Stage all tracked changes + commit.sh itself
+# Bump build version — triggers auto-reload on all tablets/PWAs
+date -u +"%Y%m%d%H%M%S" > build-version.txt
+
+# Stage all tracked changes + untracked helper files
 git add -u
-git add commit.sh
+git add commit.sh build-version.txt
 
 git commit -m "$1"
 git push
