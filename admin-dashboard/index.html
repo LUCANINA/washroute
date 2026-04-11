@@ -18902,6 +18902,8 @@ ${oneCopy}
 
   // ── FOLDING QUEUE ──
   let allFoldOrders = [], foldActiveOrder = null, foldSelectedLaunId = null;
+  let foldSplitMode = false, foldSplitCount = 2, foldSplitSelections = [null, null, null];
+  let foldAssignmentsMap = {}; // order_id → [{launderer_id, bags, weight_lbs}]
 
   async function loadFolding() {
     const wrap = document.getElementById('fold-queue-wrap');
@@ -18922,6 +18924,17 @@ ${oneCopy}
       .eq('status', 'folding')
       .order('updated_at', { ascending: true });
     allFoldOrders = orders || [];
+    // Load split assignments for folding orders
+    foldAssignmentsMap = {};
+    if (allFoldOrders.length) {
+      const { data: asgn } = await db.from('order_folding_assignments')
+        .select('order_id, launderer_id, bags, weight_lbs')
+        .in('order_id', allFoldOrders.map(o => o.id));
+      (asgn || []).forEach(a => {
+        if (!foldAssignmentsMap[a.order_id]) foldAssignmentsMap[a.order_id] = [];
+        foldAssignmentsMap[a.order_id].push(a);
+      });
+    }
     const fb = document.getElementById('ptab-badge-folding');
     if (fb) fb.textContent = allFoldOrders.length;
     renderFoldQueue();
@@ -18943,7 +18956,10 @@ ${oneCopy}
       const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
       const bags = o.total_bags || 1;
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
-      const folderName = allLaunCache.find(l => l.id === o.folded_by_id)?.name || null;
+      const splitAsgn  = foldAssignmentsMap[o.id] || [];
+      const folderName  = splitAsgn.length > 1
+        ? null
+        : (allLaunCache.find(l => l.id === o.folded_by_id)?.name || null);
       const alreadyPaid = !!o.stripe_payment_intent_id;
       const zoneName  = o.service_zones?.name  || '';
       const zoneColor = o.service_zones?.color || '#94a3b8';
@@ -18981,7 +18997,9 @@ ${oneCopy}
           <span>${o.services?.name||'Walk-in'}</span>
           ${Number(o.total_amount)>0 ? `<span style="font-weight:600;color:var(--gray-700)">${fmtMoney(o.total_amount)}</span>` : ''}
         </div>
-        ${folderName ? `<div style="font-size:12px;color:var(--gray-500)">👤 Folded by <strong style="color:var(--gray-700)">${folderName}</strong></div>` : ''}
+        ${splitAsgn.length > 1
+          ? `<div style="font-size:12px;color:var(--gray-500)">👥 Split: <strong style="color:var(--gray-700)">${splitAsgn.map(a => allLaunCache.find(l=>l.id===a.launderer_id)?.name?.split(' ')[0]||'?').join(', ')}</strong> <span style="color:var(--gray-400)">(${splitAsgn[0]?.bags} bags · ${splitAsgn[0]?.weight_lbs||'—'} lbs each)</span></div>`
+          : folderName ? `<div style="font-size:12px;color:var(--gray-500)">👤 Folded by <strong style="color:var(--gray-700)">${folderName}</strong></div>` : ''}
         ${noFolderBadge}
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
       </div>`;
@@ -18999,6 +19017,7 @@ ${oneCopy}
     if (order.stripe_payment_intent_id) { openRackPanel(orderId); return; }
     foldActiveOrder    = order;
     foldSelectedLaunId = null;
+    foldSplitMode = false; foldSplitCount = 2; foldSplitSelections = [null, null, null];
     const fn = order.customers?.first_name_cache || '';
     const ln = order.customers?.last_name_cache  || '';
     document.getElementById('fold-title').textContent    = `${fn} ${ln}`.trim() || 'Order';
@@ -19037,7 +19056,20 @@ ${oneCopy}
     }).join('');
     const notesHTML = o.special_instructions
       ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${o.special_instructions}"</div>` : '';
-    const folderName = o.folded_by_id ? (allLaunCache.find(l => l.id === o.folded_by_id)?.name || null) : null;
+    const existingAsgn = foldAssignmentsMap[o.id] || [];
+    const folderName = existingAsgn.length > 1
+      ? null // split — handled separately
+      : (o.folded_by_id ? (allLaunCache.find(l => l.id === o.folded_by_id)?.name || null) : null);
+    const processedByHTML = existingAsgn.length > 1
+      ? `<div class="fold-order-row"><span>Processed by</span><strong style="color:var(--accent)">👥 Split (${existingAsgn.length})</strong></div>`
+      : (folderName ? `<div class="fold-order-row"><span>Processed by</span><strong>👤 ${folderName}</strong></div>` : '');
+    // Split UI (only shown when foldSplitMode is active)
+    const splitUI = foldSplitMode ? _renderFoldSplitUI(activeLaun, bags, o.weight_lbs) : '';
+    // Dim single-person buttons when in split mode
+    const launGridHTML = foldSplitMode
+      ? `<div class="fold-laun-grid" style="opacity:0.35;pointer-events:none">${activeLaun.map(l =>
+          `<button class="fold-laun-btn">👤 ${l.name}</button>`).join('')}</div>`
+      : launHTML;
     document.getElementById('fold-body').innerHTML = `
       <div class="intake-section">
         <div class="intake-section-label">Order Summary</div>
@@ -19047,7 +19079,7 @@ ${oneCopy}
           <div class="fold-order-row"><span>Service</span><strong>${o.services?.name||'—'}</strong></div>
           <div class="fold-order-row"><span>Bags</span><strong>${bags} bag${bags!==1?'s':''}</strong></div>
           <div class="fold-order-row"><span>Weight</span><strong>${lbs}</strong></div>
-          ${folderName ? `<div class="fold-order-row"><span>Processed by</span><strong>👤 ${folderName}</strong></div>` : ''}
+          ${processedByHTML}
           ${liHTML ? `<div style="margin-top:8px;border-top:1px solid var(--gray-100);padding-top:8px">${liHTML}</div>` : ''}
           <div class="fold-order-row" style="margin-top:6px;border-top:1px solid var(--gray-200);padding-top:6px"><span style="font-weight:700">Total</span><strong style="color:var(--accent);font-size:15px">${fmtMoney(o.total_amount||0)}</strong></div>
           ${notesHTML}
@@ -19056,8 +19088,108 @@ ${oneCopy}
       ${_buildPickupDeliveryHTML(o)}
       <div class="intake-section">
         <div class="intake-section-label">Who is folding this order?</div>
-        ${launHTML}
+        ${launGridHTML}
+        <div style="margin-top:14px;text-align:center;border-top:1px solid var(--gray-100);padding-top:12px">
+          <button onclick="toggleFoldSplitMode()" style="background:none;border:none;font-size:12.5px;cursor:pointer;font-family:inherit;${foldSplitMode?'color:var(--red)':'color:var(--accent)'}">
+            ${foldSplitMode ? '✕ Cancel split' : '↔ Split between multiple people'}
+          </button>
+        </div>
+        ${splitUI}
       </div>`;
+  }
+
+  function _renderFoldSplitUI(activeLaun, bags, weightLbs) {
+    const perBags = (bags / foldSplitCount).toFixed(1);
+    const perLbs  = weightLbs ? (Number(weightLbs) / foldSplitCount).toFixed(1) : null;
+    const countBtnStyle = (n) =>
+      `padding:6px 18px;border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;transition:all .12s;` +
+      (foldSplitCount === n
+        ? `border:2px solid var(--accent);background:#ede9ff;color:var(--accent);`
+        : `border:2px solid var(--gray-200);background:white;color:var(--gray-600);`);
+    const allPicked = foldSplitSelections.slice(0, foldSplitCount).every(Boolean);
+    const slots = Array.from({length: foldSplitCount}).map((_, i) => {
+      const usedByOthers = foldSplitSelections.filter((id, j) => j !== i && id);
+      const opts = activeLaun
+        .filter(l => !usedByOthers.includes(l.id))
+        .map(l => `<option value="${l.id}"${foldSplitSelections[i]===l.id?' selected':''}>${l.name}</option>`)
+        .join('');
+      return `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span style="font-size:12px;color:var(--gray-500);width:60px;flex-shrink:0">Person ${i+1}</span>
+          <select onchange="setFoldSplitSlot(${i},this.value)"
+            style="flex:1;font-size:13px;padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;background:white;font-family:inherit;color:var(--gray-700)">
+            <option value="">— pick launderer —</option>
+            ${opts}
+          </select>
+          <span style="font-size:12px;color:var(--gray-400);white-space:nowrap">${perBags} bags${perLbs?' · '+perLbs+' lbs':''}</span>
+        </div>`;
+    }).join('');
+    return `
+      <div style="margin-top:12px;background:var(--gray-50);border-radius:10px;padding:14px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+          <span style="font-size:12px;color:var(--gray-500);font-weight:600">Split between</span>
+          <button onclick="setFoldSplitCount(2)" style="${countBtnStyle(2)}">2 people</button>
+          <button onclick="setFoldSplitCount(3)" style="${countBtnStyle(3)}">3 people</button>
+        </div>
+        ${slots}
+        <button onclick="confirmFoldSplit()"
+          style="width:100%;margin-top:8px;padding:11px;border-radius:8px;font-size:13px;font-weight:700;font-family:inherit;cursor:${allPicked?'pointer':'not-allowed'};border:none;background:${allPicked?'var(--accent)':'var(--gray-200)'};color:${allPicked?'white':'var(--gray-400)'};transition:all .12s">
+          ✓ Confirm Split
+        </button>
+      </div>`;
+  }
+
+  function toggleFoldSplitMode() {
+    foldSplitMode = !foldSplitMode;
+    foldSplitSelections = [null, null, null];
+    renderFoldPanel();
+  }
+
+  function setFoldSplitCount(n) {
+    foldSplitCount = n;
+    // Clear extra slots if shrinking
+    if (n === 2) foldSplitSelections[2] = null;
+    renderFoldPanel();
+  }
+
+  function setFoldSplitSlot(i, launId) {
+    foldSplitSelections[i] = launId || null;
+    renderFoldPanel();
+  }
+
+  async function confirmFoldSplit() {
+    const selected = foldSplitSelections.slice(0, foldSplitCount);
+    if (!selected.every(Boolean)) { showToast('Please pick a launderer for each slot', 'error'); return; }
+    if (new Set(selected).size < foldSplitCount) { showToast('Each person must be different', 'error'); return; }
+    const o    = foldActiveOrder;
+    const bags = (o.total_bags || 1) / foldSplitCount;
+    const lbs  = o.weight_lbs ? Number(o.weight_lbs) / foldSplitCount : null;
+    // Move order to folding, primary = first person
+    const { error } = await db.from('orders').update({
+      status: 'folding', folded_by_id: selected[0],
+      folded_at: new Date().toISOString(), updated_at: new Date().toISOString()
+    }).eq('id', o.id);
+    if (error) { showToast('Error saving: ' + error.message, 'error'); return; }
+    // Clear any previous split rows, then write new ones
+    await db.from('order_folding_assignments').delete().eq('order_id', o.id);
+    const rows = selected.map(launId => ({
+      order_id:     o.id,
+      launderer_id: launId,
+      bags:         Math.round(bags * 100) / 100,
+      weight_lbs:   lbs ? Math.round(lbs * 100) / 100 : null
+    }));
+    const { error: splErr } = await db.from('order_folding_assignments').insert(rows);
+    if (splErr) { showToast('Split save error: ' + splErr.message, 'error'); return; }
+    const names   = selected.map(id => allLaunCache.find(l => l.id === id)?.name || 'Launderer').join(', ');
+    const movedId = o.id;
+    const orderNum = o.order_number;
+    await logOrderEvent(o.id, 'folded', `Split between ${names}`, null, selected[0]);
+    closeFoldPanel();
+    ['proc-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
+    allCleanOrders = allCleanOrders.filter(x => x.id !== movedId);
+    allProcOrders  = allProcOrders.filter(x => x.id !== movedId);
+    showToast(`Order #${orderNum} split between ${names}`, 'success');
+    reloadColumns('cleaning', 'folding');
   }
 
   function selectFoldLaun(launId) {
@@ -19068,6 +19200,7 @@ ${oneCopy}
   function closeFoldPanel() {
     document.getElementById('fold-panel').classList.remove('open');
     foldActiveOrder = null; foldSelectedLaunId = null;
+    foldSplitMode = false; foldSplitCount = 2; foldSplitSelections = [null, null, null];
   }
 
   async function saveFolding() {
@@ -19084,6 +19217,8 @@ ${oneCopy}
       errEl.textContent = error.message; errEl.style.display = '';
       return;
     }
+    // Single-person assignment — clear any previous split rows
+    await db.from('order_folding_assignments').delete().eq('order_id', foldActiveOrder.id);
     const launName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
     const movedId  = foldActiveOrder.id;
     const orderNum = foldActiveOrder.order_number; // capture before closeFoldPanel() nulls foldActiveOrder
@@ -19105,6 +19240,9 @@ ${oneCopy}
       updated_at: new Date().toISOString()
     }).eq('id', orderId);
     if (error) { showToast('Could not assign: ' + error.message, 'error'); return; }
+    // Clear any split assignments — inline reassign always means single person
+    await db.from('order_folding_assignments').delete().eq('order_id', orderId);
+    foldAssignmentsMap[orderId] = [];
     const launName = allLaunCache.find(l => l.id === launId)?.name || 'Launderer';
     const order = allFoldOrders.find(o => o.id === orderId);
     if (order) order.folded_by_id = launId;
