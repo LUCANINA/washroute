@@ -1176,7 +1176,7 @@
 
         <!-- Tip picker -->
         <div class="tip-picker" id="tip-picker-section">
-          <div class="tip-picker-label">Add a tip for your driver</div>
+          <div class="tip-picker-label">Add a tip for the team</div>
           <div class="tip-presets" id="tip-presets">
             <button class="tip-preset-btn" onclick="selectTipPreset(0)">None</button>
             <button class="tip-preset-btn" onclick="selectTipPreset(5)">$5</button>
@@ -3955,7 +3955,7 @@ function buildConfirmSummary() {
         const tipAmt = parseFloat(draft.tipAmount || 0);
         if (tipAmt <= 0) return '';
         const tipDollars = draft.tipType === '%' ? Math.round(total * tipAmt) / 100 : tipAmt;
-        const tipLabel = draft.tipType === '%' ? `Driver tip (${tipAmt}%)` : 'Driver tip';
+        const tipLabel = draft.tipType === '%' ? `Team tip (${tipAmt}%)` : 'Team tip';
         return `<div class="d-row"><span class="d-key">${tipLabel}</span><span class="d-val" style="color:var(--green);font-weight:600;">+${$m(tipDollars)}</span></div>`;
       })()}
       <div class="d-row" style="border-top:1.5px solid var(--gray-200);margin-top:4px;padding-top:14px">
