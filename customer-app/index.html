@@ -2106,31 +2106,24 @@ async function handleSignOut() {
   // Clean up realtime subscription first
   if (_orderSub) { db.removeChannel(_orderSub); _orderSub = null; }
 
-  // Force local logout after 1.5s even if the Supabase network call stalls
-  const forceLogout = setTimeout(() => {
+  const doLocalLogout = () => {
+    if (currentUser?.id) clearUserCache(currentUser.id);
     appReady = false;
+    _authHandlerRunning = false;
     currentUser = currentProfile = currentCustomer = null;
     currentCards = [];
     document.getElementById('bottom-nav').style.display = 'none';
     showScreen('auth');
     showAuthPanel('hero');
-  }, 1500);
+  };
 
   try {
     await db.auth.signOut();
-    clearTimeout(forceLogout);
-    // onAuthStateChange will handle navigation — just clear the timer
   } catch (err) {
-    clearTimeout(forceLogout);
     console.error('Sign-out error:', err);
-    // Still log out locally even if the server call failed
-    appReady = false;
-    currentUser = currentProfile = currentCustomer = null;
-    currentCards = [];
-    document.getElementById('bottom-nav').style.display = 'none';
-    showScreen('auth');
-    showAuthPanel('hero');
   }
+  // Always navigate away immediately — don't rely on onAuthStateChange firing in browser
+  doLocalLogout();
 }
 
 function showMagicLink() {
