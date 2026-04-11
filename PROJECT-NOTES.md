@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 10, 2026 — Session 105: Password reset/set feature for customer app. Passwordless users (phone OTP / magic link signups) can now set a password. Added "Forgot password?" link, Supabase recovery landing handler, and smart passwordless-user detection. Also migrated customer data from old system (discounts, access instructions, 3 new accounts). Session 104: Services & POS UI polish + expired-session fix.*
+*Last updated: Apr 10, 2026 — Session 105: Tip picker on order confirmation + password reset feature. Tips are now front-and-center when placing an order (preset buttons + custom input + $/% toggle). Pre-fills from customer default, saves to order and updates default for next time. Migrated 119 consistent tippers from old system. Also added password reset/set for passwordless users. Session 104: Services & POS UI polish + expired-session fix.*
 
 ---
 
@@ -539,10 +539,32 @@ New functions: `sendPasswordResetEmail()`, `saveRecoveryPassword()`, `isPassword
 - Recovery handler initially skipped normal session loading (would leave `currentProfile` null). Fixed: now runs `_handleCustomerSession` first, then overlays recovery UI after 800ms delay.
 - Phone-only users with no email handled gracefully — button disabled with explanatory text.
 
+**3. Tip picker on order confirmation screen (`customer-app/index.html`).**
+- Added tip picker UI to Step 4 (confirmation), right above "Place Order" button. Preset buttons: None / $5 / $10 / $15, plus custom input with $ / % toggle.
+- Tip shows as a line item in the Pricing summary ("Driver tip" or "Driver tip (15%)") with green accent color, and is included in the Estimated Total.
+- `draft.tipAmount` and `draft.tipType` added to order draft object. Pre-filled from `currentCustomer.default_tip` / `default_tip_type` in `startNewOrder()`.
+- `placeOrder()` now writes `tip_amount` and `tip_type` to the orders table. Uses `'dollar'`/`'pct'` convention to match admin dashboard.
+- After order placement, updates `customers.default_tip` and `default_tip_type` so the next order pre-fills with whatever the customer chose — creating a "sticky tip" that follows their behavior.
+- New functions: `renderTipPicker()`, `selectTipPreset()`, `setTipType()`, `onTipCustomInput()`.
+- QA caught a value mismatch: initially wrote `'percent'` to `orders.tip_type` but admin uses `'pct'`. Fixed before commit.
+
+**4. Migrated consistent tippers from old system (Jan–Mar 2026 CSVs/XLSX).**
+- Analyzed 3 months of old Starchup order exports (Jan CSV, Feb XLSX, Mar XLSX) for the "Tip" column.
+- Identified 274 customers who tipped the same non-zero amount across 2+ orders.
+- Matched by phone (last 10 digits) to Supabase customers. Updated `default_tip` and `default_tip_type = '$'` only where current value was NULL or 0 (idempotent).
+- Result: 119 new customers got their default tip set. Total customers with tips: 1,070 (up from 951).
+- Top tippers: Rabun Jones ($50), Michael Figlock ($26), Tiffany Lewis ($25), Iwen W ($25).
+
+**5. Tip adoption baseline (for measuring impact).**
+- As of Apr 10: 55 tipped orders out of 1,814 in past 3 weeks = **3% tip rate**, $590 total, $10.73 avg.
+- With tip picker now front-and-center + 119 new defaults pre-filled, expect significant increase. Re-check in 2 weeks.
+
 **⚠️ For future sessions:**
 1. **LOVELAUNDRY discount** not yet migrated — David explicitly skipped it. Also skipped: BERKREP, LAUNDRYDONE, 20PERCENTOFF, and one-time promo codes.
 2. **`isPasswordlessUser()` uses `currentUser.identities`** — this is populated by Supabase auth. If a user sets a password via recovery, their identity list updates to include `provider: 'email'`, so next time they open Account Details they'll see the normal "Change Password" form.
 3. **Supabase email templates** must be branded (already done in session 81) — the reset password email uses the Family Laundry template.
+4. **`orders.tip_type` uses `'dollar'`/`'pct'`**, NOT `'$'`/`'%'`. The `customers.default_tip_type` uses `'$'`/`'%'`. The customer app translates between them. Pre-existing admin bug: line 13028 checks `=== 'percent'` instead of `=== '%'` when reading customer defaults — percentage tippers show as dollar in admin's new-order form.
+5. **Tip picker only appears on one-time orders placed via customer app.** Recurring orders created by admin also have tip fields (already wired). Driver app has no tip UI.
 
 ---
 
