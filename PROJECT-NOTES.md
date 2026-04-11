@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 11, 2026 — Session 106: Split order feature for Processing Queue + tip type bug fix + commit.sh helper script. Launderers can now split any order equally between 2 or 3 people; bags and weight divide fractionally. New DB table: order_folding_assignments. Also fixed pre-existing admin bug where percentage tip defaults showed as dollar amounts in new-order form.*
+*Last updated: Apr 11, 2026 — Session 107: Customer app UX polish — Account Details spacing, sign-out browser fix, Special Care Notes two-way sync with Preferences, tip label rename ("driver" → "team").*
 
 ---
 
@@ -511,6 +511,31 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 11, 2026 (session 107) — Customer app UX polish + sign-out fix + Special Care Notes sync
+
+**1. Account Details divider spacing**
+- Reduced `.cd-divider` margin from `28px 0` to `19px 0` (one third reduction) for tighter spacing between section buttons and the next field.
+
+**2. Customer app sign-out fixed in browser**
+- `handleSignOut()` previously relied on `onAuthStateChange` firing after `db.auth.signOut()` to navigate away. In browser (non-PWA) contexts this event sometimes doesn't fire, leaving the user stuck on the app screen with a frozen "Signing out…" button.
+- Fixed: local cleanup (clear state, hide nav, show auth screen) now runs immediately after the `signOut()` call regardless of auth event.
+
+**3. Special Care Notes — two-way sync between order flow and Preferences**
+- Notes are stored as `_notes` key inside the existing `customers.preferences` JSON column (no DB migration needed).
+- **Order step 3:** textarea pre-fills from `preferences._notes` on first visit; restores typed text if customer goes back and returns to that step.
+- **Preferences tab:** "Special Care Notes" textarea added at the bottom of the Laundry Preferences panel. Pre-fills from saved notes when opened. Saved alongside other preference toggles.
+- **Order placement:** notes are merged back into `preferences` (as `_notes`) when the order is placed, so they persist for next time automatically.
+- **Key implementation note:** Uses `draft.specialInstructions === undefined` to detect "never visited step 3 this session" vs. `null` (explicitly cleared). `mergedPrefs` always starts from `currentCustomer.preferences` so existing pref toggles are never overwritten.
+
+**4. Tip label rename**
+- "Add a tip for your driver" → "Add a tip for the team" (order step 4 header)
+- "Driver tip" / "Driver tip (X%)" → "Team Tip" / "Team Tip (X%)" (confirm summary row)
+
+**Files touched:**
+- `customer-app/index.html` — all changes above
+
+---
 
 ### Apr 11, 2026 (session 106) — Split order feature + tip type bug fix + commit.sh
 
