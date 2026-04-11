@@ -524,29 +524,39 @@
 
     /* ── CARD ON FILE ── */
     /* Credits block */
-    .credits-block { display: flex; align-items: center; justify-content: space-between; border-radius: 14px; padding: 16px; margin-bottom: 20px; border: 1.5px solid; }
-    .credits-active { background: #f0fdf4; border-color: #86efac; }
-    .credits-empty  { background: var(--gray-50); border-color: var(--gray-200); }
-    .credits-left { display: flex; align-items: center; gap: 12px; }
-    .credits-icon { font-size: 24px; flex-shrink: 0; }
-    .credits-label { font-size: 14px; font-weight: 700; color: var(--text); }
-    .credits-note  { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
-    .credits-amount { font-size: 22px; font-weight: 800; color: #16a34a; }
-    .credits-empty .credits-amount { color: var(--gray-300); }
+    /* ── Payment Method — unified section style ── */
+    .pm-section { margin-bottom: 24px; }
+    .pm-row { display: flex; align-items: center; justify-content: space-between; background: white; border: 1.5px solid var(--gray-200); border-radius: 12px; padding: 14px 16px; }
+    .pm-row + .pm-row { margin-top: 8px; }
 
+    /* Credits */
+    .credits-dot { width: 8px; height: 8px; border-radius: 50%; background: #16a34a; flex-shrink: 0; }
+    .credits-dot.empty { background: var(--gray-300); }
+    .credits-label { font-size: 14px; font-weight: 600; color: var(--text); }
+    .credits-note  { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+    .credits-amount { font-size: 16px; font-weight: 700; color: #16a34a; }
+    .credits-amount.empty { color: var(--gray-300); }
+
+    /* Tip */
+    .tip-toggle-btn { padding: 6px 14px; font-size: 13px; font-weight: 600; border: none; cursor: pointer; transition: all .15s; font-family: inherit; }
+    .tip-toggle-btn.active { background: var(--navy); color: white; }
+    .tip-toggle-btn:not(.active) { background: white; color: var(--gray-500); }
+
+    /* Cards */
     .card-section { padding: 0 18px 18px; }
-    .card-box { display: flex; align-items: center; justify-content: space-between; background: var(--gray-50); border: 1.5px solid var(--gray-200); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+    .card-box { display: flex; align-items: center; justify-content: space-between; background: white; border: 1.5px solid var(--gray-200); border-radius: 12px; padding: 14px 16px; margin-bottom: 8px; }
     .card-left { display: flex; align-items: center; gap: 12px; }
     .card-chip { background: var(--navy); color: white; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 6px; text-transform: uppercase; letter-spacing: .4px; flex-shrink: 0; }
-    .card-info { font-size: 14.5px; font-weight: 600; }
-    .card-sub  { font-size: 12px; color: var(--gray-400); margin-top: 1px; }
-    .card-actions { display: flex; gap: 8px; }
-    .card-btn { padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--gray-200); background: white; color: var(--navy); transition: all .15s; }
-    .card-btn:hover { border-color: var(--navy); }
-    .card-btn.danger { color: #dc2626; border-color: #fecaca; }
-    .card-btn.danger:hover { background: #fef2f2; border-color: #dc2626; }
-    .no-card-box { background: #fffbeb; border: 1.5px dashed #fbbf24; border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 12px; }
-    .no-card-box p { font-size: 13.5px; color: #92400e; margin-bottom: 10px; line-height: 1.5; }
+    .card-info { font-size: 14px; font-weight: 600; color: var(--text); }
+    .card-sub  { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+    .card-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .card-default-badge { font-size: 10px; font-weight: 700; color: var(--accent); background: #ede9ff; border-radius: 4px; padding: 2px 7px; letter-spacing: .3px; }
+    .card-remove-btn { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--gray-200); background: white; color: var(--gray-400); font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; line-height: 1; }
+    .card-remove-btn:hover { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
+    .card-add-btn { width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid var(--gray-300); background: white; color: var(--navy); font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s; font-family: inherit; margin-top: 4px; }
+    .card-add-btn:hover { border-color: var(--navy); background: var(--gray-50); }
+    .no-card-box { background: var(--gray-50); border: 1.5px dashed var(--gray-300); border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 8px; }
+    .no-card-box p { font-size: 13px; color: var(--gray-500); margin: 0 0 10px; line-height: 1.5; }
     .charged-after { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 16px; padding: 12px; background: #f0f9ff; border-radius: var(--radius); border: 1px solid #bae6fd; color: #0369a1; font-size: 13.5px; font-weight: 600; }
     .card-prompt-banner { margin: 14px 18px 4px; background: #fffbeb; border: 1.5px solid #fde68a; border-radius: var(--radius); padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .card-prompt-banner p { font-size: 13px; color: #92400e; line-height: 1.45; flex: 1; }
@@ -5747,7 +5757,7 @@ async function startSubscription(planId) {
 
 /* ── CARD MANAGEMENT ── */
 async function startCardSetup() {
-  const btn = document.getElementById('btn-add-card') || document.querySelector('.cpb-add');
+  const btn = document.getElementById('btn-add-card') || document.querySelector('.card-add-btn') || document.querySelector('.cpb-add');
   if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
   try {
     const { data: { session } } = await db.auth.getSession();
@@ -5827,81 +5837,78 @@ function renderPaymentSection() {
   const credits = parseFloat(c?.credits || 0);
   const hasCredits = credits > 0;
 
-  // Credits block — always shown
+  // ── Credits ──
   const creditsHtml = `
-    <div class="credits-block ${hasCredits ? 'credits-active' : 'credits-empty'}">
-      <div class="credits-left">
-        <div class="credits-icon">${hasCredits ? '🎁' : '💳'}</div>
-        <div>
-          <div class="credits-label">Store Credits</div>
-          <div class="credits-note">${hasCredits ? 'Applied automatically before your card' : 'No credits on your account'}</div>
+    <div class="pm-section">
+      <div class="pref-title">Store Credits</div>
+      <div class="pm-row">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="credits-dot${hasCredits ? '' : ' empty'}"></div>
+          <div>
+            <div class="credits-label">${hasCredits ? 'Account credit' : 'No credits'}</div>
+            <div class="credits-note">${hasCredits ? 'Applied automatically before your card' : 'Credits will appear here when added'}</div>
+          </div>
         </div>
+        <div class="credits-amount${hasCredits ? '' : ' empty'}">${$m(credits)}</div>
       </div>
-      <div class="credits-amount">${$m(credits)}</div>
     </div>`;
 
-  // Card block — show all cards on file
+  // ── Default Tip ──
+  const tipVal  = parseFloat(c?.default_tip || 0);
+  const tipType = c?.default_tip_type || '$';
+  _custTipType  = tipType;
+  const tipHtml = `
+    <div class="pm-section">
+      <div class="pref-title">Default Tip</div>
+      <div class="pm-row" style="flex-wrap:wrap;gap:10px">
+        <div style="font-size:13px;color:var(--gray-500);flex:1;min-width:120px">Added automatically to each order</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+          <div id="tip-type-toggle" style="display:inline-flex;border:1.5px solid var(--gray-200);border-radius:8px;overflow:hidden">
+            <button type="button" class="tip-toggle-btn${tipType==='$'?' active':''}" data-type="$" onclick="setCustomerTipType('$')">$</button>
+            <button type="button" class="tip-toggle-btn${tipType==='%'?' active':''}" data-type="%" onclick="setCustomerTipType('%')">%</button>
+          </div>
+          <input type="number" id="cust-tip-input" value="${tipVal}" min="0" step="any" placeholder="0"
+            style="width:64px;padding:7px 8px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;font-weight:600;text-align:center;outline:none;font-family:inherit">
+          <button id="cust-tip-save" onclick="saveCustomerTip()"
+            style="padding:7px 16px;background:var(--navy);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .15s">Save</button>
+        </div>
+      </div>
+    </div>`;
+
+  // ── Payment Cards ──
   const now = new Date();
   let cardsListHtml = '';
   if (currentCards.length === 0) {
-    cardsListHtml = `
-      <div class="no-card-box">
-        <p>No card on file. Add one and we'll charge you automatically after each order.</p>
-      </div>`;
+    cardsListHtml = `<div class="no-card-box"><p>No card on file. Add one and we'll charge you automatically after each order.</p></div>`;
   } else {
     cardsListHtml = currentCards.map(card => {
-      const brand   = (card.card_brand || 'card').charAt(0).toUpperCase() + (card.card_brand || 'card').slice(1);
+      const brand   = (card.card_brand || 'card').toUpperCase();
       const exp     = (card.card_exp_month && card.card_exp_year)
         ? `${String(card.card_exp_month).padStart(2,'0')}/${String(card.card_exp_year).slice(-2)}` : '';
       const expYr   = card.card_exp_year, expMo = card.card_exp_month;
       const expired = expYr && expMo && (expYr < now.getFullYear() || (expYr === now.getFullYear() && expMo < now.getMonth() + 1));
       const pmId    = card.stripe_payment_method_id;
       return `
-        <div class="card-box" style="margin-bottom:10px">
+        <div class="card-box">
           <div class="card-left">
             <div class="card-chip">${brand}</div>
             <div>
-              <div class="card-info" style="display:flex;align-items:center;gap:6px">
-                •••• •••• •••• ${card.card_last4}
-                ${card.is_default ? '<span style="background:#ede9ff;color:#635bff;font-size:10px;font-weight:700;border-radius:4px;padding:2px 6px;line-height:1.4">DEFAULT</span>' : ''}
-                ${expired ? '<span style="color:#dc2626;font-size:11px;font-weight:600">EXPIRED</span>' : ''}
-              </div>
-              ${exp ? `<div class="card-sub">Expires ${exp}</div>` : ''}
+              <div class="card-info">•••• ${card.card_last4}${exp ? `  <span class="card-sub" style="display:inline;margin-left:6px">Exp ${exp}</span>` : ''}${expired ? ' <span style="color:#dc2626;font-size:11px;font-weight:700">EXPIRED</span>' : ''}</div>
             </div>
           </div>
-          <button class="card-btn danger" style="padding:6px 12px;font-size:12px" onclick="removeCard('${pmId}')">Remove</button>
+          <div class="card-right">
+            ${card.is_default ? '<span class="card-default-badge">DEFAULT</span>' : ''}
+            <button class="card-remove-btn" onclick="removeCard('${pmId}')" title="Remove card">×</button>
+          </div>
         </div>`;
     }).join('');
   }
 
-  // Tip block
-  const tipVal  = parseFloat(c?.default_tip || 0);
-  const tipType = c?.default_tip_type || '$';
-  _custTipType  = tipType;
-  const tipHtml = `
-    <div class="card-section" style="margin-bottom:6px">
-      <div class="pref-title">Default Tip</div>
-      <div style="font-size:13px;color:var(--gray-500);margin-bottom:12px">Added automatically to each order</div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <div id="tip-type-toggle" style="display:inline-flex;border:1.5px solid var(--gray-200);border-radius:8px;overflow:hidden;flex-shrink:0">
-          <button type="button" class="tip-tog ${tipType === '$' ? 'active' : ''}" data-type="$" onclick="setCustomerTipType('$')"
-            style="padding:7px 14px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all .15s;${tipType === '$' ? 'background:var(--navy);color:white' : 'background:white;color:var(--gray-500)'}">$</button>
-          <button type="button" class="tip-tog ${tipType === '%' ? 'active' : ''}" data-type="%" onclick="setCustomerTipType('%')"
-            style="padding:7px 14px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all .15s;${tipType === '%' ? 'background:var(--navy);color:white' : 'background:white;color:var(--gray-500)'}">%</button>
-        </div>
-        <input type="number" id="cust-tip-input" value="${tipVal}" min="0" step="any" placeholder="0"
-          style="width:80px;padding:8px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:15px;font-weight:500;text-align:center;outline:none">
-        <button id="cust-tip-save" onclick="saveCustomerTip()" style="padding:8px 18px;background:var(--navy);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s">Save</button>
-      </div>
-    </div>`;
-
   const cardHtml = `
-    <div class="card-section">
+    <div class="pm-section">
       <div class="pref-title">Payment Cards</div>
       ${cardsListHtml}
-      <div class="card-actions" style="margin-top:4px">
-        <button class="card-btn" id="btn-add-card" onclick="startCardSetup()" style="background:var(--navy);color:white;border-color:var(--navy)">+ Add Card</button>
-      </div>
+      <button class="card-add-btn" onclick="startCardSetup()">+ Add Card</button>
     </div>`;
 
   el.innerHTML = creditsHtml + tipHtml + cardHtml;
@@ -5911,10 +5918,8 @@ let _custTipType = currentCustomer?.default_tip_type || '$';
 
 function setCustomerTipType(type) {
   _custTipType = type;
-  document.querySelectorAll('#tip-type-toggle .tip-tog').forEach(btn => {
-    const isActive = btn.dataset.type === type;
-    btn.style.background = isActive ? 'var(--navy)' : 'white';
-    btn.style.color      = isActive ? 'white' : 'var(--gray-500)';
+  document.querySelectorAll('#tip-type-toggle .tip-toggle-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.type === type);
   });
 }
 
