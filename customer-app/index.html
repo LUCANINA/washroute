@@ -6213,8 +6213,7 @@ function loadContactDetails() {
   // Email from auth user — always the confirmed/active email
   document.getElementById('cd-email').value = currentUser?.email || '';
   // Clear any leftover password entries
-  document.getElementById('cd-cur-pw').value    = '';
-  document.getElementById('cd-new-pw').value    = '';
+  document.getElementById('cd-new-pw').value     = '';
   document.getElementById('cd-confirm-pw').value = '';
   // Show the right password section based on whether the user has a password
   renderPasswordSections();
