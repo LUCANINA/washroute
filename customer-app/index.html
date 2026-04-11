@@ -346,6 +346,18 @@
     .d-row:last-child { border-bottom: none; }
     .d-key { font-size: 14px; color: var(--gray-600); }
     .d-val { font-size: 14px; font-weight: 600; text-align: right; max-width: 58%; }
+    /* Tip picker */
+    .tip-picker { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 16px; margin-top: 12px; }
+    .tip-picker-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); margin-bottom: 10px; }
+    .tip-presets { display: flex; gap: 8px; margin-bottom: 10px; }
+    .tip-preset-btn { flex: 1; padding: 10px 0; border: 1.5px solid var(--gray-200); border-radius: 10px; background: white; font-size: 15px; font-weight: 600; color: var(--gray-600); cursor: pointer; transition: all .15s; font-family: inherit; }
+    .tip-preset-btn.active { border-color: var(--accent); background: rgba(99,91,255,.06); color: var(--accent); }
+    .tip-custom-row { display: flex; align-items: center; gap: 8px; }
+    .tip-type-toggle { display: flex; border: 1.5px solid var(--gray-200); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+    .tip-type-btn { padding: 8px 14px; font-size: 14px; font-weight: 600; border: none; background: white; color: var(--gray-400); cursor: pointer; font-family: inherit; transition: all .15s; }
+    .tip-type-btn.active { background: var(--accent); color: white; }
+    .tip-custom-input { flex: 1; padding: 9px 12px; border: 1.5px solid var(--gray-200); border-radius: 8px; font-size: 15px; font-family: inherit; color: var(--text); outline: none; }
+    .tip-custom-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
 
     /* ── ACCOUNT ── */
     .acct-hero { background: var(--navy); padding: 24px 20px 20px; color: white; flex-shrink: 0; }
@@ -1147,6 +1159,24 @@
             </div>
             <div class="confirm-or">or</div>
             <button class="confirm-signin-link" onclick="saveDraftToSession();showScreen('auth');switchTab('login')">Sign in to an existing account</button>
+          </div>
+        </div>
+
+        <!-- Tip picker -->
+        <div class="tip-picker" id="tip-picker-section">
+          <div class="tip-picker-label">Add a tip for your driver</div>
+          <div class="tip-presets" id="tip-presets">
+            <button class="tip-preset-btn" onclick="selectTipPreset(0)">None</button>
+            <button class="tip-preset-btn" onclick="selectTipPreset(5)">$5</button>
+            <button class="tip-preset-btn" onclick="selectTipPreset(10)">$10</button>
+            <button class="tip-preset-btn" onclick="selectTipPreset(15)">$15</button>
+          </div>
+          <div class="tip-custom-row">
+            <div class="tip-type-toggle">
+              <button class="tip-type-btn active" id="tip-type-dollar" onclick="setTipType('$')">$</button>
+              <button class="tip-type-btn" id="tip-type-pct" onclick="setTipType('%')">%</button>
+            </div>
+            <input type="number" class="tip-custom-input" id="tip-custom-input" placeholder="Custom amount" min="0" step="1" oninput="onTipCustomInput()">
           </div>
         </div>
 
@@ -2599,7 +2629,7 @@ function restoreDraftFromSession() {
 }
 
 function startNewOrder() {
-  draft = { address: '', lat: null, lng: null, zoneId: null, addressId: null, deliveryAddressId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], deliveryDate: null, deliveryWindow: null, _deliveryOptions: [], _windowsForDate: null, recurring: '', prefs: {}, _addrComponents: null, isSameDay: false, _sameDaySurcharge: 0, _sameDayWindows: [] };
+  draft = { address: '', lat: null, lng: null, zoneId: null, addressId: null, deliveryAddressId: null, bags: 1, pickupDate: null, pickupWindow: null, availableWindows: [], deliveryDate: null, deliveryWindow: null, _deliveryOptions: [], _windowsForDate: null, recurring: '', prefs: {}, _addrComponents: null, isSameDay: false, _sameDaySurcharge: 0, _sameDayWindows: [], tipAmount: 0, tipType: '$' };
   orderStep = 0;
   calMonth  = new Date();
   // Reset address UI
@@ -2622,6 +2652,11 @@ function startNewOrder() {
   if (savedSection) savedSection.style.display = 'none';
   if (newAddrEntry) newAddrEntry.style.display = '';
   if (diffToggle)   diffToggle.style.display = '';
+  // Pre-fill tip from customer's default (set in preferences or from last order)
+  if (currentCustomer) {
+    draft.tipAmount = parseFloat(currentCustomer.default_tip || 0);
+    draft.tipType   = currentCustomer.default_tip_type || '$';
+  }
   showScreen('new-order');
   renderStep(0);
   initOrderStep0(); // load saved addresses (async — updates UI when ready)
@@ -3010,7 +3045,7 @@ async function goOrderStep(step) {
     renderOrderPrefs();
   }
 
-  if (step === 4) { buildConfirmSummary(); await renderConfirmAuth(); }
+  if (step === 4) { buildConfirmSummary(); renderTipPicker(); await renderConfirmAuth(); }
   if (step === 0) { initOrderStep0(); }
   orderStep = step;
   renderStep(step);
@@ -3886,11 +3921,72 @@ function buildConfirmSummary() {
       ${addonRows}
       ${routeFees.map(f => `<div class="d-row"><span class="d-key">${escHtml(f.name)}</span><span class="d-val">+${$m(parseFloat(f.amount||0))}</span></div>`).join('')}
       ${sameDayFee > 0 ? `<div class="d-row"><span class="d-key">⚡ Same-day surcharge</span><span class="d-val" style="color:var(--accent);font-weight:600;">+${$m(sameDayFee)}</span></div>` : ''}
+      ${(() => {
+        const tipAmt = parseFloat(draft.tipAmount || 0);
+        if (tipAmt <= 0) return '';
+        const tipDollars = draft.tipType === '%' ? Math.round(total * tipAmt) / 100 : tipAmt;
+        const tipLabel = draft.tipType === '%' ? `Driver tip (${tipAmt}%)` : 'Driver tip';
+        return `<div class="d-row"><span class="d-key">${tipLabel}</span><span class="d-val" style="color:var(--green);font-weight:600;">+${$m(tipDollars)}</span></div>`;
+      })()}
       <div class="d-row" style="border-top:1.5px solid var(--gray-200);margin-top:4px;padding-top:14px">
         <span class="d-key" style="font-weight:700;font-size:15px">Estimated Total</span>
-        <span class="d-val" style="font-size:17px;font-weight:800;color:var(--navy)">${$m(total)}</span>
+        <span class="d-val" style="font-size:17px;font-weight:800;color:var(--navy)">${$m((() => {
+          const tipAmt = parseFloat(draft.tipAmount || 0);
+          const tipDollars = draft.tipType === '%' ? Math.round(total * tipAmt) / 100 : tipAmt;
+          return total + (tipAmt > 0 ? tipDollars : 0);
+        })())}</span>
       </div>
     </div>`;
+}
+
+/* ── TIP PICKER ── */
+function renderTipPicker() {
+  const amt     = parseFloat(draft.tipAmount || 0);
+  const type    = draft.tipType || '$';
+  const input   = document.getElementById('tip-custom-input');
+  const dolBtn  = document.getElementById('tip-type-dollar');
+  const pctBtn  = document.getElementById('tip-type-pct');
+
+  // Set type toggle
+  if (dolBtn) dolBtn.classList.toggle('active', type === '$');
+  if (pctBtn) pctBtn.classList.toggle('active', type === '%');
+
+  // Set custom input value
+  if (input) input.value = amt > 0 ? amt : '';
+
+  // Highlight matching preset (only for dollar amounts)
+  const presets = document.querySelectorAll('.tip-preset-btn');
+  presets.forEach(btn => {
+    const val = parseFloat(btn.getAttribute('data-tip') || btn.textContent.replace(/[^0-9.]/g, '') || 0);
+    if (btn.textContent.trim() === 'None') {
+      btn.classList.toggle('active', amt === 0);
+    } else {
+      btn.classList.toggle('active', type === '$' && amt === val);
+    }
+  });
+}
+
+function selectTipPreset(amount) {
+  draft.tipAmount = amount;
+  draft.tipType   = '$';
+  renderTipPicker();
+  buildConfirmSummary();
+}
+
+function setTipType(type) {
+  draft.tipType = type;
+  renderTipPicker();
+  buildConfirmSummary();
+}
+
+function onTipCustomInput() {
+  const input = document.getElementById('tip-custom-input');
+  const val   = parseFloat(input?.value || 0);
+  draft.tipAmount = val >= 0 ? val : 0;
+  // Clear preset highlights
+  document.querySelectorAll('.tip-preset-btn').forEach(b => b.classList.remove('active'));
+  if (val === 0) document.querySelector('.tip-preset-btn')?.classList.add('active'); // highlight "None"
+  buildConfirmSummary();
 }
 
 function toggleConfirmDeliveryAddr() {
@@ -4257,7 +4353,9 @@ async function placeOrder() {
     zone_id:              draft.zoneId || null,
     pickup_address_id:    draft.addressId || null,
     delivery_address_id:  draft.deliveryAddressId || draft.addressId || null,  // default delivery = same as pickup
-    source:               'customer_app'
+    source:               'customer_app',
+    tip_amount:           parseFloat(draft.tipAmount || 0),
+    tip_type:             draft.tipType === '%' ? 'pct' : 'dollar'
     // order_number is GENERATED ALWAYS AS IDENTITY — DB auto-assigns, do not supply
   }).select().single();
 
@@ -4281,17 +4379,23 @@ async function placeOrder() {
   const savedPrefsMap = {};
   Object.entries(draft.prefs).forEach(([groupId, pref]) => { savedPrefsMap[groupId] = pref.optId; });
 
-  // Update customer stats and save preferences for future orders
+  // Update customer stats, save preferences, and persist tip for future orders
+  const _tipAmt  = parseFloat(draft.tipAmount || 0);
+  const _tipType = draft.tipType || '$';
   await db.from('customers').update({
-    total_orders:  (currentCustomer.total_orders||0)+1,
-    total_bags:    (currentCustomer.total_bags||0)+bags,
-    last_order_at: new Date().toISOString(),
-    preferences:   Object.keys(savedPrefsMap).length ? savedPrefsMap : currentCustomer.preferences
+    total_orders:    (currentCustomer.total_orders||0)+1,
+    total_bags:      (currentCustomer.total_bags||0)+bags,
+    last_order_at:   new Date().toISOString(),
+    preferences:     Object.keys(savedPrefsMap).length ? savedPrefsMap : currentCustomer.preferences,
+    default_tip:     _tipAmt,
+    default_tip_type: _tipType
   }).eq('id', currentCustomer.id);
   // Keep local copy in sync so next order in this session also pre-populates
   if (Object.keys(savedPrefsMap).length) currentCustomer.preferences = savedPrefsMap;
-  currentCustomer.total_orders = (currentCustomer.total_orders||0)+1;
-  currentCustomer.total_bags   = (currentCustomer.total_bags||0)+bags;
+  currentCustomer.total_orders    = (currentCustomer.total_orders||0)+1;
+  currentCustomer.total_bags      = (currentCustomer.total_bags||0)+bags;
+  currentCustomer.default_tip      = _tipAmt;
+  currentCustomer.default_tip_type = _tipType;
 
   // Fire order confirmed SMS (best-effort, don't block)
   fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
