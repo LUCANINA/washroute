@@ -1356,7 +1356,11 @@
       <div id="account-prefs-container">
         <div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">Loading preferences…</div>
       </div>
-      <button class="pref-save-btn" onclick="savePreferences()" style="margin-top: 20px">Save Preferences</button>
+      <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--gray-100)">
+        <div class="order-pref-label" style="margin-bottom:8px">Special Care Notes</div>
+        <textarea id="pref-notes" rows="3" placeholder="e.g. Hang dry delicates, separate darks…" style="width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:10px;font-family:inherit;font-size:14px;color:var(--text);resize:none;box-sizing:border-box;outline:none"></textarea>
+      </div>
+      <button class="pref-save-btn" onclick="savePreferences()" style="margin-top: 14px">Save Preferences</button>
     </div>
   </div>
 
@@ -3085,6 +3089,19 @@ async function renderStep(step) {
   if (step === 3) {
     document.getElementById('bags-display').textContent = draft.bags;
     updateEstimate();
+    // Sync notes textarea with draft / saved preferences
+    const _notesEl = document.getElementById('o-instructions');
+    if (_notesEl) {
+      if (draft.specialInstructions === undefined) {
+        // First visit this session — pre-fill from saved preferences
+        const _saved = currentCustomer?.preferences?._notes || '';
+        _notesEl.value = _saved;
+        draft.specialInstructions = _saved || null;
+      } else {
+        // Customer already visited this step — restore what they typed
+        _notesEl.value = draft.specialInstructions || '';
+      }
+    }
   }
 }
 
@@ -4391,6 +4408,10 @@ async function placeOrder() {
   // Build a compact { groupId: optId } map from this order's prefs to save for next time
   const savedPrefsMap = {};
   Object.entries(draft.prefs).forEach(([groupId, pref]) => { savedPrefsMap[groupId] = pref.optId; });
+  // Merge with existing prefs and sync special care notes in both directions
+  const mergedPrefs = { ...(currentCustomer.preferences || {}), ...savedPrefsMap };
+  if (draft.specialInstructions) mergedPrefs._notes = draft.specialInstructions;
+  else delete mergedPrefs._notes;
 
   // Update customer stats, save preferences, and persist tip for future orders
   const _tipAmt  = parseFloat(draft.tipAmount || 0);
@@ -4399,12 +4420,12 @@ async function placeOrder() {
     total_orders:    (currentCustomer.total_orders||0)+1,
     total_bags:      (currentCustomer.total_bags||0)+bags,
     last_order_at:   new Date().toISOString(),
-    preferences:     Object.keys(savedPrefsMap).length ? savedPrefsMap : currentCustomer.preferences,
+    preferences:     mergedPrefs,
     default_tip:     _tipAmt,
     default_tip_type: _tipType
   }).eq('id', currentCustomer.id);
   // Keep local copy in sync so next order in this session also pre-populates
-  if (Object.keys(savedPrefsMap).length) currentCustomer.preferences = savedPrefsMap;
+  currentCustomer.preferences = mergedPrefs;
   currentCustomer.total_orders    = (currentCustomer.total_orders||0)+1;
   currentCustomer.total_bags      = (currentCustomer.total_bags||0)+bags;
   currentCustomer.default_tip      = _tipAmt;
@@ -6111,6 +6132,8 @@ function openPrefsSubPanel() {
     }
   });
   renderAccountPrefs();
+  const _prefNotesEl = document.getElementById('pref-notes');
+  if (_prefNotesEl) _prefNotesEl.value = currentCustomer?.preferences?._notes || '';
   openSubPanel('sub-prefs');
 }
 
@@ -6185,11 +6208,14 @@ async function savePreferences() {
   if (!currentCustomer) return;
   const btn = document.querySelector('#sub-prefs .pref-save-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-  // acctPrefs holds { groupId: optionId } — save directly to Supabase
-  const { error } = await db.from('customers').update({ preferences: acctPrefs }).eq('id', currentCustomer.id);
+  // Merge notes into the prefs object alongside the pref toggles
+  const notesVal = (document.getElementById('pref-notes')?.value || '').trim();
+  const prefsToSave = { ...acctPrefs };
+  if (notesVal) prefsToSave._notes = notesVal; else delete prefsToSave._notes;
+  const { error } = await db.from('customers').update({ preferences: prefsToSave }).eq('id', currentCustomer.id);
   if (btn) { btn.disabled = false; btn.textContent = 'Save Preferences'; }
   if (error) { showToast('Error saving preferences', 'error'); return; }
-  currentCustomer.preferences = { ...acctPrefs };
+  currentCustomer.preferences = { ...prefsToSave };
   showToast('Preferences saved ✓', 'success');
 }
 
