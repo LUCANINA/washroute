@@ -1996,6 +1996,7 @@
               <button class="rpt-page-tab active" onclick="setRptTab('drivers',this)">🚐 Drivers</button>
               <button class="rpt-page-tab" onclick="setRptTab('revenue',this)">📋 Daily Revenue</button>
               <button class="rpt-page-tab" onclick="setRptTab('items',this)">🧺 Items</button>
+              <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">👕 Launderer</button>
             </div>
           </div>
 
@@ -2047,6 +2048,16 @@
               <button class="rev-export-btn" id="items-export-btn" style="display:none" onclick="exportItemsCSV()">Export CSV</button>
             </div>
             <div id="items-rpt-body">
+              <div class="rev-empty">Select a date range above and the report will load automatically.</div>
+            </div>
+          </div>
+
+          <!-- ── TAB: LAUNDERER ── -->
+          <div id="rpttab-launderer" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
+              <button class="rev-export-btn" id="launderer-export-btn" style="display:none" onclick="exportLaundererCSV()">Export CSV</button>
+            </div>
+            <div id="launderer-rpt-body" class="rev-tbl-wrap" style="padding:0 0 4px">
               <div class="rev-empty">Select a date range above and the report will load automatically.</div>
             </div>
           </div>
@@ -20472,16 +20483,17 @@ ${oneCopy}
   }
 
   function runCurrentReport() {
-    if (rptTab === 'revenue') loadRevenueReport();
-    else if (rptTab === 'items') loadItemsReport();
-    else if (rptTab === 'drivers') loadReports();
+    if (rptTab === 'revenue')    loadRevenueReport();
+    else if (rptTab === 'items')      loadItemsReport();
+    else if (rptTab === 'launderer')  loadLaundererReport();
+    else if (rptTab === 'drivers')    loadReports();
   }
 
   function setRptTab(tab, btn) {
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['drivers','revenue','items'].forEach(t => {
+    ['drivers','revenue','items','launderer'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
@@ -21456,6 +21468,130 @@ ${oneCopy}
 
   window.loadItemsReport = loadItemsReport;
   window.exportItemsCSV  = exportItemsCSV;
+
+  let _laundererReportData = [];
+
+  async function loadLaundererReport() {
+    const fromEl    = document.getElementById('rpt-from');
+    const toEl      = document.getElementById('rpt-to');
+    const body      = document.getElementById('launderer-rpt-body');
+    const exportBtn = document.getElementById('launderer-export-btn');
+    if (!fromEl?.value || !toEl?.value) { showToast('Please select a date range', 'error'); return; }
+    if (exportBtn) exportBtn.style.display = 'none';
+    _laundererReportData = [];
+
+    body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
+
+    // Pad UTC (same pattern as other reports)
+    const fromPad = new Date(fromEl.value + 'T00:00:00'); fromPad.setDate(fromPad.getDate() - 1);
+    const toPad   = new Date(toEl.value   + 'T00:00:00'); toPad.setDate(toPad.getDate() + 1);
+    const fromISO = fromPad.toISOString().slice(0,10) + 'T00:00:00Z';
+    const toISO   = toPad.toISOString().slice(0,10)   + 'T23:59:59Z';
+    const selFrom = fromEl.value, selTo = toEl.value;
+
+    const [{ data: launderers }, { data: orders, error }] = await Promise.all([
+      db.from('launderers').select('id, name').eq('is_active', true).order('name'),
+      db.from('orders')
+        .select('id, folded_by_id, total_bags, weight_lbs, delivery_window_start')
+        .not('folded_by_id', 'is', null)
+        .neq('status', 'cancelled')
+        .gte('delivery_window_start', fromISO)
+        .lte('delivery_window_start', toISO)
+    ]);
+
+    if (error) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${error.message}</div>`; return; }
+
+    // Filter to exact Pacific date range
+    const filtered = (orders || []).filter(o => {
+      if (!o.delivery_window_start) return false;
+      const d = new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      return d >= selFrom && d <= selTo;
+    });
+
+    // Build per-launderer stats
+    const statsMap = {};
+    filtered.forEach(o => {
+      const lid = o.folded_by_id;
+      if (!statsMap[lid]) statsMap[lid] = { orders: 0, bags: 0, lbs: 0 };
+      statsMap[lid].orders++;
+      statsMap[lid].bags += parseInt(o.total_bags || 0);
+      statsMap[lid].lbs  += parseFloat(o.weight_lbs || 0);
+    });
+
+    // Merge with launderer names, include all active launderers
+    const laundererMap = {};
+    (launderers || []).forEach(l => { laundererMap[l.id] = l.name; });
+
+    const rows = Object.entries(statsMap)
+      .map(([id, s]) => ({ name: laundererMap[id] || 'Unknown', ...s }))
+      .sort((a, b) => b.orders - a.orders);
+
+    if (!rows.length) {
+      body.innerHTML = '<div class="rev-empty">No folding assignments found for this date range.</div>';
+      return;
+    }
+
+    _laundererReportData = { rows, from: fromEl.value, to: toEl.value };
+
+    // Totals
+    const tot = rows.reduce((acc, r) => {
+      acc.orders += r.orders; acc.bags += r.bags; acc.lbs += r.lbs; return acc;
+    }, { orders: 0, bags: 0, lbs: 0 });
+
+    const fmtLbs = n => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+
+    body.innerHTML = `
+      <table class="rev-tbl">
+        <thead>
+          <tr>
+            <th style="text-align:left">Folder</th>
+            <th>Orders</th>
+            <th>Bags</th>
+            <th>Pounds</th>
+            <th>Hours Worked</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `<tr>
+            <td>${r.name}</td>
+            <td>${r.orders.toLocaleString()}</td>
+            <td>${r.bags.toLocaleString()}</td>
+            <td>${fmtLbs(r.lbs)}</td>
+            <td style="color:var(--gray-300)">—</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>Total</td>
+            <td>${tot.orders.toLocaleString()}</td>
+            <td>${tot.bags.toLocaleString()}</td>
+            <td>${fmtLbs(tot.lbs)}</td>
+            <td>—</td>
+          </tr>
+        </tfoot>
+      </table>`;
+
+    if (exportBtn) exportBtn.style.display = '';
+  }
+
+  function exportLaundererCSV() {
+    const { rows, from, to } = _laundererReportData;
+    if (!rows?.length) return;
+    const esc = v => `"${String(v).replace(/"/g, '""')}"`;
+    const headers = ['Folder','Orders','Bags','Pounds','Hours Worked'];
+    const csvRows = rows.map(r => [r.name, r.orders, r.bags, r.lbs.toFixed(1), ''].map(esc).join(','));
+    const csv  = [headers.map(esc).join(','), ...csvRows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `launderer-report-${from}-to-${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  window.loadLaundererReport = loadLaundererReport;
+  window.exportLaundererCSV  = exportLaundererCSV;
 
   async function sendLaunchAnnouncementAll() {
     // Fetch all customers with email or phone
