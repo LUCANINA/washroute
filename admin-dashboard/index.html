@@ -21609,6 +21609,7 @@ ${oneCopy}
             <div class="items-summary-stat"><strong>${d.serviceRev > 0 ? fmtMoney(d.serviceRev) : '—'}</strong>Service Revenue</div>
             <div class="items-summary-stat"><strong>${d.totalRev > 0 ? fmtMoney(d.totalRev - d.refunds) : '—'}</strong>Net Revenue</div>
             <div class="items-summary-stat"><strong>${d.lbs > 0 && d.totalRev > 0 ? fmtMoney((d.totalRev - d.refunds) / d.lbs) : '—'}</strong>Net / lb</div>
+            <div class="items-summary-stat"><strong>${d.orders > 0 && d.totalRev > 0 ? fmtMoney((d.totalRev - d.refunds) / d.orders) : '—'}</strong>Net / order</div>
           </div>
           <table class="items-tbl">
             <thead>
@@ -21641,19 +21642,20 @@ ${oneCopy}
     // Header
     rows.push([
       'Pricelist','Orders','Bags','Pounds Processed',
-      'Service Revenue','Net Revenue','Net / lb',
+      'Service Revenue','Net Revenue','Net / lb','Net / Order',
       'Add-on','Items','Add-on Revenue'
     ].map(esc).join(','));
 
     pricelists.forEach(d => {
-      const net = (d.totalRev - d.refunds).toFixed(2);
-      const netPerLb = d.lbs > 0 ? ((d.totalRev - d.refunds) / d.lbs).toFixed(2) : '';
+      const net        = (d.totalRev - d.refunds).toFixed(2);
+      const netPerLb   = d.lbs > 0    ? ((d.totalRev - d.refunds) / d.lbs).toFixed(2)    : '';
+      const netPerOrder = d.orders > 0 ? ((d.totalRev - d.refunds) / d.orders).toFixed(2) : '';
 
       // Summary row for this pricelist
       rows.push([
         d.pl, d.orders, d.bags,
         d.lbs.toFixed(1),
-        d.serviceRev.toFixed(2), net, netPerLb,
+        d.serviceRev.toFixed(2), net, netPerLb, netPerOrder,
         '','',''
       ].map(esc).join(','));
 
