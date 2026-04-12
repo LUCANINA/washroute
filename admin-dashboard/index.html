@@ -21618,9 +21618,12 @@ ${oneCopy}
       return acc;
     }, { orders: 0, bags: 0, lbs: 0, hrs: null });
 
-    const fmtLbs  = n => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
-    const fmtHrs  = h => h != null
+    const fmtLbs    = n => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+    const fmtHrs    = h => h != null
       ? `<span style="font-weight:600">${h.toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> hrs</span>`
+      : `<span style="color:var(--gray-300)">—</span>`;
+    const fmtLbsHr  = (lbs, hrs) => (hrs != null && hrs > 0 && lbs > 0)
+      ? `<span style="font-weight:600">${(lbs / hrs).toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> lbs/hr</span>`
       : `<span style="color:var(--gray-300)">—</span>`;
 
     body.innerHTML = `
@@ -21632,6 +21635,7 @@ ${oneCopy}
             <th>Bags</th>
             <th>Pounds</th>
             <th>Hours Worked</th>
+            <th>Lbs/Hr</th>
           </tr>
         </thead>
         <tbody>
@@ -21641,6 +21645,7 @@ ${oneCopy}
             <td>${r.bags.toLocaleString()}</td>
             <td>${fmtLbs(r.lbs)}</td>
             <td>${fmtHrs(r.hrs)}</td>
+            <td>${fmtLbsHr(r.lbs, r.hrs)}</td>
           </tr>`).join('')}
         </tbody>
         <tfoot>
@@ -21650,6 +21655,7 @@ ${oneCopy}
             <td>${tot.bags.toLocaleString()}</td>
             <td>${fmtLbs(tot.lbs)}</td>
             <td>${tot.hrs != null ? fmtHrs(tot.hrs) : '—'}</td>
+            <td>${fmtLbsHr(tot.lbs, tot.hrs)}</td>
           </tr>
         </tfoot>
       </table>`;
@@ -21661,8 +21667,11 @@ ${oneCopy}
     const { rows, from, to } = _laundererReportData;
     if (!rows?.length) return;
     const esc = v => `"${String(v).replace(/"/g, '""')}"`;
-    const headers = ['Folder','Orders','Bags','Pounds','Hours Worked'];
-    const csvRows = rows.map(r => [r.name, r.orders, r.bags, r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : ''].map(esc).join(','));
+    const headers = ['Folder','Orders','Bags','Pounds','Hours Worked','Lbs/Hr'];
+    const csvRows = rows.map(r => {
+      const lbsHr = (r.hrs != null && r.hrs > 0 && r.lbs > 0) ? (r.lbs / r.hrs).toFixed(1) : '';
+      return [r.name, r.orders, r.bags, r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr].map(esc).join(',');
+    });
     const csv  = [headers.map(esc).join(','), ...csvRows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url  = URL.createObjectURL(blob);
