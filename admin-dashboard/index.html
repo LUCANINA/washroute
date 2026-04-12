@@ -2003,17 +2003,8 @@
           <div id="rpttab-drivers">
             <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
               <div class="stat-card">
-                <div class="stat-label">Routes Completed</div>
-                <div class="stat-value" id="rpt-drv-routes">—</div>
-              </div>
-              <div class="stat-card">
                 <div class="stat-label">Stops Completed</div>
                 <div class="stat-value" id="rpt-drv-stops">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Avg Driver Rating</div>
-                <div class="stat-value" id="rpt-drv-rating">—</div>
-                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-drv-rating-sub"></div>
               </div>
             </div>
             <div class="card" style="margin-bottom:0">
@@ -2026,14 +2017,12 @@
                   <thead>
                     <tr>
                       <th>Driver</th>
-                      <th>Routes</th>
                       <th>Stops</th>
-                      <th>Avg Rating</th>
                       <th>Bags Hauled</th>
                     </tr>
                   </thead>
                   <tbody id="rpt-drv-tbody">
-                    <tr><td colspan="5" class="rpt-no-data">Loading…</td></tr>
+                    <tr><td colspan="3" class="rpt-no-data">Loading…</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -5177,7 +5166,7 @@
     if (id === 'drivers') { loadDrivers(); loadAdminDriverMessages(); }
     if (id === 'services') loadServices();
     if (id === 'notifications') loadNotifications();
-    if (id === 'reports') { initRptDateDefaults(); loadReports(); }
+    if (id === 'reports') { initRptDateDefaults(); runCurrentReport(); }
     if (id === 'processing') { loadProcessing(); startProcPoll(); } else { stopProcPoll(); }
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
@@ -20526,132 +20515,34 @@ ${oneCopy}
   }
 
   async function loadReports() {
-    // Load the New Customers + Recent Orders panels (moved from Overview)
-    loadNewCustomers();
-    loadRecentOrders();
-    load24hStats();
-
-    // Read date range from shared date pickers
     const fromVal = document.getElementById('rpt-from')?.value;
     const toVal   = document.getElementById('rpt-to')?.value;
     if (!fromVal || !toVal) return;
+
     const start = new Date(fromVal + 'T00:00:00'); start.setHours(0,0,0,0);
     const end   = new Date(toVal   + 'T23:59:59'); end.setHours(23,59,59,999);
-    // Previous period = same number of days immediately before
-    const days = Math.round((end - start) / 86400000) + 1;
-    const prevEnd   = new Date(start); prevEnd.setMilliseconds(-1);
-    const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - days + 1); prevStart.setHours(0,0,0,0);
-    ['rpt-revenue','rpt-orders','rpt-lbs','rpt-bags','rpt-aov','rpt-rev-per-lb','rpt-rev-per-bag','rpt-ontime','rpt-repeat',
-     'rpt-drv-routes','rpt-drv-stops','rpt-drv-rating']
-      .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '…'; });
 
-    // ── Fetch current period orders (expanded fields) ──
-    let q = db.from('orders')
-      .select(`id, order_number, total_amount, status, created_at, customer_id,
-               weight_lbs, total_bags, actual_pickup_at, actual_delivery_at,
-               delivery_window_end, driver_rating, pickup_run_id,
-               billing_status, billing_payment_method, stripe_payment_intent_id,
-               customers(first_name_cache, last_name_cache, billing_type), services(name)`)
-      .order('created_at', { ascending: false });
-    q = q.gte('created_at', start.toISOString()).lte('created_at', end.toISOString());
-    const { data: currOrders } = await q;
-    const orders = currOrders || [];
+    const stopsEl = document.getElementById('rpt-drv-stops');
+    if (stopsEl) stopsEl.textContent = '…';
+    const tbody = document.getElementById('rpt-drv-tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="rpt-no-data">Loading…</td></tr>';
 
-    // ── Fetch previous period orders ──
-    let prevOrders = [];
-    if (prevStart && prevEnd) {
-      const { data: prev } = await db.from('orders')
-        .select('id, total_amount, status, created_at, customer_id, weight_lbs, total_bags, actual_delivery_at, delivery_window_end, billing_status, billing_payment_method, stripe_payment_intent_id, customers(billing_type)')
-        .gte('created_at', prevStart.toISOString()).lte('created_at', prevEnd.toISOString());
-      prevOrders = prev || [];
-    }
+    // Fetch routes and orders for the period in parallel
+    const [{ data: routes }, { data: orders }] = await Promise.all([
+      db.from('routes')
+        .select('id, run_date, driver_id, completed_stops')
+        .gte('run_date', start.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}))
+        .lte('run_date', end.toLocaleDateString('en-CA', {timeZone: BIZ_TZ})),
+      db.from('orders')
+        .select('id, total_bags, pickup_run_id, driver_rating')
+        .neq('status', 'cancelled')
+        .gte('delivery_window_start', start.toISOString())
+        .lte('delivery_window_start', end.toISOString())
+    ]);
 
-    // ── Fetch routes with driver info ──
-    let rQ = db.from('routes')
-      .select('id, run_date, status, total_stops, completed_stops, started_at, completed_at, driver_id');
-    rQ = rQ.gte('run_date', start.toLocaleDateString('en-CA', {timeZone: BIZ_TZ})).lte('run_date', end.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}));
-    const { data: routes } = await rQ;
-    const routeList = routes || [];
-
-    // Ensure driver cache is populated for name lookups
     if (!allDriversCache.length) await loadAllDriversCache();
 
-    // ── Orders KPIs ──
-    const revenue     = orders.reduce((s,o) => s + Number(o.total_amount||0), 0);
-    const orderCount  = orders.length;
-    const totalLbs    = orders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
-    const totalBags   = orders.reduce((s,o) => s + Number(o.total_bags||0), 0);
-    const aov         = orderCount ? revenue / orderCount : 0;
-    // Revenue/LB: card charged + on-account (billed or pending invoice)
-    const chargedOrders = orders.filter(o =>
-      !!o.stripe_payment_intent_id || o.billing_status === 'paid' || o.customers?.billing_type === 'on_account');
-    const chargedRevenue = chargedOrders.reduce((s,o) => s + Number(o.total_amount||0), 0);
-    const chargedLbs     = chargedOrders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
-    const chargedBags    = chargedOrders.reduce((s,o) => s + Number(o.total_bags||0), 0);
-    const revPerLb       = chargedLbs  ? chargedRevenue / chargedLbs  : null;
-    const revPerBag      = chargedBags ? chargedRevenue / chargedBags : null;
-
-    // On-time delivery: delivered orders with actual_delivery_at ≤ delivery_window_end
-    const deliveredOrders = orders.filter(o => o.status === 'delivered' && o.actual_delivery_at);
-    const onTimeCount = deliveredOrders.filter(o =>
-      o.delivery_window_end && new Date(o.actual_delivery_at) <= new Date(o.delivery_window_end)
-    ).length;
-    const onTimePct = deliveredOrders.length ? Math.round(onTimeCount / deliveredOrders.length * 100) : null;
-
-    // Repeat customers: % of orders from customers who also ordered in prev period
-    const prevCustIds = new Set((prevOrders).map(o => o.customer_id).filter(Boolean));
-    const repeatOrders = orders.filter(o => o.customer_id && prevCustIds.has(o.customer_id)).length;
-    const repeatPct = (orderCount && prevOrders.length) ? Math.round(repeatOrders / orderCount * 100) : null;
-
-    // Previous period KPIs
-    const prevRevenue    = prevOrders.reduce((s,o) => s + Number(o.total_amount||0), 0);
-    const prevOrderCount = prevOrders.length;
-    const prevLbs        = prevOrders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
-    const prevBags       = prevOrders.reduce((s,o) => s + Number(o.total_bags||0), 0);
-    const prevAov        = prevOrderCount ? prevRevenue / prevOrderCount : 0;
-    const prevChargedOrders = prevOrders.filter(o =>
-      !!o.stripe_payment_intent_id || o.billing_status === 'paid' || o.customers?.billing_type === 'on_account');
-    const prevChargedRev = prevChargedOrders.reduce((s,o) => s + Number(o.total_amount||0), 0);
-    const prevChargedLbs  = prevChargedOrders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
-    const prevChargedBags = prevChargedOrders.reduce((s,o) => s + Number(o.total_bags||0), 0);
-    const prevRevPerLb    = prevChargedLbs  ? prevChargedRev / prevChargedLbs  : null;
-    const prevRevPerBag   = prevChargedBags ? prevChargedRev / prevChargedBags : null;
-    const prevDelivered  = prevOrders.filter(o => o.status === 'delivered' && o.actual_delivery_at);
-    const prevOnTime     = prevDelivered.filter(o =>
-      o.delivery_window_end && new Date(o.actual_delivery_at) <= new Date(o.delivery_window_end)
-    ).length;
-    const prevOnTimePct  = prevDelivered.length ? Math.round(prevOnTime / prevDelivered.length * 100) : null;
-
-    // ── Update Order KPI DOM ──
-    document.getElementById('rpt-revenue').textContent    = fmtMoney(revenue);
-    document.getElementById('rpt-orders').textContent     = orderCount;
-    document.getElementById('rpt-lbs').textContent        = totalLbs ? totalLbs.toFixed(1) + ' lb' : '—';
-    document.getElementById('rpt-bags').textContent       = totalBags || '—';
-    document.getElementById('rpt-aov').textContent        = fmtMoney(aov);
-    document.getElementById('rpt-rev-per-lb').textContent  = revPerLb  ? '$' + revPerLb.toFixed(2)  : '—';
-    document.getElementById('rpt-rev-per-bag').textContent = revPerBag ? '$' + revPerBag.toFixed(2) : '—';
-    document.getElementById('rpt-ontime').textContent     = onTimePct !== null ? onTimePct + '%' : (deliveredOrders.length ? '—' : 'No data');
-    document.getElementById('rpt-repeat').textContent     = repeatPct !== null ? repeatPct + '%' : '—';
-
-    document.getElementById('rpt-revenue-trend').innerHTML    = rptTrendHTML(revenue, prevOrders.length ? prevRevenue : null);
-    document.getElementById('rpt-orders-trend').innerHTML     = rptTrendHTML(orderCount, prevOrders.length ? prevOrderCount : null);
-    document.getElementById('rpt-lbs-trend').innerHTML        = rptTrendHTML(totalLbs, prevOrders.length ? prevLbs : null);
-    document.getElementById('rpt-bags-trend').innerHTML       = rptTrendHTML(totalBags, prevOrders.length ? prevBags : null);
-    document.getElementById('rpt-aov-trend').innerHTML        = rptTrendHTML(aov, prevOrders.length ? prevAov : null);
-    document.getElementById('rpt-rev-per-lb-trend').innerHTML  = revPerLb  && prevRevPerLb  ? rptTrendHTML(revPerLb, prevRevPerLb)   : '';
-    document.getElementById('rpt-rev-per-bag-trend').innerHTML = revPerBag && prevRevPerBag ? rptTrendHTML(revPerBag, prevRevPerBag) : '';
-    document.getElementById('rpt-ontime-trend').innerHTML     = onTimePct !== null && prevOnTimePct !== null ? rptTrendHTML(onTimePct, prevOnTimePct) : '';
-    document.getElementById('rpt-repeat-sub').textContent     = repeatPct !== null
-      ? `${repeatOrders} of ${orderCount} orders from returning customers`
-      : (prevOrders.length ? '' : 'Compare to prev period');
-
-    // ── Render data ──
-    renderServicesList(orders);
-    renderOrderStatusBreakdown(orders);
-    renderOrdersTable(orders);
-
-    // ── Driver Performance ──
-    renderDriverStats(routeList, orders);
+    renderDriverStats(routes || [], orders || []);
   }
 
   function renderServicesList(orders) {
@@ -20717,74 +20608,44 @@ ${oneCopy}
 
   // ── Driver stats section ──
   function renderDriverStats(routes, orders) {
-    // Fleet totals
-    const completedRoutes = routes.filter(r => r.completed_stops > 0);
-    const fleetRoutes = completedRoutes.length;
-    const fleetStops  = routes.reduce((s,r) => s + (r.completed_stops||0), 0);
-
-    const ratedOrders = orders.filter(o => o.driver_rating != null);
-    const avgRating   = ratedOrders.length
-      ? (ratedOrders.reduce((s,o) => s+o.driver_rating, 0) / ratedOrders.length).toFixed(1)
-      : null;
-    const stars = n => '★'.repeat(Math.round(n)) + '☆'.repeat(5-Math.round(n));
-
-    document.getElementById('rpt-drv-routes').textContent = fleetRoutes || '—';
-    document.getElementById('rpt-drv-stops').textContent  = fleetStops  || '—';
-    document.getElementById('rpt-drv-rating').textContent = avgRating ? avgRating + ' / 5' : '—';
-    document.getElementById('rpt-drv-rating-sub').textContent = ratedOrders.length ? `${ratedOrders.length} ratings` : 'No ratings yet';
+    const fleetStops = routes.reduce((s,r) => s + (r.completed_stops||0), 0);
+    const stopsEl = document.getElementById('rpt-drv-stops');
+    if (stopsEl) stopsEl.textContent = fleetStops || '—';
 
     // Per-driver breakdown
-    const drvMap = {}; // driverId → stats
+    const drvMap = {};
     const driverName = id => allDriversCache.find(d => d.id === id)?.name || 'Unknown';
 
-    // Build a routeId → driver lookup
+    // routeId → driverId lookup
     const routeDriver = {};
-    routes.forEach(r => {
-      if (r.driver_id) routeDriver[r.id] = r.driver_id;
-    });
+    routes.forEach(r => { if (r.driver_id) routeDriver[r.id] = r.driver_id; });
 
     routes.forEach(r => {
       const did = r.driver_id;
-      if (did) {
-        if (!drvMap[did]) drvMap[did] = { routes:0, stops:0, bags:0, ratingSum:0, ratingCount:0 };
-        drvMap[did].routes++;
-        drvMap[did].stops += r.completed_stops || 0;
-      }
+      if (!did) return;
+      if (!drvMap[did]) drvMap[did] = { stops: 0, bags: 0 };
+      drvMap[did].stops += r.completed_stops || 0;
     });
 
-    // Assign bags + ratings to driver via pickup_run_id
     orders.forEach(o => {
       const did = o.pickup_run_id ? routeDriver[o.pickup_run_id] : null;
       if (!did || !drvMap[did]) return;
-      drvMap[did].bags += Number(o.total_bags||0);
-      if (o.driver_rating != null) {
-        drvMap[did].ratingSum += o.driver_rating;
-        drvMap[did].ratingCount++;
-      }
+      drvMap[did].bags += Number(o.total_bags || 0);
     });
 
     const tbody = document.getElementById('rpt-drv-tbody');
     const rows = Object.entries(drvMap).sort((a,b) => b[1].stops - a[1].stops);
 
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="rpt-no-data">No route data for this period.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="3" class="rpt-no-data">No route data for this period.</td></tr>';
       return;
     }
 
-    tbody.innerHTML = rows.map(([did, s]) => {
-      const name   = driverName(did);
-      const bags   = s.bags || '—';
-      const rating = s.ratingCount
-        ? `<span class="rpt-stars">${stars(s.ratingSum/s.ratingCount)}</span> <span style="font-size:12px;color:var(--gray-500)">${(s.ratingSum/s.ratingCount).toFixed(1)}</span>`
-        : '<span style="color:var(--gray-300)">— no ratings</span>';
-      return `<tr>
-        <td style="font-weight:600">${name}</td>
-        <td>${s.routes}</td>
-        <td>${s.stops}</td>
-        <td>${rating}</td>
-        <td style="color:var(--gray-600)">${bags}</td>
-      </tr>`;
-    }).join('');
+    tbody.innerHTML = rows.map(([did, s]) => `<tr>
+      <td style="font-weight:600">${driverName(did)}</td>
+      <td>${s.stops || '—'}</td>
+      <td style="color:var(--gray-600)">${s.bags || '—'}</td>
+    </tr>`).join('');
   }
 
   /* ──────────────────────────────
