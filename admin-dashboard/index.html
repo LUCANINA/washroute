@@ -21497,7 +21497,7 @@ ${oneCopy}
     const [{ data: services }, { data: orders, error }] = await Promise.all([
       db.from('services').select('id, name, pricelist, is_addon'),
       db.from('orders')
-        .select('order_number, service_id, weight_lbs, total_bags, line_items, delivery_window_start, status')
+        .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status')
         .neq('status', 'cancelled')
         .not('total_amount', 'is', null)
         .gte('delivery_window_start', fromISO)
@@ -21529,11 +21529,13 @@ ${oneCopy}
     filtered.forEach(o => {
       const svc = svcMap[o.service_id];
       const pl  = svc?.pricelist || UNKNOWN;
-      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, serviceRev: 0, addons: {} };
+      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, serviceRev: 0, totalRev: 0, refunds: 0, addons: {} };
       const plData = byPricelist[pl];
       plData.orders++;
-      plData.lbs  += parseFloat(o.weight_lbs || 0);
-      plData.bags += parseInt(o.total_bags   || 0);
+      plData.lbs      += parseFloat(o.weight_lbs   || 0);
+      plData.bags     += parseInt(o.total_bags      || 0);
+      plData.totalRev += parseFloat(o.total_amount  || 0);
+      if (o.billing_status === 'refunded') plData.refunds += parseFloat(o.total_amount || 0);
 
       // Parse line items for service revenue and add-ons
       if (Array.isArray(o.line_items)) {
@@ -21596,6 +21598,8 @@ ${oneCopy}
             <div class="items-summary-stat"><strong>${d.bags > 0 ? d.bags.toLocaleString() : '—'}</strong>Bags</div>
             <div class="items-summary-stat"><strong>${d.lbs > 0 ? fmtLbs(d.lbs) : '—'}</strong>Pounds Processed</div>
             <div class="items-summary-stat"><strong>${d.serviceRev > 0 ? '$'+d.serviceRev.toFixed(2) : '—'}</strong>Service Revenue</div>
+            <div class="items-summary-stat"><strong>${d.totalRev > 0 ? '$'+(d.totalRev - d.refunds).toFixed(2) : '—'}</strong>Net Revenue</div>
+            <div class="items-summary-stat"><strong>${d.lbs > 0 && d.totalRev > 0 ? '$'+((d.totalRev - d.refunds) / d.lbs).toFixed(2) : '—'}</strong>Net / lb</div>
           </div>
           <table class="items-tbl">
             <thead>
