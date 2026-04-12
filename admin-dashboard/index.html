@@ -21475,6 +21475,13 @@ ${oneCopy}
           // Extract add-on name (e.g. "Oxi × 2 bags" → "Oxi")
           const label = item.label || '';
           const addonName = label.split('×')[0].trim() || label;
+          // Skip legacy/junk add-on labels
+          const ADDON_BLOCKLIST = new Set([
+            'Air Dry (per item · billed at processing)',
+            'Yes',
+            'Oxiclean',
+          ]);
+          if (ADDON_BLOCKLIST.has(addonName)) return;
           // Extract bag quantity from label (e.g. "Oxi × 2 bags" → 2)
           const qtyMatch = label.match(/×\s*(\d+)/);
           const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
