@@ -1993,114 +1993,14 @@
               </div>
             </div>
             <div class="rpt-page-tabs">
-              <button class="rpt-page-tab active" onclick="setRptTab('snapshot',this)">📊 Snapshot</button>
-              <button class="rpt-page-tab" onclick="setRptTab('operations',this)">📦 Operations</button>
-              <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">🚐 Drivers</button>
+              <button class="rpt-page-tab active" onclick="setRptTab('drivers',this)">🚐 Drivers</button>
               <button class="rpt-page-tab" onclick="setRptTab('revenue',this)">📋 Daily Revenue</button>
               <button class="rpt-page-tab" onclick="setRptTab('items',this)">🧺 Items</button>
             </div>
           </div>
 
-          <!-- ── TAB: SNAPSHOT ── -->
-          <div id="rpttab-snapshot">
-            <div class="rpt-kpi-grid">
-              <div class="stat-card">
-                <div class="stat-label">Revenue</div>
-                <div class="stat-value" id="rpt-revenue">—</div>
-                <div class="stat-card-trend" id="rpt-revenue-trend"></div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Orders</div>
-                <div class="stat-value" id="rpt-orders">—</div>
-                <div class="stat-card-trend" id="rpt-orders-trend"></div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Avg Order Value</div>
-                <div class="stat-value" id="rpt-aov">—</div>
-                <div class="stat-card-trend" id="rpt-aov-trend"></div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">On-time Delivery</div>
-                <div class="stat-value" id="rpt-ontime">—</div>
-                <div class="stat-card-trend" id="rpt-ontime-trend"></div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Repeat Customers</div>
-                <div class="stat-value" id="rpt-repeat">—</div>
-                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-repeat-sub"></div>
-              </div>
-            </div>
-            <div class="card" style="margin-bottom:0">
-              <div class="card-header">
-                <div class="card-title">Revenue by Service</div>
-              </div>
-              <div style="padding:16px 20px 20px;" id="rpt-services-list">
-                <div class="loading"><div class="spinner"></div> Loading…</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- ── TAB: OPERATIONS ── -->
-          <div id="rpttab-operations" style="display:none">
-            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
-              <div class="stat-card">
-                <div class="stat-label">Bags Processed</div>
-                <div class="stat-value" id="rpt-bags">—</div>
-                <div class="stat-card-trend" id="rpt-bags-trend"></div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Lbs Processed</div>
-                <div class="stat-value" id="rpt-lbs">—</div>
-                <div class="stat-card-trend" id="rpt-lbs-trend"></div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Revenue / lb</div>
-                <div class="stat-value" id="rpt-rev-per-lb">—</div>
-                <div class="stat-card-trend" id="rpt-rev-per-lb-trend"></div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Revenue / bag</div>
-                <div class="stat-value" id="rpt-rev-per-bag">—</div>
-                <div class="stat-card-trend" id="rpt-rev-per-bag-trend"></div>
-              </div>
-            </div>
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title">Order Status Breakdown</div>
-                <div class="card-sub">Count of orders per status in this period</div>
-              </div>
-              <div style="padding:16px 20px 20px;" id="rpt-status-breakdown">
-                <div class="loading"><div class="spinner"></div> Loading…</div>
-              </div>
-            </div>
-            <div class="card" style="margin-bottom:0">
-              <div class="card-header">
-                <div class="card-title">Orders in Period</div>
-                <div class="stat-delta" id="rpt-orders-count-label"></div>
-              </div>
-              <div class="rpt-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Order #</th>
-                      <th>Customer</th>
-                      <th>Service</th>
-                      <th>Date</th>
-                      <th>Bags</th>
-                      <th>Status</th>
-                      <th style="text-align:right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody id="rpt-orders-tbody">
-                    <tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
           <!-- ── TAB: DRIVERS ── -->
-          <div id="rpttab-drivers" style="display:none">
+          <div id="rpttab-drivers">
             <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
               <div class="stat-card">
                 <div class="stat-label">Routes Completed</div>
@@ -20569,7 +20469,7 @@ ${oneCopy}
   }
 
   // ── REPORTS ──
-  let rptTab = 'snapshot';
+  let rptTab = 'drivers';
 
   function initRptDateDefaults() {
     const fromEl = document.getElementById('rpt-from');
@@ -20585,14 +20485,14 @@ ${oneCopy}
   function runCurrentReport() {
     if (rptTab === 'revenue') loadRevenueReport();
     else if (rptTab === 'items') loadItemsReport();
-    else loadReports();
+    else if (rptTab === 'drivers') loadReports();
   }
 
   function setRptTab(tab, btn) {
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['snapshot','operations','drivers','revenue','items'].forEach(t => {
+    ['drivers','revenue','items'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
