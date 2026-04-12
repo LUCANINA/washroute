@@ -21571,7 +21571,8 @@ ${oneCopy}
     const PL_ORDER = ['Delivery', 'Retail', 'Commercial', UNKNOWN];
     const presentPLs = PL_ORDER.filter(pl => byPricelist[pl]);
 
-    const fmtLbs = n => n % 1 === 0 ? `${n.toFixed(0)} lbs` : `${n.toFixed(1)} lbs`;
+    const fmtLbs  = n => n % 1 === 0 ? `${n.toLocaleString()} lbs` : `${n.toLocaleString('en-US', {minimumFractionDigits:1, maximumFractionDigits:1})} lbs`;
+    const fmtMoney = n => '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
 
     const sections = presentPLs.map(pl => {
       const d = byPricelist[pl];
@@ -21605,9 +21606,9 @@ ${oneCopy}
             <div class="items-summary-stat"><strong>${d.orders.toLocaleString()}</strong>Orders</div>
             <div class="items-summary-stat"><strong>${d.bags > 0 ? d.bags.toLocaleString() : '—'}</strong>Bags</div>
             <div class="items-summary-stat"><strong>${d.lbs > 0 ? fmtLbs(d.lbs) : '—'}</strong>Pounds Processed</div>
-            <div class="items-summary-stat"><strong>${d.serviceRev > 0 ? '$'+d.serviceRev.toFixed(2) : '—'}</strong>Service Revenue</div>
-            <div class="items-summary-stat"><strong>${d.totalRev > 0 ? '$'+(d.totalRev - d.refunds).toFixed(2) : '—'}</strong>Net Revenue</div>
-            <div class="items-summary-stat"><strong>${d.lbs > 0 && d.totalRev > 0 ? '$'+((d.totalRev - d.refunds) / d.lbs).toFixed(2) : '—'}</strong>Net / lb</div>
+            <div class="items-summary-stat"><strong>${d.serviceRev > 0 ? fmtMoney(d.serviceRev) : '—'}</strong>Service Revenue</div>
+            <div class="items-summary-stat"><strong>${d.totalRev > 0 ? fmtMoney(d.totalRev - d.refunds) : '—'}</strong>Net Revenue</div>
+            <div class="items-summary-stat"><strong>${d.lbs > 0 && d.totalRev > 0 ? fmtMoney((d.totalRev - d.refunds) / d.lbs) : '—'}</strong>Net / lb</div>
           </div>
           <table class="items-tbl">
             <thead>
