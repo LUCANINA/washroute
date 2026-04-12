@@ -2060,6 +2060,16 @@
 
           <!-- ── TAB: LAUNDERER ── -->
           <div id="rpttab-launderer" style="display:none">
+            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+              <div class="stat-card">
+                <div class="stat-label">Lbs. Processed</div>
+                <div class="stat-value" id="rpt-lndr-lbs">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Avg Lbs./Hr</div>
+                <div class="stat-value" id="rpt-lndr-lbs-per-hr">—</div>
+              </div>
+            </div>
             <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
               <button class="rev-export-btn" id="launderer-export-btn" style="display:none" onclick="exportLaundererCSV()">Export CSV</button>
             </div>
@@ -21617,6 +21627,17 @@ ${oneCopy}
       if (r.hrs != null) acc.hrs = (acc.hrs || 0) + r.hrs;
       return acc;
     }, { orders: 0, bags: 0, lbs: 0, hrs: null });
+
+    // Stat cards
+    const lbsEl = document.getElementById('rpt-lndr-lbs');
+    if (lbsEl) lbsEl.textContent = tot.lbs > 0 ? tot.lbs.toLocaleString('en-US', {maximumFractionDigits:0}) : '—';
+    const lbsHrEl = document.getElementById('rpt-lndr-lbs-per-hr');
+    if (lbsHrEl) {
+      // Only average over launderers who have both lbs and hours data
+      let trackedLbs = 0, trackedHrs = 0;
+      rows.forEach(r => { if (r.hrs != null && r.lbs > 0) { trackedLbs += r.lbs; trackedHrs += r.hrs; } });
+      lbsHrEl.textContent = (trackedHrs > 0) ? (trackedLbs / trackedHrs).toFixed(1) : '—';
+    }
 
     const fmtLbs    = n => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
     const fmtHrs    = h => h != null
