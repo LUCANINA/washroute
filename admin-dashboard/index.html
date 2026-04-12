@@ -20567,24 +20567,32 @@ ${oneCopy}
     const startDate = start.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
     const endDate   = end.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
 
-    // Fetch route_stops (source of truth for stops), orders, and Square labor in parallel
-    const [{ data: routeStops }, { data: orders }, laborData] = await Promise.all([
-      db.from('route_stops')
-        .select('stop_type, status, routes!inner(driver_id, run_date)')
-        .eq('status', 'complete')
-        .gte('routes.run_date', startDate)
-        .lte('routes.run_date', endDate),
+    // Step 1: fetch routes for the date range to get IDs + driver mapping
+    const [{ data: routes }, { data: orders }, laborData] = await Promise.all([
+      db.from('routes')
+        .select('id, driver_id')
+        .gte('run_date', startDate)
+        .lte('run_date', endDate),
       db.from('orders')
-        .select('id, total_bags, pickup_run_id, routes(driver_id)')
+        .select('id, total_bags, pickup_run_id')
         .neq('status', 'cancelled')
         .gte('delivery_window_start', start.toISOString())
         .lte('delivery_window_start', end.toISOString()),
       fetchSquareLaborHours(fromVal, toVal)
     ]);
 
+    // Step 2: fetch completed route_stops for those route IDs
+    const routeIds = (routes || []).map(r => r.id);
+    const { data: routeStops } = routeIds.length
+      ? await db.from('route_stops')
+          .select('route_id')
+          .eq('status', 'complete')
+          .in('route_id', routeIds)
+      : { data: [] };
+
     if (!allDriversCache.length) await loadAllDriversCache();
 
-    renderDriverStats(routeStops || [], orders || [], laborData.driver_hours);
+    renderDriverStats(routes || [], routeStops || [], orders || [], laborData.driver_hours);
   }
 
   function renderServicesList(orders) {
@@ -20649,27 +20657,30 @@ ${oneCopy}
   }
 
   // ── Driver stats section ──
-  // routeStops: array of route_stops with embedded routes { driver_id, run_date }
-  function renderDriverStats(routeStops, orders, driverHours = {}) {
+  function renderDriverStats(routes, routeStops, orders, driverHours = {}) {
     const driverName = id => allDriversCache.find(d => d.id === id)?.name || 'Unknown';
 
-    // Build per-driver stop counts from route_stops (source of truth)
+    // Build routeId → driverId lookup
+    const routeDriver = {};
+    (routes || []).forEach(r => { if (r.driver_id) routeDriver[r.id] = r.driver_id; });
+
+    // Count completed stops per driver from route_stops (source of truth)
     const drvMap = {};
     (routeStops || []).forEach(rs => {
-      const did = rs.routes?.driver_id;
+      const did = routeDriver[rs.route_id];
       if (!did) return;
       if (!drvMap[did]) drvMap[did] = { stops: 0, bags: 0 };
       drvMap[did].stops++;
     });
 
-    // Fleet total from same source
+    // Fleet total
     const fleetStops = Object.values(drvMap).reduce((s, d) => s + d.stops, 0);
     const stopsEl = document.getElementById('rpt-drv-stops');
     if (stopsEl) stopsEl.textContent = fleetStops.toLocaleString() || '—';
 
-    // Bag counts from orders (via pickup route → driver)
+    // Bag counts from orders (pickup_run_id → driver)
     orders.forEach(o => {
-      const did = o.routes?.driver_id;
+      const did = o.pickup_run_id ? routeDriver[o.pickup_run_id] : null;
       if (!did || !drvMap[did]) return;
       drvMap[did].bags += Number(o.total_bags || 0);
     });
