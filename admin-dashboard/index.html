@@ -21494,7 +21494,7 @@ ${oneCopy}
     });
 
     // Render — preferred order of price lists
-    const PL_ORDER = ['Delivery', 'Retail', 'Commercial', UNKNOWN];
+    const PL_ORDER = ['Delivery', 'Retail', 'Commercial'];
     const presentPLs = PL_ORDER.filter(pl => byPricelist[pl]);
 
     const fmtLbs  = n => n % 1 === 0 ? `${n.toLocaleString()} lbs` : `${n.toLocaleString('en-US', {minimumFractionDigits:1, maximumFractionDigits:1})} lbs`;
