@@ -21295,7 +21295,7 @@ ${oneCopy}
 
     const { data: orders, error } = await db
       .from('orders')
-      .select('order_number, status, total_amount, tip_amount, line_items, delivery_window_start, discount_id, is_subscription_order')
+      .select('order_number, status, billing_status, total_amount, tip_amount, line_items, delivery_window_start, discount_id, is_subscription_order')
       .neq('status', 'cancelled')
       .not('total_amount', 'is', null)
       .gte('delivery_window_start', fromISO)
@@ -21329,7 +21329,7 @@ ${oneCopy}
         discounts += li.discounts;
         tips      += parseFloat(o.tip_amount || 0);
         total     += parseFloat(o.total_amount || 0);
-        // refunds not yet tracked in DB — placeholder for future use
+        if (o.billing_status === 'refunded') refunds += parseFloat(o.total_amount || 0);
         count++;
       });
       const net = total - refunds;
@@ -21392,7 +21392,7 @@ ${oneCopy}
             <th>Tips</th>
             <th>Credits</th>
             <th>Discounts</th>
-            <th title="Card refunds are not yet tracked in WashRoute — this column will populate once refund tracking is added">Refunds ⓘ</th>
+            <th>Refunds</th>
             <th>Orders</th>
             <th>Charged</th>
             <th>Net Revenue</th>
