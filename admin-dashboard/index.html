@@ -1993,10 +1993,10 @@
               </div>
             </div>
             <div class="rpt-page-tabs">
-              <button class="rpt-page-tab active" onclick="setRptTab('revenue',this)">📋 Daily Revenue</button>
-              <button class="rpt-page-tab" onclick="setRptTab('items',this)">🧺 Items</button>
-              <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">🚐 Drivers</button>
-              <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">👕 Launderers</button>
+              <button class="rpt-page-tab active" onclick="setRptTab('revenue',this)">Daily Revenue</button>
+              <button class="rpt-page-tab" onclick="setRptTab('items',this)">Items</button>
+              <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">Drivers</button>
+              <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">Launderers</button>
             </div>
           </div>
 
@@ -21278,15 +21278,16 @@ ${oneCopy}
       return acc;
     }, { service:0, addons:0, overages:0, fees:0, tips:0, credits:0, discounts:0, refunds:0, total:0, net:0, count:0 });
 
-    const $f = n => n > 0 ? `$${n.toFixed(2)}` : `<span class="rev-zero">—</span>`;
-    const $ft = n => `$${n.toFixed(2)}`;
+    const $fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const $f  = n => n > 0 ? `$${$fmt(n)}` : `<span class="rev-zero">—</span>`;
+    const $ft = n => `$${$fmt(n)}`;
 
     const fmtDate = d => {
       const [y, m, day] = d.split('-');
       return new Date(+y, +m - 1, +day).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
     };
 
-    const $neg = n => n > 0 ? `<span style="color:var(--red)">−$${n.toFixed(2)}</span>` : `<span class="rev-zero">—</span>`;
+    const $neg = n => n > 0 ? `<span style="color:var(--red)">−$${$fmt(n)}</span>` : `<span class="rev-zero">—</span>`;
 
     const bodyRows = rows.map(r => `
       <tr>
@@ -21300,8 +21301,8 @@ ${oneCopy}
         <td>${$neg(r.discounts)}</td>
         <td>${$neg(r.refunds)}</td>
         <td style="color:var(--gray-500)">${r.count}</td>
-        <td style="font-weight:600;color:var(--navy)">$${r.total.toFixed(2)}</td>
-        <td style="font-weight:700;color:var(--green)">$${r.net.toFixed(2)}</td>
+        <td style="font-weight:600;color:var(--navy)">$${$fmt(r.total)}</td>
+        <td style="font-weight:700;color:var(--green)">$${$fmt(r.net)}</td>
       </tr>`).join('');
 
     body.innerHTML = `
@@ -21331,12 +21332,12 @@ ${oneCopy}
             <td>${$ft(tot.overages)}</td>
             <td>${$ft(tot.fees)}</td>
             <td>${$ft(tot.tips)}</td>
-            <td style="color:var(--red)">−$${tot.credits.toFixed(2)}</td>
-            <td style="color:var(--red)">−$${tot.discounts.toFixed(2)}</td>
-            <td style="color:var(--red)">−$${tot.refunds.toFixed(2)}</td>
+            <td style="color:var(--red)">−$${$fmt(tot.credits)}</td>
+            <td style="color:var(--red)">−$${$fmt(tot.discounts)}</td>
+            <td style="color:var(--red)">−$${$fmt(tot.refunds)}</td>
             <td style="color:var(--gray-500)">${tot.count}</td>
-            <td style="color:var(--navy)">$${tot.total.toFixed(2)}</td>
-            <td style="color:var(--green)">$${tot.net.toFixed(2)}</td>
+            <td style="color:var(--navy)">$${$fmt(tot.total)}</td>
+            <td style="color:var(--green)">$${$fmt(tot.net)}</td>
           </tr>
         </tfoot>
       </table>`;
