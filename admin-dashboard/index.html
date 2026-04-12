@@ -20585,14 +20585,22 @@ ${oneCopy}
       fetchSquareLaborHours(fromVal, toVal)
     ]);
 
-    // Step 2: fetch completed route_stops for those route IDs
+    // Step 2: fetch completed route_stops — batch by 50 IDs to avoid URL length limits
     const routeIds = (routes || []).map(r => r.id);
-    const { data: routeStops } = routeIds.length
-      ? await db.from('route_stops')
+    let routeStops = [];
+    if (routeIds.length) {
+      const BATCH = 50;
+      const batches = [];
+      for (let i = 0; i < routeIds.length; i += BATCH) batches.push(routeIds.slice(i, i + BATCH));
+      const results = await Promise.all(
+        batches.map(ids => db.from('route_stops')
           .select('route_id')
           .eq('status', 'complete')
-          .in('route_id', routeIds)
-      : { data: [] };
+          .in('route_id', ids)
+          .limit(2000))
+      );
+      routeStops = results.flatMap(r => r.data || []);
+    }
 
     if (!allDriversCache.length) await loadAllDriversCache();
 
