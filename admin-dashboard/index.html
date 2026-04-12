@@ -21497,7 +21497,7 @@ ${oneCopy}
     const [{ data: services }, { data: orders, error }] = await Promise.all([
       db.from('services').select('id, name, pricelist, is_addon'),
       db.from('orders')
-        .select('order_number, service_id, weight_lbs, line_items, delivery_window_start, status')
+        .select('order_number, service_id, weight_lbs, total_bags, line_items, delivery_window_start, status')
         .neq('status', 'cancelled')
         .not('total_amount', 'is', null)
         .gte('delivery_window_start', fromISO)
@@ -21532,15 +21532,13 @@ ${oneCopy}
       if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, serviceRev: 0, addons: {} };
       const plData = byPricelist[pl];
       plData.orders++;
-      plData.lbs += parseFloat(o.weight_lbs || 0);
+      plData.lbs  += parseFloat(o.weight_lbs || 0);
+      plData.bags += parseInt(o.total_bags   || 0);
 
-      // Parse base + add-on line items
+      // Parse line items for service revenue and add-ons
       if (Array.isArray(o.line_items)) {
         o.line_items.forEach(item => {
-          // Base service: extract bag count from label e.g. "2 bags × $59.00"
           if (item.type === 'base') {
-            const bagMatch = (item.label || '').match(/^(\d+)\s*bag/i);
-            plData.bags      += bagMatch ? parseInt(bagMatch[1]) : 1;
             plData.serviceRev += parseFloat(item.amount || 0);
             return;
           }
