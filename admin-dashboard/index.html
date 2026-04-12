@@ -2154,6 +2154,9 @@
 
           <!-- ── TAB: ITEMS ── -->
           <div id="rpttab-items" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
+              <button class="rev-export-btn" id="items-export-btn" style="display:none" onclick="exportItemsCSV()">Export CSV</button>
+            </div>
             <div id="items-rpt-body">
               <div class="rev-empty">Select a date range above and the report will load automatically.</div>
             </div>
@@ -21475,11 +21478,16 @@ ${oneCopy}
   window.loadRevenueReport  = loadRevenueReport;
   window.exportRevenueCSV   = exportRevenueCSV;
 
+  let _itemsReportData = { pricelists: [], from: '', to: '' };
+
   async function loadItemsReport() {
-    const fromEl = document.getElementById('rpt-from');
-    const toEl   = document.getElementById('rpt-to');
-    const body   = document.getElementById('items-rpt-body');
+    const fromEl    = document.getElementById('rpt-from');
+    const toEl      = document.getElementById('rpt-to');
+    const body      = document.getElementById('items-rpt-body');
+    const exportBtn = document.getElementById('items-export-btn');
     if (!fromEl?.value || !toEl?.value) { showToast('Please select a date range', 'error'); return; }
+    if (exportBtn) exportBtn.style.display = 'none';
+    _itemsReportData = { pricelists: [], from: fromEl.value, to: toEl.value };
 
     body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
 
@@ -21615,10 +21623,75 @@ ${oneCopy}
         </div>`;
     });
 
+    // Save structured data for CSV export
+    _itemsReportData.pricelists = presentPLs.map(pl => ({ pl, ...byPricelist[pl] }));
+
     body.innerHTML = `<div style="padding:16px 0 4px">${sections.join('')}</div>`;
+    if (exportBtn) exportBtn.style.display = '';
+  }
+
+  function exportItemsCSV() {
+    const { pricelists, from, to } = _itemsReportData;
+    if (!pricelists.length) return;
+
+    const esc = v => `"${String(v).replace(/"/g, '""')}"`;
+    const rows = [];
+
+    // Header
+    rows.push([
+      'Pricelist','Orders','Bags','Pounds Processed',
+      'Service Revenue','Net Revenue','Net / lb',
+      'Add-on','Items','Add-on Revenue'
+    ].map(esc).join(','));
+
+    pricelists.forEach(d => {
+      const net = (d.totalRev - d.refunds).toFixed(2);
+      const netPerLb = d.lbs > 0 ? ((d.totalRev - d.refunds) / d.lbs).toFixed(2) : '';
+
+      // Summary row for this pricelist
+      rows.push([
+        d.pl, d.orders, d.bags,
+        d.lbs.toFixed(1),
+        d.serviceRev.toFixed(2), net, netPerLb,
+        '','',''
+      ].map(esc).join(','));
+
+      // Add-on rows
+      const addonNames = Object.keys(d.addons).sort();
+      addonNames.forEach(name => {
+        const a = d.addons[name];
+        rows.push([
+          '','','','','','','',
+          name, a.bags, a.revenue.toFixed(2)
+        ].map(esc).join(','));
+      });
+
+      // Add-on totals row
+      if (addonNames.length) {
+        const totalItems = addonNames.reduce((s, n) => s + d.addons[n].bags, 0);
+        const totalRev   = addonNames.reduce((s, n) => s + d.addons[n].revenue, 0);
+        rows.push([
+          '','','','','','','',
+          'TOTAL ADD-ONS', totalItems, totalRev.toFixed(2)
+        ].map(esc).join(','));
+      }
+
+      // Blank row between sections
+      rows.push('');
+    });
+
+    const csv  = rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `items-report-${from}-to-${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   window.loadItemsReport = loadItemsReport;
+  window.exportItemsCSV  = exportItemsCSV;
 
   async function sendLaunchAnnouncementAll() {
     // Fetch all customers with email or phone
