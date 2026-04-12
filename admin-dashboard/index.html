@@ -2021,10 +2021,11 @@
                       <th>Stops</th>
                       <th>Bags Hauled</th>
                       <th>Hours Worked</th>
+                      <th>Stops/Hr</th>
                     </tr>
                   </thead>
                   <tbody id="rpt-drv-tbody">
-                    <tr><td colspan="4" class="rpt-no-data">Loading…</td></tr>
+                    <tr><td colspan="5" class="rpt-no-data">Loading…</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -20561,16 +20562,20 @@ ${oneCopy}
     const stopsEl = document.getElementById('rpt-drv-stops');
     if (stopsEl) stopsEl.textContent = '…';
     const tbody = document.getElementById('rpt-drv-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="rpt-no-data">Loading…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="rpt-no-data">Loading…</td></tr>';
 
-    // Fetch routes, orders, and Square labor hours in parallel
-    const [{ data: routes }, { data: orders }, laborData] = await Promise.all([
-      db.from('routes')
-        .select('id, run_date, driver_id, completed_stops')
-        .gte('run_date', start.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}))
-        .lte('run_date', end.toLocaleDateString('en-CA', {timeZone: BIZ_TZ})),
+    const startDate = start.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
+    const endDate   = end.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
+
+    // Fetch route_stops (source of truth for stops), orders, and Square labor in parallel
+    const [{ data: routeStops }, { data: orders }, laborData] = await Promise.all([
+      db.from('route_stops')
+        .select('stop_type, status, routes!inner(driver_id, run_date)')
+        .eq('status', 'complete')
+        .gte('routes.run_date', startDate)
+        .lte('routes.run_date', endDate),
       db.from('orders')
-        .select('id, total_bags, pickup_run_id, driver_rating')
+        .select('id, total_bags, pickup_run_id, routes(driver_id)')
         .neq('status', 'cancelled')
         .gte('delivery_window_start', start.toISOString())
         .lte('delivery_window_start', end.toISOString()),
@@ -20579,7 +20584,7 @@ ${oneCopy}
 
     if (!allDriversCache.length) await loadAllDriversCache();
 
-    renderDriverStats(routes || [], orders || [], laborData.driver_hours);
+    renderDriverStats(routeStops || [], orders || [], laborData.driver_hours);
   }
 
   function renderServicesList(orders) {
@@ -20644,28 +20649,27 @@ ${oneCopy}
   }
 
   // ── Driver stats section ──
-  function renderDriverStats(routes, orders, driverHours = {}) {
-    const fleetStops = routes.reduce((s,r) => s + (r.completed_stops||0), 0);
-    const stopsEl = document.getElementById('rpt-drv-stops');
-    if (stopsEl) stopsEl.textContent = fleetStops || '—';
-
-    // Per-driver breakdown
-    const drvMap = {};
+  // routeStops: array of route_stops with embedded routes { driver_id, run_date }
+  function renderDriverStats(routeStops, orders, driverHours = {}) {
     const driverName = id => allDriversCache.find(d => d.id === id)?.name || 'Unknown';
 
-    // routeId → driverId lookup
-    const routeDriver = {};
-    routes.forEach(r => { if (r.driver_id) routeDriver[r.id] = r.driver_id; });
-
-    routes.forEach(r => {
-      const did = r.driver_id;
+    // Build per-driver stop counts from route_stops (source of truth)
+    const drvMap = {};
+    (routeStops || []).forEach(rs => {
+      const did = rs.routes?.driver_id;
       if (!did) return;
       if (!drvMap[did]) drvMap[did] = { stops: 0, bags: 0 };
-      drvMap[did].stops += r.completed_stops || 0;
+      drvMap[did].stops++;
     });
 
+    // Fleet total from same source
+    const fleetStops = Object.values(drvMap).reduce((s, d) => s + d.stops, 0);
+    const stopsEl = document.getElementById('rpt-drv-stops');
+    if (stopsEl) stopsEl.textContent = fleetStops.toLocaleString() || '—';
+
+    // Bag counts from orders (via pickup route → driver)
     orders.forEach(o => {
-      const did = o.pickup_run_id ? routeDriver[o.pickup_run_id] : null;
+      const did = o.routes?.driver_id;
       if (!did || !drvMap[did]) return;
       drvMap[did].bags += Number(o.total_bags || 0);
     });
@@ -20674,7 +20678,7 @@ ${oneCopy}
     const rows = Object.entries(drvMap).sort((a,b) => b[1].stops - a[1].stops);
 
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="4" class="rpt-no-data">No route data for this period.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="rpt-no-data">No route data for this period.</td></tr>';
       return;
     }
 
@@ -20684,11 +20688,15 @@ ${oneCopy}
       const hrsCell = hrs != null
         ? `<span style="font-weight:600">${hrs.toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> hrs</span>`
         : `<span style="color:var(--gray-300)">—</span>`;
+      const stopsPerHr = (hrs != null && s.stops > 0)
+        ? `<span style="font-weight:600">${(s.stops / hrs).toFixed(1)}</span>`
+        : `<span style="color:var(--gray-300)">—</span>`;
       return `<tr>
         <td style="font-weight:600">${name}</td>
-        <td>${s.stops || '—'}</td>
-        <td style="color:var(--gray-600)">${s.bags || '—'}</td>
+        <td>${s.stops.toLocaleString() || '—'}</td>
+        <td style="color:var(--gray-600)">${s.bags ? s.bags.toLocaleString() : '—'}</td>
         <td>${hrsCell}</td>
+        <td>${stopsPerHr}</td>
       </tr>`;
     }).join('');
   }
