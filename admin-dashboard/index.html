@@ -2007,6 +2007,10 @@
                 <div class="stat-label">Stops Completed</div>
                 <div class="stat-value" id="rpt-drv-stops">—</div>
               </div>
+              <div class="stat-card">
+                <div class="stat-label">Avg Stops/Hr</div>
+                <div class="stat-value" id="rpt-drv-stops-per-hr">—</div>
+              </div>
             </div>
             <div class="card" style="margin-bottom:0">
               <div class="card-header">
@@ -20673,10 +20677,19 @@ ${oneCopy}
       drvMap[did].stops++;
     });
 
-    // Fleet total
+    // Fleet total + avg stops/hr (only drivers with both stops and hours)
     const fleetStops = Object.values(drvMap).reduce((s, d) => s + d.stops, 0);
     const stopsEl = document.getElementById('rpt-drv-stops');
     if (stopsEl) stopsEl.textContent = fleetStops.toLocaleString() || '—';
+
+    // Avg stops/hr: total stops ÷ total hours, only for drivers with hour data
+    let trackedStops = 0, trackedHrs = 0;
+    Object.entries(drvMap).forEach(([did, s]) => {
+      const hrs = driverHours[driverName(did)];
+      if (hrs != null && s.stops > 0) { trackedStops += s.stops; trackedHrs += hrs; }
+    });
+    const sphEl = document.getElementById('rpt-drv-stops-per-hr');
+    if (sphEl) sphEl.textContent = (trackedHrs > 0) ? (trackedStops / trackedHrs).toFixed(1) : '—';
 
     // Bag counts from orders (pickup_run_id → driver)
     orders.forEach(o => {
