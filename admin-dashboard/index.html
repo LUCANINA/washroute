@@ -903,6 +903,22 @@
     .rev-tbl tbody tr:hover td { background:var(--gray-50); cursor:default; }
     .rev-tbl tfoot td { font-weight:700; border-top:2px solid var(--gray-200); border-bottom:none; background:var(--gray-50); font-size:13.5px; }
     .rev-tbl tfoot td:first-child { color:var(--gray-700); }
+    /* ── ITEMS REPORT ── */
+    .items-pricelist-section { margin-bottom:24px; }
+    .items-pricelist-header { display:flex; align-items:baseline; gap:16px; padding:14px 20px 10px; border-bottom:2px solid var(--gray-200); }
+    .items-pricelist-name { font-size:15px; font-weight:700; color:var(--gray-900); }
+    .items-pricelist-meta { font-size:12px; color:var(--gray-400); font-weight:500; }
+    .items-tbl { width:100%; border-collapse:collapse; font-size:13px; }
+    .items-tbl th { padding:9px 16px; text-align:right; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-400); border-bottom:1px solid var(--gray-100); white-space:nowrap; }
+    .items-tbl th:first-child { text-align:left; }
+    .items-tbl td { padding:10px 16px; border-bottom:1px solid var(--gray-100); text-align:right; color:var(--gray-700); }
+    .items-tbl td:first-child { text-align:left; color:var(--gray-900); font-weight:500; }
+    .items-tbl tbody tr:hover td { background:var(--gray-50); }
+    .items-tbl tfoot td { font-weight:700; border-top:2px solid var(--gray-200); border-bottom:none; background:var(--gray-50); color:var(--gray-800); }
+    .items-summary-row { display:flex; gap:28px; padding:10px 20px 14px; }
+    .items-summary-stat { font-size:12px; color:var(--gray-500); }
+    .items-summary-stat strong { display:block; font-size:18px; font-weight:700; color:var(--gray-900); margin-bottom:1px; }
+
     .rev-date-bar { display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; padding:20px 24px; border-bottom:1px solid var(--gray-100); }
     .rev-date-bar label { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--gray-400); margin-bottom:5px; }
     .rev-date-bar input[type=date] { padding:8px 12px; border:1.5px solid var(--gray-200); border-radius:8px; font-family:inherit; font-size:13px; color:var(--gray-800); outline:none; }
@@ -1981,6 +1997,7 @@
               <button class="rpt-page-tab" onclick="setRptTab('operations',this)">📦 Operations</button>
               <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">🚐 Drivers</button>
               <button class="rpt-page-tab" onclick="setRptTab('revenue',this)">📋 Daily Revenue</button>
+              <button class="rpt-page-tab" onclick="setRptTab('items',this)">🧺 Items</button>
             </div>
           </div>
 
@@ -2132,6 +2149,13 @@
               <div id="rev-rpt-body" class="rev-tbl-wrap" style="padding:0 0 4px">
                 <div class="rev-empty">Select a date range above and the report will load automatically.</div>
               </div>
+            </div>
+          </div>
+
+          <!-- ── TAB: ITEMS ── -->
+          <div id="rpttab-items" style="display:none">
+            <div id="items-rpt-body">
+              <div class="rev-empty">Select a date range above and the report will load automatically.</div>
             </div>
           </div>
 
@@ -20557,6 +20581,7 @@ ${oneCopy}
 
   function runCurrentReport() {
     if (rptTab === 'revenue') loadRevenueReport();
+    else if (rptTab === 'items') loadItemsReport();
     else loadReports();
   }
 
@@ -20564,7 +20589,7 @@ ${oneCopy}
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['snapshot','operations','drivers','revenue'].forEach(t => {
+    ['snapshot','operations','drivers','revenue','items'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
@@ -21449,6 +21474,140 @@ ${oneCopy}
 
   window.loadRevenueReport  = loadRevenueReport;
   window.exportRevenueCSV   = exportRevenueCSV;
+
+  async function loadItemsReport() {
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    const body   = document.getElementById('items-rpt-body');
+    if (!fromEl?.value || !toEl?.value) { showToast('Please select a date range', 'error'); return; }
+
+    body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
+
+    // Pad dates for UTC offset (same pattern as revenue report)
+    const fromPad = new Date(fromEl.value + 'T00:00:00');
+    fromPad.setDate(fromPad.getDate() - 1);
+    const toPad = new Date(toEl.value + 'T00:00:00');
+    toPad.setDate(toPad.getDate() + 1);
+    const fromISO = fromPad.toISOString().slice(0, 10) + 'T00:00:00Z';
+    const toISO   = toPad.toISOString().slice(0, 10)   + 'T23:59:59Z';
+    const selFrom = fromEl.value;
+    const selTo   = toEl.value;
+
+    // Fetch services map and orders in parallel
+    const [{ data: services }, { data: orders, error }] = await Promise.all([
+      db.from('services').select('id, name, pricelist, is_addon'),
+      db.from('orders')
+        .select('order_number, service_id, weight_lbs, line_items, delivery_window_start, status')
+        .neq('status', 'cancelled')
+        .not('total_amount', 'is', null)
+        .gte('delivery_window_start', fromISO)
+        .lte('delivery_window_start', toISO)
+        .order('delivery_window_start')
+    ]);
+
+    if (error) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${error.message}</div>`; return; }
+    if (!orders || !orders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
+
+    // Build lookup: serviceId → { name, pricelist, is_addon }
+    const svcMap = {};
+    (services || []).forEach(s => { svcMap[s.id] = s; });
+
+    // Filter to exact Pacific date range
+    const filtered = orders.filter(o => {
+      if (!o.delivery_window_start) return false;
+      const d = new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      return d >= selFrom && d <= selTo;
+    });
+
+    if (!filtered.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
+
+    // Group by pricelist
+    // pricelists: { [name]: { orders: N, lbs: N, addons: { [addonName]: { bags: N, revenue: N } } } }
+    const byPricelist = {};
+    const UNKNOWN = 'Unknown';
+
+    filtered.forEach(o => {
+      const svc = svcMap[o.service_id];
+      const pl  = svc?.pricelist || UNKNOWN;
+      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, addons: {} };
+      const plData = byPricelist[pl];
+      plData.orders++;
+      plData.lbs += parseFloat(o.weight_lbs || 0);
+
+      // Parse add-on line items
+      if (Array.isArray(o.line_items)) {
+        o.line_items.forEach(item => {
+          if (item.type !== 'pref_service' && item.type !== 'addon' && item.type !== 'addon_service') return;
+          // Extract add-on name (e.g. "Oxi × 2 bags" → "Oxi")
+          const label = item.label || '';
+          const addonName = label.split('×')[0].trim() || label;
+          // Extract bag quantity from label (e.g. "Oxi × 2 bags" → 2)
+          const qtyMatch = label.match(/×\s*(\d+)/);
+          const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
+          const rev = parseFloat(item.amount || 0);
+          if (!plData.addons[addonName]) plData.addons[addonName] = { bags: 0, revenue: 0 };
+          plData.addons[addonName].bags    += qty;
+          plData.addons[addonName].revenue += rev;
+        });
+      }
+    });
+
+    // Render — preferred order of price lists
+    const PL_ORDER = ['Delivery', 'Retail', 'Commercial', UNKNOWN];
+    const presentPLs = PL_ORDER.filter(pl => byPricelist[pl]);
+
+    const fmtLbs = n => n % 1 === 0 ? `${n.toFixed(0)} lbs` : `${n.toFixed(1)} lbs`;
+
+    const sections = presentPLs.map(pl => {
+      const d = byPricelist[pl];
+      const addonNames = Object.keys(d.addons).sort();
+
+      const addonRows = addonNames.length ? addonNames.map(name => {
+        const a = d.addons[name];
+        return `<tr>
+          <td>${name}</td>
+          <td>${a.bags.toLocaleString()}</td>
+          <td>$${a.revenue.toFixed(2)}</td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="3" style="color:var(--gray-400);font-style:italic;text-align:left;padding:10px 16px">No add-ons</td></tr>`;
+
+      const totalBags    = addonNames.reduce((s, n) => s + d.addons[n].bags,    0);
+      const totalAddonRev = addonNames.reduce((s, n) => s + d.addons[n].revenue, 0);
+
+      const footer = addonNames.length ? `<tfoot><tr>
+        <td>Total add-ons</td>
+        <td>${totalBags.toLocaleString()}</td>
+        <td>$${totalAddonRev.toFixed(2)}</td>
+      </tr></tfoot>` : '';
+
+      return `
+        <div class="card items-pricelist-section" style="margin-bottom:16px">
+          <div class="items-pricelist-header">
+            <span class="items-pricelist-name">${pl}</span>
+            <span class="items-pricelist-meta">price list</span>
+          </div>
+          <div class="items-summary-row">
+            <div class="items-summary-stat"><strong>${d.orders.toLocaleString()}</strong>Orders</div>
+            <div class="items-summary-stat"><strong>${d.lbs > 0 ? fmtLbs(d.lbs) : '—'}</strong>Pounds Processed</div>
+          </div>
+          <table class="items-tbl">
+            <thead>
+              <tr>
+                <th style="text-align:left">Add-on</th>
+                <th>Bags</th>
+                <th>Revenue</th>
+              </tr>
+            </thead>
+            <tbody>${addonRows}</tbody>
+            ${footer}
+          </table>
+        </div>`;
+    });
+
+    body.innerHTML = `<div style="padding:16px 0 4px">${sections.join('')}</div>`;
+  }
+
+  window.loadItemsReport = loadItemsReport;
 
   async function sendLaunchAnnouncementAll() {
     // Fetch all customers with email or phone
