@@ -1993,15 +1993,15 @@
               </div>
             </div>
             <div class="rpt-page-tabs">
-              <button class="rpt-page-tab active" onclick="setRptTab('drivers',this)">🚐 Drivers</button>
-              <button class="rpt-page-tab" onclick="setRptTab('revenue',this)">📋 Daily Revenue</button>
+              <button class="rpt-page-tab active" onclick="setRptTab('revenue',this)">📋 Daily Revenue</button>
               <button class="rpt-page-tab" onclick="setRptTab('items',this)">🧺 Items</button>
+              <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">🚐 Drivers</button>
               <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">👕 Launderers</button>
             </div>
           </div>
 
           <!-- ── TAB: DRIVERS ── -->
-          <div id="rpttab-drivers">
+          <div id="rpttab-drivers" style="display:none">
             <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
               <div class="stat-card">
                 <div class="stat-label">Stops Completed</div>
@@ -2032,7 +2032,7 @@
           </div>
 
           <!-- ── TAB: DAILY REVENUE ── -->
-          <div id="rpttab-revenue" style="display:none">
+          <div id="rpttab-revenue">
             <div class="card" style="margin-bottom:0">
               <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
                 <button class="rev-export-btn" id="rev-export-btn" style="display:none" onclick="exportRevenueCSV()">Export CSV</button>
@@ -20470,7 +20470,7 @@ ${oneCopy}
   }
 
   // ── REPORTS ──
-  let rptTab = 'drivers';
+  let rptTab = 'revenue';
 
   function initRptDateDefaults() {
     const fromEl = document.getElementById('rpt-from');
