@@ -21279,10 +21279,19 @@ ${oneCopy}
     exportBtn.style.display = 'none';
     _revReportData = [];
 
-    // Fetch all non-cancelled orders whose delivery falls in range
-    // We use delivery_window_start as the "revenue date" (when money is earned)
-    const fromISO = fromEl.value + 'T00:00:00';
-    const toISO   = toEl.value   + 'T23:59:59';
+    // Fetch all non-cancelled orders whose delivery falls in range.
+    // delivery_window_start is stored in UTC; Pacific time is up to 8h behind.
+    // Query 1 day wider on each side in UTC, then filter to exact dates
+    // client-side using Pacific-localised dates (grouping already does this).
+    const fromPad = new Date(fromEl.value + 'T00:00:00');
+    fromPad.setDate(fromPad.getDate() - 1);
+    const toPad   = new Date(toEl.value + 'T00:00:00');
+    toPad.setDate(toPad.getDate() + 1);
+    const fromISO = fromPad.toISOString().slice(0, 10) + 'T00:00:00Z';
+    const toISO   = toPad.toISOString().slice(0, 10)   + 'T23:59:59Z';
+    // The user's actual selected range (used to filter grouped rows below)
+    const selFrom = fromEl.value;
+    const selTo   = toEl.value;
 
     const { data: orders, error } = await db
       .from('orders')
@@ -21305,9 +21314,9 @@ ${oneCopy}
       byDate[localDate].push(o);
     });
 
-    // Build rows
+    // Build rows — only include dates within the user's selected range
     const rows = [];
-    Object.keys(byDate).sort().forEach(date => {
+    Object.keys(byDate).sort().filter(d => d >= selFrom && d <= selTo).forEach(date => {
       const dayOrders = byDate[date];
       let service = 0, addons = 0, overages = 0, fees = 0, tips = 0, total = 0, count = 0, discounted = 0;
       dayOrders.forEach(o => {
