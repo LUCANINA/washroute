@@ -1964,16 +1964,16 @@
             </div>
           </div>
 
-          <!-- Period selector + tab bar combined card -->
+          <!-- Date range + tab bar combined card -->
           <div class="card" style="padding:0;margin-bottom:20px">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap;gap:10px">
-              <div style="font-size:12.5px;color:var(--gray-500)">Figures shown vs. the prior period.</div>
-              <div class="filter-tabs" id="rpt-period-tabs">
-                <button class="filter-tab active" onclick="setRptPeriod('today',this)">Today</button>
-                <button class="filter-tab" onclick="setRptPeriod('yesterday',this)">Yesterday</button>
-                <button class="filter-tab" onclick="setRptPeriod('7d',this)">7 Days</button>
-                <button class="filter-tab" onclick="setRptPeriod('30d',this)">30 Days</button>
-                <button class="filter-tab" onclick="setRptPeriod('90d',this)">90 Days</button>
+            <div style="display:flex;align-items:flex-end;gap:20px;padding:14px 20px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap">
+              <div>
+                <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);margin-bottom:5px">From</label>
+                <input type="date" id="rpt-from" onchange="runCurrentReport()" style="padding:7px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none">
+              </div>
+              <div>
+                <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);margin-bottom:5px">To</label>
+                <input type="date" id="rpt-to" onchange="runCurrentReport()" style="padding:7px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none">
               </div>
             </div>
             <div class="rpt-page-tabs">
@@ -2126,20 +2126,11 @@
           <!-- ── TAB: DAILY REVENUE ── -->
           <div id="rpttab-revenue" style="display:none">
             <div class="card" style="margin-bottom:0">
-              <div class="rev-date-bar">
-                <div>
-                  <label>From</label>
-                  <input type="date" id="rev-from">
-                </div>
-                <div>
-                  <label>To</label>
-                  <input type="date" id="rev-to">
-                </div>
-                <button class="rev-run-btn" onclick="loadRevenueReport()">View Report</button>
+              <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
                 <button class="rev-export-btn" id="rev-export-btn" style="display:none" onclick="exportRevenueCSV()">Export CSV</button>
               </div>
               <div id="rev-rpt-body" class="rev-tbl-wrap" style="padding:0 0 4px">
-                <div class="rev-empty">Select a date range and click View Report.</div>
+                <div class="rev-empty">Select a date range above and the report will load automatically.</div>
               </div>
             </div>
           </div>
@@ -5259,7 +5250,7 @@
     if (id === 'drivers') { loadDrivers(); loadAdminDriverMessages(); }
     if (id === 'services') loadServices();
     if (id === 'notifications') loadNotifications();
-    if (id === 'reports') loadReports();
+    if (id === 'reports') { initRptDateDefaults(); loadReports(); }
     if (id === 'processing') { loadProcessing(); startProcPoll(); } else { stopProcPoll(); }
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
@@ -20551,14 +20542,22 @@ ${oneCopy}
   }
 
   // ── REPORTS ──
-  let rptPeriod = 'today';
   let rptTab = 'snapshot';
 
-  function setRptPeriod(period, btn) {
-    rptPeriod = period;
-    document.querySelectorAll('#rpt-period-tabs .filter-tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    loadReports();
+  function initRptDateDefaults() {
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    if (!fromEl || fromEl.value) return;
+    const today = new Date();
+    const fmt = d => d.toISOString().slice(0, 10);
+    const weekAgo = new Date(today); weekAgo.setDate(today.getDate() - 6);
+    fromEl.value = fmt(weekAgo);
+    toEl.value   = fmt(today);
+  }
+
+  function runCurrentReport() {
+    if (rptTab === 'revenue') loadRevenueReport();
+    else loadReports();
   }
 
   function setRptTab(tab, btn) {
@@ -20569,7 +20568,7 @@ ${oneCopy}
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
-    if (tab === 'revenue') initRevenueDateDefaults();
+    runCurrentReport();
   }
 
   function rptDateRange(period) {
@@ -20604,7 +20603,16 @@ ${oneCopy}
     loadRecentOrders();
     load24hStats();
 
-    const { start, end, prevStart, prevEnd } = rptDateRange(rptPeriod);
+    // Read date range from shared date pickers
+    const fromVal = document.getElementById('rpt-from')?.value;
+    const toVal   = document.getElementById('rpt-to')?.value;
+    if (!fromVal || !toVal) return;
+    const start = new Date(fromVal + 'T00:00:00'); start.setHours(0,0,0,0);
+    const end   = new Date(toVal   + 'T23:59:59'); end.setHours(23,59,59,999);
+    // Previous period = same number of days immediately before
+    const days = Math.round((end - start) / 86400000) + 1;
+    const prevEnd   = new Date(start); prevEnd.setMilliseconds(-1);
+    const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - days + 1); prevStart.setHours(0,0,0,0);
     ['rpt-revenue','rpt-orders','rpt-lbs','rpt-bags','rpt-aov','rpt-rev-per-lb','rpt-rev-per-bag','rpt-ontime','rpt-repeat',
      'rpt-drv-routes','rpt-drv-stops','rpt-drv-rating']
       .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '…'; });
@@ -21233,17 +21241,6 @@ ${oneCopy}
   // ── DAILY REVENUE REPORT ──
   let _revReportData = []; // last rendered rows, used for CSV export
 
-  function initRevenueDateDefaults() {
-    const fromEl = document.getElementById('rev-from');
-    const toEl   = document.getElementById('rev-to');
-    if (!fromEl || !toEl || fromEl.value) return; // already set
-    const today = new Date();
-    const fmt = d => d.toISOString().slice(0, 10);
-    const weekAgo = new Date(today); weekAgo.setDate(today.getDate() - 6);
-    fromEl.value = fmt(weekAgo);
-    toEl.value   = fmt(today);
-  }
-
   // Parse a line_items JSONB array into revenue buckets.
   // Handles both old (kind:'service') and new (type:'base') formats.
   function _parseLineItems(items) {
@@ -21269,11 +21266,11 @@ ${oneCopy}
   }
 
   async function loadRevenueReport() {
-    const fromEl = document.getElementById('rev-from');
-    const toEl   = document.getElementById('rev-to');
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
     const body   = document.getElementById('rev-rpt-body');
     const exportBtn = document.getElementById('rev-export-btn');
-    if (!fromEl.value || !toEl.value) { showToast('Please select a date range', 'error'); return; }
+    if (!fromEl?.value || !toEl?.value) { showToast('Please select a date range', 'error'); return; }
 
     body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
     exportBtn.style.display = 'none';
@@ -21417,7 +21414,7 @@ ${oneCopy}
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href = url;
-    a.download = `daily-revenue-${document.getElementById('rev-from').value}-to-${document.getElementById('rev-to').value}.csv`;
+    a.download = `daily-revenue-${document.getElementById('rpt-from').value}-to-${document.getElementById('rpt-to').value}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
