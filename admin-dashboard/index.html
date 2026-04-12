@@ -1996,7 +1996,7 @@
               <button class="rpt-page-tab active" onclick="setRptTab('drivers',this)">🚐 Drivers</button>
               <button class="rpt-page-tab" onclick="setRptTab('revenue',this)">📋 Daily Revenue</button>
               <button class="rpt-page-tab" onclick="setRptTab('items',this)">🧺 Items</button>
-              <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">👕 Launderer</button>
+              <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">👕 Launderers</button>
             </div>
           </div>
 
@@ -2020,10 +2020,11 @@
                       <th>Driver</th>
                       <th>Stops</th>
                       <th>Bags Hauled</th>
+                      <th>Hours Worked</th>
                     </tr>
                   </thead>
                   <tbody id="rpt-drv-tbody">
-                    <tr><td colspan="3" class="rpt-no-data">Loading…</td></tr>
+                    <tr><td colspan="4" class="rpt-no-data">Loading…</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -20537,7 +20538,7 @@ ${oneCopy}
     const stopsEl = document.getElementById('rpt-drv-stops');
     if (stopsEl) stopsEl.textContent = '…';
     const tbody = document.getElementById('rpt-drv-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="rpt-no-data">Loading…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="rpt-no-data">Loading…</td></tr>';
 
     // Fetch routes and orders for the period in parallel
     const [{ data: routes }, { data: orders }] = await Promise.all([
@@ -20649,7 +20650,7 @@ ${oneCopy}
     const rows = Object.entries(drvMap).sort((a,b) => b[1].stops - a[1].stops);
 
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="3" class="rpt-no-data">No route data for this period.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="4" class="rpt-no-data">No route data for this period.</td></tr>';
       return;
     }
 
@@ -20657,6 +20658,7 @@ ${oneCopy}
       <td style="font-weight:600">${driverName(did)}</td>
       <td>${s.stops || '—'}</td>
       <td style="color:var(--gray-600)">${s.bags || '—'}</td>
+      <td style="color:var(--gray-300)">—</td>
     </tr>`).join('');
   }
 
