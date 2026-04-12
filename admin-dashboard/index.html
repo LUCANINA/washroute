@@ -20528,19 +20528,25 @@ ${oneCopy}
   }
 
   // ── Square Labor hours helper ──
+  // Returns { driver_hours, laundry_hours, total_hours } — all keyed by name
   async function fetchSquareLaborHours(from, to) {
+    const empty = { driver_hours: {}, laundry_hours: {}, total_hours: {} };
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/square-labor`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
         body: JSON.stringify({ from, to })
       });
-      if (!res.ok) { console.warn('square-labor returned', res.status); return {}; }
+      if (!res.ok) { console.warn('square-labor returned', res.status); return empty; }
       const data = await res.json();
-      return data.hours || {};
+      return {
+        driver_hours:  data.driver_hours  || {},
+        laundry_hours: data.laundry_hours || {},
+        total_hours:   data.total_hours   || {}
+      };
     } catch (e) {
       console.warn('Square labor fetch failed:', e);
-      return {};
+      return empty;
     }
   }
 
@@ -20558,7 +20564,7 @@ ${oneCopy}
     if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="rpt-no-data">Loading…</td></tr>';
 
     // Fetch routes, orders, and Square labor hours in parallel
-    const [{ data: routes }, { data: orders }, hoursMap] = await Promise.all([
+    const [{ data: routes }, { data: orders }, laborData] = await Promise.all([
       db.from('routes')
         .select('id, run_date, driver_id, completed_stops')
         .gte('run_date', start.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}))
@@ -20573,7 +20579,7 @@ ${oneCopy}
 
     if (!allDriversCache.length) await loadAllDriversCache();
 
-    renderDriverStats(routes || [], orders || [], hoursMap);
+    renderDriverStats(routes || [], orders || [], laborData.driver_hours);
   }
 
   function renderServicesList(orders) {
@@ -20638,7 +20644,7 @@ ${oneCopy}
   }
 
   // ── Driver stats section ──
-  function renderDriverStats(routes, orders, hoursMap = {}) {
+  function renderDriverStats(routes, orders, driverHours = {}) {
     const fleetStops = routes.reduce((s,r) => s + (r.completed_stops||0), 0);
     const stopsEl = document.getElementById('rpt-drv-stops');
     if (stopsEl) stopsEl.textContent = fleetStops || '—';
@@ -20674,7 +20680,7 @@ ${oneCopy}
 
     tbody.innerHTML = rows.map(([did, s]) => {
       const name = driverName(did);
-      const hrs  = hoursMap[name];
+      const hrs  = driverHours[name];
       const hrsCell = hrs != null
         ? `<span style="font-weight:600">${hrs.toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> hrs</span>`
         : `<span style="color:var(--gray-300)">—</span>`;
@@ -21516,7 +21522,7 @@ ${oneCopy}
     const toISO   = toPad.toISOString().slice(0,10)   + 'T23:59:59Z';
     const selFrom = fromEl.value, selTo = toEl.value;
 
-    const [{ data: launderers }, { data: orders, error }, hoursMap] = await Promise.all([
+    const [{ data: launderers }, { data: orders, error }, laborData] = await Promise.all([
       db.from('launderers').select('id, name').eq('is_active', true).order('name'),
       db.from('orders')
         .select('id, folded_by_id, total_bags, weight_lbs, delivery_window_start')
@@ -21553,7 +21559,7 @@ ${oneCopy}
     const rows = Object.entries(statsMap)
       .map(([id, s]) => {
         const name = laundererMap[id] || 'Unknown';
-        const hrs  = hoursMap[name] ?? null;
+        const hrs  = laborData.laundry_hours[name] ?? null;
         return { name, hrs, ...s };
       })
       .sort((a, b) => b.orders - a.orders);
