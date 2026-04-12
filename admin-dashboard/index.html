@@ -893,6 +893,27 @@
     .rpt-status-pill { display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:20px;font-size:13px;font-weight:500;border:1px solid rgba(0,0,0,.06); }
     .rpt-status-pill-count { font-size:16px;font-weight:700;color:var(--gray-800); }
 
+    /* ── DAILY REVENUE REPORT ── */
+    .rev-tbl-wrap { overflow-x: auto; }
+    .rev-tbl { width:100%; border-collapse:collapse; font-size:13px; }
+    .rev-tbl th { padding:10px 14px; text-align:right; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-400); border-bottom:2px solid var(--gray-200); white-space:nowrap; }
+    .rev-tbl th:first-child { text-align:left; }
+    .rev-tbl td { padding:11px 14px; border-bottom:1px solid var(--gray-100); text-align:right; color:var(--gray-800); }
+    .rev-tbl td:first-child { text-align:left; font-weight:500; color:var(--gray-900); }
+    .rev-tbl tbody tr:hover td { background:var(--gray-50); cursor:default; }
+    .rev-tbl tfoot td { font-weight:700; border-top:2px solid var(--gray-200); border-bottom:none; background:var(--gray-50); font-size:13.5px; }
+    .rev-tbl tfoot td:first-child { color:var(--gray-700); }
+    .rev-date-bar { display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; padding:20px 24px; border-bottom:1px solid var(--gray-100); }
+    .rev-date-bar label { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--gray-400); margin-bottom:5px; }
+    .rev-date-bar input[type=date] { padding:8px 12px; border:1.5px solid var(--gray-200); border-radius:8px; font-family:inherit; font-size:13px; color:var(--gray-800); outline:none; }
+    .rev-date-bar input[type=date]:focus { border-color:var(--accent); }
+    .rev-run-btn { padding:9px 22px; background:var(--navy); color:white; border:none; border-radius:8px; font-family:inherit; font-size:13.5px; font-weight:600; cursor:pointer; transition:opacity .15s; }
+    .rev-run-btn:hover { opacity:.88; }
+    .rev-export-btn { padding:8px 16px; background:white; color:var(--gray-700); border:1.5px solid var(--gray-200); border-radius:8px; font-family:inherit; font-size:13px; font-weight:500; cursor:pointer; transition:all .15s; }
+    .rev-export-btn:hover { border-color:var(--gray-400); }
+    .rev-empty { text-align:center; padding:40px 20px; color:var(--gray-400); font-size:13px; }
+    .rev-zero { color:var(--gray-300); }
+
     /* ── NOTIFICATIONS PAGE ── */
     .notif-layout { display:grid;grid-template-columns:268px 1fr;gap:20px;height:calc(100vh - 56px - 56px - 48px);min-height:520px; }
     .notif-sidebar { background:white;border-radius:var(--radius);border:1px solid var(--gray-200);overflow-y:auto;display:flex;flex-direction:column; }
@@ -1959,6 +1980,7 @@
               <button class="rpt-page-tab active" onclick="setRptTab('snapshot',this)">📊 Snapshot</button>
               <button class="rpt-page-tab" onclick="setRptTab('operations',this)">📦 Operations</button>
               <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">🚐 Drivers</button>
+              <button class="rpt-page-tab" onclick="setRptTab('revenue',this)">📋 Daily Revenue</button>
             </div>
           </div>
 
@@ -2097,6 +2119,27 @@
                     <tr><td colspan="5" class="rpt-no-data">Loading…</td></tr>
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── TAB: DAILY REVENUE ── -->
+          <div id="rpttab-revenue" style="display:none">
+            <div class="card" style="margin-bottom:0">
+              <div class="rev-date-bar">
+                <div>
+                  <label>From</label>
+                  <input type="date" id="rev-from">
+                </div>
+                <div>
+                  <label>To</label>
+                  <input type="date" id="rev-to">
+                </div>
+                <button class="rev-run-btn" onclick="loadRevenueReport()">View Report</button>
+                <button class="rev-export-btn" id="rev-export-btn" style="display:none" onclick="exportRevenueCSV()">Export CSV</button>
+              </div>
+              <div id="rev-rpt-body" class="rev-tbl-wrap" style="padding:0 0 4px">
+                <div class="rev-empty">Select a date range and click View Report.</div>
               </div>
             </div>
           </div>
@@ -20522,10 +20565,11 @@ ${oneCopy}
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['snapshot','operations','drivers'].forEach(t => {
+    ['snapshot','operations','drivers','revenue'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
+    if (tab === 'revenue') initRevenueDateDefaults();
   }
 
   function rptDateRange(period) {
@@ -21185,6 +21229,192 @@ ${oneCopy}
     console.log(`[Launch] ${c.first_name_cache}: ${results.join(', ')}`);
     return results;
   }
+
+  // ── DAILY REVENUE REPORT ──
+  let _revReportData = []; // last rendered rows, used for CSV export
+
+  function initRevenueDateDefaults() {
+    const fromEl = document.getElementById('rev-from');
+    const toEl   = document.getElementById('rev-to');
+    if (!fromEl || !toEl || fromEl.value) return; // already set
+    const today = new Date();
+    const fmt = d => d.toISOString().slice(0, 10);
+    const weekAgo = new Date(today); weekAgo.setDate(today.getDate() - 6);
+    fromEl.value = fmt(weekAgo);
+    toEl.value   = fmt(today);
+  }
+
+  // Parse a line_items JSONB array into revenue buckets.
+  // Handles both old (kind:'service') and new (type:'base') formats.
+  function _parseLineItems(items) {
+    let service = 0, addons = 0, overages = 0, fees = 0, tax = 0;
+    if (!Array.isArray(items)) return { service, addons, overages, fees, tax };
+    items.forEach(item => {
+      const amt = parseFloat(item.amount ?? item.subtotal ?? 0);
+      const t = item.type || '';
+      const k = item.kind || '';
+      if      (t === 'base')                              service  += amt;
+      else if (t === 'pref_service' || t === 'addon')    addons   += amt;
+      else if (t === 'overage')                           overages += amt;
+      else if (t === 'delivery_fee' || t === 'route_fee') fees     += amt;
+      else if (t === 'same_day_fee')                      overages += amt;
+      else if (t === 'tax'  || k === 'tax')               tax      += amt;
+      else if (k === 'service') {
+        // Old format — include any nested addons
+        service += parseFloat(item.subtotal ?? item.unit_price ?? 0);
+        (item.addons || []).forEach(a => addons += parseFloat(a.price ?? 0));
+      }
+    });
+    return { service, addons, overages, fees, tax };
+  }
+
+  async function loadRevenueReport() {
+    const fromEl = document.getElementById('rev-from');
+    const toEl   = document.getElementById('rev-to');
+    const body   = document.getElementById('rev-rpt-body');
+    const exportBtn = document.getElementById('rev-export-btn');
+    if (!fromEl.value || !toEl.value) { showToast('Please select a date range', 'error'); return; }
+
+    body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
+    exportBtn.style.display = 'none';
+    _revReportData = [];
+
+    // Fetch all non-cancelled orders whose delivery falls in range
+    // We use delivery_window_start as the "revenue date" (when money is earned)
+    const fromISO = fromEl.value + 'T00:00:00';
+    const toISO   = toEl.value   + 'T23:59:59';
+
+    const { data: orders, error } = await db
+      .from('orders')
+      .select('order_number, status, total_amount, tip_amount, line_items, delivery_window_start, discount_id, is_subscription_order')
+      .neq('status', 'cancelled')
+      .not('total_amount', 'is', null)
+      .gte('delivery_window_start', fromISO)
+      .lte('delivery_window_start', toISO)
+      .order('delivery_window_start');
+
+    if (error) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${error.message}</div>`; return; }
+    if (!orders || !orders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
+
+    // Group by local date (Pacific)
+    const byDate = {};
+    orders.forEach(o => {
+      const localDate = new Date(o.delivery_window_start)
+        .toLocaleDateString('en-CA', { timeZone: BIZ_TZ }); // YYYY-MM-DD
+      if (!byDate[localDate]) byDate[localDate] = [];
+      byDate[localDate].push(o);
+    });
+
+    // Build rows
+    const rows = [];
+    Object.keys(byDate).sort().forEach(date => {
+      const dayOrders = byDate[date];
+      let service = 0, addons = 0, overages = 0, fees = 0, tips = 0, total = 0, count = 0, discounted = 0;
+      dayOrders.forEach(o => {
+        const li = _parseLineItems(o.line_items);
+        service  += li.service;
+        addons   += li.addons;
+        overages += li.overages;
+        fees     += li.fees;
+        tips     += parseFloat(o.tip_amount || 0);
+        total    += parseFloat(o.total_amount || 0);
+        count++;
+        if (o.discount_id) discounted++;
+      });
+      rows.push({ date, service, addons, overages, fees, tips, total, count, discounted });
+    });
+
+    _revReportData = rows;
+
+    // Totals
+    const tot = rows.reduce((acc, r) => {
+      acc.service  += r.service;
+      acc.addons   += r.addons;
+      acc.overages += r.overages;
+      acc.fees     += r.fees;
+      acc.tips     += r.tips;
+      acc.total    += r.total;
+      acc.count    += r.count;
+      return acc;
+    }, { service:0, addons:0, overages:0, fees:0, tips:0, total:0, count:0 });
+
+    const $f = n => n > 0 ? `$${n.toFixed(2)}` : `<span class="rev-zero">—</span>`;
+    const $ft = n => `$${n.toFixed(2)}`;
+
+    const fmtDate = d => {
+      const [y, m, day] = d.split('-');
+      return new Date(+y, +m - 1, +day).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+    };
+
+    const bodyRows = rows.map(r => `
+      <tr>
+        <td>${fmtDate(r.date)}</td>
+        <td>${$f(r.service)}</td>
+        <td>${$f(r.addons)}</td>
+        <td>${$f(r.overages)}</td>
+        <td>${$f(r.fees)}</td>
+        <td>${$f(r.tips)}</td>
+        <td style="color:var(--gray-500)">${r.count}</td>
+        <td style="font-weight:600;color:var(--navy)">$${r.total.toFixed(2)}</td>
+      </tr>`).join('');
+
+    body.innerHTML = `
+      <table class="rev-tbl">
+        <thead>
+          <tr>
+            <th style="text-align:left">Date</th>
+            <th>Services</th>
+            <th>Add-ons</th>
+            <th>Overages</th>
+            <th>Delivery Fees</th>
+            <th>Tips</th>
+            <th>Orders</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+        <tfoot>
+          <tr>
+            <td>Total</td>
+            <td>${$ft(tot.service)}</td>
+            <td>${$ft(tot.addons)}</td>
+            <td>${$ft(tot.overages)}</td>
+            <td>${$ft(tot.fees)}</td>
+            <td>${$ft(tot.tips)}</td>
+            <td style="color:var(--gray-500)">${tot.count}</td>
+            <td style="color:var(--navy)">$${tot.total.toFixed(2)}</td>
+          </tr>
+        </tfoot>
+      </table>`;
+
+    exportBtn.style.display = '';
+  }
+
+  function exportRevenueCSV() {
+    if (!_revReportData.length) return;
+    const headers = ['Date','Services','Add-ons','Overages','Delivery Fees','Tips','Orders','Total'];
+    const rows = _revReportData.map(r => [
+      r.date,
+      r.service.toFixed(2),
+      r.addons.toFixed(2),
+      r.overages.toFixed(2),
+      r.fees.toFixed(2),
+      r.tips.toFixed(2),
+      r.count,
+      r.total.toFixed(2)
+    ]);
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `daily-revenue-${document.getElementById('rev-from').value}-to-${document.getElementById('rev-to').value}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  window.loadRevenueReport  = loadRevenueReport;
+  window.exportRevenueCSV   = exportRevenueCSV;
 
   async function sendLaunchAnnouncementAll() {
     // Fetch all customers with email or phone
