@@ -21217,17 +21217,27 @@ ${oneCopy}
     const selFrom = fromEl.value;
     const selTo   = toEl.value;
 
-    const { data: orders, error } = await db
-      .from('orders')
-      .select('order_number, status, billing_status, total_amount, tip_amount, line_items, delivery_window_start, discount_id, is_subscription_order')
-      .neq('status', 'cancelled')
-      .not('total_amount', 'is', null)
-      .gte('delivery_window_start', fromISO)
-      .lte('delivery_window_start', toISO)
-      .order('delivery_window_start');
+    // Paginate to avoid 1000-row default limit on large date ranges
+    let orders = [], fetchError = null;
+    { const BATCH = 1000; let offset = 0;
+      while (true) {
+        const { data, error: e } = await db.from('orders')
+          .select('order_number, status, billing_status, total_amount, tip_amount, line_items, delivery_window_start, discount_id, is_subscription_order')
+          .neq('status', 'cancelled')
+          .not('total_amount', 'is', null)
+          .gte('delivery_window_start', fromISO)
+          .lte('delivery_window_start', toISO)
+          .order('delivery_window_start')
+          .range(offset, offset + BATCH - 1);
+        if (e) { fetchError = e; break; }
+        orders.push(...(data || []));
+        if (!data || data.length < BATCH) break;
+        offset += BATCH;
+      }
+    }
 
-    if (error) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${error.message}</div>`; return; }
-    if (!orders || !orders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
+    if (fetchError) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${fetchError.message}</div>`; return; }
+    if (!orders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
 
     // Group by local date (Pacific)
     const byDate = {};
@@ -21399,19 +21409,31 @@ ${oneCopy}
     const selTo   = toEl.value;
 
     // Fetch services map and orders in parallel
-    const [{ data: services }, { data: orders, error }] = await Promise.all([
-      db.from('services').select('id, name, pricelist, is_addon'),
-      db.from('orders')
-        .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status')
-        .neq('status', 'cancelled')
-        .not('total_amount', 'is', null)
-        .gte('delivery_window_start', fromISO)
-        .lte('delivery_window_start', toISO)
-        .order('delivery_window_start')
+    // Paginate to avoid 1000-row default limit on large date ranges
+    let itemsOrders = [], itemsFetchError = null;
+    { const BATCH = 1000; let offset = 0;
+      while (true) {
+        const { data, error: e } = await db.from('orders')
+          .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status')
+          .neq('status', 'cancelled')
+          .not('total_amount', 'is', null)
+          .gte('delivery_window_start', fromISO)
+          .lte('delivery_window_start', toISO)
+          .order('delivery_window_start')
+          .range(offset, offset + BATCH - 1);
+        if (e) { itemsFetchError = e; break; }
+        itemsOrders.push(...(data || []));
+        if (!data || data.length < BATCH) break;
+        offset += BATCH;
+      }
+    }
+    const [{ data: services }] = await Promise.all([
+      db.from('services').select('id, name, pricelist, is_addon')
     ]);
 
-    if (error) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${error.message}</div>`; return; }
-    if (!orders || !orders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
+    if (itemsFetchError) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${itemsFetchError.message}</div>`; return; }
+    if (!itemsOrders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
+    const orders = itemsOrders;
 
     // Build lookup: serviceId → { name, pricelist, is_addon }
     const svcMap = {};
@@ -21613,13 +21635,31 @@ ${oneCopy}
     const toISO   = toPad.toISOString().slice(0,10)   + 'T23:59:59Z';
     const selFrom = fromEl.value, selTo = toEl.value;
 
+    // Fetch orders in batches of 1000 — Supabase default page size is 1000 rows,
+    // so large date ranges would silently truncate without explicit pagination.
+    async function fetchAllLaundererOrders() {
+      const allRows = [];
+      const BATCH = 1000;
+      let offset = 0;
+      while (true) {
+        const { data, error: e } = await db.from('orders')
+          .select('id, folded_by_id, total_bags, weight_lbs, delivery_window_start')
+          .neq('status', 'cancelled')
+          .gte('delivery_window_start', fromISO)
+          .lte('delivery_window_start', toISO)
+          .order('delivery_window_start')
+          .range(offset, offset + BATCH - 1);
+        if (e) return { data: null, error: e };
+        allRows.push(...(data || []));
+        if (!data || data.length < BATCH) break;
+        offset += BATCH;
+      }
+      return { data: allRows, error: null };
+    }
+
     const [{ data: launderers }, { data: orders, error }, laborData] = await Promise.all([
       db.from('launderers').select('id, name').eq('is_active', true).order('name'),
-      db.from('orders')
-        .select('id, folded_by_id, total_bags, weight_lbs, delivery_window_start')
-        .neq('status', 'cancelled')
-        .gte('delivery_window_start', fromISO)
-        .lte('delivery_window_start', toISO),
+      fetchAllLaundererOrders(),
       fetchSquareLaborHours(fromEl.value, toEl.value)
     ]);
 
