@@ -21243,26 +21243,29 @@ ${oneCopy}
 
   // Parse a line_items JSONB array into revenue buckets.
   // Handles both old (kind:'service') and new (type:'base') formats.
+  // Credits and discounts are stored as negative amounts; returned as positive values.
   function _parseLineItems(items) {
-    let service = 0, addons = 0, overages = 0, fees = 0, tax = 0;
-    if (!Array.isArray(items)) return { service, addons, overages, fees, tax };
+    let service = 0, addons = 0, overages = 0, fees = 0, tax = 0, credits = 0, discounts = 0;
+    if (!Array.isArray(items)) return { service, addons, overages, fees, tax, credits, discounts };
     items.forEach(item => {
       const amt = parseFloat(item.amount ?? item.subtotal ?? 0);
       const t = item.type || '';
       const k = item.kind || '';
-      if      (t === 'base')                              service  += amt;
-      else if (t === 'pref_service' || t === 'addon')    addons   += amt;
-      else if (t === 'overage')                           overages += amt;
-      else if (t === 'delivery_fee' || t === 'route_fee') fees     += amt;
-      else if (t === 'same_day_fee')                      overages += amt;
-      else if (t === 'tax'  || k === 'tax')               tax      += amt;
+      if      (t === 'base')                                        service   += amt;
+      else if (t === 'pref_service' || t === 'addon' || t === 'addon_service') addons += amt;
+      else if (t === 'overage' || t === 'extra_weight')             overages  += amt;
+      else if (t === 'delivery_fee' || t === 'route_fee')           fees      += amt;
+      else if (t === 'same_day_fee' || t === 'same_day_surcharge')  overages  += amt;
+      else if (t === 'tax'  || k === 'tax')                         tax       += amt;
+      else if (t === 'credit')                                       credits   += Math.abs(amt);
+      else if (t === 'discount')                                     discounts += Math.abs(amt);
       else if (k === 'service') {
         // Old format — include any nested addons
         service += parseFloat(item.subtotal ?? item.unit_price ?? 0);
         (item.addons || []).forEach(a => addons += parseFloat(a.price ?? 0));
       }
     });
-    return { service, addons, overages, fees, tax };
+    return { service, addons, overages, fees, tax, credits, discounts };
   }
 
   async function loadRevenueReport() {
@@ -21315,34 +21318,41 @@ ${oneCopy}
     const rows = [];
     Object.keys(byDate).sort().filter(d => d >= selFrom && d <= selTo).forEach(date => {
       const dayOrders = byDate[date];
-      let service = 0, addons = 0, overages = 0, fees = 0, tips = 0, total = 0, count = 0, discounted = 0;
+      let service = 0, addons = 0, overages = 0, fees = 0, tips = 0, credits = 0, discounts = 0, refunds = 0, total = 0, count = 0;
       dayOrders.forEach(o => {
         const li = _parseLineItems(o.line_items);
-        service  += li.service;
-        addons   += li.addons;
-        overages += li.overages;
-        fees     += li.fees;
-        tips     += parseFloat(o.tip_amount || 0);
-        total    += parseFloat(o.total_amount || 0);
+        service   += li.service;
+        addons    += li.addons;
+        overages  += li.overages;
+        fees      += li.fees;
+        credits   += li.credits;
+        discounts += li.discounts;
+        tips      += parseFloat(o.tip_amount || 0);
+        total     += parseFloat(o.total_amount || 0);
+        // refunds not yet tracked in DB — placeholder for future use
         count++;
-        if (o.discount_id) discounted++;
       });
-      rows.push({ date, service, addons, overages, fees, tips, total, count, discounted });
+      const net = total - refunds;
+      rows.push({ date, service, addons, overages, fees, tips, credits, discounts, refunds, total, net, count });
     });
 
     _revReportData = rows;
 
     // Totals
     const tot = rows.reduce((acc, r) => {
-      acc.service  += r.service;
-      acc.addons   += r.addons;
-      acc.overages += r.overages;
-      acc.fees     += r.fees;
-      acc.tips     += r.tips;
-      acc.total    += r.total;
-      acc.count    += r.count;
+      acc.service   += r.service;
+      acc.addons    += r.addons;
+      acc.overages  += r.overages;
+      acc.fees      += r.fees;
+      acc.tips      += r.tips;
+      acc.credits   += r.credits;
+      acc.discounts += r.discounts;
+      acc.refunds   += r.refunds;
+      acc.total     += r.total;
+      acc.net       += r.net;
+      acc.count     += r.count;
       return acc;
-    }, { service:0, addons:0, overages:0, fees:0, tips:0, total:0, count:0 });
+    }, { service:0, addons:0, overages:0, fees:0, tips:0, credits:0, discounts:0, refunds:0, total:0, net:0, count:0 });
 
     const $f = n => n > 0 ? `$${n.toFixed(2)}` : `<span class="rev-zero">—</span>`;
     const $ft = n => `$${n.toFixed(2)}`;
@@ -21352,6 +21362,8 @@ ${oneCopy}
       return new Date(+y, +m - 1, +day).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
     };
 
+    const $neg = n => n > 0 ? `<span style="color:var(--red)">−$${n.toFixed(2)}</span>` : `<span class="rev-zero">—</span>`;
+
     const bodyRows = rows.map(r => `
       <tr>
         <td>${fmtDate(r.date)}</td>
@@ -21360,8 +21372,12 @@ ${oneCopy}
         <td>${$f(r.overages)}</td>
         <td>${$f(r.fees)}</td>
         <td>${$f(r.tips)}</td>
+        <td>${$neg(r.credits)}</td>
+        <td>${$neg(r.discounts)}</td>
+        <td>${$neg(r.refunds)}</td>
         <td style="color:var(--gray-500)">${r.count}</td>
         <td style="font-weight:600;color:var(--navy)">$${r.total.toFixed(2)}</td>
+        <td style="font-weight:700;color:var(--green)">$${r.net.toFixed(2)}</td>
       </tr>`).join('');
 
     body.innerHTML = `
@@ -21374,8 +21390,12 @@ ${oneCopy}
             <th>Overages</th>
             <th>Delivery Fees</th>
             <th>Tips</th>
+            <th>Credits</th>
+            <th>Discounts</th>
+            <th title="Card refunds are not yet tracked in WashRoute — this column will populate once refund tracking is added">Refunds ⓘ</th>
             <th>Orders</th>
-            <th>Total</th>
+            <th>Charged</th>
+            <th>Net Revenue</th>
           </tr>
         </thead>
         <tbody>${bodyRows}</tbody>
@@ -21387,8 +21407,12 @@ ${oneCopy}
             <td>${$ft(tot.overages)}</td>
             <td>${$ft(tot.fees)}</td>
             <td>${$ft(tot.tips)}</td>
+            <td style="color:var(--red)">−$${tot.credits.toFixed(2)}</td>
+            <td style="color:var(--red)">−$${tot.discounts.toFixed(2)}</td>
+            <td style="color:var(--red)">−$${tot.refunds.toFixed(2)}</td>
             <td style="color:var(--gray-500)">${tot.count}</td>
             <td style="color:var(--navy)">$${tot.total.toFixed(2)}</td>
+            <td style="color:var(--green)">$${tot.net.toFixed(2)}</td>
           </tr>
         </tfoot>
       </table>`;
@@ -21398,7 +21422,7 @@ ${oneCopy}
 
   function exportRevenueCSV() {
     if (!_revReportData.length) return;
-    const headers = ['Date','Services','Add-ons','Overages','Delivery Fees','Tips','Orders','Total'];
+    const headers = ['Date','Services','Add-ons','Overages','Delivery Fees','Tips','Credits Applied','Discounts Applied','Card Refunds','Orders','Charged','Net Revenue'];
     const rows = _revReportData.map(r => [
       r.date,
       r.service.toFixed(2),
@@ -21406,8 +21430,12 @@ ${oneCopy}
       r.overages.toFixed(2),
       r.fees.toFixed(2),
       r.tips.toFixed(2),
+      (-r.credits).toFixed(2),
+      (-r.discounts).toFixed(2),
+      (-r.refunds).toFixed(2),
       r.count,
-      r.total.toFixed(2)
+      r.total.toFixed(2),
+      r.net.toFixed(2)
     ]);
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
