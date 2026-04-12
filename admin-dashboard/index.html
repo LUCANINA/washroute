@@ -21529,14 +21529,21 @@ ${oneCopy}
     filtered.forEach(o => {
       const svc = svcMap[o.service_id];
       const pl  = svc?.pricelist || UNKNOWN;
-      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, addons: {} };
+      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, serviceRev: 0, addons: {} };
       const plData = byPricelist[pl];
       plData.orders++;
       plData.lbs += parseFloat(o.weight_lbs || 0);
 
-      // Parse add-on line items
+      // Parse base + add-on line items
       if (Array.isArray(o.line_items)) {
         o.line_items.forEach(item => {
+          // Base service: extract bag count from label e.g. "2 bags × $59.00"
+          if (item.type === 'base') {
+            const bagMatch = (item.label || '').match(/^(\d+)\s*bag/i);
+            plData.bags      += bagMatch ? parseInt(bagMatch[1]) : 1;
+            plData.serviceRev += parseFloat(item.amount || 0);
+            return;
+          }
           if (item.type !== 'pref_service' && item.type !== 'addon' && item.type !== 'addon_service') return;
           // Extract add-on name (e.g. "Oxi × 2 bags" → "Oxi")
           const label = item.label || '';
@@ -21575,7 +21582,7 @@ ${oneCopy}
       const totalAddonRev = addonNames.reduce((s, n) => s + d.addons[n].revenue, 0);
 
       const footer = addonNames.length ? `<tfoot><tr>
-        <td>Total add-ons</td>
+        <td>Total</td>
         <td>${totalBags.toLocaleString()}</td>
         <td>$${totalAddonRev.toFixed(2)}</td>
       </tr></tfoot>` : '';
@@ -21588,13 +21595,15 @@ ${oneCopy}
           </div>
           <div class="items-summary-row">
             <div class="items-summary-stat"><strong>${d.orders.toLocaleString()}</strong>Orders</div>
+            <div class="items-summary-stat"><strong>${d.bags > 0 ? d.bags.toLocaleString() : '—'}</strong>Bags</div>
             <div class="items-summary-stat"><strong>${d.lbs > 0 ? fmtLbs(d.lbs) : '—'}</strong>Pounds Processed</div>
+            <div class="items-summary-stat"><strong>${d.serviceRev > 0 ? '$'+d.serviceRev.toFixed(2) : '—'}</strong>Service Revenue</div>
           </div>
           <table class="items-tbl">
             <thead>
               <tr>
                 <th style="text-align:left">Add-on</th>
-                <th>Bags</th>
+                <th>Items</th>
                 <th>Revenue</th>
               </tr>
             </thead>
