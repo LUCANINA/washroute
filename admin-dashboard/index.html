@@ -22561,29 +22561,31 @@ ${orderSections}
 
   // Convert invoice HTML string to PDF base64 using html2pdf.js
   async function invoiceHtmlToPdfBase64(htmlStr) {
-    // Create a hidden container, render the invoice HTML, convert to PDF
+    // Strip the no-print toolbar from the HTML before rendering
+    const cleanHtml = htmlStr.replace(/<div class="no-print"[\s\S]*?<\/div>\s*/, '');
+
+    // Create a visible (but behind-everything) container so html2canvas can capture it
     const container = document.createElement('div');
-    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;';
-    // Strip the full HTML document down to just the body content
-    const bodyMatch = htmlStr.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-    container.innerHTML = bodyMatch ? bodyMatch[1] : htmlStr;
-    // Remove the no-print toolbar
-    const noPrint = container.querySelector('.no-print');
-    if (noPrint) noPrint.remove();
+    container.style.cssText = 'position:absolute;top:0;left:0;width:800px;z-index:-9999;opacity:0;pointer-events:none;';
+    // Extract body content and inject with inline styles preserved
+    const bodyMatch = cleanHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    container.innerHTML = bodyMatch ? bodyMatch[1] : cleanHtml;
     document.body.appendChild(container);
+
+    // Brief pause to let the browser layout the content
+    await new Promise(r => setTimeout(r, 100));
 
     try {
       const opt = {
-        margin: [0.4, 0.4, 0.4, 0.4],
-        filename: 'invoice.pdf',
-        image: { type: 'jpeg', quality: 0.95 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
+        margin: [0.3, 0.3, 0.3, 0.3],
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false, width: 800, windowWidth: 800 },
         jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
       };
       const pdfBlob = await html2pdf().set(opt).from(container).outputPdf('blob');
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]); // base64 part
+        reader.onload = () => resolve(reader.result.split(',')[1]);
         reader.onerror = reject;
         reader.readAsDataURL(pdfBlob);
       });
