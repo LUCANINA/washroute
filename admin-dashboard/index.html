@@ -19,8 +19,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://js.stripe.com/v3/"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2/dist/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3/dist/jspdf.plugin.autotable.min.js"></script>
+  <!-- jsPDF removed — invoices generated as printable HTML -->
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc&libraries=geocoding"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -22227,90 +22226,86 @@ ${oneCopy}
   }
   window.closeInvoiceModal = closeInvoiceModal;
 
-  function generateInvoicePDF(title, lineItems, period) {
-    if (!window.jspdf) throw new Error('jsPDF library not loaded');
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-    const pageW = doc.internal.pageSize.getWidth();
-
-    // Header
-    doc.setFontSize(20);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Family Laundry', 14, 22);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100);
-    doc.text('Oakland, CA  •  info@familylaundry.com  •  (510) 473-2958', 14, 28);
-
-    // Invoice title
-    doc.setFontSize(14);
-    doc.setTextColor(0);
-    doc.setFont('helvetica', 'bold');
-    doc.text('INVOICE', pageW - 14, 22, { align: 'right' });
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100);
-    doc.text('Date: ' + new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), pageW - 14, 28, { align: 'right' });
-    doc.text('Period: ' + period, pageW - 14, 33, { align: 'right' });
-
-    // Bill To
-    doc.setDrawColor(200);
-    doc.line(14, 38, pageW - 14, 38);
-    doc.setFontSize(10);
-    doc.setTextColor(0);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Bill To:', 14, 45);
-    doc.setFont('helvetica', 'normal');
-    doc.text(title, 14, 50);
-
-    // Table
-    const headers = [['Description', 'Orders', 'Amount']];
-    const rows = lineItems.map(item => [item.name, String(item.orders), '$' + item.invoiced.toFixed(2)]);
+  function generateInvoiceHTML(title, lineItems, period) {
+    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const total = lineItems.reduce((s, item) => s + item.invoiced, 0);
+    const rowsHtml = lineItems.map((item, i) =>
+      `<tr style="background:${i % 2 === 0 ? '#fff' : '#f9fafb'}">
+        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">${item.name}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${item.orders}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right">$${item.invoiced.toFixed(2)}</td>
+      </tr>`
+    ).join('');
 
-    doc.autoTable({
-      head: headers,
-      body: rows,
-      startY: 56,
-      theme: 'striped',
-      headStyles: { fillColor: [55, 65, 81], fontSize: 10 },
-      styles: { fontSize: 10, cellPadding: 4 },
-      columnStyles: {
-        0: { cellWidth: 'auto' },
-        1: { halign: 'right', cellWidth: 30 },
-        2: { halign: 'right', cellWidth: 40 },
-      },
-      foot: [['Total', '', '$' + total.toFixed(2)]],
-      footStyles: { fillColor: [243, 244, 246], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 11 },
-    });
+    return `<!DOCTYPE html>
+<html><head><title>Invoice — ${title}</title>
+<style>
+  @media print { body { margin: 0; } .no-print { display: none !important; } @page { margin: 0.5in; } }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; max-width: 800px; margin: 0 auto; padding: 40px; }
+  table { width: 100%; border-collapse: collapse; }
+</style>
+</head><body>
+<div class="no-print" style="text-align:center;padding:12px;background:#f0f9ff;border-radius:8px;margin-bottom:24px;font-size:14px;color:#1e40af">
+  Press <strong>Ctrl+P</strong> (or <strong>⌘P</strong>) to save as PDF &nbsp;|&nbsp; <button onclick="window.print()" style="padding:6px 16px;border:1px solid #3b82f6;background:#3b82f6;color:#fff;border-radius:6px;cursor:pointer;font-size:13px">Print / Save PDF</button>
+</div>
 
-    // Footer
-    const finalY = doc.lastAutoTable.finalY + 20;
-    doc.setFontSize(9);
-    doc.setTextColor(150);
-    doc.text('Payment terms: Net 30  •  Please remit to Family Laundry', 14, finalY);
-    doc.text('Questions? Contact info@familylaundry.com', 14, finalY + 5);
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+  <div>
+    <div style="font-size:24px;font-weight:700;color:#111">Family Laundry</div>
+    <div style="font-size:12px;color:#6b7280;margin-top:2px">Oakland, CA &nbsp;•&nbsp; info@familylaundry.com &nbsp;•&nbsp; (510) 473-2958</div>
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:20px;font-weight:700;color:#374151">INVOICE</div>
+    <div style="font-size:12px;color:#6b7280;margin-top:2px">Date: ${today}</div>
+    <div style="font-size:12px;color:#6b7280">Period: ${period}</div>
+  </div>
+</div>
+<hr style="border:none;border-top:2px solid #e5e7eb;margin:16px 0">
 
-    return doc;
+<div style="margin-bottom:20px">
+  <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Bill To</div>
+  <div style="font-size:16px;font-weight:600;margin-top:4px">${title}</div>
+</div>
+
+<table>
+  <thead>
+    <tr style="background:#374151;color:#fff">
+      <th style="padding:10px 12px;text-align:left;font-size:13px">Description</th>
+      <th style="padding:10px 12px;text-align:right;font-size:13px;width:80px">Orders</th>
+      <th style="padding:10px 12px;text-align:right;font-size:13px;width:100px">Amount</th>
+    </tr>
+  </thead>
+  <tbody>${rowsHtml}</tbody>
+  <tfoot>
+    <tr style="background:#f3f4f6">
+      <td style="padding:12px;font-weight:700;font-size:14px" colspan="2">Total</td>
+      <td style="padding:12px;text-align:right;font-weight:700;font-size:14px">$${total.toFixed(2)}</td>
+    </tr>
+  </tfoot>
+</table>
+
+<div style="margin-top:32px;font-size:12px;color:#9ca3af">
+  Payment terms: Net 30 &nbsp;•&nbsp; Please remit to Family Laundry<br>
+  Questions? Contact info@familylaundry.com
+</div>
+</body></html>`;
   }
 
-  function getInvoiceDataForGroup(groupId) {
+  function getInvoicesForGroup(groupId) {
     const g = _oaBillingGroups.find(bg => bg.id === groupId);
     if (!g) return [];
     const members = _oaReportRows.filter(([, r]) => r.groupId === groupId);
     const period = document.getElementById('oa-period-label').textContent || '';
 
     if (g.invoice_style === 'consolidated') {
-      // One PDF with all members as line items
       const lineItems = members.map(([, r]) => ({ name: r.name, orders: r.orders, invoiced: r.invoiced }));
-      const doc = generateInvoicePDF(g.name, lineItems, period);
-      return [{ filename: g.name + ' — Consolidated Invoice.pdf', doc, base64: doc.output('datauristring').split(',')[1] }];
+      const html = generateInvoiceHTML(g.name, lineItems, period);
+      return [{ filename: g.name + ' — Consolidated Invoice', html }];
     } else {
-      // One PDF per member
       return members.filter(([, r]) => r.invoiced > 0).map(([, r]) => {
         const lineItems = [{ name: 'Laundry Service', orders: r.orders, invoiced: r.invoiced }];
-        const doc = generateInvoicePDF(r.name, lineItems, period);
-        return { filename: r.name + ' — Invoice.pdf', doc, base64: doc.output('datauristring').split(',')[1] };
+        const html = generateInvoiceHTML(r.name, lineItems, period);
+        return { filename: r.name + ' — Invoice', html };
       });
     }
   }
@@ -22318,15 +22313,17 @@ ${oneCopy}
   function previewInvoicePDF() {
     try {
       if (!_invoiceGroupId) { showToast('No group selected', 'error'); return; }
-      if (!window.jspdf) { showToast('PDF library not loaded — try refreshing the page', 'error'); return; }
-      const pdfs = getInvoiceDataForGroup(_invoiceGroupId);
-      if (!pdfs.length) { showToast('No invoiceable orders in this period', 'error'); return; }
-      // Preview the first PDF
-      pdfs[0].doc.save(pdfs[0].filename);
-      showToast('Downloaded preview: ' + pdfs[0].filename);
+      const invoices = getInvoicesForGroup(_invoiceGroupId);
+      if (!invoices.length) { showToast('No invoiceable orders in this period', 'error'); return; }
+      // Open each invoice in a new tab
+      invoices.forEach(inv => {
+        const w = window.open('', '_blank');
+        if (w) { w.document.write(inv.html); w.document.close(); }
+      });
+      showToast('Opened ' + invoices.length + ' invoice(s) — use Print to save as PDF');
     } catch (err) {
-      console.error('Preview PDF error:', err);
-      showToast('PDF error: ' + err.message, 'error');
+      console.error('Preview invoice error:', err);
+      showToast('Error: ' + err.message, 'error');
     }
   }
   window.previewInvoicePDF = previewInvoicePDF;
@@ -22348,11 +22345,15 @@ ${oneCopy}
       const to = toStr.split(',').map(e => ({ email: e.trim() })).filter(e => e.email);
       const cc = ccStr ? ccStr.split(',').map(e => ({ email: e.trim() })).filter(e => e.email) : [];
 
-      // Generate PDFs
-      const pdfs = getInvoiceDataForGroup(_invoiceGroupId);
-      if (!pdfs.length) { showToast('No invoiceable orders in this period', 'error'); return; }
+      // Generate invoice HTML attachments (sent as .html files)
+      const invoices = getInvoicesForGroup(_invoiceGroupId);
+      if (!invoices.length) { showToast('No invoiceable orders in this period', 'error'); return; }
 
-      const attachments = pdfs.map(p => ({ filename: p.filename, content: p.base64 }));
+      const attachments = invoices.map(inv => ({
+        filename: inv.filename + '.html',
+        content: btoa(unescape(encodeURIComponent(inv.html))),
+        type: 'text/html',
+      }));
 
       // Convert plain text body to simple HTML
       const htmlBody = '<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#333">' +
