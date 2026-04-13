@@ -4945,7 +4945,7 @@
     overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing',
     inbox:'Inbox', drivers:'Drivers', reports:'Reports', services:'Services',
     notifications:'Notifications', maps:'Delivery Zones', launderers:'Launderers',
-    racks:'Racks', discounts:'Discounts', team:'Team', settings:'Timezone'
+    racks:'Racks', discounts:'Discounts', team:'Team', settings:'General'
   };
   const EDITABLE_ROLES = ['manager', 'laundry_tech']; // admin is always full access
 
@@ -5365,7 +5365,7 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', settings:'Timezone', team:'Team' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', settings:'General', team:'Team' };
   const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', settings:'', team:'' };
 
   function showPage(id, navEl) {
@@ -5610,7 +5610,7 @@
         <div id="gen-settings-tabs" class="filter-tabs" style="display:inline-flex">
           <button class="filter-tab ${_genSettingsTab==='invoice'?'active':''}" data-tab="invoice" onclick="switchGenSettingsTab('invoice')">Invoice</button>
           <button class="filter-tab ${_genSettingsTab==='printer'?'active':''}" data-tab="printer" onclick="switchGenSettingsTab('printer')">Printer</button>
-          <button class="filter-tab ${_genSettingsTab==='general'?'active':''}" data-tab="general" onclick="switchGenSettingsTab('general')">General</button>
+          <button class="filter-tab ${_genSettingsTab==='general'?'active':''}" data-tab="general" onclick="switchGenSettingsTab('general')">Reviews</button>
         </div>
       </div>
 
