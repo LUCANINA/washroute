@@ -6960,12 +6960,12 @@
     // Phase 2: Background load — delivered + terminal orders and side-fetches
     // This happens after the page is already interactive
     _loadDeliveredOrders().then(() => {
-      // Re-render only if user is on the delivered tab
-      if (currentOrderFilter === 'delivered') renderOrders(getFilteredOrders());
+      // Re-render only if user is still on the orders/delivered tab
+      if (currentPage === 'orders' && currentOrderFilter === 'delivered') renderOrders(getFilteredOrders());
     });
     _loadOrdersSideFetches().then(() => {
-      // Re-render if user is on issues tab (where card info matters)
-      if (currentOrderFilter === 'issues') renderOrders(getFilteredOrders());
+      // Re-render if user is still on the orders/issues tab
+      if (currentPage === 'orders' && currentOrderFilter === 'issues') renderOrders(getFilteredOrders());
     });
   }
 
@@ -6988,12 +6988,13 @@
     // Revenue Today: only orders successfully charged via Stripe (Pacific time)
     const revenueToday = allOrders.filter(o => o.billing_status === 'paid' && toLocalDate(o.billed_at) === todayStr)
       .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
-    document.getElementById('ostat-pickups').textContent = pickedUpToday;
-    document.getElementById('ostat-processing').textContent = processing;
-    document.getElementById('ostat-ready').textContent = readyCount;
-    document.getElementById('ostat-delivered').textContent = deliveredToday;
-    document.getElementById('ostat-in-process').textContent = fmtMoney(inProcessRevenue);
-    document.getElementById('ostat-revenue').textContent = fmtMoney(revenueToday);
+    const _s = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+    _s('ostat-pickups', pickedUpToday);
+    _s('ostat-processing', processing);
+    _s('ostat-ready', readyCount);
+    _s('ostat-delivered', deliveredToday);
+    _s('ostat-in-process', fmtMoney(inProcessRevenue));
+    _s('ostat-revenue', fmtMoney(revenueToday));
   }
 
   // Returns allOrders filtered by currentOrderFilter + orderSearchTerm
@@ -7132,6 +7133,7 @@
   function showMoreOrders() {
     _ordersDisplayCount += ORDERS_PAGE_SIZE;
     renderOrders(getFilteredOrders());
+    updateOrderBatchBar();
   }
 
   function renderOrders(data) {
@@ -7143,7 +7145,7 @@
       : `${data.length} order${data.length!==1?'s':''}`;
     if (!data.length) {
       const emptyMsg = orderSearchTerm
-        ? `<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">No orders match "${orderSearchTerm}"</div><div class="empty-sub">Try a different name, phone, address, or order #.</div></div>`
+        ? `<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">No orders match "${esc(orderSearchTerm)}"</div><div class="empty-sub">Try a different name, phone, address, or order #.</div></div>`
         : `<div class="empty"><div class="empty-icon">📋</div><div class="empty-title">No orders found</div><div class="empty-sub">Create your first order to get started.</div><button class="btn btn-primary" style="margin-top:16px" onclick="openModal('add-order')">+ New Order</button></div>`;
       el.innerHTML = emptyMsg;
       return;
@@ -14624,7 +14626,7 @@ ${oneCopy}
     btn.disabled=false; btn.textContent=origText;
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
-    document.getElementById('cp-meta').innerHTML = `${phone?`<a href="tel:${phone}">${phone}</a>`:''}${phone&&email?' · ':''}${email?`<a href="mailto:${email}">${email}</a>`:''}`;
+    document.getElementById('cp-meta').innerHTML = `${phone?`<a href="tel:${esc(phone)}">${esc(phone)}</a>`:''}${phone&&email?' · ':''}${email?`<a href="mailto:${esc(email)}">${esc(email)}</a>`:''}`;
     loadCustomers();
     showToast('Contact info saved', 'success');
   }
