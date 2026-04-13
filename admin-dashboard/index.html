@@ -21941,17 +21941,18 @@ ${oneCopy}
     const endVal = document.getElementById('rpt-to').value;
 
     // Build query — fetch all delivered/ready orders for on_account customers
+    // Filter by pickup_window_start (actual service date) not created_at (import date)
     let query = db.from('orders')
-      .select('id, order_number, total_amount, status, billing_status, paid_at, actual_delivery_at, created_at, customer_id, customers!inner(id, first_name_cache, last_name_cache, billing_type)')
+      .select('id, order_number, total_amount, status, billing_status, paid_at, actual_delivery_at, created_at, pickup_window_start, customer_id, customers!inner(id, first_name_cache, last_name_cache, billing_type)')
       .eq('customers.billing_type', 'on_account')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery', 'picked_up', 'processing', 'folding', 'scheduled'])
-      .order('created_at', { ascending: false });
+      .order('pickup_window_start', { ascending: false });
 
     if (startVal) {
-      query = query.gte('created_at', new Date(startVal + 'T00:00:00').toISOString());
+      query = query.gte('pickup_window_start', new Date(startVal + 'T00:00:00').toISOString());
     }
     if (endVal) {
-      query = query.lte('created_at', new Date(endVal + 'T23:59:59').toISOString());
+      query = query.lte('pickup_window_start', new Date(endVal + 'T23:59:59').toISOString());
     }
 
     const { data, error } = await query;
@@ -21959,7 +21960,7 @@ ${oneCopy}
 
     oaData = (data || []).map(o => {
       const now = new Date();
-      const deliveredDate = o.actual_delivery_at ? new Date(o.actual_delivery_at) : (o.created_at ? new Date(o.created_at) : now);
+      const deliveredDate = o.actual_delivery_at ? new Date(o.actual_delivery_at) : (o.pickup_window_start ? new Date(o.pickup_window_start) : now);
       const ageDays = Math.floor((now - deliveredDate) / 86400000);
       const isPaid = o.billing_status === 'paid';
       const isRefunded = o.billing_status === 'refunded';
