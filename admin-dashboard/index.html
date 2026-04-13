@@ -2194,8 +2194,9 @@
                       <th style="text-align:right">Invoiced</th>
                       <th style="text-align:right">Paid</th>
                       <th style="text-align:right">Outstanding</th>
-                      <th style="text-align:right">30 Days</th>
-                      <th style="text-align:right">60 Days</th>
+                      <th style="text-align:right">0–30 Days</th>
+                      <th style="text-align:right">31–60 Days</th>
+                      <th style="text-align:right">61–90 Days</th>
                       <th style="text-align:right">90+ Days</th>
                     </tr>
                   </thead>
@@ -22534,7 +22535,7 @@ ${oneCopy}
     // Summary table
     const tbody = document.getElementById('oa-summary-tbody');
     if (allRows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" class="rpt-no-data">No on-account orders in this period</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="rpt-no-data">No on-account orders in this period</td></tr>';
       document.getElementById('oa-summary-tfoot').innerHTML = '';
       return;
     }
@@ -22569,6 +22570,7 @@ ${oneCopy}
         <td style="text-align:right">${fmtMoney(r.invoiced)}</td>
         <td style="text-align:right">${fmtMoney(r.paid)}</td>
         <td style="text-align:right;font-weight:600">${fmtMoney(r.outstanding)}</td>
+        <td style="text-align:right">${r.aging.current > 0 ? fmtMoney(r.aging.current) : '—'}</td>
         <td style="text-align:right">${r.aging.d30 > 0 ? fmtMoney(r.aging.d30) : '—'}</td>
         <td style="text-align:right">${r.aging.d60 > 0 ? fmtMoney(r.aging.d60) : '—'}</td>
         <td style="text-align:right">${r.aging.d90 > 0 ? fmtMoney(r.aging.d90) : '—'}</td>
@@ -22610,6 +22612,7 @@ ${oneCopy}
         <td style="text-align:right;font-weight:700">${fmtMoney(sub.invoiced)}</td>
         <td style="text-align:right;font-weight:700">${fmtMoney(sub.paid)}</td>
         <td style="text-align:right;font-weight:700">${fmtMoney(sub.outstanding)}</td>
+        <td style="text-align:right;font-weight:700">${sub.current > 0 ? fmtMoney(sub.current) : '—'}</td>
         <td style="text-align:right;font-weight:700">${sub.d30 > 0 ? fmtMoney(sub.d30) : '—'}</td>
         <td style="text-align:right;font-weight:700">${sub.d60 > 0 ? fmtMoney(sub.d60) : '—'}</td>
         <td style="text-align:right;font-weight:700">${sub.d90 > 0 ? fmtMoney(sub.d90) : '—'}</td>
@@ -22622,7 +22625,7 @@ ${oneCopy}
 
     // Render ungrouped standalone accounts
     if (ungrouped.length && groupIds.length) {
-      html += `<tr style="border-top:2px solid var(--gray-200)"><td colspan="9" style="font-weight:700;font-size:13px;padding-top:12px;background:var(--gray-50)">Standalone Accounts</td></tr>`;
+      html += `<tr style="border-top:2px solid var(--gray-200)"><td colspan="10" style="font-weight:700;font-size:13px;padding-top:12px;background:var(--gray-50)">Standalone Accounts</td></tr>`;
     }
     ungrouped.forEach(([cid, r]) => { html += custRow(cid, r, false, true); });
 
@@ -22642,6 +22645,7 @@ ${oneCopy}
       <td style="text-align:right">${fmtMoney(totals.invoiced)}</td>
       <td style="text-align:right">${fmtMoney(totals.paid)}</td>
       <td style="text-align:right">${fmtMoney(totals.outstanding)}</td>
+      <td style="text-align:right">${totals.current > 0 ? fmtMoney(totals.current) : '—'}</td>
       <td style="text-align:right">${totals.d30 > 0 ? fmtMoney(totals.d30) : '—'}</td>
       <td style="text-align:right">${totals.d60 > 0 ? fmtMoney(totals.d60) : '—'}</td>
       <td style="text-align:right">${totals.d90 > 0 ? fmtMoney(totals.d90) : '—'}</td>
