@@ -22607,15 +22607,14 @@ ${orderSections}
     doc.setFillColor(31, 41, 55);
     doc.rect(0, 0, pw, 28, 'F');
 
-    // Logo — preserve aspect ratio, fit within 22mm tall header area
+    // Logo — sized to align with the 3 text lines (y 7–20, ~13mm tall)
     let textStart = ml;
     if (_invoiceLogoBase64) {
       try {
-        const maxH = 22; // max height in mm
+        const logoH = 14; // mm — matches text block height
         const ratio = (_invoiceLogoNatW && _invoiceLogoNatH) ? _invoiceLogoNatW / _invoiceLogoNatH : 1;
-        const logoH = maxH;
-        const logoW = maxH * ratio;
-        doc.addImage(_invoiceLogoBase64, 'PNG', ml, 3, logoW, logoH);
+        const logoW = logoH * ratio;
+        doc.addImage(_invoiceLogoBase64, 'PNG', ml, 7, logoW, logoH);
         textStart = ml + logoW + 3;
       } catch(e) { /* logo failed, just use text */ }
     }
