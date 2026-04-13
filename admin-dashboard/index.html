@@ -14369,14 +14369,13 @@ ${oneCopy}
     // Reset credit adjust form
     hideCreditAdjust();
 
-    // Balance — unpaid on-demand orders at ready_for_delivery or later
+    // Balance — unpaid orders at ready_for_delivery or later (includes recurring)
     const { data: balOrders } = await db
       .from('orders')
-      .select('total_amount, stripe_payment_intent_id')
+      .select('total_amount, billing_status')
       .eq('customer_id', customerId)
-      .is('recurring_interval', null)
       .in('status', ['ready_for_delivery', 'out_for_delivery', 'delivered'])
-      .is('stripe_payment_intent_id', null);
+      .not('billing_status', 'in', '("paid","refunded")');
     const balance = (balOrders || []).reduce((s, o) => s + (Number(o.total_amount) || 0), 0);
     const balDisplay = document.getElementById('cpb-balance-display');
     const balDetail  = document.getElementById('cpb-balance-detail');
