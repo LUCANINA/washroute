@@ -14322,7 +14322,19 @@ ${oneCopy}
 
   async function deleteAddress(addrId) {
     if (!confirm('Remove this address?')) return;
-    await db.from('addresses').delete().eq('id', addrId);
+
+    // Clear FK references so the address can be deleted
+    // (orders and route_stops reference addresses with NO ACTION)
+    await db.from('orders').update({ pickup_address_id: null }).eq('pickup_address_id', addrId);
+    await db.from('orders').update({ delivery_address_id: null }).eq('delivery_address_id', addrId);
+    await db.from('route_stops').update({ address_id: null }).eq('address_id', addrId);
+
+    const { error } = await db.from('addresses').delete().eq('id', addrId);
+    if (error) {
+      showToast('Could not delete address: ' + error.message, 'error');
+      return;
+    }
+    showToast('Address removed', 'success');
     const { data: updated } = await db.from('customers').select('addresses(id,label,line1,line2,city,state,zip,lat,lng,delivery_instructions,is_default)').eq('id',panelCustomerId).single();
     renderPanelAddresses(updated?.addresses||[]);
   }
