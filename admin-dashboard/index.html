@@ -230,7 +230,7 @@
     .batch-bar-sep { width: 1px; height: 22px; background: rgba(255,255,255,.15); flex-shrink: 0; }
     .batch-bar-dismiss { background: none; border: none; color: rgba(255,255,255,.45); cursor: pointer; font-size: 18px; padding: 0 2px; line-height: 1; margin-left: 4px; }
     .batch-bar-dismiss:hover { color: white; }
-    tr.oa-selectable:hover { background: var(--gray-100) !important; cursor: pointer; }
+    tr.oa-group-header:hover { background: var(--gray-100) !important; cursor: pointer; }
 
     /* ── CUSTOMER CELL ── */
     .customer-cell { display: flex; align-items: center; gap: 10px; }
@@ -2113,6 +2113,7 @@
                 <table>
                   <thead>
                     <tr>
+                      <th style="width:32px;padding:8px 6px"></th>
                       <th>Customer</th>
                       <th style="text-align:right">Orders</th>
                       <th style="text-align:right">Invoiced</th>
@@ -2125,7 +2126,7 @@
                     </tr>
                   </thead>
                   <tbody id="oa-summary-tbody">
-                    <tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                    <tr><td colspan="10"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
                   </tbody>
                   <tfoot id="oa-summary-tfoot" style="font-weight:700;border-top:2px solid var(--gray-200)"></tfoot>
                 </table>
@@ -22100,7 +22101,7 @@ ${oneCopy}
     // Summary table
     const tbody = document.getElementById('oa-summary-tbody');
     if (allRows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" class="rpt-no-data">No on-account orders in this period</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="rpt-no-data">No on-account orders in this period</td></tr>';
       document.getElementById('oa-summary-tfoot').innerHTML = '';
       return;
     }
@@ -22123,11 +22124,15 @@ ${oneCopy}
 
     // Helper to render a customer row
     const agingWarn = (v) => v > 0 ? `style="color:var(--red)"` : '';
-    const custRow = (cid, r, indent, selectable) => {
+    const custRow = (cid, r, indent, selectable, groupId) => {
       const outStyle = r.outstanding > 0 ? 'color:var(--red);font-weight:600' : 'color:var(--green)';
       const pad = indent ? 'padding-left:28px;' : '';
-      const clickAttr = selectable ? `onclick="selectOAAccount('standalone','${escJS(cid)}','${escJS(r.name)}')" style="cursor:pointer;${pad}" class="oa-selectable" data-oa-sel="standalone-${cid}"` : `style="${pad}"`;
-      return `<tr ${clickAttr}>
+      const memberClass = indent && groupId ? `class="oa-member-row" data-group="${groupId}"` : '';
+      const cbCell = selectable
+        ? `<td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="oa-select-cb" data-type="standalone" data-id="${cid}" data-name="${esc(r.name)}" onchange="updateOABatchBar()"></td>`
+        : `<td style="width:32px;padding:8px 6px"></td>`;
+      return `<tr ${memberClass}>
+        ${cbCell}
         <td style="${pad}">${indent ? '' : '<strong>'}${esc(r.name)}${indent ? '' : '</strong>'}</td>
         <td style="text-align:right">${r.orders}</td>
         <td style="text-align:right">${fmtMoney(r.invoiced)}</td>
@@ -22164,11 +22169,14 @@ ${oneCopy}
       const badge = g.invoice_style === 'consolidated' ? 'Consolidated' : 'Separate';
       const badgeColor = g.invoice_style === 'consolidated' ? 'var(--blue)' : 'var(--purple,#7c3aed)';
 
-      // Group header row — clickable to select for invoicing
-      html += `<tr onclick="selectOAAccount('group','${escJS(gid)}','${escJS(g.name)}')" class="oa-selectable" data-oa-sel="group-${gid}" style="background:var(--gray-50);border-top:2px solid var(--gray-200);cursor:pointer">
+      // Group header row — checkbox to select, click to expand/collapse members
+      html += `<tr class="oa-group-header" data-group="${gid}" onclick="toggleOAGroup('${escJS(gid)}')" style="background:var(--gray-50);border-top:2px solid var(--gray-200);cursor:pointer">
+        <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="oa-select-cb" data-type="group" data-id="${gid}" data-name="${esc(g.name)}" onchange="updateOABatchBar()"></td>
         <td style="font-weight:700;font-size:13px">
+          <svg class="oa-chevron" data-group-chevron="${gid}" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-1px;margin-right:4px;transition:transform .15s"><polyline points="6 9 12 15 18 9"/></svg>
           ${esc(g.name)}
           <span style="font-size:10px;font-weight:500;padding:2px 6px;border-radius:4px;background:${badgeColor};color:#fff;margin-left:6px;vertical-align:middle">${badge}</span>
+          <span style="font-size:11px;color:var(--gray-400);margin-left:4px">${members.length} account${members.length !== 1 ? 's' : ''}</span>
         </td>
         <td style="text-align:right;font-weight:700">${sub.orders}</td>
         <td style="text-align:right;font-weight:700">${fmtMoney(sub.invoiced)}</td>
@@ -22182,12 +22190,12 @@ ${oneCopy}
 
       // Member rows (indented)
       members.sort((a, b) => b[1].outstanding - a[1].outstanding);
-      members.forEach(([cid, r]) => { html += custRow(cid, r, true); });
+      members.forEach(([cid, r]) => { html += custRow(cid, r, true, false, gid); });
     });
 
     // Render ungrouped standalone accounts
     if (ungrouped.length && groupIds.length) {
-      html += `<tr style="border-top:2px solid var(--gray-200)"><td colspan="9" style="font-weight:700;font-size:13px;padding-top:12px;background:var(--gray-50)">Standalone Accounts</td></tr>`;
+      html += `<tr style="border-top:2px solid var(--gray-200)"><td colspan="10" style="font-weight:700;font-size:13px;padding-top:12px;background:var(--gray-50)">Standalone Accounts</td></tr>`;
     }
     ungrouped.forEach(([cid, r]) => { html += custRow(cid, r, false, true); });
 
@@ -22201,6 +22209,7 @@ ${oneCopy}
     }, { orders: 0, invoiced: 0, paid: 0, outstanding: 0, current: 0, d30: 0, d60: 0, d90: 0 });
 
     document.getElementById('oa-summary-tfoot').innerHTML = `<tr>
+      <td></td>
       <td>TOTAL</td>
       <td style="text-align:right">${totals.orders}</td>
       <td style="text-align:right">${fmtMoney(totals.invoiced)}</td>
@@ -22221,66 +22230,79 @@ ${oneCopy}
   let _oaSelId = null;
   let _oaSelName = null;
 
-  // ── SELECTION UI ─────────────────────────────────────────────────
-  function selectOAAccount(type, id, name) {
-    _oaSelType = type;
-    _oaSelId = id;
-    _oaSelName = name;
-
-    // Highlight selected row, clear others
-    document.querySelectorAll('.oa-selectable').forEach(tr => {
-      tr.style.background = '';
-    });
-    const selRow = document.querySelector(`[data-oa-sel="${type}-${id}"]`);
-    if (selRow) selRow.style.background = '#dbeafe';
-
-    // If it's a group, also highlight member rows beneath it
-    if (type === 'group') {
-      let next = selRow?.nextElementSibling;
-      while (next && !next.classList.contains('oa-selectable') && !next.querySelector('[colspan]')) {
-        next.style.background = '#eff6ff';
-        next = next.nextElementSibling;
-      }
-    }
-
-    // Show floating action bar (same style as orders batch bar)
+  // ── SELECTION UI (checkbox-based) ─────────────────────────────────
+  function updateOABatchBar() {
+    const checked = [...document.querySelectorAll('.oa-select-cb:checked')];
+    const count = checked.length;
     const bar = document.getElementById('oa-action-bar');
-    bar.classList.add('visible');
-    document.getElementById('oa-selected-label').textContent = name;
+    bar.classList.toggle('visible', count > 0);
+    const label = document.getElementById('oa-selected-label');
+    if (count === 1) {
+      label.textContent = checked[0].dataset.name;
+    } else if (count > 1) {
+      label.textContent = count + ' selected';
+    }
+    // Store selection for invoice functions
+    _oaSelType = null; _oaSelId = null; _oaSelName = null;
+    if (count === 1) {
+      _oaSelType = checked[0].dataset.type;
+      _oaSelId = checked[0].dataset.id;
+      _oaSelName = checked[0].dataset.name;
+    }
   }
-  window.selectOAAccount = selectOAAccount;
+  window.updateOABatchBar = updateOABatchBar;
 
   function clearOASelection() {
-    _oaSelType = null;
-    _oaSelId = null;
-    _oaSelName = null;
+    document.querySelectorAll('.oa-select-cb').forEach(cb => { cb.checked = false; });
+    _oaSelType = null; _oaSelId = null; _oaSelName = null;
     document.getElementById('oa-action-bar').classList.remove('visible');
-    document.querySelectorAll('.oa-selectable').forEach(tr => { tr.style.background = ''; });
-    // Re-apply gray-50 to group headers
-    document.querySelectorAll('[data-oa-sel^="group-"]').forEach(tr => { tr.style.background = 'var(--gray-50)'; });
   }
   window.clearOASelection = clearOASelection;
 
+  // Expand/collapse group members
+  function toggleOAGroup(groupId) {
+    const members = document.querySelectorAll(`.oa-member-row[data-group="${groupId}"]`);
+    const chevron = document.querySelector(`[data-group-chevron="${groupId}"]`);
+    const isVisible = members.length > 0 && members[0].style.display !== 'none';
+    members.forEach(tr => { tr.style.display = isVisible ? 'none' : ''; });
+    if (chevron) chevron.style.transform = isVisible ? 'rotate(-90deg)' : '';
+  }
+  window.toggleOAGroup = toggleOAGroup;
+
   function previewSelectedInvoice() {
-    if (!_oaSelType || !_oaSelId) { showToast('Select an account first', 'error'); return; }
-    if (_oaSelType === 'group') {
-      _invoiceGroupId = _oaSelId;
-      _invoiceCustomerId = null;
-      previewInvoicePDF();
-    } else {
-      _invoiceGroupId = null;
-      _invoiceCustomerId = _oaSelId;
-      previewStandaloneInvoice();
-    }
+    const checked = [...document.querySelectorAll('.oa-select-cb:checked')];
+    if (!checked.length) { showToast('Select an account first', 'error'); return; }
+    // Preview all selected accounts
+    checked.forEach(cb => {
+      if (cb.dataset.type === 'group') {
+        _invoiceGroupId = cb.dataset.id;
+        _invoiceCustomerId = null;
+        const invoices = getInvoicesForGroup(_invoiceGroupId);
+        invoices.forEach(inv => {
+          const w = window.open('', '_blank');
+          if (w) { w.document.write(inv.html); w.document.close(); }
+        });
+      } else {
+        const inv = getInvoiceForStandalone(cb.dataset.id);
+        if (inv) {
+          const w = window.open('', '_blank');
+          if (w) { w.document.write(inv.html); w.document.close(); }
+        }
+      }
+    });
+    showToast('Opened invoice(s) — use Print to save as PDF');
   }
   window.previewSelectedInvoice = previewSelectedInvoice;
 
   function openSelectedInvoiceModal() {
-    if (!_oaSelType || !_oaSelId) { showToast('Select an account first', 'error'); return; }
-    if (_oaSelType === 'group') {
-      openInvoiceModal(_oaSelId);
+    const checked = [...document.querySelectorAll('.oa-select-cb:checked')];
+    if (!checked.length) { showToast('Select an account first', 'error'); return; }
+    if (checked.length > 1) { showToast('Select one account to send an invoice', 'error'); return; }
+    const cb = checked[0];
+    if (cb.dataset.type === 'group') {
+      openInvoiceModal(cb.dataset.id);
     } else {
-      openStandaloneInvoiceModal(_oaSelId);
+      openStandaloneInvoiceModal(cb.dataset.id);
     }
   }
   window.openSelectedInvoiceModal = openSelectedInvoiceModal;
