@@ -18141,9 +18141,9 @@ ${oneCopy}
     const el = document.getElementById('bg-contacts-list');
     el.innerHTML = _bgContacts.map((c, i) => `
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
-        <input class="form-input" style="flex:1;height:32px;font-size:13px" placeholder="Name" value="${esc(c.name || '')}" onchange="_bgContacts[${i}].name=this.value">
-        <input class="form-input" style="flex:1.3;height:32px;font-size:13px" placeholder="email@example.com" value="${esc(c.email || '')}" onchange="_bgContacts[${i}].email=this.value">
-        <select class="form-input" style="width:90px;height:32px;font-size:12px" onchange="_bgContacts[${i}].role=this.value">
+        <input class="form-input" style="flex:1;height:36px;font-size:13px" placeholder="Name" value="${esc(c.name || '')}" onchange="_bgContacts[${i}].name=this.value">
+        <input class="form-input" style="flex:1.3;height:36px;font-size:13px" placeholder="email@example.com" value="${esc(c.email || '')}" onchange="_bgContacts[${i}].email=this.value">
+        <select class="form-input" style="width:100px;height:36px;font-size:12px" onchange="_bgContacts[${i}].role=this.value">
           <option value="primary" ${c.role==='primary'?'selected':''}>Primary</option>
           <option value="cc" ${c.role==='cc'?'selected':''}>CC</option>
         </select>
