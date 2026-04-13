@@ -2170,11 +2170,11 @@
               </div>
               <div class="stat-card">
                 <div class="stat-label">Total Paid</div>
-                <div class="stat-value" id="oa-total-paid" style="color:var(--green)">—</div>
+                <div class="stat-value" id="oa-total-paid">—</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Outstanding Balance</div>
-                <div class="stat-value" id="oa-outstanding" style="color:var(--red)">—</div>
+                <div class="stat-value" id="oa-outstanding">—</div>
               </div>
             </div>
             <div class="card" style="margin-bottom:0">
@@ -2194,7 +2194,6 @@
                       <th style="text-align:right">Invoiced</th>
                       <th style="text-align:right">Paid</th>
                       <th style="text-align:right">Outstanding</th>
-                      <th style="text-align:right">Current</th>
                       <th style="text-align:right">30 Days</th>
                       <th style="text-align:right">60 Days</th>
                       <th style="text-align:right">90+ Days</th>
@@ -22535,7 +22534,7 @@ ${oneCopy}
     // Summary table
     const tbody = document.getElementById('oa-summary-tbody');
     if (allRows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10" class="rpt-no-data">No on-account orders in this period</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="rpt-no-data">No on-account orders in this period</td></tr>';
       document.getElementById('oa-summary-tfoot').innerHTML = '';
       return;
     }
@@ -22557,9 +22556,7 @@ ${oneCopy}
     });
 
     // Helper to render a customer row
-    const agingWarn = (v) => v > 0 ? `style="color:var(--red)"` : '';
     const custRow = (cid, r, indent, selectable, groupId) => {
-      const outStyle = r.outstanding > 0 ? 'color:var(--red);font-weight:600' : 'color:var(--green)';
       const pad = indent ? 'padding-left:28px;' : '';
       const memberClass = indent && groupId ? `class="oa-member-row" data-group="${groupId}"` : '';
       const cbCell = selectable
@@ -22570,12 +22567,11 @@ ${oneCopy}
         <td style="${pad}">${indent ? '' : '<strong>'}${esc(r.name)}${indent ? '' : '</strong>'}</td>
         <td style="text-align:right">${r.orders}</td>
         <td style="text-align:right">${fmtMoney(r.invoiced)}</td>
-        <td style="text-align:right;color:var(--green)">${fmtMoney(r.paid)}</td>
-        <td style="text-align:right;${outStyle}">${fmtMoney(r.outstanding)}</td>
-        <td style="text-align:right" ${agingWarn(r.aging.current)}>${r.aging.current > 0 ? fmtMoney(r.aging.current) : '—'}</td>
-        <td style="text-align:right" ${agingWarn(r.aging.d30)}>${r.aging.d30 > 0 ? fmtMoney(r.aging.d30) : '—'}</td>
-        <td style="text-align:right" ${agingWarn(r.aging.d60)}>${r.aging.d60 > 0 ? fmtMoney(r.aging.d60) : '—'}</td>
-        <td style="text-align:right" ${agingWarn(r.aging.d90)}>${r.aging.d90 > 0 ? fmtMoney(r.aging.d90) : '—'}</td>
+        <td style="text-align:right">${fmtMoney(r.paid)}</td>
+        <td style="text-align:right;font-weight:600">${fmtMoney(r.outstanding)}</td>
+        <td style="text-align:right">${r.aging.d30 > 0 ? fmtMoney(r.aging.d30) : '—'}</td>
+        <td style="text-align:right">${r.aging.d60 > 0 ? fmtMoney(r.aging.d60) : '—'}</td>
+        <td style="text-align:right">${r.aging.d90 > 0 ? fmtMoney(r.aging.d90) : '—'}</td>
       </tr>`;
     };
 
@@ -22599,9 +22595,7 @@ ${oneCopy}
         return t;
       }, { orders: 0, invoiced: 0, paid: 0, outstanding: 0, current: 0, d30: 0, d60: 0, d90: 0 });
 
-      const outStyle = sub.outstanding > 0 ? 'color:var(--red);font-weight:700' : 'color:var(--green);font-weight:700';
       const badge = g.invoice_style === 'consolidated' ? 'Consolidated' : 'Separate';
-      const badgeColor = g.invoice_style === 'consolidated' ? 'var(--blue)' : 'var(--purple,#7c3aed)';
 
       // Group header row — checkbox to select, click to expand/collapse members
       html += `<tr class="oa-group-header" data-group="${gid}" onclick="toggleOAGroup('${escJS(gid)}')" style="background:var(--gray-50);border-top:2px solid var(--gray-200);cursor:pointer">
@@ -22609,17 +22603,16 @@ ${oneCopy}
         <td style="font-weight:700;font-size:13px">
           <svg class="oa-chevron" data-group-chevron="${gid}" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-1px;margin-right:4px;transition:transform .15s"><polyline points="6 9 12 15 18 9"/></svg>
           ${esc(g.name)}
-          <span style="font-size:10px;font-weight:500;padding:2px 6px;border-radius:4px;background:${badgeColor};color:#fff;margin-left:6px;vertical-align:middle">${badge}</span>
+          <span style="font-size:10px;font-weight:500;padding:2px 6px;border-radius:4px;border:1px solid var(--gray-300);color:var(--gray-600);margin-left:6px;vertical-align:middle">${badge}</span>
           <span style="font-size:11px;color:var(--gray-400);margin-left:4px">${members.length} account${members.length !== 1 ? 's' : ''}</span>
         </td>
         <td style="text-align:right;font-weight:700">${sub.orders}</td>
         <td style="text-align:right;font-weight:700">${fmtMoney(sub.invoiced)}</td>
-        <td style="text-align:right;font-weight:700;color:var(--green)">${fmtMoney(sub.paid)}</td>
-        <td style="text-align:right;${outStyle}">${fmtMoney(sub.outstanding)}</td>
-        <td style="text-align:right;font-weight:700" ${agingWarn(sub.current)}>${sub.current > 0 ? fmtMoney(sub.current) : '—'}</td>
-        <td style="text-align:right;font-weight:700" ${agingWarn(sub.d30)}>${sub.d30 > 0 ? fmtMoney(sub.d30) : '—'}</td>
-        <td style="text-align:right;font-weight:700" ${agingWarn(sub.d60)}>${sub.d60 > 0 ? fmtMoney(sub.d60) : '—'}</td>
-        <td style="text-align:right;font-weight:700" ${agingWarn(sub.d90)}>${sub.d90 > 0 ? fmtMoney(sub.d90) : '—'}</td>
+        <td style="text-align:right;font-weight:700">${fmtMoney(sub.paid)}</td>
+        <td style="text-align:right;font-weight:700">${fmtMoney(sub.outstanding)}</td>
+        <td style="text-align:right;font-weight:700">${sub.d30 > 0 ? fmtMoney(sub.d30) : '—'}</td>
+        <td style="text-align:right;font-weight:700">${sub.d60 > 0 ? fmtMoney(sub.d60) : '—'}</td>
+        <td style="text-align:right;font-weight:700">${sub.d90 > 0 ? fmtMoney(sub.d90) : '—'}</td>
       </tr>`;
 
       // Member rows (indented)
@@ -22629,7 +22622,7 @@ ${oneCopy}
 
     // Render ungrouped standalone accounts
     if (ungrouped.length && groupIds.length) {
-      html += `<tr style="border-top:2px solid var(--gray-200)"><td colspan="10" style="font-weight:700;font-size:13px;padding-top:12px;background:var(--gray-50)">Standalone Accounts</td></tr>`;
+      html += `<tr style="border-top:2px solid var(--gray-200)"><td colspan="9" style="font-weight:700;font-size:13px;padding-top:12px;background:var(--gray-50)">Standalone Accounts</td></tr>`;
     }
     ungrouped.forEach(([cid, r]) => { html += custRow(cid, r, false, true); });
 
@@ -22647,9 +22640,8 @@ ${oneCopy}
       <td>TOTAL</td>
       <td style="text-align:right">${totals.orders}</td>
       <td style="text-align:right">${fmtMoney(totals.invoiced)}</td>
-      <td style="text-align:right;color:var(--green)">${fmtMoney(totals.paid)}</td>
-      <td style="text-align:right;color:var(--red)">${fmtMoney(totals.outstanding)}</td>
-      <td style="text-align:right">${totals.current > 0 ? fmtMoney(totals.current) : '—'}</td>
+      <td style="text-align:right">${fmtMoney(totals.paid)}</td>
+      <td style="text-align:right">${fmtMoney(totals.outstanding)}</td>
       <td style="text-align:right">${totals.d30 > 0 ? fmtMoney(totals.d30) : '—'}</td>
       <td style="text-align:right">${totals.d60 > 0 ? fmtMoney(totals.d60) : '—'}</td>
       <td style="text-align:right">${totals.d90 > 0 ? fmtMoney(totals.d90) : '—'}</td>
