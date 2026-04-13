@@ -19,7 +19,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://js.stripe.com/v3/"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-  <!-- jsPDF removed — invoices generated as printable HTML -->
+  <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js"></script>
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc&libraries=geocoding"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -22355,7 +22355,7 @@ ${oneCopy}
     document.getElementById('inv-cc').value = '';
     document.getElementById('inv-subject').value = 'Family Laundry Invoice — ' + period;
     document.getElementById('inv-body').value = '';
-    document.getElementById('inv-attachment-list').innerHTML = `<div>📄 ${name} — Invoice.html</div>`;
+    document.getElementById('inv-attachment-list').innerHTML = `<div>📄 ${name} — Invoice.pdf</div>`;
     document.getElementById('modal-send-invoice').style.display = 'flex';
   }
   window.openStandaloneInvoiceModal = openStandaloneInvoiceModal;
@@ -22381,10 +22381,10 @@ ${oneCopy}
     const members = _oaReportRows.filter(([, r]) => r.groupId === groupId);
     const attachEl = document.getElementById('inv-attachment-list');
     if (g.invoice_style === 'consolidated') {
-      attachEl.innerHTML = `<div>📄 ${g.name} — Consolidated Invoice.html</div>`;
+      attachEl.innerHTML = `<div>📄 ${g.name} — Consolidated Invoice.pdf</div>`;
     } else {
       attachEl.innerHTML = members.map(([, r]) =>
-        `<div>📄 ${r.name} — Invoice.html</div>`
+        `<div>📄 ${r.name} — Invoice.pdf</div>`
       ).join('');
     }
 
@@ -22559,6 +22559,39 @@ ${orderSections}
     }
   }
 
+  // Convert invoice HTML string to PDF base64 using html2pdf.js
+  async function invoiceHtmlToPdfBase64(htmlStr) {
+    // Create a hidden container, render the invoice HTML, convert to PDF
+    const container = document.createElement('div');
+    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;';
+    // Strip the full HTML document down to just the body content
+    const bodyMatch = htmlStr.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    container.innerHTML = bodyMatch ? bodyMatch[1] : htmlStr;
+    // Remove the no-print toolbar
+    const noPrint = container.querySelector('.no-print');
+    if (noPrint) noPrint.remove();
+    document.body.appendChild(container);
+
+    try {
+      const opt = {
+        margin: [0.4, 0.4, 0.4, 0.4],
+        filename: 'invoice.pdf',
+        image: { type: 'jpeg', quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+      };
+      const pdfBlob = await html2pdf().set(opt).from(container).outputPdf('blob');
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]); // base64 part
+        reader.onerror = reject;
+        reader.readAsDataURL(pdfBlob);
+      });
+    } finally {
+      document.body.removeChild(container);
+    }
+  }
+
   // Helper: get all invoices for current selection (group or standalone)
   function getSelectedInvoices() {
     if (_invoiceGroupId) return getInvoicesForGroup(_invoiceGroupId);
@@ -22603,15 +22636,30 @@ ${orderSections}
       const to = toStr.split(',').map(e => ({ email: e.trim() })).filter(e => e.email);
       const cc = ccStr ? ccStr.split(',').map(e => ({ email: e.trim() })).filter(e => e.email) : [];
 
-      // Generate invoice HTML attachments
+      // Generate invoice PDFs
       const invoices = getSelectedInvoices();
       if (!invoices.length) { showToast('No invoiceable orders in this period', 'error'); return; }
 
-      const attachments = invoices.map(inv => ({
-        filename: inv.filename + '.html',
-        content: btoa(unescape(encodeURIComponent(inv.html))),
-        type: 'text/html',
-      }));
+      btn.textContent = 'Generating PDFs…';
+      const attachments = [];
+      for (const inv of invoices) {
+        try {
+          const pdfBase64 = await invoiceHtmlToPdfBase64(inv.html);
+          attachments.push({
+            filename: inv.filename + '.pdf',
+            content: pdfBase64,
+            type: 'application/pdf',
+          });
+        } catch (pdfErr) {
+          console.error('PDF generation failed, falling back to HTML:', pdfErr);
+          attachments.push({
+            filename: inv.filename + '.html',
+            content: btoa(unescape(encodeURIComponent(inv.html))),
+            type: 'text/html',
+          });
+        }
+      }
+      btn.textContent = 'Sending…';
 
       // Convert plain text body to simple HTML
       const htmlBody = '<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#333">' +
