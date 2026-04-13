@@ -22559,7 +22559,7 @@ ${oneCopy}
     // Helper to render a customer row
     const custRow = (cid, r, indent, selectable, groupId) => {
       const pad = indent ? 'padding-left:28px;' : '';
-      const memberClass = indent && groupId ? `class="oa-member-row" data-group="${groupId}"` : '';
+      const memberClass = indent && groupId ? `class="oa-member-row" data-group="${groupId}" style="display:none"` : '';
       const cbCell = selectable
         ? `<td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="oa-select-cb" data-type="standalone" data-id="${cid}" data-name="${esc(r.name)}" onchange="updateOABatchBar()"></td>`
         : `<td style="width:32px;padding:8px 6px"></td>`;
@@ -22603,7 +22603,7 @@ ${oneCopy}
       html += `<tr class="oa-group-header" data-group="${gid}" onclick="toggleOAGroup('${escJS(gid)}')" style="background:var(--gray-50);border-top:2px solid var(--gray-200);cursor:pointer">
         <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="oa-select-cb" data-type="group" data-id="${gid}" data-name="${esc(g.name)}" onchange="updateOABatchBar()"></td>
         <td style="font-weight:700;font-size:13px">
-          <svg class="oa-chevron" data-group-chevron="${gid}" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-1px;margin-right:4px;transition:transform .15s"><polyline points="6 9 12 15 18 9"/></svg>
+          <svg class="oa-chevron" data-group-chevron="${gid}" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-1px;margin-right:4px;transition:transform .15s;transform:rotate(-90deg)"><polyline points="6 9 12 15 18 9"/></svg>
           ${esc(g.name)}
           <span style="font-size:10px;font-weight:500;padding:2px 6px;border-radius:4px;border:1px solid var(--gray-300);color:var(--gray-600);margin-left:6px;vertical-align:middle">${badge}</span>
           <span style="font-size:11px;color:var(--gray-400);margin-left:4px">${members.length} account${members.length !== 1 ? 's' : ''}</span>
