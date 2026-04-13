@@ -1238,10 +1238,6 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         Reports
       </div>
-      <div id="nav-onaccount" class="nav-item" data-page="onaccount" data-section="analytics" onclick="showPage('onaccount',this)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-        On Account
-      </div>
       <div class="sidebar-section-label" data-section="settings" id="settings-nav-toggle" onclick="toggleSettingsNav()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding-right:20px;user-select:none;">
         <span>Settings</span>
         <span id="settings-nav-chevron" style="font-size:10px;opacity:.6;transition:transform .2s;">▸</span>
@@ -2001,6 +1997,7 @@
               <button class="rpt-page-tab" onclick="setRptTab('items',this)">Items</button>
               <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">Drivers</button>
               <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">Launderers</button>
+              <button class="rpt-page-tab" onclick="setRptTab('onaccount',this)">On Account</button>
             </div>
           </div>
 
@@ -2083,118 +2080,56 @@
             </div>
           </div>
 
+          <!-- ── TAB: ON ACCOUNT ── -->
+          <div id="rpttab-onaccount" style="display:none">
+            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr))">
+              <div class="stat-card">
+                <div class="stat-label">On-Account Customers</div>
+                <div class="stat-value" id="oa-cust-count">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Total Invoiced</div>
+                <div class="stat-value" id="oa-total-invoiced">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Total Paid</div>
+                <div class="stat-value" id="oa-total-paid" style="color:var(--green)">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Outstanding Balance</div>
+                <div class="stat-value" id="oa-outstanding" style="color:var(--red)">—</div>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:0">
+              <div class="card-header">
+                <div class="card-title">Customer Balances</div>
+                <div class="card-sub" id="oa-period-label"></div>
+              </div>
+              <div class="rpt-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th style="text-align:right">Orders</th>
+                      <th style="text-align:right">Invoiced</th>
+                      <th style="text-align:right">Paid</th>
+                      <th style="text-align:right">Outstanding</th>
+                      <th style="text-align:right">Current</th>
+                      <th style="text-align:right">30 Days</th>
+                      <th style="text-align:right">60 Days</th>
+                      <th style="text-align:right">90+ Days</th>
+                    </tr>
+                  </thead>
+                  <tbody id="oa-summary-tbody">
+                    <tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                  </tbody>
+                  <tfoot id="oa-summary-tfoot" style="font-weight:700;border-top:2px solid var(--gray-200)"></tfoot>
+                </table>
+              </div>
+            </div>
+          </div>
+
         </div><!-- /page-reports -->
-
-        <!-- ── ON ACCOUNT REPORT ── -->
-        <div class="page" id="page-onaccount">
-
-          <!-- Period selector -->
-          <div class="card" style="padding:0;margin-bottom:20px">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;flex-wrap:wrap;gap:10px">
-              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                <label style="font-size:13px;font-weight:600;color:var(--gray-500)">From</label>
-                <input type="date" id="oa-date-start" style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;font-family:inherit">
-                <label style="font-size:13px;font-weight:600;color:var(--gray-500)">To</label>
-                <input type="date" id="oa-date-end" style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;font-family:inherit">
-                <button class="btn btn-primary" style="padding:6px 16px;font-size:13px" onclick="loadOnAccountReport()">Run Report</button>
-              </div>
-              <div class="filter-tabs" id="oa-quick-tabs">
-                <button class="filter-tab" onclick="setOAQuick('30d',this)">30 Days</button>
-                <button class="filter-tab" onclick="setOAQuick('90d',this)">90 Days</button>
-                <button class="filter-tab active" onclick="setOAQuick('all',this)">All Time</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- KPI cards -->
-          <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr));margin-bottom:20px">
-            <div class="stat-card">
-              <div class="stat-label">On-Account Customers</div>
-              <div class="stat-value" id="oa-cust-count">—</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Total Invoiced</div>
-              <div class="stat-value" id="oa-total-invoiced">—</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Total Paid</div>
-              <div class="stat-value" id="oa-total-paid" style="color:var(--green)">—</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Outstanding Balance</div>
-              <div class="stat-value" id="oa-outstanding" style="color:var(--red)">—</div>
-            </div>
-          </div>
-
-          <!-- Customer summary table -->
-          <div class="card" style="margin-bottom:20px">
-            <div class="card-header">
-              <div class="card-title">Customer Balances</div>
-              <div class="card-sub" id="oa-period-label"></div>
-            </div>
-            <div class="rpt-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Customer</th>
-                    <th style="text-align:right">Orders</th>
-                    <th style="text-align:right">Invoiced</th>
-                    <th style="text-align:right">Paid</th>
-                    <th style="text-align:right">Outstanding</th>
-                    <th style="text-align:right">Current</th>
-                    <th style="text-align:right">30 Days</th>
-                    <th style="text-align:right">60 Days</th>
-                    <th style="text-align:right">90+ Days</th>
-                  </tr>
-                </thead>
-                <tbody id="oa-summary-tbody">
-                  <tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
-                </tbody>
-                <tfoot id="oa-summary-tfoot" style="font-weight:700;border-top:2px solid var(--gray-200)"></tfoot>
-              </table>
-            </div>
-          </div>
-
-          <!-- Order detail table -->
-          <div class="card" style="margin-bottom:0">
-            <div class="card-header">
-              <div class="card-title">Order Detail</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <select id="oa-cust-filter" style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;font-family:inherit" onchange="renderOADetail()">
-                  <option value="all">All Customers</option>
-                </select>
-                <select id="oa-status-filter" style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;font-family:inherit" onchange="renderOADetail()">
-                  <option value="all">All Statuses</option>
-                  <option value="outstanding">Outstanding Only</option>
-                  <option value="paid">Paid Only</option>
-                </select>
-              </div>
-            </div>
-            <div class="rpt-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Order #</th>
-                    <th>Customer</th>
-                    <th>Service Date</th>
-                    <th>Delivered</th>
-                    <th style="text-align:right">Amount</th>
-                    <th>Payment Status</th>
-                    <th>Paid Date</th>
-                    <th>Method</th>
-                    <th>Age</th>
-                    <th>Notes</th>
-                  </tr>
-                </thead>
-                <tbody id="oa-detail-tbody">
-                  <tr><td colspan="10"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
-                </tbody>
-                <tfoot id="oa-detail-tfoot" style="font-weight:700;border-top:2px solid var(--gray-200)"></tfoot>
-              </table>
-            </div>
-          </div>
-
-        </div><!-- /page-onaccount -->
 
         <!-- ── DRIVERS ── -->
         <div class="page" id="page-drivers">
@@ -4810,7 +4745,7 @@
   // ── ROLE-BASED NAV ──
   const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', staff: 'Staff' };
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','drivers',
-                        'reports','onaccount','services','notifications','maps','launderers','racks',
+                        'reports','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
 
   function canAccessPage(pageId) {
@@ -5271,8 +5206,8 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', onaccount:'On Account', discounts:'Discounts', settings:'Timezone', team:'Team' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', onaccount:'', discounts:'', settings:'', team:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', settings:'Timezone', team:'Team' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', settings:'', team:'' };
 
   function showPage(id, navEl) {
     // Role guard — check dynamic permissions
@@ -5310,7 +5245,6 @@
     if (id === 'services') loadServices();
     if (id === 'notifications') loadNotifications();
     if (id === 'reports') { initRptDateDefaults(); runCurrentReport(); loadNewCustomers(); loadRecentOrders(); load24hStats(); }
-    if (id === 'onaccount') loadOnAccountReport();
     if (id === 'processing') { loadProcessing(); startProcPoll(); } else { stopProcPoll(); }
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
@@ -20626,10 +20560,11 @@ ${oneCopy}
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['drivers','revenue','items','launderer'].forEach(t => {
+    ['drivers','revenue','items','launderer','onaccount'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
+    if (tab === 'onaccount') { loadOnAccountReport(); return; }
     runCurrentReport();
   }
 
@@ -21991,56 +21926,28 @@ ${oneCopy}
   }
 
   // ═══════════════════════════════════════════════════════════
-  // ON ACCOUNT REPORT
+  // ON ACCOUNT REPORT (tab inside Reports)
   // ═══════════════════════════════════════════════════════════
 
-  let oaData = [];       // cached order data for filtering
-  let oaCustomers = [];  // unique customer list for filter dropdown
-
-  // Quick-tab presets
-  function setOAQuick(period, btn) {
-    document.querySelectorAll('#oa-quick-tabs .filter-tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    const today = new Date();
-    const endStr = today.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-    let startStr;
-    if (period === '30d') {
-      const s = new Date(today); s.setDate(s.getDate() - 29);
-      startStr = s.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-    } else if (period === '90d') {
-      const s = new Date(today); s.setDate(s.getDate() - 89);
-      startStr = s.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-    } else {
-      startStr = '';  // all time
-    }
-    document.getElementById('oa-date-start').value = startStr;
-    document.getElementById('oa-date-end').value = endStr;
-    loadOnAccountReport();
-  }
+  let oaData = [];
 
   async function loadOnAccountReport() {
-    const startEl = document.getElementById('oa-date-start');
-    const endEl = document.getElementById('oa-date-end');
-
-    // Default: all time if no dates set
-    if (!startEl.value && !endEl.value) {
-      const today = new Date();
-      endEl.value = today.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-      // leave start blank = all time
-    }
+    // Use the shared Reports date pickers
+    const startVal = document.getElementById('rpt-from').value;
+    const endVal = document.getElementById('rpt-to').value;
 
     // Build query — fetch all delivered/ready orders for on_account customers
     let query = db.from('orders')
-      .select('id, order_number, total_amount, status, billing_status, billing_notes, billing_payment_method, paid_at, actual_delivery_at, created_at, customer_id, customers!inner(id, first_name_cache, last_name_cache, billing_type)')
+      .select('id, order_number, total_amount, status, billing_status, paid_at, actual_delivery_at, created_at, customer_id, customers!inner(id, first_name_cache, last_name_cache, billing_type)')
       .eq('customers.billing_type', 'on_account')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery', 'picked_up', 'processing', 'folding', 'scheduled'])
       .order('created_at', { ascending: false });
 
-    if (startEl.value) {
-      query = query.gte('created_at', new Date(startEl.value + 'T00:00:00').toISOString());
+    if (startVal) {
+      query = query.gte('created_at', new Date(startVal + 'T00:00:00').toISOString());
     }
-    if (endEl.value) {
-      query = query.lte('created_at', new Date(endEl.value + 'T23:59:59').toISOString());
+    if (endVal) {
+      query = query.lte('created_at', new Date(endVal + 'T23:59:59').toISOString());
     }
 
     const { data, error } = await query;
@@ -22057,33 +21964,15 @@ ${oneCopy}
     });
 
     // Period label
-    const label = startEl.value
-      ? `${fmtDate(startEl.value)} — ${fmtDate(endEl.value)}`
-      : `All time through ${fmtDate(endEl.value)}`;
+    const label = startVal && endVal
+      ? `${fmtDate(startVal)} — ${fmtDate(endVal)}`
+      : startVal ? `From ${fmtDate(startVal)}` : endVal ? `Through ${fmtDate(endVal)}` : 'All time';
     document.getElementById('oa-period-label').textContent = label;
 
-    // Build customer list for filter dropdown
-    const custMap = {};
-    oaData.forEach(o => {
-      const c = o.customers;
-      if (!c) return;
-      const name = (c.first_name_cache || '') + ' ' + (c.last_name_cache || '');
-      if (!custMap[o.customer_id]) custMap[o.customer_id] = name.trim();
-    });
-    oaCustomers = Object.entries(custMap).sort((a, b) => a[1].localeCompare(b[1]));
-
-    const custFilter = document.getElementById('oa-cust-filter');
-    const prevVal = custFilter.value;
-    custFilter.innerHTML = '<option value="all">All Customers</option>' +
-      oaCustomers.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
-    if (prevVal && custFilter.querySelector(`option[value="${prevVal}"]`)) custFilter.value = prevVal;
-
     renderOASummary();
-    renderOADetail();
   }
 
   function renderOASummary() {
-    const now = new Date();
     // Group by customer
     const byCustomer = {};
     oaData.forEach(o => {
@@ -22114,15 +22003,10 @@ ${oneCopy}
       .sort((a, b) => b[1].outstanding - a[1].outstanding);
 
     // KPI cards
-    const totalCustomers = rows.length;
-    const totalInvoiced = rows.reduce((s, [, r]) => s + r.invoiced, 0);
-    const totalPaid = rows.reduce((s, [, r]) => s + r.paid, 0);
-    const totalOutstanding = rows.reduce((s, [, r]) => s + r.outstanding, 0);
-
-    document.getElementById('oa-cust-count').textContent = totalCustomers;
-    document.getElementById('oa-total-invoiced').textContent = fmtMoney(totalInvoiced);
-    document.getElementById('oa-total-paid').textContent = fmtMoney(totalPaid);
-    document.getElementById('oa-outstanding').textContent = fmtMoney(totalOutstanding);
+    document.getElementById('oa-cust-count').textContent = rows.length;
+    document.getElementById('oa-total-invoiced').textContent = fmtMoney(rows.reduce((s, [, r]) => s + r.invoiced, 0));
+    document.getElementById('oa-total-paid').textContent = fmtMoney(rows.reduce((s, [, r]) => s + r.paid, 0));
+    document.getElementById('oa-outstanding').textContent = fmtMoney(rows.reduce((s, [, r]) => s + r.outstanding, 0));
 
     // Summary table
     const tbody = document.getElementById('oa-summary-tbody');
@@ -22135,7 +22019,7 @@ ${oneCopy}
     tbody.innerHTML = rows.map(([cid, r]) => {
       const outStyle = r.outstanding > 0 ? 'color:var(--red);font-weight:600' : 'color:var(--green)';
       const agingWarn = (v) => v > 0 ? `style="color:var(--red)"` : '';
-      return `<tr style="cursor:pointer" onclick="document.getElementById('oa-cust-filter').value='${cid}';renderOADetail();">
+      return `<tr>
         <td><strong>${r.name}</strong></td>
         <td style="text-align:right">${r.orders}</td>
         <td style="text-align:right">${fmtMoney(r.invoiced)}</td>
@@ -22165,72 +22049,6 @@ ${oneCopy}
       <td style="text-align:right">${totals.d30 > 0 ? fmtMoney(totals.d30) : '—'}</td>
       <td style="text-align:right">${totals.d60 > 0 ? fmtMoney(totals.d60) : '—'}</td>
       <td style="text-align:right">${totals.d90 > 0 ? fmtMoney(totals.d90) : '—'}</td>
-    </tr>`;
-  }
-
-  function renderOADetail() {
-    const custVal = document.getElementById('oa-cust-filter').value;
-    const statusVal = document.getElementById('oa-status-filter').value;
-
-    let filtered = oaData;
-    if (custVal !== 'all') filtered = filtered.filter(o => o.customer_id === custVal);
-    if (statusVal === 'outstanding') filtered = filtered.filter(o => o.outstanding > 0);
-    if (statusVal === 'paid') filtered = filtered.filter(o => o.isPaid);
-
-    const tbody = document.getElementById('oa-detail-tbody');
-    if (filtered.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10" class="rpt-no-data">No orders match filters</td></tr>';
-      document.getElementById('oa-detail-tfoot').innerHTML = '';
-      return;
-    }
-
-    const billingBadge = (s) => {
-      if (!s || s === '') return '<span class="badge badge-amber">Unbilled</span>';
-      if (s === 'paid') return '<span class="badge badge-green">Paid</span>';
-      if (s === 'failed') return '<span class="badge badge-red">Failed</span>';
-      if (s === 'refunded') return '<span class="badge badge-gray">Refunded</span>';
-      return '<span class="badge badge-gray">' + s + '</span>';
-    };
-
-    const ageBadge = (days, outstanding) => {
-      if (outstanding <= 0) return '<span style="color:var(--gray-300)">—</span>';
-      if (days <= 30) return `<span style="color:var(--gray-500)">${days}d</span>`;
-      if (days <= 60) return `<span style="color:#d97706;font-weight:600">${days}d</span>`;
-      if (days <= 90) return `<span style="color:#dc2626;font-weight:600">${days}d</span>`;
-      return `<span style="color:#dc2626;font-weight:700">${days}d</span>`;
-    };
-
-    tbody.innerHTML = filtered.map(o => {
-      const c = o.customers;
-      const name = c ? ((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() : 'Unknown';
-      const deliveredStr = o.actual_delivery_at ? fmtDate(o.actual_delivery_at) : '—';
-      const paidStr = o.paid_at ? fmtDate(o.paid_at) : '—';
-      const method = o.billing_payment_method || '—';
-      const notes = o.billing_notes || '';
-      const amtStyle = o.outstanding > 0 ? 'color:var(--red);font-weight:600' : '';
-      return `<tr>
-        <td><strong>#${o.order_number}</strong></td>
-        <td>${name}</td>
-        <td>${fmtDate(o.created_at)}</td>
-        <td>${deliveredStr}</td>
-        <td style="text-align:right;${amtStyle}">${fmtMoney(o.total_amount)}</td>
-        <td>${billingBadge(o.billing_status)}</td>
-        <td>${paidStr}</td>
-        <td>${method}</td>
-        <td>${ageBadge(o.ageDays, o.outstanding)}</td>
-        <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${notes.replace(/"/g,'&quot;')}">${notes || '—'}</td>
-      </tr>`;
-    }).join('');
-
-    // Detail totals
-    const totalAmt = filtered.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-    const totalOut = filtered.reduce((s, o) => s + o.outstanding, 0);
-    const totalPaid = filtered.filter(o => o.isPaid).reduce((s, o) => s + Number(o.total_amount || 0), 0);
-
-    document.getElementById('oa-detail-tfoot').innerHTML = `<tr>
-      <td colspan="4">TOTAL (${filtered.length} orders)</td>
-      <td style="text-align:right">${fmtMoney(totalAmt)}</td>
-      <td colspan="5" style="text-align:left;padding-left:12px">Paid: ${fmtMoney(totalPaid)} | Outstanding: <span style="color:var(--red)">${fmtMoney(totalOut)}</span></td>
     </tr>`;
   }
 </script>
