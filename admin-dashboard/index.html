@@ -21425,7 +21425,7 @@ ${oneCopy}
 
     tbody.innerHTML = sorted.map(r => `<tr>
       <td>${r.name}</td>
-      <td style="font-size:12px;color:var(--gray-600)">${esc(r.title)}</td>
+      <td style="font-size:12px;color:var(--gray-600);white-space:nowrap;width:1%">${esc(r.title)}</td>
       <td>${r.orders.toLocaleString()}</td>
       <td>${r.bags.toLocaleString()}</td>
       <td>${fmtLbs(r.lbs)}</td>
@@ -22435,7 +22435,7 @@ ${oneCopy}
         <tbody>
           ${rows.map(r => `<tr>
             <td>${r.name}</td>
-            <td style="font-size:12px;color:var(--gray-600)">${esc(r.title)}</td>
+            <td style="font-size:12px;color:var(--gray-600);white-space:nowrap;width:1%">${esc(r.title)}</td>
             <td>${r.orders.toLocaleString()}</td>
             <td>${r.bags.toLocaleString()}</td>
             <td>${fmtLbs(r.lbs)}</td>
