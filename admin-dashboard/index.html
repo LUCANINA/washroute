@@ -6862,24 +6862,7 @@
     delivered:  ['delivered'],  // last DELIVERED_TAB_WINDOW_DAYS (7d) of delivered orders; cancelled are archived
   };
 
-  async function loadOrders(statusFilter) {
-    currentOrderFilter = statusFilter || 'scheduled';
-    _ordersDisplayCount = ORDERS_PAGE_SIZE; // reset pagination on tab switch
-    // Default sort when changing tabs: scheduled by pickup ASC, delivered by pickup DESC, else pickup ASC
-    if (statusFilter !== undefined) {
-      orderSortCol = 'pickup_window_start';
-      orderSortDir = statusFilter === 'delivered' ? 'desc' : 'asc';
-    }
-    const el = document.getElementById('orders-table-body');
-    if (el) el.innerHTML = `<div class="loading"><div class="spinner"></div> Loading…</div>`;
-
-    // Always fetch all orders — filtering is done client-side so pill counts stay accurate
-    // Supabase PostgREST caps at 1000 rows per request — paginate to fetch all
-    const PAGE = 1000;
-    let allData = [];
-    let from = 0;
-    let keepGoing = true;
-    const selectCols = `id, order_number, status, total_amount, stripe_payment_intent_id, billing_status,
+  const _orderSelectCols = `id, order_number, status, total_amount, stripe_payment_intent_id, billing_status,
                weight_lbs, total_bags, service_id, special_instructions, line_items,
                pickup_window_start, pickup_window_end,
                delivery_window_start, delivery_window_end,
@@ -6891,58 +6874,100 @@
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
                pickup_run:pickup_run_id(id, name),
                delivery_run:delivery_run_id(id, name)`;
-    while (keepGoing) {
-      const { data: page, error } = await db.from('orders')
-        .select(selectCols)
-        .order('created_at', { ascending: false })
-        .range(from, from + PAGE - 1);
-      if (error) {
-        console.error('loadOrders error:', error);
-        if (!allData.length) {
-          if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load orders</div><div class="empty-sub">${error.message}</div></div>`;
-          return;
-        }
-        break;
-      }
-      allData = allData.concat(page || []);
-      keepGoing = (page || []).length === PAGE;
-      from += PAGE;
-    }
-    allOrders = allData;
+  let _deliveredLoaded = false;
+  let _sideFetchDone = false;
 
-    // Side-fetch: which customers have a payment card on file?
-    // Batched to avoid exceeding PostgREST URL length limits with many customer IDs
+  async function _loadOrdersSideFetches() {
+    if (_sideFetchDone) return;
+    _sideFetchDone = true;
     const custIds = [...new Set(allOrders.map(o => o.customers?.id).filter(Boolean))];
     if (custIds.length) {
-      const cardRows = await batchedIn('customer_payment_methods', 'customer_id, created_at', 'customer_id', custIds);
+      const [cardRows, smsRows, emailRows] = await Promise.all([
+        batchedIn('customer_payment_methods', 'customer_id, created_at', 'customer_id', custIds),
+        batchedIn('sms_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.like('body', '%app.familylaundry.com%')),
+        batchedIn('email_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance')),
+      ]);
       _custWithCard = new Set(cardRows.map(r => r.customer_id));
-      // Track the latest card created_at per customer (for retry vs update-card logic)
       _custCardAddedAt = new Map();
       for (const r of cardRows) {
         const prev = _custCardAddedAt.get(r.customer_id);
         if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
       }
-    } else {
-      _custWithCard = new Set();
-      _custCardAddedAt = new Map();
-    }
-
-    // Side-fetch: which customers have already been sent a card request (SMS or email)?
-    if (custIds.length) {
-      const [smsRows, emailRows] = await Promise.all([
-        batchedIn('sms_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.like('body', '%app.familylaundry.com%')),
-        batchedIn('email_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance')),
-      ]);
       _cardRequestSent = new Map();
       [...smsRows, ...emailRows].forEach(r => {
         const prev = _cardRequestSent.get(r.customer_id);
         if (!prev || r.created_at > prev) _cardRequestSent.set(r.customer_id, r.created_at);
       });
     } else {
-      _cardRequestSent = new Map();
+      _custWithCard = new Set(); _custCardAddedAt = new Map(); _cardRequestSent = new Map();
     }
+  }
 
-    // Stat cards — always reflect full dataset
+  async function _loadDeliveredOrders() {
+    if (_deliveredLoaded) return;
+    _deliveredLoaded = true;
+    const cutoff = new Date(Date.now() - 90 * 86400000).toISOString();
+    const { data, error } = await db.from('orders')
+      .select(_orderSelectCols)
+      .in('status', ['delivered','cancelled','skipped','pickup_failed'])
+      .gte('created_at', cutoff)
+      .order('created_at', { ascending: false })
+      .limit(1000);
+    if (error) { console.error('loadDeliveredOrders error:', error); return; }
+    // Merge — avoid duplicates (active orders that became delivered between loads)
+    const existingIds = new Set(allOrders.map(o => o.id));
+    const newOrders = (data || []).filter(o => !existingIds.has(o.id));
+    allOrders = allOrders.concat(newOrders);
+    updateOrderFilterCounts();
+    updateOrderStatCards();
+  }
+
+  async function loadOrders(statusFilter) {
+    currentOrderFilter = statusFilter || 'scheduled';
+    _ordersDisplayCount = ORDERS_PAGE_SIZE; // reset pagination on tab switch
+    // Default sort when changing tabs: scheduled by pickup ASC, delivered by pickup DESC, else pickup ASC
+    if (statusFilter !== undefined) {
+      orderSortCol = 'pickup_window_start';
+      orderSortDir = statusFilter === 'delivered' ? 'desc' : 'asc';
+    }
+    const el = document.getElementById('orders-table-body');
+    if (el) el.innerHTML = `<div class="loading"><div class="spinner"></div> Loading…</div>`;
+
+    // Phase 1: Fast load — only active + scheduled orders (non-terminal)
+    // This is ~500 rows instead of ~2000, cutting load time by ~75%
+    _deliveredLoaded = false;
+    _sideFetchDone = false;
+    const activeStatuses = ['scheduled','confirmed','pending_confirmation','picked_up','processing','folding','ready_for_delivery','out_for_delivery','on_hold','delivery_failed','pickup_failed'];
+    const { data: activeData, error } = await db.from('orders')
+      .select(_orderSelectCols)
+      .in('status', activeStatuses)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('loadOrders error:', error);
+      if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load orders</div><div class="empty-sub">${error.message}</div></div>`;
+      return;
+    }
+    allOrders = activeData || [];
+    _custWithCard = new Set(); _custCardAddedAt = new Map(); _cardRequestSent = new Map();
+
+    // Stat cards + pill counts + render
+    updateOrderStatCards();
+    updateOrderFilterCounts();
+    renderOrders(getFilteredOrders());
+
+    // Phase 2: Background load — delivered + terminal orders and side-fetches
+    // This happens after the page is already interactive
+    _loadDeliveredOrders().then(() => {
+      // Re-render only if user is on the delivered tab
+      if (currentOrderFilter === 'delivered') renderOrders(getFilteredOrders());
+    });
+    _loadOrdersSideFetches().then(() => {
+      // Re-render if user is on issues tab (where card info matters)
+      if (currentOrderFilter === 'issues') renderOrders(getFilteredOrders());
+    });
+  }
+
+  function updateOrderStatCards() {
     const todayStr = today();
     // Picked Up Today: orders actually picked up today (Pacific time)
     const pickedUpToday = allOrders.filter(o => {
@@ -6967,10 +6992,6 @@
     document.getElementById('ostat-delivered').textContent = deliveredToday;
     document.getElementById('ostat-in-process').textContent = fmtMoney(inProcessRevenue);
     document.getElementById('ostat-revenue').textContent = fmtMoney(revenueToday);
-
-    // Update pill badge counts, then render filtered view
-    updateOrderFilterCounts();
-    renderOrders(getFilteredOrders());
   }
 
   // Returns allOrders filtered by currentOrderFilter + orderSearchTerm
@@ -7237,26 +7258,39 @@
     }));
   }
 
-  function filterOrders(status, btn) {
+  async function filterOrders(status, btn) {
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(t=>t.classList.remove('active'));
     btn.classList.add('active');
     clearOrderSelection();
     currentOrderFilter = status || 'scheduled';
+    _ordersDisplayCount = ORDERS_PAGE_SIZE;
     // Reset sort direction for this filter (mirrors loadOrders behaviour)
     orderSortCol = 'pickup_window_start';
     orderSortDir = currentOrderFilter === 'delivered' ? 'desc' : 'asc';
     const searchEl = document.getElementById('order-search');
     if (searchEl) { searchEl.value = ''; orderSearchTerm = ''; }
+    // Lazy-load delivered/terminal orders on first visit to that tab
+    if (status === 'delivered' && !_deliveredLoaded) {
+      const el = document.getElementById('orders-table-body');
+      if (el) el.innerHTML = `<div class="loading"><div class="spinner"></div> Loading…</div>`;
+      await _loadDeliveredOrders();
+    }
+    // Lazy-load side-fetches on first visit to issues tab
+    if (status === 'issues' && !_sideFetchDone) {
+      await _loadOrdersSideFetches();
+    }
     renderOrders(getFilteredOrders());
     try { history.replaceState(null, '', '#orders/' + currentOrderFilter); } catch(_) {}
   }
 
-  function filterOrdersBySearch(term) {
+  async function filterOrdersBySearch(term) {
     orderSearchTerm = term.trim().toLowerCase();
     const tabs = document.querySelectorAll('#order-filter-tabs .filter-tab');
     if (orderSearchTerm) {
       // Deselect all tabs to signal "searching across everything"
       tabs.forEach(t => t.classList.remove('active'));
+      // Ensure delivered orders are loaded so search covers everything
+      if (!_deliveredLoaded) await _loadDeliveredOrders();
     } else {
       // Search cleared — re-activate the current tab
       tabs.forEach(t => {
