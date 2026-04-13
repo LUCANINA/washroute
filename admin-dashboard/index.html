@@ -6268,18 +6268,18 @@
     const subEl = document.getElementById('unpaid-count-sub');
     if (!el) return;
 
-    const { data, error } = await db.from('orders')
+    const { data: rawData, error } = await db.from('orders')
       .select('id, order_number, status, billing_status, charge_failed_at, total_amount, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, billing_type)')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery'])
       .not('billing_status', 'in', '("paid","refunded")')
       .order('created_at', { ascending: false });
 
-    if (error || !data) {
+    if (error || !rawData) {
       el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Could not load unpaid orders.</div>';
       return;
     }
     // Exclude on_account customers — they are billed through invoicing, not Stripe
-    data = data.filter(o => o.customers?.billing_type !== 'on_account');
+    const data = rawData.filter(o => o.customers?.billing_type !== 'on_account');
     if (!data.length) {
       if (subEl) subEl.textContent = 'All clear';
       el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No unpaid delivered orders</div>';
