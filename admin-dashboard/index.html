@@ -1274,8 +1274,8 @@
           Team
         </div>
         <div id="nav-settings" class="nav-item" data-page="settings" data-section="settings" onclick="showPage('settings',this)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-          Printer
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          General
         </div>
       </div>
       <div class="sidebar-footer" onclick="handleSignOut()">
@@ -5592,6 +5592,13 @@
     showToast('✓ Test job queued — printer will pick it up in a few seconds', 'success');
   }
 
+  let _genSettingsTab = 'invoice';
+  function switchGenSettingsTab(tab) {
+    _genSettingsTab = tab;
+    document.querySelectorAll('#gen-settings-tabs .filter-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    document.querySelectorAll('.gen-settings-panel').forEach(p => p.style.display = p.id === 'gen-panel-' + tab ? '' : 'none');
+  }
+
   function renderSettingsTab() {
     const el = document.getElementById('page-settings');
     if (!el) return;
@@ -5599,148 +5606,165 @@
     const isCp = BIZ_PRINT_TRANSPORT === 'cloudprnt';
     const isPp = BIZ_PRINT_TRANSPORT === 'passprnt';
     el.innerHTML = `
-      <div class="card" style="max-width:540px">
-        <div class="card-header">
-          <div class="card-title">🖨 Receipt Printer</div>
-          <div class="card-sub">Choose how receipts are sent to the printer. You can always reprint from any order.</div>
-        </div>
-        <div style="padding:20px 24px 24px">
-          <div style="margin-bottom:20px">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Print Method</div>
-            <select id="settings-print-transport" class="form-input" style="width:100%;font-size:13.5px;margin-bottom:4px" onchange="savePrintTransport()">
-              <option value="browser" ${BIZ_PRINT_TRANSPORT === 'browser' ? 'selected' : ''}>Browser popup (any printer)</option>
-              <option value="cloudprnt" ${isCp ? 'selected' : ''}>CloudPRNT (Star mC-Print3 — WiFi)</option>
-              <option value="passprnt" ${isPp ? 'selected' : ''}>PassPRNT (Star TSP143IIIBI — iPad Bluetooth)</option>
-            </select>
-            <div style="font-size:11px;color:var(--gray-400)">
-              ${isCp ? 'Receipts print automatically via WiFi — no tap required.' :
-                isPp ? 'Receipts print via the Star PassPRNT app on iPad over Bluetooth.' :
-                       'A print preview opens in a new tab — select your printer from the browser dialog.'}
-            </div>
-          </div>
-
-          ${isCp ? `
-          <div style="border-top:1px solid var(--gray-200);padding-top:16px;margin-bottom:16px">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">CloudPRNT Server URL</div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <code style="flex:1;font-size:12px;background:var(--gray-100);padding:8px 10px;border-radius:6px;word-break:break-all">${cloudprintUrl}</code>
-              <button class="btn" style="font-size:12px;padding:6px 12px;white-space:nowrap" onclick="navigator.clipboard.writeText('${cloudprintUrl}').then(()=>showToast('Copied','success'))">Copy</button>
-            </div>
-          </div>
-          <div style="margin-bottom:16px">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Printer Token</div>
-            <input id="settings-printer-token" class="form-input" type="text"
-              placeholder="e.g. AA-BB-CC-DD-EE-FF"
-              value="${BIZ_PRINTER_TOKEN.replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
-              style="width:100%;font-size:13.5px;font-family:monospace;margin-bottom:4px">
-            <div style="font-size:11px;color:var(--gray-400)">Found on the printer's test page or in its CloudPRNT settings (web UI via its IP address).</div>
-          </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-primary" onclick="savePrinterToken()" style="font-size:13.5px;padding:8px 20px">Save</button>
-            <button class="btn" id="btn-test-print" onclick="testPrint()" style="font-size:13.5px;padding:8px 16px;color:var(--gray-700)">🖨 Test Print</button>
-          </div>
-          ${BIZ_PRINTER_TOKEN ? `<div style="margin-top:12px;font-size:12px;color:#16a34a;font-weight:600">✓ Printer connected — token saved</div>` : ''}
-          ` : isPp ? `
-          <div style="border-top:1px solid var(--gray-200);padding-top:16px;margin-bottom:16px">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Setup Instructions</div>
-            <ol style="font-size:12.5px;color:var(--gray-600);line-height:1.7;padding-left:18px;margin:0">
-              <li>Install <strong>Star PassPRNT</strong> from the App Store on your iPad</li>
-              <li>Open PassPRNT → pair your Star TSP143IIIBI via Bluetooth</li>
-              <li>Return here and tap <strong>Test Print</strong> below</li>
-            </ol>
-          </div>
-          <button class="btn" id="btn-test-print" onclick="testPrint()" style="font-size:13.5px;padding:8px 16px;color:var(--gray-700)">🖨 Test Print</button>
-          ` : `
-          <div style="border-top:1px solid var(--gray-200);padding-top:16px">
-            <div style="font-size:12px;color:var(--gray-400)">No additional setup needed — receipts open in a browser print dialog.</div>
-          </div>
-          `}
+      <div style="margin-bottom:16px">
+        <div id="gen-settings-tabs" class="filter-tabs" style="display:inline-flex">
+          <button class="filter-tab ${_genSettingsTab==='invoice'?'active':''}" data-tab="invoice" onclick="switchGenSettingsTab('invoice')">Invoice</button>
+          <button class="filter-tab ${_genSettingsTab==='printer'?'active':''}" data-tab="printer" onclick="switchGenSettingsTab('printer')">Printer</button>
+          <button class="filter-tab ${_genSettingsTab==='general'?'active':''}" data-tab="general" onclick="switchGenSettingsTab('general')">General</button>
         </div>
       </div>
 
-      <div class="card" style="max-width:540px;margin-top:20px">
-        <div class="card-header">
-          <div class="card-title">⭐ Review Link</div>
-          <div class="card-sub">Where customers are sent when they receive the automated review request SMS (2 days after delivery).</div>
-        </div>
-        <div style="padding:20px 24px 24px">
-          <div style="margin-bottom:16px">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Review URL (Yelp, Google, etc.)</div>
-            <input id="settings-review-link" class="form-input" type="url"
-              placeholder="https://www.yelp.com/writeareview/biz/..."
-              value="${BIZ_REVIEW_LINK.replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
-              style="width:100%;font-size:13.5px;margin-bottom:4px">
-            <div style="font-size:11px;color:var(--gray-400)">This URL is substituted into the <strong>{{review_link}}</strong> tag in the Review Request template (Notifications → Message Templates).</div>
+      <!-- ═══ INVOICE TAB ═══ -->
+      <div id="gen-panel-invoice" class="gen-settings-panel" style="${_genSettingsTab!=='invoice'?'display:none':''}">
+        <div class="card" style="max-width:540px">
+          <div class="card-header">
+            <div class="card-title">📄 Invoice Details</div>
+            <div class="card-sub">Company details that appear on all invoices (PDF and HTML). Changes apply immediately to new invoices.</div>
           </div>
-          <button class="btn btn-primary" onclick="saveReviewLink()" style="font-size:13.5px;padding:8px 20px">Save</button>
-          ${BIZ_REVIEW_LINK ? `<div style="margin-top:12px;font-size:12px;color:#16a34a;font-weight:600">✓ Review link set</div>` : `<div style="margin-top:12px;font-size:12px;color:var(--gray-400)">No review link set — review request SMS will not include a link.</div>`}
+          <div style="padding:20px 24px 24px">
+            <div style="margin-bottom:14px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Logo URL</div>
+              <input id="inv-logo-url" class="form-input" type="url"
+                placeholder="https://example.com/logo.png"
+                value="${(BIZ_INVOICE.logo_url||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+                style="width:100%;font-size:13.5px;margin-bottom:4px">
+              <div style="font-size:11px;color:var(--gray-400)">Direct link to a PNG or SVG logo. Used in the invoice header.</div>
+            </div>
+            <div style="margin-bottom:14px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Company Name</div>
+              <input id="inv-company-name" class="form-input" type="text"
+                value="${(BIZ_INVOICE.company_name||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+                style="width:100%;font-size:13.5px">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Address Line 1</div>
+                <input id="inv-address1" class="form-input" type="text"
+                  placeholder="123 Main St"
+                  value="${(BIZ_INVOICE.address_line1||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+                  style="width:100%;font-size:13.5px">
+              </div>
+              <div>
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">City, State ZIP</div>
+                <input id="inv-address2" class="form-input" type="text"
+                  placeholder="Oakland CA 94608"
+                  value="${(BIZ_INVOICE.address_line2||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+                  style="width:100%;font-size:13.5px">
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+              <div>
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Phone</div>
+                <input id="inv-phone" class="form-input" type="tel"
+                  placeholder="(510) 842-3560"
+                  value="${(BIZ_INVOICE.phone||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+                  style="width:100%;font-size:13.5px">
+              </div>
+              <div>
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Email</div>
+                <input id="inv-email" class="form-input" type="email"
+                  placeholder="info@company.com"
+                  value="${(BIZ_INVOICE.email||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+                  style="width:100%;font-size:13.5px">
+              </div>
+            </div>
+            <div style="margin-bottom:16px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Footer / Payment Terms</div>
+              <textarea id="inv-footer" class="form-input" rows="2"
+                placeholder="e.g. Payment terms: Net 30 • Please remit to Family Laundry"
+                style="width:100%;font-size:13.5px;resize:vertical">${(BIZ_INVOICE.footer||'').replace(/</g,'&lt;')}</textarea>
+              <div style="font-size:11px;color:var(--gray-400)">Shown at the bottom of every invoice. Leave blank for default.</div>
+            </div>
+            ${BIZ_INVOICE.logo_url ? `<div style="margin-bottom:14px;padding:12px;background:var(--gray-50);border-radius:8px;text-align:center">
+              <div style="font-size:10px;color:var(--gray-400);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Preview</div>
+              <img src="${BIZ_INVOICE.logo_url}" alt="Logo preview" style="max-height:40px;max-width:200px" onerror="this.parentElement.innerHTML='<div style=\\'font-size:12px;color:#dc2626\\'>Logo failed to load — check the URL</div>'" />
+            </div>` : ''}
+            <button id="inv-save-btn" class="btn btn-primary" onclick="saveInvoiceConfig()" style="font-size:13.5px;padding:8px 20px">Save</button>
+          </div>
         </div>
       </div>
 
-      <div class="card" style="max-width:540px;margin-top:20px">
-        <div class="card-header">
-          <div class="card-title">📄 Invoice Settings</div>
-          <div class="card-sub">Company details that appear on all invoices (PDF and HTML). Changes apply immediately to new invoices.</div>
+      <!-- ═══ PRINTER TAB ═══ -->
+      <div id="gen-panel-printer" class="gen-settings-panel" style="${_genSettingsTab!=='printer'?'display:none':''}">
+        <div class="card" style="max-width:540px">
+          <div class="card-header">
+            <div class="card-title">Receipt Printer</div>
+            <div class="card-sub">Choose how receipts are sent to the printer. You can always reprint from any order.</div>
+          </div>
+          <div style="padding:20px 24px 24px">
+            <div style="margin-bottom:20px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Print Method</div>
+              <select id="settings-print-transport" class="form-input" style="width:100%;font-size:13.5px;margin-bottom:4px" onchange="savePrintTransport()">
+                <option value="browser" ${BIZ_PRINT_TRANSPORT === 'browser' ? 'selected' : ''}>Browser popup (any printer)</option>
+                <option value="cloudprnt" ${isCp ? 'selected' : ''}>CloudPRNT (Star mC-Print3 — WiFi)</option>
+                <option value="passprnt" ${isPp ? 'selected' : ''}>PassPRNT (Star TSP143IIIBI — iPad Bluetooth)</option>
+              </select>
+              <div style="font-size:11px;color:var(--gray-400)">
+                ${isCp ? 'Receipts print automatically via WiFi — no tap required.' :
+                  isPp ? 'Receipts print via the Star PassPRNT app on iPad over Bluetooth.' :
+                         'A print preview opens in a new tab — select your printer from the browser dialog.'}
+              </div>
+            </div>
+
+            ${isCp ? `
+            <div style="border-top:1px solid var(--gray-200);padding-top:16px;margin-bottom:16px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">CloudPRNT Server URL</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <code style="flex:1;font-size:12px;background:var(--gray-100);padding:8px 10px;border-radius:6px;word-break:break-all">${cloudprintUrl}</code>
+                <button class="btn" style="font-size:12px;padding:6px 12px;white-space:nowrap" onclick="navigator.clipboard.writeText('${cloudprintUrl}').then(()=>showToast('Copied','success'))">Copy</button>
+              </div>
+            </div>
+            <div style="margin-bottom:16px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Printer Token</div>
+              <input id="settings-printer-token" class="form-input" type="text"
+                placeholder="e.g. AA-BB-CC-DD-EE-FF"
+                value="${BIZ_PRINTER_TOKEN.replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+                style="width:100%;font-size:13.5px;font-family:monospace;margin-bottom:4px">
+              <div style="font-size:11px;color:var(--gray-400)">Found on the printer's test page or in its CloudPRNT settings (web UI via its IP address).</div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="savePrinterToken()" style="font-size:13.5px;padding:8px 20px">Save</button>
+              <button class="btn" id="btn-test-print" onclick="testPrint()" style="font-size:13.5px;padding:8px 16px;color:var(--gray-700)">Test Print</button>
+            </div>
+            ${BIZ_PRINTER_TOKEN ? `<div style="margin-top:12px;font-size:12px;color:#16a34a;font-weight:600">Printer connected — token saved</div>` : ''}
+            ` : isPp ? `
+            <div style="border-top:1px solid var(--gray-200);padding-top:16px;margin-bottom:16px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Setup Instructions</div>
+              <ol style="font-size:12.5px;color:var(--gray-600);line-height:1.7;padding-left:18px;margin:0">
+                <li>Install <strong>Star PassPRNT</strong> from the App Store on your iPad</li>
+                <li>Open PassPRNT → pair your Star TSP143IIIBI via Bluetooth</li>
+                <li>Return here and tap <strong>Test Print</strong> below</li>
+              </ol>
+            </div>
+            <button class="btn" id="btn-test-print" onclick="testPrint()" style="font-size:13.5px;padding:8px 16px;color:var(--gray-700)">Test Print</button>
+            ` : `
+            <div style="border-top:1px solid var(--gray-200);padding-top:16px">
+              <div style="font-size:12px;color:var(--gray-400)">No additional setup needed — receipts open in a browser print dialog.</div>
+            </div>
+            `}
+          </div>
         </div>
-        <div style="padding:20px 24px 24px">
-          <div style="margin-bottom:14px">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Logo URL</div>
-            <input id="inv-logo-url" class="form-input" type="url"
-              placeholder="https://example.com/logo.png"
-              value="${(BIZ_INVOICE.logo_url||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
-              style="width:100%;font-size:13.5px;margin-bottom:4px">
-            <div style="font-size:11px;color:var(--gray-400)">Direct link to a PNG or SVG logo. Used in the invoice header.</div>
+      </div>
+
+      <!-- ═══ GENERAL TAB ═══ -->
+      <div id="gen-panel-general" class="gen-settings-panel" style="${_genSettingsTab!=='general'?'display:none':''}">
+        <div class="card" style="max-width:540px">
+          <div class="card-header">
+            <div class="card-title">Review Link</div>
+            <div class="card-sub">Where customers are sent when they receive the automated review request SMS (2 days after delivery).</div>
           </div>
-          <div style="margin-bottom:14px">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Company Name</div>
-            <input id="inv-company-name" class="form-input" type="text"
-              value="${(BIZ_INVOICE.company_name||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
-              style="width:100%;font-size:13.5px">
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
-            <div>
-              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Address Line 1</div>
-              <input id="inv-address1" class="form-input" type="text"
-                placeholder="123 Main St"
-                value="${(BIZ_INVOICE.address_line1||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
-                style="width:100%;font-size:13.5px">
+          <div style="padding:20px 24px 24px">
+            <div style="margin-bottom:16px">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Review URL (Yelp, Google, etc.)</div>
+              <input id="settings-review-link" class="form-input" type="url"
+                placeholder="https://www.yelp.com/writeareview/biz/..."
+                value="${BIZ_REVIEW_LINK.replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+                style="width:100%;font-size:13.5px;margin-bottom:4px">
+              <div style="font-size:11px;color:var(--gray-400)">This URL is substituted into the <strong>{{review_link}}</strong> tag in the Review Request template (Notifications → Message Templates).</div>
             </div>
-            <div>
-              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">City, State ZIP</div>
-              <input id="inv-address2" class="form-input" type="text"
-                placeholder="Oakland CA 94608"
-                value="${(BIZ_INVOICE.address_line2||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
-                style="width:100%;font-size:13.5px">
-            </div>
+            <button class="btn btn-primary" onclick="saveReviewLink()" style="font-size:13.5px;padding:8px 20px">Save</button>
+            ${BIZ_REVIEW_LINK ? `<div style="margin-top:12px;font-size:12px;color:#16a34a;font-weight:600">Review link set</div>` : `<div style="margin-top:12px;font-size:12px;color:var(--gray-400)">No review link set — review request SMS will not include a link.</div>`}
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
-            <div>
-              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Phone</div>
-              <input id="inv-phone" class="form-input" type="tel"
-                placeholder="(510) 842-3560"
-                value="${(BIZ_INVOICE.phone||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
-                style="width:100%;font-size:13.5px">
-            </div>
-            <div>
-              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Email</div>
-              <input id="inv-email" class="form-input" type="email"
-                placeholder="info@company.com"
-                value="${(BIZ_INVOICE.email||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
-                style="width:100%;font-size:13.5px">
-            </div>
-          </div>
-          <div style="margin-bottom:16px">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Footer / Payment Terms</div>
-            <textarea id="inv-footer" class="form-input" rows="2"
-              placeholder="e.g. Payment terms: Net 30 • Please remit to Family Laundry"
-              style="width:100%;font-size:13.5px;resize:vertical">${(BIZ_INVOICE.footer||'').replace(/</g,'&lt;')}</textarea>
-            <div style="font-size:11px;color:var(--gray-400)">Shown at the bottom of every invoice. Leave blank for default.</div>
-          </div>
-          ${BIZ_INVOICE.logo_url ? `<div style="margin-bottom:14px;padding:12px;background:var(--gray-50);border-radius:8px;text-align:center">
-            <div style="font-size:10px;color:var(--gray-400);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Preview</div>
-            <img src="${BIZ_INVOICE.logo_url}" alt="Logo preview" style="max-height:40px;max-width:200px" onerror="this.parentElement.innerHTML='<div style=\\'font-size:12px;color:#dc2626\\'>⚠ Logo failed to load — check the URL</div>'" />
-          </div>` : ''}
-          <button id="inv-save-btn" class="btn btn-primary" onclick="saveInvoiceConfig()" style="font-size:13.5px;padding:8px 20px">Save</button>
         </div>
       </div>`;
   }
@@ -9310,7 +9334,7 @@ ${oneCopy}
       document.removeEventListener('visibilitychange', onVisChange);
       if (!launched) {
         console.warn('[PassPRNT] App did not open — may not be installed');
-        showToast('PassPRNT did not open. Install Star PassPRNT from the App Store, or switch to CloudPRNT in Settings \u2192 Printer.', 'error');
+        showToast('PassPRNT did not open. Install Star PassPRNT from the App Store, or switch to CloudPRNT in Settings \u2192 General.', 'error');
       }
     }, 2500);
 
