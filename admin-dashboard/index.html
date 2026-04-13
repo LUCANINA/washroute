@@ -19,6 +19,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://js.stripe.com/v3/"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc&libraries=geocoding"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2560,6 +2562,47 @@
 
 <!-- Email Compose Modal -->
 <!-- Email compose modal removed — SMS only for now -->
+
+<!-- Send Invoice Modal -->
+<div id="modal-send-invoice" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1050;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:600px;width:95%">
+    <div class="modal-header">
+      <div class="modal-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="vertical-align:-2px;margin-right:6px"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-8.97 5.7a1.94 1.94 0 01-2.06 0L2 7"/></svg>
+        Send Invoice
+      </div>
+      <button class="modal-close" onclick="closeInvoiceModal()"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+      <div id="inv-group-label" style="font-size:13px;font-weight:600;color:var(--gray-700)"></div>
+      <div>
+        <label class="form-label">To</label>
+        <input type="text" id="inv-to" class="form-input" placeholder="email@example.com" />
+      </div>
+      <div>
+        <label class="form-label">CC</label>
+        <input type="text" id="inv-cc" class="form-input" placeholder="Optional — comma-separated emails" />
+      </div>
+      <div>
+        <label class="form-label">Subject</label>
+        <input type="text" id="inv-subject" class="form-input" />
+      </div>
+      <div>
+        <label class="form-label">Message</label>
+        <textarea id="inv-body" class="form-input" rows="6" style="resize:vertical;font-family:inherit;font-size:13px;line-height:1.6"></textarea>
+      </div>
+      <div id="inv-attachments" style="font-size:12px;color:var(--gray-500);background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
+        <div style="font-weight:600;margin-bottom:4px">Attachments</div>
+        <div id="inv-attachment-list"></div>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px">
+      <button class="btn btn-ghost" onclick="previewInvoicePDF()" style="margin-right:auto">Preview PDF</button>
+      <button class="btn btn-ghost" onclick="closeInvoiceModal()">Cancel</button>
+      <button class="btn btn-primary" id="inv-send-btn" onclick="sendInvoiceEmail()">Send Invoice</button>
+    </div>
+  </div>
+</div>
 
 <!-- Reschedule Route modal (per-order pickup or delivery) -->
 <div id="reassign-run-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
@@ -22099,6 +22142,7 @@ ${oneCopy}
         <td style="font-weight:700;font-size:13px">
           ${esc(g.name)}
           <span style="font-size:10px;font-weight:500;padding:2px 6px;border-radius:4px;background:${badgeColor};color:#fff;margin-left:6px;vertical-align:middle">${badge}</span>
+          <button onclick="openInvoiceModal('${escJS(gid)}')" style="margin-left:8px;font-size:11px;padding:2px 8px;border:1px solid var(--gray-300);border-radius:4px;background:#fff;cursor:pointer;color:var(--gray-600);vertical-align:middle" title="Send invoice email">Send Invoice</button>
         </td>
         <td style="text-align:right;font-weight:700">${sub.orders}</td>
         <td style="text-align:right;font-weight:700">${fmtMoney(sub.invoiced)}</td>
@@ -22142,6 +22186,196 @@ ${oneCopy}
       <td style="text-align:right">${totals.d90 > 0 ? fmtMoney(totals.d90) : '—'}</td>
     </tr>`;
   }
+
+  // ── INVOICE PDF + EMAIL ──────────────────────────────────────────
+
+  let _invoiceGroupId = null;
+
+  function openInvoiceModal(groupId) {
+    _invoiceGroupId = groupId;
+    const g = _oaBillingGroups.find(bg => bg.id === groupId);
+    if (!g) { showToast('Billing group not found', 'error'); return; }
+
+    const period = document.getElementById('oa-period-label').textContent || '';
+    const primaryContacts = (g.contacts || []).filter(c => c.role === 'primary');
+    const ccContacts = (g.contacts || []).filter(c => c.role !== 'primary');
+
+    document.getElementById('inv-group-label').textContent = g.name + ' — ' + (g.invoice_style === 'consolidated' ? 'Consolidated Invoice' : 'Separate Invoices');
+    document.getElementById('inv-to').value = primaryContacts.map(c => c.email).join(', ') || '';
+    document.getElementById('inv-cc').value = ccContacts.map(c => c.email).join(', ') || '';
+    document.getElementById('inv-subject').value = (g.email_subject_template || 'Family Laundry Invoice — {{period}}').replace('{{period}}', period);
+    document.getElementById('inv-body').value = (g.email_body_template || '').replace(/{{period}}/g, period);
+
+    // Build attachment list preview
+    const members = _oaReportRows.filter(([, r]) => r.groupId === groupId);
+    const attachEl = document.getElementById('inv-attachment-list');
+    if (g.invoice_style === 'consolidated') {
+      attachEl.innerHTML = `<div>📄 ${g.name} — Consolidated Invoice.pdf</div>`;
+    } else {
+      attachEl.innerHTML = members.map(([, r]) =>
+        `<div>📄 ${r.name} — Invoice.pdf</div>`
+      ).join('');
+    }
+
+    document.getElementById('modal-send-invoice').style.display = 'flex';
+  }
+  window.openInvoiceModal = openInvoiceModal;
+
+  function closeInvoiceModal() {
+    document.getElementById('modal-send-invoice').style.display = 'none';
+    _invoiceGroupId = null;
+  }
+  window.closeInvoiceModal = closeInvoiceModal;
+
+  function generateInvoicePDF(title, lineItems, period) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const pageW = doc.internal.pageSize.getWidth();
+
+    // Header
+    doc.setFontSize(20);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Family Laundry', 14, 22);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100);
+    doc.text('Oakland, CA  •  info@familylaundry.com  •  (510) 473-2958', 14, 28);
+
+    // Invoice title
+    doc.setFontSize(14);
+    doc.setTextColor(0);
+    doc.setFont('helvetica', 'bold');
+    doc.text('INVOICE', pageW - 14, 22, { align: 'right' });
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100);
+    doc.text('Date: ' + new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), pageW - 14, 28, { align: 'right' });
+    doc.text('Period: ' + period, pageW - 14, 33, { align: 'right' });
+
+    // Bill To
+    doc.setDrawColor(200);
+    doc.line(14, 38, pageW - 14, 38);
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Bill To:', 14, 45);
+    doc.setFont('helvetica', 'normal');
+    doc.text(title, 14, 50);
+
+    // Table
+    const headers = [['Description', 'Orders', 'Amount']];
+    const rows = lineItems.map(item => [item.name, String(item.orders), '$' + item.invoiced.toFixed(2)]);
+    const total = lineItems.reduce((s, item) => s + item.invoiced, 0);
+
+    doc.autoTable({
+      head: headers,
+      body: rows,
+      startY: 56,
+      theme: 'striped',
+      headStyles: { fillColor: [55, 65, 81], fontSize: 10 },
+      styles: { fontSize: 10, cellPadding: 4 },
+      columnStyles: {
+        0: { cellWidth: 'auto' },
+        1: { halign: 'right', cellWidth: 30 },
+        2: { halign: 'right', cellWidth: 40 },
+      },
+      foot: [['Total', '', '$' + total.toFixed(2)]],
+      footStyles: { fillColor: [243, 244, 246], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 11 },
+    });
+
+    // Footer
+    const finalY = doc.lastAutoTable.finalY + 20;
+    doc.setFontSize(9);
+    doc.setTextColor(150);
+    doc.text('Payment terms: Net 30  •  Please remit to Family Laundry', 14, finalY);
+    doc.text('Questions? Contact info@familylaundry.com', 14, finalY + 5);
+
+    return doc;
+  }
+
+  function getInvoiceDataForGroup(groupId) {
+    const g = _oaBillingGroups.find(bg => bg.id === groupId);
+    if (!g) return [];
+    const members = _oaReportRows.filter(([, r]) => r.groupId === groupId);
+    const period = document.getElementById('oa-period-label').textContent || '';
+
+    if (g.invoice_style === 'consolidated') {
+      // One PDF with all members as line items
+      const lineItems = members.map(([, r]) => ({ name: r.name, orders: r.orders, invoiced: r.invoiced }));
+      const doc = generateInvoicePDF(g.name, lineItems, period);
+      return [{ filename: g.name + ' — Consolidated Invoice.pdf', doc, base64: doc.output('datauristring').split(',')[1] }];
+    } else {
+      // One PDF per member
+      return members.filter(([, r]) => r.invoiced > 0).map(([, r]) => {
+        const lineItems = [{ name: 'Laundry Service', orders: r.orders, invoiced: r.invoiced }];
+        const doc = generateInvoicePDF(r.name, lineItems, period);
+        return { filename: r.name + ' — Invoice.pdf', doc, base64: doc.output('datauristring').split(',')[1] };
+      });
+    }
+  }
+
+  function previewInvoicePDF() {
+    if (!_invoiceGroupId) return;
+    const pdfs = getInvoiceDataForGroup(_invoiceGroupId);
+    if (!pdfs.length) { showToast('No invoiceable orders in this period', 'error'); return; }
+    // Preview the first PDF
+    pdfs[0].doc.save(pdfs[0].filename);
+    showToast('Downloaded preview: ' + pdfs[0].filename);
+  }
+  window.previewInvoicePDF = previewInvoicePDF;
+
+  async function sendInvoiceEmail() {
+    if (!_invoiceGroupId) return;
+    const btn = document.getElementById('inv-send-btn');
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+
+    try {
+      const toStr = document.getElementById('inv-to').value.trim();
+      const ccStr = document.getElementById('inv-cc').value.trim();
+      const subject = document.getElementById('inv-subject').value.trim();
+      const bodyText = document.getElementById('inv-body').value.trim();
+
+      if (!toStr || !subject || !bodyText) { showToast('Please fill in To, Subject, and Message', 'error'); return; }
+
+      const to = toStr.split(',').map(e => ({ email: e.trim() })).filter(e => e.email);
+      const cc = ccStr ? ccStr.split(',').map(e => ({ email: e.trim() })).filter(e => e.email) : [];
+
+      // Generate PDFs
+      const pdfs = getInvoiceDataForGroup(_invoiceGroupId);
+      if (!pdfs.length) { showToast('No invoiceable orders in this period', 'error'); return; }
+
+      const attachments = pdfs.map(p => ({ filename: p.filename, content: p.base64 }));
+
+      // Convert plain text body to simple HTML
+      const htmlBody = '<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#333">' +
+        bodyText.replace(/\n/g, '<br>') + '</div>';
+
+      const res = await fetch(SUPA_URL + '/functions/v1/send-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        body: JSON.stringify({
+          to, cc, subject, body: htmlBody, attachments,
+          billing_group_id: _invoiceGroupId,
+          period: document.getElementById('oa-period-label').textContent || '',
+        }),
+      });
+
+      const result = await res.json();
+      if (!result.ok) throw new Error(result.error || 'Send failed');
+
+      showToast('Invoice sent to ' + toStr, 'success');
+      closeInvoiceModal();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Send Invoice';
+    }
+  }
+  window.sendInvoiceEmail = sendInvoiceEmail;
+
+  // ── CSV EXPORT ──────────────────────────────────────────────────
 
   function exportOnAccountCSV() {
     if (!_oaReportRows || !_oaReportRows.length) return;
