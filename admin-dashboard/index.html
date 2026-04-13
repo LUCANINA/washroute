@@ -2101,9 +2101,10 @@
               </div>
             </div>
             <div class="card" style="margin-bottom:0">
-              <div class="card-header">
+              <div class="card-header" style="display:flex;align-items:center;gap:10px">
                 <div class="card-title">Customer Balances</div>
-                <div class="card-sub" id="oa-period-label"></div>
+                <div class="card-sub" id="oa-period-label" style="flex:1"></div>
+                <button class="rev-export-btn" id="oa-export-btn" style="display:none" onclick="exportOnAccountCSV()">Export CSV</button>
               </div>
               <div class="rpt-table-wrap">
                 <table>
@@ -21934,6 +21935,7 @@ ${oneCopy}
   // ═══════════════════════════════════════════════════════════
 
   let oaData = [];
+  let _oaReportRows = [];
 
   async function loadOnAccountReport() {
     // Use the shared Reports date pickers
@@ -22007,6 +22009,13 @@ ${oneCopy}
     const rows = Object.entries(byCustomer)
       .sort((a, b) => b[1].outstanding - a[1].outstanding);
 
+    // Store for CSV export
+    _oaReportRows = rows;
+
+    // Show/hide export button
+    const exportBtn = document.getElementById('oa-export-btn');
+    if (exportBtn) exportBtn.style.display = rows.length ? '' : 'none';
+
     // KPI cards
     document.getElementById('oa-cust-count').textContent = rows.length;
     document.getElementById('oa-total-invoiced').textContent = fmtMoney(rows.reduce((s, [, r]) => s + r.invoiced, 0));
@@ -22056,6 +22065,37 @@ ${oneCopy}
       <td style="text-align:right">${totals.d90 > 0 ? fmtMoney(totals.d90) : '—'}</td>
     </tr>`;
   }
+
+  function exportOnAccountCSV() {
+    if (!_oaReportRows || !_oaReportRows.length) return;
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const headers = ['Customer', 'Orders', 'Invoiced', 'Paid', 'Outstanding', 'Current', '30 Days', '60 Days', '90+ Days'];
+    const csvRows = _oaReportRows.map(([, r]) => {
+      return [r.name, r.orders, r.invoiced.toFixed(2), r.paid.toFixed(2), r.outstanding.toFixed(2),
+        r.aging.current.toFixed(2), r.aging.d30.toFixed(2), r.aging.d60.toFixed(2), r.aging.d90.toFixed(2)
+      ].map(esc).join(',');
+    });
+    // Add totals row
+    const t = _oaReportRows.reduce((t, [, r]) => {
+      t.orders += r.orders; t.invoiced += r.invoiced; t.paid += r.paid; t.outstanding += r.outstanding;
+      t.current += r.aging.current; t.d30 += r.aging.d30; t.d60 += r.aging.d60; t.d90 += r.aging.d90;
+      return t;
+    }, { orders: 0, invoiced: 0, paid: 0, outstanding: 0, current: 0, d30: 0, d60: 0, d90: 0 });
+    csvRows.push(['TOTAL', t.orders, t.invoiced.toFixed(2), t.paid.toFixed(2), t.outstanding.toFixed(2),
+      t.current.toFixed(2), t.d30.toFixed(2), t.d60.toFixed(2), t.d90.toFixed(2)].map(esc).join(','));
+
+    const csv  = [headers.map(esc).join(','), ...csvRows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    const from = document.getElementById('rpt-from').value || 'all';
+    const to   = document.getElementById('rpt-to').value || 'all';
+    a.download = `on-account-report-${from}-to-${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  window.exportOnAccountCSV = exportOnAccountCSV;
 </script>
 </body>
 </html>
