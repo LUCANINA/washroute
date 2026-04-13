@@ -21101,7 +21101,7 @@ ${oneCopy}
   // ── Square Labor hours helper ──
   // Returns { driver_hours, laundry_hours, total_hours } — all keyed by name
   async function fetchSquareLaborHours(from, to) {
-    const empty = { driver_hours: {}, laundry_hours: {}, total_hours: {} };
+    const empty = { driver_hours: {}, laundry_hours: {}, total_hours: {}, laundry_titles: {} };
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/square-labor`, {
         method: 'POST',
@@ -21111,9 +21111,10 @@ ${oneCopy}
       if (!res.ok) { console.warn('square-labor returned', res.status); return empty; }
       const data = await res.json();
       return {
-        driver_hours:  data.driver_hours  || {},
-        laundry_hours: data.laundry_hours || {},
-        total_hours:   data.total_hours   || {}
+        driver_hours:   data.driver_hours   || {},
+        laundry_hours:  data.laundry_hours  || {},
+        total_hours:    data.total_hours    || {},
+        laundry_titles: data.laundry_titles || {}
       };
     } catch (e) {
       console.warn('Square labor fetch failed:', e);
@@ -21380,7 +21381,7 @@ ${oneCopy}
 
   function sortLaundererReport(col) {
     if (_lndrSortCol === col) { _lndrSortAsc = !_lndrSortAsc; }
-    else { _lndrSortCol = col; _lndrSortAsc = col === 'name'; }
+    else { _lndrSortCol = col; _lndrSortAsc = (col === 'name' || col === 'title'); }
 
     if (!_laundererReportData?.rows?.length) return;
 
@@ -21388,6 +21389,7 @@ ${oneCopy}
       let va, vb;
       switch(col) {
         case 'name': va = a.name.toLowerCase(); vb = b.name.toLowerCase(); break;
+        case 'title': va = (a.title || '').toLowerCase(); vb = (b.title || '').toLowerCase(); break;
         case 'orders': va = a.orders; vb = b.orders; break;
         case 'bags': va = a.bags; vb = b.bags; break;
         case 'lbs': va = a.lbs; vb = b.lbs; break;
@@ -21404,7 +21406,7 @@ ${oneCopy}
     });
 
     // Update sort indicators
-    ['name','orders','bags','lbs','hrs','lbsPerHr'].forEach(c => {
+    ['name','title','orders','bags','lbs','hrs','lbsPerHr'].forEach(c => {
       const el = document.getElementById('lndr-sort-' + c);
       if (el) el.textContent = c === _lndrSortCol ? (_lndrSortAsc ? '▲' : '▼') : '';
     });
@@ -21423,6 +21425,7 @@ ${oneCopy}
 
     tbody.innerHTML = sorted.map(r => `<tr>
       <td>${r.name}</td>
+      <td style="font-size:12px;color:var(--gray-600)">${esc(r.title)}</td>
       <td>${r.orders.toLocaleString()}</td>
       <td>${r.bags.toLocaleString()}</td>
       <td>${fmtLbs(r.lbs)}</td>
@@ -21430,6 +21433,7 @@ ${oneCopy}
       <td>${fmtLbsHr(r.lbs, r.hrs)}</td>
     </tr>`).join('') + (unassigned.orders > 0 ? `<tr style="color:var(--gray-400);font-style:italic">
       <td>Unassigned</td>
+      <td></td>
       <td>${unassigned.orders.toLocaleString()}</td>
       <td>${unassigned.bags.toLocaleString()}</td>
       <td>${fmtLbs(unassigned.lbs)}</td>
@@ -22378,7 +22382,8 @@ ${oneCopy}
       .map(([id, s]) => {
         const name = laundererMap[id] || 'Unknown';
         const hrs  = laborData.laundry_hours[name] ?? null;
-        return { name, hrs, ...s };
+        const title = laborData.laundry_titles?.[name] || '—';
+        return { name, title, hrs, ...s };
       })
       .sort((a, b) => b.orders - a.orders);
 
@@ -22419,6 +22424,7 @@ ${oneCopy}
         <thead>
           <tr>
             <th style="text-align:left;cursor:pointer;user-select:none" onclick="sortLaundererReport('name')">Folder <span id="lndr-sort-name" style="font-size:10px;color:var(--gray-400)"></span></th>
+            <th style="text-align:left;cursor:pointer;user-select:none" onclick="sortLaundererReport('title')">Title <span id="lndr-sort-title" style="font-size:10px;color:var(--gray-400)"></span></th>
             <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('orders')">Orders <span id="lndr-sort-orders" style="font-size:10px;color:var(--gray-400)"></span></th>
             <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('bags')">Bags <span id="lndr-sort-bags" style="font-size:10px;color:var(--gray-400)"></span></th>
             <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('lbs')">Pounds <span id="lndr-sort-lbs" style="font-size:10px;color:var(--gray-400)"></span></th>
@@ -22429,6 +22435,7 @@ ${oneCopy}
         <tbody>
           ${rows.map(r => `<tr>
             <td>${r.name}</td>
+            <td style="font-size:12px;color:var(--gray-600)">${esc(r.title)}</td>
             <td>${r.orders.toLocaleString()}</td>
             <td>${r.bags.toLocaleString()}</td>
             <td>${fmtLbs(r.lbs)}</td>
@@ -22437,6 +22444,7 @@ ${oneCopy}
           </tr>`).join('')}
           ${unassigned.orders > 0 ? `<tr style="color:var(--gray-400);font-style:italic">
             <td>Unassigned</td>
+            <td></td>
             <td>${unassigned.orders.toLocaleString()}</td>
             <td>${unassigned.bags.toLocaleString()}</td>
             <td>${fmtLbs(unassigned.lbs)}</td>
@@ -22447,6 +22455,7 @@ ${oneCopy}
         <tfoot>
           <tr>
             <td>Total</td>
+            <td></td>
             <td>${tot.orders.toLocaleString()}</td>
             <td>${tot.bags.toLocaleString()}</td>
             <td>${fmtLbs(tot.lbs)}</td>
