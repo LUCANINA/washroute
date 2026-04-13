@@ -21992,7 +21992,7 @@ ${oneCopy}
     // Build query — fetch all delivered/ready orders for on_account customers
     // Filter by pickup_window_start (actual service date) not created_at (import date)
     let query = db.from('orders')
-      .select('id, order_number, total_amount, status, billing_status, paid_at, actual_delivery_at, created_at, pickup_window_start, customer_id, customers!inner(id, first_name_cache, last_name_cache, billing_type, billing_group_id)')
+      .select('id, order_number, total_amount, status, billing_status, paid_at, actual_delivery_at, created_at, pickup_window_start, customer_id, line_items, total_bags, weight_lbs, customers!inner(id, first_name_cache, last_name_cache, billing_type, billing_group_id)')
       .eq('customers.billing_type', 'on_account')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery', 'picked_up', 'processing', 'folding', 'scheduled'])
       .order('pickup_window_start', { ascending: false });
@@ -22226,16 +22226,70 @@ ${oneCopy}
   }
   window.closeInvoiceModal = closeInvoiceModal;
 
-  function generateInvoiceHTML(title, lineItems, period) {
+  function generateInvoiceHTML(title, orders, period, groupName) {
     const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    const total = lineItems.reduce((s, item) => s + item.invoiced, 0);
-    const rowsHtml = lineItems.map((item, i) =>
-      `<tr style="background:${i % 2 === 0 ? '#fff' : '#f9fafb'}">
-        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">${item.name}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${item.orders}</td>
-        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right">$${item.invoiced.toFixed(2)}</td>
-      </tr>`
-    ).join('');
+    const dueDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+    // Build per-order detail sections
+    let grandSubtotal = 0, grandDeliveryFees = 0, grandTotal = 0;
+
+    const orderSections = orders.map((o, idx) => {
+      const items = Array.isArray(o.line_items) ? o.line_items : [];
+      const orderDate = o.pickup_window_start
+        ? new Date(o.pickup_window_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' })
+        : '';
+      const custName = o.customers
+        ? ((o.customers.first_name_cache || '') + ' ' + (o.customers.last_name_cache || '')).trim()
+        : title;
+
+      // Separate delivery fees from other line items
+      const serviceItems = items.filter(li => li.type !== 'delivery_fee');
+      const deliveryFee = items.filter(li => li.type === 'delivery_fee').reduce((s, li) => s + Number(li.amount || 0), 0);
+      const subtotal = serviceItems.reduce((s, li) => s + Number(li.amount || 0), 0);
+      const orderTotal = Number(o.total_amount || 0);
+
+      grandSubtotal += subtotal;
+      grandDeliveryFees += deliveryFee;
+      grandTotal += orderTotal;
+
+      // Build line item rows
+      const liRows = serviceItems.map(li =>
+        `<tr>
+          <td style="padding:4px 12px;font-size:13px">${li.label || li.type}</td>
+          <td style="padding:4px 12px;text-align:right;font-size:13px">$${Number(li.amount || 0).toFixed(2)}</td>
+        </tr>`
+      ).join('');
+
+      // If no line_items but we have total_bags / weight_lbs, show what we can
+      const fallbackRow = (!items.length && o.total_bags)
+        ? `<tr><td style="padding:4px 12px;font-size:13px">${o.total_bags} bag${o.total_bags > 1 ? 's' : ''}${o.weight_lbs ? ' — ' + o.weight_lbs + ' lbs' : ''}</td><td style="padding:4px 12px;text-align:right;font-size:13px">$${orderTotal.toFixed(2)}</td></tr>`
+        : (!items.length ? `<tr><td style="padding:4px 12px;font-size:13px">Laundry Service</td><td style="padding:4px 12px;text-align:right;font-size:13px">$${orderTotal.toFixed(2)}</td></tr>` : '');
+
+      return `
+      <div style="margin-bottom:24px;${idx > 0 ? 'border-top:1px solid #e5e7eb;padding-top:16px;' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+          <div style="font-size:14px;font-weight:700">Order #${o.order_number}</div>
+          <div style="font-size:13px;font-weight:600;color:#374151">INVOICE</div>
+        </div>
+        <div style="font-size:13px;color:#6b7280;margin-bottom:8px">${custName} &nbsp;•&nbsp; ${orderDate}</div>
+        <table style="width:100%;border-collapse:collapse">
+          ${liRows || fallbackRow}
+          ${items.length ? `
+          <tr style="border-top:1px solid #e5e7eb">
+            <td style="padding:4px 12px;font-size:13px;font-weight:600">Subtotal</td>
+            <td style="padding:4px 12px;text-align:right;font-size:13px;font-weight:600">$${subtotal.toFixed(2)}</td>
+          </tr>
+          ${deliveryFee > 0 ? `<tr>
+            <td style="padding:4px 12px;font-size:13px">Delivery Fee</td>
+            <td style="padding:4px 12px;text-align:right;font-size:13px">$${deliveryFee.toFixed(2)}</td>
+          </tr>` : ''}
+          <tr style="border-top:1px solid #d1d5db">
+            <td style="padding:6px 12px;font-size:14px;font-weight:700">Grand Total</td>
+            <td style="padding:6px 12px;text-align:right;font-size:14px;font-weight:700">$${orderTotal.toFixed(2)}</td>
+          </tr>` : ''}
+        </table>
+      </div>`;
+    }).join('');
 
     return `<!DOCTYPE html>
 <html><head><title>Invoice — ${title}</title>
@@ -22252,11 +22306,13 @@ ${oneCopy}
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
   <div>
     <div style="font-size:24px;font-weight:700;color:#111">Family Laundry</div>
-    <div style="font-size:12px;color:#6b7280;margin-top:2px">Oakland, CA &nbsp;•&nbsp; info@familylaundry.com &nbsp;•&nbsp; (510) 473-2958</div>
+    <div style="font-size:12px;color:#6b7280;margin-top:2px">5215 Genoa St, Oakland CA 94608</div>
+    <div style="font-size:12px;color:#6b7280">(510) 842-3560 &nbsp;•&nbsp; info@familylaundry.com</div>
   </div>
   <div style="text-align:right">
     <div style="font-size:20px;font-weight:700;color:#374151">INVOICE</div>
-    <div style="font-size:12px;color:#6b7280;margin-top:2px">Date: ${today}</div>
+    <div style="font-size:12px;color:#6b7280;margin-top:2px">Statement Date: ${today}</div>
+    <div style="font-size:12px;color:#6b7280">Due Date: ${dueDate}</div>
     <div style="font-size:12px;color:#6b7280">Period: ${period}</div>
   </div>
 </div>
@@ -22265,24 +22321,28 @@ ${oneCopy}
 <div style="margin-bottom:20px">
   <div style="font-size:12px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Bill To</div>
   <div style="font-size:16px;font-weight:600;margin-top:4px">${title}</div>
+  ${groupName && groupName !== title ? `<div style="font-size:13px;color:#6b7280">${groupName}</div>` : ''}
 </div>
 
-<table>
-  <thead>
-    <tr style="background:#374151;color:#fff">
-      <th style="padding:10px 12px;text-align:left;font-size:13px">Description</th>
-      <th style="padding:10px 12px;text-align:right;font-size:13px;width:80px">Orders</th>
-      <th style="padding:10px 12px;text-align:right;font-size:13px;width:100px">Amount</th>
-    </tr>
-  </thead>
-  <tbody>${rowsHtml}</tbody>
-  <tfoot>
-    <tr style="background:#f3f4f6">
-      <td style="padding:12px;font-weight:700;font-size:14px" colspan="2">Total</td>
-      <td style="padding:12px;text-align:right;font-weight:700;font-size:14px">$${total.toFixed(2)}</td>
-    </tr>
-  </tfoot>
-</table>
+<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin-bottom:24px;display:flex;gap:32px">
+  <div><span style="font-size:11px;color:#6b7280;text-transform:uppercase">Orders</span><br><strong style="font-size:15px">${orders.length}</strong></div>
+  <div><span style="font-size:11px;color:#6b7280;text-transform:uppercase">Amount Due</span><br><strong style="font-size:15px">$${grandTotal.toFixed(2)}</strong></div>
+</div>
+
+<div style="font-size:15px;font-weight:700;margin-bottom:12px;padding-bottom:6px;border-bottom:2px solid #374151">Order Detail</div>
+${orderSections}
+
+<div style="background:#374151;color:#fff;border-radius:8px;padding:14px 16px;margin-top:20px">
+  <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+    <span>Subtotal</span><span>$${grandSubtotal.toFixed(2)}</span>
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px">
+    <span>Delivery Fees</span><span>$${grandDeliveryFees.toFixed(2)}</span>
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700;border-top:1px solid #6b7280;padding-top:8px">
+    <span>Total Due</span><span>$${grandTotal.toFixed(2)}</span>
+  </div>
+</div>
 
 <div style="margin-top:32px;font-size:12px;color:#9ca3af">
   Payment terms: Net 30 &nbsp;•&nbsp; Please remit to Family Laundry<br>
@@ -22294,19 +22354,35 @@ ${oneCopy}
   function getInvoicesForGroup(groupId) {
     const g = _oaBillingGroups.find(bg => bg.id === groupId);
     if (!g) return [];
-    const members = _oaReportRows.filter(([, r]) => r.groupId === groupId);
     const period = document.getElementById('oa-period-label').textContent || '';
 
+    // Get actual order data for this group from oaData
+    const groupOrders = oaData.filter(o => o.customers?.billing_group_id === groupId);
+
     if (g.invoice_style === 'consolidated') {
-      const lineItems = members.map(([, r]) => ({ name: r.name, orders: r.orders, invoiced: r.invoiced }));
-      const html = generateInvoiceHTML(g.name, lineItems, period);
+      // One invoice with all orders, sorted by date
+      const sorted = [...groupOrders].sort((a, b) =>
+        new Date(a.pickup_window_start || 0) - new Date(b.pickup_window_start || 0));
+      const html = generateInvoiceHTML(g.name, sorted, period, g.name);
       return [{ filename: g.name + ' — Consolidated Invoice', html }];
     } else {
-      return members.filter(([, r]) => r.invoiced > 0).map(([, r]) => {
-        const lineItems = [{ name: 'Laundry Service', orders: r.orders, invoiced: r.invoiced }];
-        const html = generateInvoiceHTML(r.name, lineItems, period);
-        return { filename: r.name + ' — Invoice', html };
+      // Separate invoice per member customer
+      const byCustomer = {};
+      groupOrders.forEach(o => {
+        const cid = o.customer_id;
+        if (!byCustomer[cid]) byCustomer[cid] = { orders: [], name: '' };
+        const c = o.customers;
+        byCustomer[cid].name = c ? ((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() : 'Unknown';
+        byCustomer[cid].orders.push(o);
       });
+      return Object.values(byCustomer)
+        .filter(c => c.orders.some(o => Number(o.total_amount || 0) > 0))
+        .map(c => {
+          const sorted = c.orders.sort((a, b) =>
+            new Date(a.pickup_window_start || 0) - new Date(b.pickup_window_start || 0));
+          const html = generateInvoiceHTML(c.name, sorted, period, g.name);
+          return { filename: c.name + ' — Invoice', html };
+        });
     }
   }
 
