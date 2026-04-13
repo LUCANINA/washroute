@@ -893,43 +893,6 @@
     .rpt-status-pill { display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:20px;font-size:13px;font-weight:500;border:1px solid rgba(0,0,0,.06); }
     .rpt-status-pill-count { font-size:16px;font-weight:700;color:var(--gray-800); }
 
-    /* ── DAILY REVENUE REPORT ── */
-    .rev-tbl-wrap { overflow-x: auto; }
-    .rev-tbl { width:100%; border-collapse:collapse; font-size:13px; }
-    .rev-tbl th { padding:10px 14px; text-align:right; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-400); border-bottom:2px solid var(--gray-200); white-space:nowrap; }
-    .rev-tbl th:first-child { text-align:left; }
-    .rev-tbl td { padding:11px 14px; border-bottom:1px solid var(--gray-100); text-align:right; color:var(--gray-800); }
-    .rev-tbl td:first-child { text-align:left; font-weight:500; color:var(--gray-900); }
-    .rev-tbl tbody tr:hover td { background:var(--gray-50); cursor:default; }
-    .rev-tbl tfoot td { font-weight:700; border-top:2px solid var(--gray-200); border-bottom:none; background:var(--gray-50); font-size:13.5px; }
-    .rev-tbl tfoot td:first-child { color:var(--gray-700); }
-    /* ── ITEMS REPORT ── */
-    .items-pricelist-section { margin-bottom:24px; }
-    .items-pricelist-header { display:flex; align-items:baseline; gap:16px; padding:14px 20px 10px; border-bottom:2px solid var(--gray-200); }
-    .items-pricelist-name { font-size:15px; font-weight:700; color:var(--gray-900); }
-    .items-pricelist-meta { font-size:12px; color:var(--gray-400); font-weight:500; }
-    .items-tbl { width:100%; border-collapse:collapse; font-size:13px; }
-    .items-tbl th { padding:9px 16px; text-align:right; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-400); border-bottom:1px solid var(--gray-100); white-space:nowrap; }
-    .items-tbl th:first-child { text-align:left; }
-    .items-tbl td { padding:10px 16px; border-bottom:1px solid var(--gray-100); text-align:right; color:var(--gray-700); }
-    .items-tbl td:first-child { text-align:left; color:var(--gray-900); font-weight:500; }
-    .items-tbl tbody tr:hover td { background:var(--gray-50); }
-    .items-tbl tfoot td { font-weight:700; border-top:2px solid var(--gray-200); border-bottom:none; background:var(--gray-50); color:var(--gray-800); }
-    .items-summary-row { display:flex; gap:28px; padding:10px 20px 14px; }
-    .items-summary-stat { font-size:12px; color:var(--gray-500); }
-    .items-summary-stat strong { display:block; font-size:18px; font-weight:700; color:var(--gray-900); margin-bottom:1px; }
-
-    .rev-date-bar { display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; padding:20px 24px; border-bottom:1px solid var(--gray-100); }
-    .rev-date-bar label { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--gray-400); margin-bottom:5px; }
-    .rev-date-bar input[type=date] { padding:8px 12px; border:1.5px solid var(--gray-200); border-radius:8px; font-family:inherit; font-size:13px; color:var(--gray-800); outline:none; }
-    .rev-date-bar input[type=date]:focus { border-color:var(--accent); }
-    .rev-run-btn { padding:9px 22px; background:#0f2744 !important; color:#ffffff !important; border:none; border-radius:8px; font-family:inherit; font-size:13.5px; font-weight:600; cursor:pointer; transition:opacity .15s; }
-    .rev-run-btn:hover { opacity:.88; }
-    .rev-export-btn { padding:8px 16px; background:white; color:var(--gray-700); border:1.5px solid var(--gray-200); border-radius:8px; font-family:inherit; font-size:13px; font-weight:500; cursor:pointer; transition:all .15s; }
-    .rev-export-btn:hover { border-color:var(--gray-400); }
-    .rev-empty { text-align:center; padding:40px 20px; color:var(--gray-400); font-size:13px; }
-    .rev-zero { color:var(--gray-300); }
-
     /* ── NOTIFICATIONS PAGE ── */
     .notif-layout { display:grid;grid-template-columns:268px 1fr;gap:20px;height:calc(100vh - 56px - 56px - 48px);min-height:520px; }
     .notif-sidebar { background:white;border-radius:var(--radius);border:1px solid var(--gray-200);overflow-y:auto;display:flex;flex-direction:column; }
@@ -1237,6 +1200,10 @@
       <div id="nav-reports" class="nav-item" data-page="reports" data-section="analytics" onclick="showPage('reports',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         Reports
+      </div>
+      <div id="nav-onaccount" class="nav-item" data-page="onaccount" data-section="analytics" onclick="showPage('onaccount',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+        On Account
       </div>
       <div class="sidebar-section-label" data-section="settings" id="settings-nav-toggle" onclick="toggleSettingsNav()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding-right:20px;user-select:none;">
         <span>Settings</span>
@@ -1980,23 +1947,120 @@
             </div>
           </div>
 
-          <!-- Date range + tab bar combined card -->
+          <!-- Period selector + tab bar combined card -->
           <div class="card" style="padding:0;margin-bottom:20px">
-            <div style="display:flex;align-items:flex-end;gap:20px;padding:14px 20px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap">
-              <div>
-                <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);margin-bottom:5px">From</label>
-                <input type="date" id="rpt-from" onchange="runCurrentReport()" style="padding:7px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none">
-              </div>
-              <div>
-                <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);margin-bottom:5px">To</label>
-                <input type="date" id="rpt-to" onchange="runCurrentReport()" style="padding:7px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap;gap:10px">
+              <div style="font-size:12.5px;color:var(--gray-500)">Figures shown vs. the prior period.</div>
+              <div class="filter-tabs" id="rpt-period-tabs">
+                <button class="filter-tab active" onclick="setRptPeriod('today',this)">Today</button>
+                <button class="filter-tab" onclick="setRptPeriod('yesterday',this)">Yesterday</button>
+                <button class="filter-tab" onclick="setRptPeriod('7d',this)">7 Days</button>
+                <button class="filter-tab" onclick="setRptPeriod('30d',this)">30 Days</button>
+                <button class="filter-tab" onclick="setRptPeriod('90d',this)">90 Days</button>
               </div>
             </div>
             <div class="rpt-page-tabs">
-              <button class="rpt-page-tab active" onclick="setRptTab('revenue',this)">Daily Revenue</button>
-              <button class="rpt-page-tab" onclick="setRptTab('items',this)">Items</button>
-              <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">Drivers</button>
-              <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">Launderers</button>
+              <button class="rpt-page-tab active" onclick="setRptTab('snapshot',this)">📊 Snapshot</button>
+              <button class="rpt-page-tab" onclick="setRptTab('operations',this)">📦 Operations</button>
+              <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">🚐 Drivers</button>
+            </div>
+          </div>
+
+          <!-- ── TAB: SNAPSHOT ── -->
+          <div id="rpttab-snapshot">
+            <div class="rpt-kpi-grid">
+              <div class="stat-card">
+                <div class="stat-label">Revenue</div>
+                <div class="stat-value" id="rpt-revenue">—</div>
+                <div class="stat-card-trend" id="rpt-revenue-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Orders</div>
+                <div class="stat-value" id="rpt-orders">—</div>
+                <div class="stat-card-trend" id="rpt-orders-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Avg Order Value</div>
+                <div class="stat-value" id="rpt-aov">—</div>
+                <div class="stat-card-trend" id="rpt-aov-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">On-time Delivery</div>
+                <div class="stat-value" id="rpt-ontime">—</div>
+                <div class="stat-card-trend" id="rpt-ontime-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Repeat Customers</div>
+                <div class="stat-value" id="rpt-repeat">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-repeat-sub"></div>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:0">
+              <div class="card-header">
+                <div class="card-title">Revenue by Service</div>
+              </div>
+              <div style="padding:16px 20px 20px;" id="rpt-services-list">
+                <div class="loading"><div class="spinner"></div> Loading…</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── TAB: OPERATIONS ── -->
+          <div id="rpttab-operations" style="display:none">
+            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+              <div class="stat-card">
+                <div class="stat-label">Bags Processed</div>
+                <div class="stat-value" id="rpt-bags">—</div>
+                <div class="stat-card-trend" id="rpt-bags-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Lbs Processed</div>
+                <div class="stat-value" id="rpt-lbs">—</div>
+                <div class="stat-card-trend" id="rpt-lbs-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Revenue / lb</div>
+                <div class="stat-value" id="rpt-rev-per-lb">—</div>
+                <div class="stat-card-trend" id="rpt-rev-per-lb-trend"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Revenue / bag</div>
+                <div class="stat-value" id="rpt-rev-per-bag">—</div>
+                <div class="stat-card-trend" id="rpt-rev-per-bag-trend"></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Order Status Breakdown</div>
+                <div class="card-sub">Count of orders per status in this period</div>
+              </div>
+              <div style="padding:16px 20px 20px;" id="rpt-status-breakdown">
+                <div class="loading"><div class="spinner"></div> Loading…</div>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:0">
+              <div class="card-header">
+                <div class="card-title">Orders in Period</div>
+                <div class="stat-delta" id="rpt-orders-count-label"></div>
+              </div>
+              <div class="rpt-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Order #</th>
+                      <th>Customer</th>
+                      <th>Service</th>
+                      <th>Date</th>
+                      <th>Bags</th>
+                      <th>Status</th>
+                      <th style="text-align:right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody id="rpt-orders-tbody">
+                    <tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
 
@@ -2004,29 +2068,33 @@
           <div id="rpttab-drivers" style="display:none">
             <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
               <div class="stat-card">
+                <div class="stat-label">Routes Completed</div>
+                <div class="stat-value" id="rpt-drv-routes">—</div>
+              </div>
+              <div class="stat-card">
                 <div class="stat-label">Stops Completed</div>
                 <div class="stat-value" id="rpt-drv-stops">—</div>
               </div>
               <div class="stat-card">
-                <div class="stat-label">Avg Stops/Hr</div>
-                <div class="stat-value" id="rpt-drv-stops-per-hr">—</div>
+                <div class="stat-label">Avg Driver Rating</div>
+                <div class="stat-value" id="rpt-drv-rating">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-drv-rating-sub"></div>
               </div>
             </div>
             <div class="card" style="margin-bottom:0">
               <div class="card-header">
                 <div class="card-title">By Driver</div>
                 <div class="card-sub" id="rpt-drv-period-label"></div>
-                <button class="rev-export-btn" id="driver-export-btn" style="display:none" onclick="exportDriverCSV()">Export CSV</button>
               </div>
               <div class="rpt-table-wrap">
                 <table class="rpt-drv-tbl">
                   <thead>
                     <tr>
                       <th>Driver</th>
+                      <th>Routes</th>
                       <th>Stops</th>
+                      <th>Avg Rating</th>
                       <th>Bags Hauled</th>
-                      <th>Hours Worked</th>
-                      <th>Stops/Hr</th>
                     </tr>
                   </thead>
                   <tbody id="rpt-drv-tbody">
@@ -2037,49 +2105,118 @@
             </div>
           </div>
 
-          <!-- ── TAB: DAILY REVENUE ── -->
-          <div id="rpttab-revenue">
-            <div class="card" style="margin-bottom:0">
-              <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
-                <button class="rev-export-btn" id="rev-export-btn" style="display:none" onclick="exportRevenueCSV()">Export CSV</button>
-              </div>
-              <div id="rev-rpt-body" class="rev-tbl-wrap" style="padding:0 0 4px">
-                <div class="rev-empty">Select a date range above and the report will load automatically.</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- ── TAB: ITEMS ── -->
-          <div id="rpttab-items" style="display:none">
-            <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
-              <button class="rev-export-btn" id="items-export-btn" style="display:none" onclick="exportItemsCSV()">Export CSV</button>
-            </div>
-            <div id="items-rpt-body">
-              <div class="rev-empty">Select a date range above and the report will load automatically.</div>
-            </div>
-          </div>
-
-          <!-- ── TAB: LAUNDERER ── -->
-          <div id="rpttab-launderer" style="display:none">
-            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
-              <div class="stat-card">
-                <div class="stat-label">Lbs. Processed</div>
-                <div class="stat-value" id="rpt-lndr-lbs">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Avg Lbs./Hr</div>
-                <div class="stat-value" id="rpt-lndr-lbs-per-hr">—</div>
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
-              <button class="rev-export-btn" id="launderer-export-btn" style="display:none" onclick="exportLaundererCSV()">Export CSV</button>
-            </div>
-            <div id="launderer-rpt-body" class="rev-tbl-wrap" style="padding:0 0 4px">
-              <div class="rev-empty">Select a date range above and the report will load automatically.</div>
-            </div>
-          </div>
-
         </div><!-- /page-reports -->
+
+        <!-- ── ON ACCOUNT REPORT ── -->
+        <div class="page" id="page-onaccount">
+
+          <!-- Period selector -->
+          <div class="card" style="padding:0;margin-bottom:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;flex-wrap:wrap;gap:10px">
+              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <label style="font-size:13px;font-weight:600;color:var(--gray-500)">From</label>
+                <input type="date" id="oa-date-start" style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;font-family:inherit">
+                <label style="font-size:13px;font-weight:600;color:var(--gray-500)">To</label>
+                <input type="date" id="oa-date-end" style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;font-family:inherit">
+                <button class="btn btn-primary" style="padding:6px 16px;font-size:13px" onclick="loadOnAccountReport()">Run Report</button>
+              </div>
+              <div class="filter-tabs" id="oa-quick-tabs">
+                <button class="filter-tab" onclick="setOAQuick('30d',this)">30 Days</button>
+                <button class="filter-tab" onclick="setOAQuick('90d',this)">90 Days</button>
+                <button class="filter-tab active" onclick="setOAQuick('all',this)">All Time</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- KPI cards -->
+          <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr));margin-bottom:20px">
+            <div class="stat-card">
+              <div class="stat-label">On-Account Customers</div>
+              <div class="stat-value" id="oa-cust-count">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Total Invoiced</div>
+              <div class="stat-value" id="oa-total-invoiced">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Total Paid</div>
+              <div class="stat-value" id="oa-total-paid" style="color:var(--green)">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Outstanding Balance</div>
+              <div class="stat-value" id="oa-outstanding" style="color:var(--red)">—</div>
+            </div>
+          </div>
+
+          <!-- Customer summary table -->
+          <div class="card" style="margin-bottom:20px">
+            <div class="card-header">
+              <div class="card-title">Customer Balances</div>
+              <div class="card-sub" id="oa-period-label"></div>
+            </div>
+            <div class="rpt-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Customer</th>
+                    <th style="text-align:right">Orders</th>
+                    <th style="text-align:right">Invoiced</th>
+                    <th style="text-align:right">Paid</th>
+                    <th style="text-align:right">Outstanding</th>
+                    <th style="text-align:right">Current</th>
+                    <th style="text-align:right">30 Days</th>
+                    <th style="text-align:right">60 Days</th>
+                    <th style="text-align:right">90+ Days</th>
+                  </tr>
+                </thead>
+                <tbody id="oa-summary-tbody">
+                  <tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                </tbody>
+                <tfoot id="oa-summary-tfoot" style="font-weight:700;border-top:2px solid var(--gray-200)"></tfoot>
+              </table>
+            </div>
+          </div>
+
+          <!-- Order detail table -->
+          <div class="card" style="margin-bottom:0">
+            <div class="card-header">
+              <div class="card-title">Order Detail</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <select id="oa-cust-filter" style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;font-family:inherit" onchange="renderOADetail()">
+                  <option value="all">All Customers</option>
+                </select>
+                <select id="oa-status-filter" style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;font-family:inherit" onchange="renderOADetail()">
+                  <option value="all">All Statuses</option>
+                  <option value="outstanding">Outstanding Only</option>
+                  <option value="paid">Paid Only</option>
+                </select>
+              </div>
+            </div>
+            <div class="rpt-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Order #</th>
+                    <th>Customer</th>
+                    <th>Service Date</th>
+                    <th>Delivered</th>
+                    <th style="text-align:right">Amount</th>
+                    <th>Payment Status</th>
+                    <th>Paid Date</th>
+                    <th>Method</th>
+                    <th>Age</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="oa-detail-tbody">
+                  <tr><td colspan="10"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                </tbody>
+                <tfoot id="oa-detail-tfoot" style="font-weight:700;border-top:2px solid var(--gray-200)"></tfoot>
+              </table>
+            </div>
+          </div>
+
+        </div><!-- /page-onaccount -->
 
         <!-- ── DRIVERS ── -->
         <div class="page" id="page-drivers">
@@ -3944,24 +4081,6 @@
 
 <script>
   // ── SUPABASE INIT ──
-  // ── AUTO-UPDATE (PWA tablet reload) ──────────────────────────────────────
-  // Fetches build-version.txt on wake-up + every 5 min. Reloads if version changed.
-  (function() {
-    let _wrVer = null;
-    async function _wrCheckVer() {
-      try {
-        const r = await fetch('/build-version.txt?t=' + Date.now(), { cache: 'no-store' });
-        const v = (await r.text()).trim();
-        if (_wrVer && v !== _wrVer) { window.location.reload(true); return; }
-        _wrVer = v;
-      } catch(e) {}
-    }
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _wrCheckVer(); });
-    setInterval(_wrCheckVer, 5 * 60 * 1000);
-    _wrCheckVer();
-  })();
-  // ─────────────────────────────────────────────────────────────────────────
-
   const SUPA_URL      = 'https://umjpbuxrdydwejqtensq.supabase.co';
   const SUPA_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
   const STRIPE_PK     = 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B';
@@ -4695,7 +4814,7 @@
   // ── ROLE-BASED NAV ──
   const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', staff: 'Staff' };
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','drivers',
-                        'reports','services','notifications','maps','launderers','racks',
+                        'reports','onaccount','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
 
   function canAccessPage(pageId) {
@@ -5156,8 +5275,8 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', settings:'Timezone', team:'Team' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', settings:'', team:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', onaccount:'On Account', discounts:'Discounts', settings:'Timezone', team:'Team' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', onaccount:'', discounts:'', settings:'', team:'' };
 
   function showPage(id, navEl) {
     // Role guard — check dynamic permissions
@@ -5194,7 +5313,8 @@
     if (id === 'drivers') { loadDrivers(); loadAdminDriverMessages(); }
     if (id === 'services') loadServices();
     if (id === 'notifications') loadNotifications();
-    if (id === 'reports') { initRptDateDefaults(); runCurrentReport(); loadNewCustomers(); loadRecentOrders(); load24hStats(); }
+    if (id === 'reports') loadReports();
+    if (id === 'onaccount') loadOnAccountReport();
     if (id === 'processing') { loadProcessing(); startProcPoll(); } else { stopProcPoll(); }
     if (id === 'launderers') loadLaunderers();
     if (id === 'racks') loadRackManagement();
@@ -13021,7 +13141,7 @@ ${oneCopy}
     // Pre-fill tip from customer defaults
     if (cust?.default_tip) {
       document.getElementById('o-tip').value = cust.default_tip;
-      setNoTipType(cust.default_tip_type === '%' ? 'pct' : 'dollar');
+      setNoTipType(cust.default_tip_type === 'percent' ? 'pct' : 'dollar');
     }
 
     // Re-filter routes by the new customer's address city
@@ -18898,8 +19018,6 @@ ${oneCopy}
 
   // ── FOLDING QUEUE ──
   let allFoldOrders = [], foldActiveOrder = null, foldSelectedLaunId = null;
-  let foldSplitMode = false, foldSplitCount = 2, foldSplitSelections = [null, null, null];
-  let foldAssignmentsMap = {}; // order_id → [{launderer_id, bags, weight_lbs}]
 
   async function loadFolding() {
     const wrap = document.getElementById('fold-queue-wrap');
@@ -18920,17 +19038,6 @@ ${oneCopy}
       .eq('status', 'folding')
       .order('updated_at', { ascending: true });
     allFoldOrders = orders || [];
-    // Load split assignments for folding orders
-    foldAssignmentsMap = {};
-    if (allFoldOrders.length) {
-      const { data: asgn } = await db.from('order_folding_assignments')
-        .select('order_id, launderer_id, bags, weight_lbs')
-        .in('order_id', allFoldOrders.map(o => o.id));
-      (asgn || []).forEach(a => {
-        if (!foldAssignmentsMap[a.order_id]) foldAssignmentsMap[a.order_id] = [];
-        foldAssignmentsMap[a.order_id].push(a);
-      });
-    }
     const fb = document.getElementById('ptab-badge-folding');
     if (fb) fb.textContent = allFoldOrders.length;
     renderFoldQueue();
@@ -18952,10 +19059,7 @@ ${oneCopy}
       const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
       const bags = o.total_bags || 1;
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
-      const splitAsgn  = foldAssignmentsMap[o.id] || [];
-      const folderName  = splitAsgn.length > 1
-        ? null
-        : (allLaunCache.find(l => l.id === o.folded_by_id)?.name || null);
+      const folderName = allLaunCache.find(l => l.id === o.folded_by_id)?.name || null;
       const alreadyPaid = !!o.stripe_payment_intent_id;
       const zoneName  = o.service_zones?.name  || '';
       const zoneColor = o.service_zones?.color || '#94a3b8';
@@ -18993,9 +19097,7 @@ ${oneCopy}
           <span>${o.services?.name||'Walk-in'}</span>
           ${Number(o.total_amount)>0 ? `<span style="font-weight:600;color:var(--gray-700)">${fmtMoney(o.total_amount)}</span>` : ''}
         </div>
-        ${splitAsgn.length > 1
-          ? `<div style="font-size:12px;color:var(--gray-500)">👥 Split: <strong style="color:var(--gray-700)">${splitAsgn.map(a => allLaunCache.find(l=>l.id===a.launderer_id)?.name?.split(' ')[0]||'?').join(', ')}</strong> <span style="color:var(--gray-400)">(${splitAsgn[0]?.bags} bags · ${splitAsgn[0]?.weight_lbs||'—'} lbs each)</span></div>`
-          : folderName ? `<div style="font-size:12px;color:var(--gray-500)">👤 Folded by <strong style="color:var(--gray-700)">${folderName}</strong></div>` : ''}
+        ${folderName ? `<div style="font-size:12px;color:var(--gray-500)">👤 Folded by <strong style="color:var(--gray-700)">${folderName}</strong></div>` : ''}
         ${noFolderBadge}
         ${o.special_instructions ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${o.special_instructions}"</div>` : ''}
       </div>`;
@@ -19013,7 +19115,6 @@ ${oneCopy}
     if (order.stripe_payment_intent_id) { openRackPanel(orderId); return; }
     foldActiveOrder    = order;
     foldSelectedLaunId = null;
-    foldSplitMode = false; foldSplitCount = 2; foldSplitSelections = [null, null, null];
     const fn = order.customers?.first_name_cache || '';
     const ln = order.customers?.last_name_cache  || '';
     document.getElementById('fold-title').textContent    = `${fn} ${ln}`.trim() || 'Order';
@@ -19052,20 +19153,7 @@ ${oneCopy}
     }).join('');
     const notesHTML = o.special_instructions
       ? `<div style="margin-top:8px;font-size:12px;color:var(--gray-500);font-style:italic;border-top:1px solid var(--gray-100);padding-top:8px">📝 "${o.special_instructions}"</div>` : '';
-    const existingAsgn = foldAssignmentsMap[o.id] || [];
-    const folderName = existingAsgn.length > 1
-      ? null // split — handled separately
-      : (o.folded_by_id ? (allLaunCache.find(l => l.id === o.folded_by_id)?.name || null) : null);
-    const processedByHTML = existingAsgn.length > 1
-      ? `<div class="fold-order-row"><span>Processed by</span><strong style="color:var(--accent)">👥 Split (${existingAsgn.length})</strong></div>`
-      : (folderName ? `<div class="fold-order-row"><span>Processed by</span><strong>👤 ${folderName}</strong></div>` : '');
-    // Split UI (only shown when foldSplitMode is active)
-    const splitUI = foldSplitMode ? _renderFoldSplitUI(activeLaun, bags, o.weight_lbs) : '';
-    // Dim single-person buttons when in split mode
-    const launGridHTML = foldSplitMode
-      ? `<div class="fold-laun-grid" style="opacity:0.35;pointer-events:none">${activeLaun.map(l =>
-          `<button class="fold-laun-btn">👤 ${l.name}</button>`).join('')}</div>`
-      : launHTML;
+    const folderName = o.folded_by_id ? (allLaunCache.find(l => l.id === o.folded_by_id)?.name || null) : null;
     document.getElementById('fold-body').innerHTML = `
       <div class="intake-section">
         <div class="intake-section-label">Order Summary</div>
@@ -19075,7 +19163,7 @@ ${oneCopy}
           <div class="fold-order-row"><span>Service</span><strong>${o.services?.name||'—'}</strong></div>
           <div class="fold-order-row"><span>Bags</span><strong>${bags} bag${bags!==1?'s':''}</strong></div>
           <div class="fold-order-row"><span>Weight</span><strong>${lbs}</strong></div>
-          ${processedByHTML}
+          ${folderName ? `<div class="fold-order-row"><span>Processed by</span><strong>👤 ${folderName}</strong></div>` : ''}
           ${liHTML ? `<div style="margin-top:8px;border-top:1px solid var(--gray-100);padding-top:8px">${liHTML}</div>` : ''}
           <div class="fold-order-row" style="margin-top:6px;border-top:1px solid var(--gray-200);padding-top:6px"><span style="font-weight:700">Total</span><strong style="color:var(--accent);font-size:15px">${fmtMoney(o.total_amount||0)}</strong></div>
           ${notesHTML}
@@ -19084,108 +19172,8 @@ ${oneCopy}
       ${_buildPickupDeliveryHTML(o)}
       <div class="intake-section">
         <div class="intake-section-label">Who is folding this order?</div>
-        ${launGridHTML}
-        <div style="margin-top:14px;text-align:center;border-top:1px solid var(--gray-100);padding-top:12px">
-          <button onclick="toggleFoldSplitMode()" style="background:none;border:none;font-size:12.5px;cursor:pointer;font-family:inherit;${foldSplitMode?'color:var(--red)':'color:var(--accent)'}">
-            ${foldSplitMode ? '✕ Cancel split' : '↔ Split between multiple people'}
-          </button>
-        </div>
-        ${splitUI}
+        ${launHTML}
       </div>`;
-  }
-
-  function _renderFoldSplitUI(activeLaun, bags, weightLbs) {
-    const perBags = (bags / foldSplitCount).toFixed(1);
-    const perLbs  = weightLbs ? (Number(weightLbs) / foldSplitCount).toFixed(1) : null;
-    const countBtnStyle = (n) =>
-      `padding:6px 18px;border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;transition:all .12s;` +
-      (foldSplitCount === n
-        ? `border:2px solid var(--accent);background:#ede9ff;color:var(--accent);`
-        : `border:2px solid var(--gray-200);background:white;color:var(--gray-600);`);
-    const allPicked = foldSplitSelections.slice(0, foldSplitCount).every(Boolean);
-    const slots = Array.from({length: foldSplitCount}).map((_, i) => {
-      const usedByOthers = foldSplitSelections.filter((id, j) => j !== i && id);
-      const opts = activeLaun
-        .filter(l => !usedByOthers.includes(l.id))
-        .map(l => `<option value="${l.id}"${foldSplitSelections[i]===l.id?' selected':''}>${l.name}</option>`)
-        .join('');
-      return `
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <span style="font-size:12px;color:var(--gray-500);width:60px;flex-shrink:0">Person ${i+1}</span>
-          <select onchange="setFoldSplitSlot(${i},this.value)"
-            style="flex:1;font-size:13px;padding:6px 8px;border:1.5px solid var(--gray-200);border-radius:8px;background:white;font-family:inherit;color:var(--gray-700)">
-            <option value="">— pick launderer —</option>
-            ${opts}
-          </select>
-          <span style="font-size:12px;color:var(--gray-400);white-space:nowrap">${perBags} bags${perLbs?' · '+perLbs+' lbs':''}</span>
-        </div>`;
-    }).join('');
-    return `
-      <div style="margin-top:12px;background:var(--gray-50);border-radius:10px;padding:14px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-          <span style="font-size:12px;color:var(--gray-500);font-weight:600">Split between</span>
-          <button onclick="setFoldSplitCount(2)" style="${countBtnStyle(2)}">2 people</button>
-          <button onclick="setFoldSplitCount(3)" style="${countBtnStyle(3)}">3 people</button>
-        </div>
-        ${slots}
-        <button onclick="confirmFoldSplit()"
-          style="width:100%;margin-top:8px;padding:11px;border-radius:8px;font-size:13px;font-weight:700;font-family:inherit;cursor:${allPicked?'pointer':'not-allowed'};border:none;background:${allPicked?'var(--accent)':'var(--gray-200)'};color:${allPicked?'white':'var(--gray-400)'};transition:all .12s">
-          ✓ Confirm Split
-        </button>
-      </div>`;
-  }
-
-  function toggleFoldSplitMode() {
-    foldSplitMode = !foldSplitMode;
-    foldSplitSelections = [null, null, null];
-    renderFoldPanel();
-  }
-
-  function setFoldSplitCount(n) {
-    foldSplitCount = n;
-    // Clear extra slots if shrinking
-    if (n === 2) foldSplitSelections[2] = null;
-    renderFoldPanel();
-  }
-
-  function setFoldSplitSlot(i, launId) {
-    foldSplitSelections[i] = launId || null;
-    renderFoldPanel();
-  }
-
-  async function confirmFoldSplit() {
-    const selected = foldSplitSelections.slice(0, foldSplitCount);
-    if (!selected.every(Boolean)) { showToast('Please pick a launderer for each slot', 'error'); return; }
-    if (new Set(selected).size < foldSplitCount) { showToast('Each person must be different', 'error'); return; }
-    const o    = foldActiveOrder;
-    const bags = (o.total_bags || 1) / foldSplitCount;
-    const lbs  = o.weight_lbs ? Number(o.weight_lbs) / foldSplitCount : null;
-    // Move order to folding, primary = first person
-    const { error } = await db.from('orders').update({
-      status: 'folding', folded_by_id: selected[0],
-      folded_at: new Date().toISOString(), updated_at: new Date().toISOString()
-    }).eq('id', o.id);
-    if (error) { showToast('Error saving: ' + error.message, 'error'); return; }
-    // Clear any previous split rows, then write new ones
-    await db.from('order_folding_assignments').delete().eq('order_id', o.id);
-    const rows = selected.map(launId => ({
-      order_id:     o.id,
-      launderer_id: launId,
-      bags:         Math.round(bags * 100) / 100,
-      weight_lbs:   lbs ? Math.round(lbs * 100) / 100 : null
-    }));
-    const { error: splErr } = await db.from('order_folding_assignments').insert(rows);
-    if (splErr) { showToast('Split save error: ' + splErr.message, 'error'); return; }
-    const names   = selected.map(id => allLaunCache.find(l => l.id === id)?.name || 'Launderer').join(', ');
-    const movedId = o.id;
-    const orderNum = o.order_number;
-    await logOrderEvent(o.id, 'folded', `Split between ${names}`, null, selected[0]);
-    closeFoldPanel();
-    ['proc-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
-    allCleanOrders = allCleanOrders.filter(x => x.id !== movedId);
-    allProcOrders  = allProcOrders.filter(x => x.id !== movedId);
-    showToast(`Order #${orderNum} split between ${names}`, 'success');
-    reloadColumns('cleaning', 'folding');
   }
 
   function selectFoldLaun(launId) {
@@ -19196,7 +19184,6 @@ ${oneCopy}
   function closeFoldPanel() {
     document.getElementById('fold-panel').classList.remove('open');
     foldActiveOrder = null; foldSelectedLaunId = null;
-    foldSplitMode = false; foldSplitCount = 2; foldSplitSelections = [null, null, null];
   }
 
   async function saveFolding() {
@@ -19213,8 +19200,6 @@ ${oneCopy}
       errEl.textContent = error.message; errEl.style.display = '';
       return;
     }
-    // Single-person assignment — clear any previous split rows
-    await db.from('order_folding_assignments').delete().eq('order_id', foldActiveOrder.id);
     const launName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
     const movedId  = foldActiveOrder.id;
     const orderNum = foldActiveOrder.order_number; // capture before closeFoldPanel() nulls foldActiveOrder
@@ -19236,9 +19221,6 @@ ${oneCopy}
       updated_at: new Date().toISOString()
     }).eq('id', orderId);
     if (error) { showToast('Could not assign: ' + error.message, 'error'); return; }
-    // Clear any split assignments — inline reassign always means single person
-    await db.from('order_folding_assignments').delete().eq('order_id', orderId);
-    foldAssignmentsMap[orderId] = [];
     const launName = allLaunCache.find(l => l.id === launId)?.name || 'Launderer';
     const order = allFoldOrders.find(o => o.id === orderId);
     if (order) order.folded_by_id = launId;
@@ -20486,35 +20468,24 @@ ${oneCopy}
   }
 
   // ── REPORTS ──
-  let rptTab = 'revenue';
+  let rptPeriod = 'today';
+  let rptTab = 'snapshot';
 
-  function initRptDateDefaults() {
-    const fromEl = document.getElementById('rpt-from');
-    const toEl   = document.getElementById('rpt-to');
-    if (!fromEl || fromEl.value) return;
-    const today = new Date();
-    const fmt = d => d.toISOString().slice(0, 10);
-    const weekAgo = new Date(today); weekAgo.setDate(today.getDate() - 6);
-    fromEl.value = fmt(weekAgo);
-    toEl.value   = fmt(today);
-  }
-
-  function runCurrentReport() {
-    if (rptTab === 'revenue')    loadRevenueReport();
-    else if (rptTab === 'items')      loadItemsReport();
-    else if (rptTab === 'launderer')  loadLaundererReport();
-    else if (rptTab === 'drivers')    loadReports();
+  function setRptPeriod(period, btn) {
+    rptPeriod = period;
+    document.querySelectorAll('#rpt-period-tabs .filter-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadReports();
   }
 
   function setRptTab(tab, btn) {
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['drivers','revenue','items','launderer'].forEach(t => {
+    ['snapshot','operations','drivers'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
-    runCurrentReport();
   }
 
   function rptDateRange(period) {
@@ -20543,79 +20514,124 @@ ${oneCopy}
     return '<span class="stat-card-trend trend-flat">— Same as prev period</span>';
   }
 
-  // ── Square Labor hours helper ──
-  // Returns { driver_hours, laundry_hours, total_hours } — all keyed by name
-  async function fetchSquareLaborHours(from, to) {
-    const empty = { driver_hours: {}, laundry_hours: {}, total_hours: {} };
-    try {
-      const res = await fetch(`${SUPA_URL}/functions/v1/square-labor`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
-        body: JSON.stringify({ from, to })
-      });
-      if (!res.ok) { console.warn('square-labor returned', res.status); return empty; }
-      const data = await res.json();
-      return {
-        driver_hours:  data.driver_hours  || {},
-        laundry_hours: data.laundry_hours || {},
-        total_hours:   data.total_hours   || {}
-      };
-    } catch (e) {
-      console.warn('Square labor fetch failed:', e);
-      return empty;
-    }
-  }
-
   async function loadReports() {
-    const fromVal = document.getElementById('rpt-from')?.value;
-    const toVal   = document.getElementById('rpt-to')?.value;
-    if (!fromVal || !toVal) return;
+    // Load the New Customers + Recent Orders panels (moved from Overview)
+    loadNewCustomers();
+    loadRecentOrders();
+    load24hStats();
 
-    const start = new Date(fromVal + 'T00:00:00'); start.setHours(0,0,0,0);
-    const end   = new Date(toVal   + 'T23:59:59'); end.setHours(23,59,59,999);
+    const { start, end, prevStart, prevEnd } = rptDateRange(rptPeriod);
+    ['rpt-revenue','rpt-orders','rpt-lbs','rpt-bags','rpt-aov','rpt-rev-per-lb','rpt-rev-per-bag','rpt-ontime','rpt-repeat',
+     'rpt-drv-routes','rpt-drv-stops','rpt-drv-rating']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '…'; });
 
-    const stopsEl = document.getElementById('rpt-drv-stops');
-    if (stopsEl) stopsEl.textContent = '…';
-    const tbody = document.getElementById('rpt-drv-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="rpt-no-data">Loading…</td></tr>';
+    // ── Fetch current period orders (expanded fields) ──
+    let q = db.from('orders')
+      .select(`id, order_number, total_amount, status, created_at, customer_id,
+               weight_lbs, total_bags, actual_pickup_at, actual_delivery_at,
+               delivery_window_end, driver_rating, pickup_run_id,
+               billing_status, billing_payment_method, stripe_payment_intent_id,
+               customers(first_name_cache, last_name_cache, billing_type), services(name)`)
+      .order('created_at', { ascending: false });
+    q = q.gte('created_at', start.toISOString()).lte('created_at', end.toISOString());
+    const { data: currOrders } = await q;
+    const orders = currOrders || [];
 
-    const startDate = start.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
-    const endDate   = end.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
-
-    // Step 1: fetch routes for the date range to get IDs + driver mapping
-    const [{ data: routes }, { data: orders }, laborData] = await Promise.all([
-      db.from('routes')
-        .select('id, driver_id')
-        .gte('run_date', startDate)
-        .lte('run_date', endDate),
-      db.from('orders')
-        .select('id, total_bags, pickup_run_id')
-        .neq('status', 'cancelled')
-        .gte('delivery_window_start', start.toISOString())
-        .lte('delivery_window_start', end.toISOString()),
-      fetchSquareLaborHours(fromVal, toVal)
-    ]);
-
-    // Step 2: fetch completed route_stops — batch by 50 IDs to avoid URL length limits
-    const routeIds = (routes || []).map(r => r.id);
-    let routeStops = [];
-    if (routeIds.length) {
-      const BATCH = 50;
-      const batches = [];
-      for (let i = 0; i < routeIds.length; i += BATCH) batches.push(routeIds.slice(i, i + BATCH));
-      const results = await Promise.all(
-        batches.map(ids => db.from('route_stops')
-          .select('route_id')
-          .eq('status', 'complete')
-          .in('route_id', ids)
-          .limit(2000))
-      );
-      routeStops = results.flatMap(r => r.data || []);
+    // ── Fetch previous period orders ──
+    let prevOrders = [];
+    if (prevStart && prevEnd) {
+      const { data: prev } = await db.from('orders')
+        .select('id, total_amount, status, created_at, customer_id, weight_lbs, total_bags, actual_delivery_at, delivery_window_end, billing_status, billing_payment_method, stripe_payment_intent_id, customers(billing_type)')
+        .gte('created_at', prevStart.toISOString()).lte('created_at', prevEnd.toISOString());
+      prevOrders = prev || [];
     }
 
+    // ── Fetch routes with driver info ──
+    let rQ = db.from('routes')
+      .select('id, run_date, status, total_stops, completed_stops, started_at, completed_at, driver_id');
+    rQ = rQ.gte('run_date', start.toLocaleDateString('en-CA', {timeZone: BIZ_TZ})).lte('run_date', end.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}));
+    const { data: routes } = await rQ;
+    const routeList = routes || [];
+
+    // Ensure driver cache is populated for name lookups
     if (!allDriversCache.length) await loadAllDriversCache();
 
-    renderDriverStats(routes || [], routeStops || [], orders || [], laborData.driver_hours);
+    // ── Orders KPIs ──
+    const revenue     = orders.reduce((s,o) => s + Number(o.total_amount||0), 0);
+    const orderCount  = orders.length;
+    const totalLbs    = orders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
+    const totalBags   = orders.reduce((s,o) => s + Number(o.total_bags||0), 0);
+    const aov         = orderCount ? revenue / orderCount : 0;
+    // Revenue/LB: card charged + on-account (billed or pending invoice)
+    const chargedOrders = orders.filter(o =>
+      !!o.stripe_payment_intent_id || o.billing_status === 'paid' || o.customers?.billing_type === 'on_account');
+    const chargedRevenue = chargedOrders.reduce((s,o) => s + Number(o.total_amount||0), 0);
+    const chargedLbs     = chargedOrders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
+    const chargedBags    = chargedOrders.reduce((s,o) => s + Number(o.total_bags||0), 0);
+    const revPerLb       = chargedLbs  ? chargedRevenue / chargedLbs  : null;
+    const revPerBag      = chargedBags ? chargedRevenue / chargedBags : null;
+
+    // On-time delivery: delivered orders with actual_delivery_at ≤ delivery_window_end
+    const deliveredOrders = orders.filter(o => o.status === 'delivered' && o.actual_delivery_at);
+    const onTimeCount = deliveredOrders.filter(o =>
+      o.delivery_window_end && new Date(o.actual_delivery_at) <= new Date(o.delivery_window_end)
+    ).length;
+    const onTimePct = deliveredOrders.length ? Math.round(onTimeCount / deliveredOrders.length * 100) : null;
+
+    // Repeat customers: % of orders from customers who also ordered in prev period
+    const prevCustIds = new Set((prevOrders).map(o => o.customer_id).filter(Boolean));
+    const repeatOrders = orders.filter(o => o.customer_id && prevCustIds.has(o.customer_id)).length;
+    const repeatPct = (orderCount && prevOrders.length) ? Math.round(repeatOrders / orderCount * 100) : null;
+
+    // Previous period KPIs
+    const prevRevenue    = prevOrders.reduce((s,o) => s + Number(o.total_amount||0), 0);
+    const prevOrderCount = prevOrders.length;
+    const prevLbs        = prevOrders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
+    const prevBags       = prevOrders.reduce((s,o) => s + Number(o.total_bags||0), 0);
+    const prevAov        = prevOrderCount ? prevRevenue / prevOrderCount : 0;
+    const prevChargedOrders = prevOrders.filter(o =>
+      !!o.stripe_payment_intent_id || o.billing_status === 'paid' || o.customers?.billing_type === 'on_account');
+    const prevChargedRev = prevChargedOrders.reduce((s,o) => s + Number(o.total_amount||0), 0);
+    const prevChargedLbs  = prevChargedOrders.reduce((s,o) => s + Number(o.weight_lbs||0), 0);
+    const prevChargedBags = prevChargedOrders.reduce((s,o) => s + Number(o.total_bags||0), 0);
+    const prevRevPerLb    = prevChargedLbs  ? prevChargedRev / prevChargedLbs  : null;
+    const prevRevPerBag   = prevChargedBags ? prevChargedRev / prevChargedBags : null;
+    const prevDelivered  = prevOrders.filter(o => o.status === 'delivered' && o.actual_delivery_at);
+    const prevOnTime     = prevDelivered.filter(o =>
+      o.delivery_window_end && new Date(o.actual_delivery_at) <= new Date(o.delivery_window_end)
+    ).length;
+    const prevOnTimePct  = prevDelivered.length ? Math.round(prevOnTime / prevDelivered.length * 100) : null;
+
+    // ── Update Order KPI DOM ──
+    document.getElementById('rpt-revenue').textContent    = fmtMoney(revenue);
+    document.getElementById('rpt-orders').textContent     = orderCount;
+    document.getElementById('rpt-lbs').textContent        = totalLbs ? totalLbs.toFixed(1) + ' lb' : '—';
+    document.getElementById('rpt-bags').textContent       = totalBags || '—';
+    document.getElementById('rpt-aov').textContent        = fmtMoney(aov);
+    document.getElementById('rpt-rev-per-lb').textContent  = revPerLb  ? '$' + revPerLb.toFixed(2)  : '—';
+    document.getElementById('rpt-rev-per-bag').textContent = revPerBag ? '$' + revPerBag.toFixed(2) : '—';
+    document.getElementById('rpt-ontime').textContent     = onTimePct !== null ? onTimePct + '%' : (deliveredOrders.length ? '—' : 'No data');
+    document.getElementById('rpt-repeat').textContent     = repeatPct !== null ? repeatPct + '%' : '—';
+
+    document.getElementById('rpt-revenue-trend').innerHTML    = rptTrendHTML(revenue, prevOrders.length ? prevRevenue : null);
+    document.getElementById('rpt-orders-trend').innerHTML     = rptTrendHTML(orderCount, prevOrders.length ? prevOrderCount : null);
+    document.getElementById('rpt-lbs-trend').innerHTML        = rptTrendHTML(totalLbs, prevOrders.length ? prevLbs : null);
+    document.getElementById('rpt-bags-trend').innerHTML       = rptTrendHTML(totalBags, prevOrders.length ? prevBags : null);
+    document.getElementById('rpt-aov-trend').innerHTML        = rptTrendHTML(aov, prevOrders.length ? prevAov : null);
+    document.getElementById('rpt-rev-per-lb-trend').innerHTML  = revPerLb  && prevRevPerLb  ? rptTrendHTML(revPerLb, prevRevPerLb)   : '';
+    document.getElementById('rpt-rev-per-bag-trend').innerHTML = revPerBag && prevRevPerBag ? rptTrendHTML(revPerBag, prevRevPerBag) : '';
+    document.getElementById('rpt-ontime-trend').innerHTML     = onTimePct !== null && prevOnTimePct !== null ? rptTrendHTML(onTimePct, prevOnTimePct) : '';
+    document.getElementById('rpt-repeat-sub').textContent     = repeatPct !== null
+      ? `${repeatOrders} of ${orderCount} orders from returning customers`
+      : (prevOrders.length ? '' : 'Compare to prev period');
+
+    // ── Render data ──
+    renderServicesList(orders);
+    renderOrderStatusBreakdown(orders);
+    renderOrdersTable(orders);
+
+    // ── Driver Performance ──
+    renderDriverStats(routeList, orders);
   }
 
   function renderServicesList(orders) {
@@ -20680,108 +20696,76 @@ ${oneCopy}
   }
 
   // ── Driver stats section ──
-  let _driverReportData = null;
+  function renderDriverStats(routes, orders) {
+    // Fleet totals
+    const completedRoutes = routes.filter(r => r.completed_stops > 0);
+    const fleetRoutes = completedRoutes.length;
+    const fleetStops  = routes.reduce((s,r) => s + (r.completed_stops||0), 0);
 
-  function renderDriverStats(routes, routeStops, orders, driverHours = {}) {
+    const ratedOrders = orders.filter(o => o.driver_rating != null);
+    const avgRating   = ratedOrders.length
+      ? (ratedOrders.reduce((s,o) => s+o.driver_rating, 0) / ratedOrders.length).toFixed(1)
+      : null;
+    const stars = n => '★'.repeat(Math.round(n)) + '☆'.repeat(5-Math.round(n));
+
+    document.getElementById('rpt-drv-routes').textContent = fleetRoutes || '—';
+    document.getElementById('rpt-drv-stops').textContent  = fleetStops  || '—';
+    document.getElementById('rpt-drv-rating').textContent = avgRating ? avgRating + ' / 5' : '—';
+    document.getElementById('rpt-drv-rating-sub').textContent = ratedOrders.length ? `${ratedOrders.length} ratings` : 'No ratings yet';
+
+    // Per-driver breakdown
+    const drvMap = {}; // driverId → stats
     const driverName = id => allDriversCache.find(d => d.id === id)?.name || 'Unknown';
 
-    // Build routeId → driverId lookup
+    // Build a routeId → driver lookup
     const routeDriver = {};
-    (routes || []).forEach(r => { if (r.driver_id) routeDriver[r.id] = r.driver_id; });
-
-    // Count completed stops per driver from route_stops (source of truth)
-    const drvMap = {};
-    (routeStops || []).forEach(rs => {
-      const did = routeDriver[rs.route_id];
-      if (!did) return;
-      if (!drvMap[did]) drvMap[did] = { stops: 0, bags: 0 };
-      drvMap[did].stops++;
+    routes.forEach(r => {
+      if (r.driver_id) routeDriver[r.id] = r.driver_id;
     });
 
-    // Fleet total + avg stops/hr (only drivers with both stops and hours)
-    const fleetStops = Object.values(drvMap).reduce((s, d) => s + d.stops, 0);
-    const stopsEl = document.getElementById('rpt-drv-stops');
-    if (stopsEl) stopsEl.textContent = fleetStops.toLocaleString() || '—';
-
-    // Avg stops/hr: total stops ÷ total hours, only for drivers with hour data
-    let trackedStops = 0, trackedHrs = 0;
-    Object.entries(drvMap).forEach(([did, s]) => {
-      const hrs = driverHours[driverName(did)];
-      if (hrs != null && s.stops > 0) { trackedStops += s.stops; trackedHrs += hrs; }
+    routes.forEach(r => {
+      const did = r.driver_id;
+      if (did) {
+        if (!drvMap[did]) drvMap[did] = { routes:0, stops:0, bags:0, ratingSum:0, ratingCount:0 };
+        drvMap[did].routes++;
+        drvMap[did].stops += r.completed_stops || 0;
+      }
     });
-    const sphEl = document.getElementById('rpt-drv-stops-per-hr');
-    if (sphEl) sphEl.textContent = (trackedHrs > 0) ? (trackedStops / trackedHrs).toFixed(1) : '—';
 
-    // Bag counts from orders (pickup_run_id → driver)
+    // Assign bags + ratings to driver via pickup_run_id
     orders.forEach(o => {
       const did = o.pickup_run_id ? routeDriver[o.pickup_run_id] : null;
       if (!did || !drvMap[did]) return;
-      drvMap[did].bags += Number(o.total_bags || 0);
+      drvMap[did].bags += Number(o.total_bags||0);
+      if (o.driver_rating != null) {
+        drvMap[did].ratingSum += o.driver_rating;
+        drvMap[did].ratingCount++;
+      }
     });
 
     const tbody = document.getElementById('rpt-drv-tbody');
-    const exportBtn = document.getElementById('driver-export-btn');
     const rows = Object.entries(drvMap).sort((a,b) => b[1].stops - a[1].stops);
 
     if (!rows.length) {
       tbody.innerHTML = '<tr><td colspan="5" class="rpt-no-data">No route data for this period.</td></tr>';
-      if (exportBtn) exportBtn.style.display = 'none';
-      _driverReportData = null;
       return;
     }
 
-    // Save data for CSV export
-    const fromVal = document.getElementById('rpt-from')?.value || '';
-    const toVal   = document.getElementById('rpt-to')?.value   || '';
-    _driverReportData = {
-      from: fromVal,
-      to:   toVal,
-      rows: rows.map(([did, s]) => {
-        const name = driverName(did);
-        const hrs  = driverHours[name] ?? null;
-        return { name, stops: s.stops, bags: s.bags, hrs };
-      })
-    };
-    if (exportBtn) exportBtn.style.display = '';
-
     tbody.innerHTML = rows.map(([did, s]) => {
-      const name = driverName(did);
-      const hrs  = driverHours[name];
-      const hrsCell = hrs != null
-        ? `<span style="font-weight:600">${hrs.toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> hrs</span>`
-        : `<span style="color:var(--gray-300)">—</span>`;
-      const stopsPerHr = (hrs != null && s.stops > 0)
-        ? `<span style="font-weight:600">${(s.stops / hrs).toFixed(1)}</span>`
-        : `<span style="color:var(--gray-300)">—</span>`;
+      const name   = driverName(did);
+      const bags   = s.bags || '—';
+      const rating = s.ratingCount
+        ? `<span class="rpt-stars">${stars(s.ratingSum/s.ratingCount)}</span> <span style="font-size:12px;color:var(--gray-500)">${(s.ratingSum/s.ratingCount).toFixed(1)}</span>`
+        : '<span style="color:var(--gray-300)">— no ratings</span>';
       return `<tr>
         <td style="font-weight:600">${name}</td>
-        <td>${s.stops.toLocaleString() || '—'}</td>
-        <td style="color:var(--gray-600)">${s.bags ? s.bags.toLocaleString() : '—'}</td>
-        <td>${hrsCell}</td>
-        <td>${stopsPerHr}</td>
+        <td>${s.routes}</td>
+        <td>${s.stops}</td>
+        <td>${rating}</td>
+        <td style="color:var(--gray-600)">${bags}</td>
       </tr>`;
     }).join('');
   }
-
-  function exportDriverCSV() {
-    if (!_driverReportData?.rows?.length) return;
-    const { rows, from, to } = _driverReportData;
-    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const headers = ['Driver', 'Stops', 'Bags Hauled', 'Hours Worked', 'Stops/Hr'];
-    const csvRows = rows.map(r => {
-      const stopsHr = (r.hrs != null && r.hrs > 0 && r.stops > 0) ? (r.stops / r.hrs).toFixed(1) : '';
-      return [r.name, r.stops, r.bags || 0, r.hrs != null ? r.hrs.toFixed(1) : '', stopsHr].map(esc).join(',');
-    });
-    const csv  = [headers.map(esc).join(','), ...csvRows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = `driver-report-${from}-to-${to}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-  window.exportDriverCSV = exportDriverCSV;
 
   /* ──────────────────────────────
      DRIVERS PAGE — TAB SWITCHING
@@ -21162,653 +21146,6 @@ ${oneCopy}
     return results;
   }
 
-  // ── DAILY REVENUE REPORT ──
-  let _revReportData = []; // last rendered rows, used for CSV export
-
-  // Parse a line_items JSONB array into revenue buckets.
-  // Handles both old (kind:'service') and new (type:'base') formats.
-  // Credits and discounts are stored as negative amounts; returned as positive values.
-  function _parseLineItems(items) {
-    let service = 0, addons = 0, overages = 0, fees = 0, tax = 0, credits = 0, discounts = 0;
-    if (!Array.isArray(items)) return { service, addons, overages, fees, tax, credits, discounts };
-    items.forEach(item => {
-      const amt = parseFloat(item.amount ?? item.subtotal ?? 0);
-      const t = item.type || '';
-      const k = item.kind || '';
-      if      (t === 'base')                                        service   += amt;
-      else if (t === 'pref_service' || t === 'addon' || t === 'addon_service') addons += amt;
-      else if (t === 'overage' || t === 'extra_weight')             overages  += amt;
-      else if (t === 'delivery_fee' || t === 'route_fee')           fees      += amt;
-      else if (t === 'same_day_fee' || t === 'same_day_surcharge')  overages  += amt;
-      else if (t === 'tax'  || k === 'tax')                         tax       += amt;
-      else if (t === 'credit')                                       credits   += Math.abs(amt);
-      else if (t === 'discount')                                     discounts += Math.abs(amt);
-      else if (k === 'service') {
-        // Old format — include any nested addons
-        service += parseFloat(item.subtotal ?? item.unit_price ?? 0);
-        (item.addons || []).forEach(a => addons += parseFloat(a.price ?? 0));
-      }
-    });
-    return { service, addons, overages, fees, tax, credits, discounts };
-  }
-
-  async function loadRevenueReport() {
-    const fromEl = document.getElementById('rpt-from');
-    const toEl   = document.getElementById('rpt-to');
-    const body   = document.getElementById('rev-rpt-body');
-    const exportBtn = document.getElementById('rev-export-btn');
-    if (!fromEl?.value || !toEl?.value) { showToast('Please select a date range', 'error'); return; }
-
-    body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
-    exportBtn.style.display = 'none';
-    _revReportData = [];
-
-    // Fetch all non-cancelled orders whose delivery falls in range.
-    // delivery_window_start is stored in UTC; Pacific time is up to 8h behind.
-    // Query 1 day wider on each side in UTC, then filter to exact dates
-    // client-side using Pacific-localised dates (grouping already does this).
-    const fromPad = new Date(fromEl.value + 'T00:00:00');
-    fromPad.setDate(fromPad.getDate() - 1);
-    const toPad   = new Date(toEl.value + 'T00:00:00');
-    toPad.setDate(toPad.getDate() + 1);
-    const fromISO = fromPad.toISOString().slice(0, 10) + 'T00:00:00Z';
-    const toISO   = toPad.toISOString().slice(0, 10)   + 'T23:59:59Z';
-    // The user's actual selected range (used to filter grouped rows below)
-    const selFrom = fromEl.value;
-    const selTo   = toEl.value;
-
-    // Paginate to avoid 1000-row default limit on large date ranges
-    let orders = [], fetchError = null;
-    { const BATCH = 1000; let offset = 0;
-      while (true) {
-        const { data, error: e } = await db.from('orders')
-          .select('order_number, status, billing_status, total_amount, tip_amount, line_items, delivery_window_start, discount_id, is_subscription_order')
-          .neq('status', 'cancelled')
-          .not('total_amount', 'is', null)
-          .gte('delivery_window_start', fromISO)
-          .lte('delivery_window_start', toISO)
-          .order('delivery_window_start')
-          .range(offset, offset + BATCH - 1);
-        if (e) { fetchError = e; break; }
-        orders.push(...(data || []));
-        if (!data || data.length < BATCH) break;
-        offset += BATCH;
-      }
-    }
-
-    if (fetchError) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${fetchError.message}</div>`; return; }
-    if (!orders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
-
-    // Group by local date (Pacific)
-    const byDate = {};
-    orders.forEach(o => {
-      const localDate = new Date(o.delivery_window_start)
-        .toLocaleDateString('en-CA', { timeZone: BIZ_TZ }); // YYYY-MM-DD
-      if (!byDate[localDate]) byDate[localDate] = [];
-      byDate[localDate].push(o);
-    });
-
-    // Build rows — only include dates within the user's selected range
-    const rows = [];
-    Object.keys(byDate).sort().filter(d => d >= selFrom && d <= selTo).forEach(date => {
-      const dayOrders = byDate[date];
-      let service = 0, addons = 0, overages = 0, fees = 0, tips = 0, credits = 0, discounts = 0, refunds = 0, total = 0, count = 0;
-      dayOrders.forEach(o => {
-        const li = _parseLineItems(o.line_items);
-        service   += li.service;
-        addons    += li.addons;
-        overages  += li.overages;
-        fees      += li.fees;
-        credits   += li.credits;
-        discounts += li.discounts;
-        tips      += parseFloat(o.tip_amount || 0);
-        total     += parseFloat(o.total_amount || 0);
-        if (o.billing_status === 'refunded') refunds += parseFloat(o.total_amount || 0);
-        count++;
-      });
-      const net = total - refunds;
-      rows.push({ date, service, addons, overages, fees, tips, credits, discounts, refunds, total, net, count });
-    });
-
-    _revReportData = rows;
-
-    // Totals
-    const tot = rows.reduce((acc, r) => {
-      acc.service   += r.service;
-      acc.addons    += r.addons;
-      acc.overages  += r.overages;
-      acc.fees      += r.fees;
-      acc.tips      += r.tips;
-      acc.credits   += r.credits;
-      acc.discounts += r.discounts;
-      acc.refunds   += r.refunds;
-      acc.total     += r.total;
-      acc.net       += r.net;
-      acc.count     += r.count;
-      return acc;
-    }, { service:0, addons:0, overages:0, fees:0, tips:0, credits:0, discounts:0, refunds:0, total:0, net:0, count:0 });
-
-    const $fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const $f  = n => n > 0 ? `$${$fmt(n)}` : `<span class="rev-zero">—</span>`;
-    const $ft = n => `$${$fmt(n)}`;
-
-    const fmtDate = d => {
-      const [y, m, day] = d.split('-');
-      return new Date(+y, +m - 1, +day).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
-    };
-
-    const $neg = n => n > 0 ? `<span style="color:var(--red)">−$${$fmt(n)}</span>` : `<span class="rev-zero">—</span>`;
-
-    const bodyRows = rows.map(r => `
-      <tr>
-        <td>${fmtDate(r.date)}</td>
-        <td>${$f(r.service)}</td>
-        <td>${$f(r.addons)}</td>
-        <td>${$f(r.overages)}</td>
-        <td>${$f(r.fees)}</td>
-        <td>${$f(r.tips)}</td>
-        <td>${$neg(r.credits)}</td>
-        <td>${$neg(r.discounts)}</td>
-        <td>${$neg(r.refunds)}</td>
-        <td style="color:var(--gray-500)">${r.count}</td>
-        <td style="font-weight:600;color:var(--navy)">$${$fmt(r.total)}</td>
-        <td style="font-weight:700;color:var(--green)">$${$fmt(r.net)}</td>
-      </tr>`).join('');
-
-    body.innerHTML = `
-      <table class="rev-tbl">
-        <thead>
-          <tr>
-            <th style="text-align:left">Date</th>
-            <th>Services</th>
-            <th>Add-ons</th>
-            <th>Overages</th>
-            <th>Delivery Fees</th>
-            <th>Tips</th>
-            <th>Credits</th>
-            <th>Discounts</th>
-            <th>Refunds</th>
-            <th>Orders</th>
-            <th>Charged</th>
-            <th>Net Revenue</th>
-          </tr>
-        </thead>
-        <tbody>${bodyRows}</tbody>
-        <tfoot>
-          <tr>
-            <td>Total</td>
-            <td>${$ft(tot.service)}</td>
-            <td>${$ft(tot.addons)}</td>
-            <td>${$ft(tot.overages)}</td>
-            <td>${$ft(tot.fees)}</td>
-            <td>${$ft(tot.tips)}</td>
-            <td style="color:var(--red)">−$${$fmt(tot.credits)}</td>
-            <td style="color:var(--red)">−$${$fmt(tot.discounts)}</td>
-            <td style="color:var(--red)">−$${$fmt(tot.refunds)}</td>
-            <td style="color:var(--gray-500)">${tot.count}</td>
-            <td style="color:var(--navy)">$${$fmt(tot.total)}</td>
-            <td style="color:var(--green)">$${$fmt(tot.net)}</td>
-          </tr>
-        </tfoot>
-      </table>`;
-
-    exportBtn.style.display = '';
-  }
-
-  function exportRevenueCSV() {
-    if (!_revReportData.length) return;
-    const headers = ['Date','Services','Add-ons','Overages','Delivery Fees','Tips','Credits Applied','Discounts Applied','Card Refunds','Orders','Charged','Net Revenue'];
-    const rows = _revReportData.map(r => [
-      r.date,
-      r.service.toFixed(2),
-      r.addons.toFixed(2),
-      r.overages.toFixed(2),
-      r.fees.toFixed(2),
-      r.tips.toFixed(2),
-      (-r.credits).toFixed(2),
-      (-r.discounts).toFixed(2),
-      (-r.refunds).toFixed(2),
-      r.count,
-      r.total.toFixed(2),
-      r.net.toFixed(2)
-    ]);
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = `daily-revenue-${document.getElementById('rpt-from').value}-to-${document.getElementById('rpt-to').value}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  window.loadRevenueReport  = loadRevenueReport;
-  window.exportRevenueCSV   = exportRevenueCSV;
-
-  let _itemsReportData = { pricelists: [], from: '', to: '' };
-
-  async function loadItemsReport() {
-    const fromEl    = document.getElementById('rpt-from');
-    const toEl      = document.getElementById('rpt-to');
-    const body      = document.getElementById('items-rpt-body');
-    const exportBtn = document.getElementById('items-export-btn');
-    if (!fromEl?.value || !toEl?.value) { showToast('Please select a date range', 'error'); return; }
-    if (exportBtn) exportBtn.style.display = 'none';
-    _itemsReportData = { pricelists: [], from: fromEl.value, to: toEl.value };
-
-    body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
-
-    // Pad dates for UTC offset (same pattern as revenue report)
-    const fromPad = new Date(fromEl.value + 'T00:00:00');
-    fromPad.setDate(fromPad.getDate() - 1);
-    const toPad = new Date(toEl.value + 'T00:00:00');
-    toPad.setDate(toPad.getDate() + 1);
-    const fromISO = fromPad.toISOString().slice(0, 10) + 'T00:00:00Z';
-    const toISO   = toPad.toISOString().slice(0, 10)   + 'T23:59:59Z';
-    const selFrom = fromEl.value;
-    const selTo   = toEl.value;
-
-    // Fetch services map and orders in parallel
-    // Paginate to avoid 1000-row default limit on large date ranges
-    let itemsOrders = [], itemsFetchError = null;
-    { const BATCH = 1000; let offset = 0;
-      while (true) {
-        const { data, error: e } = await db.from('orders')
-          .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status')
-          .neq('status', 'cancelled')
-          .not('total_amount', 'is', null)
-          .gte('delivery_window_start', fromISO)
-          .lte('delivery_window_start', toISO)
-          .order('delivery_window_start')
-          .range(offset, offset + BATCH - 1);
-        if (e) { itemsFetchError = e; break; }
-        itemsOrders.push(...(data || []));
-        if (!data || data.length < BATCH) break;
-        offset += BATCH;
-      }
-    }
-    const [{ data: services }] = await Promise.all([
-      db.from('services').select('id, name, pricelist, is_addon')
-    ]);
-
-    if (itemsFetchError) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${itemsFetchError.message}</div>`; return; }
-    if (!itemsOrders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
-    const orders = itemsOrders;
-
-    // Build lookup: serviceId → { name, pricelist, is_addon }
-    const svcMap = {};
-    (services || []).forEach(s => { svcMap[s.id] = s; });
-
-    // Filter to exact Pacific date range
-    const filtered = orders.filter(o => {
-      if (!o.delivery_window_start) return false;
-      const d = new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-      return d >= selFrom && d <= selTo;
-    });
-
-    if (!filtered.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
-
-    // Group by pricelist
-    // pricelists: { [name]: { orders: N, lbs: N, addons: { [addonName]: { bags: N, revenue: N } } } }
-    const byPricelist = {};
-    const UNKNOWN = 'Unknown';
-
-    filtered.forEach(o => {
-      const svc = svcMap[o.service_id];
-      const pl  = svc?.pricelist || UNKNOWN;
-      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, serviceRev: 0, totalRev: 0, refunds: 0, addons: {} };
-      const plData = byPricelist[pl];
-      plData.orders++;
-      plData.lbs      += parseFloat(o.weight_lbs   || 0);
-      plData.bags     += parseInt(o.total_bags      || 0);
-      plData.totalRev += parseFloat(o.total_amount  || 0);
-      if (o.billing_status === 'refunded') plData.refunds += parseFloat(o.total_amount || 0);
-
-      // Parse line items for service revenue and add-ons
-      if (Array.isArray(o.line_items)) {
-        o.line_items.forEach(item => {
-          if (item.type === 'base') {
-            plData.serviceRev += parseFloat(item.amount || 0);
-            return;
-          }
-          if (item.type !== 'pref_service' && item.type !== 'addon' && item.type !== 'addon_service') return;
-          // Extract add-on name (e.g. "Oxi × 2 bags" → "Oxi")
-          const label = item.label || '';
-          const addonName = label.split('×')[0].trim() || label;
-          // Skip legacy/junk add-on labels
-          const ADDON_BLOCKLIST = new Set([
-            'Air Dry (per item · billed at processing)',
-            'Yes',
-            'Oxiclean',
-          ]);
-          if (ADDON_BLOCKLIST.has(addonName)) return;
-          // Extract bag quantity from label (e.g. "Oxi × 2 bags" → 2)
-          const qtyMatch = label.match(/×\s*(\d+)/);
-          const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
-          const rev = parseFloat(item.amount || 0);
-          if (!plData.addons[addonName]) plData.addons[addonName] = { bags: 0, revenue: 0 };
-          plData.addons[addonName].bags    += qty;
-          plData.addons[addonName].revenue += rev;
-        });
-      }
-    });
-
-    // Render — preferred order of price lists
-    const PL_ORDER = ['Delivery', 'Retail', 'Commercial'];
-    const presentPLs = PL_ORDER.filter(pl => byPricelist[pl]);
-
-    const fmtLbs  = n => n % 1 === 0 ? `${n.toLocaleString()} lbs` : `${n.toLocaleString('en-US', {minimumFractionDigits:1, maximumFractionDigits:1})} lbs`;
-    const fmtMoney = n => '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-
-    const sections = presentPLs.map(pl => {
-      const d = byPricelist[pl];
-      const addonNames = Object.keys(d.addons).sort();
-
-      const addonRows = addonNames.length ? addonNames.map(name => {
-        const a = d.addons[name];
-        return `<tr>
-          <td>${name}</td>
-          <td>${a.bags.toLocaleString()}</td>
-          <td>$${a.revenue.toFixed(2)}</td>
-        </tr>`;
-      }).join('') : `<tr><td colspan="3" style="color:var(--gray-400);font-style:italic;text-align:left;padding:10px 16px">No add-ons</td></tr>`;
-
-      const totalBags    = addonNames.reduce((s, n) => s + d.addons[n].bags,    0);
-      const totalAddonRev = addonNames.reduce((s, n) => s + d.addons[n].revenue, 0);
-
-      const footer = addonNames.length ? `<tfoot><tr>
-        <td>Total</td>
-        <td>${totalBags.toLocaleString()}</td>
-        <td>$${totalAddonRev.toFixed(2)}</td>
-      </tr></tfoot>` : '';
-
-      return `
-        <div class="card items-pricelist-section" style="margin-bottom:16px">
-          <div class="items-pricelist-header">
-            <span class="items-pricelist-name">${pl}</span>
-            <span class="items-pricelist-meta">price list</span>
-          </div>
-          <div class="items-summary-row">
-            <div class="items-summary-stat"><strong>${d.orders.toLocaleString()}</strong>Orders</div>
-            <div class="items-summary-stat"><strong>${d.bags > 0 ? d.bags.toLocaleString() : '—'}</strong>Bags</div>
-            <div class="items-summary-stat"><strong>${d.lbs > 0 ? fmtLbs(d.lbs) : '—'}</strong>Pounds Processed</div>
-            <div class="items-summary-stat"><strong>${d.serviceRev > 0 ? fmtMoney(d.serviceRev) : '—'}</strong>Service Revenue</div>
-            <div class="items-summary-stat"><strong>${d.totalRev > 0 ? fmtMoney(d.totalRev - d.refunds) : '—'}</strong>Net Revenue</div>
-            <div class="items-summary-stat"><strong>${d.lbs > 0 && d.totalRev > 0 ? fmtMoney((d.totalRev - d.refunds) / d.lbs) : '—'}</strong>Net / lb</div>
-            <div class="items-summary-stat"><strong>${d.orders > 0 && d.totalRev > 0 ? fmtMoney((d.totalRev - d.refunds) / d.orders) : '—'}</strong>Net / order</div>
-          </div>
-          <table class="items-tbl">
-            <thead>
-              <tr>
-                <th style="text-align:left">Add-on</th>
-                <th>Items</th>
-                <th>Revenue</th>
-              </tr>
-            </thead>
-            <tbody>${addonRows}</tbody>
-            ${footer}
-          </table>
-        </div>`;
-    });
-
-    // Save structured data for CSV export
-    _itemsReportData.pricelists = presentPLs.map(pl => ({ pl, ...byPricelist[pl] }));
-
-    body.innerHTML = `<div style="padding:16px 0 4px">${sections.join('')}</div>`;
-    if (exportBtn) exportBtn.style.display = '';
-  }
-
-  function exportItemsCSV() {
-    const { pricelists, from, to } = _itemsReportData;
-    if (!pricelists.length) return;
-
-    const esc = v => `"${String(v).replace(/"/g, '""')}"`;
-    const rows = [];
-
-    // Header
-    rows.push([
-      'Pricelist','Orders','Bags','Pounds Processed',
-      'Service Revenue','Net Revenue','Net / lb','Net / Order',
-      'Add-on','Items','Add-on Revenue'
-    ].map(esc).join(','));
-
-    pricelists.forEach(d => {
-      const net        = (d.totalRev - d.refunds).toFixed(2);
-      const netPerLb   = d.lbs > 0    ? ((d.totalRev - d.refunds) / d.lbs).toFixed(2)    : '';
-      const netPerOrder = d.orders > 0 ? ((d.totalRev - d.refunds) / d.orders).toFixed(2) : '';
-
-      // Summary row for this pricelist
-      rows.push([
-        d.pl, d.orders, d.bags,
-        d.lbs.toFixed(1),
-        d.serviceRev.toFixed(2), net, netPerLb, netPerOrder,
-        '','',''
-      ].map(esc).join(','));
-
-      // Add-on rows
-      const addonNames = Object.keys(d.addons).sort();
-      addonNames.forEach(name => {
-        const a = d.addons[name];
-        rows.push([
-          '','','','','','','',
-          name, a.bags, a.revenue.toFixed(2)
-        ].map(esc).join(','));
-      });
-
-      // Add-on totals row
-      if (addonNames.length) {
-        const totalItems = addonNames.reduce((s, n) => s + d.addons[n].bags, 0);
-        const totalRev   = addonNames.reduce((s, n) => s + d.addons[n].revenue, 0);
-        rows.push([
-          '','','','','','','',
-          'TOTAL ADD-ONS', totalItems, totalRev.toFixed(2)
-        ].map(esc).join(','));
-      }
-
-      // Blank row between sections
-      rows.push('');
-    });
-
-    const csv  = rows.join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = `items-report-${from}-to-${to}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  window.loadItemsReport = loadItemsReport;
-  window.exportItemsCSV  = exportItemsCSV;
-
-  let _laundererReportData = [];
-
-  async function loadLaundererReport() {
-    const fromEl    = document.getElementById('rpt-from');
-    const toEl      = document.getElementById('rpt-to');
-    const body      = document.getElementById('launderer-rpt-body');
-    const exportBtn = document.getElementById('launderer-export-btn');
-    if (!fromEl?.value || !toEl?.value) { showToast('Please select a date range', 'error'); return; }
-    if (exportBtn) exportBtn.style.display = 'none';
-    _laundererReportData = [];
-
-    body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
-
-    // Pad UTC (same pattern as other reports)
-    const fromPad = new Date(fromEl.value + 'T00:00:00'); fromPad.setDate(fromPad.getDate() - 1);
-    const toPad   = new Date(toEl.value   + 'T00:00:00'); toPad.setDate(toPad.getDate() + 1);
-    const fromISO = fromPad.toISOString().slice(0,10) + 'T00:00:00Z';
-    const toISO   = toPad.toISOString().slice(0,10)   + 'T23:59:59Z';
-    const selFrom = fromEl.value, selTo = toEl.value;
-
-    // Fetch orders in batches of 1000 — Supabase default page size is 1000 rows,
-    // so large date ranges would silently truncate without explicit pagination.
-    async function fetchAllLaundererOrders() {
-      const allRows = [];
-      const BATCH = 1000;
-      let offset = 0;
-      while (true) {
-        const { data, error: e } = await db.from('orders')
-          .select('id, folded_by_id, total_bags, weight_lbs, delivery_window_start')
-          .neq('status', 'cancelled')
-          .gte('delivery_window_start', fromISO)
-          .lte('delivery_window_start', toISO)
-          .order('delivery_window_start')
-          .range(offset, offset + BATCH - 1);
-        if (e) return { data: null, error: e };
-        allRows.push(...(data || []));
-        if (!data || data.length < BATCH) break;
-        offset += BATCH;
-      }
-      return { data: allRows, error: null };
-    }
-
-    const [{ data: launderers }, { data: orders, error }, laborData] = await Promise.all([
-      db.from('launderers').select('id, name').eq('is_active', true).order('name'),
-      fetchAllLaundererOrders(),
-      fetchSquareLaborHours(fromEl.value, toEl.value)
-    ]);
-
-    if (error) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${error.message}</div>`; return; }
-
-    // Filter to exact Pacific date range
-    const filtered = (orders || []).filter(o => {
-      if (!o.delivery_window_start) return false;
-      const d = new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-      return d >= selFrom && d <= selTo;
-    });
-
-    // Split into assigned and unassigned
-    const unassigned = { orders: 0, bags: 0, lbs: 0 };
-    const statsMap = {};
-    filtered.forEach(o => {
-      if (!o.folded_by_id) {
-        unassigned.orders++;
-        unassigned.bags += parseInt(o.total_bags || 0);
-        unassigned.lbs  += parseFloat(o.weight_lbs || 0);
-        return;
-      }
-      const lid = o.folded_by_id;
-      if (!statsMap[lid]) statsMap[lid] = { orders: 0, bags: 0, lbs: 0 };
-      statsMap[lid].orders++;
-      statsMap[lid].bags += parseInt(o.total_bags || 0);
-      statsMap[lid].lbs  += parseFloat(o.weight_lbs || 0);
-    });
-
-    const laundererMap = {};
-    (launderers || []).forEach(l => { laundererMap[l.id] = l.name; });
-
-    const rows = Object.entries(statsMap)
-      .map(([id, s]) => {
-        const name = laundererMap[id] || 'Unknown';
-        const hrs  = laborData.laundry_hours[name] ?? null;
-        return { name, hrs, ...s };
-      })
-      .sort((a, b) => b.orders - a.orders);
-
-    if (!rows.length && !unassigned.orders) {
-      body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>';
-      return;
-    }
-
-    _laundererReportData = { rows, unassigned, from: fromEl.value, to: toEl.value };
-
-    // Totals include unassigned
-    const tot = rows.reduce((acc, r) => {
-      acc.orders += r.orders; acc.bags += r.bags; acc.lbs += r.lbs;
-      if (r.hrs != null) acc.hrs = (acc.hrs || 0) + r.hrs;
-      return acc;
-    }, { orders: unassigned.orders, bags: unassigned.bags, lbs: unassigned.lbs, hrs: null });
-
-    // Stat cards — use full total lbs (including unassigned)
-    const lbsEl = document.getElementById('rpt-lndr-lbs');
-    if (lbsEl) lbsEl.textContent = tot.lbs > 0 ? tot.lbs.toLocaleString('en-US', {maximumFractionDigits:0}) : '—';
-    const lbsHrEl = document.getElementById('rpt-lndr-lbs-per-hr');
-    if (lbsHrEl) {
-      let trackedLbs = 0, trackedHrs = 0;
-      rows.forEach(r => { if (r.hrs != null && r.lbs > 0) { trackedLbs += r.lbs; trackedHrs += r.hrs; } });
-      lbsHrEl.textContent = (trackedHrs > 0) ? (trackedLbs / trackedHrs).toFixed(1) : '—';
-    }
-
-    const fmtLbs    = n => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
-    const fmtHrs    = h => h != null
-      ? `<span style="font-weight:600">${h.toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> hrs</span>`
-      : `<span style="color:var(--gray-300)">—</span>`;
-    const fmtLbsHr  = (lbs, hrs) => (hrs != null && hrs > 0 && lbs > 0)
-      ? `<span style="font-weight:600">${(lbs / hrs).toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> lbs/hr</span>`
-      : `<span style="color:var(--gray-300)">—</span>`;
-
-    body.innerHTML = `
-      <table class="rev-tbl">
-        <thead>
-          <tr>
-            <th style="text-align:left">Folder</th>
-            <th>Orders</th>
-            <th>Bags</th>
-            <th>Pounds</th>
-            <th>Hours Worked</th>
-            <th>Lbs/Hr</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map(r => `<tr>
-            <td>${r.name}</td>
-            <td>${r.orders.toLocaleString()}</td>
-            <td>${r.bags.toLocaleString()}</td>
-            <td>${fmtLbs(r.lbs)}</td>
-            <td>${fmtHrs(r.hrs)}</td>
-            <td>${fmtLbsHr(r.lbs, r.hrs)}</td>
-          </tr>`).join('')}
-          ${unassigned.orders > 0 ? `<tr style="color:var(--gray-400);font-style:italic">
-            <td>Unassigned</td>
-            <td>${unassigned.orders.toLocaleString()}</td>
-            <td>${unassigned.bags.toLocaleString()}</td>
-            <td>${fmtLbs(unassigned.lbs)}</td>
-            <td><span style="color:var(--gray-300)">—</span></td>
-            <td><span style="color:var(--gray-300)">—</span></td>
-          </tr>` : ''}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td>Total</td>
-            <td>${tot.orders.toLocaleString()}</td>
-            <td>${tot.bags.toLocaleString()}</td>
-            <td>${fmtLbs(tot.lbs)}</td>
-            <td>${tot.hrs != null ? fmtHrs(tot.hrs) : '—'}</td>
-            <td>${fmtLbsHr(tot.lbs, tot.hrs)}</td>
-          </tr>
-        </tfoot>
-      </table>`;
-
-    if (exportBtn) exportBtn.style.display = '';
-  }
-
-  function exportLaundererCSV() {
-    const { rows, unassigned, from, to } = _laundererReportData;
-    if (!rows?.length && !unassigned?.orders) return;
-    const esc = v => `"${String(v).replace(/"/g, '""')}"`;
-    const headers = ['Folder','Orders','Bags','Pounds','Hours Worked','Lbs/Hr'];
-    const csvRows = (rows || []).map(r => {
-      const lbsHr = (r.hrs != null && r.hrs > 0 && r.lbs > 0) ? (r.lbs / r.hrs).toFixed(1) : '';
-      return [r.name, r.orders, r.bags, r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr].map(esc).join(',');
-    });
-    if (unassigned?.orders > 0) {
-      csvRows.push(['Unassigned', unassigned.orders, unassigned.bags, unassigned.lbs.toFixed(1), '', ''].map(esc).join(','));
-    }
-    const csv  = [headers.map(esc).join(','), ...csvRows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = `launderer-report-${from}-to-${to}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  window.loadLaundererReport = loadLaundererReport;
-  window.exportLaundererCSV  = exportLaundererCSV;
-
   async function sendLaunchAnnouncementAll() {
     // Fetch all customers with email or phone
     const { data: custs, error } = await db.from('customers')
@@ -21872,6 +21209,250 @@ ${oneCopy}
     const summary = `Done! Email: ${sentEmail} sent, ${failEmail} failed | SMS: ${sentSms} sent, ${failSms} failed`;
     showToast(summary, (failEmail + failSms > 0) ? 'error' : 'success');
     console.log(`[Launch] ${summary}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // ON ACCOUNT REPORT
+  // ═══════════════════════════════════════════════════════════
+
+  let oaData = [];       // cached order data for filtering
+  let oaCustomers = [];  // unique customer list for filter dropdown
+
+  // Quick-tab presets
+  function setOAQuick(period, btn) {
+    document.querySelectorAll('#oa-quick-tabs .filter-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const today = new Date();
+    const endStr = today.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    let startStr;
+    if (period === '30d') {
+      const s = new Date(today); s.setDate(s.getDate() - 29);
+      startStr = s.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    } else if (period === '90d') {
+      const s = new Date(today); s.setDate(s.getDate() - 89);
+      startStr = s.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    } else {
+      startStr = '';  // all time
+    }
+    document.getElementById('oa-date-start').value = startStr;
+    document.getElementById('oa-date-end').value = endStr;
+    loadOnAccountReport();
+  }
+
+  async function loadOnAccountReport() {
+    const startEl = document.getElementById('oa-date-start');
+    const endEl = document.getElementById('oa-date-end');
+
+    // Default: all time if no dates set
+    if (!startEl.value && !endEl.value) {
+      const today = new Date();
+      endEl.value = today.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      // leave start blank = all time
+    }
+
+    // Build query — fetch all delivered/ready orders for on_account customers
+    let query = db.from('orders')
+      .select('id, order_number, total_amount, status, billing_status, billing_notes, billing_payment_method, paid_at, actual_delivery_at, created_at, customer_id, customers!inner(id, first_name_cache, last_name_cache, billing_type)')
+      .eq('customers.billing_type', 'on_account')
+      .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery', 'picked_up', 'processing', 'folding', 'scheduled'])
+      .order('created_at', { ascending: false });
+
+    if (startEl.value) {
+      query = query.gte('created_at', new Date(startEl.value + 'T00:00:00').toISOString());
+    }
+    if (endEl.value) {
+      query = query.lte('created_at', new Date(endEl.value + 'T23:59:59').toISOString());
+    }
+
+    const { data, error } = await query;
+    if (error) { showToast('Error loading on-account data: ' + error.message, 'error'); return; }
+
+    oaData = (data || []).map(o => {
+      const now = new Date();
+      const deliveredDate = o.actual_delivery_at ? new Date(o.actual_delivery_at) : (o.created_at ? new Date(o.created_at) : now);
+      const ageDays = Math.floor((now - deliveredDate) / 86400000);
+      const isPaid = o.billing_status === 'paid';
+      const isRefunded = o.billing_status === 'refunded';
+      const outstanding = (!isPaid && !isRefunded) ? Number(o.total_amount || 0) : 0;
+      return { ...o, ageDays, outstanding, isPaid, isRefunded };
+    });
+
+    // Period label
+    const label = startEl.value
+      ? `${fmtDate(startEl.value)} — ${fmtDate(endEl.value)}`
+      : `All time through ${fmtDate(endEl.value)}`;
+    document.getElementById('oa-period-label').textContent = label;
+
+    // Build customer list for filter dropdown
+    const custMap = {};
+    oaData.forEach(o => {
+      const c = o.customers;
+      if (!c) return;
+      const name = (c.first_name_cache || '') + ' ' + (c.last_name_cache || '');
+      if (!custMap[o.customer_id]) custMap[o.customer_id] = name.trim();
+    });
+    oaCustomers = Object.entries(custMap).sort((a, b) => a[1].localeCompare(b[1]));
+
+    const custFilter = document.getElementById('oa-cust-filter');
+    const prevVal = custFilter.value;
+    custFilter.innerHTML = '<option value="all">All Customers</option>' +
+      oaCustomers.map(([id, name]) => `<option value="${id}">${name}</option>`).join('');
+    if (prevVal && custFilter.querySelector(`option[value="${prevVal}"]`)) custFilter.value = prevVal;
+
+    renderOASummary();
+    renderOADetail();
+  }
+
+  function renderOASummary() {
+    const now = new Date();
+    // Group by customer
+    const byCustomer = {};
+    oaData.forEach(o => {
+      const cid = o.customer_id;
+      if (!byCustomer[cid]) {
+        const c = o.customers;
+        byCustomer[cid] = {
+          name: c ? ((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() : 'Unknown',
+          orders: 0, invoiced: 0, paid: 0, outstanding: 0,
+          aging: { current: 0, d30: 0, d60: 0, d90: 0 }
+        };
+      }
+      const rec = byCustomer[cid];
+      const amt = Number(o.total_amount || 0);
+      rec.orders++;
+      rec.invoiced += amt;
+      if (o.isPaid) rec.paid += amt;
+      if (o.outstanding > 0) {
+        rec.outstanding += o.outstanding;
+        if (o.ageDays <= 30) rec.aging.current += o.outstanding;
+        else if (o.ageDays <= 60) rec.aging.d30 += o.outstanding;
+        else if (o.ageDays <= 90) rec.aging.d60 += o.outstanding;
+        else rec.aging.d90 += o.outstanding;
+      }
+    });
+
+    const rows = Object.entries(byCustomer)
+      .sort((a, b) => b[1].outstanding - a[1].outstanding);
+
+    // KPI cards
+    const totalCustomers = rows.length;
+    const totalInvoiced = rows.reduce((s, [, r]) => s + r.invoiced, 0);
+    const totalPaid = rows.reduce((s, [, r]) => s + r.paid, 0);
+    const totalOutstanding = rows.reduce((s, [, r]) => s + r.outstanding, 0);
+
+    document.getElementById('oa-cust-count').textContent = totalCustomers;
+    document.getElementById('oa-total-invoiced').textContent = fmtMoney(totalInvoiced);
+    document.getElementById('oa-total-paid').textContent = fmtMoney(totalPaid);
+    document.getElementById('oa-outstanding').textContent = fmtMoney(totalOutstanding);
+
+    // Summary table
+    const tbody = document.getElementById('oa-summary-tbody');
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" class="rpt-no-data">No on-account orders in this period</td></tr>';
+      document.getElementById('oa-summary-tfoot').innerHTML = '';
+      return;
+    }
+
+    tbody.innerHTML = rows.map(([cid, r]) => {
+      const outStyle = r.outstanding > 0 ? 'color:var(--red);font-weight:600' : 'color:var(--green)';
+      const agingWarn = (v) => v > 0 ? `style="color:var(--red)"` : '';
+      return `<tr style="cursor:pointer" onclick="document.getElementById('oa-cust-filter').value='${cid}';renderOADetail();">
+        <td><strong>${r.name}</strong></td>
+        <td style="text-align:right">${r.orders}</td>
+        <td style="text-align:right">${fmtMoney(r.invoiced)}</td>
+        <td style="text-align:right;color:var(--green)">${fmtMoney(r.paid)}</td>
+        <td style="text-align:right;${outStyle}">${fmtMoney(r.outstanding)}</td>
+        <td style="text-align:right" ${agingWarn(r.aging.current)}>${r.aging.current > 0 ? fmtMoney(r.aging.current) : '—'}</td>
+        <td style="text-align:right" ${agingWarn(r.aging.d30)}>${r.aging.d30 > 0 ? fmtMoney(r.aging.d30) : '—'}</td>
+        <td style="text-align:right" ${agingWarn(r.aging.d60)}>${r.aging.d60 > 0 ? fmtMoney(r.aging.d60) : '—'}</td>
+        <td style="text-align:right" ${agingWarn(r.aging.d90)}>${r.aging.d90 > 0 ? fmtMoney(r.aging.d90) : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    // Totals row
+    const totals = rows.reduce((t, [, r]) => {
+      t.orders += r.orders; t.invoiced += r.invoiced; t.paid += r.paid; t.outstanding += r.outstanding;
+      t.current += r.aging.current; t.d30 += r.aging.d30; t.d60 += r.aging.d60; t.d90 += r.aging.d90;
+      return t;
+    }, { orders: 0, invoiced: 0, paid: 0, outstanding: 0, current: 0, d30: 0, d60: 0, d90: 0 });
+
+    document.getElementById('oa-summary-tfoot').innerHTML = `<tr>
+      <td>TOTAL</td>
+      <td style="text-align:right">${totals.orders}</td>
+      <td style="text-align:right">${fmtMoney(totals.invoiced)}</td>
+      <td style="text-align:right;color:var(--green)">${fmtMoney(totals.paid)}</td>
+      <td style="text-align:right;color:var(--red)">${fmtMoney(totals.outstanding)}</td>
+      <td style="text-align:right">${totals.current > 0 ? fmtMoney(totals.current) : '—'}</td>
+      <td style="text-align:right">${totals.d30 > 0 ? fmtMoney(totals.d30) : '—'}</td>
+      <td style="text-align:right">${totals.d60 > 0 ? fmtMoney(totals.d60) : '—'}</td>
+      <td style="text-align:right">${totals.d90 > 0 ? fmtMoney(totals.d90) : '—'}</td>
+    </tr>`;
+  }
+
+  function renderOADetail() {
+    const custVal = document.getElementById('oa-cust-filter').value;
+    const statusVal = document.getElementById('oa-status-filter').value;
+
+    let filtered = oaData;
+    if (custVal !== 'all') filtered = filtered.filter(o => o.customer_id === custVal);
+    if (statusVal === 'outstanding') filtered = filtered.filter(o => o.outstanding > 0);
+    if (statusVal === 'paid') filtered = filtered.filter(o => o.isPaid);
+
+    const tbody = document.getElementById('oa-detail-tbody');
+    if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="10" class="rpt-no-data">No orders match filters</td></tr>';
+      document.getElementById('oa-detail-tfoot').innerHTML = '';
+      return;
+    }
+
+    const billingBadge = (s) => {
+      if (!s || s === '') return '<span class="badge badge-amber">Unbilled</span>';
+      if (s === 'paid') return '<span class="badge badge-green">Paid</span>';
+      if (s === 'failed') return '<span class="badge badge-red">Failed</span>';
+      if (s === 'refunded') return '<span class="badge badge-gray">Refunded</span>';
+      return '<span class="badge badge-gray">' + s + '</span>';
+    };
+
+    const ageBadge = (days, outstanding) => {
+      if (outstanding <= 0) return '<span style="color:var(--gray-300)">—</span>';
+      if (days <= 30) return `<span style="color:var(--gray-500)">${days}d</span>`;
+      if (days <= 60) return `<span style="color:#d97706;font-weight:600">${days}d</span>`;
+      if (days <= 90) return `<span style="color:#dc2626;font-weight:600">${days}d</span>`;
+      return `<span style="color:#dc2626;font-weight:700">${days}d</span>`;
+    };
+
+    tbody.innerHTML = filtered.map(o => {
+      const c = o.customers;
+      const name = c ? ((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() : 'Unknown';
+      const deliveredStr = o.actual_delivery_at ? fmtDate(o.actual_delivery_at) : '—';
+      const paidStr = o.paid_at ? fmtDate(o.paid_at) : '—';
+      const method = o.billing_payment_method || '—';
+      const notes = o.billing_notes || '';
+      const amtStyle = o.outstanding > 0 ? 'color:var(--red);font-weight:600' : '';
+      return `<tr>
+        <td><strong>#${o.order_number}</strong></td>
+        <td>${name}</td>
+        <td>${fmtDate(o.created_at)}</td>
+        <td>${deliveredStr}</td>
+        <td style="text-align:right;${amtStyle}">${fmtMoney(o.total_amount)}</td>
+        <td>${billingBadge(o.billing_status)}</td>
+        <td>${paidStr}</td>
+        <td>${method}</td>
+        <td>${ageBadge(o.ageDays, o.outstanding)}</td>
+        <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${notes.replace(/"/g,'&quot;')}">${notes || '—'}</td>
+      </tr>`;
+    }).join('');
+
+    // Detail totals
+    const totalAmt = filtered.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+    const totalOut = filtered.reduce((s, o) => s + o.outstanding, 0);
+    const totalPaid = filtered.filter(o => o.isPaid).reduce((s, o) => s + Number(o.total_amount || 0), 0);
+
+    document.getElementById('oa-detail-tfoot').innerHTML = `<tr>
+      <td colspan="4">TOTAL (${filtered.length} orders)</td>
+      <td style="text-align:right">${fmtMoney(totalAmt)}</td>
+      <td colspan="5" style="text-align:left;padding-left:12px">Paid: ${fmtMoney(totalPaid)} | Outstanding: <span style="color:var(--red)">${fmtMoney(totalOut)}</span></td>
+    </tr>`;
   }
 </script>
 </body>
