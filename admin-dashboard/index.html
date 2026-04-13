@@ -22568,6 +22568,22 @@ ${orderSections}
     }
   }
 
+  // Pre-load the white logo as base64 for PDF embedding
+  let _invoiceLogoBase64 = null;
+  (function preloadInvoiceLogo() {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function() {
+      try {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        _invoiceLogoBase64 = c.toDataURL('image/png');
+      } catch(e) { console.warn('Logo preload failed:', e); }
+    };
+    img.src = 'https://admin.familylaundry.com/assets/logo_white.png';
+  })();
+
   // Build a PDF directly from invoice data using jsPDF (no screenshots)
   function buildInvoicePdfBase64(title, orders, period, groupName) {
     const { jsPDF } = window.jspdf;
@@ -22587,12 +22603,22 @@ ${orderSections}
     // ── DARK HEADER BAR ──
     doc.setFillColor(31, 41, 55);
     doc.rect(0, 0, pw, 28, 'F');
+
+    // Logo
+    let textStart = ml;
+    if (_invoiceLogoBase64) {
+      try {
+        doc.addImage(_invoiceLogoBase64, 'PNG', ml, 3, 22, 22);
+        textStart = ml + 25;
+      } catch(e) { /* logo failed, just use text */ }
+    }
+
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16); doc.setFont('helvetica', 'bold');
-    doc.text('Family Laundry', ml, 10);
+    doc.text('Family Laundry', textStart, 10);
     doc.setFontSize(8); doc.setFont('helvetica', 'normal');
-    doc.text('5215 Genoa St, Oakland CA 94608', ml, 15);
-    doc.text('(510) 842-3560  •  info@familylaundry.com', ml, 19);
+    doc.text('5215 Genoa St, Oakland CA 94608', textStart, 15);
+    doc.text('(510) 842-3560  •  info@familylaundry.com', textStart, 19);
     // Right side
     doc.setFontSize(14); doc.setFont('helvetica', 'bold');
     rText('INVOICE', 10);
