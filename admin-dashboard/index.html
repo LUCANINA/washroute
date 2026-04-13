@@ -1370,8 +1370,12 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:middle;margin-right:2px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
                     Map
                   </button>
+                  <button class="filter-tab" id="cust-view-groups" onclick="setCustView('groups')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="vertical-align:middle;margin-right:2px"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                    Groups
+                  </button>
                 </div>
-                <button class="btn btn-primary" style="padding:6px 12px" onclick="openModal('add-customer')">
+                <button class="btn btn-primary" style="padding:6px 12px" id="cust-add-btn" onclick="openModal('add-customer')">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   Add Customer
                 </button>
@@ -1429,6 +1433,77 @@
                   </div>
                 </div>
               </div>
+            </div>
+            <!-- BILLING GROUPS VIEW -->
+            <div id="customers-groups-view" style="display:none;">
+              <div id="billing-groups-list" style="padding:16px"><div class="loading"><div class="spinner"></div> Loading…</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── BILLING GROUP EDIT MODAL ── -->
+        <div class="modal-overlay" id="modal-edit-billing-group" style="display:none">
+          <div class="modal" style="max-width:560px">
+            <div class="modal-header">
+              <div class="modal-title" id="bg-modal-title">New Billing Group</div>
+              <button class="modal-close" onclick="closeModal('edit-billing-group')">&times;</button>
+            </div>
+            <div class="modal-body" style="padding:20px">
+              <input type="hidden" id="bg-edit-id" value="">
+              <div class="cp-field" style="margin-bottom:14px">
+                <div class="cp-field-label">Group Name</div>
+                <input class="form-input" id="bg-edit-name" placeholder="e.g. HCEB, Kidango Group">
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+                <div class="cp-field">
+                  <div class="cp-field-label">Invoice Style</div>
+                  <select class="form-input" id="bg-edit-style">
+                    <option value="separate">Separate (per member)</option>
+                    <option value="consolidated">Consolidated (all on one)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="cp-field" style="margin-bottom:14px">
+                <div class="cp-field-label">Contacts <span style="font-weight:400;color:var(--gray-400)">(invoice recipients)</span></div>
+                <div id="bg-contacts-list"></div>
+                <button class="btn btn-ghost" style="margin-top:6px;font-size:12px;padding:4px 10px" onclick="addBgContact()">+ Add Contact</button>
+              </div>
+              <div class="cp-field" style="margin-bottom:14px">
+                <div class="cp-field-label">Email Subject Template</div>
+                <input class="form-input" id="bg-edit-subject" placeholder="Family Laundry Invoice — {{period}}">
+              </div>
+              <div class="cp-field" style="margin-bottom:14px">
+                <div class="cp-field-label">Email Body Template</div>
+                <textarea class="form-input" id="bg-edit-body" rows="6" placeholder="Hi Team,&#10;&#10;Please find attached..."></textarea>
+              </div>
+              <div class="cp-field" style="margin-bottom:14px">
+                <div class="cp-field-label">Notes <span style="font-weight:400;color:var(--gray-400)">(internal)</span></div>
+                <textarea class="form-input" id="bg-edit-notes" rows="2" placeholder="Internal notes about this group"></textarea>
+              </div>
+            </div>
+            <div class="modal-footer" style="display:flex;gap:8px;justify-content:space-between">
+              <button class="btn btn-ghost" id="bg-delete-btn" style="color:var(--red);display:none" onclick="deleteBillingGroup()">Delete Group</button>
+              <div style="display:flex;gap:8px;margin-left:auto">
+                <button class="btn btn-ghost" onclick="closeModal('edit-billing-group')">Cancel</button>
+                <button class="btn btn-primary" id="bg-save-btn" onclick="saveBillingGroup()">Save Group</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── ADD MEMBERS TO GROUP MODAL ── -->
+        <div class="modal-overlay" id="modal-add-group-members" style="display:none">
+          <div class="modal" style="max-width:480px">
+            <div class="modal-header">
+              <div class="modal-title">Add Members to <span id="bg-add-members-name"></span></div>
+              <button class="modal-close" onclick="closeModal('add-group-members')">&times;</button>
+            </div>
+            <div class="modal-body" style="padding:16px">
+              <div style="position:relative;margin-bottom:12px">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--gray-400)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input class="form-input" id="bg-member-search" placeholder="Search customers…" style="padding-left:32px;height:36px;font-size:13px" oninput="searchGroupMembers(this.value)">
+              </div>
+              <div id="bg-member-results" style="max-height:320px;overflow-y:auto"></div>
             </div>
           </div>
         </div>
@@ -3487,13 +3562,13 @@
   <!-- ── BILLING TAB ── -->
   <div class="cp-body" id="cptab-billing" style="display:none">
 
-    <!-- Billing Type + Payment Method -->
+    <!-- Billing Type + Payment Method + Billing Group -->
     <div class="cp-section-head"><span>Billing</span></div>
     <div class="cp-card">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
         <div class="cp-field">
           <div class="cp-field-label">Billing Type</div>
-          <select class="cp-input" id="cpb-billing-type">
+          <select class="cp-input" id="cpb-billing-type" onchange="document.getElementById('cpb-group-row').style.display=this.value==='on_account'?'':'none'">
             <option value="automatic">Automatic</option>
             <option value="on_account">On Account</option>
           </select>
@@ -3506,6 +3581,12 @@
             <option value="ach">ACH</option>
           </select>
         </div>
+      </div>
+      <div class="cp-field" id="cpb-group-row" style="margin-top:8px;display:none">
+        <div class="cp-field-label">Billing Group</div>
+        <select class="cp-input" id="cpb-billing-group">
+          <option value="">— None —</option>
+        </select>
       </div>
     </div>
 
@@ -14019,7 +14100,7 @@ ${oneCopy}
     document.getElementById('cp-add-addr-form').style.display = 'none';
 
     const { data: c } = await db.from('customers')
-      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id')
+      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, billing_group_id, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id')
       .eq('id', customerId).single();
     if (!c) return;
     _panelCustomerData = c;  // save for invoice generation
@@ -14086,6 +14167,7 @@ ${oneCopy}
     document.getElementById('cpb-billing-type').value   = c.billing_type    || 'automatic';
     document.getElementById('cpb-payment-method').value = c.payment_method  || 'credit_card';
     document.getElementById('cpb-fee-exempt').checked   = !!c.fee_exempt;
+    populateBillingGroupDropdown(c.billing_group_id);
     document.getElementById('cpb-credits-display').textContent = fmtMoney(c.credits || 0);
     document.getElementById('cpb-tip-amount').value     = c.default_tip     || 0;
     // Tip type toggle
@@ -14412,13 +14494,15 @@ ${oneCopy}
     if (!panelCustomerId) return;
     const btn = document.querySelector('#cptab-billing .cp-save-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    const billingType = document.getElementById('cpb-billing-type').value;
     const patch = {
-      billing_type:     document.getElementById('cpb-billing-type').value,
+      billing_type:     billingType,
       payment_method:   document.getElementById('cpb-payment-method').value,
       fee_exempt:       document.getElementById('cpb-fee-exempt').checked,
       default_tip:      parseFloat(document.getElementById('cpb-tip-amount').value) || 0,
       default_tip_type: _cpTipType,
       discount_id:      document.getElementById('cpb-discount').value || null,
+      billing_group_id: billingType === 'on_account' ? (document.getElementById('cpb-billing-group').value || null) : null,
       updated_at:       new Date().toISOString(),
     };
     const { error } = await db.from('customers').update(patch).eq('id', panelCustomerId);
@@ -17870,22 +17954,360 @@ ${oneCopy}
 
   // ── CUSTOMER LIST / MAP TOGGLE ──
   function setCustView(view){
-    const tableEl = document.getElementById('customers-table-body');
-    const mapEl   = document.getElementById('customers-map-view');
-    const btnList = document.getElementById('cust-view-list');
-    const btnMap  = document.getElementById('cust-view-map');
+    const tableEl  = document.getElementById('customers-table-body');
+    const mapEl    = document.getElementById('customers-map-view');
+    const groupsEl = document.getElementById('customers-groups-view');
+    const btnList   = document.getElementById('cust-view-list');
+    const btnMap    = document.getElementById('cust-view-map');
+    const btnGroups = document.getElementById('cust-view-groups');
+    const addBtn    = document.getElementById('cust-add-btn');
+    const searchRow = tableEl?.previousElementSibling?.previousElementSibling; // search + filter row
+    const zoneRow   = tableEl?.previousElementSibling; // zone filter row
+
+    // Hide all
+    tableEl.style.display  = 'none';
+    mapEl.style.display    = 'none';
+    groupsEl.style.display = 'none';
+    btnList.classList.remove('active');
+    btnMap.classList.remove('active');
+    btnGroups.classList.remove('active');
+
+    // Show/hide customer-specific filters
+    const custFilterRows = document.querySelectorAll('#page-customers .stats-grid, #page-customers [id="cust-filter-tabs"]');
+
     if(view==='map'){
-      tableEl.style.display = 'none';
-      mapEl.style.display   = 'block';
-      btnList.classList.remove('active');
+      mapEl.style.display = 'block';
       btnMap.classList.add('active');
+      addBtn.textContent = ' Add Customer';
+      addBtn.onclick = () => openModal('add-customer');
       setTimeout(()=>initCustMap(), 60);
+    } else if(view==='groups'){
+      groupsEl.style.display = 'block';
+      btnGroups.classList.add('active');
+      addBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New Group';
+      addBtn.onclick = () => openBillingGroupEditor(null);
+      loadBillingGroups();
     } else {
       tableEl.style.display = '';
-      mapEl.style.display   = 'none';
       btnList.classList.add('active');
-      btnMap.classList.remove('active');
+      addBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Customer';
+      addBtn.onclick = () => openModal('add-customer');
     }
+
+    // Hide search/filter rows in groups view
+    const filterBarEls = document.querySelectorAll('#page-customers .card > [style*="border-bottom"]');
+    filterBarEls.forEach(el => {
+      if (view === 'groups') el.style.display = 'none';
+      else el.style.display = '';
+    });
+    // Hide stats grid in groups view
+    const statsGrid = document.querySelector('#page-customers .stats-grid');
+    if (statsGrid) statsGrid.style.display = (view === 'groups') ? 'none' : '';
+    // Update card title
+    const cardTitle = document.querySelector('#page-customers .card-title');
+    if (cardTitle) cardTitle.textContent = view === 'groups' ? 'Billing Groups' : 'All Customers';
+    const cardSub = document.getElementById('cust-count-label');
+    if (cardSub) cardSub.style.display = view === 'groups' ? 'none' : '';
+  }
+
+  // ── BILLING GROUPS MANAGEMENT ──────────────────────────────────────
+  let _bgData = []; // cached billing groups with members
+  let _bgAddGroupId = null; // group id for "add members" modal
+
+  async function loadBillingGroups() {
+    const el = document.getElementById('billing-groups-list');
+    el.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
+
+    // Fetch groups
+    const { data: groups, error } = await db.from('billing_groups').select('*').order('name');
+    if (error) { el.innerHTML = `<div style="color:var(--red);padding:16px">${error.message}</div>`; return; }
+
+    // Fetch members (on_account customers with billing_group_id set)
+    const { data: members } = await db.from('customers')
+      .select('id, first_name_cache, last_name_cache, email_cache, phone_cache, billing_group_id, billing_type, total_orders, lifetime_value, last_order_at')
+      .not('billing_group_id', 'is', null);
+
+    // Attach members to groups
+    _bgData = (groups || []).map(g => ({
+      ...g,
+      members: (members || []).filter(m => m.billing_group_id === g.id)
+    }));
+
+    renderBillingGroups();
+  }
+
+  function renderBillingGroups() {
+    const el = document.getElementById('billing-groups-list');
+    if (!_bgData.length) {
+      el.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--gray-400)">
+        <div style="font-size:36px;margin-bottom:12px">📋</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px">No billing groups yet</div>
+        <div style="font-size:13px">Click <strong>New Group</strong> to create your first billing group.</div>
+      </div>`;
+      return;
+    }
+
+    el.innerHTML = _bgData.map(g => {
+      const memberCount = g.members.length;
+      const styleBadge = g.invoice_style === 'consolidated'
+        ? '<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;background:#dbeafe;color:#1d4ed8">Consolidated</span>'
+        : '<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;background:#f3e8ff;color:#7c3aed">Separate</span>';
+      const contactList = (g.contacts || []).map(c =>
+        `<span style="font-size:12px;color:var(--gray-600)">${esc(c.name)} &lt;${esc(c.email)}&gt;</span>`
+      ).join('<span style="color:var(--gray-300);margin:0 4px">·</span>');
+
+      const memberRows = g.members.map(m => {
+        const name = `${m.first_name_cache || ''} ${m.last_name_cache || ''}`.trim() || 'Unknown';
+        const ltv = Number(m.lifetime_value || 0);
+        return `<tr style="cursor:pointer" onclick="openCustomerPanel('${m.id}')">
+          <td style="padding:8px 12px;font-size:13px;font-weight:500;color:var(--gray-800)">${esc(name)}</td>
+          <td style="padding:8px 12px;font-size:12px;color:var(--gray-500)">${esc(m.email_cache || '—')}</td>
+          <td style="padding:8px 12px;font-size:12px;color:var(--gray-500)">${m.total_orders || 0} orders</td>
+          <td style="padding:8px 12px;font-size:12px;font-weight:600;color:var(--gray-700);text-align:right">${fmtMoney(ltv)}</td>
+          <td style="padding:8px 4px;text-align:center;width:32px">
+            <button onclick="event.stopPropagation();removeFromGroup('${m.id}','${g.id}')" style="background:none;border:none;cursor:pointer;color:var(--gray-300);font-size:14px;padding:2px;line-height:1;transition:color .15s" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--gray-300)'" title="Remove from group">✕</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+      return `<div style="background:white;border:1px solid var(--gray-200);border-radius:12px;margin-bottom:14px;overflow:hidden">
+        <!-- Group header -->
+        <div style="padding:16px 18px;display:flex;align-items:center;gap:12px;cursor:pointer" onclick="toggleBgExpand('${g.id}')">
+          <svg id="bg-chevron-${g.id}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" style="flex-shrink:0;transition:transform .2s;transform:rotate(0deg);color:var(--gray-400)"><polyline points="9 18 15 12 9 6"/></svg>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:15px;font-weight:700;color:var(--gray-900)">${esc(g.name)}</span>
+              ${styleBadge}
+              <span style="font-size:12px;color:var(--gray-400);font-weight:500">${memberCount} member${memberCount!==1?'s':''}</span>
+            </div>
+            <div style="margin-top:3px">${contactList || '<span style="font-size:12px;color:var(--gray-300);font-style:italic">No contacts</span>'}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0" onclick="event.stopPropagation()">
+            <button class="btn btn-ghost" style="padding:5px 10px;font-size:12px" onclick="openAddMembersModal('${g.id}')">+ Members</button>
+            <button class="btn btn-ghost" style="padding:5px 10px;font-size:12px" onclick="openBillingGroupEditor('${g.id}')">Edit</button>
+          </div>
+        </div>
+        <!-- Expandable member list -->
+        <div id="bg-members-${g.id}" style="display:none;border-top:1px solid var(--gray-100)">
+          ${memberCount === 0
+            ? `<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px">No members yet — click <strong>+ Members</strong> to add customers to this group.</div>`
+            : `<table style="width:100%;border-collapse:collapse">
+                <thead><tr style="background:var(--gray-50)">
+                  <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em">Name</th>
+                  <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em">Email</th>
+                  <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em">Orders</th>
+                  <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em">LTV</th>
+                  <th style="width:32px"></th>
+                </tr></thead>
+                <tbody>${memberRows}</tbody>
+              </table>`
+          }
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function toggleBgExpand(groupId) {
+    const el = document.getElementById('bg-members-' + groupId);
+    const chevron = document.getElementById('bg-chevron-' + groupId);
+    if (!el) return;
+    const open = el.style.display !== 'none';
+    el.style.display = open ? 'none' : '';
+    if (chevron) chevron.style.transform = open ? 'rotate(0deg)' : 'rotate(90deg)';
+  }
+
+  // ── Group Editor (Create / Edit) ──
+  function openBillingGroupEditor(groupId) {
+    const g = groupId ? _bgData.find(x => x.id === groupId) : null;
+    document.getElementById('bg-modal-title').textContent = g ? 'Edit Billing Group' : 'New Billing Group';
+    document.getElementById('bg-edit-id').value = g ? g.id : '';
+    document.getElementById('bg-edit-name').value = g ? g.name : '';
+    document.getElementById('bg-edit-style').value = g ? g.invoice_style : 'separate';
+    document.getElementById('bg-edit-subject').value = g ? (g.email_subject_template || '') : 'Family Laundry Invoice — {{period}}';
+    document.getElementById('bg-edit-body').value = g ? (g.email_body_template || '') : 'Hi,\n\nPlease find attached the Family Laundry invoices for the period {{period}}.\n\nLet me know if you have any questions.\n\nBest,\nDavid\nFamily Laundry\ninfo@familylaundry.com';
+    document.getElementById('bg-edit-notes').value = g ? (g.notes || '') : '';
+    document.getElementById('bg-delete-btn').style.display = g ? '' : 'none';
+
+    // Render contacts
+    _bgContacts = g ? JSON.parse(JSON.stringify(g.contacts || [])) : [{ name: '', email: '', role: 'primary' }];
+    renderBgContacts();
+
+    openModal('edit-billing-group');
+  }
+
+  let _bgContacts = [];
+
+  function renderBgContacts() {
+    const el = document.getElementById('bg-contacts-list');
+    el.innerHTML = _bgContacts.map((c, i) => `
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+        <input class="form-input" style="flex:1;height:32px;font-size:13px" placeholder="Name" value="${esc(c.name || '')}" onchange="_bgContacts[${i}].name=this.value">
+        <input class="form-input" style="flex:1.3;height:32px;font-size:13px" placeholder="email@example.com" value="${esc(c.email || '')}" onchange="_bgContacts[${i}].email=this.value">
+        <select class="form-input" style="width:90px;height:32px;font-size:12px" onchange="_bgContacts[${i}].role=this.value">
+          <option value="primary" ${c.role==='primary'?'selected':''}>Primary</option>
+          <option value="cc" ${c.role==='cc'?'selected':''}>CC</option>
+        </select>
+        <button onclick="_bgContacts.splice(${i},1);renderBgContacts()" style="background:none;border:none;cursor:pointer;color:var(--gray-300);font-size:16px;padding:0 2px;line-height:1;transition:color .15s" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--gray-300)'">&times;</button>
+      </div>
+    `).join('');
+  }
+
+  function addBgContact() {
+    _bgContacts.push({ name: '', email: '', role: 'cc' });
+    renderBgContacts();
+  }
+
+  async function saveBillingGroup() {
+    const id = document.getElementById('bg-edit-id').value;
+    const name = document.getElementById('bg-edit-name').value.trim();
+    if (!name) { showToast('Group name is required', 'error'); return; }
+
+    const btn = document.getElementById('bg-save-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+
+    const payload = {
+      name,
+      invoice_style: document.getElementById('bg-edit-style').value,
+      contacts: _bgContacts.filter(c => c.email),
+      email_subject_template: document.getElementById('bg-edit-subject').value.trim() || null,
+      email_body_template: document.getElementById('bg-edit-body').value || null,
+      notes: document.getElementById('bg-edit-notes').value.trim() || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    let error;
+    if (id) {
+      ({ error } = await db.from('billing_groups').update(payload).eq('id', id));
+    } else {
+      ({ error } = await db.from('billing_groups').insert(payload));
+    }
+
+    btn.disabled = false; btn.textContent = 'Save Group';
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    showToast(id ? 'Group updated' : 'Group created', 'success');
+    closeModal('edit-billing-group');
+    loadBillingGroups();
+  }
+
+  async function deleteBillingGroup() {
+    const id = document.getElementById('bg-edit-id').value;
+    if (!id) return;
+    const g = _bgData.find(x => x.id === id);
+    if (!confirm(`Delete "${g?.name || 'this group'}"? Members will be unlinked but not deleted.`)) return;
+
+    // Unlink members first
+    await db.from('customers').update({ billing_group_id: null }).eq('billing_group_id', id);
+    const { error } = await db.from('billing_groups').delete().eq('id', id);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    showToast('Group deleted', 'success');
+    closeModal('edit-billing-group');
+    loadBillingGroups();
+  }
+
+  // ── Add Members Modal ──
+  async function openAddMembersModal(groupId) {
+    _bgAddGroupId = groupId;
+    const g = _bgData.find(x => x.id === groupId);
+    document.getElementById('bg-add-members-name').textContent = g ? g.name : 'Group';
+    document.getElementById('bg-member-search').value = '';
+    document.getElementById('bg-member-results').innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px;text-align:center">Type to search customers…</div>';
+    openModal('add-group-members');
+    setTimeout(() => document.getElementById('bg-member-search').focus(), 100);
+  }
+
+  let _bgSearchTimeout = null;
+  function searchGroupMembers(q) {
+    clearTimeout(_bgSearchTimeout);
+    _bgSearchTimeout = setTimeout(() => _doSearchGroupMembers(q), 250);
+  }
+
+  async function _doSearchGroupMembers(q) {
+    const el = document.getElementById('bg-member-results');
+    q = (q || '').trim().toLowerCase();
+    if (!q || q.length < 2) {
+      el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px;text-align:center">Type at least 2 characters…</div>';
+      return;
+    }
+    el.innerHTML = '<div style="padding:12px;color:var(--gray-400);font-size:13px;text-align:center">Searching…</div>';
+
+    const { data: results } = await db.from('customers')
+      .select('id, first_name_cache, last_name_cache, email_cache, phone_cache, billing_group_id, billing_type')
+      .or(`first_name_cache.ilike.%${q}%,last_name_cache.ilike.%${q}%,email_cache.ilike.%${q}%,phone_cache.ilike.%${q}%`)
+      .order('last_name_cache')
+      .limit(20);
+
+    if (!results || !results.length) {
+      el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px;text-align:center">No customers found</div>';
+      return;
+    }
+
+    // Find which group we're adding to
+    const g = _bgData.find(x => x.id === _bgAddGroupId);
+    const existingIds = new Set((g?.members || []).map(m => m.id));
+
+    el.innerHTML = results.map(c => {
+      const name = `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || 'Unknown';
+      const inThisGroup = existingIds.has(c.id);
+      const inOtherGroup = c.billing_group_id && c.billing_group_id !== _bgAddGroupId;
+      const otherGroupName = inOtherGroup ? (_bgData.find(x => x.id === c.billing_group_id)?.name || 'another group') : '';
+
+      let actionHtml;
+      if (inThisGroup) {
+        actionHtml = '<span style="font-size:11px;font-weight:600;color:var(--green);padding:4px 10px">Already member</span>';
+      } else if (inOtherGroup) {
+        actionHtml = `<button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;color:var(--amber-600)" onclick="addToGroup('${c.id}','${_bgAddGroupId}',true)" title="Move from ${esc(otherGroupName)}">Move here</button>`;
+      } else {
+        actionHtml = `<button class="btn btn-primary" style="font-size:11px;padding:4px 10px" onclick="addToGroup('${c.id}','${_bgAddGroupId}',false)">Add</button>`;
+      }
+
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--gray-100)">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--gray-800)">${esc(name)}</div>
+          <div style="font-size:12px;color:var(--gray-500)">${esc(c.email_cache || c.phone_cache || '—')}${inOtherGroup ? ` · <span style="color:var(--amber-600)">in ${esc(otherGroupName)}</span>` : ''}</div>
+        </div>
+        ${actionHtml}
+      </div>`;
+    }).join('');
+  }
+
+  async function addToGroup(customerId, groupId, isMove) {
+    const { error } = await db.from('customers').update({
+      billing_group_id: groupId,
+      billing_type: 'on_account',
+      updated_at: new Date().toISOString()
+    }).eq('id', customerId);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    showToast(isMove ? 'Customer moved to group' : 'Customer added to group', 'success');
+    // Refresh the search results and groups list
+    loadBillingGroups();
+    const q = document.getElementById('bg-member-search')?.value || '';
+    if (q.length >= 2) setTimeout(() => _doSearchGroupMembers(q), 300);
+  }
+
+  async function removeFromGroup(customerId, groupId) {
+    if (!confirm('Remove this customer from the group?')) return;
+    const { error } = await db.from('customers').update({
+      billing_group_id: null,
+      updated_at: new Date().toISOString()
+    }).eq('id', customerId);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    showToast('Removed from group', 'success');
+    loadBillingGroups();
+  }
+
+  // ── Billing Group dropdown in customer panel ──
+  async function populateBillingGroupDropdown(currentGroupId) {
+    const sel = document.getElementById('cpb-billing-group');
+    const row = document.getElementById('cpb-group-row');
+    if (!sel || !row) return;
+    const billingType = document.getElementById('cpb-billing-type')?.value;
+    // Only show for on_account customers
+    row.style.display = (billingType === 'on_account') ? '' : 'none';
+
+    const { data: groups } = await db.from('billing_groups').select('id, name').order('name');
+    sel.innerHTML = '<option value="">— None —</option>'
+      + (groups || []).map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+    sel.value = currentGroupId || '';
   }
 
   function initCustMap(){
