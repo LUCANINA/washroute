@@ -2100,11 +2100,11 @@
                 <table class="rpt-drv-tbl">
                   <thead>
                     <tr>
-                      <th>Driver</th>
-                      <th>Stops</th>
-                      <th>Bags Hauled</th>
-                      <th>Hours Worked</th>
-                      <th>Stops/Hr</th>
+                      <th style="cursor:pointer;user-select:none" onclick="sortDriverReport('name')">Driver <span id="drv-sort-name" style="font-size:10px;color:var(--gray-400)"></span></th>
+                      <th style="cursor:pointer;user-select:none" onclick="sortDriverReport('stops')">Stops <span id="drv-sort-stops" style="font-size:10px;color:var(--gray-400)"></span></th>
+                      <th style="cursor:pointer;user-select:none" onclick="sortDriverReport('bags')">Bags Hauled <span id="drv-sort-bags" style="font-size:10px;color:var(--gray-400)"></span></th>
+                      <th style="cursor:pointer;user-select:none" onclick="sortDriverReport('hrs')">Hours Worked <span id="drv-sort-hrs" style="font-size:10px;color:var(--gray-400)"></span></th>
+                      <th style="cursor:pointer;user-select:none" onclick="sortDriverReport('stopsPerHr')">Stops/Hr <span id="drv-sort-stopsPerHr" style="font-size:10px;color:var(--gray-400)"></span></th>
                     </tr>
                   </thead>
                   <tbody id="rpt-drv-tbody">
@@ -21318,6 +21318,126 @@ ${oneCopy}
     }).join('');
   }
 
+  // ── DRIVER REPORT SORTING ──
+  let _drvSortCol = 'stops';
+  let _drvSortAsc = false; // default: descending (largest first)
+  let _drvSortedRows = []; // cached for re-sorting
+
+  function sortDriverReport(col) {
+    if (_drvSortCol === col) { _drvSortAsc = !_drvSortAsc; }
+    else { _drvSortCol = col; _drvSortAsc = col === 'name'; } // alpha defaults asc, numbers desc
+
+    if (!_driverReportData?.rows?.length) return;
+
+    const driverHoursMap = {};
+    _driverReportData.rows.forEach(r => { driverHoursMap[r.name] = r.hrs; });
+
+    const sorted = [..._driverReportData.rows].sort((a, b) => {
+      let va, vb;
+      switch(col) {
+        case 'name': va = a.name.toLowerCase(); vb = b.name.toLowerCase(); break;
+        case 'stops': va = a.stops; vb = b.stops; break;
+        case 'bags': va = a.bags || 0; vb = b.bags || 0; break;
+        case 'hrs': va = a.hrs ?? -1; vb = b.hrs ?? -1; break;
+        case 'stopsPerHr':
+          va = (a.hrs != null && a.hrs > 0) ? a.stops / a.hrs : -1;
+          vb = (b.hrs != null && b.hrs > 0) ? b.stops / b.hrs : -1;
+          break;
+        default: va = 0; vb = 0;
+      }
+      if (va < vb) return _drvSortAsc ? -1 : 1;
+      if (va > vb) return _drvSortAsc ? 1 : -1;
+      return 0;
+    });
+
+    // Update sort indicators
+    ['name','stops','bags','hrs','stopsPerHr'].forEach(c => {
+      const el = document.getElementById('drv-sort-' + c);
+      if (el) el.textContent = c === _drvSortCol ? (_drvSortAsc ? '▲' : '▼') : '';
+    });
+
+    const tbody = document.getElementById('rpt-drv-tbody');
+    tbody.innerHTML = sorted.map(r => {
+      const hrsCell = r.hrs != null
+        ? `<span style="font-weight:600">${r.hrs.toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> hrs</span>`
+        : `<span style="color:var(--gray-300)">—</span>`;
+      const stopsPerHr = (r.hrs != null && r.stops > 0)
+        ? `<span style="font-weight:600">${(r.stops / r.hrs).toFixed(1)}</span>`
+        : `<span style="color:var(--gray-300)">—</span>`;
+      return `<tr>
+        <td style="font-weight:600">${r.name}</td>
+        <td>${r.stops.toLocaleString() || '—'}</td>
+        <td style="color:var(--gray-600)">${r.bags ? r.bags.toLocaleString() : '—'}</td>
+        <td>${hrsCell}</td>
+        <td>${stopsPerHr}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── LAUNDERER REPORT SORTING ──
+  let _lndrSortCol = 'orders';
+  let _lndrSortAsc = false;
+
+  function sortLaundererReport(col) {
+    if (_lndrSortCol === col) { _lndrSortAsc = !_lndrSortAsc; }
+    else { _lndrSortCol = col; _lndrSortAsc = col === 'name'; }
+
+    if (!_laundererReportData?.rows?.length) return;
+
+    const sorted = [..._laundererReportData.rows].sort((a, b) => {
+      let va, vb;
+      switch(col) {
+        case 'name': va = a.name.toLowerCase(); vb = b.name.toLowerCase(); break;
+        case 'orders': va = a.orders; vb = b.orders; break;
+        case 'bags': va = a.bags; vb = b.bags; break;
+        case 'lbs': va = a.lbs; vb = b.lbs; break;
+        case 'hrs': va = a.hrs ?? -1; vb = b.hrs ?? -1; break;
+        case 'lbsPerHr':
+          va = (a.hrs != null && a.hrs > 0) ? a.lbs / a.hrs : -1;
+          vb = (b.hrs != null && b.hrs > 0) ? b.lbs / b.hrs : -1;
+          break;
+        default: va = 0; vb = 0;
+      }
+      if (va < vb) return _lndrSortAsc ? -1 : 1;
+      if (va > vb) return _lndrSortAsc ? 1 : -1;
+      return 0;
+    });
+
+    // Update sort indicators
+    ['name','orders','bags','lbs','hrs','lbsPerHr'].forEach(c => {
+      const el = document.getElementById('lndr-sort-' + c);
+      if (el) el.textContent = c === _lndrSortCol ? (_lndrSortAsc ? '▲' : '▼') : '';
+    });
+
+    const fmtLbs   = n => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+    const fmtHrs   = h => h != null
+      ? `<span style="font-weight:600">${h.toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> hrs</span>`
+      : `<span style="color:var(--gray-300)">—</span>`;
+    const fmtLbsHr = (lbs, hrs) => (hrs != null && hrs > 0 && lbs > 0)
+      ? `<span style="font-weight:600">${(lbs / hrs).toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> lbs/hr</span>`
+      : `<span style="color:var(--gray-300)">—</span>`;
+
+    const unassigned = _laundererReportData.unassigned;
+    const tbody = document.querySelector('#lndr-report-table tbody');
+    if (!tbody) return;
+
+    tbody.innerHTML = sorted.map(r => `<tr>
+      <td>${r.name}</td>
+      <td>${r.orders.toLocaleString()}</td>
+      <td>${r.bags.toLocaleString()}</td>
+      <td>${fmtLbs(r.lbs)}</td>
+      <td>${fmtHrs(r.hrs)}</td>
+      <td>${fmtLbsHr(r.lbs, r.hrs)}</td>
+    </tr>`).join('') + (unassigned.orders > 0 ? `<tr style="color:var(--gray-400);font-style:italic">
+      <td>Unassigned</td>
+      <td>${unassigned.orders.toLocaleString()}</td>
+      <td>${unassigned.bags.toLocaleString()}</td>
+      <td>${fmtLbs(unassigned.lbs)}</td>
+      <td><span style="color:var(--gray-300)">—</span></td>
+      <td><span style="color:var(--gray-300)">—</span></td>
+    </tr>` : '');
+  }
+
   function exportDriverCSV() {
     if (!_driverReportData?.rows?.length) return;
     const { rows, from, to } = _driverReportData;
@@ -22295,15 +22415,15 @@ ${oneCopy}
       : `<span style="color:var(--gray-300)">—</span>`;
 
     body.innerHTML = `
-      <table class="rev-tbl">
+      <table class="rev-tbl" id="lndr-report-table">
         <thead>
           <tr>
-            <th style="text-align:left">Folder</th>
-            <th>Orders</th>
-            <th>Bags</th>
-            <th>Pounds</th>
-            <th>Hours Worked</th>
-            <th>Lbs/Hr</th>
+            <th style="text-align:left;cursor:pointer;user-select:none" onclick="sortLaundererReport('name')">Folder <span id="lndr-sort-name" style="font-size:10px;color:var(--gray-400)"></span></th>
+            <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('orders')">Orders <span id="lndr-sort-orders" style="font-size:10px;color:var(--gray-400)"></span></th>
+            <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('bags')">Bags <span id="lndr-sort-bags" style="font-size:10px;color:var(--gray-400)"></span></th>
+            <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('lbs')">Pounds <span id="lndr-sort-lbs" style="font-size:10px;color:var(--gray-400)"></span></th>
+            <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('hrs')">Hours Worked <span id="lndr-sort-hrs" style="font-size:10px;color:var(--gray-400)"></span></th>
+            <th style="cursor:pointer;user-select:none" onclick="sortLaundererReport('lbsPerHr')">Lbs/Hr <span id="lndr-sort-lbsPerHr" style="font-size:10px;color:var(--gray-400)"></span></th>
           </tr>
         </thead>
         <tbody>
