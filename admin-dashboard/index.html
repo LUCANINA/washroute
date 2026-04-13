@@ -6864,6 +6864,7 @@
 
   async function loadOrders(statusFilter) {
     currentOrderFilter = statusFilter || 'scheduled';
+    _ordersDisplayCount = ORDERS_PAGE_SIZE; // reset pagination on tab switch
     // Default sort when changing tabs: scheduled by pickup ASC, delivered by pickup DESC, else pickup ASC
     if (statusFilter !== undefined) {
       orderSortCol = 'pickup_window_start';
@@ -7097,6 +7098,15 @@
       orderSortCol = col;
       orderSortDir = 'asc';
     }
+    _ordersDisplayCount = ORDERS_PAGE_SIZE;
+    renderOrders(getFilteredOrders());
+  }
+
+  const ORDERS_PAGE_SIZE = 100;
+  let _ordersDisplayCount = ORDERS_PAGE_SIZE;
+
+  function showMoreOrders() {
+    _ordersDisplayCount += ORDERS_PAGE_SIZE;
     renderOrders(getFilteredOrders());
   }
 
@@ -7115,6 +7125,8 @@
       return;
     }
     const sorted = sortOrders(data);
+    const visible = sorted.slice(0, _ordersDisplayCount);
+    const remaining = sorted.length - visible.length;
     const thSort = (col, label) => {
       const cls = orderSortCol === col
         ? `th-sort ${orderSortDir === 'asc' ? 'sort-asc' : 'sort-desc'}`
@@ -7132,7 +7144,7 @@
         ${thSort('total_amount','Total')}
         ${['issues','in_process','ready','delivered'].includes(currentOrderFilter) ? '<th style="padding-right:10px"></th>' : ''}
       </tr></thead><tbody>
-      ${sorted.map(o => {
+      ${visible.map(o => {
         const custId = o.customers?.id || '';
         const bags = o.total_bags != null ? o.total_bags : (o.weight_lbs != null ? Number(o.weight_lbs) : '—');
         const bagsDisplay = bags === '—'
@@ -7160,7 +7172,10 @@
           ${showAction ? `<td style="padding:8px 10px 8px 2px;white-space:nowrap" onclick="event.stopPropagation()">${actionCell}</td>` : ''}
         </tr>`;
       }).join('')}
-    </tbody></table>`;
+    </tbody></table>
+    ${remaining > 0 ? `<div style="text-align:center;padding:16px 0">
+      <button class="btn" onclick="showMoreOrders()" style="font-size:13px;padding:8px 24px;color:var(--gray-600)">Show ${Math.min(remaining, ORDERS_PAGE_SIZE)} more${remaining > ORDERS_PAGE_SIZE ? ` of ${remaining}` : ''}</button>
+    </div>` : ''}`;
   }
 
   // ── BATCH BAR HELPERS ──
