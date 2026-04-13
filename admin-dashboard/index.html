@@ -10213,6 +10213,10 @@ ${oneCopy}
   function esc(s) {
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
+  /** Escape for use inside JS string literals within onclick HTML attributes */
+  function escJS(s) {
+    return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"');
+  }
 
   function inboxTimeAgo(iso) {
     const diff = (Date.now() - new Date(iso)) / 1000;
@@ -10949,7 +10953,7 @@ ${oneCopy}
       const phone = c.phone || c.phone_cache || '';
       return `<div style="padding:8px 12px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--gray-100);"
         onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background=''"
-        onclick="smsComposePickCustomer('${esc(name)}','${esc(phone)}')">
+        onclick="smsComposePickCustomer('${escJS(name)}','${escJS(phone)}')">
         <span style="font-weight:600;color:var(--gray-800)">${esc(name)}</span>
         <span style="font-size:11px;color:var(--gray-400)">${esc(phone || 'no phone')}</span>
       </div>`;
@@ -11517,7 +11521,7 @@ ${oneCopy}
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
         </div>
-        <button class="svc-del-btn" onclick="confirmDeleteService('${s.id}','${esc(s.name)}')" title="Delete">
+        <button class="svc-del-btn" onclick="confirmDeleteService('${escJS(s.id)}','${escJS(s.name)}')" title="Delete">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
         </button>
       </div>
