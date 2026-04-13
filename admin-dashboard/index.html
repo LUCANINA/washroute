@@ -22564,22 +22564,31 @@ ${orderSections}
     // Strip the no-print toolbar from the HTML before rendering
     const cleanHtml = htmlStr.replace(/<div class="no-print"[\s\S]*?<\/div>\s*/, '');
 
-    // Create a visible (but behind-everything) container so html2canvas can capture it
+    // Render in a container that is behind all page content but fully opaque
+    // (html2canvas respects opacity — opacity:0 produces a blank capture)
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;overflow:hidden;z-index:-1;';
     const container = document.createElement('div');
-    container.style.cssText = 'position:absolute;top:0;left:0;width:800px;z-index:-9999;opacity:0;pointer-events:none;';
+    container.style.cssText = 'width:800px;padding:40px;background:#fff;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#111;';
+    wrapper.appendChild(container);
     // Extract body content and inject with inline styles preserved
     const bodyMatch = cleanHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     container.innerHTML = bodyMatch ? bodyMatch[1] : cleanHtml;
-    document.body.appendChild(container);
+    document.body.appendChild(wrapper);
 
-    // Brief pause to let the browser layout the content
-    await new Promise(r => setTimeout(r, 100));
+    // Let the browser fully lay out the content before capturing
+    await new Promise(r => setTimeout(r, 200));
+
+    // Temporarily make wrapper visible for capture (overflow:visible so html2canvas can see it)
+    wrapper.style.overflow = 'visible';
+    wrapper.style.width = '800px';
+    wrapper.style.height = 'auto';
 
     try {
       const opt = {
         margin: [0.3, 0.3, 0.3, 0.3],
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false, width: 800, windowWidth: 800 },
+        html2canvas: { scale: 2, useCORS: true, logging: false, width: 800, scrollY: 0, windowWidth: 800 },
         jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
       };
       const pdfBlob = await html2pdf().set(opt).from(container).outputPdf('blob');
@@ -22590,7 +22599,7 @@ ${orderSections}
         reader.readAsDataURL(pdfBlob);
       });
     } finally {
-      document.body.removeChild(container);
+      document.body.removeChild(wrapper);
     }
   }
 
