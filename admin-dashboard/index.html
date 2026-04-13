@@ -21282,6 +21282,8 @@ ${oneCopy}
     if (!rows.length) {
       tbody.innerHTML = '<tr><td colspan="5" class="rpt-no-data">No route data for this period.</td></tr>';
       if (exportBtn) exportBtn.style.display = 'none';
+      if (stopsEl) stopsEl.textContent = '—';
+      const sphEl2 = document.getElementById('rpt-drv-stops-per-hr'); if (sphEl2) sphEl2.textContent = '—';
       _driverReportData = null;
       return;
     }
@@ -22389,6 +22391,8 @@ ${oneCopy}
 
     if (!rows.length && !unassigned.orders) {
       body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>';
+      const lbsEl = document.getElementById('rpt-lndr-lbs'); if (lbsEl) lbsEl.textContent = '—';
+      const lbsHrEl = document.getElementById('rpt-lndr-lbs-per-hr'); if (lbsHrEl) lbsHrEl.textContent = '—';
       return;
     }
 
