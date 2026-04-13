@@ -2139,7 +2139,7 @@
 
           <!-- ── TAB: LAUNDERER ── -->
           <div id="rpttab-launderer" style="display:none">
-            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
               <div class="stat-card">
                 <div class="stat-label">Lbs. Processed</div>
                 <div class="stat-value" id="rpt-lndr-lbs">—</div>
@@ -2147,6 +2147,14 @@
               <div class="stat-card">
                 <div class="stat-label">Avg Lbs./Hr</div>
                 <div class="stat-value" id="rpt-lndr-lbs-per-hr">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Tech I — Lbs./Hr</div>
+                <div class="stat-value" id="rpt-lndr-t1-lbs-per-hr">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Tech II — Lbs./Hr</div>
+                <div class="stat-value" id="rpt-lndr-t2-lbs-per-hr">—</div>
               </div>
             </div>
             <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
@@ -22393,6 +22401,8 @@ ${oneCopy}
       body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>';
       const lbsEl = document.getElementById('rpt-lndr-lbs'); if (lbsEl) lbsEl.textContent = '—';
       const lbsHrEl = document.getElementById('rpt-lndr-lbs-per-hr'); if (lbsHrEl) lbsHrEl.textContent = '—';
+      const t1El = document.getElementById('rpt-lndr-t1-lbs-per-hr'); if (t1El) t1El.textContent = '—';
+      const t2El = document.getElementById('rpt-lndr-t2-lbs-per-hr'); if (t2El) t2El.textContent = '—';
       return;
     }
 
@@ -22413,6 +22423,19 @@ ${oneCopy}
       let trackedLbs = 0, trackedHrs = 0;
       rows.forEach(r => { if (r.hrs != null && r.lbs > 0) { trackedLbs += r.lbs; trackedHrs += r.hrs; } });
       lbsHrEl.textContent = (trackedHrs > 0) ? (trackedLbs / trackedHrs).toFixed(1) : '—';
+    }
+    // Per-title KPI cards
+    const t1El = document.getElementById('rpt-lndr-t1-lbs-per-hr');
+    const t2El = document.getElementById('rpt-lndr-t2-lbs-per-hr');
+    if (t1El || t2El) {
+      let t1Lbs = 0, t1Hrs = 0, t2Lbs = 0, t2Hrs = 0;
+      rows.forEach(r => {
+        if (r.hrs == null || r.lbs <= 0) return;
+        if (r.title && r.title.includes('II')) { t2Lbs += r.lbs; t2Hrs += r.hrs; }
+        else if (r.title && r.title.includes('I')) { t1Lbs += r.lbs; t1Hrs += r.hrs; }
+      });
+      if (t1El) t1El.textContent = (t1Hrs > 0) ? (t1Lbs / t1Hrs).toFixed(1) : '—';
+      if (t2El) t2El.textContent = (t2Hrs > 0) ? (t2Lbs / t2Hrs).toFixed(1) : '—';
     }
 
     const fmtLbs    = n => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
