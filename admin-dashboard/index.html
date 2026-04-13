@@ -21936,16 +21936,21 @@ ${oneCopy}
 
   let oaData = [];
   let _oaReportRows = [];
+  let _oaBillingGroups = [];
 
   async function loadOnAccountReport() {
     // Use the shared Reports date pickers
     const startVal = document.getElementById('rpt-from').value;
     const endVal = document.getElementById('rpt-to').value;
 
+    // Fetch billing groups
+    const { data: groups } = await db.from('billing_groups').select('*').order('name');
+    _oaBillingGroups = groups || [];
+
     // Build query — fetch all delivered/ready orders for on_account customers
     // Filter by pickup_window_start (actual service date) not created_at (import date)
     let query = db.from('orders')
-      .select('id, order_number, total_amount, status, billing_status, paid_at, actual_delivery_at, created_at, pickup_window_start, customer_id, customers!inner(id, first_name_cache, last_name_cache, billing_type)')
+      .select('id, order_number, total_amount, status, billing_status, paid_at, actual_delivery_at, created_at, pickup_window_start, customer_id, customers!inner(id, first_name_cache, last_name_cache, billing_type, billing_group_id)')
       .eq('customers.billing_type', 'on_account')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery', 'picked_up', 'processing', 'folding', 'scheduled'])
       .order('pickup_window_start', { ascending: false });
@@ -21988,6 +21993,7 @@ ${oneCopy}
         const c = o.customers;
         byCustomer[cid] = {
           name: c ? ((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() : 'Unknown',
+          groupId: c?.billing_group_id || null,
           orders: 0, invoiced: 0, paid: 0, outstanding: 0,
           aging: { current: 0, d30: 0, d60: 0, d90: 0 }
         };
@@ -22006,35 +22012,53 @@ ${oneCopy}
       }
     });
 
-    const rows = Object.entries(byCustomer)
+    const allRows = Object.entries(byCustomer)
       .sort((a, b) => b[1].outstanding - a[1].outstanding);
 
     // Store for CSV export
-    _oaReportRows = rows;
+    _oaReportRows = allRows;
 
     // Show/hide export button
     const exportBtn = document.getElementById('oa-export-btn');
-    if (exportBtn) exportBtn.style.display = rows.length ? '' : 'none';
+    if (exportBtn) exportBtn.style.display = allRows.length ? '' : 'none';
 
     // KPI cards
-    document.getElementById('oa-cust-count').textContent = rows.length;
-    document.getElementById('oa-total-invoiced').textContent = fmtMoney(rows.reduce((s, [, r]) => s + r.invoiced, 0));
-    document.getElementById('oa-total-paid').textContent = fmtMoney(rows.reduce((s, [, r]) => s + r.paid, 0));
-    document.getElementById('oa-outstanding').textContent = fmtMoney(rows.reduce((s, [, r]) => s + r.outstanding, 0));
+    document.getElementById('oa-cust-count').textContent = allRows.length;
+    document.getElementById('oa-total-invoiced').textContent = fmtMoney(allRows.reduce((s, [, r]) => s + r.invoiced, 0));
+    document.getElementById('oa-total-paid').textContent = fmtMoney(allRows.reduce((s, [, r]) => s + r.paid, 0));
+    document.getElementById('oa-outstanding').textContent = fmtMoney(allRows.reduce((s, [, r]) => s + r.outstanding, 0));
 
     // Summary table
     const tbody = document.getElementById('oa-summary-tbody');
-    if (rows.length === 0) {
+    if (allRows.length === 0) {
       tbody.innerHTML = '<tr><td colspan="9" class="rpt-no-data">No on-account orders in this period</td></tr>';
       document.getElementById('oa-summary-tfoot').innerHTML = '';
       return;
     }
 
-    tbody.innerHTML = rows.map(([cid, r]) => {
+    // Separate grouped vs ungrouped customers
+    const groupMap = {};
+    _oaBillingGroups.forEach(g => { groupMap[g.id] = g; });
+
+    const grouped = {};   // groupId -> [rows]
+    const ungrouped = []; // standalone accounts
+    allRows.forEach(row => {
+      const gid = row[1].groupId;
+      if (gid && groupMap[gid]) {
+        if (!grouped[gid]) grouped[gid] = [];
+        grouped[gid].push(row);
+      } else {
+        ungrouped.push(row);
+      }
+    });
+
+    // Helper to render a customer row
+    const agingWarn = (v) => v > 0 ? `style="color:var(--red)"` : '';
+    const custRow = (cid, r, indent) => {
       const outStyle = r.outstanding > 0 ? 'color:var(--red);font-weight:600' : 'color:var(--green)';
-      const agingWarn = (v) => v > 0 ? `style="color:var(--red)"` : '';
+      const pad = indent ? 'padding-left:28px;' : '';
       return `<tr>
-        <td><strong>${r.name}</strong></td>
+        <td style="${pad}">${indent ? '' : '<strong>'}${esc(r.name)}${indent ? '' : '</strong>'}</td>
         <td style="text-align:right">${r.orders}</td>
         <td style="text-align:right">${fmtMoney(r.invoiced)}</td>
         <td style="text-align:right;color:var(--green)">${fmtMoney(r.paid)}</td>
@@ -22044,10 +22068,63 @@ ${oneCopy}
         <td style="text-align:right" ${agingWarn(r.aging.d60)}>${r.aging.d60 > 0 ? fmtMoney(r.aging.d60) : '—'}</td>
         <td style="text-align:right" ${agingWarn(r.aging.d90)}>${r.aging.d90 > 0 ? fmtMoney(r.aging.d90) : '—'}</td>
       </tr>`;
-    }).join('');
+    };
 
-    // Totals row
-    const totals = rows.reduce((t, [, r]) => {
+    let html = '';
+
+    // Render grouped sections
+    const groupIds = Object.keys(grouped).sort((a, b) => {
+      const ga = groupMap[a], gb = groupMap[b];
+      // Sort groups by outstanding desc
+      const outA = grouped[a].reduce((s, [, r]) => s + r.outstanding, 0);
+      const outB = grouped[b].reduce((s, [, r]) => s + r.outstanding, 0);
+      return outB - outA;
+    });
+
+    groupIds.forEach(gid => {
+      const g = groupMap[gid];
+      const members = grouped[gid];
+      const sub = members.reduce((t, [, r]) => {
+        t.orders += r.orders; t.invoiced += r.invoiced; t.paid += r.paid; t.outstanding += r.outstanding;
+        t.current += r.aging.current; t.d30 += r.aging.d30; t.d60 += r.aging.d60; t.d90 += r.aging.d90;
+        return t;
+      }, { orders: 0, invoiced: 0, paid: 0, outstanding: 0, current: 0, d30: 0, d60: 0, d90: 0 });
+
+      const outStyle = sub.outstanding > 0 ? 'color:var(--red);font-weight:700' : 'color:var(--green);font-weight:700';
+      const badge = g.invoice_style === 'consolidated' ? 'Consolidated' : 'Separate';
+      const badgeColor = g.invoice_style === 'consolidated' ? 'var(--blue)' : 'var(--purple,#7c3aed)';
+
+      // Group header row
+      html += `<tr style="background:var(--gray-50);border-top:2px solid var(--gray-200)">
+        <td style="font-weight:700;font-size:13px">
+          ${esc(g.name)}
+          <span style="font-size:10px;font-weight:500;padding:2px 6px;border-radius:4px;background:${badgeColor};color:#fff;margin-left:6px;vertical-align:middle">${badge}</span>
+        </td>
+        <td style="text-align:right;font-weight:700">${sub.orders}</td>
+        <td style="text-align:right;font-weight:700">${fmtMoney(sub.invoiced)}</td>
+        <td style="text-align:right;font-weight:700;color:var(--green)">${fmtMoney(sub.paid)}</td>
+        <td style="text-align:right;${outStyle}">${fmtMoney(sub.outstanding)}</td>
+        <td style="text-align:right;font-weight:700" ${agingWarn(sub.current)}>${sub.current > 0 ? fmtMoney(sub.current) : '—'}</td>
+        <td style="text-align:right;font-weight:700" ${agingWarn(sub.d30)}>${sub.d30 > 0 ? fmtMoney(sub.d30) : '—'}</td>
+        <td style="text-align:right;font-weight:700" ${agingWarn(sub.d60)}>${sub.d60 > 0 ? fmtMoney(sub.d60) : '—'}</td>
+        <td style="text-align:right;font-weight:700" ${agingWarn(sub.d90)}>${sub.d90 > 0 ? fmtMoney(sub.d90) : '—'}</td>
+      </tr>`;
+
+      // Member rows (indented)
+      members.sort((a, b) => b[1].outstanding - a[1].outstanding);
+      members.forEach(([cid, r]) => { html += custRow(cid, r, true); });
+    });
+
+    // Render ungrouped standalone accounts
+    if (ungrouped.length && groupIds.length) {
+      html += `<tr style="border-top:2px solid var(--gray-200)"><td colspan="9" style="font-weight:700;font-size:13px;padding-top:12px;background:var(--gray-50)">Standalone Accounts</td></tr>`;
+    }
+    ungrouped.forEach(([cid, r]) => { html += custRow(cid, r, false); });
+
+    tbody.innerHTML = html;
+
+    // Grand totals row
+    const totals = allRows.reduce((t, [, r]) => {
       t.orders += r.orders; t.invoiced += r.invoiced; t.paid += r.paid; t.outstanding += r.outstanding;
       t.current += r.aging.current; t.d30 += r.aging.d30; t.d60 += r.aging.d60; t.d90 += r.aging.d90;
       return t;
