@@ -19,7 +19,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://js.stripe.com/v3/"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc&libraries=geocoding"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -22568,48 +22568,156 @@ ${orderSections}
     }
   }
 
-  // Convert invoice HTML string to PDF base64 using html2pdf.js
-  async function invoiceHtmlToPdfBase64(htmlStr) {
-    // Strip the no-print toolbar from the HTML before rendering
-    const cleanHtml = htmlStr.replace(/<div class="no-print"[\s\S]*?<\/div>\s*/, '');
+  // Build a PDF directly from invoice data using jsPDF (no screenshots)
+  function buildInvoicePdfBase64(title, orders, period, groupName) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'letter', orientation: 'portrait' });
+    const pw = 215.9, ph = 279.4; // letter size in mm
+    const ml = 18, mr = 18; // left/right margins
+    const cw = pw - ml - mr; // content width
+    let y = 0;
 
-    // Use an iframe so the invoice HTML renders in its own document context
-    // with its own styles — avoids layout conflicts with the dashboard page
-    const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;top:0;left:0;width:816px;height:1056px;z-index:-1;border:none;background:#ffffff;';
-    document.body.appendChild(iframe);
+    // Helper: add new page if needed
+    function needPage(h) { if (y + h > ph - 15) { doc.addPage(); y = 15; } }
+    // Helper: right-aligned text
+    function rText(txt, yy) { doc.text(txt, pw - mr, yy, { align: 'right' }); }
+    // Helper: draw a line
+    function hLine(yy, color) { doc.setDrawColor(...(color||[200,200,200])); doc.setLineWidth(0.3); doc.line(ml, yy, pw - mr, yy); }
 
-    // Write the full HTML document into the iframe
-    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-    iframeDoc.open();
-    iframeDoc.write(cleanHtml);
-    iframeDoc.close();
+    // ── DARK HEADER BAR ──
+    doc.setFillColor(31, 41, 55);
+    doc.rect(0, 0, pw, 28, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+    doc.text('Family Laundry', ml, 10);
+    doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+    doc.text('5215 Genoa St, Oakland CA 94608', ml, 15);
+    doc.text('(510) 842-3560  •  info@familylaundry.com', ml, 19);
+    // Right side
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    rText('INVOICE', 10);
+    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const dueDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+    rText('Statement Date: ' + today, 15);
+    rText('Due Date: ' + dueDate, 19);
+    rText('Period: ' + period, 23);
+    y = 35;
 
-    // Wait for content to fully render
-    await new Promise(r => setTimeout(r, 300));
+    // ── BILL TO + AMOUNT DUE ──
+    doc.setTextColor(107, 114, 128);
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+    doc.text('BILL TO', ml, y);
+    rText('AMOUNT DUE', y);
+    y += 5;
+    doc.setTextColor(17, 17, 17);
+    doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+    doc.text(title, ml, y);
 
-    // Remove the no-print bar if it survived the regex
-    const noPrint = iframeDoc.querySelector('.no-print');
-    if (noPrint) noPrint.remove();
-
-    try {
-      const body = iframeDoc.body;
-      const opt = {
-        margin: [0, 0, 0, 0],
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false, scrollX: 0, scrollY: 0, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
-      };
-      const pdfBlob = await html2pdf().set(opt).from(body).outputPdf('blob');
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(pdfBlob);
-      });
-    } finally {
-      document.body.removeChild(iframe);
+    // Compute grand totals
+    let grandSub = 0, grandDel = 0, grandTotal = 0;
+    orders.forEach(o => {
+      const items = Array.isArray(o.line_items) ? o.line_items : [];
+      const delFee = items.filter(li => li.type === 'delivery_fee').reduce((s, li) => s + Number(li.amount||0), 0);
+      const sub = items.filter(li => li.type !== 'delivery_fee').reduce((s, li) => s + Number(li.amount||0), 0);
+      grandSub += sub; grandDel += delFee; grandTotal += Number(o.total_amount||0);
+    });
+    doc.setFontSize(14);
+    rText('$' + grandTotal.toFixed(2), y);
+    y += 5;
+    if (groupName && groupName !== title) {
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(107,114,128);
+      doc.text(groupName, ml, y);
     }
+    doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(107,114,128);
+    rText(orders.length + ' order' + (orders.length !== 1 ? 's' : ''), y);
+    y += 8;
+    hLine(y, [17,17,17]); y += 5;
+
+    // ── ORDER DETAIL HEADER ──
+    doc.setTextColor(17, 17, 17);
+    doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+    doc.text('Order Detail', ml, y);
+    y += 3; hLine(y, [17,17,17]); y += 6;
+
+    // ── EACH ORDER ──
+    orders.forEach((o, idx) => {
+      needPage(30);
+      if (idx > 0) { hLine(y, [229,231,235]); y += 5; }
+      const items = Array.isArray(o.line_items) ? o.line_items : [];
+      const orderDate = o.pickup_window_start
+        ? new Date(o.pickup_window_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' }) : '';
+      const custName = o.customers ? ((o.customers.first_name_cache||'') + ' ' + (o.customers.last_name_cache||'')).trim() : title;
+      const serviceItems = items.filter(li => li.type !== 'delivery_fee');
+      const delFee = items.filter(li => li.type === 'delivery_fee').reduce((s, li) => s + Number(li.amount||0), 0);
+      const sub = serviceItems.reduce((s, li) => s + Number(li.amount||0), 0);
+      const orderTotal = Number(o.total_amount||0);
+
+      // Order header
+      doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(17,17,17);
+      doc.text('Order #' + o.order_number, ml, y);
+      doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(55,65,81);
+      rText('INVOICE', y);
+      y += 4;
+      doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(107,114,128);
+      doc.text(custName + '  •  ' + orderDate, ml, y);
+      y += 5;
+
+      // Line items
+      if (serviceItems.length) {
+        serviceItems.forEach(li => {
+          needPage(5);
+          doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(17,17,17);
+          doc.text(li.label || li.type, ml + 3, y);
+          rText('$' + Number(li.amount||0).toFixed(2), y);
+          y += 4.5;
+        });
+        // Subtotal
+        hLine(y - 1, [229,231,235]); y += 2;
+        doc.setFont('helvetica', 'bold');
+        doc.text('Subtotal', ml + 3, y);
+        rText('$' + sub.toFixed(2), y); y += 4.5;
+        // Delivery fee
+        if (delFee > 0) {
+          doc.setFont('helvetica', 'normal');
+          doc.text('Delivery Fee', ml + 3, y);
+          rText('$' + delFee.toFixed(2), y); y += 4.5;
+        }
+        // Grand total
+        hLine(y - 1, [209,213,219]); y += 2;
+        doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+        doc.text('Grand Total', ml + 3, y);
+        rText('$' + orderTotal.toFixed(2), y); y += 6;
+      } else {
+        // Fallback for orders without line items
+        doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(17,17,17);
+        const desc = o.total_bags ? (o.total_bags + ' bag' + (o.total_bags > 1 ? 's' : '') + (o.weight_lbs ? ' — ' + o.weight_lbs + ' lbs' : '')) : 'Laundry Service';
+        doc.text(desc, ml + 3, y);
+        rText('$' + orderTotal.toFixed(2), y); y += 6;
+      }
+    });
+
+    // ── GRAND TOTALS ──
+    needPage(25);
+    y += 2;
+    doc.setLineWidth(0.5); doc.setDrawColor(17,17,17); doc.line(ml, y, pw - mr, y);
+    y += 5;
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(17,17,17);
+    doc.text('Subtotal', ml, y); rText('$' + grandSub.toFixed(2), y); y += 4.5;
+    doc.text('Delivery Fees', ml, y); rText('$' + grandDel.toFixed(2), y); y += 4.5;
+    hLine(y - 1, [209,213,219]); y += 2;
+    doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+    doc.text('Total Due', ml, y); rText('$' + grandTotal.toFixed(2), y); y += 10;
+
+    // ── FOOTER ──
+    doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(156,163,175);
+    doc.text('Payment terms: Net 30  •  Please remit to Family Laundry', ml, y);
+    y += 3.5;
+    doc.text('Questions? Contact info@familylaundry.com', ml, y);
+
+    // Return base64
+    const pdfData = doc.output('datauristring');
+    return pdfData.split(',')[1];
   }
 
   // Helper: get all invoices for current selection (group or standalone)
@@ -22618,6 +22726,44 @@ ${orderSections}
     if (_invoiceCustomerId) {
       const inv = getInvoiceForStandalone(_invoiceCustomerId);
       return inv ? [inv] : [];
+    }
+    return [];
+  }
+
+  // Return structured data for PDF generation (not HTML)
+  function getSelectedInvoiceData() {
+    const period = document.getElementById('oa-period-label').textContent || '';
+    if (_invoiceGroupId) {
+      const g = _oaBillingGroups.find(bg => bg.id === _invoiceGroupId);
+      if (!g) return [];
+      const groupOrders = oaData.filter(o => o.customers?.billing_group_id === _invoiceGroupId);
+      if (g.invoice_style === 'consolidated') {
+        const sorted = [...groupOrders].sort((a, b) => new Date(a.pickup_window_start||0) - new Date(b.pickup_window_start||0));
+        return [{ title: g.name, orders: sorted, period, groupName: g.name, filename: g.name + ' — Consolidated Invoice' }];
+      } else {
+        const byCustomer = {};
+        groupOrders.forEach(o => {
+          const cid = o.customer_id;
+          if (!byCustomer[cid]) byCustomer[cid] = { orders: [], name: '' };
+          const c = o.customers;
+          byCustomer[cid].name = c ? ((c.first_name_cache||'') + ' ' + (c.last_name_cache||'')).trim() : 'Unknown';
+          byCustomer[cid].orders.push(o);
+        });
+        return Object.values(byCustomer)
+          .filter(c => c.orders.some(o => Number(o.total_amount||0) > 0))
+          .map(c => {
+            const sorted = c.orders.sort((a, b) => new Date(a.pickup_window_start||0) - new Date(b.pickup_window_start||0));
+            return { title: c.name, orders: sorted, period, groupName: g.name, filename: c.name + ' — Invoice' };
+          });
+      }
+    }
+    if (_invoiceCustomerId) {
+      const custOrders = oaData.filter(o => o.customer_id === _invoiceCustomerId);
+      if (!custOrders.length) return [];
+      const c = custOrders[0].customers;
+      const name = c ? ((c.first_name_cache||'') + ' ' + (c.last_name_cache||'')).trim() : 'Unknown';
+      const sorted = [...custOrders].sort((a, b) => new Date(a.pickup_window_start||0) - new Date(b.pickup_window_start||0));
+      return [{ title: name, orders: sorted, period, groupName: null, filename: name + ' — Invoice' }];
     }
     return [];
   }
@@ -22662,9 +22808,11 @@ ${orderSections}
 
       btn.textContent = 'Generating PDFs…';
       const attachments = [];
-      for (const inv of invoices) {
+      // Build PDFs directly from order data (not from HTML screenshots)
+      const invData = getSelectedInvoiceData();
+      for (const inv of invData) {
         try {
-          const pdfBase64 = await invoiceHtmlToPdfBase64(inv.html);
+          const pdfBase64 = buildInvoicePdfBase64(inv.title, inv.orders, inv.period, inv.groupName);
           attachments.push({
             filename: inv.filename + '.pdf',
             content: pdfBase64,
@@ -22672,11 +22820,14 @@ ${orderSections}
           });
         } catch (pdfErr) {
           console.error('PDF generation failed, falling back to HTML:', pdfErr);
-          attachments.push({
-            filename: inv.filename + '.html',
-            content: btoa(unescape(encodeURIComponent(inv.html))),
-            type: 'text/html',
-          });
+          const htmlInv = invoices.find(i => i.filename === inv.filename);
+          if (htmlInv) {
+            attachments.push({
+              filename: inv.filename + '.html',
+              content: btoa(unescape(encodeURIComponent(htmlInv.html))),
+              type: 'text/html',
+            });
+          }
         }
       }
       btn.textContent = 'Sending…';
