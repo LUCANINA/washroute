@@ -22497,25 +22497,28 @@ ${oneCopy}
   ${groupName && groupName !== title ? `<div style="font-size:13px;color:#6b7280">${groupName}</div>` : ''}
 </div>
 
-<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;margin-bottom:24px;display:flex;gap:32px">
+<div style="display:flex;gap:32px;margin-bottom:24px">
   <div><span style="font-size:11px;color:#6b7280;text-transform:uppercase">Orders</span><br><strong style="font-size:15px">${orders.length}</strong></div>
   <div><span style="font-size:11px;color:#6b7280;text-transform:uppercase">Amount Due</span><br><strong style="font-size:15px">$${grandTotal.toFixed(2)}</strong></div>
 </div>
 
-<div style="font-size:15px;font-weight:700;margin-bottom:12px;padding-bottom:6px;border-bottom:2px solid #374151">Order Detail</div>
+<div style="font-size:15px;font-weight:700;margin-bottom:12px;padding-bottom:6px;border-bottom:2px solid #111">Order Detail</div>
 ${orderSections}
 
-<div style="background:#374151;color:#fff;border-radius:8px;padding:14px 16px;margin-top:20px">
-  <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
-    <span>Subtotal</span><span>$${grandSubtotal.toFixed(2)}</span>
-  </div>
-  <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px">
-    <span>Delivery Fees</span><span>$${grandDeliveryFees.toFixed(2)}</span>
-  </div>
-  <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700;border-top:1px solid #6b7280;padding-top:8px">
-    <span>Total Due</span><span>$${grandTotal.toFixed(2)}</span>
-  </div>
-</div>
+<table style="width:100%;border-collapse:collapse;margin-top:20px;border-top:2px solid #111">
+  <tr>
+    <td style="padding:6px 0;font-size:13px">Subtotal</td>
+    <td style="padding:6px 0;text-align:right;font-size:13px">$${grandSubtotal.toFixed(2)}</td>
+  </tr>
+  <tr>
+    <td style="padding:6px 0;font-size:13px">Delivery Fees</td>
+    <td style="padding:6px 0;text-align:right;font-size:13px">$${grandDeliveryFees.toFixed(2)}</td>
+  </tr>
+  <tr style="border-top:1px solid #d1d5db">
+    <td style="padding:8px 0;font-size:15px;font-weight:700">Total Due</td>
+    <td style="padding:8px 0;text-align:right;font-size:15px;font-weight:700">$${grandTotal.toFixed(2)}</td>
+  </tr>
+</table>
 
 <div style="margin-top:32px;font-size:12px;color:#9ca3af">
   Payment terms: Net 30 &nbsp;•&nbsp; Please remit to Family Laundry<br>
