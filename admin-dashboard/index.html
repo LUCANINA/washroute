@@ -230,6 +230,7 @@
     .batch-bar-sep { width: 1px; height: 22px; background: rgba(255,255,255,.15); flex-shrink: 0; }
     .batch-bar-dismiss { background: none; border: none; color: rgba(255,255,255,.45); cursor: pointer; font-size: 18px; padding: 0 2px; line-height: 1; margin-left: 4px; }
     .batch-bar-dismiss:hover { color: white; }
+    tr.oa-selectable:hover { background: var(--gray-100) !important; cursor: pointer; }
 
     /* ── CUSTOMER CELL ── */
     .customer-cell { display: flex; align-items: center; gap: 10px; }
@@ -2107,19 +2108,7 @@
                 <div class="card-sub" id="oa-period-label" style="flex:1"></div>
                 <button class="rev-export-btn" id="oa-export-btn" style="display:none" onclick="exportOnAccountCSV()">Export CSV</button>
               </div>
-              <!-- Selection action bar — shown when a group or standalone account is selected -->
-              <div id="oa-action-bar" style="display:none;padding:10px 16px;background:linear-gradient(135deg,#eff6ff,#f0f9ff);border-bottom:1px solid #bfdbfe;align-items:center;gap:10px">
-                <div style="flex:1;display:flex;align-items:center;gap:8px">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>
-                  <span id="oa-selected-label" style="font-size:13px;font-weight:600;color:#1e40af"></span>
-                </div>
-                <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px" onclick="previewSelectedInvoice()">Preview PDF</button>
-                <button class="btn btn-primary" style="font-size:12px;padding:4px 12px" onclick="openSelectedInvoiceModal()">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-8.97 5.7a1.94 1.94 0 01-2.06 0L2 7"/></svg>
-                  Send Invoice
-                </button>
-                <button onclick="clearOASelection()" style="background:none;border:none;cursor:pointer;color:#6b7280;font-size:16px;padding:2px 6px" title="Clear selection">&times;</button>
-              </div>
+              <!-- oa-action-bar is now a floating bottom bar, placed outside this table -->
               <div class="rpt-table-wrap">
                 <table>
                   <thead>
@@ -2528,6 +2517,21 @@
     Delete Orders
   </button>
   <button class="batch-bar-dismiss" onclick="clearOrderSelection()" title="Dismiss">×</button>
+</div>
+
+<!-- ── FLOATING ON-ACCOUNT BATCH BAR ── -->
+<div class="batch-bar" id="oa-action-bar">
+  <span class="batch-bar-count" id="oa-selected-label">Selected</span>
+  <div class="batch-bar-sep"></div>
+  <button class="batch-bar-btn" onclick="previewSelectedInvoice()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+    Preview PDF
+  </button>
+  <button class="batch-bar-btn" onclick="openSelectedInvoiceModal()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-8.97 5.7a1.94 1.94 0 01-2.06 0L2 7"/></svg>
+    Send Invoice
+  </button>
+  <button class="batch-bar-dismiss" onclick="clearOASelection()" title="Dismiss">&times;</button>
 </div>
 
 <!-- SMS Compose Modal -->
@@ -20625,6 +20629,11 @@ ${oneCopy}
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
+    // Hide OA action bar when leaving On Account tab
+    if (tab !== 'onaccount') {
+      const oaBar = document.getElementById('oa-action-bar');
+      if (oaBar) oaBar.classList.remove('visible');
+    }
     runCurrentReport();
   }
 
@@ -22043,7 +22052,7 @@ ${oneCopy}
     // Clear any selection when re-rendering
     _oaSelType = null; _oaSelId = null; _oaSelName = null;
     const actionBar = document.getElementById('oa-action-bar');
-    if (actionBar) actionBar.style.display = 'none';
+    if (actionBar) actionBar.classList.remove('visible');
 
     // Group by customer
     const byCustomer = {};
@@ -22234,13 +22243,10 @@ ${oneCopy}
       }
     }
 
-    // Show action bar
+    // Show floating action bar (same style as orders batch bar)
     const bar = document.getElementById('oa-action-bar');
-    bar.style.display = 'flex';
-    const label = type === 'group'
-      ? name
-      : name;
-    document.getElementById('oa-selected-label').textContent = label;
+    bar.classList.add('visible');
+    document.getElementById('oa-selected-label').textContent = name;
   }
   window.selectOAAccount = selectOAAccount;
 
@@ -22248,7 +22254,7 @@ ${oneCopy}
     _oaSelType = null;
     _oaSelId = null;
     _oaSelName = null;
-    document.getElementById('oa-action-bar').style.display = 'none';
+    document.getElementById('oa-action-bar').classList.remove('visible');
     document.querySelectorAll('.oa-selectable').forEach(tr => { tr.style.background = ''; });
     // Re-apply gray-50 to group headers
     document.querySelectorAll('[data-oa-sel^="group-"]').forEach(tr => { tr.style.background = 'var(--gray-50)'; });
