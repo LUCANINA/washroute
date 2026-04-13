@@ -4194,6 +4194,15 @@
   let BIZ_PRINTER_TOKEN   = '';                     // loaded from settings table at startup
   let BIZ_PRINT_TRANSPORT = 'browser';              // 'browser' | 'cloudprnt' | 'passprnt'
   let BIZ_REVIEW_LINK     = '';                     // loaded from settings table at startup
+  let BIZ_INVOICE = {                              // loaded from settings.invoice_config at startup
+    logo_url:      'https://admin.familylaundry.com/assets/logo_white.png',
+    company_name:  'Family Laundry',
+    address_line1: '5215 Genoa St',
+    address_line2: 'Oakland CA 94608',
+    phone:         '(510) 842-3560',
+    email:         'info@familylaundry.com',
+    footer:        ''
+  };
   let currentPage = 'overview';
   let allCustomers = [];
   let allOrders = [];
@@ -5459,11 +5468,16 @@
 
   // ── SETTINGS ──
   async function loadSettings() {
-    const { data } = await db.from('settings').select('timezone, printer_token, print_transport, review_link').eq('id', 1).single();
+    const { data } = await db.from('settings').select('timezone, printer_token, print_transport, review_link, invoice_config').eq('id', 1).single();
     if (data?.timezone)        BIZ_TZ              = data.timezone;
     if (data?.printer_token)   BIZ_PRINTER_TOKEN   = data.printer_token;
     if (data?.print_transport) BIZ_PRINT_TRANSPORT = data.print_transport;
     if (data?.review_link !== undefined) BIZ_REVIEW_LINK = data.review_link || '';
+    if (data?.invoice_config && typeof data.invoice_config === 'object') {
+      BIZ_INVOICE = { ...BIZ_INVOICE, ...data.invoice_config };
+      // Re-preload logo if URL changed
+      _preloadInvoiceLogo(BIZ_INVOICE.logo_url);
+    }
   }
 
   async function saveSettings() {
@@ -5499,6 +5513,28 @@
     if (error) { showToast('Failed to save review link', 'error'); return; }
     BIZ_REVIEW_LINK = link;
     showToast(link ? '✓ Review link saved' : 'Review link cleared', 'success');
+  }
+
+  async function saveInvoiceConfig() {
+    const cfg = {
+      logo_url:      (document.getElementById('inv-logo-url')?.value || '').trim(),
+      company_name:  (document.getElementById('inv-company-name')?.value || '').trim(),
+      address_line1: (document.getElementById('inv-address1')?.value || '').trim(),
+      address_line2: (document.getElementById('inv-address2')?.value || '').trim(),
+      phone:         (document.getElementById('inv-phone')?.value || '').trim(),
+      email:         (document.getElementById('inv-email')?.value || '').trim(),
+      footer:        (document.getElementById('inv-footer')?.value || '').trim()
+    };
+    const btn = document.getElementById('inv-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    const { error } = await db.from('settings').update({ invoice_config: cfg }).eq('id', 1);
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    if (error) { showToast('Failed to save invoice settings', 'error'); return; }
+    BIZ_INVOICE = cfg;
+    // Re-preload logo with new URL
+    _preloadInvoiceLogo(cfg.logo_url);
+    showToast('✓ Invoice settings saved', 'success');
+    renderSettingsTab();
   }
 
   async function testPrint() {
@@ -5638,6 +5674,73 @@
           </div>
           <button class="btn btn-primary" onclick="saveReviewLink()" style="font-size:13.5px;padding:8px 20px">Save</button>
           ${BIZ_REVIEW_LINK ? `<div style="margin-top:12px;font-size:12px;color:#16a34a;font-weight:600">✓ Review link set</div>` : `<div style="margin-top:12px;font-size:12px;color:var(--gray-400)">No review link set — review request SMS will not include a link.</div>`}
+        </div>
+      </div>
+
+      <div class="card" style="max-width:540px;margin-top:20px">
+        <div class="card-header">
+          <div class="card-title">📄 Invoice Settings</div>
+          <div class="card-sub">Company details that appear on all invoices (PDF and HTML). Changes apply immediately to new invoices.</div>
+        </div>
+        <div style="padding:20px 24px 24px">
+          <div style="margin-bottom:14px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Logo URL</div>
+            <input id="inv-logo-url" class="form-input" type="url"
+              placeholder="https://example.com/logo.png"
+              value="${(BIZ_INVOICE.logo_url||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+              style="width:100%;font-size:13.5px;margin-bottom:4px">
+            <div style="font-size:11px;color:var(--gray-400)">Direct link to a PNG or SVG logo. Used in the invoice header.</div>
+          </div>
+          <div style="margin-bottom:14px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Company Name</div>
+            <input id="inv-company-name" class="form-input" type="text"
+              value="${(BIZ_INVOICE.company_name||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+              style="width:100%;font-size:13.5px">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+            <div>
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Address Line 1</div>
+              <input id="inv-address1" class="form-input" type="text"
+                placeholder="123 Main St"
+                value="${(BIZ_INVOICE.address_line1||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+                style="width:100%;font-size:13.5px">
+            </div>
+            <div>
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">City, State ZIP</div>
+              <input id="inv-address2" class="form-input" type="text"
+                placeholder="Oakland CA 94608"
+                value="${(BIZ_INVOICE.address_line2||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+                style="width:100%;font-size:13.5px">
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+            <div>
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Phone</div>
+              <input id="inv-phone" class="form-input" type="tel"
+                placeholder="(510) 842-3560"
+                value="${(BIZ_INVOICE.phone||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+                style="width:100%;font-size:13.5px">
+            </div>
+            <div>
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Email</div>
+              <input id="inv-email" class="form-input" type="email"
+                placeholder="info@company.com"
+                value="${(BIZ_INVOICE.email||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}"
+                style="width:100%;font-size:13.5px">
+            </div>
+          </div>
+          <div style="margin-bottom:16px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Footer / Payment Terms</div>
+            <textarea id="inv-footer" class="form-input" rows="2"
+              placeholder="e.g. Payment terms: Net 30 • Please remit to Family Laundry"
+              style="width:100%;font-size:13.5px;resize:vertical">${(BIZ_INVOICE.footer||'').replace(/</g,'&lt;')}</textarea>
+            <div style="font-size:11px;color:var(--gray-400)">Shown at the bottom of every invoice. Leave blank for default.</div>
+          </div>
+          ${BIZ_INVOICE.logo_url ? `<div style="margin-bottom:14px;padding:12px;background:var(--gray-50);border-radius:8px;text-align:center">
+            <div style="font-size:10px;color:var(--gray-400);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Preview</div>
+            <img src="${BIZ_INVOICE.logo_url}" alt="Logo preview" style="max-height:40px;max-width:200px" onerror="this.parentElement.innerHTML='<div style=\\'font-size:12px;color:#dc2626\\'>⚠ Logo failed to load — check the URL</div>'" />
+          </div>` : ''}
+          <button id="inv-save-btn" class="btn btn-primary" onclick="saveInvoiceConfig()" style="font-size:13.5px;padding:8px 20px">Save</button>
         </div>
       </div>`;
   }
@@ -15358,11 +15461,11 @@ ${oneCopy}
         </div>`;
     }).join('');
 
-    const logoUrl = 'https://admin.familylaundry.com/assets/logo_white_bg.png';
+    const logoUrl = BIZ_INVOICE.logo_url || 'https://admin.familylaundry.com/assets/logo_white_bg.png';
     const html = `<!DOCTYPE html>
 <html><head>
   <meta charset="utf-8">
-  <title>${totalDue > 0 ? 'Invoice' : 'Receipt'} — Family Laundry</title>
+  <title>${totalDue > 0 ? 'Invoice' : 'Receipt'} — ${BIZ_INVOICE.company_name || 'Family Laundry'}</title>
   <style>
     @page { margin: 0.75in; size: letter; }
     * { box-sizing: border-box; }
@@ -15388,11 +15491,11 @@ ${oneCopy}
   <table style="margin-bottom:24px">
     <tr>
       <td style="vertical-align:top">
-        <div style="font-size:17px;font-weight:700;margin-bottom:3px">Family Laundry</div>
+        <div style="font-size:17px;font-weight:700;margin-bottom:3px">${BIZ_INVOICE.company_name || 'Family Laundry'}</div>
         <div style="font-size:12px;color:#444;line-height:1.7">
-          5215 Genoa St<br>
-          Oakland, CA 94608<br>
-          familylaundry.com
+          ${BIZ_INVOICE.address_line1 || ''}<br>
+          ${BIZ_INVOICE.address_line2 || ''}<br>
+          ${BIZ_INVOICE.email || ''}
         </div>
       </td>
       <td style="text-align:right;vertical-align:top">
@@ -15427,7 +15530,7 @@ ${oneCopy}
   </table>
 
   ${totalDue > 0
-    ? `<div style="font-size:11px;color:#777;margin-bottom:24px;font-style:italic">Please remit payment to Family Laundry at the address listed above.</div>`
+    ? `<div style="font-size:11px;color:#777;margin-bottom:24px;font-style:italic">Please remit payment to ${BIZ_INVOICE.company_name || 'Family Laundry'} at the address listed above.</div>`
     : `<div style="font-size:11px;color:#059669;margin-bottom:24px;font-style:italic">All charges have been paid. Thank you!</div>`
   }
 
@@ -23054,11 +23157,11 @@ ${oneCopy}
 <!-- Dark header with logo -->
 <div style="background:#1f2937;color:#fff;padding:20px 40px;margin:0 -40px;display:flex;justify-content:space-between;align-items:center">
   <div style="display:flex;align-items:center;gap:14px">
-    <img src="https://admin.familylaundry.com/assets/logo_white.png" alt="Family Laundry" style="height:48px" onerror="this.style.display='none'" />
+    <img src="${BIZ_INVOICE.logo_url || ''}" alt="${BIZ_INVOICE.company_name || ''}" style="height:48px" onerror="this.style.display='none'" />
     <div>
-      <div style="font-size:20px;font-weight:700;letter-spacing:-0.02em">Family Laundry</div>
-      <div style="font-size:11px;color:#d1d5db;margin-top:2px">5215 Genoa St, Oakland CA 94608</div>
-      <div style="font-size:11px;color:#d1d5db">(510) 842-3560 &bull; info@familylaundry.com</div>
+      <div style="font-size:20px;font-weight:700;letter-spacing:-0.02em">${BIZ_INVOICE.company_name || 'Family Laundry'}</div>
+      <div style="font-size:11px;color:#d1d5db;margin-top:2px">${BIZ_INVOICE.address_line1 || ''}, ${BIZ_INVOICE.address_line2 || ''}</div>
+      <div style="font-size:11px;color:#d1d5db">${BIZ_INVOICE.phone || ''} &bull; ${BIZ_INVOICE.email || ''}</div>
     </div>
   </div>
   <div style="text-align:right">
@@ -23101,8 +23204,8 @@ ${orderSections}
 </table>
 
 <div style="margin-top:24px;font-size:11px;color:#9ca3af">
-  Payment terms: Net 30 &bull; Please remit to Family Laundry<br>
-  Questions? Contact info@familylaundry.com
+  ${BIZ_INVOICE.footer || ('Payment terms: Net 30 &bull; Please remit to ' + (BIZ_INVOICE.company_name || 'Family Laundry'))}<br>
+  Questions? Contact ${BIZ_INVOICE.email || 'info@familylaundry.com'}
 </div>
 </body></html>`;
   }
@@ -23142,10 +23245,14 @@ ${orderSections}
     }
   }
 
-  // Pre-load the white logo as base64 for PDF embedding
+  // Pre-load the invoice logo as base64 for PDF embedding
   let _invoiceLogoBase64 = null;
   let _invoiceLogoNatW = 0, _invoiceLogoNatH = 0;
-  (function preloadInvoiceLogo() {
+  let _invoiceLogoCurrentUrl = '';
+  function _preloadInvoiceLogo(url) {
+    if (!url || url === _invoiceLogoCurrentUrl) return;
+    _invoiceLogoCurrentUrl = url;
+    _invoiceLogoBase64 = null; _invoiceLogoNatW = 0; _invoiceLogoNatH = 0;
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = function() {
@@ -23158,8 +23265,10 @@ ${orderSections}
         _invoiceLogoBase64 = c.toDataURL('image/png');
       } catch(e) { console.warn('Logo preload failed:', e); }
     };
-    img.src = 'https://admin.familylaundry.com/assets/logo_white.png';
-  })();
+    img.src = url;
+  }
+  // Initial preload with default/configured URL
+  _preloadInvoiceLogo(BIZ_INVOICE.logo_url);
 
   // Build a PDF directly from invoice data using jsPDF (no screenshots)
   function buildInvoicePdfBase64(title, orders, period, groupName) {
@@ -23195,10 +23304,10 @@ ${orderSections}
 
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16); doc.setFont('helvetica', 'bold');
-    doc.text('Family Laundry', textStart, 10);
+    doc.text(BIZ_INVOICE.company_name || 'Family Laundry', textStart, 10);
     doc.setFontSize(8); doc.setFont('helvetica', 'normal');
-    doc.text('5215 Genoa St, Oakland CA 94608', textStart, 15);
-    doc.text('(510) 842-3560  •  info@familylaundry.com', textStart, 19);
+    doc.text((BIZ_INVOICE.address_line1||'') + ', ' + (BIZ_INVOICE.address_line2||''), textStart, 15);
+    doc.text((BIZ_INVOICE.phone||'') + '  •  ' + (BIZ_INVOICE.email||''), textStart, 19);
     // Right side
     doc.setFontSize(14); doc.setFont('helvetica', 'bold');
     rText('INVOICE', 10);
@@ -23317,9 +23426,11 @@ ${orderSections}
 
     // ── FOOTER ──
     doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(156,163,175);
-    doc.text('Payment terms: Net 30  •  Please remit to Family Laundry', ml, y);
+    const pdfFooter1 = BIZ_INVOICE.footer || ('Payment terms: Net 30  •  Please remit to ' + (BIZ_INVOICE.company_name || 'Family Laundry'));
+    const pdfFooter2 = 'Questions? Contact ' + (BIZ_INVOICE.email || 'info@familylaundry.com');
+    doc.text(pdfFooter1, ml, y);
     y += 3.5;
-    doc.text('Questions? Contact info@familylaundry.com', ml, y);
+    doc.text(pdfFooter2, ml, y);
 
     // Return base64
     const pdfData = doc.output('datauristring');
