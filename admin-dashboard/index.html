@@ -20550,10 +20550,11 @@ ${oneCopy}
   }
 
   function runCurrentReport() {
-    if (rptTab === 'revenue')    loadRevenueReport();
+    if (rptTab === 'revenue')         loadRevenueReport();
     else if (rptTab === 'items')      loadItemsReport();
     else if (rptTab === 'launderer')  loadLaundererReport();
     else if (rptTab === 'drivers')    loadReports();
+    else if (rptTab === 'onaccount')  loadOnAccountReport();
   }
 
   function setRptTab(tab, btn) {
@@ -20564,7 +20565,6 @@ ${oneCopy}
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
-    if (tab === 'onaccount') { loadOnAccountReport(); return; }
     runCurrentReport();
   }
 
