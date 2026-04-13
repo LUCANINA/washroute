@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 11, 2026 — Session 107: Customer app UX polish — Account Details spacing, sign-out browser fix, Special Care Notes two-way sync with Preferences, tip label rename ("driver" → "team").*
+*Last updated: Apr 13, 2026 — Session 108: Invoice settings, Settings page tabs, customer KPI fix, orders lazy-loading, unpaid/billing fixes, QA sweep.*
 
 ---
 
@@ -511,6 +511,75 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 13, 2026 (session 108) — Invoice settings, Settings page reorg, customer KPI fix, orders performance, billing fixes, QA
+
+**1. Invoice Settings (configurable invoice header)**
+- New `invoice_config` JSONB column on `settings` table (migration: `add_invoice_config_to_settings`).
+- `BIZ_INVOICE` global object: `logo_url`, `company_name`, `address_line1`, `address_line2`, `phone`, `email`, `footer`.
+- `loadSettings()` hydrates `BIZ_INVOICE` from DB on startup; `saveInvoiceConfig()` persists changes.
+- `_preloadInvoiceLogo(url)` re-callable — converts logo to base64 for PDF embedding.
+- All 3 invoice renderers (PDF via jsPDF, HTML invoice, per-customer `printInvoice`) now use `BIZ_INVOICE` instead of hardcoded strings.
+- Settings page "Invoice" tab: editable fields for all 7 config values + live logo preview.
+
+**2. Settings page reorganization**
+- Renamed nav item from "Printer" → "General" (gear icon).
+- Settings page now uses tabbed layout: **Invoice | Printer | Reviews** (reuses existing `filter-tabs` CSS pattern).
+- Page title fixed from "Timezone" to "General".
+
+**3. Customer KPI accuracy fix**
+- **Root cause:** `customers.last_order_at` was only updated when opening the customer panel in admin, not on order creation. Active customer count (7d) was severely underreported (123 vs actual 383).
+- **Fix:** New DB trigger `trg_update_customer_last_order_at` on `orders` INSERT — automatically sets `last_order_at` on the customer.
+- **Backfill:** One-time UPDATE set `last_order_at = MAX(orders.created_at)` for all customers.
+- Migration: `add_trigger_update_customer_last_order_at`.
+
+**4. Orders page performance (lazy-loading)**
+- Phase 1: `loadOrders()` now only fetches active statuses (~500 rows) on initial load.
+- Phase 2: `_loadDeliveredOrders()` and `_loadOrdersSideFetches()` run in background after render.
+- Delivered orders limited to 90-day lookback, capped at 1000 rows.
+- Table pagination: `ORDERS_PAGE_SIZE = 100` with "Show More" button.
+- Load time improved from 3–4 seconds to <1 second.
+
+**5. Unpaid orders — on_account exclusion**
+- `on_account` customers (e.g., Almanac Beer) excluded from unpaid orders list, Issues tab filter, and issue pill count.
+- Pattern: `o.customers?.billing_type !== 'on_account'` at 3 code locations.
+- Const reassignment crash fixed: changed `const { data }` to `const { data: rawData }` + `const data = rawData.filter(...)`.
+
+**6. Billing balance fix**
+- Balance query was filtering `.is('recurring_interval', null).is('stripe_payment_intent_id', null)` — excluded all recurring orders and already-attempted charges.
+- Fixed to `.not('billing_status', 'in', '("paid","refunded")')` — canonical unpaid filter.
+- 6 of 17 unpaid orders for affected customers were recurring (previously hidden).
+
+**7. Orders KPI sanity check**
+- All 6 stat cards verified correct against database queries.
+- `updateOrderStatCards()` hardened with null-safe DOM setter `_s(id, v)`.
+
+**8. QA sweep (3 parallel agents)**
+- **XSS fix:** `orderSearchTerm` injected raw into innerHTML empty-state message → escaped with `esc()`.
+- **XSS fix:** Phone/email in `cp-meta` after saving contact info → escaped with `esc()`.
+- **Crash guard:** Background `_loadDeliveredOrders().then()` called `renderOrders()` without checking `currentPage === 'orders'` — would crash if user navigated away.
+- **Null safety:** `updateOrderStatCards()` now checks element existence before setting textContent.
+- **Stale UI:** `showMoreOrders()` re-renders table (resetting checkboxes) but didn't call `updateOrderBatchBar()`.
+
+**Database migrations:**
+- `add_invoice_config_to_settings` — `invoice_config jsonb NOT NULL DEFAULT '{...}'` on settings
+- `add_trigger_update_customer_last_order_at` — trigger function on orders INSERT
+
+**Commits:**
+- `6b7eec4` Add Invoice Settings to Settings page
+- `94df15d` Rename Printer to General, organize settings into tabbed layout
+- `3fa2f23` Fix settings page title, rename General tab to Reviews
+- `f805805` Paginate orders table to 100 rows with Show More button
+- `7b56cd3` Lazy-load delivered orders and side-fetches for faster Orders page
+- `209a67e` Exclude on_account customers from unpaid orders and Issues tab
+- `7d2277e` Fix unpaid orders crash — const reassignment error
+- `d02ca6f` Fix customer billing balance to include recurring and failed-charge orders
+- `77170fa` QA fixes: XSS escaping, null safety, background render guard, batch bar sync
+
+**Files touched:**
+- `admin-dashboard/index.html` — all changes above
+
+---
 
 ### Apr 11, 2026 (session 107) — Customer app UX polish + sign-out fix + Special Care Notes sync
 
@@ -4906,6 +4975,17 @@ INSERT INTO orders (
 
 ## Git Log (recent)
 ```
+77170fa  QA fixes: XSS escaping, null safety, background render guard, batch bar sync
+d02ca6f  Fix customer billing balance to include recurring and failed-charge orders
+7d2277e  Fix unpaid orders crash — const reassignment error
+209a67e  Exclude on_account customers from unpaid orders and Issues tab
+7b56cd3  Lazy-load delivered orders and side-fetches for faster Orders page
+f805805  Paginate orders table to 100 rows with Show More button
+3fa2f23  Fix settings page title, rename General tab to Reviews
+94df15d  Rename Printer to General, organize settings into tabbed layout
+6b7eec4  Add Invoice Settings to Settings page
+5ccfd97  feat: add On Account report page to admin dashboard
+8c61f44  feat: password reset/set flow for customer app
 6b9ecdf  fix: iPad/Safari tap-to-open on kanban cards
 075fce3  fix: show Paid badge on Intake cards and block editing for charged orders
 2c0eb00  fix: show Paid badge and block editing on all columns for charged orders
