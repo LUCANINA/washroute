@@ -19,8 +19,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://js.stripe.com/v3/"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3/dist/jspdf.plugin.autotable.min.js"></script>
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDfIiB3LFbbxiT4szPgpv_jdseTa4HCrEc&libraries=geocoding"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -22228,6 +22228,7 @@ ${oneCopy}
   window.closeInvoiceModal = closeInvoiceModal;
 
   function generateInvoicePDF(title, lineItems, period) {
+    if (!window.jspdf) throw new Error('jsPDF library not loaded');
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     const pageW = doc.internal.pageSize.getWidth();
@@ -22315,12 +22316,18 @@ ${oneCopy}
   }
 
   function previewInvoicePDF() {
-    if (!_invoiceGroupId) return;
-    const pdfs = getInvoiceDataForGroup(_invoiceGroupId);
-    if (!pdfs.length) { showToast('No invoiceable orders in this period', 'error'); return; }
-    // Preview the first PDF
-    pdfs[0].doc.save(pdfs[0].filename);
-    showToast('Downloaded preview: ' + pdfs[0].filename);
+    try {
+      if (!_invoiceGroupId) { showToast('No group selected', 'error'); return; }
+      if (!window.jspdf) { showToast('PDF library not loaded — try refreshing the page', 'error'); return; }
+      const pdfs = getInvoiceDataForGroup(_invoiceGroupId);
+      if (!pdfs.length) { showToast('No invoiceable orders in this period', 'error'); return; }
+      // Preview the first PDF
+      pdfs[0].doc.save(pdfs[0].filename);
+      showToast('Downloaded preview: ' + pdfs[0].filename);
+    } catch (err) {
+      console.error('Preview PDF error:', err);
+      showToast('PDF error: ' + err.message, 'error');
+    }
   }
   window.previewInvoicePDF = previewInvoicePDF;
 
