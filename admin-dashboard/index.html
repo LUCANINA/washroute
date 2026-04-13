@@ -6278,6 +6278,8 @@
       el.innerHTML = '<div style="padding:16px;color:var(--gray-400);font-size:13px">Could not load unpaid orders.</div>';
       return;
     }
+    // Exclude on_account customers — they are billed through invoicing, not Stripe
+    data = data.filter(o => o.customers?.billing_type !== 'on_account');
     if (!data.length) {
       if (subEl) subEl.textContent = 'All clear';
       el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--green);font-size:13px">✓ No unpaid delivered orders</div>';
@@ -7022,8 +7024,9 @@
           // Exclude recurring pickup_failed — chain auto-continues, treat like a skip
           if (o.status === 'pickup_failed' && o.recurring_interval) return false;
           // Only show billing failures for orders that are actually chargeable (ready_for_delivery+)
+          // Exclude on_account customers — they are billed through invoicing, not Stripe
           const chargeableStatuses = ['ready_for_delivery','out_for_delivery','delivered'];
-          if (o.billing_status === 'failed' && chargeableStatuses.includes(o.status)) return true;
+          if (o.billing_status === 'failed' && chargeableStatuses.includes(o.status) && o.customers?.billing_type !== 'on_account') return true;
           return ORDER_FILTER_GROUPS.issues.includes(o.status);
         });
       } else if (currentOrderFilter === 'delivered') {
@@ -7048,7 +7051,7 @@
       scheduled:  allOrders.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
       in_process: allOrders.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
       ready:      allOrders.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
-      issues:     allOrders.filter(o => { if (o.status === 'skipped' && o.cancelled_by === 'customer') return false; if (o.status === 'skipped' && o.recurring_interval) return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; const _cs = ['ready_for_delivery','out_for_delivery','delivered']; if (o.billing_status === 'failed' && _cs.includes(o.status)) return true; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status); }).length,
+      issues:     allOrders.filter(o => { if (o.status === 'skipped' && o.cancelled_by === 'customer') return false; if (o.status === 'skipped' && o.recurring_interval) return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; const _cs = ['ready_for_delivery','out_for_delivery','delivered']; if (o.billing_status === 'failed' && _cs.includes(o.status) && o.customers?.billing_type !== 'on_account') return true; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status); }).length,
       delivered:  (() => { const cutoff = new Date(Date.now() - DELIVERED_TAB_WINDOW_DAYS*24*60*60*1000).toISOString(); return allOrders.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
