@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 13, 2026 — Session 108: Invoice settings, Settings page tabs, customer KPI fix, orders lazy-loading, unpaid/billing fixes, QA sweep.*
+*Last updated: Apr 13, 2026 — Session 109: Subscription Phase 1 (DB foundation + admin report tab + customer app UI) + Stripe Terminal POS integration for S700 smart reader. Magic link orphan fix pushed.*
 
 ---
 
@@ -39,6 +39,7 @@ Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no d
 | iPad stand (full-size) | **Heckler Design WindFall** (~$150–200) | Not yet purchased |
 | iPad mini stand | **Heckler Design WindFall for iPad mini** (~$100–130) | Not yet purchased |
 | Receipt paper | Standard 80mm thermal roll | Buy in bulk |
+| Card terminal | **Stripe S700** (WiFi, countertop) | Ordered session 109. M2 Bluetooth reader incompatible with browser POS (JS SDK requires smart readers). Register in Stripe Dashboard when it arrives, then test end-to-end POS card flow. |
 
 ### Current printing setup (CloudPRNT — mC-Print3)
 Receipt prints automatically — no user tap required. Full handshake built and deployed. Edge function converts Star Document Markup XML → Star Line Mode binary at serve time (v15, session 70i). The mC-Print3 firmware 5.2 does NOT support Star Document Markup natively — it only accepts `application/vnd.star.starprpt` (binary). v13 broke printing by serving raw XML as `text/vnd.star.markup`; v14 used wrong command set (Epson ESC/POS); v15 uses correct Star Line Mode commands (ESC E/F for bold, ESC GS a for alignment, ESC i for sizing, ESC d for cut, ESC b for barcodes). Includes Unicode→ASCII map for thermal printer compatibility.
@@ -117,6 +118,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `cloudprnt` | CloudPRNT server — **v15 (session 70i):** printer polls for jobs; `markupToStarLineMode()` converts Star Markup XML → Star Line Mode binary; serves as `application/vnd.star.starprnt`. Includes `tokenizeXml()` parser and `UNICODE_MAP` for thermal printer ASCII fallback. | Off |
 | `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. Pickups and deliveries optimized independently. **v19 (session 76):** Address resolution hardened — cross-leg fallback (delivery falls back to pickup address and vice versa) + customer fallback no longer requires `is_default = true` (prefers default, accepts any). **v12 (session 27):** No-GPS path uses geographic-extremes algorithm. | Off |
 | `draft-reply` | **NEW (session 80):** AI-assisted SMS reply drafting. Accepts `customer_id`, `phone`, and optional `current_draft`. **Generate mode** (no current_draft): classifies customer intent (8 categories), fetches conversation history + order context + real admin voice examples from DB, calls Claude Haiku, returns a fresh draft. **Refine mode** (current_draft provided): polishes the admin's existing text for grammar/clarity/tone while preserving all specific details. Requires `ANTHROPIC_API_KEY` Supabase secret. Never sends — admin always reviews before clicking Send. | Off |
+| `stripe-terminal` | **NEW (session 109):** Stripe Terminal POS integration for smart readers (S700/WisePOS E). Three actions: `connection_token` (fetches ephemeral token for SDK init), `create_payment` (creates PaymentIntent with `card_present` method), `cancel_payment` (cancels in-flight PaymentIntent). Uses `STRIPE_SECRET_KEY` from Supabase Secrets. | Off |
 
 ---
 
@@ -223,6 +225,13 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 ### Card Request Button Fix (session 88)
 - **"Request card" / "✓ Requested" / "📞 Update card" button pipeline now works correctly.** The `_cardRequestSent` in-memory map was never populating because SMS lookup matched `'%card on file%'` (wrong) and email lookup matched a single subject that didn't exist in outbound emails. Fixed: SMS matches `'%app.familylaundry.com%'`; email uses `.or()` for all 3 known subject variants. Fixed in both Issues tab and Delivered tab lookup code.
 
+### Reports — Subscriptions Tab (session 109)
+- **New "⭐ Subscriptions" tab** in Reports page. KPI cards: Monthly Recurring Revenue, Active Subscribers, Avg Usage (%), Churned This Month. Subscriber detail table with name, plan, usage progress bar (color-coded: green <75%, amber 75-90%, red >90%), pickups used, status badge, and signup date.
+
+### POS — Stripe Terminal Integration (session 109)
+- **Real card payment flow** via Stripe Terminal JS SDK. Connects to S700 smart reader over internet. Reader status indicator in POS topbar (disconnected/searching/connected). `payWithCard()` creates a PaymentIntent via `stripe-terminal` edge function, collects payment method on reader, confirms, and stores `stripe_payment_intent_id` on the order. Cancel and retry flows with error display. Terminal initializes on POS boot.
+- **⚠️ Waiting on hardware:** S700 reader ordered but not yet arrived. M2 Bluetooth reader was incompatible (JS SDK only supports smart readers). POS card flow is fully wired but untestable until S700 is registered in Stripe Dashboard.
+
 ### Other
 - Customer management, driver management, services & pricing, reports (all built)
 - Driver Messages tab (in-app driver ↔ admin chat, separate from SMS)
@@ -268,6 +277,34 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **Default tip setting in customer app (session 70i):** Customers can now set their own default tip in Account → Payment Method. $/% toggle and numeric input, saves to `default_tip` and `default_tip_type` on the `customers` table — same fields the admin dashboard reads. Tip is auto-applied to each new order.
 - **OTP progressive fallback flow (session 73):** When SMS OTP doesn't arrive, fallback options reveal progressively: "Resend code" appears after 15 seconds, email magic-link fallback after 30 seconds. Email fallback uses the existing `send-magic-link` edge function — customer enters email, gets a one-tap sign-in link. "Need help? Text HELP to (510) 588-4102" support shortcut shown on both the hero (phone entry) and OTP verify screens. Timers reset/clear on panel transitions. No dead-end screens — every state has an escape route.
 - **Cross-method auth re-linking (session 30, commit `778e9d8`):** `ensureProfile()` step 2b — if a customer signs in via email magic link but their account was originally created via phone OTP (or vice versa), the function now detects the existing customer record by `email_cache` even if it already has a `profile_id`, and re-points it to the current auth user. Previously, this created a blank duplicate customer record. Two orphaned records from the first occurrence were deleted from the DB. Note: Supabase creates a new auth UUID per sign-in method; `profile_id` flips to whichever method was used most recently — harmless in practice.
+- **Subscription home card + My Plan panel (session 109, Phase 1 UI only):** Home screen shows a subscription usage card (plan name, weight used/limit progress bar, pickups used, renewal date, Manage button) — but ONLY when the customer has an active subscription (`_activeSub` global). Default: completely hidden. My Plan menu item in Account is also hidden by default; shown via JS toggle when `_activeSub` is non-null. My Plan panel has dual-mode: subscribers see usage stats, billing period, overage info, and pause/resume/cancel buttons (stubs — "coming soon" toast); non-subscribers see plan picker cards. `renderHomeSubscriptionCard()` fetches from `subscriptions` joined with `subscription_plans` on every `loadHome()`. `loadAccount()` fetches subscription and updates plan badge (Active/Paused/Past Due with colored dots).
+
+---
+
+## Subscription Feature — Phase 1 Foundation (session 109)
+
+**Plan:** $260/month, up to 100 lbs Wash & Fold, 4 free pickup/deliveries, $2.75/lb overage. Add-ons extra. Recurring billing anchored to signup day. Pausable anytime.
+
+**Billing rules:**
+- First month billed on signup day
+- Overages billed immediately (not end of term) — customer receives email receipt
+- Stripe handles 31st-of-month edge cases automatically (bills on last day of shorter months)
+
+**Database (migration `subscription_phase1_foundation` — applied):**
+- `subscription_plans` extended: `weight_limit_lbs` (100), `overage_price_per_lb` ($2.75), `delivery_limit` (4), `includes_addons` (false)
+- `subscriptions` extended: `usage_lbs_this_period`, `pickups_this_period`, `overage_amount_due`, `signup_date`, `paused_at`, `cancelled_at`, `cancel_at_period_end`
+- New table `subscription_usage_log`: audit trail for weight/pickup usage events per subscription per order. RLS enabled + indexes.
+- Old plans (Pay As You Go, Standard, Premium) deactivated. New plan: "Wash & Fold Monthly" ($260, 100 lbs, 4 pickups, no add-ons included).
+
+**What's built (Phase 1):** DB foundation, admin Subscriptions report tab, customer app subscription UI (hidden until active). All UI-only — no Stripe subscription integration yet.
+
+**Remaining phases (not started):**
+- Phase 2: Stripe integration — `create-subscription` edge function, webhook handlers (`invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated/deleted`), customer signup flow
+- Phase 3: Order flow + usage tracking — deduct from allowance on delivery, log to `subscription_usage_log`
+- Phase 4: Pause/resume/cancel — wire stub buttons to Stripe API
+- Phase 5: Overage billing — immediate Stripe invoice on threshold breach
+- Phase 6: Failed payment recovery — dunning emails, grace period
+- Phase 7: Analytics — churn prediction, usage trends, upgrade prompts
 
 ---
 
@@ -511,6 +548,24 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 13, 2026 (session 109) — Subscription Phase 1 + Stripe Terminal POS + magic link fix
+
+**1. Magic link orphan fix** — Pushed `send-magic-link` v16 (from previous session). Prevents orphaned auth users from creating blank customer records on magic link login.
+
+**2. Stripe Terminal POS integration** — Built full card payment flow using Stripe Terminal JS SDK for the POS (`pos-mockup.html`). Deployed `stripe-terminal` edge function (v1) with connection_token, create_payment, cancel_payment actions. Discovered M2 Bluetooth reader is incompatible with browser-based POS (JS SDK requires smart readers only). Compared S700 vs S710 vs WisePOS E → David ordered the S700 (countertop, WiFi, built-in receipt printer, $349). When it arrives: register in Stripe Dashboard → test end-to-end flow.
+
+**3. Subscription Phase 1 — Database foundation** — Applied migration `subscription_phase1_foundation`: extended `subscription_plans` (weight_limit_lbs, overage_price_per_lb, delivery_limit, includes_addons), extended `subscriptions` (usage tracking fields, lifecycle timestamps), created `subscription_usage_log` audit table with RLS. Deactivated old plans, inserted "Wash & Fold Monthly" ($260/mo, 100 lbs, 4 pickups, $2.75/lb overage).
+
+**4. Subscription admin report tab** — Added ⭐ Subscriptions tab in Reports with 4 KPI cards (MRR, Active Subscribers, Avg Usage %, Churned This Month) and subscriber detail table with usage progress bars.
+
+**5. Subscription customer app UI** — Home screen subscription card (usage progress, pickups, renewal date), dual-mode My Plan panel (subscriber management vs plan picker), account badge with status dots. All completely hidden until customer has an active subscription — no customer can see this yet. Pause/resume/cancel buttons are stubs (toast "coming soon") pending Phase 2 Stripe integration.
+
+**Files committed:** `admin-dashboard/index.html`, `customer-app/index.html`, `pos-mockup.html`, `supabase/functions/stripe-terminal/index.ts` (commit `48cfe68`).
+
+**⚠️ Git note:** Local `.git` directory is corrupted (immutable lock files in sandbox). Used fresh clone in `/tmp/WashRoute-push` for commit+push. Local working copies have accumulated drift from remote — always use surgical apply strategy when pushing from this environment.
+
+---
 
 ### Apr 13, 2026 (session 108) — Invoice settings, Settings page reorg, customer KPI fix, orders performance, billing fixes, QA
 
