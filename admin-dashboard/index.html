@@ -2122,7 +2122,7 @@
             <div class="card" style="margin-bottom:0">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
                 <div style="font-size:11.5px;color:var(--gray-500);line-height:1.4">
-                  Grouped by <strong>delivery date</strong>. Excludes cancelled, skipped, pickup-failed, and $0 placeholder orders. Refunded orders stay counted but deduct in the Refunds column.
+                  Grouped by <strong>processed date</strong> (the moment the order reaches the rack). Orders still in processing or folding don't appear yet. Excludes cancelled, skipped, pickup-failed, and $0 placeholder orders. Refunded orders stay counted but deduct in the Refunds column.
                 </div>
                 <button class="rev-export-btn" id="rev-export-btn" style="display:none;flex-shrink:0" onclick="exportRevenueCSV()">Export CSV</button>
               </div>
@@ -22443,10 +22443,14 @@ ${oneCopy}
     exportBtn.style.display = 'none';
     _revReportData = [];
 
-    // Fetch all non-cancelled orders whose delivery falls in range.
-    // delivery_window_start is stored in UTC; Pacific time is up to 8h behind.
-    // Query 1 day wider on each side in UTC, then filter to exact dates
-    // client-side using Pacific-localised dates (grouping already does this).
+    // Fetch orders processed (racked) within the range. Grouping by racked_at
+    // so revenue is recognized the moment the order is ready to go out the door
+    // — matching the business's "counted once it's on the rack" convention.
+    //
+    // racked_at is stored in UTC; Pacific is up to 8h behind. Query ±1 day in
+    // UTC then filter to exact dates client-side using Pacific-localised dates.
+    // Note: ~15 pre-racked_at legacy delivered orders (before the column was
+    // added) will not appear in this report. Acceptable trade-off.
     const fromPad = new Date(fromEl.value + 'T00:00:00');
     fromPad.setDate(fromPad.getDate() - 1);
     const toPad   = new Date(toEl.value + 'T00:00:00');
@@ -22463,14 +22467,18 @@ ${oneCopy}
       while (true) {
         // Exclude statuses that produce no revenue: cancelled, skipped, pickup_failed.
         // Also exclude $0 orders (recurring placeholders whose real amount hasn't been set yet).
-        // Delivery_failed IS included — those orders were charged before delivery attempt.
+        // Orders not yet racked (processing, folding, picked_up, scheduled) are naturally
+        // excluded by the racked_at filter below. We fetch on either racked_at OR
+        // actual_delivery_at-with-null-racked_at to cover the 15 pre-racked_at legacy orders.
+        // Since PostgREST OR filters are awkward, we do two queries and merge client-side.
         const { data, error: e } = await db.from('orders')
-          .select('id, order_number, status, billing_status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, line_items, delivery_window_start, discount_id, is_subscription_order')
+          .select('id, order_number, status, billing_status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, line_items, racked_at, actual_delivery_at, delivery_window_start, discount_id, is_subscription_order')
           .not('status', 'in', '(cancelled,skipped,pickup_failed)')
           .gt('total_amount', 0)
-          .gte('delivery_window_start', fromISO)
-          .lte('delivery_window_start', toISO)
-          .order('delivery_window_start')
+          .not('racked_at', 'is', null)
+          .gte('racked_at', fromISO)
+          .lte('racked_at', toISO)
+          .order('racked_at')
           .range(offset, offset + BATCH - 1);
         if (e) { fetchError = e; break; }
         orders.push(...(data || []));
@@ -22529,10 +22537,13 @@ ${oneCopy}
     // Fallback estimate: 2.9% + $0.30 per Stripe charge (standard US online rate)
     function _estFee(chargeDollars) { return chargeDollars * 0.029 + 0.30; }
 
-    // Group by local date (Pacific)
+    // Group by racked date (Pacific) — the moment the order reached the rack
+    // and was ready to go out. Revenue recognized at processing-complete time.
     const byDate = {};
     orders.forEach(o => {
-      const localDate = new Date(o.delivery_window_start)
+      const ts = o.racked_at || o.actual_delivery_at; // fallback only if racked_at missing
+      if (!ts) return; // can't group — skip defensively (shouldn't happen given the query)
+      const localDate = new Date(ts)
         .toLocaleDateString('en-CA', { timeZone: BIZ_TZ }); // YYYY-MM-DD
       if (!byDate[localDate]) byDate[localDate] = [];
       byDate[localDate].push(o);
