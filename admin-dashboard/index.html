@@ -4319,6 +4319,29 @@
   // Single-admin single-tab usage makes concurrent refresh races negligible.
   const _noopLock = (name, acquireTimeout, fn) => fn();
   const db = createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { storageKey: 'wr-admin-auth', autoRefreshToken: true, persistSession: true, lock: _noopLock } });
+
+  // Batched-IN helper. PostgREST encodes .in() in the URL; with too many UUIDs
+  // the URL exceeds the server's max length and the query silently returns no
+  // rows. Use this whenever the IN list could grow beyond ~150 IDs.
+  //
+  // Usage:
+  //   const rows = await pgInChunked(
+  //     () => db.from('foo').select('id, name').eq('active', true),
+  //     'id', ids
+  //   );
+  // The buildQuery factory must return a fresh PostgREST builder per chunk
+  // (builders aren't reusable). Returns a flat array of all rows across batches.
+  async function pgInChunked(buildQuery, column, ids, batchSize = 150) {
+    if (!ids || !ids.length) return [];
+    const out = [];
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const chunk = ids.slice(i, i + batchSize);
+      const { data, error } = await buildQuery().in(column, chunk);
+      if (error) { console.warn(`[pgInChunked] ${column} chunk ${i}-${i+chunk.length}:`, error.message); continue; }
+      if (data) out.push(...data);
+    }
+    return out;
+  }
   let currentUserRole = null; // 'admin' | 'manager' | 'laundry_tech'
   let currentUserId   = null; // logged-in admin's auth user ID
   let currentUserFirstName = null; // first name of logged-in user (for nudge SMS etc.)
@@ -6309,12 +6332,12 @@
     // Pre-populate _nudgeSent from DB so nudge status persists across refreshes
     const nudgeCandidateIds = custs.filter(c => (c.total_orders || 0) === 0 && c.phone_cache).map(c => c.id);
     if (nudgeCandidateIds.length && !_nudgeSent.size) {
-      const { data: nudgeRows } = await db.from('sms_messages')
-        .select('customer_id')
-        .in('customer_id', nudgeCandidateIds)
-        .like('body', '%place your first order%')
-        .eq('direction', 'outbound');
-      (nudgeRows || []).forEach(r => _nudgeSent.add(r.customer_id));
+      // Batched: this list grows with shell-customer count, can exceed PostgREST URL limit.
+      const nudgeRows = await pgInChunked(
+        () => db.from('sms_messages').select('customer_id').like('body', '%place your first order%').eq('direction', 'outbound'),
+        'customer_id', nudgeCandidateIds
+      );
+      nudgeRows.forEach(r => _nudgeSent.add(r.customer_id));
     }
 
     el.innerHTML = `<table><thead><tr><th>Customer</th><th>Email</th><th style="text-align:center">Ordered</th><th>Joined</th><th style="text-align:right"></th></tr></thead><tbody>
@@ -14743,10 +14766,12 @@ ${oneCopy}
       el.innerHTML = '<span style="color:var(--gray-300);font-style:italic">No active route assignments</span>';
       return;
     }
-    const { data: stops } = await db.from('route_stops')
-      .select('stop_type, status, routes(id, name, run_date, status)')
-      .in('order_id', orders.map(o=>o.id));
-    const upcoming = (stops||[]).filter(s=>s.routes&&s.routes.run_date>=todayLocal);
+    // Batched: commercial accounts can have 50+ active orders.
+    const stops = await pgInChunked(
+      () => db.from('route_stops').select('stop_type, status, routes(id, name, run_date, status)'),
+      'order_id', orders.map(o => o.id)
+    );
+    const upcoming = stops.filter(s => s.routes && s.routes.run_date >= todayLocal);
     if (!upcoming.length) {
       el.innerHTML = '<span style="color:var(--gray-300);font-style:italic">No upcoming route assignments</span>';
       return;
@@ -19869,10 +19894,12 @@ ${oneCopy}
     // Load split assignments for folding orders
     foldAssignmentsMap = {};
     if (allFoldOrders.length) {
-      const { data: asgn } = await db.from('order_folding_assignments')
-        .select('order_id, launderer_id, bags, weight_lbs')
-        .in('order_id', allFoldOrders.map(o => o.id));
-      (asgn || []).forEach(a => {
+      // Batched: folding queue can exceed 100 on busy days.
+      const asgn = await pgInChunked(
+        () => db.from('order_folding_assignments').select('order_id, launderer_id, bags, weight_lbs'),
+        'order_id', allFoldOrders.map(o => o.id)
+      );
+      asgn.forEach(a => {
         if (!foldAssignmentsMap[a.order_id]) foldAssignmentsMap[a.order_id] = [];
         foldAssignmentsMap[a.order_id].push(a);
       });
@@ -22460,26 +22487,16 @@ ${oneCopy}
     // row has its own amount. Keyed by order_id and summed at aggregation time.
     // Previous approach used orders.billing_status='refunded' as a boolean and
     // subtracted the full total_amount, which overstated partial refunds.
-    //
-    // IMPORTANT: PostgREST's .in() clause is encoded in the URL; with too many
-    // UUIDs the URL exceeds the server's max length and the query silently
-    // returns empty. Batch the fetch in chunks of 150 IDs (~5KB per URL) so
-    // wider date ranges continue to work.
     const orderIds = orders.map(o => o.id).filter(Boolean);
     const refundsByOrderId = {};
-    const ID_BATCH = 150;
-    for (let i = 0; i < orderIds.length; i += ID_BATCH) {
-      const chunk = orderIds.slice(i, i + ID_BATCH);
-      const { data: refundRows, error: refErr } = await db.from('customer_transactions')
-        .select('order_id, amount')
-        .eq('type', 'refund')
-        .in('order_id', chunk);
-      if (refErr) { console.warn('[revenue] refund fetch error:', refErr.message); continue; }
-      (refundRows || []).forEach(t => {
-        if (!t.order_id) return;
-        refundsByOrderId[t.order_id] = (refundsByOrderId[t.order_id] || 0) + Math.abs(parseFloat(t.amount || 0));
-      });
-    }
+    const refundRows = await pgInChunked(
+      () => db.from('customer_transactions').select('order_id, amount').eq('type', 'refund'),
+      'order_id', orderIds
+    );
+    refundRows.forEach(t => {
+      if (!t.order_id) return;
+      refundsByOrderId[t.order_id] = (refundsByOrderId[t.order_id] || 0) + Math.abs(parseFloat(t.amount || 0));
+    });
 
     // Fetch actual Stripe fees for the date window — fire-and-wait (blocks final render)
     let feesByPI = {};
