@@ -9194,7 +9194,9 @@
 
   // ── BILLING TAB ──
   function opPopulateBilling(o) {
-    document.getElementById('op-bill-total').textContent = fmtMoney(o.total_amount);
+    // Show tip-inclusive total so what admin sees matches what charge-order will charge.
+    const billTotal = _orderTipBreakdown(o).totalWithTip;
+    document.getElementById('op-bill-total').textContent = fmtMoney(billTotal);
     // Card info: customer table may have card_last4/card_brand as legacy columns
     const cust = allCustomers.find(c => c.id === opCurrentCustId);
     const cardLast4 = cust?.card_last4;
@@ -9206,14 +9208,15 @@
     const actEl = document.getElementById('op-bill-actions');
     actEl.innerHTML = '';
     if (!o.stripe_payment_intent_id) {
-      actEl.innerHTML = `<button class="btn btn-primary" onclick="opChargeOrder()" style="width:100%">Charge ${fmtMoney(o.total_amount)}</button>`;
+      actEl.innerHTML = `<button class="btn btn-primary" onclick="opChargeOrder()" style="width:100%">Charge ${fmtMoney(billTotal)}</button>`;
     }
   }
 
   async function opChargeOrder() {
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
-    if (!confirm(`Charge ${fmtMoney(o.total_amount)} for Order #${o.order_number}?`)) return;
+    const chargeTotal = _orderTipBreakdown(o).totalWithTip;
+    if (!confirm(`Charge ${fmtMoney(chargeTotal)} for Order #${o.order_number}?`)) return;
     const { data: { session } } = await db.auth.getSession();
     const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
       method: 'POST',
@@ -20041,7 +20044,8 @@ ${oneCopy}
           <div class="fold-order-row"><span>Weight</span><strong>${lbs}</strong></div>
           ${processedByHTML}
           ${liHTML ? `<div style="margin-top:8px;border-top:1px solid var(--gray-100);padding-top:8px">${liHTML}</div>` : ''}
-          <div class="fold-order-row" style="margin-top:6px;border-top:1px solid var(--gray-200);padding-top:6px"><span style="font-weight:700">Total</span><strong style="color:var(--accent);font-size:15px">${fmtMoney(o.total_amount||0)}</strong></div>
+          ${_orderTipRowHtml(o)}
+          <div class="fold-order-row" style="margin-top:6px;border-top:1px solid var(--gray-200);padding-top:6px"><span style="font-weight:700">Total</span><strong style="color:var(--accent);font-size:15px">${fmtMoney(_orderTipBreakdown(o).totalWithTip)}</strong></div>
           ${notesHTML}
         </div>
       </div>
