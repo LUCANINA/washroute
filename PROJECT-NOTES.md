@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 13, 2026 — Session 109: Subscription Phase 1 (DB foundation + admin report tab + customer app UI) + Stripe Terminal POS integration for S700 smart reader. Magic link orphan fix pushed.*
+*Last updated: Apr 14, 2026 — Session 110: Ghost delivery stop filter on driver app + audit check. Sites foundation (multi-site processing groundwork for next week's launch). Tipping pipeline fixed end-to-end — recurring trigger now copies tips, charge-order v33 collects them, all panels display them. Retroactively recovered ~$333 on 46 in-pipeline recurring orders.*
 
 ---
 
@@ -548,6 +548,90 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 14, 2026 (session 110) — Ghost delivery filter + sites foundation + tipping pipeline
+
+**Context:** Daily audit surfaced that a COMMERCIAL route today showed 3 delivery stops in the driver app that weren't appearing on the admin RCC. Investigating revealed (a) the driver app had no "parent order not ready" filter, and (b) tips were being stored on orders but never collected by Stripe. Also paved the foundation for next week's second-site launch.
+
+**1. Ghost delivery stops (driver-app/index.html).**
+- Added `NOT_READY_FOR_DELIVERY = ['picked_up','processing','folding']` and `isGhostDelivery(s)` helper at the top of the stop-loader.
+- Applied the filter to the main route stops, override/reassigned stops, and upcoming-route stops. Matches the existing admin RCC filter so both UIs reflect the same reality.
+- Cause: when a bag is processed off-software (at a site without admin access), the order stays at `picked_up` but the delivery stop sits on the driver's route looking actionable. Driver arrives to deliver laundry he doesn't have.
+
+**2. Audit Check 11 — Ghost Delivery Stops (washroute-audit-SKILL-updated.md).**
+- New P1 check in the daily audit. Flags delivery stops still pending on past-date routes whose parent order is `picked_up`/`processing`/`folding`.
+- Restricted to `run_date < today` to avoid noise from same-day in-flight orders.
+- Committed the updated skill staging file — needs to be copied into the installed skill location at `~/.claude/skills/washroute-audit/SKILL.md` to take effect.
+
+**3. Sites foundation — multi-site processing (DB + admin dashboard).**
+DB migration `create_sites_foundation` applied:
+- New `sites` table (seeded with Main + Secondary, only Main active).
+- `customers.default_site_id` (nullable FK) — for commercial accounts pre-arranged to go to the secondary site.
+- `orders.site_id` (nullable FK) — source of truth for which plant owns the bag.
+- All 2,017 existing orders backfilled to Main.
+- `set_order_site_on_insert` BEFORE INSERT trigger with resolution chain: explicit value → customer default → main site. SECURITY DEFINER so it can read sites/customers through RLS.
+- Only-one-default-site enforced via partial unique index.
+
+Admin dashboard UI:
+- `loadSites()` + `allSites` cache loaded at app boot alongside other reference data. Helpers: `getSiteById()`, `getDefaultSite()`.
+- Customer panel (contact tab): new "Default Processing Site" dropdown under Route Override.
+- Order panel (header): clickable site badge next to order number, colored by site. Click → picker dropdown → instant save with toast.
+- All order/customer SELECT statements now include `site_id` / `default_site_id`.
+
+Assignment model (per David's decision): pre-arranged routing by customer. Kasa-style commercial accounts get their site set once in the customer panel; residential overflow on busy days uses the per-order override. 90% default-to-Main by design.
+
+**4. Tipping pipeline — three distinct bugs fixed (critical — tips were stored but not charged).**
+
+4a. **Recurring trigger (DB migration `recurring_trigger_copy_tip`):**
+- Previous version of `trg_create_recurring_order_fn` never copied `tip_amount`/`tip_type` to the spawned order. Every recurring cycle created a $0-tip order regardless of what the customer paid last time.
+- Fixed: new logic prefers `NEW.tip_amount` if > 0; falls back to `customers.default_tip` (with `'$'→'dollar'`, `'%'→'pct'` translation). Covers both active chains and legacy chains that predate the Apr 10 tip backfill.
+
+4b. **charge-order edge function v33 (the big one):**
+- Previous version only charged `order.total_amount` (pre-tip). Tips were stored in `tip_amount` but never added to the Stripe charge — customers were charged less than they signed up for, and the business never collected the tip dollars.
+- Fixed: `computeTipDollars()` helper interprets `'pct'` vs `'dollar'`; final charge = `total_amount + tipDollars`. Stripe description and metadata record the tip separately. `customer_transactions` log includes the tip amount.
+- 28 already-delivered orders had charged pre-tip — **$282.82 absorbed** per David's decision.
+
+4c. **Admin dashboard + customer app:**
+- `loadCustomers()` now SELECTs `default_tip` + `default_tip_type` — previously `allCustomers[]` didn't carry these, so admin new-order pre-fill never fired. Also fixed `=== 'percent'` comparison (always false) to `=== '%'` so percentage tippers aren't mis-categorized.
+- All post-intake panels (fold, rack) now read `tip_amount`/`tip_type` and display a "Driver tip" line, tip-inclusive total. Added `_orderTipBreakdown()` / `_orderTipRowHtml()` helpers.
+- Intake `saveIntake()` explicitly stores the **pre-tip subtotal** in `total_amount` to avoid double-charging (charge-order adds tip on top).
+- Customer app: background refresh of `currentCustomer` from DB after cache load. Fixes stale-cache misses where customers whose `default_tip` was backfilled post-login weren't getting their tip pre-filled on the next booking.
+
+**5. Retroactive tip backfill.**
+- Applied each customer's current `default_tip` to 46 still-`scheduled` recurring orders that had `tip_amount = 0`. **~$333 recovered** before those orders get charged.
+- Safe: no triggers fire on `tip_amount` change (verified via preflight), no SMS sent, `saveIntake` will preserve the backfilled tip when intake happens.
+
+**6. Dashboard data that was never collecting tips:**
+- Before fix: 3.2% tip rate, ~$590/3 weeks. Since Apr 10: 20.5% tip rate, $532/4 days — BUT only 49% of customers with backfilled defaults were actually getting the tip applied. With all three fixes, expect that to rise sharply. Baseline-adjusted target: 30%+.
+
+**Files touched:**
+- `driver-app/index.html` — ghost filter
+- `admin-dashboard/index.html` — sites + tipping displays, admin new-order pre-fill
+- `customer-app/index.html` — background refresh
+- `washroute-audit-SKILL-updated.md` — Check 11
+- DB: migrations `create_sites_foundation` + `recurring_trigger_copy_tip`
+- Edge function: `charge-order` v33
+
+**Commits:**
+- `03d2018` — fix: hide ghost delivery stops in driver app + audit check
+- `5607079` — feat: sites foundation + tipping pipeline fixes
+
+**⚠️ For future sessions:**
+1. **Tips are now charged as (total_amount + tip).** `orders.total_amount` is the pre-tip subtotal. Never add `tip_amount` into `total_amount` — charge-order v33 adds it on top. This is the same pattern as the `bd.preTipTotal` vs `bd.total` distinction in the processing queue code.
+2. **`customers.default_tip_type` uses `'$'`/`'%'`; `orders.tip_type` uses `'dollar'`/`'pct'`.** Any code that reads one and writes the other must translate.
+3. **The recurring trigger's tip fallback to `customers.default_tip` is intentional** — it handles chains where the parent never had a tip because it was created before the tip picker shipped. If we want to honor "customer zeroed the tip on purpose," we'd need a separate `tip_explicitly_zero` flag. Not doing this yet.
+4. **Sites: pipeline is ready but only Main is active.** To launch site 2: mark Secondary `is_active = true`, set `default_site_id` on the commercial accounts that go there (Kasa, etc.), deploy the POS with site awareness (not yet built — pending next week).
+5. **Still pending for sites launch (next week):**
+   - POS: site selector at sign-in + queue filtered by site_id
+   - Driver app: site badge on each stop card
+   - Bulk reassign on Order Schedule (nice-to-have)
+   - "By Site" toggle on Reports (nice-to-have)
+   - Ghost-catch audit check: "orders handled at wrong site" — add once POS starts logging site_id on status changes
+6. **Tech debt flagged:** No trigger yet flags orders whose delivery window has passed without reaching `ready_for_delivery`. Add `routing_error = 'delivery_orphaned'` via a nightly cron so the Issues tab surfaces these automatically instead of relying on the daily audit.
+7. **Git divergence recovered:** Local branch had drifted from origin/main by ~3 weeks (114 commits). Performed a `git reset --hard origin/main` + re-applied the 2 session commits on top. Pre-existing uncommitted work on `pos-mockup.html` / `PROJECT-NOTES.md` was backed up to `/tmp/wr-backup/*.patch` (not yet restored to working tree).
+8. **Repo was renamed on GitHub: `WashRoute` → `washroute`.** The old URL still works via redirect. When convenient: `git remote set-url origin https://github.com/dmacquart/washroute.git`.
+
+---
 
 ### Apr 13, 2026 (session 109) — Subscription Phase 1 + Stripe Terminal POS + magic link fix
 
