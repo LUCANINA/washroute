@@ -22578,9 +22578,9 @@ ${oneCopy}
         <td style="font-weight:600;color:var(--gray-700)">${r.gross > 0 ? '$' + $fmt(r.gross) : '<span class=\"rev-zero\">—</span>'}</td>
         <td>${$neg(r.credits)}</td>
         <td>${$neg(r.discounts)}</td>
-        <td>${$neg(r.refunds)}</td>
         <td style="color:var(--gray-500)">${r.count}</td>
         <td style="font-weight:600;color:var(--navy)">$${$fmt(r.total)}</td>
+        <td>${$neg(r.refunds)}</td>
         <td>${$fee(r.procFees, r.feeEstimated)}</td>
         <td style="font-weight:700;color:var(--green)">$${$fmt(r.net)}</td>
       </tr>`).join('');
@@ -22598,9 +22598,9 @@ ${oneCopy}
             <th>Gross Revenue</th>
             <th>Credits</th>
             <th>Discounts</th>
-            <th>Refunds</th>
             <th>Orders</th>
             <th>Charged</th>
+            <th>Refunds</th>
             <th title="Actual Stripe fees from balance_transactions. Italicized values are estimated at 2.9% + $0.30 when the balance_transaction wasn't available.">Processing Fees</th>
             <th>Net Revenue</th>
           </tr>
@@ -22617,9 +22617,9 @@ ${oneCopy}
             <td style="color:var(--gray-700)">${$ft(tot.gross)}</td>
             <td style="color:var(--red)">−$${$fmt(tot.credits)}</td>
             <td style="color:var(--red)">−$${$fmt(tot.discounts)}</td>
-            <td style="color:var(--red)">−$${$fmt(tot.refunds)}</td>
             <td style="color:var(--gray-500)">${tot.count}</td>
             <td style="color:var(--navy)">$${$fmt(tot.total)}</td>
+            <td style="color:var(--red)">−$${$fmt(tot.refunds)}</td>
             <td style="color:var(--red)${tot.feeEstimated ? ';font-style:italic' : ''}">−$${$fmt(tot.procFees)}</td>
             <td style="color:var(--green)">$${$fmt(tot.net)}</td>
           </tr>
@@ -22631,7 +22631,7 @@ ${oneCopy}
 
   function exportRevenueCSV() {
     if (!_revReportData.length) return;
-    const headers = ['Date','Services','Add-ons','Overages','Delivery Fees','Tips','Gross Revenue','Credits Applied','Discounts Applied','Card Refunds','Orders','Charged','Processing Fees','Processing Fees Estimated?','Net Revenue'];
+    const headers = ['Date','Services','Add-ons','Overages','Delivery Fees','Tips','Gross Revenue','Credits Applied','Discounts Applied','Orders','Charged','Card Refunds','Processing Fees','Processing Fees Estimated?','Net Revenue'];
     const rows = _revReportData.map(r => [
       r.date,
       r.service.toFixed(2),
@@ -22642,9 +22642,9 @@ ${oneCopy}
       r.gross.toFixed(2),
       (-r.credits).toFixed(2),
       (-r.discounts).toFixed(2),
-      (-r.refunds).toFixed(2),
       r.count,
       r.total.toFixed(2),
+      (-r.refunds).toFixed(2),
       (-r.procFees).toFixed(2),
       r.feeEstimated ? 'yes' : 'no',
       r.net.toFixed(2)
