@@ -393,6 +393,73 @@ nightly cron job so they surface in the Issues tab automatically.
 
 ---
 
+### Check 12 — Orphan Auth Users (P1)
+
+Auth users with an email but no linked customer record. Customers in this
+state are silently stuck — every magic link request creates another orphan,
+they can never sign in, and they have no way to tell us short of emailing.
+This is the bug Thomas Cannon and Emily Heath hit in session 110.
+
+```sql
+-- Orphan = auth.users with an email but no customer in profiles.id linkage,
+-- AND not a known staff/internal email. Excludes empty-email phone-only users.
+SELECT au.id AS orphan_auth_id,
+       au.email,
+       au.created_at,
+       au.last_sign_in_at,
+       -- Is there a customer with this email_cache linked to a different
+       -- (phone-only) auth user? That customer is currently STUCK.
+       (SELECT c.id FROM customers c
+          WHERE c.email_cache = au.email
+            AND c.profile_id IS NOT NULL
+            AND c.profile_id != au.id
+          LIMIT 1) AS shadowed_customer_id,
+       (SELECT c.first_name_cache || ' ' || c.last_name_cache FROM customers c
+          WHERE c.email_cache = au.email
+            AND c.profile_id IS NOT NULL
+            AND c.profile_id != au.id
+          LIMIT 1) AS shadowed_name
+FROM auth.users au
+LEFT JOIN customers c ON c.profile_id = au.id
+WHERE au.email IS NOT NULL
+  AND au.email != ''
+  AND c.id IS NULL
+  -- Skip known staff / internal accounts (David maintains this list)
+  AND au.email NOT IN (
+    'lili@familylaundry.com',
+    'info@familylaundry.com',
+    'john@familylaundry.com'
+  )
+  AND au.email NOT LIKE '%@washroute.test'
+ORDER BY au.created_at DESC;
+```
+
+**Why this matters:** Three real customers (Norine, Nathie, Pree) and several
+test accounts were quietly stuck this way before session 110's sweep. Without
+an audit check, the same condition silently re-accumulates. `send-magic-link`
+v17 (session 110) prevents new orphans for phone-auth customers, but other
+flows can still produce them (typos, abandoned signups).
+
+**To fix when reported:**
+
+- **If `shadowed_customer_id` is populated** (highest priority): there's a
+  real customer being blocked. Delete the orphan auth user, then ask the
+  customer to click "send magic link" again — v17 will link the email to
+  their phone-auth user automatically and the link will land cleanly.
+- **If `shadowed_customer_id` is NULL**: this is a typo or an abandoned
+  signup. Safe to delete the orphan to keep the database tidy.
+
+```sql
+-- Delete a single orphan
+DELETE FROM auth.users WHERE id = '<orphan_auth_id>';
+-- Cascades to profiles + auth.identities automatically.
+```
+
+**Never delete:** `lili@`, `info@`, `john@` `@familylaundry.com` are staff
+emails. Add new staff to the exclusion list above when onboarding.
+
+---
+
 ## After the Audit
 
 1. Present the summary
