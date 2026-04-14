@@ -6803,42 +6803,20 @@ function isPasswordlessUser() {
 function renderPasswordSections() {
   const changeSection = document.getElementById('cd-pw-change-section');
   const setSection    = document.getElementById('cd-pw-set-section');
+  const changeBtn     = document.getElementById('cd-save-pw-btn');
+  const emailBtn      = document.getElementById('cd-save-email-btn');
   if (!changeSection || !setSection) return;
-  if (isPasswordlessUser()) {
-    changeSection.style.display = 'none';
-    setSection.style.display    = '';
-    const desc = document.getElementById('cd-pw-set-desc');
-    const btn  = document.getElementById('cd-send-set-pw-btn');
-    const emailBtn = document.getElementById('cd-save-email-btn');
-    // session 111d: distinguish three cases for phone-OTP users without an auth email:
-    //   (a) email field is empty → ask the user to type one
-    //   (b) email field has a value but not yet confirmed on the auth user → tell them to click Update Email
-    //   (c) auth user has email → enable password setup
-    if (!currentUser?.email) {
-      const emailField = document.getElementById('cd-email');
-      const typedEmail = (emailField?.value || '').trim();
-      if (typedEmail && typedEmail.includes('@')) {
-        // Case (b) — we have an email displayed (from customer cache or just typed) but it's
-        // not yet confirmed on the auth user. Clicking Update Email triggers the confirmation flow.
-        if (desc) desc.textContent = "Click \u201CConfirm Email\u201D below to confirm this email on your account, then come back here to set a password.";
-        if (btn) { btn.disabled = true; btn.textContent = 'Confirm email first'; }
-        if (emailBtn) emailBtn.textContent = 'Confirm Email';
-      } else {
-        // Case (a) — empty email field
-        if (desc) desc.textContent = 'To set a password, first add an email address above, then come back here.';
-        if (btn) { btn.disabled = true; btn.textContent = 'Email required'; }
-        if (emailBtn) emailBtn.textContent = 'Update Email';
-      }
-    } else {
-      // Case (c)
-      if (desc) desc.textContent = 'You signed up without a password. Set one now so you can log in with email & password in the future.';
-      if (btn) { btn.disabled = false; btn.textContent = 'Send Password Setup Email'; }
-      if (emailBtn) emailBtn.textContent = 'Update Email';
-    }
-  } else {
-    changeSection.style.display = '';
-    setSection.style.display    = 'none';
+  // session 111d: ALWAYS show the password input fields for an authenticated user.
+  // db.auth.updateUser({ password }) works for both phone-OTP and email users — no email
+  // magic-link round trip is needed when you're already signed in. The previous email-flow
+  // gating locked phone-OTP users out of setting a password entirely.
+  setSection.style.display = 'none'; // legacy email-flow section retired
+  changeSection.style.display = '';
+  if (changeBtn) {
+    changeBtn.textContent = isPasswordlessUser() ? 'Set Password' : 'Change Password';
   }
+  // Email button label still reflects whether the auth user already has an email confirmed
+  if (emailBtn) emailBtn.textContent = currentUser?.email ? 'Update Email' : 'Confirm Email';
 }
 
 async function savePasswordChange() {
@@ -6860,7 +6838,8 @@ async function savePasswordChange() {
   } catch (e) {
     showToast(e.message || 'Could not change password — please try again', 'error');
   } finally {
-    btn.disabled = false; btn.textContent = 'Change Password';
+    // session 111d: respect the dynamic label (Set Password vs Change Password)
+    btn.disabled = false; btn.textContent = isPasswordlessUser() ? 'Set Password' : 'Change Password';
   }
 }
 
