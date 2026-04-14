@@ -6215,11 +6215,14 @@ async function loadAccount() {
     currentCards = [];
   }
 
-  const first = currentProfile.first_name || '';
-  const last  = currentProfile.last_name  || '';
+  // session 111e: optional chaining + customer-cache fallback (audit P0/P2)
+  // Without these, phone-OTP users with a stale/empty profile would crash here OR
+  // see their account hero render blank even though the customer cache has the data.
+  const first = currentProfile?.first_name || currentCustomer?.first_name_cache || '';
+  const last  = currentProfile?.last_name  || currentCustomer?.last_name_cache  || '';
   document.getElementById('acct-avatar').textContent = ((first[0] || '') + (last[0] || '') || '?').toUpperCase();
   document.getElementById('acct-name').textContent   = `${first} ${last}`.trim() || 'You';
-  document.getElementById('acct-email').textContent  = currentProfile.email || currentUser?.email || '';
+  document.getElementById('acct-email').textContent  = currentProfile?.email || currentUser?.email || currentCustomer?.email_cache || '';
 
   // Load plans from DB
   const { data: plans } = await db.from('subscription_plans')
@@ -6706,6 +6709,8 @@ async function saveEmailChange() {
 
   if (!email)              { showToast('Please enter an email address', 'error'); return; }
   if (!email.includes('@')) { showToast('Please enter a valid email', 'error'); return; }
+  // session 111e: if the auth user already has this email confirmed, skip — but don't block
+  // when only the customer cache has it (those need confirmation to land on the auth user)
   if (email === (currentUser?.email || '').toLowerCase()) {
     showToast("That's already your current email", ''); return;
   }
