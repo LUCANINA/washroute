@@ -565,6 +565,21 @@ There are actually **two separate hang points** that must both be covered:
 
 **⚠️ Git note:** Local `.git` directory is corrupted (immutable lock files in sandbox). Used fresh clone in `/tmp/WashRoute-push` for commit+push. Local working copies have accumulated drift from remote — always use surgical apply strategy when pushing from this environment.
 
+**6. Licensing & scaling discussion** — David is considering licensing WashRoute to other laundry businesses doing $100K+/month in deliveries. Business model: $10-25K upfront setup fee + 2% of sales (via Stripe Connect application fee). Already has a prospect who asked about licensing "in a few months." Planning to demo the current system within 2 weeks.
+
+**Scaling strategy decided:**
+- **Near-term (1-4 clients):** Fork-and-customize approach. Clone the repo per client, rebrand, configure their Stripe/Twilio/Supabase, deploy separately. Manageable with a few clients and generates revenue immediately.
+- **At 3-4 clients:** Rebuild as multi-tenant Next.js (React + TypeScript + Tailwind) app on Vercel, keeping Supabase as backend. Shared database with `tenant_id` on every table + RLS isolation. All client-specific customizations become configurable options.
+- **Migration path from forks to multi-tenant:** Build new platform in parallel (no downtime risk), migrate one tenant at a time starting with Family Laundry, run old and new side-by-side for validation, then cut over. Estimated ~3 months total (6-8 weeks platform build + 1-2 weeks per client migration).
+- **Full multi-tenant rebuild estimate:** 8-12 weeks. Week 1: architecture + tenant config + auth. Week 2: customer app. Weeks 3-4: admin dashboard. Weeks 5-6: driver app + POS + tenant onboarding. Weeks 7-8: data migration + testing.
+- **Key technical decisions for v2:** Next.js app router, TypeScript, Tailwind, Supabase stays as backend, Stripe Connect for automated 2% revenue collection, tenant-scoped RLS policies.
+
+**Action items for next sessions:**
+- QA pass on all three apps before demo
+- S700 reader: register and test when it arrives
+- Subscription Phase 2: Stripe integration + signup flow
+- Prepare demo environment (clean data, polished UX)
+
 ---
 
 ### Apr 13, 2026 (session 108) — Invoice settings, Settings page reorg, customer KPI fix, orders performance, billing fixes, QA
