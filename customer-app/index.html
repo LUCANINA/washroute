@@ -6621,15 +6621,19 @@ async function savePreferences() {
    ══════════════════════════════════════ */
 
 function loadContactDetails() {
-  // Populate name fields from profile
-  const first = currentProfile?.first_name || '';
-  const last  = currentProfile?.last_name  || '';
+  // session 111c: prefer profile, fall back to customer cache.
+  // Phone-OTP login can create a fresh empty profile row even though the customer
+  // record still has the user's name/email. Without the fallback, the Account Details
+  // form looks blank and customers think their data was wiped.
+  const first = currentProfile?.first_name || currentCustomer?.first_name_cache || '';
+  const last  = currentProfile?.last_name  || currentCustomer?.last_name_cache  || '';
   document.getElementById('cd-first').value = first;
   document.getElementById('cd-last').value  = last;
   // Phone from customer record
   document.getElementById('cd-phone').value = currentCustomer?.phone_cache || '';
-  // Email from auth user — always the confirmed/active email
-  document.getElementById('cd-email').value = currentUser?.email || '';
+  // Email: prefer the auth user's email (confirmed/active), but fall back to customer cache
+  // for phone-OTP users whose auth user has no email yet.
+  document.getElementById('cd-email').value = currentUser?.email || currentCustomer?.email_cache || '';
   // Clear any leftover password entries
   document.getElementById('cd-new-pw').value     = '';
   document.getElementById('cd-confirm-pw').value = '';
