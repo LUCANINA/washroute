@@ -1775,14 +1775,12 @@ async function _loadDriverDataInner() {
   // Auto-create driver record on first login (sequential — depends on group 1 result)
   let drv = linkedDrv || drv0;
   if (!drv) {
-    // Double-check: re-query to prevent duplicates from race conditions or earlier .single() failures
-    const { data: recheck } = await db.from('drivers').select('*').eq('profile_id', currentUser.id).order('created_at').limit(1).maybeSingle();
-    if (recheck) { drv = recheck; }
-    else {
-      // UPSERT guards against race conditions — profile_id has a UNIQUE constraint
-      const { data: nd } = await db.from('drivers').upsert({ profile_id: currentUser.id, is_active: true }, { onConflict: 'profile_id' }).select().single();
-      drv = nd;
-    }
+    // UPSERT with DB-level UNIQUE constraint on profile_id — race-safe (session 111)
+    const { data: nd } = await db.from('drivers')
+      .upsert({ profile_id: currentUser.id, is_active: true }, { onConflict: 'profile_id' })
+      .select()
+      .single();
+    drv = nd;
   }
   currentDriver = drv;
   if (!currentDriver) {

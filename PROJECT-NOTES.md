@@ -549,6 +549,84 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
+### Apr 14, 2026 (session 111) — Tech debt sweep: delivery-orphaned cron, driver dup guard, credits at charge time, repo rename
+
+**Context:** Cleared four tech debt items flagged in session 110 in a single pass, two of them in parallel investigations.
+
+---
+
+#### 1. Delivery-orphaned cron flag (migration `flag_delivery_orphaned_orders`)
+- Sets `orders.routing_error = 'delivery_orphaned: still {status}, delivery window ended X min ago'` for orders matching: `status IN ('picked_up','processing','folding') AND delivery_window_end < now() - 2 hours AND routing_error IS NULL`.
+- Pure flagging — no status change, no SMS, no edge function calls. Self-clears when the order advances to `ready_for_delivery` (existing forward-status code at admin-dashboard line ~8330 nulls `routing_error` on advance).
+- `SECURITY DEFINER` so cron role can update regardless of RLS.
+- Skips rows with existing `routing_error` to avoid overwriting admin notes or other flag types.
+
+**2. pg_cron job `flag-delivery-orphaned` — `15 * * * *` (hourly at :15).**
+- Offsets from existing crons (`auto_fail_expired_orders` at `*/30`, reminders at `0 1` / `0 14`, etc.) — no collision.
+- 2h grace matches `auto_fail_expired_orders` so we don't flag in-flight folding crunch.
+
+**3. Issues tab integration — already wired.**
+- Existing ⚠️ red pill in admin orders table (line 7366) renders any non-null `routing_error` with hover tooltip. Issues tab (filter `currentOrderFilter === 'issues'`) surfaces these orders automatically.
+
+**Verified:** Initial run flagged 1 existing orphan (order #986, folding, delivery window ended 327 min ago). Cron active.
+
+**Files touched:**
+- DB: migration `flag_delivery_orphaned_orders` (function + cron schedule)
+- No app code changes — used existing `routing_error` rendering.
+
+**Rollback (if ever needed):**
+```sql
+SELECT cron.unschedule('flag-delivery-orphaned');
+DROP FUNCTION IF EXISTS public.flag_delivery_orphaned_orders();
+UPDATE orders SET routing_error = NULL WHERE routing_error LIKE 'delivery_orphaned:%';
+```
+
+---
+
+#### 2. Driver app duplicate guard cleanup
+
+- Verified `drivers.profile_id` UNIQUE constraint **already exists at DB level** (the `database/schema.sql` file is stale — that's what previously made it look like the constraint was missing). Migration `drivers_profile_id_unique` was a no-op safety net (failed gracefully because already present).
+- Verified zero duplicate driver rows in production.
+- Removed redundant SELECT-then-INSERT recheck in `driver-app/index.html` (lines ~1775-1786). The upsert with `onConflict: 'profile_id'` is genuinely race-safe given the DB constraint.
+- Hardened `admin-dashboard/index.html` line ~5360: changed blind `.insert({ profile_id })` for the team-member driver-access toggle to a matching `.upsert(..., { onConflict: 'profile_id' })`.
+- Comments updated to no longer mislead future readers about the constraint state.
+
+#### 3. Credits at charge time — `charge-order` v34 deployed
+
+- **Bug:** v33 only applied credits at Intake (admin dashboard). Any credits added between Intake and the actual charge (referrals, refunds, manual top-ups) were silently ignored — customers got charged the full subtotal even though they had a credit balance.
+- **Fix (charge-order v34):** Before hitting Stripe, the function now:
+  1. SELECTs `customers.credits` fresh.
+  2. Applies `creditsApplied = min(availableCredits, preTipAmount)` to the pre-tip subtotal only (tips never reduced by credits — they're driver compensation).
+  3. Computes `chargeAmount = (subtotal - credits) + tip`.
+  4. If `chargeAmount <= 0` → skips Stripe entirely, marks order paid as `billing_payment_method = 'credit'`.
+  5. After the order is marked paid, deducts credits from the customer's balance and inserts a `customer_transactions` row of `type='credit_use'`.
+  6. `lifetime_value` only incremented by actual Stripe-charged dollars (matches Intake credit pattern — credits aren't "spend").
+- Idempotency: the existing `stripe_payment_intent_id` guard already throws "already charged" on retry. Credits are deducted only after `billing_status='paid'` is set, so a retried call sees balance=0 and falls through cleanly.
+- No new SMS templates, no new triggers — same notification path as v33.
+- Source committed to repo: `supabase/functions/charge-order/index.ts`.
+
+#### 4. Git/repo housekeeping
+
+- Updated `git remote origin` from `WashRoute` → `washroute` to match the renamed GitHub repo.
+- `/tmp/wr-backup/*.patch` directory does not exist on this machine (sandbox is wiped between sessions). Assuming David has those backed up locally if still needed; nothing to restore here.
+
+---
+
+#### Files touched (session 111)
+- DB migrations: `flag_delivery_orphaned_orders`, `drivers_profile_id_unique` (no-op)
+- Edge function: `charge-order` v33 → v34
+- `driver-app/index.html` — auto-create cleanup
+- `admin-dashboard/index.html` — team-member driver toggle hardened
+- Git remote URL updated
+
+#### ⚠️ For future sessions
+- **`drivers.profile_id` UNIQUE constraint exists at DB level** even though `database/schema.sql` doesn't show it. Don't trust that file for constraint checks — query `pg_constraint` instead.
+- **charge-order applies credits before tips.** Formula: `final_charge = (subtotal − credits) + tip`. Never invert this — tips are owed to the driver regardless of customer credit balance.
+- **Credit-only orders** (subtotal ≤ credit balance, no tip) skip Stripe entirely. They get `billing_payment_method = 'credit'` and no `stripe_payment_intent_id`. Anything looking for "all paid orders" should filter on `billing_status = 'paid'`, not on the presence of a payment intent.
+- **Watch the next batch of charges** for unexpected credit applications. To audit: `SELECT * FROM customer_transactions WHERE type='credit_use' AND created_at > '2026-04-14' ORDER BY created_at DESC;`
+
+---
+
 ### Apr 14, 2026 (session 110) — Ghost delivery filter + sites foundation + tipping pipeline
 
 **Context:** Daily audit surfaced that a COMMERCIAL route today showed 3 delivery stops in the driver app that weren't appearing on the admin RCC. Investigating revealed (a) the driver app had no "parent order not ready" filter, and (b) tips were being stored on orders but never collected by Stripe. Also paved the foundation for next week's second-site launch.
@@ -627,7 +705,7 @@ Assignment model (per David's decision): pre-arranged routing by customer. Kasa-
    - Bulk reassign on Order Schedule (nice-to-have)
    - "By Site" toggle on Reports (nice-to-have)
    - Ghost-catch audit check: "orders handled at wrong site" — add once POS starts logging site_id on status changes
-6. **Tech debt flagged:** No trigger yet flags orders whose delivery window has passed without reaching `ready_for_delivery`. Add `routing_error = 'delivery_orphaned'` via a nightly cron so the Issues tab surfaces these automatically instead of relying on the daily audit.
+6. ~~**Tech debt flagged:** No trigger yet flags orders whose delivery window has passed without reaching `ready_for_delivery`.~~ ✅ Resolved session 111 — `flag_delivery_orphaned_orders()` + hourly cron now sets `routing_error = 'delivery_orphaned: ...'` so the Issues tab surfaces these automatically.
 7. **Git divergence recovered:** Local branch had drifted from origin/main by ~3 weeks (114 commits). Performed a `git reset --hard origin/main` + re-applied the 2 session commits on top. Pre-existing uncommitted work on `pos-mockup.html` / `PROJECT-NOTES.md` was backed up to `/tmp/wr-backup/*.patch` (not yet restored to working tree).
 8. **Repo was renamed on GitHub: `WashRoute` → `washroute`.** The old URL still works via redirect. When convenient: `git remote set-url origin https://github.com/dmacquart/washroute.git`.
 
@@ -2907,9 +2985,9 @@ Root cause investigation triggered by screenshot showing: (1) Commercial Wash & 
 **Pending (carries forward):**
 1. David needs to run `git push` from Terminal (VM can't authenticate with GitHub)
 2. Erin Colcord duplicate orders (#841 and #968 for Mar 30) — David to decide if both intentional
-3. Tech debt: driver app line 1764 auto-create fallback needs `profile_id` uniqueness guard to prevent duplicate driver records
+3. ~~Tech debt: driver app line 1764 auto-create fallback needs `profile_id` uniqueness guard~~ ✅ Resolved session 111
 4. Re-enable `review_request` and `reorder_reminder` SMS templates when ready
-5. Credits not applied at charge time — only at Intake. Consider adding credit check to `charge-order`
+5. ~~Credits not applied at charge time — only at Intake.~~ ✅ Resolved session 111 (charge-order v34)
 
 ---
 

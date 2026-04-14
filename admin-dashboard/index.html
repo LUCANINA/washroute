@@ -5357,8 +5357,9 @@
     }
     // Handle driver access toggle
     if (wantsDriver && !_tmHasDriverRow) {
-      const { error: dErr } = await db.from('drivers').insert({ profile_id: _tmProfileId, is_active: true });
-      if (dErr) { console.warn('Driver row insert:', dErr.message); }
+      // UPSERT — drivers.profile_id has UNIQUE constraint, race-safe (session 111)
+      const { error: dErr } = await db.from('drivers').upsert({ profile_id: _tmProfileId, is_active: true }, { onConflict: 'profile_id' });
+      if (dErr) { console.warn('Driver row upsert:', dErr.message); }
     } else if (!wantsDriver && _tmHasDriverRow) {
       const { error: dErr } = await db.from('drivers').delete().eq('profile_id', _tmProfileId);
       if (dErr) { console.warn('Driver row delete:', dErr.message); }
