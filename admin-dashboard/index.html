@@ -22436,7 +22436,7 @@ ${oneCopy}
     { const BATCH = 1000; let offset = 0;
       while (true) {
         const { data, error: e } = await db.from('orders')
-          .select('order_number, status, billing_status, total_amount, tip_amount, line_items, delivery_window_start, discount_id, is_subscription_order')
+          .select('order_number, status, billing_status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, line_items, delivery_window_start, discount_id, is_subscription_order')
           .neq('status', 'cancelled')
           .not('total_amount', 'is', null)
           .gte('delivery_window_start', fromISO)
@@ -22453,6 +22453,37 @@ ${oneCopy}
     if (fetchError) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${fetchError.message}</div>`; return; }
     if (!orders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
 
+    // Fetch actual Stripe fees for the date window — fire-and-wait (blocks final render)
+    let feesByPI = {};
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      const feeRes = await fetch(`${SUPA_URL}/functions/v1/get-stripe-fees`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || SUPA_ANON_KEY}` },
+        body: JSON.stringify({ from: selFrom, to: selTo })
+      });
+      if (feeRes.ok) {
+        const payload = await feeRes.json();
+        feesByPI = payload.feesByPI || {};
+      } else {
+        console.warn('[revenue] get-stripe-fees non-ok:', await feeRes.text());
+      }
+    } catch (err) {
+      console.warn('[revenue] get-stripe-fees failed, falling back to estimate:', err?.message);
+    }
+
+    // Convert a tip (amount + type) to dollars.
+    // tip_type='pct' means tip_amount is a percentage applied to total_amount (pre-tip).
+    function _tipToDollars(o) {
+      const amt = parseFloat(o.tip_amount || 0);
+      if (!amt || amt <= 0) return 0;
+      if (o.tip_type === 'pct') return Math.round(parseFloat(o.total_amount || 0) * amt) / 100;
+      return amt;
+    }
+
+    // Fallback estimate: 2.9% + $0.30 per Stripe charge (standard US online rate)
+    function _estFee(chargeDollars) { return chargeDollars * 0.029 + 0.30; }
+
     // Group by local date (Pacific)
     const byDate = {};
     orders.forEach(o => {
@@ -22466,7 +22497,7 @@ ${oneCopy}
     const rows = [];
     Object.keys(byDate).sort().filter(d => d >= selFrom && d <= selTo).forEach(date => {
       const dayOrders = byDate[date];
-      let service = 0, addons = 0, overages = 0, fees = 0, tips = 0, credits = 0, discounts = 0, refunds = 0, total = 0, count = 0;
+      let service = 0, addons = 0, overages = 0, fees = 0, tips = 0, credits = 0, discounts = 0, refunds = 0, total = 0, count = 0, procFees = 0, feeEstimated = false;
       dayOrders.forEach(o => {
         const li = _parseLineItems(o.line_items);
         service   += li.service;
@@ -22475,13 +22506,27 @@ ${oneCopy}
         fees      += li.fees;
         credits   += li.credits;
         discounts += li.discounts;
-        tips      += parseFloat(o.tip_amount || 0);
+        const tipDollars = _tipToDollars(o);
+        tips      += tipDollars;
         total     += parseFloat(o.total_amount || 0);
         if (o.billing_status === 'refunded') refunds += parseFloat(o.total_amount || 0);
+        // Stripe processing fee — use actual from balance_transactions when available,
+        // fall back to 2.9% + $0.30 estimate. Skip refunds (Stripe refunds fee on full refund in US).
+        if (o.billing_status === 'paid' && o.stripe_payment_intent_id) {
+          const actualCents = feesByPI[o.stripe_payment_intent_id]?.fee_cents;
+          if (actualCents !== undefined) {
+            procFees += actualCents / 100;
+          } else {
+            const chargeDollars = parseFloat(o.total_amount || 0) + tipDollars;
+            procFees += _estFee(chargeDollars);
+            feeEstimated = true;
+          }
+        }
         count++;
       });
-      const net = total - refunds;
-      rows.push({ date, service, addons, overages, fees, tips, credits, discounts, refunds, total, net, count });
+      const gross = service + addons + overages + fees + tips;
+      const net   = total - refunds - procFees;
+      rows.push({ date, service, addons, overages, fees, tips, gross, credits, discounts, refunds, total, procFees, feeEstimated, net, count });
     });
 
     _revReportData = rows;
@@ -22493,14 +22538,17 @@ ${oneCopy}
       acc.overages  += r.overages;
       acc.fees      += r.fees;
       acc.tips      += r.tips;
+      acc.gross     += r.gross;
       acc.credits   += r.credits;
       acc.discounts += r.discounts;
       acc.refunds   += r.refunds;
+      acc.procFees  += r.procFees;
+      acc.feeEstimated = acc.feeEstimated || r.feeEstimated;
       acc.total     += r.total;
       acc.net       += r.net;
       acc.count     += r.count;
       return acc;
-    }, { service:0, addons:0, overages:0, fees:0, tips:0, credits:0, discounts:0, refunds:0, total:0, net:0, count:0 });
+    }, { service:0, addons:0, overages:0, fees:0, tips:0, gross:0, credits:0, discounts:0, refunds:0, total:0, procFees:0, feeEstimated:false, net:0, count:0 });
 
     const $fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const $f  = n => n > 0 ? `$${$fmt(n)}` : `<span class="rev-zero">—</span>`;
@@ -22513,6 +22561,12 @@ ${oneCopy}
 
     const $neg = n => n > 0 ? `<span style="color:var(--red)">−$${$fmt(n)}</span>` : `<span class="rev-zero">—</span>`;
 
+    // Processing Fees — red-ish tone so it reads as a deduction.
+    // Italicized when estimated (no actual Stripe balance_transaction yet).
+    const $fee = (n, est) => n > 0
+      ? `<span style="color:var(--red)${est ? ';font-style:italic' : ''}" title="${est ? 'Estimated at 2.9% + $0.30 per charge' : 'Actual Stripe fees'}">−$${$fmt(n)}</span>`
+      : `<span class="rev-zero">—</span>`;
+
     const bodyRows = rows.map(r => `
       <tr>
         <td>${fmtDate(r.date)}</td>
@@ -22521,11 +22575,13 @@ ${oneCopy}
         <td>${$f(r.overages)}</td>
         <td>${$f(r.fees)}</td>
         <td>${$f(r.tips)}</td>
+        <td style="font-weight:600;color:var(--gray-700)">${r.gross > 0 ? '$' + $fmt(r.gross) : '<span class=\"rev-zero\">—</span>'}</td>
         <td>${$neg(r.credits)}</td>
         <td>${$neg(r.discounts)}</td>
         <td>${$neg(r.refunds)}</td>
         <td style="color:var(--gray-500)">${r.count}</td>
         <td style="font-weight:600;color:var(--navy)">$${$fmt(r.total)}</td>
+        <td>${$fee(r.procFees, r.feeEstimated)}</td>
         <td style="font-weight:700;color:var(--green)">$${$fmt(r.net)}</td>
       </tr>`).join('');
 
@@ -22539,11 +22595,13 @@ ${oneCopy}
             <th>Overages</th>
             <th>Delivery Fees</th>
             <th>Tips</th>
+            <th>Gross Revenue</th>
             <th>Credits</th>
             <th>Discounts</th>
             <th>Refunds</th>
             <th>Orders</th>
             <th>Charged</th>
+            <th title="Actual Stripe fees from balance_transactions. Italicized values are estimated at 2.9% + $0.30 when the balance_transaction wasn't available.">Processing Fees</th>
             <th>Net Revenue</th>
           </tr>
         </thead>
@@ -22556,11 +22614,13 @@ ${oneCopy}
             <td>${$ft(tot.overages)}</td>
             <td>${$ft(tot.fees)}</td>
             <td>${$ft(tot.tips)}</td>
+            <td style="color:var(--gray-700)">${$ft(tot.gross)}</td>
             <td style="color:var(--red)">−$${$fmt(tot.credits)}</td>
             <td style="color:var(--red)">−$${$fmt(tot.discounts)}</td>
             <td style="color:var(--red)">−$${$fmt(tot.refunds)}</td>
             <td style="color:var(--gray-500)">${tot.count}</td>
             <td style="color:var(--navy)">$${$fmt(tot.total)}</td>
+            <td style="color:var(--red)${tot.feeEstimated ? ';font-style:italic' : ''}">−$${$fmt(tot.procFees)}</td>
             <td style="color:var(--green)">$${$fmt(tot.net)}</td>
           </tr>
         </tfoot>
@@ -22571,7 +22631,7 @@ ${oneCopy}
 
   function exportRevenueCSV() {
     if (!_revReportData.length) return;
-    const headers = ['Date','Services','Add-ons','Overages','Delivery Fees','Tips','Credits Applied','Discounts Applied','Card Refunds','Orders','Charged','Net Revenue'];
+    const headers = ['Date','Services','Add-ons','Overages','Delivery Fees','Tips','Gross Revenue','Credits Applied','Discounts Applied','Card Refunds','Orders','Charged','Processing Fees','Processing Fees Estimated?','Net Revenue'];
     const rows = _revReportData.map(r => [
       r.date,
       r.service.toFixed(2),
@@ -22579,11 +22639,14 @@ ${oneCopy}
       r.overages.toFixed(2),
       r.fees.toFixed(2),
       r.tips.toFixed(2),
+      r.gross.toFixed(2),
       (-r.credits).toFixed(2),
       (-r.discounts).toFixed(2),
       (-r.refunds).toFixed(2),
       r.count,
       r.total.toFixed(2),
+      (-r.procFees).toFixed(2),
+      r.feeEstimated ? 'yes' : 'no',
       r.net.toFixed(2)
     ]);
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
