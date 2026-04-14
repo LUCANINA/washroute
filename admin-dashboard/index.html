@@ -2075,6 +2075,7 @@
               <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">Drivers</button>
               <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">Launderers</button>
               <button class="rpt-page-tab" onclick="setRptTab('onaccount',this)">On Account</button>
+              <button class="rpt-page-tab" onclick="setRptTab('subscriptions',this)">⭐ Subscriptions</button>
             </div>
           </div>
 
@@ -2212,6 +2213,67 @@
                     <tr><td colspan="10"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
                   </tbody>
                   <tfoot id="oa-summary-tfoot" style="font-weight:700;border-top:2px solid var(--gray-200)"></tfoot>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── TAB: SUBSCRIPTIONS ── -->
+          <div id="rpttab-subscriptions" style="display:none">
+            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+              <div class="stat-card">
+                <div class="stat-label">Active Subscribers</div>
+                <div class="stat-value" id="rpt-sub-active">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Monthly Recurring</div>
+                <div class="stat-value" id="rpt-sub-mrr">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Paused</div>
+                <div class="stat-value" id="rpt-sub-paused">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Cancelled (30d)</div>
+                <div class="stat-value" id="rpt-sub-cancelled">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Past Due</div>
+                <div class="stat-value" id="rpt-sub-pastdue">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Avg Usage</div>
+                <div class="stat-value" id="rpt-sub-avg-usage">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">lbs / 100 limit</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Overage Revenue</div>
+                <div class="stat-value" id="rpt-sub-overage-rev">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-sub-overage-sub">this period</div>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:0">
+              <div class="card-header">
+                <div class="card-title">All Subscribers</div>
+                <div class="card-sub" id="rpt-sub-count-label"></div>
+              </div>
+              <div class="rpt-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>Plan</th>
+                      <th>Status</th>
+                      <th>Usage (lbs)</th>
+                      <th>Pickups</th>
+                      <th>Overage Due</th>
+                      <th>Renews</th>
+                      <th>Signed Up</th>
+                    </tr>
+                  </thead>
+                  <tbody id="rpt-sub-tbody">
+                    <tr><td colspan="8"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                  </tbody>
                 </table>
               </div>
             </div>
@@ -21248,7 +21310,7 @@ ${oneCopy}
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['drivers','revenue','items','launderer','onaccount'].forEach(t => {
+    ['drivers','revenue','items','launderer','onaccount','subscriptions'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
@@ -21257,6 +21319,7 @@ ${oneCopy}
       const oaBar = document.getElementById('oa-action-bar');
       if (oaBar) oaBar.classList.remove('visible');
     }
+    if (tab === 'subscriptions') loadSubscriptionReport();
     runCurrentReport();
   }
 
@@ -21651,6 +21714,98 @@ ${oneCopy}
     URL.revokeObjectURL(url);
   }
   window.exportDriverCSV = exportDriverCSV;
+
+  /* ──────────────────────────────
+     SUBSCRIPTION REPORT TAB
+  ────────────────────────────── */
+  let _subReportLoaded = false;
+
+  async function loadSubscriptionReport() {
+    const { data: subs, error } = await db
+      .from('subscriptions')
+      .select('*, customers!inner(id, first_name_cache, last_name_cache, phone_cache, email_cache), subscription_plans!inner(name, price_monthly, weight_limit_lbs, pickup_limit)')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[Reports] Subscription report error:', error);
+      document.getElementById('rpt-sub-tbody').innerHTML =
+        '<tr><td colspan="8" class="rpt-no-data">Error loading subscriptions.</td></tr>';
+      return;
+    }
+
+    const allSubs = subs || [];
+    const active    = allSubs.filter(s => s.status === 'active');
+    const paused    = allSubs.filter(s => s.status === 'paused');
+    const pastDue   = allSubs.filter(s => s.status === 'past_due');
+    const thirtyAgo = new Date(); thirtyAgo.setDate(thirtyAgo.getDate() - 30);
+    const cancelled = allSubs.filter(s => s.status === 'cancelled' && s.cancelled_at && new Date(s.cancelled_at) >= thirtyAgo);
+
+    const mrr = active.reduce((sum, s) => sum + Number(s.subscription_plans?.price_monthly || 0), 0);
+    const avgUsage = active.length
+      ? (active.reduce((sum, s) => sum + Number(s.usage_lbs_this_period || 0), 0) / active.length).toFixed(1)
+      : '0';
+    const overageRev = allSubs.reduce((sum, s) => sum + Number(s.overage_amount_due || 0), 0);
+
+    document.getElementById('rpt-sub-active').textContent   = active.length;
+    document.getElementById('rpt-sub-mrr').textContent      = fmtMoney(mrr);
+    document.getElementById('rpt-sub-paused').textContent   = paused.length;
+    document.getElementById('rpt-sub-cancelled').textContent = cancelled.length;
+    document.getElementById('rpt-sub-pastdue').textContent   = pastDue.length;
+    document.getElementById('rpt-sub-avg-usage').textContent = avgUsage;
+    document.getElementById('rpt-sub-overage-rev').textContent = fmtMoney(overageRev);
+    document.getElementById('rpt-sub-count-label').textContent = `${allSubs.length} total`;
+
+    const tbody = document.getElementById('rpt-sub-tbody');
+    if (!allSubs.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="rpt-no-data">No subscriptions yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = allSubs.map(s => {
+      const custName = [s.customers?.first_name_cache, s.customers?.last_name_cache].filter(Boolean).join(' ') || s.customers?.phone_cache || '—';
+      const planName = s.subscription_plans?.name || '—';
+      const limit    = s.subscription_plans?.weight_limit_lbs || 100;
+      const pickLim  = s.subscription_plans?.pickup_limit || 4;
+      const usage    = Number(s.usage_lbs_this_period || 0);
+      const pickups  = s.pickups_this_period || 0;
+      const overage  = Number(s.overage_amount_due || 0);
+      const pct      = Math.min(100, Math.round((usage / limit) * 100));
+      const barColor = pct >= 100 ? 'var(--red)' : pct >= 80 ? 'var(--amber)' : 'var(--green)';
+      const statusColors = {
+        active: 'background:#d1fae5;color:#065f46',
+        paused: 'background:#fef3c7;color:#92400e',
+        cancelled: 'background:var(--gray-100);color:var(--gray-500)',
+        past_due: 'background:#fee2e2;color:#991b1b'
+      };
+      const statusStyle = statusColors[s.status] || '';
+      const renewDate = s.current_period_end
+        ? new Date(s.current_period_end).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric' })
+        : '—';
+      const signupDate = s.signup_date || s.created_at
+        ? new Date(s.signup_date || s.created_at).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric' })
+        : '—';
+
+      return `<tr>
+        <td style="font-weight:600">${custName}</td>
+        <td>${planName}</td>
+        <td><span style="padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600;${statusStyle}">${s.status}</span></td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="flex:1;height:6px;background:var(--gray-100);border-radius:3px;min-width:60px;max-width:100px">
+              <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px"></div>
+            </div>
+            <span style="font-size:12px;color:var(--gray-600);white-space:nowrap">${usage.toFixed(1)} / ${limit}</span>
+          </div>
+        </td>
+        <td>${pickups} / ${pickLim}</td>
+        <td style="color:${overage > 0 ? 'var(--red)' : 'var(--gray-400)'};font-weight:${overage > 0 ? '600' : '400'}">${overage > 0 ? fmtMoney(overage) : '—'}</td>
+        <td>${renewDate}</td>
+        <td style="color:var(--gray-500)">${signupDate}</td>
+      </tr>`;
+    }).join('');
+
+    _subReportLoaded = true;
+  }
 
   /* ──────────────────────────────
      DRIVERS PAGE — TAB SWITCHING

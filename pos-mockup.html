@@ -1425,6 +1425,7 @@
           <span class="queue-badge-icon">📦</span>
           <span class="queue-badge-count" id="queueCount">0</span>
         </button>
+        <div id="readerStatus" style="font-size:13px;display:flex;align-items:center;gap:4px;padding:0 8px;white-space:nowrap;"><span style="color:var(--gray-400);">○ Not connected</span> <button onclick="discoverAndConnect()" style="font-size:12px;color:var(--accent);background:none;border:none;cursor:pointer;text-decoration:underline;padding:0 4px;">Connect reader</button></div>
         <div class="clock" id="clock">Wed · 2:47 PM</div>
       </div>
 
@@ -1696,20 +1697,21 @@
         <div class="modal" style="max-width: 440px;">
           <div class="modal-header">
             <div>
-              <div class="modal-title">Waiting for card</div>
+              <div class="modal-title" id="terminalTitle">Waiting for card</div>
               <div class="modal-sub">Customer: tap, insert, or swipe on the reader</div>
             </div>
-            <button class="modal-close" onclick="closeAll()">×</button>
+            <button class="modal-close" onclick="cancelTerminalPayment()">×</button>
           </div>
           <div class="modal-body">
             <div class="terminal-wait">
               <div class="terminal-wait-anim">💳</div>
-              <div class="terminal-wait-title">Present card on reader</div>
+              <div class="terminal-wait-title" id="terminalWaitTitle">Present card on reader</div>
               <div class="terminal-wait-sub" id="terminalAmt">$0.00</div>
             </div>
+            <div id="terminalError" style="display:none; margin:10px 0; padding:10px 12px; background:var(--red-light); color:var(--red); border-radius:8px; font-size:13px; font-weight:600; text-align:center;"></div>
             <div class="modal-actions">
-              <button class="btn btn-ghost" onclick="closeAll()">Cancel</button>
-              <button class="btn btn-success" onclick="simulateCardSuccess()">Simulate success →</button>
+              <button class="btn btn-ghost" id="terminalCancelBtn" onclick="cancelTerminalPayment()">Cancel</button>
+              <button class="btn btn-primary" id="terminalRetryBtn" onclick="payWithCard()" style="display:none;">Try again</button>
             </div>
           </div>
         </div>
@@ -1864,6 +1866,7 @@
 
 </div>
 
+<script src="https://js.stripe.com/terminal/v1/"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
   /* ─────────────────────────────────────────────────────────────
@@ -1891,6 +1894,104 @@
      is_addon = true.
      ───────────────────────────────────────────────────────────── */
   let WEIGHT_ADDONS = []; // loaded from DB
+
+  /* ─────────────────────────────────────────────────────────────
+     Toast notifications
+     ───────────────────────────────────────────────────────────── */
+  function showToast(msg, type) {
+    let el = document.getElementById('pos-toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'pos-toast';
+      el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;color:#fff;z-index:9999;transition:opacity .3s;pointer-events:none;';
+      document.body.appendChild(el);
+    }
+    el.style.background = type === 'error' ? 'var(--red)' : type === 'success' ? 'var(--green)' : 'var(--gray-700)';
+    el.textContent = msg;
+    el.style.opacity = '1';
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => { el.style.opacity = '0'; }, 3500);
+  }
+
+  /* ─────────────────────────────────────────────────────────────
+     Stripe Terminal  —  M2 reader via internet connection
+     ───────────────────────────────────────────────────────────── */
+  const TERMINAL_FN = SUPABASE_URL + '/functions/v1/stripe-terminal';
+  let terminal = null;        // StripeTerminal instance
+  let discoveredReaders = []; // readers found during discovery
+  let connectedReader = null; // currently connected reader
+  let pendingPaymentIntentId = null; // track for cancel
+
+  async function fetchConnectionToken() {
+    const res = await fetch(TERMINAL_FN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+      body: JSON.stringify({ action: 'connection_token' }),
+    });
+    const data = await res.json();
+    if (!data.secret) throw new Error('No connection token received');
+    return data.secret;
+  }
+
+  function initTerminal() {
+    if (terminal) return; // already initialised
+    terminal = StripeTerminal.create({
+      onFetchConnectionToken: fetchConnectionToken,
+      onUnexpectedReaderDisconnect: () => {
+        console.warn('[Terminal] Reader disconnected unexpectedly');
+        connectedReader = null;
+        updateReaderStatus();
+        showToast('Card reader disconnected', 'error');
+      },
+    });
+    console.log('[Terminal] SDK initialised');
+  }
+
+  async function discoverAndConnect() {
+    if (!terminal) initTerminal();
+    updateReaderStatus('searching');
+
+    const discoverResult = await terminal.discoverReaders({ simulated: false });
+    if (discoverResult.error) {
+      console.error('[Terminal] Discovery error:', discoverResult.error);
+      showToast('Could not find reader: ' + discoverResult.error.message, 'error');
+      updateReaderStatus('disconnected');
+      return false;
+    }
+
+    discoveredReaders = discoverResult.discoveredReaders || [];
+    if (discoveredReaders.length === 0) {
+      showToast('No readers found. Make sure the M2 is on and connected to WiFi/Bluetooth.', 'error');
+      updateReaderStatus('disconnected');
+      return false;
+    }
+
+    // Connect to the first reader found (for a single-terminal shop)
+    const connectResult = await terminal.connectReader(discoveredReaders[0]);
+    if (connectResult.error) {
+      console.error('[Terminal] Connect error:', connectResult.error);
+      showToast('Could not connect to reader: ' + connectResult.error.message, 'error');
+      updateReaderStatus('disconnected');
+      return false;
+    }
+
+    connectedReader = connectResult.reader;
+    console.log('[Terminal] Connected to reader:', connectedReader.label || connectedReader.id);
+    updateReaderStatus('connected');
+    return true;
+  }
+
+  function updateReaderStatus(status) {
+    const el = document.getElementById('readerStatus');
+    if (!el) return;
+    if (status === 'connected' || connectedReader) {
+      el.innerHTML = '<span style="color:var(--green);font-weight:600;">● Connected</span> <span style="color:var(--gray-500);font-size:12px;">' + (connectedReader?.label || connectedReader?.serial_number || 'M2 Reader') + '</span>';
+    } else if (status === 'searching') {
+      el.innerHTML = '<span style="color:var(--amber);font-weight:600;">◌ Searching…</span>';
+    } else {
+      el.innerHTML = '<span style="color:var(--gray-400);">○ Not connected</span> <button onclick="discoverAndConnect()" style="font-size:12px;color:var(--accent);background:none;border:none;cursor:pointer;text-decoration:underline;padding:0 4px;">Connect reader</button>';
+    }
+  }
 
   /* State */
   let currentTab = 'services';
@@ -2728,24 +2829,131 @@
   // Card flow: jump to the (stubbed) terminal screen. When "Simulate
   // success" is clicked, the order actually gets posted. Real Stripe
   // Terminal integration is a future session.
-  function payWithCard() {
+  async function payWithCard() {
     closeAll();
-    setTimeout(() => showModal('terminalModal'), 200);
+
+    // Ensure Terminal SDK is initialised
+    if (!terminal) initTerminal();
+
+    // Connect to reader if not already connected
+    if (!connectedReader) {
+      setTimeout(() => showModal('terminalModal'), 100);
+      document.getElementById('terminalTitle').textContent = 'Connecting to reader…';
+      document.getElementById('terminalWaitTitle').textContent = 'Looking for your M2 reader…';
+      document.getElementById('terminalAmt').textContent = '';
+      document.getElementById('terminalCancelBtn').style.display = 'inline-flex';
+      document.getElementById('terminalRetryBtn').style.display = 'none';
+      document.getElementById('terminalError').style.display = 'none';
+
+      const connected = await discoverAndConnect();
+      if (!connected) {
+        document.getElementById('terminalTitle').textContent = 'Reader not found';
+        document.getElementById('terminalWaitTitle').textContent = 'Could not connect to card reader';
+        document.getElementById('terminalAmt').textContent = 'Check that the M2 is powered on and connected to WiFi';
+        document.getElementById('terminalRetryBtn').style.display = 'inline-flex';
+        return;
+      }
+    }
+
+    // Show terminal modal with amount
+    const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const tax = subtotal * TAX_RATE;
+    const grand = subtotal + tax;
+    const amountCents = Math.round(grand * 100);
+
+    setTimeout(() => showModal('terminalModal'), 100);
+    document.getElementById('terminalTitle').textContent = 'Waiting for card';
+    document.getElementById('terminalWaitTitle').textContent = 'Present card on reader';
+    document.getElementById('terminalAmt').textContent = '$' + grand.toFixed(2);
+    document.getElementById('terminalCancelBtn').style.display = 'inline-flex';
+    document.getElementById('terminalRetryBtn').style.display = 'none';
+    document.getElementById('terminalError').style.display = 'none';
+
+    try {
+      // 1. Create PaymentIntent on the server
+      const piRes = await fetch(TERMINAL_FN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+        body: JSON.stringify({
+          action: 'create_payment',
+          amount_cents: amountCents,
+          description: 'WashRoute POS sale' + (currentCustomer ? ' — ' + (currentCustomer.name || currentCustomer.phone_cache) : ''),
+          metadata: { source: 'pos', customer_id: currentCustomer?.id || 'walk_in' },
+        }),
+      });
+      const piData = await piRes.json();
+      if (piData.error) throw new Error(piData.error);
+
+      pendingPaymentIntentId = piData.payment_intent_id;
+
+      // 2. Collect payment on the reader
+      const collectResult = await terminal.collectPaymentMethod(piData.client_secret);
+      if (collectResult.error) {
+        throw new Error(collectResult.error.message);
+      }
+
+      // 3. Confirm the payment
+      document.getElementById('terminalWaitTitle').textContent = 'Processing…';
+      const confirmResult = await terminal.confirmPaymentIntent(collectResult.paymentIntent);
+      if (confirmResult.error) {
+        throw new Error(confirmResult.error.message);
+      }
+
+      if (confirmResult.paymentIntent.status === 'succeeded' || confirmResult.paymentIntent.status === 'requires_capture') {
+        // Payment successful — create the order in DB
+        pendingPaymentIntentId = null;
+        await chargeAndFinish('card', confirmResult.paymentIntent.id);
+      } else {
+        throw new Error('Payment did not succeed (status: ' + confirmResult.paymentIntent.status + ')');
+      }
+
+    } catch (err) {
+      console.error('[Terminal] Payment error:', err);
+      // Show error in the terminal modal
+      const errEl = document.getElementById('terminalError');
+      errEl.textContent = err.message || 'Payment failed';
+      errEl.style.display = 'block';
+      document.getElementById('terminalWaitTitle').textContent = 'Payment failed';
+      document.getElementById('terminalRetryBtn').style.display = 'inline-flex';
+
+      // Cancel the payment intent if it was created
+      if (pendingPaymentIntentId) {
+        try {
+          await fetch(TERMINAL_FN, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+            body: JSON.stringify({ action: 'cancel_payment', payment_intent_id: pendingPaymentIntentId }),
+          });
+        } catch (_) { /* best effort */ }
+        pendingPaymentIntentId = null;
+      }
+    }
   }
 
-  // Called from the terminal screen's "Simulate success" button —
-  // acts as if the card read succeeded.
-  async function startTerminal() {
-    // Back-compat shim in case anything still references this name.
-    payWithCard();
+  async function cancelTerminalPayment() {
+    if (terminal) {
+      try { await terminal.cancelCollectPaymentMethod(); } catch (_) {}
+    }
+    if (pendingPaymentIntentId) {
+      try {
+        await fetch(TERMINAL_FN, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+          body: JSON.stringify({ action: 'cancel_payment', payment_intent_id: pendingPaymentIntentId }),
+        });
+      } catch (_) {}
+      pendingPaymentIntentId = null;
+    }
+    closeAll();
   }
 
-  async function simulateCardSuccess() {
-    await chargeAndFinish('card');
-  }
+  // Back-compat shim
+  async function startTerminal() { payWithCard(); }
+  async function simulateCardSuccess() { await chargeAndFinish('card'); }
 
   // Shared finish: guard, create the order in Supabase, show success.
-  async function chargeAndFinish(method) {
+  // stripePaymentIntentId is set when paying by card via Terminal.
+  async function chargeAndFinish(method, stripePaymentIntentId) {
     if (cart.length === 0) return;
 
     // Admin sign-in is required to write to `orders` (RLS).
@@ -2773,7 +2981,7 @@
     methodButtons.forEach(b => b.disabled = true);
 
     try {
-      const order = await createPosOrder({ paymentMethod: method });
+      const order = await createPosOrder({ paymentMethod: method, stripePaymentIntentId });
       lastPosOrder = order;
       // Refresh queue badge immediately so the new order appears
       loadWalkInQueue();
@@ -2848,7 +3056,7 @@
          when the cart is merchandise-only
        - paid at time of sale (cash / card)
      ───────────────────────────────────────────────────────────── */
-  async function createPosOrder({ paymentMethod }) {
+  async function createPosOrder({ paymentMethod, stripePaymentIntentId }) {
     // --- Build totals from the current cart ---
     const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
     const tax      = subtotal * TAX_RATE;
@@ -2935,6 +3143,8 @@
       billed_at:             nowIso,
       billing_status:        'paid',
       billing_payment_method: paymentMethod, // 'cash' or 'card'
+      // Stripe Terminal payment reference (card payments only)
+      ...(stripePaymentIntentId ? { stripe_payment_intent_id: stripePaymentIntentId } : {}),
       // Merchandise-only sales are immediately "delivered" at the counter.
       actual_delivery_at:    status === 'delivered' ? nowIso : null,
     };
@@ -3162,6 +3372,8 @@
     // Load queue badge count + start auto-refresh
     await loadWalkInQueue();
     startQueueRefresh();
+    // Initialise Stripe Terminal SDK (discovery happens on demand)
+    try { initTerminal(); } catch (e) { console.warn('[Terminal] SDK init deferred:', e.message); }
   })();
 
   // Live clock

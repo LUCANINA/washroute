@@ -770,6 +770,26 @@
     .saved-addr-section { margin-bottom: 18px; }
     .saved-addr-section .step-sub { margin-bottom: 12px; }
     .saved-addr-divider { text-align: center; font-size: 12px; color: var(--gray-400); font-weight: 600; margin: 12px 0; letter-spacing: .4px; text-transform: uppercase; }
+
+    /* Subscription home card */
+    .sub-home-card { margin: 0 18px 16px; background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: var(--radius); padding: 20px; color: white; }
+    .sub-home-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .sub-home-plan { font-size: 16px; font-weight: 700; }
+    .sub-home-status { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: .3px; }
+    .sub-home-status.active { background: rgba(16,185,129,.2); color: #34d399; }
+    .sub-home-status.paused { background: rgba(251,191,36,.2); color: #fbbf24; }
+    .sub-home-status.past_due { background: rgba(248,113,113,.2); color: #f87171; }
+    .sub-usage-row { display: flex; gap: 16px; margin-bottom: 14px; }
+    .sub-usage-item { flex: 1; }
+    .sub-usage-label { font-size: 11px; color: rgba(255,255,255,.6); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .3px; }
+    .sub-usage-value { font-size: 22px; font-weight: 800; line-height: 1; }
+    .sub-usage-limit { font-size: 12px; color: rgba(255,255,255,.5); font-weight: 500; }
+    .sub-progress-bar { height: 8px; background: rgba(255,255,255,.15); border-radius: 4px; overflow: hidden; margin-bottom: 12px; }
+    .sub-progress-fill { height: 100%; border-radius: 4px; transition: width .4s ease; }
+    .sub-home-footer { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: rgba(255,255,255,.5); }
+    .sub-home-footer a { color: rgba(255,255,255,.7); text-decoration: underline; cursor: pointer; }
+    .sub-home-manage-btn { display: inline-flex; align-items: center; gap: 4px; padding: 8px 16px; border: 1.5px solid rgba(255,255,255,.3); border-radius: 8px; background: transparent; color: white; font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 4px; }
+    .sub-home-manage-btn:hover { background: rgba(255,255,255,.1); }
   </style>
   <!-- Google Maps (Places + Geocoder) — loaded async; callback initialises global services -->
   <script>
@@ -968,6 +988,31 @@
       <div id="home-card-prompt" class="card-prompt-banner" style="display:none">
         <p>💳 Add a card on file so we can charge you automatically after each order.</p>
         <button class="cpb-add" onclick="startCardSetup()">Add Card</button>
+      </div>
+
+      <!-- Subscription usage card (hidden unless subscriber) -->
+      <div id="home-sub-card" class="sub-home-card" style="display:none">
+        <div class="sub-home-header">
+          <div class="sub-home-plan" id="home-sub-plan">Wash & Fold Monthly</div>
+          <div class="sub-home-status active" id="home-sub-status">Active</div>
+        </div>
+        <div class="sub-usage-row">
+          <div class="sub-usage-item">
+            <div class="sub-usage-label">Weight Used</div>
+            <div><span class="sub-usage-value" id="home-sub-lbs">0</span> <span class="sub-usage-limit" id="home-sub-lbs-limit">/ 100 lbs</span></div>
+          </div>
+          <div class="sub-usage-item">
+            <div class="sub-usage-label">Pickups</div>
+            <div><span class="sub-usage-value" id="home-sub-pickups">0</span> <span class="sub-usage-limit" id="home-sub-pickups-limit">/ 4</span></div>
+          </div>
+        </div>
+        <div class="sub-progress-bar">
+          <div class="sub-progress-fill" id="home-sub-bar" style="width:0%;background:#34d399"></div>
+        </div>
+        <div class="sub-home-footer">
+          <span id="home-sub-renew">Renews —</span>
+          <button class="sub-home-manage-btn" onclick="goTo('account');setTimeout(()=>openSubPanel('sub-plan'),200)">Manage →</button>
+        </div>
       </div>
 
       <div class="section">
@@ -1309,7 +1354,7 @@
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
         <!-- My Plan — hidden until subscriptions launch -->
-        <div class="menu-item" onclick="openSubPanel('sub-plan')" style="display:none">
+        <div class="menu-item" id="acct-menu-plan-item" onclick="openSubPanel('sub-plan')" style="display:none">
           <div class="mi-left">
             <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
             <div>
@@ -1381,7 +1426,42 @@
       <div class="sub-panel-title">My Plan</div>
     </div>
     <div class="sub-panel-body" style="padding: 16px 0 28px;">
-      <div class="plan-cards" id="plan-cards"></div>
+      <!-- Active subscription detail (shown if subscriber) -->
+      <div id="plan-sub-detail" style="display:none;padding:0 18px 18px;">
+        <div style="background:var(--gray-50);border-radius:var(--radius);padding:18px;margin-bottom:16px;">
+          <div style="font-size:17px;font-weight:700;color:var(--navy);margin-bottom:4px" id="plan-detail-name">—</div>
+          <div style="font-size:22px;font-weight:800;color:var(--text)" id="plan-detail-price">—</div>
+          <div style="font-size:13px;color:var(--gray-500);margin-top:8px;line-height:1.6" id="plan-detail-features"></div>
+        </div>
+        <!-- Usage this period -->
+        <div style="margin-bottom:18px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:10px">This Period</div>
+          <div style="display:flex;gap:12px;margin-bottom:12px">
+            <div style="flex:1;background:var(--gray-50);border-radius:8px;padding:12px;text-align:center">
+              <div style="font-size:24px;font-weight:800;color:var(--navy)" id="plan-detail-lbs">0</div>
+              <div style="font-size:11px;color:var(--gray-500)" id="plan-detail-lbs-label">of 100 lbs used</div>
+            </div>
+            <div style="flex:1;background:var(--gray-50);border-radius:8px;padding:12px;text-align:center">
+              <div style="font-size:24px;font-weight:800;color:var(--navy)" id="plan-detail-pickups">0</div>
+              <div style="font-size:11px;color:var(--gray-500)" id="plan-detail-pickups-label">of 4 pickups</div>
+            </div>
+          </div>
+          <div style="height:8px;background:var(--gray-100);border-radius:4px;overflow:hidden">
+            <div id="plan-detail-bar" style="height:100%;width:0%;border-radius:4px;transition:width .4s"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:12px;color:var(--gray-500)">
+            <span id="plan-detail-period-dates"></span>
+            <span id="plan-detail-overage" style="color:var(--red);font-weight:600;display:none"></span>
+          </div>
+        </div>
+        <!-- Actions -->
+        <div id="plan-detail-actions" style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+        </div>
+      </div>
+      <!-- Plan cards (shown if NOT a subscriber — browse available plans) -->
+      <div id="plan-cards-wrap">
+        <div class="plan-cards" id="plan-cards"></div>
+      </div>
     </div>
   </div>
 
@@ -1555,6 +1635,7 @@ let allServiceFees  = []; // service_fees rows where show_in_app=true
 let dbPlans         = [];
 let defaultService  = null; // the single W&F service
 let globalPrefs     = []; // global service preferences from preferences table
+let _activeSub      = null; // cached active subscription for this customer
 
 /* ── USER DATA CACHE ── */
 // Stores profile + customer + cards in localStorage so returning users see the app instantly.
@@ -2545,6 +2626,70 @@ function buildProgressTrack(status) {
   return html + '</div>';
 }
 
+/* ── Subscription home card ──────────────────────────────────── */
+async function renderHomeSubscriptionCard() {
+  const card = document.getElementById('home-sub-card');
+  if (!card || !currentCustomer?.id) { if (card) card.style.display = 'none'; return; }
+
+  // Fetch the customer's active subscription (active, paused, or past_due — not cancelled)
+  const { data: subs } = await db
+    .from('subscriptions')
+    .select('*, subscription_plans(name, price_monthly, weight_limit_lbs, pickup_limit, overage_price_per_lb)')
+    .eq('customer_id', currentCustomer.id)
+    .in('status', ['active', 'paused', 'past_due'])
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  const sub = subs?.[0];
+  if (!sub) { card.style.display = 'none'; _activeSub = null; return; }
+
+  _activeSub = sub;
+  const plan = sub.subscription_plans || {};
+  const weightLimit = plan.weight_limit_lbs || 100;
+  const pickupLimit = plan.pickup_limit || 4;
+  const usageLbs = Number(sub.usage_lbs_this_period || 0);
+  const pickups  = sub.pickups_this_period || 0;
+  const pct = Math.min(100, Math.round((usageLbs / weightLimit) * 100));
+
+  // Plan name
+  document.getElementById('home-sub-plan').textContent = plan.name || 'Subscription';
+
+  // Status badge
+  const statusEl = document.getElementById('home-sub-status');
+  statusEl.textContent = sub.status === 'past_due' ? 'Past Due' : sub.status.charAt(0).toUpperCase() + sub.status.slice(1);
+  statusEl.className = 'sub-home-status ' + sub.status;
+
+  // Usage numbers
+  document.getElementById('home-sub-lbs').textContent = usageLbs % 1 === 0 ? usageLbs : usageLbs.toFixed(1);
+  document.getElementById('home-sub-lbs-limit').textContent = '/ ' + weightLimit + ' lbs';
+  document.getElementById('home-sub-pickups').textContent = pickups;
+  document.getElementById('home-sub-pickups-limit').textContent = '/ ' + pickupLimit;
+
+  // Progress bar
+  const bar = document.getElementById('home-sub-bar');
+  const barColor = pct >= 100 ? '#f87171' : pct >= 80 ? '#fbbf24' : '#34d399';
+  bar.style.width = pct + '%';
+  bar.style.background = barColor;
+
+  // Renewal date
+  const renewEl = document.getElementById('home-sub-renew');
+  if (sub.current_period_end) {
+    const d = new Date(sub.current_period_end);
+    renewEl.textContent = 'Renews ' + d.toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' });
+  } else {
+    renewEl.textContent = '';
+  }
+
+  // Overage warning
+  if (usageLbs > weightLimit) {
+    const overLbs = (usageLbs - weightLimit).toFixed(1);
+    const overCost = (parseFloat(overLbs) * (plan.overage_price_per_lb || 2.75)).toFixed(2);
+    renewEl.textContent += ` · $${overCost} overage charged`;
+  }
+
+  card.style.display = '';
+}
+
 async function loadHome() {
   if (!currentProfile) return;
   const firstName = currentProfile?.first_name || currentCustomer?.first_name_cache || 'there';
@@ -2553,6 +2698,9 @@ async function loadHome() {
   // Show card-on-file nudge if no card saved
   const cardPrompt = document.getElementById('home-card-prompt');
   if (cardPrompt) cardPrompt.style.display = (currentCustomer && currentCards.length === 0) ? '' : 'none';
+
+  // Load subscription card (front and center for subscribers)
+  await renderHomeSubscriptionCard();
 
   if (!currentCustomer) { renderNoActive(); return; }
   try {
@@ -6012,14 +6160,24 @@ async function loadAccount() {
     .select('*').eq('is_active', true).order('price_monthly');
   if (plans?.length) dbPlans = plans;
 
-  // Active plan
+  // Active plan — check for active subscription first, then fall back to plan_id
   const activePlanId = currentCustomer?.subscription_plan_id;
   const activePlan = dbPlans.find(p => p.id === activePlanId);
-  const dotColor = activePlan?.price_monthly > 39 ? '#f59e0b' : activePlan?.price_monthly > 0 ? '#2a6fc9' : '#94a3b8';
+  let planBadgeText = activePlan?.name || 'Pay As You Go';
+  let dotColor = '#94a3b8';
+  if (_activeSub && ['active','paused','past_due'].includes(_activeSub.status)) {
+    const subPlan = _activeSub.subscription_plans || activePlan;
+    planBadgeText = (subPlan?.name || 'Subscriber');
+    if (_activeSub.status === 'paused') planBadgeText += ' (Paused)';
+    if (_activeSub.status === 'past_due') planBadgeText += ' (Past Due)';
+    dotColor = _activeSub.status === 'active' ? '#34d399' : _activeSub.status === 'paused' ? '#fbbf24' : '#f87171';
+  } else if (activePlan?.price_monthly > 0) {
+    dotColor = '#2a6fc9';
+  }
   document.getElementById('acct-plan-badge').innerHTML = `
     <div class="plan-badge" style="margin-top:12px">
       <div class="plan-dot" style="background:${dotColor}"></div>
-      ${activePlan?.name || 'Pay As You Go'} Plan
+      ${planBadgeText}
     </div>`;
 
   // Update menu value hints
@@ -6043,7 +6201,23 @@ async function loadAccount() {
 
   renderAccountPrefs();
 
-  // Plan cards
+  // Fetch active subscription (if any) before rendering plan cards
+  if (currentCustomer?.id) {
+    const { data: subs } = await db
+      .from('subscriptions')
+      .select('*, subscription_plans(name, price_monthly, weight_limit_lbs, pickup_limit, overage_price_per_lb, features)')
+      .eq('customer_id', currentCustomer.id)
+      .in('status', ['active', 'paused', 'past_due'])
+      .order('created_at', { ascending: false })
+      .limit(1);
+    _activeSub = subs?.[0] || null;
+  }
+
+  // Show/hide "My Plan" menu item based on subscription status
+  const planMenuItem = document.getElementById('acct-menu-plan-item');
+  if (planMenuItem) planMenuItem.style.display = _activeSub ? '' : 'none';
+
+  // Plan cards (shows subscription detail if subscriber, otherwise plan picker)
   renderPlanCards(activePlanId);
 
   // Payment method card
@@ -6062,6 +6236,79 @@ async function loadAccount() {
 }
 
 function renderPlanCards(activePlanId) {
+  const detailEl = document.getElementById('plan-sub-detail');
+  const cardsWrap = document.getElementById('plan-cards-wrap');
+
+  // If customer has an active subscription, show the detail panel instead of plan cards
+  if (_activeSub && ['active','paused','past_due'].includes(_activeSub.status)) {
+    const plan = _activeSub.subscription_plans || {};
+    const weightLimit = plan.weight_limit_lbs || 100;
+    const pickupLimit = plan.pickup_limit || 4;
+    const usageLbs = Number(_activeSub.usage_lbs_this_period || 0);
+    const pickups  = _activeSub.pickups_this_period || 0;
+    const pct = Math.min(100, Math.round((usageLbs / weightLimit) * 100));
+    const barColor = pct >= 100 ? 'var(--red)' : pct >= 80 ? '#f59e0b' : 'var(--success)';
+
+    document.getElementById('plan-detail-name').textContent = plan.name || 'Subscription';
+    document.getElementById('plan-detail-price').textContent = '$' + Number(plan.price_monthly || 0).toFixed(0) + '/month';
+
+    const features = Array.isArray(plan.features) ? plan.features : [];
+    document.getElementById('plan-detail-features').innerHTML = features.map(f => '✓ ' + f).join('<br>');
+
+    document.getElementById('plan-detail-lbs').textContent = usageLbs % 1 === 0 ? usageLbs : usageLbs.toFixed(1);
+    document.getElementById('plan-detail-lbs-label').textContent = 'of ' + weightLimit + ' lbs used';
+    document.getElementById('plan-detail-pickups').textContent = pickups;
+    document.getElementById('plan-detail-pickups-label').textContent = 'of ' + pickupLimit + ' pickups';
+
+    const bar = document.getElementById('plan-detail-bar');
+    bar.style.width = pct + '%';
+    bar.style.background = barColor;
+
+    // Period dates
+    const datesEl = document.getElementById('plan-detail-period-dates');
+    if (_activeSub.current_period_start && _activeSub.current_period_end) {
+      const fmt = d => new Date(d).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' });
+      datesEl.textContent = fmt(_activeSub.current_period_start) + ' – ' + fmt(_activeSub.current_period_end);
+    }
+
+    // Overage
+    const overEl = document.getElementById('plan-detail-overage');
+    if (usageLbs > weightLimit) {
+      const overLbs = usageLbs - weightLimit;
+      const overCost = (overLbs * (plan.overage_price_per_lb || 2.75)).toFixed(2);
+      overEl.textContent = overLbs.toFixed(1) + ' lbs overage · $' + overCost + ' charged';
+      overEl.style.display = '';
+    } else {
+      overEl.style.display = 'none';
+    }
+
+    // Action buttons
+    const actionsEl = document.getElementById('plan-detail-actions');
+    if (_activeSub.status === 'active') {
+      actionsEl.innerHTML = `
+        <button class="plan-select-btn" style="border-color:var(--gray-300);color:var(--gray-600)" onclick="pauseSubscription()">Pause Subscription</button>
+        <button class="plan-select-btn" style="border-color:var(--red);color:var(--red)" onclick="cancelSubscription()">Cancel Subscription</button>`;
+    } else if (_activeSub.status === 'paused') {
+      actionsEl.innerHTML = `
+        <button class="plan-select-btn" style="border-color:var(--navy);background:var(--navy);color:white" onclick="resumeSubscription()">Resume Subscription</button>
+        <button class="plan-select-btn" style="border-color:var(--red);color:var(--red)" onclick="cancelSubscription()">Cancel Subscription</button>`;
+    } else if (_activeSub.status === 'past_due') {
+      actionsEl.innerHTML = `
+        <div style="background:#fee2e2;color:#991b1b;padding:12px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;margin-bottom:6px">
+          Your last payment failed. Please update your payment method.
+        </div>
+        <button class="plan-select-btn" style="border-color:var(--navy);background:var(--navy);color:white" onclick="openSubPanel('sub-payment')">Update Payment Method</button>`;
+    }
+
+    detailEl.style.display = '';
+    cardsWrap.style.display = 'none';
+    return;
+  }
+
+  // No active subscription — show available plans
+  detailEl.style.display = 'none';
+  cardsWrap.style.display = '';
+
   // Use DB plans if loaded, otherwise fall back to hardcoded
   const source = dbPlans.length ? dbPlans : PLANS.map(p => ({
     id: p.key, name: p.name,
@@ -6072,8 +6319,8 @@ function renderPlanCards(activePlanId) {
   document.getElementById('plan-cards').innerHTML = source.map(p => {
     const isCurrent = p.id === activePlanId;
     const isFree    = Number(p.price_monthly) === 0;
-    const isPopular = Number(p.price_monthly) === 39;
-    const dotColor  = Number(p.price_monthly) > 39 ? '#f59e0b' : Number(p.price_monthly) > 0 ? '#2a6fc9' : '#94a3b8';
+    const isPopular = Number(p.price_monthly) > 0;
+    const dotColor  = Number(p.price_monthly) > 0 ? '#2a6fc9' : '#94a3b8';
     const priceDisplay = isFree
       ? '<div class="plan-price">Free<span> · pay per order</span></div>'
       : `<div class="plan-price">$${Number(p.price_monthly).toFixed(0)}<span>/month</span></div>`;
@@ -6083,7 +6330,7 @@ function renderPlanCards(activePlanId) {
 
     return `
     <div class="plan-card ${isCurrent ? 'current' : ''} ${isPopular ? 'popular' : ''}" data-plan-id="${p.id}">
-      ${isPopular ? '<div class="popular-tag">Most Popular</div>' : ''}
+      ${isPopular ? '<div class="popular-tag">Best Value</div>' : ''}
       <div class="plan-name" style="color:${dotColor}">${p.name}</div>
       ${priceDisplay}
       <ul class="plan-perks">${perks}</ul>
@@ -6112,6 +6359,23 @@ async function selectPlan(planId, isFree) {
   }
   // Paid plan: redirect to Stripe Checkout
   await startSubscription(planId);
+}
+
+/* ── Subscription lifecycle stubs (wired to Stripe in Phase 4) ── */
+async function pauseSubscription() {
+  if (!_activeSub) return;
+  if (!confirm('Pause your subscription? You won\'t be charged while paused, and you can resume anytime.')) return;
+  toast('Pause feature coming soon — contact us to pause.', '');
+}
+async function resumeSubscription() {
+  if (!_activeSub) return;
+  if (!confirm('Resume your subscription? Your next charge will be on the renewal date.')) return;
+  toast('Resume feature coming soon — contact us to resume.', '');
+}
+async function cancelSubscription() {
+  if (!_activeSub) return;
+  if (!confirm('Cancel your subscription? You\'ll still have access until the end of your current billing period.')) return;
+  toast('Cancel feature coming soon — contact us to cancel.', '');
 }
 
 // Working state for the account preferences panel (separate from draft.prefs).
