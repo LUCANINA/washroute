@@ -1659,30 +1659,46 @@ async function doDriverPhoneOTP() {
   document.getElementById('phone-otp-verify').style.display = 'block';
 }
 
+// session 111d: mirror the customer-app guards so phone autofill double-fires don't burn the token
+let _driverOtpVerifyInFlight = false;
+let _driverOtpAlreadyVerified = false;
 async function doDriverOTPVerify() {
-  const token = document.getElementById('driver-otp-input').value.trim();
+  if (_driverOtpVerifyInFlight) return;
+  if (_driverOtpAlreadyVerified) return; // already signed in — onAuthStateChange will navigate
+
+  const otpInput = document.getElementById('driver-otp-input');
+  const token = (otpInput.value || '').trim();
   const btn   = document.getElementById('btn-verify-otp');
   const err   = document.getElementById('phone-verify-err');
   err.classList.remove('show');
   if (token.length < 6) { err.textContent = 'Enter the 6-digit code.'; err.classList.add('show'); return; }
 
+  _driverOtpVerifyInFlight = true;
+  // Belt-and-suspenders: clear the input the moment verify starts so a re-click hits the length check
+  otpInput.value = '';
   btn.textContent = 'Verifying…'; btn.disabled = true;
   showLoading(true);
 
-  const { error } = await db.auth.verifyOtp({ phone: _driverPhoneSent, token, type: 'sms' });
+  try {
+    const { error } = await db.auth.verifyOtp({ phone: _driverPhoneSent, token, type: 'sms' });
 
-  if (error) {
-    showLoading(false);
-    err.textContent = error.message; err.classList.add('show');
-    btn.textContent = 'Verify →'; btn.disabled = false;
-    return;
+    if (error) {
+      showLoading(false);
+      err.textContent = error.message; err.classList.add('show');
+      btn.textContent = 'Verify →'; btn.disabled = false;
+      return;
+    }
+    _driverOtpAlreadyVerified = true;
+    // On success: onAuthStateChange fires and handles navigation
+  } finally {
+    _driverOtpVerifyInFlight = false;
   }
-  // On success: onAuthStateChange fires and handles navigation
 }
 
 async function resendDriverOTP() {
   const btn = document.getElementById('btn-resend-otp');
   btn.textContent = 'Sending…'; btn.disabled = true;
+  _driverOtpAlreadyVerified = false; // session 111d: fresh code = fresh chance to verify
   const { error } = await db.auth.signInWithOtp({ phone: _driverPhoneSent });
   if (error) {
     toast('Could not resend code — please try again.');
@@ -1694,6 +1710,7 @@ async function resendDriverOTP() {
 
 function resetDriverPhone() {
   _driverPhoneSent = '';
+  _driverOtpAlreadyVerified = false; // session 111d: fresh start = fresh chance to verify
   document.getElementById('phone-otp-form').style.display   = 'block';
   document.getElementById('phone-otp-verify').style.display = 'none';
   document.getElementById('driver-phone-input').value       = '';
