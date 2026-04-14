@@ -1843,6 +1843,11 @@ async function handlePhoneSubmit() {
   const btn = document.getElementById('btn-phone');
   btn.disabled = true; btn.textContent = 'Sending…';
   try {
+    // Pre-link this phone to an existing customer's auth user (if any) so that
+    // signInWithOtp lands on the real account instead of spawning an orphan.
+    // Mirror of send-magic-link v17 for the OTP flow. Always proceeds even on
+    // failure — worst case the OTP creates an orphan as before.
+    await preparePhoneOtp(phone);
     const { error } = await db.auth.signInWithOtp({ phone });
     if (error) throw error;
     _pendingPhone = phone;
@@ -1984,6 +1989,7 @@ async function resendOTP() {
   const btn = document.getElementById('btn-resend');
   btn.disabled = true; btn.textContent = 'Sending…';
   try {
+    await preparePhoneOtp(_pendingPhone);
     const { error } = await db.auth.signInWithOtp({ phone: _pendingPhone });
     if (error) throw error;
     toast('New code sent!');
@@ -1991,6 +1997,22 @@ async function resendOTP() {
     toast(err.message || 'Could not resend — try again');
   }
   btn.disabled = false; btn.textContent = 'Resend code';
+}
+
+// Pre-link helper: tells the prepare-phone-otp edge function to attach this
+// phone to the customer's existing auth user (if one exists) BEFORE
+// signInWithOtp creates a new orphan. Fails silently — worst case we end up
+// with the pre-fix behaviour.
+async function preparePhoneOtp(phone) {
+  try {
+    await fetch(`${SUPA_URL}/functions/v1/prepare-phone-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
+      body: JSON.stringify({ phone })
+    });
+  } catch (err) {
+    console.warn('[preparePhoneOtp] non-fatal:', err?.message);
+  }
 }
 
 // ── OTP EMAIL FALLBACK ──

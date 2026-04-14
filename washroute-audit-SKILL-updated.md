@@ -460,6 +460,54 @@ emails. Add new staff to the exclusion list above when onboarding.
 
 ---
 
+### Check 13 — Stuck Phone-OTP Attempts (P1)
+
+Phone-OTP confirmation tokens belonging to auth users that shadow a real
+existing customer. Same shape as Check 12 but on the phone-auth side: the
+customer has a real auth user (probably email-based), they tried to sign
+in via phone OTP, Supabase created a NEW phone-only auth user, and they
+either never completed the code or completed it but landed on a useless
+ghost account with no customer linkage.
+
+```sql
+WITH stuck AS (
+  SELECT u.id AS attempted_auth_id, u.phone, t.created_at AS token_at,
+         u.last_sign_in_at
+  FROM auth.one_time_tokens t
+  JOIN auth.users u ON u.id = t.user_id
+  WHERE t.token_type = 'confirmation_token'
+    AND u.email IS NULL
+    AND u.phone IS NOT NULL
+)
+SELECT s.attempted_auth_id, s.token_at, s.last_sign_in_at,
+       c.id AS real_customer_id,
+       c.first_name_cache || ' ' || c.last_name_cache AS customer_name,
+       c.total_orders
+FROM stuck s
+JOIN customers c
+  ON RIGHT(REGEXP_REPLACE(c.phone_cache,'[^0-9]','','g'),10) = RIGHT(s.phone,10)
+WHERE c.profile_id IS NOT NULL
+  AND c.profile_id != s.attempted_auth_id
+ORDER BY c.total_orders DESC NULLS LAST, s.token_at DESC;
+```
+
+**Why this matters:** Session 110 found 29 high-value customers stuck this
+way (Patricia Hedl 107 orders, Rebekah Black 73, Michael Sullivan 50,
+Andrew Chamberlain 25, etc.). The structural fix `prepare-phone-otp`
+(session 110) prevents new orphans, but other paths (e.g., orphan auth
+created by old code, third-party signups) can still produce them.
+
+**To fix when reported:** Delete the orphan auth user. The customer's real
+account (email-auth) is unaffected. The next time they request OTP via
+the customer app, `prepare-phone-otp` will attach the phone to their real
+auth user and the OTP will land cleanly.
+
+```sql
+DELETE FROM auth.users WHERE id = '<attempted_auth_id>';
+```
+
+---
+
 ## After the Audit
 
 1. Present the summary
