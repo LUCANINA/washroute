@@ -209,6 +209,66 @@
   .queue-badge-icon { font-size: 13px; }
   .queue-badge-count { min-width: 12px; text-align: center; }
 
+  /* session 111: Site badge — shows current site with dropdown on click */
+  .site-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border: 1px solid var(--gray-200);
+    background: white;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray-700);
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-left: 4px;
+    position: relative;
+  }
+  .site-badge:hover { border-color: var(--accent); color: var(--accent-dark); }
+  .site-badge-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .site-badge-text { white-space: nowrap; }
+
+  /* session 111: Site selector dropdown — appears on badge click */
+  .site-selector-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 6px;
+    background: white;
+    border: 1px solid var(--gray-200);
+    border-radius: 10px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    z-index: 1000;
+    min-width: 200px;
+    overflow: hidden;
+  }
+  .site-selector-item {
+    padding: 10px 14px;
+    border: none;
+    background: white;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--gray-700);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    border-bottom: 1px solid var(--gray-100);
+    transition: background 0.1s;
+  }
+  .site-selector-item:last-child { border-bottom: none; }
+  .site-selector-item:hover { background: var(--gray-50); }
+  .site-selector-item.active { background: var(--accent-light); color: var(--accent-dark); font-weight: 600; }
+
   /* ─── Queue panel (overlays the cart area) ─────────────────── */
   .queue-panel {
     display: none;
@@ -1421,6 +1481,14 @@
           <span id="adminPillIcon">🔒</span>
           <span id="adminPillText">Sign in</span>
         </button>
+        <!-- session 111: Site badge with dropdown selector -->
+        <div class="site-badge" id="siteBadge" onclick="toggleSiteDropdown()" style="display:none;" title="Click to switch site">
+          <div class="site-badge-dot" id="siteBadgeDot"></div>
+          <div class="site-badge-text" id="siteBadgeText">—</div>
+          <div class="site-selector-dropdown" id="siteDropdown" style="display:none;">
+            <!-- Populated by toggleSiteDropdown() -->
+          </div>
+        </div>
         <button class="queue-badge" id="queueBadge" onclick="toggleQueue()" title="Walk-in orders in process">
           <span class="queue-badge-icon">📦</span>
           <span class="queue-badge-count" id="queueCount">0</span>
@@ -1570,6 +1638,24 @@
                 Without sign-in, customer lookup falls back to a single demo customer.
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════
+           MODAL: Site selector (session 111)
+           Shown after admin auth if multiple active sites exist.
+           ══════════════════════════════════════════════════════ -->
+      <div class="modal-overlay" id="siteSelectorModal">
+        <div class="modal" style="max-width: 440px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Select processing site</div>
+              <div class="modal-sub">Where are you processing today?</div>
+            </div>
+          </div>
+          <div class="modal-body" id="siteSelectorBody">
+            <!-- Populated by showSiteSelectorModal() -->
           </div>
         </div>
       </div>
@@ -1894,6 +1980,28 @@
      is_addon = true.
      ───────────────────────────────────────────────────────────── */
   let WEIGHT_ADDONS = []; // loaded from DB
+
+  /* ─────────────────────────────────────────────────────────────
+     session 111: Multi-site support — POS site selector + queue-by-site
+     ───────────────────────────────────────────────────────────── */
+  let allSites = []; // [{id, name, color, is_active, is_default}]
+  let currentSiteId = null; // set after user selects a site
+
+  async function loadSites() {
+    // session 111: Load sites (mirrors admin pattern)
+    const { data, error } = await db.from('sites').select('id, name, color, is_active, is_default').order('is_default', { ascending: false }).order('name');
+    if (error) { console.error('[POS] loadSites:', error); return; }
+    allSites = data || [];
+    console.log('[POS] Loaded', allSites.length, 'sites');
+  }
+
+  function getSiteById(id) {
+    return allSites.find(s => s.id === id) || null;
+  }
+
+  function getDefaultSite() {
+    return allSites.find(s => s.is_default) || allSites[0] || null;
+  }
 
   /* ─────────────────────────────────────────────────────────────
      Toast notifications
@@ -2298,12 +2406,138 @@
       icon.textContent = '✓';
       text.textContent = adminSession.email.split('@')[0];
       pill.title = `Signed in as ${adminSession.email} — click to sign out`;
+      // session 111: After admin auth, load sites and show selector if needed
+      await loadSites();
+      if (allSites.length > 0) {
+        const lastSiteId = localStorage.getItem('wr-pos-site-id');
+        const activeSites = allSites.filter(s => s.is_active);
+        if (activeSites.length === 1) {
+          // Single site — auto-pick without showing modal
+          currentSiteId = activeSites[0].id;
+          localStorage.setItem('wr-pos-site-id', currentSiteId);
+          updateSiteBadge();
+          await loadWalkInQueue();
+        } else if (activeSites.length > 1) {
+          // Multiple sites — show selector modal
+          if (!lastSiteId) {
+            showSiteSelectorModal();
+          } else {
+            // Use last-selected site if it's still active
+            const lastSite = allSites.find(s => s.id === lastSiteId);
+            if (lastSite && lastSite.is_active) {
+              currentSiteId = lastSiteId;
+            } else {
+              currentSiteId = getDefaultSite()?.id;
+              if (!currentSiteId && activeSites.length > 0) currentSiteId = activeSites[0].id;
+            }
+            localStorage.setItem('wr-pos-site-id', currentSiteId);
+            updateSiteBadge();
+            await loadWalkInQueue();
+          }
+        }
+      }
     } else {
       pill.classList.remove('signed-in');
       icon.textContent = '🔒';
       text.textContent = 'Sign in';
       pill.title = 'Sign in to enable real customer lookup';
+      // session 111: Clear site when signing out
+      currentSiteId = null;
+      updateSiteBadge();
     }
+  }
+
+  // session 111: Show site selector modal with cards for each active site
+  function showSiteSelectorModal() {
+    const activeSites = allSites.filter(s => s.is_active);
+    const body = document.getElementById('siteSelectorBody');
+    if (!activeSites.length) {
+      body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-500);">No sites available</div>';
+      showModal('siteSelectorModal');
+      return;
+    }
+    const lastSiteId = localStorage.getItem('wr-pos-site-id');
+    body.innerHTML = '<div style="display:flex;flex-direction:column;gap:10px;padding:16px;">' +
+      activeSites.map(site => `
+        <button onclick="selectSite('${site.id}')" style="
+          padding:14px 16px;
+          border:2px solid var(--gray-200);
+          background:white;
+          border-radius:10px;
+          cursor:pointer;
+          display:flex;
+          align-items:center;
+          gap:12px;
+          transition:all 0.15s;
+          ${lastSiteId === site.id ? 'border-color:var(--accent);background:var(--accent-light);' : 'hover{border-color:var(--gray-300);}'}
+        ">
+          <div style="width:12px;height:12px;border-radius:50%;background:${site.color || '#9ca3af'};flex-shrink:0;"></div>
+          <div style="text-align:left;">
+            <div style="font-weight:700;color:var(--gray-900);">${site.name}</div>
+          </div>
+        </button>
+      `).join('') +
+      '</div>';
+  }
+
+  // session 111: Handle site selection from modal
+  async function selectSite(siteId) {
+    currentSiteId = siteId;
+    localStorage.setItem('wr-pos-site-id', currentSiteId);
+    updateSiteBadge();
+    closeAll();
+    await loadWalkInQueue();
+    showToast(`Switched to ${getSiteById(siteId)?.name || 'site'}`, 'success');
+  }
+
+  // session 111: Update the site badge in topbar
+  function updateSiteBadge() {
+    const badge = document.getElementById('siteBadge');
+    const dot = document.getElementById('siteBadgeDot');
+    const text = document.getElementById('siteBadgeText');
+    if (currentSiteId && allSites.length > 0) {
+      const site = getSiteById(currentSiteId);
+      if (site) {
+        badge.style.display = 'inline-flex';
+        dot.style.background = site.color || '#9ca3af';
+        text.textContent = site.name;
+        return;
+      }
+    }
+    badge.style.display = 'none';
+  }
+
+  // session 111: Toggle site selector dropdown
+  function toggleSiteDropdown() {
+    const dropdown = document.getElementById('siteDropdown');
+    const isOpen = dropdown.style.display !== 'none';
+    if (isOpen) {
+      dropdown.style.display = 'none';
+      return;
+    }
+    const activeSites = allSites.filter(s => s.is_active);
+    if (activeSites.length <= 1) return; // hide dropdown if only one site
+    dropdown.innerHTML = activeSites.map(site => `
+      <button class="site-selector-item ${site.id === currentSiteId ? 'active' : ''}" onclick="switchSite('${site.id}')">
+        <div style="width:8px;height:8px;border-radius:50%;background:${site.color || '#9ca3af'};flex-shrink:0;"></div>
+        <span>${site.name}</span>
+      </button>
+    `).join('');
+    dropdown.style.display = 'block';
+  }
+
+  // session 111: Switch site from dropdown
+  async function switchSite(siteId) {
+    if (siteId === currentSiteId) {
+      document.getElementById('siteDropdown').style.display = 'none';
+      return;
+    }
+    currentSiteId = siteId;
+    localStorage.setItem('wr-pos-site-id', currentSiteId);
+    updateSiteBadge();
+    document.getElementById('siteDropdown').style.display = 'none';
+    await loadWalkInQueue();
+    showToast(`Switched to ${getSiteById(siteId)?.name || 'site'}`, 'success');
   }
 
   /* ─── Customer lookup ──────────────────────────────────────── */
@@ -2537,13 +2771,37 @@
       renderQueue([]);
       return;
     }
+    // session 111: Require site selection before loading queue
+    if (!currentSiteId) {
+      renderQueue([]);
+      const list = document.getElementById('queueList');
+      if (list && queueOpen) {
+        list.innerHTML = `
+          <div class="queue-empty">
+            <div class="queue-empty-icon">🏪</div>
+            Select a site to view orders
+          </div>
+        `;
+      }
+      return;
+    }
     try {
-      const { data, error } = await db
-        .from('orders')
+      let query = db.from('orders')
         .select('id, order_number, status, customer_id, total_amount, weight_lbs, line_items, created_at, updated_at')
         .eq('source', 'walk_in')
-        .in('status', ['processing', 'ready_for_delivery'])
-        .order('created_at', { ascending: true });
+        .in('status', ['processing', 'ready_for_delivery']);
+
+      // session 111: Apply null-safe filter for default site
+      const isDefaultSite = getDefaultSite()?.id === currentSiteId;
+      if (isDefaultSite) {
+        // For default site, include both explicit matches and NULL site_id
+        query = query.or(`site_id.eq.${currentSiteId},site_id.is.null`);
+      } else {
+        // For non-default sites, strict match only
+        query = query.eq('site_id', currentSiteId);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: true });
 
       if (error) {
         console.error('[POS] loadWalkInQueue error:', error);
@@ -3057,6 +3315,12 @@
        - paid at time of sale (cash / card)
      ───────────────────────────────────────────────────────────── */
   async function createPosOrder({ paymentMethod, stripePaymentIntentId }) {
+    // session 111: Defensive check — ensure site is selected before creating order
+    if (!currentSiteId) {
+      alert('Please select a processing site first.');
+      return;
+    }
+
     // --- Build totals from the current cart ---
     const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
     const tax      = subtotal * TAX_RATE;
@@ -3138,6 +3402,8 @@
       tip_amount:            0,
       line_items:            lineItems,
       special_instructions:  null,
+      // session 111: Stamp the site explicitly; trigger respects explicit values
+      site_id:               currentSiteId,
       // Payment bookkeeping — POS transactions are paid at time of sale.
       paid_at:               nowIso,
       billed_at:             nowIso,

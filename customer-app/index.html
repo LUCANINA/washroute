@@ -2335,7 +2335,13 @@ async function _handleCustomerSession(event, session) {
     document.getElementById('bottom-nav').style.display = 'flex';
 
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('payment') === 'success') {
+    if (urlParams.get('subscribed') === 'true') {
+      // Subscription post-checkout redirect
+      history.replaceState({}, '', window.location.pathname);
+      try { await loadUserData(); } catch (_) {}
+      goTo('account');
+      setTimeout(() => toast('Subscription active 🎉', ''), 400);
+    } else if (urlParams.get('payment') === 'success') {
       const returnedOrder = urlParams.get('order');
       const returnedPlan  = urlParams.get('plan');
       const returnedSetup = urlParams.get('setup');
@@ -5937,7 +5943,7 @@ async function startSubscription(planId) {
         type: 'subscription',
         planId,
         userId: currentUser.id,
-        successUrl: window.location.origin + window.location.pathname,
+        successUrl: window.location.origin + window.location.pathname + '?subscribed=true',
         cancelUrl:  window.location.origin + window.location.pathname,
       }),
     });
@@ -6400,17 +6406,88 @@ async function selectPlan(planId, isFree) {
 async function pauseSubscription() {
   if (!_activeSub) return;
   if (!confirm('Pause your subscription? You won\'t be charged while paused, and you can resume anytime.')) return;
-  toast('Pause feature coming soon — contact us to pause.', '');
+
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+
+    const res = await fetch(`${SUPA_URL}/functions/v1/pause-subscription`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ subscription_id: _activeSub.id }),
+    });
+
+    const result = await res.json();
+    if (result.error) throw new Error(result.error);
+
+    // Refetch subscription and re-render
+    await loadUserData();
+    renderSubscriptionCard();
+    toast('Subscription paused ✓', '');
+  } catch (e) {
+    toast('Error pausing subscription: ' + e.message, '');
+  }
 }
+
 async function resumeSubscription() {
   if (!_activeSub) return;
   if (!confirm('Resume your subscription? Your next charge will be on the renewal date.')) return;
-  toast('Resume feature coming soon — contact us to resume.', '');
+
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+
+    const res = await fetch(`${SUPA_URL}/functions/v1/resume-subscription`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ subscription_id: _activeSub.id }),
+    });
+
+    const result = await res.json();
+    if (result.error) throw new Error(result.error);
+
+    // Refetch subscription and re-render
+    await loadUserData();
+    renderSubscriptionCard();
+    toast('Subscription resumed ✓', '');
+  } catch (e) {
+    toast('Error resuming subscription: ' + e.message, '');
+  }
 }
+
 async function cancelSubscription() {
   if (!_activeSub) return;
   if (!confirm('Cancel your subscription? You\'ll still have access until the end of your current billing period.')) return;
-  toast('Cancel feature coming soon — contact us to cancel.', '');
+
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+
+    const res = await fetch(`${SUPA_URL}/functions/v1/cancel-subscription`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ subscription_id: _activeSub.id }),
+    });
+
+    const result = await res.json();
+    if (result.error) throw new Error(result.error);
+
+    // Refetch subscription and re-render
+    await loadUserData();
+    renderSubscriptionCard();
+    toast('Subscription will be cancelled at the end of your current billing period ✓', '');
+  } catch (e) {
+    toast('Error cancelling subscription: ' + e.message, '');
+  }
 }
 
 // Working state for the account preferences panel (separate from draft.prefs).

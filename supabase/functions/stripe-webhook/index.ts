@@ -97,6 +97,23 @@ Deno.serve(async (req) => {
     }
   }
 
+  // v29: Helper to map Stripe subscription status to our DB status
+  function mapStripeStatus(sub: Stripe.Subscription): string {
+    if (sub.pause_collection) {
+      return 'paused'
+    }
+    if (sub.status === 'active') return 'active'
+    if (sub.status === 'past_due') return 'past_due'
+    if (sub.status === 'canceled') return 'cancelled'
+    if (sub.status === 'incomplete') return 'incomplete'
+    return sub.status as string
+  }
+
+  // v29: Helper to get stripe_customer_id from subscription customer field
+  function getStripeCustomerId(customer: Stripe.Subscription['customer']): string {
+    return typeof customer === 'string' ? customer : (customer as any)?.id
+  }
+
   try {
     // -- payment_intent.succeeded -- backup: mark order as paid if charge-order missed it --
     if (event.type === 'payment_intent.succeeded') {
@@ -221,26 +238,173 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (event.type === 'customer.subscription.deleted') {
+    // v29: -- customer.subscription.created -- initialize subscription row
+    if (event.type === 'customer.subscription.created') {
       const sub = event.data.object as Stripe.Subscription
-      const stripeCustomerId = typeof sub.customer === 'string'
-        ? sub.customer
-        : (sub.customer as any)?.id
+      const stripeCustomerId = getStripeCustomerId(sub.customer)
 
-      await db.from('customers').update({
-        subscription_plan_id: null,
-        updated_at: new Date().toISOString(),
-      }).eq('stripe_customer_id', stripeCustomerId)
+      // Get the first item's price to find plan_id
+      const firstItem = sub.items.data[0]
+      const stripePriceId = firstItem?.price?.id
 
-      console.log('Subscription cancelled for Stripe customer:', stripeCustomerId)
+      let plan: any = null
+      let customer: any = null
+
+      if (!stripePriceId) {
+        console.log('customer.subscription.created: no items or price, skipping:', sub.id)
+      } else {
+        // Look up which plan this price belongs to
+        const planRes = await db.from('subscription_plans')
+          .select('id')
+          .eq('stripe_price_id', stripePriceId)
+          .single()
+        plan = planRes.data
+        if (!plan) {
+          console.warn('customer.subscription.created: plan not found for price:', stripePriceId)
+        }
+      }
+
+      if (plan) {
+        // Look up the customer by stripe_customer_id
+        const custRes = await db.from('customers')
+          .select('id')
+          .eq('stripe_customer_id', stripeCustomerId)
+          .single()
+        customer = custRes.data
+        if (!customer) {
+          console.warn('customer.subscription.created: customer not found for stripe_customer_id:', stripeCustomerId)
+        }
+      }
+
+      if (plan && customer) {
+        const now = new Date().toISOString()
+        const subStatus = mapStripeStatus(sub)
+
+        // UPSERT on stripe_subscription_id to handle retries
+        const { error: upsertErr } = await db.from('subscriptions')
+          .upsert({
+            customer_id: customer.id,
+            plan_id: plan.id,
+            stripe_subscription_id: sub.id,
+            status: subStatus,
+            current_period_start: new Date(sub.current_period_start * 1000).toISOString(),
+            current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+            signup_date: now,
+            last_stripe_event_at: now,
+            updated_at: now,
+          }, {
+            onConflict: 'stripe_subscription_id',
+          })
+
+        if (upsertErr) {
+          console.error('customer.subscription.created upsert error:', upsertErr.message)
+        } else {
+          console.log('Subscription created:', sub.id, 'for customer:', customer.id, 'plan:', plan.id)
+        }
+      }
     }
 
+    // v29: -- customer.subscription.updated -- sync status and dates
+    if (event.type === 'customer.subscription.updated') {
+      const sub = event.data.object as Stripe.Subscription
+      const now = new Date().toISOString()
+      const subStatus = mapStripeStatus(sub)
+
+      const { error: updateErr } = await db.from('subscriptions')
+        .update({
+          status: subStatus,
+          current_period_start: new Date(sub.current_period_start * 1000).toISOString(),
+          current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+          cancel_at_period_end: sub.cancel_at_period_end || false,
+          last_stripe_event_at: now,
+          updated_at: now,
+        })
+        .eq('stripe_subscription_id', sub.id)
+
+      if (updateErr) {
+        console.error('customer.subscription.updated error:', updateErr.message)
+      } else {
+        console.log('Subscription updated:', sub.id, 'status:', subStatus)
+      }
+    }
+
+    // v29: -- customer.subscription.deleted -- enhanced to also update subscriptions table
+    if (event.type === 'customer.subscription.deleted') {
+      const sub = event.data.object as Stripe.Subscription
+      const stripeCustomerId = getStripeCustomerId(sub.customer)
+      const now = new Date().toISOString()
+
+      // Clear subscription_plan_id from customers (existing logic)
+      await db.from('customers').update({
+        subscription_plan_id: null,
+        updated_at: now,
+      }).eq('stripe_customer_id', stripeCustomerId)
+
+      // v29: Also mark subscription as cancelled
+      const { error: updateErr } = await db.from('subscriptions')
+        .update({
+          status: 'cancelled',
+          cancelled_at: now,
+          last_stripe_event_at: now,
+          updated_at: now,
+        })
+        .eq('stripe_subscription_id', sub.id)
+
+      if (updateErr) {
+        console.error('customer.subscription.deleted subscriptions update error:', updateErr.message)
+      }
+
+      console.log('Subscription deleted:', sub.id, 'for Stripe customer:', stripeCustomerId)
+    }
+
+    // v29: -- invoice.payment_succeeded -- recover from past_due status
+    if (event.type === 'invoice.payment_succeeded') {
+      const invoice = event.data.object as Stripe.Invoice
+      const subscriptionId = invoice.subscription
+
+      if (subscriptionId) {
+        const now = new Date().toISOString()
+        const { error: updateErr } = await db.from('subscriptions')
+          .update({
+            status: 'active',
+            last_stripe_event_at: now,
+            updated_at: now,
+          })
+          .eq('stripe_subscription_id', subscriptionId as string)
+
+        if (updateErr) {
+          console.error('invoice.payment_succeeded error:', updateErr.message)
+        } else {
+          console.log('Invoice payment succeeded, subscription recovered:', subscriptionId)
+        }
+      }
+    }
+
+    // -- invoice.payment_failed -- enhanced for subscriptions (v29)
     if (event.type === 'invoice.payment_failed') {
       const invoice = event.data.object as Stripe.Invoice
+      const subscriptionId = invoice.subscription
       const stripeCustomerId = typeof invoice.customer === 'string'
         ? invoice.customer
         : (invoice.customer as any)?.id
-      console.log('Payment failed for Stripe customer:', stripeCustomerId)
+
+      // v29: Update subscription status to past_due if it exists
+      if (subscriptionId) {
+        const now = new Date().toISOString()
+        const { error: updateErr } = await db.from('subscriptions')
+          .update({
+            status: 'past_due',
+            last_stripe_event_at: now,
+            updated_at: now,
+          })
+          .eq('stripe_subscription_id', subscriptionId as string)
+
+        if (updateErr) {
+          console.error('invoice.payment_failed subscriptions update error:', updateErr.message)
+        }
+      }
+
+      console.log('Payment failed for Stripe customer:', stripeCustomerId, 'subscription:', subscriptionId)
     }
 
   } catch (err) {

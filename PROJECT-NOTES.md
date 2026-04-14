@@ -549,6 +549,111 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
+### Apr 14, 2026 (session 111 part 2) — Subscription Phase 2 (Stripe lifecycle) + POS site selector
+
+**Context:** Two big features shipped in parallel after the tech debt sweep. Subscription Phase 2 makes the customer-app subscription buttons real (no more "coming soon" stubs). POS now respects the multi-site foundation laid in session 110.
+
+---
+
+#### A. Subscription Phase 2 — Stripe lifecycle + customer signup wired live
+
+**Decisions made with David:** No free trial (charge immediately), pause has no max duration (manual resume only), use existing Stripe Checkout flow.
+
+**1. DB migration `subscription_phase2_idempotency`:**
+- Added `subscriptions.last_stripe_event_at TIMESTAMPTZ` for webhook idempotency tracking.
+- Created partial index `idx_subscriptions_stripe_sub_id` on `stripe_subscription_id WHERE NOT NULL` for fast webhook lookups.
+
+**2. New edge functions deployed (all v1, `verify_jwt: false`):**
+- `pause-subscription` — calls `stripe.subscriptions.update(id, { pause_collection: { behavior: 'mark_uncollectible' } })`, sets DB `status='paused', paused_at=now()`.
+- `resume-subscription` — clears Stripe `pause_collection`, sets DB `status='active', paused_at=null`.
+- `cancel-subscription` — graceful cancel via Stripe `cancel_at_period_end: true`. Customer keeps access until period end. The webhook handles the actual `cancelled_at` stamp when `customer.subscription.deleted` fires.
+
+**3. `stripe-webhook` v28 → v29:**
+- Added handler for `customer.subscription.created` — UPSERTs row in `subscriptions` table with plan lookup by `stripe_price_id`, customer lookup by `stripe_customer_id`. UPSERT on `stripe_subscription_id` for idempotency on Stripe retries.
+- Added handler for `customer.subscription.updated` — syncs status, period dates, and `cancel_at_period_end` flag.
+- Enhanced `customer.subscription.deleted` — now also marks the `subscriptions` row `status='cancelled', cancelled_at=now()` (in addition to existing `customers.subscription_plan_id = null`).
+- Added handler for `invoice.payment_succeeded` — recovers subscription from `past_due` → `active` after a retry succeeds.
+- Enhanced `invoice.payment_failed` — now sets DB subscription `status='past_due'`.
+- New helpers: `mapStripeStatus()` translates Stripe status (+ pause_collection) to our DB enum; `getStripeCustomerId()` normalizes the customer field (string or expanded object).
+- **Bug fix during review:** Caught and fixed bare `return` statements inside `Deno.serve` async handler (would have returned undefined to the Deno runtime, breaking the response). Restructured as nested if-blocks with no early returns.
+
+**4. Customer app (`customer-app/index.html`):**
+- Replaced 3 stubs (`pauseSubscription`, `resumeSubscription`, `cancelSubscription`) at lines ~6406-6491 with real fetch calls to the new edge functions. Each has a `confirm()` prompt, posts `{ subscription_id }` with the user's auth token, refetches via `loadUserData()` + re-renders, and shows a success toast.
+- Added `?subscribed=true` URL handler at app boot — refetches subscriptions, shows "Subscription active 🎉" toast, cleans the URL via `history.replaceState`.
+- Subscribe button's success URL now appends `?subscribed=true` so the customer lands back in-app with a confirmation, not a stale view.
+- Phase 1 startSubscription was already wired to call create-checkout v24 — no changes needed there.
+
+**5. Stripe Dashboard setup (David's action items, not yet done):**
+- Confirm Stripe Webhook endpoint subscribes to: `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_succeeded`, `invoice.payment_failed` (in addition to the existing `checkout.session.completed`, `payment_intent.*`).
+- Endpoint URL is unchanged: `https://umjpbuxrdydwejqtensq.supabase.co/functions/v1/stripe-webhook`.
+- The "Wash & Fold Monthly" plan ($260/mo) Product + Price will be auto-created on first signup via `create-checkout` v24 (it stores the resulting `stripe_price_id` back on `subscription_plans`).
+
+**⚠️ For future sessions:**
+- **Subscription status enum in DB:** `active`, `paused`, `past_due`, `cancelled`, `incomplete`. Don't add new values without updating `mapStripeStatus()` in stripe-webhook.
+- **`paused_at` and `cancelled_at` are admin/UI hints, not source of truth.** Source of truth is Stripe + `stripe_subscription_id` lookup. The webhook keeps DB in sync.
+- **Customer-app pause/resume/cancel buttons rely on `_activeSub.id` (DB row id), not `stripe_subscription_id`.** The edge functions look up the row to find the Stripe ID.
+- **No JWT validation in pause/resume/cancel** — they only check that the subscription_id has a `stripe_subscription_id`. If we ever expose these via a less-trusted route, add a "subscription belongs to authed user" check.
+- **Customer-side flow not yet end-to-end tested.** Need a real test customer + Stripe test mode signup to verify checkout → webhook → DB row → UI.
+
+---
+
+#### B. POS site selector + queue-by-site
+
+**Decisions made with David:** Walk-in (POS) only this session — driver app stays site-unaware. Allow mid-shift switching via clickable badge.
+
+**Changes to `pos-mockup.html` (all tagged `// session 111: ...`):**
+
+1. **Site loader on app boot.** Added `loadSites()`, `allSites` cache, `getSiteById()`, `getDefaultSite()` — mirrors admin dashboard pattern.
+
+2. **Site selector after admin auth.** New modal `siteSelectorModal` shows site cards (color dot + name) for active sites. Auto-picks if only one is_active. Pre-selects last-used from `localStorage('wr-pos-site-id')`.
+
+3. **Site badge in topbar.** Clickable pill with site's color dot + name. Click → dropdown for mid-shift switching. Hidden when only one site is_active.
+
+4. **Walk-in queue filter.** `loadWalkInQueue()` now filters by `currentSiteId`:
+   - Default site → `.or('site_id.eq.{currentSiteId},site_id.is.null')` (null-safe to bridge legacy orders during transition).
+   - Non-default sites → strict `.eq('site_id', currentSiteId)`.
+   - If `currentSiteId` is null → renders "Select a site to view orders" empty state, doesn't query.
+
+5. **Order INSERT stamps `site_id` explicitly.** `createPosOrder()` payload now includes `site_id: currentSiteId`. The `set_order_site_on_insert` trigger respects explicit values, so this guarantees the operator's selected site wins over any `customers.default_site_id`.
+
+6. **Defensive guard:** Refuses to create order if `currentSiteId` is null (alerts user). Shouldn't trigger in normal flow because the sign-in path enforces selection.
+
+**No DB migration or RLS change needed** — `sites_select_all` policy already allows anon read.
+
+**⚠️ For future sessions:**
+- **POS only stamps site_id on its own order INSERTs.** Other code paths (customer app booking, scheduled orders) still rely on the trigger's customer-default → main-site fallback. That's intentional.
+- **The null-safe filter on the default site is a transition aid.** Once all orders have a `site_id` (after a few weeks of operation), tighten to strict `.eq()` on all sites.
+- **Audit query for misrouted orders** (run in daily audit eventually): SELECT walk-in orders whose `site_id` differs from the operator's site at create time. Requires logging the operator's site context — not yet captured. Add an `orders.created_at_site_id` column if this becomes a problem.
+
+---
+
+#### Files touched (session 111 part 2)
+- DB migration: `subscription_phase2_idempotency`
+- Edge functions deployed: `pause-subscription` v1, `resume-subscription` v1, `cancel-subscription` v1, `stripe-webhook` v29
+- `customer-app/index.html` — pause/resume/cancel implementations + `?subscribed=true` handler + success URL update
+- `pos-mockup.html` — site loader, site selector modal, topbar badge, queue filter, order INSERT site stamping
+- `database/migrations/session111_subscription_phase2.sql` (committed reference copy)
+
+#### Test plan (David)
+
+**Subscription:**
+1. In Stripe Dashboard, confirm webhook endpoint subscribes to the 5 new event types.
+2. Use a Stripe test customer to sign up via the customer app's Subscribe flow. After Checkout, you should land back at `?subscribed=true` and see the success toast.
+3. Verify a row appears in `subscriptions` table with `status='active'`.
+4. Click Pause → confirm Stripe shows `pause_collection.behavior = 'mark_uncollectible'` and DB row `status='paused'`.
+5. Click Resume → both clear.
+6. Click Cancel → Stripe shows `cancel_at_period_end=true`, DB shows the same. Subscription stays usable until period end.
+
+**POS:**
+1. Open POS, sign in. Site selector modal should appear (since 2 sites exist). Pick Main.
+2. Verify topbar badge appears with Main color + name.
+3. Open walk-in queue → only Main + null-site orders should show.
+4. Click badge → dropdown of active sites → switch. Toast confirms. Queue refreshes.
+5. Sign out + sign in → should auto-select last-used site (skip modal).
+6. Create a walk-in order → verify `orders.site_id` matches the selected site in DB.
+
+---
+
 ### Apr 14, 2026 (session 111) — Tech debt sweep: delivery-orphaned cron, driver dup guard, credits at charge time, repo rename
 
 **Context:** Cleared four tech debt items flagged in session 110 in a single pass, two of them in parallel investigations.
