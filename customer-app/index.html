@@ -2275,6 +2275,19 @@ async function _handleCustomerSession(event, session) {
           db.auth.signOut();
         }
       });
+      // Background refresh: pull fresh customer row from the DB so any fields
+      // that were backfilled or changed since the cache was saved (tips, credits,
+      // discount_id, etc.) are up to date when the booking flow pre-fills.
+      // Fire-and-forget — the UI has already rendered from cache.
+      if (currentCustomer?.id) {
+        db.from('customers').select('*').eq('id', currentCustomer.id).maybeSingle()
+          .then(({ data: fresh }) => {
+            if (!fresh) return;
+            Object.assign(currentCustomer, fresh);
+            saveUserCache(currentUser.id, currentProfile, currentCustomer, currentCards);
+          })
+          .catch(err => console.warn('[customer refresh] non-fatal:', err?.message));
+      }
     } else {
       showLoading(true);
       try { await loadUserData(); } catch (err) { console.error('loadUserData:', err); } finally { showLoading(false); }

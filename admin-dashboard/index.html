@@ -1963,6 +1963,7 @@
               </div>
               <!-- Sub-tab: Laundry Services -->
               <div id="pos-subtab-laundry">
+              <button class="rpt-page-tab" onclick="setRptTab('subscriptions',this)">⭐ Subscriptions</button>
                 <div id="pos-retail-services-body" style="padding:8px 20px 0;"></div>
                 <div class="svc-add-row" style="grid-template-columns:1fr 112px 116px 120px;gap:10px;max-width:600px;">
                   <input class="svc-add-input" id="nrs-name" placeholder="Service name…" onkeydown="if(event.key==='Enter')saveNewRetailSvc()" />
@@ -2213,6 +2214,67 @@
                     <tr><td colspan="10"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
                   </tbody>
                   <tfoot id="oa-summary-tfoot" style="font-weight:700;border-top:2px solid var(--gray-200)"></tfoot>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── TAB: SUBSCRIPTIONS ── -->
+          <div id="rpttab-subscriptions" style="display:none">
+            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+              <div class="stat-card">
+                <div class="stat-label">Active Subscribers</div>
+                <div class="stat-value" id="rpt-sub-active">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Monthly Recurring</div>
+                <div class="stat-value" id="rpt-sub-mrr">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Paused</div>
+                <div class="stat-value" id="rpt-sub-paused">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Cancelled (30d)</div>
+                <div class="stat-value" id="rpt-sub-cancelled">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Past Due</div>
+                <div class="stat-value" id="rpt-sub-pastdue">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Avg Usage</div>
+                <div class="stat-value" id="rpt-sub-avg-usage">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">lbs / 100 limit</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Overage Revenue</div>
+                <div class="stat-value" id="rpt-sub-overage-rev">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-sub-overage-sub">this period</div>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:0">
+              <div class="card-header">
+                <div class="card-title">All Subscribers</div>
+                <div class="card-sub" id="rpt-sub-count-label"></div>
+              </div>
+              <div class="rpt-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>Plan</th>
+                      <th>Status</th>
+                      <th>Usage (lbs)</th>
+                      <th>Pickups</th>
+                      <th>Overage Due</th>
+                      <th>Renews</th>
+                      <th>Signed Up</th>
+                    </tr>
+                  </thead>
+                  <tbody id="rpt-sub-tbody">
+                    <tr><td colspan="8"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                  </tbody>
                 </table>
               </div>
             </div>
@@ -3298,7 +3360,13 @@
   <!-- Header -->
   <div class="op-header">
     <div style="flex:1;min-width:0">
-      <div class="op-num" id="op-num">ORDER #—</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div class="op-num" id="op-num">ORDER #—</div>
+        <div style="position:relative;display:inline-block">
+          <div id="op-site-badge" style="display:none;cursor:pointer;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:5px;border:1px solid var(--gray-200);background:#fff;color:var(--gray-600);user-select:none" onclick="opToggleSiteDropdown(event)" title="Click to change processing site"></div>
+          <div id="op-site-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1px solid var(--gray-200);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:4px 0;min-width:180px;margin-top:4px"></div>
+        </div>
+      </div>
       <div style="position:relative;display:inline-block">
         <div id="op-status-badge" style="cursor:pointer" onclick="opToggleStatusDropdown(event)"></div>
         <div id="op-status-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#fff;border:1px solid var(--gray-200);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:4px 0;min-width:180px;max-height:320px;overflow-y:auto;margin-top:4px"></div>
@@ -3597,6 +3665,13 @@
           <option value="">— Default (zone-based) —</option>
         </select>
         <div style="font-size:11px;color:var(--gray-400);margin-top:3px">When set, orders auto-route to this route instead of the customer's zone.</div>
+      </div>
+      <div class="cp-field">
+        <div class="cp-field-label">Default Processing Site</div>
+        <select class="cp-input" id="cpe-default-site">
+          <option value="">— Use main site —</option>
+        </select>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:3px">New orders from this customer will be assigned to this site automatically. Leave empty to use the main site.</div>
       </div>
     </div>
 
@@ -4287,6 +4362,7 @@
   }
   let allTemplates = [], allDriversCache = [];
   let allDriversList = [];
+  let allSites = []; // [{id, name, color, is_active, is_default}] — populated by loadSites()
   let currentDriverId        = null;
   let currentDriverProfileId = null; // profile_id (auth user UUID) for the open driver
   let driverFilter = 'all';
@@ -5542,6 +5618,15 @@
     }
   }
 
+  // ── Sites (multi-site processing reference data) ──
+  async function loadSites() {
+    const { data, error } = await db.from('sites').select('id, name, color, is_active, is_default').order('is_default', { ascending: false }).order('name');
+    if (error) { console.error('loadSites:', error); return; }
+    allSites = data || [];
+  }
+  function getSiteById(id) { return allSites.find(s => s.id === id) || null; }
+  function getDefaultSite() { return allSites.find(s => s.is_default) || allSites[0] || null; }
+
   async function saveSettings() {
     const tz = document.getElementById('settings-tz-select')?.value;
     if (!tz) return;
@@ -5840,7 +5925,7 @@
     ]);
     allAddonServicesCache = addonSvcs || [];
     allPreferencesCache   = globalPrefs || [];
-    const results = await Promise.allSettled([loadSettings(), loadOverview(), loadCustomers(), loadOrders(currentOrderFilter), loadRoutes(), loadDiscounts(), initDriverMsgBadge()]);
+    const results = await Promise.allSettled([loadSettings(), loadSites(), loadOverview(), loadCustomers(), loadOrders(currentOrderFilter), loadRoutes(), loadDiscounts(), initDriverMsgBadge()]);
     const failed = results.filter(r => r.status === 'rejected');
     if (failed.length) {
       console.error('loadAll failures:', failed.map(r => r.reason));
@@ -6481,7 +6566,7 @@
     let keepGoing = true;
     while (keepGoing) {
       const { data, error } = await db.from('customers')
-          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, pricelist, route_template_override_id, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
+          .select('id, profile_id, lifetime_value, total_orders, risk_status, last_order_at, created_at, first_name_cache, last_name_cache, email_cache, phone_cache, address_cache, billing_type, pricelist, route_template_override_id, default_tip, default_tip_type, profiles(role), addresses(id,label,line1,line2,city,state,zip,lat,lng,is_default)')
           .order('created_at', { ascending: false })
           .range(from, from + PAGE - 1);
       if (error) {
@@ -6933,7 +7018,7 @@
                actual_pickup_at, actual_delivery_at,
                pickup_run_id, delivery_run_id,
                pickup_address_id, delivery_address_id,
-               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, cancelled_by, driver_skip_reason,
+               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, cancelled_by, driver_skip_reason, site_id,
                services(name),
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
                pickup_run:pickup_run_id(id, name),
@@ -7406,6 +7491,7 @@
     // Header
     document.getElementById('op-num').textContent = `ORDER #${o.order_number || '—'}`;
     document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(o.status);
+    opRenderSiteBadge(o.site_id);
 
     // Customer strip
     const custLink = document.getElementById('op-cust-name');
@@ -8100,6 +8186,54 @@
     // close on click-away
     const close = () => { dd.style.display = 'none'; document.removeEventListener('click', close); };
     setTimeout(() => document.addEventListener('click', close), 0);
+  }
+
+  // ── Site badge (processing site picker on order panel) ──
+  function opRenderSiteBadge(siteId) {
+    const el = document.getElementById('op-site-badge');
+    if (!el) return;
+    if (!allSites.length) { el.style.display = 'none'; return; } // sites not loaded yet
+    const site = getSiteById(siteId) || getDefaultSite();
+    if (!site) { el.style.display = 'none'; return; }
+    const tint = site.color || '#635bff';
+    el.style.display = 'inline-block';
+    el.style.borderColor = tint;
+    el.style.color = tint;
+    el.style.background = '#fff';
+    el.innerHTML = `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${tint};margin-right:6px;vertical-align:middle"></span>${esc(site.name)} <span style="opacity:.5;margin-left:3px">▾</span>`;
+  }
+
+  function opToggleSiteDropdown(e) {
+    e.stopPropagation();
+    const dd = document.getElementById('op-site-dropdown');
+    if (dd.style.display !== 'none') { dd.style.display = 'none'; return; }
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o) return;
+    const current = o.site_id;
+    const options = allSites.filter(s => s.is_active || s.id === current); // always show the current site even if deactivated
+    dd.innerHTML = options.map(s => {
+      const isCurrent = s.id === current;
+      return `<div onclick="opSetOrderSite('${s.id}')" style="padding:6px 14px;font-size:12.5px;font-weight:${isCurrent?'700':'500'};cursor:pointer;display:flex;align-items:center;gap:8px;color:${isCurrent?s.color:'var(--gray-700)'}">`
+        + `<span style="width:8px;height:8px;border-radius:50%;background:${s.color};flex-shrink:0;${isCurrent?'':'opacity:.35'}"></span>`
+        + `${esc(s.name)}${isCurrent?' <span style="margin-left:auto;font-size:10px;opacity:.6">current</span>':''}</div>`;
+    }).join('');
+    dd.style.display = 'block';
+    const close = () => { dd.style.display = 'none'; document.removeEventListener('click', close); };
+    setTimeout(() => document.addEventListener('click', close), 0);
+  }
+
+  async function opSetOrderSite(newSiteId) {
+    const dd = document.getElementById('op-site-dropdown');
+    if (dd) dd.style.display = 'none';
+    if (!opCurrentOrderId || !newSiteId) return;
+    const o = allOrders.find(x => x.id === opCurrentOrderId);
+    if (!o || o.site_id === newSiteId) return;
+    const { error } = await db.from('orders').update({ site_id: newSiteId }).eq('id', opCurrentOrderId);
+    if (error) { showToast('Could not change site: ' + error.message, 'error'); return; }
+    o.site_id = newSiteId; // update cache
+    opRenderSiteBadge(newSiteId);
+    const siteName = getSiteById(newSiteId)?.name || 'site';
+    showToast(`Assigned to ${siteName}`, 'success');
   }
 
   // Ordered status list for detecting rollbacks
@@ -14351,7 +14485,7 @@ ${oneCopy}
     document.getElementById('cp-add-addr-form').style.display = 'none';
 
     const { data: c } = await db.from('customers')
-      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, billing_group_id, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id')
+      .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, billing_group_id, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id, default_site_id')
       .eq('id', customerId).single();
     if (!c) return;
     _panelCustomerData = c;  // save for invoice generation
@@ -14412,6 +14546,17 @@ ${oneCopy}
       roEl.innerHTML = '<option value="">— Default (zone-based) —</option>'
         + (rts || []).map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
       roEl.value = c.route_template_override_id || '';
+    }
+
+    // Default Processing Site dropdown — populate from allSites cache
+    const siteEl = document.getElementById('cpe-default-site');
+    if (siteEl) {
+      // Empty = "use main site" (trigger falls back). Only show non-default sites as pickable,
+      // since setting a customer default to the main site is the same as leaving it unset.
+      const pickable = allSites.filter(s => !s.is_default);
+      siteEl.innerHTML = '<option value="">— Use main site —</option>'
+        + pickable.map(s => `<option value="${s.id}">${esc(s.name)}${s.is_active ? '' : ' (inactive)'}</option>`).join('');
+      siteEl.value = c.default_site_id || '';
     }
 
     // ── Billing tab ──
@@ -14682,9 +14827,10 @@ ${oneCopy}
     const type   = document.getElementById('cpe-type').value;
     const src    = document.getElementById('cpe-source').value;
     const routeOverride = document.getElementById('cpe-route-override').value || null;
+    const defaultSite   = document.getElementById('cpe-default-site')?.value || null;
     const { data: c } = await db.from('customers').select('profile_id').eq('id',panelCustomerId).single();
     if (c?.profile_id) await db.from('profiles').update({ first_name:fn, last_name:ln, phone, email }).eq('id', c.profile_id);
-    const { error } = await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, pricelist:type||'Delivery', referral_source:src||null, route_template_override_id:routeOverride }).eq('id', panelCustomerId);
+    const { error } = await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, pricelist:type||'Delivery', referral_source:src||null, route_template_override_id:routeOverride, default_site_id:defaultSite }).eq('id', panelCustomerId);
     btn.disabled=false; btn.textContent=origText;
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
@@ -19709,7 +19855,7 @@ ${oneCopy}
       allLaunCache = data || [];
     }
     const { data: orders } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, zone_id,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, zone_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, billing_type, addresses(id,label,line1,city)),
@@ -19800,6 +19946,25 @@ ${oneCopy}
       </div>`;
     }).join('');
     filterKanbanCol('fold'); // re-apply search if active
+  }
+
+  // Compute the driver tip in dollars for an order (matches charge-order v33).
+  // Returns { dollars, label, pretaxTotal, totalWithTip } — all numbers/strings.
+  function _orderTipBreakdown(o) {
+    const pretax = Number(o?.total_amount || 0);
+    const amt    = parseFloat(o?.tip_amount || 0);
+    const type   = o?.tip_type || null;
+    if (!amt || amt <= 0) return { dollars: 0, label: '', pretaxTotal: pretax, totalWithTip: pretax };
+    const dollars = type === 'pct' ? Math.round(pretax * amt) / 100 : amt;
+    const label   = type === 'pct' ? `Driver tip (${amt}%)` : 'Driver tip';
+    return { dollars, label, pretaxTotal: pretax, totalWithTip: pretax + dollars };
+  }
+  // Returns the HTML row to show inside fold/rack/intake summary tables between
+  // the line-items block and the Total row. Empty string if the order has no tip.
+  function _orderTipRowHtml(o) {
+    const t = _orderTipBreakdown(o);
+    if (t.dollars <= 0) return '';
+    return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-600);margin-top:4px"><span>${t.label}</span><span>+${fmtMoney(t.dollars)}</span></div>`;
   }
 
   function openFoldPanel(orderId) {
@@ -20058,7 +20223,7 @@ ${oneCopy}
       allRacksCache = data || [];
     }
     const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, stripe_payment_intent_id, rack_id, folded_by_id, source,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, rack_id, folded_by_id, source, special_instructions,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, addresses(id,label,line1,city)),
@@ -20181,7 +20346,8 @@ ${oneCopy}
           <div class="fold-order-row"><span>Weight</span><strong>${lbs}</strong></div>
           ${folderName ? `<div class="fold-order-row"><span>Processed by</span><strong>👤 ${folderName}</strong></div>` : ''}
           ${liHTML ? `<div style="margin-top:8px;border-top:1px solid var(--gray-100);padding-top:8px">${liHTML}</div>` : ''}
-          <div class="fold-order-row" style="margin-top:6px;border-top:1px solid var(--gray-200);padding-top:6px"><span style="font-weight:700">Total</span><strong style="color:var(--accent);font-size:15px">${fmtMoney(o.total_amount||0)}</strong></div>
+          ${_orderTipRowHtml(o)}
+          <div class="fold-order-row" style="margin-top:6px;border-top:1px solid var(--gray-200);padding-top:6px"><span style="font-weight:700">Total</span><strong style="color:var(--accent);font-size:15px">${fmtMoney(_orderTipBreakdown(o).totalWithTip)}</strong></div>
           ${notesHTML}
         </div>
       </div>
@@ -20446,7 +20612,7 @@ ${oneCopy}
     const wrap = document.getElementById('clean-queue-wrap');
     if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
     const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, billing_type, addresses(id,label,line1,city)),
@@ -20558,7 +20724,7 @@ ${oneCopy}
     const { data: freshOrder } = await db.from('orders')
       .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
-               pickup_address_id, delivery_address_id, total_amount, line_items,
+               pickup_address_id, delivery_address_id, total_amount, line_items, tip_amount, tip_type,
                customers(id, first_name_cache, last_name_cache, pricelist, preferences, addresses(id,label,line1,city)),
                services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
@@ -20896,6 +21062,11 @@ ${oneCopy}
     if (bd.creditApplied > 0) {
       rows.push(`<div class="proc-breakdown-row" style="color:#059669"><span>💰 Account credit</span><span class="amount">−${fmtMoney(bd.creditApplied)}</span></div>`);
     }
+    // Driver tip (from customer booking) — shown informationally; charged on top of subtotal
+    if (bd.tipDollars > 0) {
+      const tipLabel = bd.tipType === 'pct' ? `Driver tip (${bd.tipRaw}%)` : 'Driver tip';
+      rows.push(`<div class="proc-breakdown-row"><span>${tipLabel}</span><span class="amount">+${fmtMoney(bd.tipDollars)}</span></div>`);
+    }
     const totalLabel = bd.weight > 0 ? 'Total' : 'Total (pending weight)';
     rows.push(`<div class="proc-breakdown-row total-row"><span>${totalLabel}</span><span class="amount">${fmtMoney(bd.total)}</span></div>`);
     return rows.join('');
@@ -20962,9 +21133,18 @@ ${oneCopy}
     const discountAmt = discountPct > 0 ? Math.round(base * discountPct * 100) / 100 : 0;
     const subtotal = base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total + deliveryTotal - discountAmt;
     const creditApplied = Math.min(procCustomerCredits, subtotal); // never exceed total
-    const total = Math.max(0, subtotal - creditApplied);
+    const preTipTotal   = Math.max(0, subtotal - creditApplied);
+    // Driver tip — stored on the order, applied on top of the charged subtotal
+    // (tip is charged in addition to total_amount by charge-order v33).
+    const tipRaw  = parseFloat(procActiveOrder?.tip_amount || 0);
+    const tipType = procActiveOrder?.tip_type || null;
+    const tipDollars = tipRaw > 0
+      ? (tipType === 'pct' ? Math.round(preTipTotal * tipRaw) / 100 : tipRaw)
+      : 0;
+    const total = preTipTotal + tipDollars;
     return { bags, weight, base, overage_lbs, overage_charge, addons_total, addonSvc_total, prefLinkedSvc_total,
              deliveryFee, sameDaySurcharge, deliveryTotal, discountAmt, subtotal, creditApplied,
+             preTipTotal, tipDollars, tipType, tipRaw,
              total };
   }
 
@@ -21187,15 +21367,20 @@ ${oneCopy}
     // Only needed for browser transport; CloudPRNT and PassPRNT don't use popups.
     const printWin = _resolveTransport() === 'browser' ? window.open('', '_blank', 'width=420,height=750') : null;
 
+    // IMPORTANT: orders.total_amount is the pre-tip subtotal. charge-order v33
+    // adds the tip on top at charge time using orders.tip_amount/tip_type. Storing
+    // bd.total (which includes tip) here would cause double-tipping.
+    const savedTotal = (bd.preTipTotal !== undefined) ? bd.preTipTotal : bd.total;
+
     // Log intake events BEFORE the update
     await logOrderEvent(procActiveOrder.id, 'weight_updated', `Weight recorded: ${weight} lbs`, null, String(weight));
     if (bd.bags) await logOrderEvent(procActiveOrder.id, 'bags_updated', `Bags: ${bd.bags}`, null, String(bd.bags));
-    if (bd.total > 0) await logOrderEvent(procActiveOrder.id, 'total_changed', `Total calculated: ${fmtMoney(bd.total)}`, null, String(bd.total));
+    if (savedTotal > 0) await logOrderEvent(procActiveOrder.id, 'total_changed', `Total calculated: ${fmtMoney(savedTotal)}`, null, String(savedTotal));
     await logOrderEvent(procActiveOrder.id, 'status_change', 'Processing', procActiveOrder.status, 'processing');
 
     const { error } = await db.from('orders').update({
       status: 'processing', weight_lbs: weight, total_bags: bd.bags,
-      total_amount: bd.total, line_items: lineItems,
+      total_amount: savedTotal, line_items: lineItems,
       is_same_day: procIsSameDay,
       service_id: procSvc?.id || null,
       discount_id: procCustomerDiscount?.id || null,
@@ -21778,6 +21963,110 @@ ${oneCopy}
         past_due: 'background:#fee2e2;color:#991b1b'
       };
       const statusStyle = statusColors[s.status] || '';
+      const renewDate = s.current_period_end
+        ? new Date(s.current_period_end).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric' })
+        : '—';
+      const signupDate = s.signup_date || s.created_at
+        ? new Date(s.signup_date || s.created_at).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric' })
+        : '—';
+
+      return `<tr>
+        <td style="font-weight:600">${custName}</td>
+        <td>${planName}</td>
+        <td><span style="padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600;${statusStyle}">${s.status}</span></td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="flex:1;height:6px;background:var(--gray-100);border-radius:3px;min-width:60px;max-width:100px">
+              <div style="height:100%;width:${pct}%;background:${barColor};border-radius:3px"></div>
+            </div>
+            <span style="font-size:12px;color:var(--gray-600);white-space:nowrap">${usage.toFixed(1)} / ${limit}</span>
+          </div>
+        </td>
+        <td>${pickups} / ${pickLim}</td>
+        <td style="color:${overage > 0 ? 'var(--red)' : 'var(--gray-400)'};font-weight:${overage > 0 ? '600' : '400'}">${overage > 0 ? fmtMoney(overage) : '—'}</td>
+        <td>${renewDate}</td>
+        <td style="color:var(--gray-500)">${signupDate}</td>
+      </tr>`;
+    }).join('');
+
+    _subReportLoaded = true;
+  }
+
+  /* ──────────────────────────────
+     SUBSCRIPTION REPORT TAB
+  ────────────────────────────── */
+  let _subReportLoaded = false;
+
+  async function loadSubscriptionReport() {
+    // Fetch all subscriptions with customer + plan info
+    const { data: subs, error } = await db
+      .from('subscriptions')
+      .select('*, customers!inner(id, first_name_cache, last_name_cache, phone_cache, email_cache), subscription_plans!inner(name, price_monthly, weight_limit_lbs, pickup_limit)')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[Reports] Subscription report error:', error);
+      document.getElementById('rpt-sub-tbody').innerHTML =
+        '<tr><td colspan="8" class="rpt-no-data">Error loading subscriptions.</td></tr>';
+      return;
+    }
+
+    const allSubs = subs || [];
+    const active    = allSubs.filter(s => s.status === 'active');
+    const paused    = allSubs.filter(s => s.status === 'paused');
+    const pastDue   = allSubs.filter(s => s.status === 'past_due');
+    const thirtyAgo = new Date(); thirtyAgo.setDate(thirtyAgo.getDate() - 30);
+    const cancelled = allSubs.filter(s => s.status === 'cancelled' && s.cancelled_at && new Date(s.cancelled_at) >= thirtyAgo);
+
+    // MRR = sum of active subscription prices
+    const mrr = active.reduce((sum, s) => sum + Number(s.subscription_plans?.price_monthly || 0), 0);
+
+    // Average usage across active subs
+    const avgUsage = active.length
+      ? (active.reduce((sum, s) => sum + Number(s.usage_lbs_this_period || 0), 0) / active.length).toFixed(1)
+      : '0';
+
+    // Total overage revenue this period
+    const overageRev = allSubs.reduce((sum, s) => sum + Number(s.overage_amount_due || 0), 0);
+
+    // KPI cards
+    document.getElementById('rpt-sub-active').textContent   = active.length;
+    document.getElementById('rpt-sub-mrr').textContent      = fmtMoney(mrr);
+    document.getElementById('rpt-sub-paused').textContent   = paused.length;
+    document.getElementById('rpt-sub-cancelled').textContent = cancelled.length;
+    document.getElementById('rpt-sub-pastdue').textContent   = pastDue.length;
+    document.getElementById('rpt-sub-avg-usage').textContent = avgUsage;
+    document.getElementById('rpt-sub-overage-rev').textContent = fmtMoney(overageRev);
+
+    // Subscriber count label
+    document.getElementById('rpt-sub-count-label').textContent = `${allSubs.length} total`;
+
+    // Table rows
+    const tbody = document.getElementById('rpt-sub-tbody');
+    if (!allSubs.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="rpt-no-data">No subscriptions yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = allSubs.map(s => {
+      const custName = [s.customers?.first_name_cache, s.customers?.last_name_cache].filter(Boolean).join(' ') || s.customers?.phone_cache || '—';
+      const planName = s.subscription_plans?.name || '—';
+      const limit    = s.subscription_plans?.weight_limit_lbs || 100;
+      const pickLim  = s.subscription_plans?.pickup_limit || 4;
+      const usage    = Number(s.usage_lbs_this_period || 0);
+      const pickups  = s.pickups_this_period || 0;
+      const overage  = Number(s.overage_amount_due || 0);
+      const pct      = Math.min(100, Math.round((usage / limit) * 100));
+      const barColor = pct >= 100 ? 'var(--red)' : pct >= 80 ? 'var(--amber)' : 'var(--green)';
+
+      const statusColors = {
+        active: 'background:#d1fae5;color:#065f46',
+        paused: 'background:#fef3c7;color:#92400e',
+        cancelled: 'background:var(--gray-100);color:var(--gray-500)',
+        past_due: 'background:#fee2e2;color:#991b1b'
+      };
+      const statusStyle = statusColors[s.status] || '';
+
       const renewDate = s.current_period_end
         ? new Date(s.current_period_end).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric' })
         : '—';
