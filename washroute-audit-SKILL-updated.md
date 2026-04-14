@@ -345,6 +345,54 @@ Report counts only. These are informational — clean up when David asks.
 
 ---
 
+### Check 11 — Ghost Delivery Stops (P1)
+
+Delivery stops scheduled on past routes whose parent order never made it
+to `ready_for_delivery`. Almost always caused by orders processed at a site
+without admin-software access — the bag was handled, but the order status
+was never advanced. Left unchecked, the driver would drive to the delivery
+location expecting to hand off laundry he doesn't have.
+
+```sql
+-- NOTE: restricted to PAST run_dates (strictly before today). Same-day
+-- delivery stops whose parent order is still processing are legitimately
+-- in-flight and should NOT be flagged here — the driver-app/admin RCC
+-- filters hide them at the UI layer so no one acts on them prematurely.
+SELECT rs.id AS stop_id, o.order_number, o.status AS order_status,
+       rt.name AS route_name, r.run_date,
+       c.first_name_cache || ' ' || c.last_name_cache AS customer
+FROM route_stops rs
+JOIN orders o ON rs.order_id = o.id
+JOIN routes r ON rs.route_id = r.id
+JOIN route_templates rt ON r.template_id = rt.id
+LEFT JOIN customers c ON c.id = o.customer_id
+WHERE rs.stop_type = 'delivery'
+  AND rs.status IN ('pending', 'en_route')
+  AND r.run_date < (NOW() AT TIME ZONE 'America/Los_Angeles')::date
+  AND o.status IN ('picked_up', 'processing', 'folding')
+ORDER BY r.run_date, rt.name;
+```
+
+**Why this matters:** The admin dashboard RCC filter hides these stops, and
+as of session 106 the driver app also hides them. But the underlying issue
+— orders stuck in a pre-ready status past their delivery window — means the
+customer isn't getting their laundry back on schedule.
+
+**To fix (case by case):**
+- Call/text the processing site, confirm the bag is done, and manually advance
+  the order to `ready_for_delivery` → the stop will reappear on the driver's
+  route automatically.
+- If the delivery already happened off-software, mark the order `delivered`
+  directly (the delivery stop will auto-sync via `trg_sync_stops_on_order_terminal`).
+- If the order was abandoned, cancel it and issue a refund/credit as appropriate.
+
+**Root cause (structural, not yet fixed):** There's no trigger that flags
+orders whose delivery window has passed without reaching `ready_for_delivery`.
+Consider adding `routing_error = 'delivery_orphaned'` on such orders via a
+nightly cron job so they surface in the Issues tab automatically.
+
+---
+
 ## After the Audit
 
 1. Present the summary

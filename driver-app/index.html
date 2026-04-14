@@ -1794,6 +1794,15 @@ async function _loadDriverDataInner() {
     orders(*, customers(*), services(*))
   `;
 
+  // Hide delivery stops whose parent order hasn't been marked ready yet.
+  // These are "ghost deliveries" — the bag was picked up but never progressed
+  // through processing in software (often because intake happened off-site).
+  // Showing them would send the driver to a location with nothing to deliver.
+  // Matches the admin dashboard RCC filter (NOT_READY_FOR_DELIVERY).
+  const NOT_READY_FOR_DELIVERY = ['picked_up', 'processing', 'folding'];
+  const isGhostDelivery = s =>
+    s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY.includes(s.orders?.status);
+
   // ── Group 2: today's routes + messages in parallel ──
   const [{ data: routes }] = await Promise.all([
     db.from('routes')
@@ -1895,6 +1904,7 @@ async function _loadDriverDataInner() {
     overrideStops = (otherStops || []).filter(s =>
       s.orders && !['delivered','cancelled'].includes(s.orders.status)
       && !['skipped','failed'].includes(s.status)
+      && !isGhostDelivery(s)
     );
   }
 
@@ -1904,9 +1914,11 @@ async function _loadDriverDataInner() {
   // Filter out stops that aren't actionable for the driver:
   // - Order delivered/cancelled = nothing to do
   // - Stop skipped/failed = admin already handled it
+  // - Delivery whose parent order isn't ready yet = ghost delivery (see top of fn)
   routeStops = routeStops.filter(s =>
     s.orders && !['delivered','cancelled'].includes(s.orders.status)
     && !['skipped','failed'].includes(s.status)
+    && !isGhostDelivery(s)
   );
   allStops = [...routeStops, ...tagged];
 
@@ -1921,7 +1933,8 @@ async function _loadDriverDataInner() {
       .order('stop_number', { ascending: true });
     const taggedUpcoming = (uStops || [])
       .filter(s => s.orders && !['delivered','cancelled'].includes(s.orders.status)
-        && !['skipped','failed'].includes(s.status))
+        && !['skipped','failed'].includes(s.status)
+        && !isGhostDelivery(s))
       .map(s => ({ ...s, _upcoming: true }));
     allStops = [...allStops, ...taggedUpcoming];
   }
