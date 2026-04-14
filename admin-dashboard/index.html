@@ -7014,7 +7014,7 @@
     delivered:  ['delivered'],  // last DELIVERED_TAB_WINDOW_DAYS (7d) of delivered orders; cancelled are archived
   };
 
-  const _orderSelectCols = `id, order_number, status, total_amount, stripe_payment_intent_id, billing_status,
+  const _orderSelectCols = `id, order_number, status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, billing_status,
                weight_lbs, total_bags, service_id, special_instructions, line_items,
                pickup_window_start, pickup_window_end,
                delivery_window_start, delivery_window_end,
@@ -7470,18 +7470,9 @@
     let o = allOrders.find(x => x.id === orderId);
     // If not in global cache (stale or paginated out), fetch directly from DB
     if (!o) {
-      const selectCols = `id, order_number, status, total_amount, stripe_payment_intent_id, billing_status,
-                 weight_lbs, total_bags, service_id, special_instructions, line_items,
-                 pickup_window_start, pickup_window_end,
-                 delivery_window_start, delivery_window_end,
-                 actual_pickup_at, actual_delivery_at,
-                 pickup_run_id, delivery_run_id,
-                 pickup_address_id, delivery_address_id,
-                 created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, cancelled_by, driver_skip_reason,
-                 services(name),
-                 customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
-                 pickup_run:pickup_run_id(id, name),
-                 delivery_run:delivery_run_id(id, name)`;
+      // Reuse the canonical order select to guarantee tip_amount/tip_type/site_id
+      // are available when an order is opened outside the cached set.
+      const selectCols = _orderSelectCols;
       const { data, error } = await db.from('orders').select(selectCols).eq('id', orderId).single();
       if (error || !data) { showToast('Could not load order — try refreshing the page', 'error'); return; }
       o = data;
@@ -8287,7 +8278,9 @@
     if (newStatus === 'ready_for_delivery' && o.status !== 'ready_for_delivery') {
       const custBillingType = o.customers?.billing_type;
       if (custBillingType === 'on_account') {
-        showToast(`📋 On Account — ${fmtMoney(o.total_amount)} added to balance`, 'success');
+        // On-account balance includes tip — mirror what charge-order v33 would have collected.
+        const billTotal = _orderTipBreakdown(o).totalWithTip;
+        showToast(`📋 On Account — ${fmtMoney(billTotal)} added to balance`, 'success');
       } else {
         try {
           const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
@@ -9228,7 +9221,9 @@
     });
     const data = await res.json();
     if (!res.ok) { showToast(data.error || 'Charge failed', 'error'); return; }
-    await logOrderEvent(o.id, 'billing', `Charged ${fmtMoney(o.total_amount)}`, null, 'charged');
+    // charge-order v33 charges subtotal + tip; log the actual amount so history matches Stripe.
+    const chargedAmt = _orderTipBreakdown(o).totalWithTip;
+    await logOrderEvent(o.id, 'billing', `Charged ${fmtMoney(chargedAmt)}`, null, 'charged');
     // Clear failed billing status and refresh
     await db.from('orders').update({ billing_status: null }).eq('id', o.id);
     showToast('Payment charged ✓', 'success');
@@ -20410,7 +20405,8 @@ ${oneCopy}
 
     // ── On Account: skip Stripe charge, add to customer balance ──
     if (!isRerack && !alreadyCharged && hasAmount && isOnAccount) {
-      showToast(`📋 Order #${rackActiveOrder.order_number} — On Account · ${fmtMoney(rackActiveOrder.total_amount)} added to balance`, 'success');
+      const onAcctTotal = _orderTipBreakdown(rackActiveOrder).totalWithTip;
+      showToast(`📋 Order #${rackActiveOrder.order_number} — On Account · ${fmtMoney(onAcctTotal)} added to balance`, 'success');
     }
 
     // ── Charge the order (unless it's a re-rack, already charged, $0, or on-account) ──
