@@ -2120,8 +2120,11 @@
           <!-- ── TAB: DAILY REVENUE ── -->
           <div id="rpttab-revenue">
             <div class="card" style="margin-bottom:0">
-              <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
-                <button class="rev-export-btn" id="rev-export-btn" style="display:none" onclick="exportRevenueCSV()">Export CSV</button>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
+                <div style="font-size:11.5px;color:var(--gray-500);line-height:1.4">
+                  Grouped by <strong>delivery date</strong>. Excludes cancelled, skipped, pickup-failed, and $0 placeholder orders. Refunded orders stay counted but deduct in the Refunds column.
+                </div>
+                <button class="rev-export-btn" id="rev-export-btn" style="display:none;flex-shrink:0" onclick="exportRevenueCSV()">Export CSV</button>
               </div>
               <div id="rev-rpt-body" class="rev-tbl-wrap" style="padding:0 0 4px">
                 <div class="rev-empty">Select a date range above and the report will load automatically.</div>
@@ -22435,10 +22438,13 @@ ${oneCopy}
     let orders = [], fetchError = null;
     { const BATCH = 1000; let offset = 0;
       while (true) {
+        // Exclude statuses that produce no revenue: cancelled, skipped, pickup_failed.
+        // Also exclude $0 orders (recurring placeholders whose real amount hasn't been set yet).
+        // Delivery_failed IS included — those orders were charged before delivery attempt.
         const { data, error: e } = await db.from('orders')
           .select('order_number, status, billing_status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, line_items, delivery_window_start, discount_id, is_subscription_order')
-          .neq('status', 'cancelled')
-          .not('total_amount', 'is', null)
+          .not('status', 'in', '(cancelled,skipped,pickup_failed)')
+          .gt('total_amount', 0)
           .gte('delivery_window_start', fromISO)
           .lte('delivery_window_start', toISO)
           .order('delivery_window_start')
