@@ -21700,14 +21700,24 @@ ${oneCopy}
     });
 
     const fmtD = iso => iso ? new Date(iso).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+    // Normalize phone display: strip to last 10 digits, format as (XXX) XXX-XXXX.
+    // Source values vary (E.164 "+14156085446", "14156085446", "4156085446",
+    // "(415) 608-5446" — all render the same way here).
+    const fmtPhone = raw => {
+      const digits = String(raw || '').replace(/\D/g, '');
+      const last10 = digits.slice(-10);
+      return last10.length === 10
+        ? `(${last10.slice(0,3)}) ${last10.slice(3,6)}-${last10.slice(6)}`
+        : (raw || '');
+    };
     tbody.innerHTML = sorted.map(r => {
       const nameCell = r.id
         ? `<a href="#" onclick="event.preventDefault();openCustomerPanel('${r.id}')" style="color:var(--accent);text-decoration:none;font-weight:600">${_escHtml(r.name)}</a>`
-        : escHtml(r.name);
+        : _escHtml(r.name);
       return `<tr>
         <td>${nameCell}</td>
         <td style="color:var(--gray-700)">${_escHtml(r.email) || '<span style="color:var(--gray-300)">—</span>'}</td>
-        <td style="color:var(--gray-700)">${_escHtml(r.phone) || '<span style="color:var(--gray-300)">—</span>'}</td>
+        <td style="color:var(--gray-700);white-space:nowrap">${r.phone ? _escHtml(fmtPhone(r.phone)) : '<span style="color:var(--gray-300)">—</span>'}</td>
         <td style="color:var(--gray-600)">${_escHtml(r.referral) || '<span style="color:var(--gray-300)">—</span>'}</td>
         <td style="color:var(--gray-700);white-space:nowrap">${fmtD(r.signup)}</td>
         <td style="color:var(--gray-700);white-space:nowrap">${r.firstOrder ? fmtD(r.firstOrder) : '<span style="color:var(--gray-300)">—</span>'}</td>
@@ -21729,8 +21739,12 @@ ${oneCopy}
   function exportRegistrationsCSV() {
     if (!_regRows.length) return;
     const header = ['Name','Email','Phone','Referral','Signed Up','First Order','Spend to Date'];
+    const fmtPhoneCSV = raw => {
+      const d = String(raw || '').replace(/\D/g, '').slice(-10);
+      return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : (raw || '');
+    };
     const rows = _regRows.map(r => [
-      r.name, r.email, r.phone, r.referral,
+      r.name, r.email, fmtPhoneCSV(r.phone), r.referral,
       r.signup ? new Date(r.signup).toISOString().slice(0,10) : '',
       r.firstOrder ? new Date(r.firstOrder).toISOString().slice(0,10) : '',
       r.spend.toFixed(2),
