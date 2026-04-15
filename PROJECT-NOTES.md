@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 14, 2026 — Session 110: Ghost delivery stop filter on driver app + audit check. Sites foundation (multi-site processing groundwork for next week's launch). Tipping pipeline fixed end-to-end — recurring trigger now copies tips, charge-order v33 collects them, all panels display them. Retroactively recovered ~$333 on 46 in-pipeline recurring orders.*
+*Last updated: Apr 15, 2026 — Session 112: Three-field notes model fully wired (delivery on address, special care on `preferences._notes`, internal on `customers.notes`). 206 legacy `[Perm]` notes auto-classified EN+ES and redistributed. Recurring-order dedup hole closed (function + unique index), self-healing `routing_error` trigger on manual route_stops moves, admin Special Care Notes field added, Processing Queue falls back to customer care notes when order blank.*
 
 ---
 
@@ -548,6 +548,85 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 15, 2026 (session 112) — Notes redistribution + recurring-dedup hardening + Processing Queue care-note visibility
+
+**Context:** Morning rounds flagged order #1989 (Olivia Rosaldo-Pratt) as unrouted with `over_capacity_after_reschedule`. Investigation revealed two real bugs beyond the data fix — a recurring-dedup hole and a stale `routing_error` flag after admin manual moves. Separately, David wanted to audit whether the customer-instruction backfill from last week actually surfaced in the Processing Queue. It didn't — the backfill landed in the wrong field, and the render had no fallback.
+
+#### A) Olivia #1989 rescue + cleanup
+- Customer name was blank on cache and profile — extracted "Olivia Rosaldo-Pratt" from email + David confirmation. Back-filled `customers.first_name_cache` / `last_name_cache` and `profiles`.
+- Pickup stop was on Hayward AM 4/15 but her address is Oakland 94602. Root cause: admin (intentionally) moved the stop across zones to balance driver load; but the sync trigger had set `over_capacity_after_reschedule` in an earlier reschedule attempt, and that flag never cleared.
+- Moved pickup to Oakland AM 4/15, cleared `routing_error`. Duplicate recurring sibling #1987 (same date, also Oakland) was skipped-with-stops — deleted the orphaned stops + the order.
+
+#### B) Session 112 migration — recurring dedup + self-healing
+Migration file: `migrations/session_111_dedup_and_self_healing.sql` (filename kept from generation even though applied in session 112).
+
+1. **`trg_create_recurring_order_fn`** dedup now covers ALL non-terminal statuses (`scheduled`, `picked_up`, `processing`, `ready_for_delivery`, `out_for_delivery`), not just `'scheduled'`. Previously, a skip that triggered during a pipeline state could bypass dedup and create a duplicate.
+2. **Partial unique index** `idx_orders_recurring_no_dup` on `(customer_id, (pickup_window_start AT TIME ZONE 'America/Los_Angeles')::date) WHERE source='recurring' AND status IN (non-terminals)`. Makes duplicates structurally impossible even under race conditions. Pre-verified zero existing violations.
+3. **`clear_stale_routing_error_on_manual_move`** — new `AFTER UPDATE OF route_id ON route_stops` trigger. When admin manually moves a stop to a different route (drag-drop in Route Command Center, admin reassign dropdown), clears `routing_error` if it was one of the sync-set values (`over_capacity_after_reschedule`, `reschedule_no_matching_template`). Admin intervention = admin owns the decision, so the flag is stale. Other routing_error values (e.g., `No zone assigned`) are left alone — those are structural issues not resolved by a move.
+
+**Design note (see this before changing):** Cross-zone manual moves are David's normal daily ops (Oakland driver covering a Berkeley stop etc.). **Do NOT add a zone-mismatch guard** on `route_stops` — it will fire constantly and flood the audit. The self-healing flag-clear is the right mechanism.
+
+#### C) Stripe billing recovery (Check 3b)
+Both succeeded in Stripe live mode:
+- #1994 Lindsea Brown — $127.95 — `pi_3TMKtIGACgbvEugH0M7fCAGE` — marked `billing_status='paid'`
+- #1037 Clarissa Doutherd — $259.95 — `pi_3TIHvkGACgbvEugH0fiPle7Q` — marked `billing_status='paid'`
+
+$387.90 recovered. Root cause still open (see Pending / Tech Debt — atomic charge-order write).
+
+#### D) Three-field notes model — fully wired
+David clarified there are THREE distinct note types with distinct audiences:
+
+| Category | Audience | Storage |
+|---|---|---|
+| Delivery Instructions | Driver | `addresses.delivery_instructions` |
+| Special Care Notes | Cleaners/folders → Processing Queue | `customers.preferences._notes` (jsonb subkey) |
+| Internal Notes | Admin only | `customers.notes` |
+
+The customer app was already correctly plumbing `preferences._notes` through `draft.specialInstructions` → `orders.special_instructions` on new orders. But the legacy `[Perm]` backfill had put everything into `customers.notes` — the wrong field.
+
+**Redistribution (206 customers):**
+- Built `classify.py` — sentence-level classifier with English + Spanish keyword rules, strong-signal overrides (wash/dry/fold → cleaning; gate/code/porch → delivery; refund/chargeback/credit → admin), fragment-merge for unclassified sentences that inherit from neighbors in the same note.
+- Output: 148 delivery-only, 40 cleaning-only, 10 admin-only, 7 genuinely-mixed, 1 manual-review → 5 manual overrides applied in `apply.py` (Karen Schreiner, Natalie Granera billing-split, Diamond Lewis refund, Hunter Pawlaczyk refund, Yvonne Prevowillingham bag-handoff, April Lang Luis-sig, Patricia Eagan Luis-sig).
+- Applied in 10 SQL chunks via `execute_sql` (88KB total). Non-destructive: preserves existing `preferences._notes` and `delivery_instructions`; only fills blanks. `customers.notes` wholesale replaced with admin-only content (or NULL).
+
+**After migration:**
+- `[Perm]` markers in `customers.notes`: 206 → 0
+- `customers.notes` populated: 302 → 113 (189 moved to correct fields)
+- `customers.preferences._notes` populated: 11 → 57 (+46 cleaning notes now visible to folders)
+- `addresses.delivery_instructions` coverage: 150 → 288 customers (+138)
+
+Working files under `/work/perm_migration/`: `input.json`, `classify.py`, `apply.py`, `classification.json`, `apply.sql`, `c0..c9.sql`. CSV preview at repo root: `perm_classification.csv`.
+
+#### E) Admin UI: Special Care Notes in customer Preferences tab
+**Problem:** Admin had no way to view or edit the customer-level cleaning instructions — the Preferences tab only showed structured prefs (Vinegar, Oxi, Double Wash, Air Dry, Shirt Service). After migration, 57 customers had care notes that admin couldn't see.
+
+**Fix (`admin-dashboard/index.html`):**
+- New textarea in Preferences tab (`#cp-pref-notes`) with label "Special Care Notes" and helper "Visible to cleaners and folders on every new order. Editable by the customer in their app."
+- `loadPanelPreferences` reads `preferences._notes` into the textarea.
+- `savePanelPreferences` writes `prefs._notes` alongside structured selections. **Important:** prior save did wholesale replace of `preferences` — this would have wiped `_notes` if not preserved. If any other jsonb subkey is added to `preferences` in the future (today it's only preference-group UUIDs and `_notes`), update this save to merge-not-replace.
+
+#### F) Processing Queue care-note fallback
+**Problem:** Kanban cards in Intake / Cleaning / Folding read only `orders.special_instructions`. Any order where the customer didn't type into the booking textarea, or an admin-created order, or a recurring child whose parent had blank instructions, shows no care notes — even if the customer now has them.
+
+**Fix:**
+- **One-time backfill:** for every active-pipeline order (`picked_up | processing | folding | ready_for_delivery | out_for_delivery`) with blank `special_instructions` where the customer has `preferences._notes`, copied customer → order. Affected 1 order today (#2436 Donald Chu — "WASH WARM - LAVAR CON AGUA TIBIAR").
+- **Structural:** render fallback in Intake, Cleaning, Folding kanban cards (`admin-dashboard/index.html` lines 19988, 20710, 20760). If `o.special_instructions` is blank, reads `o.customers?.preferences?._notes` instead. Added `preferences` to the Cleaning and Folding customer selects (Intake already had it). Rack card doesn't show instructions — at that stage the laundry is done, so not needed.
+
+#### Session-end audit deltas
+- 1989 routed correctly; no longer on the morning audit.
+- No recurring duplicates at any status now (migration + unique index).
+- `[Perm]` markers: 0.
+
+#### Tech debt / pending
+- **charge-order atomic write** — session 77 carryover; `billed_at` and `billing_status='paid'` still written separately. 2 orders today needed manual Stripe verification because of this. Consolidate into a single atomic UPDATE.
+- **Orphan auth users** — 5 flagged in morning audit, 1 (`cchalifax5@gmail.com`) shadowing Christine Conner and blocking her sign-in. Not cleaned up today.
+- **Duplicate customer pairs** — 4 new pairs to investigate (John Taladiar ×2, Homebase/Soul Sanctuary phone share, Faye Navarro/Russell Moore email share, Reup Refill Shop/Re-Up Refills email share).
+- **Aquarius Gilmer** — 2 scheduled orders on 4/17 to review (likely recurring + manual collision).
+- **Over-capacity Oakland routes** — 6 upcoming runs over the 18-stop limit; may need a capacity review or new Oakland run/driver.
+- **Customer app: no persistent Care Notes UI at the account level** — customers can edit per-order `special_instructions` but the Preferences page doesn't expose `_notes` as an always-editable field. Probably fine for now since the booking flow pre-populates; revisit if customers ask.
+
+---
 
 ### Apr 14, 2026 (session 111f) — Heather + Lindsea card "not retained" + prepare-phone-otp silent-empty bug
 
