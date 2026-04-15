@@ -21702,13 +21702,13 @@ ${oneCopy}
     const fmtD = iso => iso ? new Date(iso).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' }) : '—';
     tbody.innerHTML = sorted.map(r => {
       const nameCell = r.id
-        ? `<a href="#" onclick="event.preventDefault();openCustomerPanel('${r.id}')" style="color:var(--accent);text-decoration:none;font-weight:600">${escHtml(r.name)}</a>`
+        ? `<a href="#" onclick="event.preventDefault();openCustomerPanel('${r.id}')" style="color:var(--accent);text-decoration:none;font-weight:600">${_escHtml(r.name)}</a>`
         : escHtml(r.name);
       return `<tr>
         <td>${nameCell}</td>
-        <td style="color:var(--gray-700)">${escHtml(r.email) || '<span style="color:var(--gray-300)">—</span>'}</td>
-        <td style="color:var(--gray-700)">${escHtml(r.phone) || '<span style="color:var(--gray-300)">—</span>'}</td>
-        <td style="color:var(--gray-600)">${escHtml(r.referral) || '<span style="color:var(--gray-300)">—</span>'}</td>
+        <td style="color:var(--gray-700)">${_escHtml(r.email) || '<span style="color:var(--gray-300)">—</span>'}</td>
+        <td style="color:var(--gray-700)">${_escHtml(r.phone) || '<span style="color:var(--gray-300)">—</span>'}</td>
+        <td style="color:var(--gray-600)">${_escHtml(r.referral) || '<span style="color:var(--gray-300)">—</span>'}</td>
         <td style="color:var(--gray-700);white-space:nowrap">${fmtD(r.signup)}</td>
         <td style="color:var(--gray-700);white-space:nowrap">${r.firstOrder ? fmtD(r.firstOrder) : '<span style="color:var(--gray-300)">—</span>'}</td>
         <td style="text-align:right;font-weight:600;color:var(--gray-800)">${fmtMoney(r.spend)}</td>
