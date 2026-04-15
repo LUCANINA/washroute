@@ -3916,6 +3916,11 @@
   <div class="cp-body" id="cptab-preferences" style="display:none">
     <div class="cp-card">
       <div id="cp-global-prefs-list"></div>
+      <div style="margin-top:18px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray-400);margin-bottom:8px">Special Care Notes</div>
+        <textarea class="cp-input" id="cp-pref-notes" rows="4" placeholder="e.g. Hang dry delicates, wash whites separately, no fabric softener… (shows in Processing Queue)"></textarea>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:4px">Visible to cleaners and folders on every new order. Editable by the customer in their app.</div>
+      </div>
     </div>
     <div style="margin-top:20px">
       <button class="btn btn-primary cp-save-btn" onclick="savePanelPreferences()">Save Preferences</button>
@@ -15908,6 +15913,10 @@ ${oneCopy}
     const { data: c } = await db.from('customers').select('preferences').eq('id', customerId).single();
     const customerSel = c?.preferences || {};
 
+    // Populate the Special Care Notes textarea (reads from preferences._notes)
+    const notesEl = document.getElementById('cp-pref-notes');
+    if (notesEl) notesEl.value = customerSel._notes || '';
+
     if (!gPrefs.length) {
       container.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No preferences configured yet. Add them in the Services &amp; Pricing tab.</div>';
       return;
@@ -15945,6 +15954,11 @@ ${oneCopy}
     document.querySelectorAll('#cp-global-prefs-list select[data-pref-id]').forEach(sel => {
       if (sel.value) prefs[sel.dataset.prefId] = sel.value;
     });
+    // Preserve Special Care Notes (shown in Processing Queue) — this jsonb
+    // subkey is also edited by the customer in the customer app, so keep it
+    // in sync here instead of blowing it away on structured-prefs save.
+    const careNotes = (document.getElementById('cp-pref-notes')?.value || '').trim();
+    if (careNotes) prefs._notes = careNotes;
     const { error } = await db.from('customers').update({ preferences: prefs }).eq('id', panelCustomerId);
     btn.disabled=false; btn.textContent=origText;
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
