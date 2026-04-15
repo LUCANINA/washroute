@@ -549,6 +549,42 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
+### Apr 14, 2026 (session 111f) — Heather + Lindsea card "not retained" + prepare-phone-otp silent-empty bug
+
+**Context:** David reported Heather Covyknight and Lindsea Brown claimed to have uploaded their billing info multiple times but the system "wasn't retaining it." Investigation:
+
+- Both had `stripe_customer_id` populated but ZERO rows in `customer_payment_methods`, ZERO transactions, and were behind failed-charge on recent delivered orders.
+- Both had `last_sign_in_at` from DAYS before the payment_failed SMS was sent. They never opened our customer app since the failure.
+- Heather also had a dual-identity (phone-only orphan auth user `748c763e` from Mar 27 + real email user `e2265e4c` from Mar 30 — her customer record was linked to email).
+
+**Root cause for the cards "not sticking":** It wasn't our code. The `payment_failed` SMS template said "Please update your card in the app" — **with no link**. Customers had no idea where to go, so they were (presumably) updating cards in the old Starchup interface, a bookmark, or just nowhere. Our app's `startCardSetup` → `create-checkout` → `stripe-webhook` flow worked fine (4–40+ cards added per day for other customers).
+
+**Fixes applied:**
+
+1. **`payment_failed` SMS template updated** to include the direct app link:
+   `Hi {{first_name}}, we couldn't process payment for order #{{order_number}}. Update your card here: https://app.familylaundry.com/customer-app/`
+   (141 chars, fits one segment.) Email body also updated with link + one-liner instructions.
+
+2. **`prepare-phone-otp` v3 → v4** — discovered that v3's customer match (inherited from v2) used an ILIKE pre-filter with multi-% wildcard pattern that silently returned zero rows for some customers despite the data clearly matching when queried directly. Replaced with a simple "fetch all non-null phone_cache, filter in JS" approach. ~500 rows, fast, no URL-escape gotchas. Added a `debug: { scanned_customers, scanned_staff }` object to the no-match response so future failures surface a count instead of silent `isNewSignup`.
+
+3. **Heather + Lindsea account-linking**: ran v4 `prepare-phone-otp` against both phone numbers. Result:
+   - Heather: orphan `748c763e` deleted, phone `14153179944` attached to real auth user `e2265e4c` with `phone_confirmed_at` set.
+   - Lindsea: phone `14156247401` attached to real auth user `abbaa23f` with `phone_confirmed_at` set. (No orphan.)
+
+4. **Personal outreach SMS sent** to both customers with direct app link, instructions, and confirmation that phone OR email login both land on their real account.
+
+**Files touched:**
+- `supabase/functions/prepare-phone-otp/index.ts` — v4
+- DB: `message_templates.payment_failed` — sms_body + email_body
+- DB: `auth.users` — attached phone to Heather's + Lindsea's real accounts
+
+**⚠️ For future sessions:**
+- **Never use ILIKE with multi-% patterns inside an edge function against Supabase.** Fetch + filter in JS. The silent-empty bug here went undetected through at least one customer session (session 110's customer OTP fix) — it was always failing for some fraction of lookups.
+- **Known tech debt surfaced (not yet fixed):** admin SMS compose search (`smsComposeSearch` line 11487 in admin-dashboard) only matches on name + phone, not email. Also no spelling-variation tolerance — "Lindsea" doesn't match when you type "Lindsa" (the expected "Lindsay" spelling). Fixable in ~10 min with a phonetic/Levenshtein fallback or by including email in the match text.
+- **Reconciliation cron proposal (also tech debt):** once/day, for each customer with stripe_customer_id, compare Stripe's attached payment methods to our `customer_payment_methods`. Any Stripe card not in our DB → backfill. Catches the rare case where a Checkout succeeds but our webhook misses it. Would have caught Heather/Lindsea's issue immediately (if they'd ever completed a setup — they hadn't).
+
+---
+
 ### Apr 14, 2026 (session 111e) — Andrew Pree disappearance: root-cause + 4 prevention layers
 
 **Context:** David noticed driver Andrew Pree was missing from the admin Drivers list. Investigation revealed:
