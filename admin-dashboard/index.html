@@ -2077,6 +2077,7 @@
               <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">Launderers</button>
               <button class="rpt-page-tab" onclick="setRptTab('onaccount',this)">On Account</button>
               <button class="rpt-page-tab" onclick="setRptTab('subscriptions',this)">⭐ Subscriptions</button>
+              <button class="rpt-page-tab" onclick="setRptTab('registrations',this)">Registrations</button>
             </div>
           </div>
 
@@ -2338,6 +2339,53 @@
                   </thead>
                   <tbody id="rpt-sub-tbody">
                     <tr><td colspan="8"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── TAB: REGISTRATIONS ── -->
+          <div id="rpttab-registrations" style="display:none">
+            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+              <div class="stat-card">
+                <div class="stat-label">New Registrations</div>
+                <div class="stat-value" id="rpt-reg-count">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Converted (1+ order)</div>
+                <div class="stat-value" id="rpt-reg-converted">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Conversion Rate</div>
+                <div class="stat-value" id="rpt-reg-conv-rate">—</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Total Spend</div>
+                <div class="stat-value" id="rpt-reg-spend">—</div>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:0">
+              <div class="card-header">
+                <div class="card-title">Registrations</div>
+                <div class="card-sub" id="rpt-reg-period-label"></div>
+                <button class="rev-export-btn" id="reg-export-btn" style="display:none" onclick="exportRegistrationsCSV()">Export CSV</button>
+              </div>
+              <div class="rpt-table-wrap">
+                <table class="rpt-drv-tbl">
+                  <thead>
+                    <tr>
+                      <th style="cursor:pointer;user-select:none" onclick="sortRegReport('name')">Name <span id="reg-sort-name" style="font-size:10px;color:var(--gray-400)"></span></th>
+                      <th>Email</th>
+                      <th>Phone</th>
+                      <th>Referral</th>
+                      <th style="cursor:pointer;user-select:none" onclick="sortRegReport('signup')">Signed Up <span id="reg-sort-signup" style="font-size:10px;color:var(--gray-400)">▼</span></th>
+                      <th style="cursor:pointer;user-select:none" onclick="sortRegReport('firstOrder')">First Order <span id="reg-sort-firstOrder" style="font-size:10px;color:var(--gray-400)"></span></th>
+                      <th style="cursor:pointer;user-select:none;text-align:right" onclick="sortRegReport('spend')">Spend to Date <span id="reg-sort-spend" style="font-size:10px;color:var(--gray-400)"></span></th>
+                    </tr>
+                  </thead>
+                  <tbody id="rpt-reg-tbody">
+                    <tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
                   </tbody>
                 </table>
               </div>
@@ -21543,18 +21591,19 @@ ${oneCopy}
   }
 
   function runCurrentReport() {
-    if (rptTab === 'revenue')         loadRevenueReport();
-    else if (rptTab === 'items')      loadItemsReport();
-    else if (rptTab === 'launderer')  loadLaundererReport();
-    else if (rptTab === 'drivers')    loadReports();
-    else if (rptTab === 'onaccount')  loadOnAccountReport();
+    if (rptTab === 'revenue')            loadRevenueReport();
+    else if (rptTab === 'items')         loadItemsReport();
+    else if (rptTab === 'launderer')     loadLaundererReport();
+    else if (rptTab === 'drivers')       loadReports();
+    else if (rptTab === 'onaccount')     loadOnAccountReport();
+    else if (rptTab === 'registrations') loadRegistrationsReport();
   }
 
   function setRptTab(tab, btn) {
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['drivers','revenue','items','launderer','onaccount','subscriptions'].forEach(t => {
+    ['drivers','revenue','items','launderer','onaccount','subscriptions','registrations'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
@@ -21565,6 +21614,141 @@ ${oneCopy}
     }
     if (tab === 'subscriptions') loadSubscriptionReport();
     runCurrentReport();
+  }
+
+  // ── REGISTRATIONS REPORT ──
+  let _regRows = [];
+  let _regSort = { col: 'signup', dir: 'desc' };
+
+  async function loadRegistrationsReport() {
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    if (!fromEl?.value || !toEl?.value) return;
+    const fromISO = new Date(fromEl.value + 'T00:00:00').toISOString();
+    const toISO   = new Date(toEl.value   + 'T23:59:59.999').toISOString();
+    const tbody = document.getElementById('rpt-reg-tbody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>`;
+
+    // 1) Customers who registered in the window
+    const { data: custs, error } = await db.from('customers')
+      .select('id, first_name_cache, last_name_cache, email_cache, phone_cache, referral_source, created_at, lifetime_value')
+      .gte('created_at', fromISO)
+      .lte('created_at', toISO)
+      .order('created_at', { ascending: false });
+    if (error) { console.error('loadRegistrationsReport:', error); return; }
+
+    const rows = custs || [];
+    // 2) Earliest order per customer (for "First Order" column)
+    const custIds = rows.map(c => c.id);
+    const firstOrderByCust = {};
+    if (custIds.length) {
+      const orderRows = await batchedIn('orders', 'customer_id, created_at', 'customer_id', custIds, q => q.order('created_at', { ascending: true }));
+      orderRows.forEach(o => {
+        if (!firstOrderByCust[o.customer_id]) firstOrderByCust[o.customer_id] = o.created_at;
+      });
+    }
+
+    // Shape final rows
+    _regRows = rows.map(c => ({
+      id: c.id,
+      name: `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || '—',
+      email: c.email_cache || '',
+      phone: c.phone_cache || '',
+      referral: c.referral_source || '',
+      signup: c.created_at,
+      firstOrder: firstOrderByCust[c.id] || null,
+      spend: Number(c.lifetime_value || 0),
+    }));
+
+    // KPIs
+    const converted = _regRows.filter(r => r.firstOrder).length;
+    const totalSpend = _regRows.reduce((s, r) => s + r.spend, 0);
+    const convRate = _regRows.length ? Math.round((converted / _regRows.length) * 100) : 0;
+    document.getElementById('rpt-reg-count').textContent     = _regRows.length.toLocaleString();
+    document.getElementById('rpt-reg-converted').textContent = converted.toLocaleString();
+    document.getElementById('rpt-reg-conv-rate').textContent = _regRows.length ? convRate + '%' : '—';
+    document.getElementById('rpt-reg-spend').textContent     = fmtMoney(totalSpend);
+    document.getElementById('rpt-reg-period-label').textContent =
+      `${fromEl.value} to ${toEl.value}`;
+    const exportBtn = document.getElementById('reg-export-btn');
+    if (exportBtn) exportBtn.style.display = _regRows.length ? '' : 'none';
+
+    renderRegistrationsTable();
+  }
+
+  function renderRegistrationsTable() {
+    const tbody = document.getElementById('rpt-reg-tbody');
+    if (!tbody) return;
+    if (!_regRows.length) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--gray-400)">No registrations in this period</td></tr>`;
+      return;
+    }
+    // Sort
+    const { col, dir } = _regSort;
+    const sorted = [..._regRows].sort((a, b) => {
+      let av = a[col], bv = b[col];
+      if (col === 'signup' || col === 'firstOrder') { av = av || ''; bv = bv || ''; }
+      if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toLowerCase(); }
+      if (av < bv) return dir === 'asc' ? -1 : 1;
+      if (av > bv) return dir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    // Update sort chevrons
+    ['name','signup','firstOrder','spend'].forEach(c => {
+      const el = document.getElementById('reg-sort-' + c);
+      if (el) el.textContent = col === c ? (dir === 'asc' ? '▲' : '▼') : '';
+    });
+
+    const fmtD = iso => iso ? new Date(iso).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+    tbody.innerHTML = sorted.map(r => {
+      const nameCell = r.id
+        ? `<a href="#" onclick="event.preventDefault();openCustomerPanel('${r.id}')" style="color:var(--accent);text-decoration:none;font-weight:600">${escHtml(r.name)}</a>`
+        : escHtml(r.name);
+      return `<tr>
+        <td>${nameCell}</td>
+        <td style="color:var(--gray-700)">${escHtml(r.email) || '<span style="color:var(--gray-300)">—</span>'}</td>
+        <td style="color:var(--gray-700)">${escHtml(r.phone) || '<span style="color:var(--gray-300)">—</span>'}</td>
+        <td style="color:var(--gray-600)">${escHtml(r.referral) || '<span style="color:var(--gray-300)">—</span>'}</td>
+        <td style="color:var(--gray-700);white-space:nowrap">${fmtD(r.signup)}</td>
+        <td style="color:var(--gray-700);white-space:nowrap">${r.firstOrder ? fmtD(r.firstOrder) : '<span style="color:var(--gray-300)">—</span>'}</td>
+        <td style="text-align:right;font-weight:600;color:var(--gray-800)">${fmtMoney(r.spend)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function sortRegReport(col) {
+    if (_regSort.col === col) {
+      _regSort.dir = _regSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      _regSort.col = col;
+      _regSort.dir = (col === 'spend' || col === 'signup' || col === 'firstOrder') ? 'desc' : 'asc';
+    }
+    renderRegistrationsTable();
+  }
+
+  function exportRegistrationsCSV() {
+    if (!_regRows.length) return;
+    const header = ['Name','Email','Phone','Referral','Signed Up','First Order','Spend to Date'];
+    const rows = _regRows.map(r => [
+      r.name, r.email, r.phone, r.referral,
+      r.signup ? new Date(r.signup).toISOString().slice(0,10) : '',
+      r.firstOrder ? new Date(r.firstOrder).toISOString().slice(0,10) : '',
+      r.spend.toFixed(2),
+    ]);
+    const csv = [header, ...rows].map(row =>
+      row.map(v => {
+        const s = String(v ?? '');
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(',')
+    ).join('\n');
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    const fname = `registrations-${fromEl?.value || 'from'}-${toEl?.value || 'to'}.csv`;
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname; a.click();
+    URL.revokeObjectURL(url);
   }
 
   function rptDateRange(period) {
