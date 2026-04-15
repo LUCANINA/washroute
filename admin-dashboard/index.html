@@ -7065,26 +7065,26 @@
   async function _loadOrdersSideFetches() {
     if (_sideFetchDone) return;
     _sideFetchDone = true;
-    const custIds = [...new Set(allOrders.map(o => o.customers?.id).filter(Boolean))];
+    // Only fetch for customers not already in the maps — so calling this again
+    // after delivered orders load (Phase 2) only queries the NEW customers.
+    // This makes state accumulate across phases instead of getting reset.
+    const allCustIds = [...new Set(allOrders.map(o => o.customers?.id).filter(Boolean))];
+    const custIds = allCustIds.filter(id => !_custWithCard.has(id) && !_cardRequestSent.has(id));
     if (custIds.length) {
       const [cardRows, smsRows, emailRows] = await Promise.all([
         batchedIn('customer_payment_methods', 'customer_id, created_at', 'customer_id', custIds),
         batchedIn('sms_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.like('body', '%app.familylaundry.com%')),
         batchedIn('email_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance')),
       ]);
-      _custWithCard = new Set(cardRows.map(r => r.customer_id));
-      _custCardAddedAt = new Map();
       for (const r of cardRows) {
+        _custWithCard.add(r.customer_id);
         const prev = _custCardAddedAt.get(r.customer_id);
         if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
       }
-      _cardRequestSent = new Map();
       [...smsRows, ...emailRows].forEach(r => {
         const prev = _cardRequestSent.get(r.customer_id);
         if (!prev || r.created_at > prev) _cardRequestSent.set(r.customer_id, r.created_at);
       });
-    } else {
-      _custWithCard = new Set(); _custCardAddedAt = new Map(); _cardRequestSent = new Map();
     }
   }
 
@@ -7105,6 +7105,16 @@
     allOrders = allOrders.concat(newOrders);
     updateOrderFilterCounts();
     updateOrderStatCards();
+    // Re-run side-fetches for newly-added customers. The original side-fetch
+    // ran against Phase 1 (active) orders only, so delivered-only customers'
+    // card/SMS history wasn't populated — causing their Issues-tab rows to
+    // render "Request card" instead of the correct "Update card" / "Requested".
+    _sideFetchDone = false;
+    _loadOrdersSideFetches().then(() => {
+      if (currentPage === 'orders' && (currentOrderFilter === 'issues' || currentOrderFilter === 'delivered')) {
+        renderOrders(getFilteredOrders());
+      }
+    });
   }
 
   async function loadOrders(statusFilter) {
