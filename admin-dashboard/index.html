@@ -22699,7 +22699,7 @@ ${oneCopy}
         // actual_delivery_at-with-null-racked_at to cover the 15 pre-racked_at legacy orders.
         // Since PostgREST OR filters are awkward, we do two queries and merge client-side.
         const { data, error: e } = await db.from('orders')
-          .select('id, order_number, status, billing_status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, line_items, racked_at, actual_delivery_at, delivery_window_start, discount_id, is_subscription_order')
+          .select('id, order_number, status, billing_status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, line_items, racked_at, actual_delivery_at, delivery_window_start, discount_id, is_subscription_order, customer_id, customers(id, first_name_cache, last_name_cache)')
           .not('status', 'in', '(cancelled,skipped,pickup_failed)')
           .gt('total_amount', 0)
           .not('racked_at', 'is', null)
@@ -22813,7 +22813,9 @@ ${oneCopy}
       });
       const gross = service + addons + overages + fees + tips;
       const net   = total - refunds - procFees;
-      rows.push({ date, service, addons, overages, fees, tips, gross, credits, discounts, refunds, total, procFees, feeEstimated, net, count });
+      // Attach the raw orders for this day + fee/refund lookups so the
+      // expandable per-customer breakdown can render on click without refetching.
+      rows.push({ date, service, addons, overages, fees, tips, gross, credits, discounts, refunds, total, procFees, feeEstimated, net, count, dayOrders });
     });
 
     _revReportData = rows;
@@ -22854,9 +22856,13 @@ ${oneCopy}
       ? `<span style="color:var(--red)${est ? ';font-style:italic' : ''}" title="${est ? 'Estimated at 2.9% + $0.30 per charge' : 'Actual Stripe fees'}">−$${$fmt(n)}</span>`
       : `<span class="rev-zero">—</span>`;
 
-    const bodyRows = rows.map(r => `
-      <tr>
-        <td>${fmtDate(r.date)}</td>
+    // Make the refunds + fee lookups available to the per-day detail renderer
+    _revRefundsByOrderId = refundsByOrderId;
+    _revFeesByPI = feesByPI;
+
+    const bodyRows = rows.map((r, idx) => `
+      <tr class="rev-day-row" style="cursor:pointer" onclick="toggleRevenueDay(${idx})" title="Click to see per-customer breakdown">
+        <td><span id="rev-chev-${idx}" style="display:inline-block;width:12px;color:var(--gray-400);font-size:10px;margin-right:4px">▸</span>${fmtDate(r.date)}</td>
         <td>${$f(r.service)}</td>
         <td>${$f(r.addons)}</td>
         <td>${$f(r.overages)}</td>
@@ -22870,6 +22876,11 @@ ${oneCopy}
         <td>${$neg(r.refunds)}</td>
         <td>${$fee(r.procFees, r.feeEstimated)}</td>
         <td style="font-weight:700;color:var(--green)">$${$fmt(r.net)}</td>
+      </tr>
+      <tr id="rev-detail-${idx}" class="rev-detail-row" style="display:none">
+        <td colspan="14" style="padding:0;background:#fafafa;border-top:1px solid var(--gray-100)">
+          <div id="rev-detail-body-${idx}" style="padding:12px 14px"></div>
+        </td>
       </tr>`).join('');
 
     body.innerHTML = `
@@ -22948,6 +22959,141 @@ ${oneCopy}
 
   window.loadRevenueReport  = loadRevenueReport;
   window.exportRevenueCSV   = exportRevenueCSV;
+
+  // ── Daily Revenue: per-day expansion (customer breakdown) ──
+  let _revRefundsByOrderId = {};
+  let _revFeesByPI = {};
+  const _revExpanded = new Set(); // indexes currently expanded (preserved across re-renders in the same dataset)
+
+  function toggleRevenueDay(idx) {
+    const detail = document.getElementById(`rev-detail-${idx}`);
+    const chev   = document.getElementById(`rev-chev-${idx}`);
+    if (!detail) return;
+    const isOpen = detail.style.display !== 'none';
+    if (isOpen) {
+      detail.style.display = 'none';
+      if (chev) chev.textContent = '▸';
+      _revExpanded.delete(idx);
+    } else {
+      renderRevenueDayDetail(idx);
+      detail.style.display = '';
+      if (chev) chev.textContent = '▾';
+      _revExpanded.add(idx);
+    }
+  }
+  window.toggleRevenueDay = toggleRevenueDay;
+
+  function renderRevenueDayDetail(idx) {
+    const row = _revReportData[idx];
+    if (!row || !Array.isArray(row.dayOrders)) return;
+    const host = document.getElementById(`rev-detail-body-${idx}`);
+    if (!host) return;
+
+    // Group by customer — parse the same line-item + tip + fee + refund buckets
+    // used by the day-level aggregation, so the per-customer subtotals always
+    // add up to the day row.
+    const byCust = {};
+    const _tipToDollars = o => {
+      const amt = parseFloat(o.tip_amount || 0);
+      if (!amt || amt <= 0) return 0;
+      if (o.tip_type === 'pct') return Math.round(parseFloat(o.total_amount || 0) * amt) / 100;
+      return amt;
+    };
+    const _estFee = c => c * 0.029 + 0.30;
+
+    row.dayOrders.forEach(o => {
+      const c = o.customers || {};
+      const cid = c.id || o.customer_id || 'unknown';
+      if (!byCust[cid]) {
+        const name = `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || 'Unknown';
+        byCust[cid] = { id: cid, name, service:0, addons:0, overages:0, fees:0, tips:0, credits:0, discounts:0, refunds:0, procFees:0, feeEstimated:false, total:0, count:0, orderNums: [] };
+      }
+      const b = byCust[cid];
+      const li = _parseLineItems(o.line_items);
+      b.service   += li.service;
+      b.addons    += li.addons;
+      b.overages  += li.overages;
+      b.fees      += li.fees;
+      b.credits   += li.credits;
+      b.discounts += li.discounts;
+      const tipDollars = _tipToDollars(o);
+      b.tips  += tipDollars;
+      b.total += parseFloat(o.total_amount || 0);
+      const refundedForOrder = _revRefundsByOrderId[o.id] || 0;
+      if (refundedForOrder > 0) b.refunds += refundedForOrder;
+      if (o.billing_status === 'paid' && o.stripe_payment_intent_id) {
+        const actualCents = _revFeesByPI[o.stripe_payment_intent_id]?.fee_cents;
+        if (actualCents !== undefined) {
+          b.procFees += actualCents / 100;
+        } else {
+          b.procFees += _estFee(parseFloat(o.total_amount || 0) + tipDollars);
+          b.feeEstimated = true;
+        }
+      }
+      b.count++;
+      if (o.order_number) b.orderNums.push(o.order_number);
+    });
+
+    const custs = Object.values(byCust).sort((a, b) => b.total - a.total); // highest total first
+    const $fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const $f   = n => n > 0 ? `$${$fmt(n)}` : `<span class="rev-zero">—</span>`;
+    const $neg = n => n > 0 ? `<span style="color:var(--red)">−$${$fmt(n)}</span>` : `<span class="rev-zero">—</span>`;
+    const $fee = (n, est) => n > 0
+      ? `<span style="color:var(--red)${est ? ';font-style:italic' : ''}">−$${$fmt(n)}</span>`
+      : `<span class="rev-zero">—</span>`;
+
+    host.innerHTML = `
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);margin-bottom:6px">By Customer — ${custs.length} customer${custs.length !== 1 ? 's' : ''}</div>
+      <table class="rev-tbl" style="font-size:12.5px">
+        <thead>
+          <tr>
+            <th style="text-align:left">Customer</th>
+            <th>Services</th>
+            <th>Add-ons</th>
+            <th>Overages</th>
+            <th>Delivery Fees</th>
+            <th>Tips</th>
+            <th>Gross</th>
+            <th>Credits</th>
+            <th>Discounts</th>
+            <th>Orders</th>
+            <th>Charged</th>
+            <th>Refunds</th>
+            <th>Processing Fees</th>
+            <th>Net</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${custs.map(c => {
+            const gross = c.service + c.addons + c.overages + c.fees + c.tips;
+            const net   = c.total - c.refunds - c.procFees;
+            const nameHtml = c.id && c.id !== 'unknown'
+              ? `<a href="#" onclick="event.preventDefault();event.stopPropagation();openCustomerPanel('${c.id}')" style="color:var(--accent);text-decoration:none;font-weight:600">${_escHtml(c.name)}</a>`
+              : _escHtml(c.name);
+            const orderHint = c.orderNums.length
+              ? `<div style="font-size:10.5px;color:var(--gray-400);font-weight:400">${c.orderNums.map(n => '#' + n).join(', ')}</div>`
+              : '';
+            return `
+            <tr onclick="event.stopPropagation()" style="cursor:default">
+              <td>${nameHtml}${orderHint}</td>
+              <td>${$f(c.service)}</td>
+              <td>${$f(c.addons)}</td>
+              <td>${$f(c.overages)}</td>
+              <td>${$f(c.fees)}</td>
+              <td>${$f(c.tips)}</td>
+              <td style="font-weight:600;color:var(--gray-700)">${gross > 0 ? '$' + $fmt(gross) : '<span class=\"rev-zero\">—</span>'}</td>
+              <td>${$neg(c.credits)}</td>
+              <td>${$neg(c.discounts)}</td>
+              <td style="color:var(--gray-500)">${c.count}</td>
+              <td style="font-weight:600;color:var(--navy)">$${$fmt(c.total)}</td>
+              <td>${$neg(c.refunds)}</td>
+              <td>${$fee(c.procFees, c.feeEstimated)}</td>
+              <td style="font-weight:700;color:var(--green)">$${$fmt(net)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  }
 
   let _itemsReportData = { pricelists: [], from: '', to: '' };
 
