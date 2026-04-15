@@ -107,7 +107,7 @@
     .nav-item.active svg { opacity: 1; }
     .nav-badge { margin-left: auto; background: var(--accent); color: white; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 10px; min-width: 18px; text-align: center; }
     .sidebar-footer { margin-top: auto; padding: 12px 14px; border-top: 1px solid rgba(255,255,255,.06); display: flex; align-items: center; gap: 8px; cursor: pointer; }
-    .avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg,#635bff,#a78bfa); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; flex-shrink: 0; }
+    .avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg,#3b82f6,#93c5fd); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; flex-shrink: 0; }
     .sidebar-user { flex: 1; min-width: 0; }
     .sidebar-user-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sidebar-user-role { font-size: 12px; color: rgba(255,255,255,.45); }
@@ -404,7 +404,7 @@
     .pref-link-badge { display:inline-flex; align-items:center; gap:5px; padding:3px 8px 3px 6px; border-radius:20px; font-size:11px; font-weight:600; transition:all .12s; margin-top:5px; white-space:nowrap; }
     .pref-link-badge.linked { background:#ecfdf5; border:1.5px solid #10b981; color:#059669; cursor:default; }
     .pref-link-badge.unlinked { background:none; border:1.5px dashed var(--gray-300); color:var(--gray-400); cursor:pointer; }
-    .pref-link-badge.unlinked:hover { border-color:var(--accent); color:var(--accent); background:#f5f3ff; }
+    .pref-link-badge.unlinked:hover { border-color:var(--accent); color:var(--accent); background:var(--accent-light); }
     .pref-link-unlink-btn { background:none; border:none; cursor:pointer; color:#10b981; padding:0 0 0 2px; font-size:13px; line-height:1; opacity:.7; transition:all .12s; }
     .pref-link-unlink-btn:hover { color:var(--red); opacity:1; }
     .pref-link-select-wrap { display:none; align-items:center; gap:6px; margin-top:5px; }
@@ -1068,7 +1068,7 @@
     /* Rack picker */
     .rack-grid { display:flex;flex-direction:column;gap:8px; }
     .rack-btn { padding:11px 16px;border-radius:10px;border:2px solid var(--gray-200);background:white;cursor:pointer;font-family:inherit;transition:all .12s;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600; }
-    .rack-btn:hover { border-color:var(--accent);background:#f5f3ff; }
+    .rack-btn:hover { border-color:var(--accent);background:var(--accent-light); }
     .rack-btn.selected { border-color:var(--accent);background:#ede9ff;color:var(--accent); }
     /* Intake panel */
     .intake-over { position:fixed;top:0;right:0;bottom:0;width:560px;background:white;box-shadow:-6px 0 40px rgba(0,0,0,.18);z-index:900;transform:translateX(calc(100% + 60px));transition:transform .22s ease;display:flex;flex-direction:column;overflow:hidden; }
@@ -1118,7 +1118,7 @@
     .team-name { font-size:14px;font-weight:600;color:var(--gray-900); }
     .team-email { font-size:12px;color:var(--gray-500);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
     .team-role-badge { font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em; }
-    .team-role-badge.admin { background:#ede9fe;color:#6d28d9; }
+    .team-role-badge.admin { background:#dbeafe;color:#1e40af; }
     .team-role-badge.manager { background:#fef3c7;color:#92400e; }
     .team-role-badge.laundry_tech { background:#d1fae5;color:#065f46; }
     .team-role-badge.staff { background:#f0f9ff;color:#0369a1; }
@@ -1129,12 +1129,12 @@
     .bill-badge-paid { background:#dcfce7;color:#166534; }
     .billing-bar { display:none;align-items:center;justify-content:space-between;gap:12px;background:var(--gray-50);border-top:1.5px solid var(--gray-100);padding:10px 14px;position:sticky;bottom:0; }
     .billing-bar.visible { display:flex; }
-    .cp-order-row.billing-selected { background:#f5f3ff; }
+    .cp-order-row.billing-selected { background:var(--accent-light); }
     .cp-order-row.billing-row { cursor:pointer; }
     .cp-order-row.billing-row:hover { background:var(--gray-50); }
     input[type=checkbox].bill-cb { width:15px;height:15px;cursor:pointer;accent-color:var(--accent);flex-shrink:0;margin:0; }
     .bill-method-opt { display:flex;align-items:center;gap:8px;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:border-color .12s,background .12s; }
-    .bill-method-opt:has(input:checked) { border-color:var(--accent);background:#f5f3ff; }
+    .bill-method-opt:has(input:checked) { border-color:var(--accent);background:var(--accent-light); }
     .bill-method-opt:hover { border-color:var(--gray-300); }
     .recur-tip-wrap:hover .recur-tip { display:block !important; }
     .op-status-option:hover { background:var(--gray-50); }
@@ -1733,7 +1733,7 @@
               <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px;">
                 <div style="font-size:13px;font-weight:600;color:var(--accent);white-space:nowrap;">Polygon drawn — name this zone:</div>
                 <input class="form-input" id="new-zone-name" placeholder="e.g. Oakland North" style="width:180px;padding:6px 10px;">
-                <input type="color" id="new-zone-color" value="#635bff" style="width:38px;height:34px;border:1.5px solid rgba(99,91,255,.3);border-radius:6px;cursor:pointer;padding:2px;background:white;">
+                <input type="color" id="new-zone-color" value="#3b82f6" style="width:38px;height:34px;border:1.5px solid rgba(59,130,246,.3);border-radius:6px;cursor:pointer;padding:2px;background:white;">
                 <button class="btn btn-primary" onclick="saveNewZone()" style="padding:6px 14px;font-size:12.5px;">Save Zone</button>
                 <button class="btn btn-ghost" onclick="cancelZoneDraw()" style="padding:6px 12px;font-size:12.5px;">Cancel</button>
               </div>
@@ -4159,7 +4159,7 @@
 
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button class="btn" onclick="closeRefundModal()">Cancel</button>
-      <button class="btn btn-primary" id="refund-confirm-btn" onclick="submitRefund()" style="background:#7c3aed;border-color:#7c3aed">Issue Refund</button>
+      <button class="btn btn-primary" id="refund-confirm-btn" onclick="submitRefund()" style="background:var(--accent);border-color:var(--accent)">Issue Refund</button>
     </div>
   </div>
 </div>
@@ -4653,7 +4653,7 @@
           // Same card already tried and declined — admin should call customer to update
           const phone = o.customers?.phone_cache || '';
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:#7c3aed;background:#ede9fe;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
         return `<button onclick="event.stopPropagation();retryChargeFromIssues('${o.id}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Retry charge</button>`;
       }
@@ -4663,7 +4663,7 @@
         const stale = sentAt && (Date.now() - new Date(sentAt).getTime()) > 24 * 60 * 60 * 1000;
         if (stale) {
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:#7c3aed;background:#ede9fe;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
         return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
       }
@@ -4684,7 +4684,7 @@
         if (cardIsStale) {
           const phone = o.customers?.phone_cache || '';
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:#7c3aed;background:#ede9fe;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
         return `<button onclick="event.stopPropagation();retryChargeFromIssues('${o.id}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Retry charge</button>`;
       }
@@ -4694,7 +4694,7 @@
         const stale = sentAt && (Date.now() - new Date(sentAt).getTime()) > 24 * 60 * 60 * 1000;
         if (stale) {
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:#7c3aed;background:#ede9fe;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
         return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
       }
@@ -4709,7 +4709,7 @@
         const stale = sentAt && (Date.now() - new Date(sentAt).getTime()) > 24 * 60 * 60 * 1000;
         if (stale) {
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:#7c3aed;background:#ede9fe;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
         return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
       }
@@ -6442,7 +6442,7 @@
     el.innerHTML = `<div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
       ${data.map((r,i)=>`
         <div style="${i>0?'border-top:1px solid var(--gray-100);padding-top:10px':''}display:flex;align-items:center;gap:10px;">
-          <div style="width:10px;height:10px;border-radius:50%;background:${r.color||'#635bff'};flex-shrink:0;"></div>
+          <div style="width:10px;height:10px;border-radius:50%;background:${r.color||'#3b82f6'};flex-shrink:0;"></div>
           <div style="flex:1;min-width:0;">
             <div style="font-weight:600;font-size:13px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.name}</div>
             <div style="font-size:12px;color:var(--gray-500);">${r.completed_stops||0} / ${r.total_stops||0} stops</div>
@@ -8284,7 +8284,7 @@
     if (!allSites.length) { el.style.display = 'none'; return; } // sites not loaded yet
     const site = getSiteById(siteId) || getDefaultSite();
     if (!site) { el.style.display = 'none'; return; }
-    const tint = site.color || '#635bff';
+    const tint = site.color || '#3b82f6';
     el.style.display = 'inline-block';
     el.style.borderColor = tint;
     el.style.color = tint;
@@ -8646,7 +8646,7 @@
       route = existing;
     } else {
       const { data: created, error } = await db.from('routes')
-        .insert({ name: templateName, date: dateStr, run_date: dateStr, status: 'scheduled', template_id: templateId, color: tmpl.color || '#635bff', driver_id: schedDriverId })
+        .insert({ name: templateName, date: dateStr, run_date: dateStr, status: 'scheduled', template_id: templateId, color: tmpl.color || '#3b82f6', driver_id: schedDriverId })
         .select('id, name, run_date, status')
         .single();
       if (error) { rowEl.style.opacity = ''; rowEl.style.pointerEvents = ''; showToast('Failed to create route: ' + error.message, 'error'); return; }
@@ -10369,7 +10369,7 @@ ${oneCopy}
               <h2 style="color:#1e293b;margin-bottom:8px">Add your payment card</h2>
               <p style="color:#64748b;line-height:1.6">Hi! Your Family Laundry account is ready. Click the button below to securely add your card on file — we'll charge it automatically after each order is complete.</p>
               <div style="text-align:center;margin:28px 0">
-                <a href="${result.url}" style="background:#635bff;color:white;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Add My Card →</a>
+                <a href="${result.url}" style="background:#3b82f6;color:white;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Add My Card →</a>
               </div>
               <p style="color:#94a3b8;font-size:12px;text-align:center">This link expires in 24 hours. Questions? Reply to this email.</p>
             </div>`,
@@ -10805,7 +10805,7 @@ ${oneCopy}
       const zone = t.service_zones?.name || 'No zone';
       const time = `${fmtTimeStr(t.window_start)} – ${fmtTimeStr(t.window_end)}`;
       return `<div class="tpl-card" onclick="openTemplateEditor('${t.id}')">
-        <div style="width:12px;height:12px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;"></div>
+        <div style="width:12px;height:12px;border-radius:50%;background:${t.color||'#3b82f6'};flex-shrink:0;"></div>
         <div style="flex:1;min-width:0;">
           <div class="tpl-name">${t.name}</div>
           <div class="tpl-meta">${zone} · ${days} · ${time}</div>
@@ -13768,7 +13768,7 @@ ${oneCopy}
       return;
     }
     el.innerHTML = templates.map(t => {
-      const dot = `<span style="width:8px;height:8px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>`;
+      const dot = `<span style="width:8px;height:8px;border-radius:50%;background:${t.color||'#3b82f6'};flex-shrink:0;display:inline-block"></span>`;
       return `<button class="sp-route-pill" style="padding:6px 12px;font-size:12.5px" onclick="selectNoTemplate('${t.id}')" data-no-tmpl="${t.id}">
         ${dot}<span style="font-weight:600;color:var(--gray-900)">${t.name}</span>
       </button>`;
@@ -14101,7 +14101,7 @@ ${oneCopy}
     const el = document.getElementById('nd-routes');
     el.innerHTML = templates.map(t => {
       const sel = _noDelivTmpl?.id === t.id;
-      const dot = `<span style="width:8px;height:8px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>`;
+      const dot = `<span style="width:8px;height:8px;border-radius:50%;background:${t.color||'#3b82f6'};flex-shrink:0;display:inline-block"></span>`;
       return `<button class="sp-route-pill${sel?' selected':''}" style="padding:6px 12px;font-size:12.5px" onclick="selectNoDelivTemplate('${t.id}')" data-nd-tmpl="${t.id}">
         ${dot}<span style="font-weight:600;color:var(--gray-900)">${t.name}</span>
       </button>`;
@@ -14758,7 +14758,7 @@ ${oneCopy}
         el.innerHTML = `<span style="font-size:11px;color:var(--gray-400);background:var(--gray-50);padding:2px 9px;border-radius:20px;border:1px solid var(--gray-100)">No service zone</span>`;
       } else {
         el.innerHTML = zones.map(z => {
-          const hex = z.color || '#635bff';
+          const hex = z.color || '#3b82f6';
           return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:${hex}18;color:${hex};border:1px solid ${hex}38">
             <span style="width:6px;height:6px;border-radius:50%;background:${hex};flex-shrink:0"></span>
             ${esc(z.name)}
@@ -15034,7 +15034,7 @@ ${oneCopy}
       charge:       { label: '💳 Charge',       color: '#1d4ed8', bg: '#eff6ff' },
       credit_add:   { label: '＋ Credit',        color: '#059669', bg: '#ecfdf5' },
       credit_remove:{ label: '－ Credit',        color: '#dc2626', bg: '#fef2f2' },
-      refund:       { label: '↩ Refund',         color: '#7c3aed', bg: '#f5f3ff' },
+      refund:       { label: '↩ Refund',         color: '#3b82f6', bg: '#dbeafe' },
     };
     const t = map[type] || { label: type, color: 'var(--gray-500)', bg: 'var(--gray-100)' };
     return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;color:${t.color};background:${t.bg}">${t.label}</span>`;
@@ -15094,7 +15094,7 @@ ${oneCopy}
             const alreadyRefunded = t.stripe_payment_intent_id ? (refundedByPI[t.stripe_payment_intent_id] || 0) : 0;
             const refundable = t.type === 'charge' && t.stripe_payment_intent_id && alreadyRefunded < parseFloat(t.amount || 0);
             const maxRefund = parseFloat(t.amount || 0) - alreadyRefunded;
-            const amountColor = t.type === 'charge' ? 'var(--gray-900)' : t.type === 'credit_add' ? '#059669' : '#7c3aed';
+            const amountColor = t.type === 'charge' ? 'var(--gray-900)' : t.type === 'credit_add' ? '#059669' : 'var(--accent)';
             const amountPrefix = (t.type === 'credit_add' || t.type === 'refund') ? '+' : '';
             return `
             <tr style="border-bottom:1px solid var(--gray-100)">
@@ -15103,12 +15103,12 @@ ${oneCopy}
               <td style="padding:9px 8px">
                 <div style="font-weight:500;color:var(--gray-800)">${esc(t.description || '—')}</div>
                 <div>${txnPaymentLabel(t)}</div>
-                ${alreadyRefunded > 0 && t.type === 'charge' ? `<div style="font-size:11px;color:#7c3aed;margin-top:2px">↩ ${fmtMoney(alreadyRefunded)} refunded</div>` : ''}
+                ${alreadyRefunded > 0 && t.type === 'charge' ? `<div style="font-size:11px;color:var(--accent);margin-top:2px">↩ ${fmtMoney(alreadyRefunded)} refunded</div>` : ''}
               </td>
               <td style="padding:9px 16px;text-align:right;font-weight:700;color:${amountColor}">${amountPrefix}${fmtMoney(t.amount || 0)}</td>
               <td style="padding:9px 8px;text-align:right">
                 ${refundable ? `<button onclick="openRefundModal('${t.id}','${t.description ? esc(t.description) : ''}',${parseFloat(t.amount||0)},${maxRefund},'${t.card_brand||''}','${t.card_last4||''}')"
-                  style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #ddd6fe;background:#f5f3ff;color:#7c3aed;cursor:pointer;white-space:nowrap;font-weight:600"
+                  style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--accent-light);background:var(--accent-light);color:var(--accent);cursor:pointer;white-space:nowrap;font-weight:600"
                   title="Issue a refund for this charge">↩ Refund</button>` : ''}
               </td>
             </tr>`;
@@ -15128,7 +15128,7 @@ ${oneCopy}
     const cardLabel = cardLast4 ? ` · ${cardBrand ? cardBrand.charAt(0).toUpperCase()+cardBrand.slice(1) : ''} ••••${cardLast4}` : '';
     document.getElementById('refund-modal-desc').innerHTML =
       `<strong>${esc(description || 'Charge')}</strong>${cardLabel}<br>Original charge: <strong>${fmtMoney(originalAmount)}</strong>` +
-      (maxRefund < originalAmount ? ` · <span style="color:#7c3aed">${fmtMoney(maxRefund)} remaining refundable</span>` : '');
+      (maxRefund < originalAmount ? ` · <span style="color:var(--accent)">${fmtMoney(maxRefund)} remaining refundable</span>` : '');
 
     const amtInput = document.getElementById('refund-amount-input');
     amtInput.value = maxRefund.toFixed(2);
@@ -15861,8 +15861,8 @@ ${oneCopy}
 <body>
 
   <!-- Print toolbar (screen only) -->
-  <div class="no-print" style="background:#635bff;padding:10px 24px;display:flex;align-items:center;justify-content:flex-end;position:sticky;top:0;z-index:10">
-    <button onclick="window.print()" style="background:white;color:#635bff;border:none;padding:7px 18px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:700;display:flex;align-items:center;gap:6px">
+  <div class="no-print" style="background:#3b82f6;padding:10px 24px;display:flex;align-items:center;justify-content:flex-end;position:sticky;top:0;z-index:10">
+    <button onclick="window.print()" style="background:white;color:#3b82f6;border:none;padding:7px 18px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:700;display:flex;align-items:center;gap:6px">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
       Print / Save as PDF
     </button>
@@ -16116,7 +16116,7 @@ ${oneCopy}
     }
     el.innerHTML = _spTemplates.map(t => {
       const zoneName = t.service_zones?.name || '';
-      const dot = `<span style="width:10px;height:10px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>`;
+      const dot = `<span style="width:10px;height:10px;border-radius:50%;background:${t.color||'#3b82f6'};flex-shrink:0;display:inline-block"></span>`;
       const zoneTag = zoneName ? `<span style="font-size:10.5px;color:var(--gray-500);margin-top:1px">${zoneName}</span>` : '';
       return `<button class="sp-route-pill" onclick="selectSpTemplate('${t.id}')" data-tmpl="${t.id}">
         ${dot}
@@ -16270,7 +16270,7 @@ ${oneCopy}
   }
   function makeDriverPin(){
     return L.divIcon({className:'',iconSize:[38,38],iconAnchor:[19,19],
-      html:`<div style="width:38px;height:38px;border-radius:50%;background:#635bff;border:3px solid white;box-shadow:0 2px 12px rgba(99,91,255,.5);display:flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99z"/></svg></div>`});
+      html:`<div style="width:38px;height:38px;border-radius:50%;background:#3b82f6;border:3px solid white;box-shadow:0 2px 12px rgba(59,130,246,.5);display:flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99z"/></svg></div>`});
   }
   const cartoTiles=()=>L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © Carto',maxZoom:19});
 
@@ -16327,7 +16327,7 @@ ${oneCopy}
       const speedMph = loc.speed ? Math.round(loc.speed * 2.237) : null; // m/s → mph
       const popup = `<div style="font-family:inherit;min-width:120px">
         <div style="font-weight:700;font-size:13px;margin-bottom:2px">${name}</div>
-        ${route ? `<div style="font-size:11px;color:#635bff;font-weight:600;margin-bottom:2px">${route}</div>` : ''}
+        ${route ? `<div style="font-size:11px;color:#3b82f6;font-weight:600;margin-bottom:2px">${route}</div>` : ''}
         <div style="font-size:11px;color:#888">${speedMph !== null ? speedMph + ' mph · ' : ''}${updatedAt}</div>
       </div>`;
       const marker = L.marker([loc.lat, loc.lng], { icon: makeDriverMarker(name), zIndexOffset: 1000 })
@@ -16409,7 +16409,7 @@ ${oneCopy}
   }
 
   // ── DRIVERS PAGE ──
-  const DRV_COLORS = ['#635bff','#0ba25a','#f59e0b','#2563eb','#ec4899','#0891b2','#dc2626','#7c3aed'];
+  const DRV_COLORS = ['#3b82f6','#0ba25a','#f59e0b','#a855f7','#ec4899','#0891b2','#dc2626','#0284c7'];
 
   async function loadDrivers() {
     const el = document.getElementById('drivers-grid');
@@ -16727,7 +16727,7 @@ ${oneCopy}
     document.getElementById('so-name').value = tmpl?.name || '';
 
     // Color swatches — pick closest or default to first
-    const targetColor = (tmpl?.color || '#635bff').toLowerCase();
+    const targetColor = (tmpl?.color || '#3b82f6').toLowerCase();
     document.querySelectorAll('.color-swatch').forEach(sw => {
       sw.classList.toggle('selected', sw.dataset.color === targetColor);
     });
@@ -16765,7 +16765,7 @@ ${oneCopy}
     const { data } = await db.from('service_zones').select('id, name, color').order('name');
     const sel = document.getElementById('so-zone');
     sel.innerHTML = `<option value="">No zone assigned</option>` +
-      (data||[]).map(z => `<option value="${z.id}" data-color="${z.color||'#635bff'}"${z.id===selectedId?' selected':''}>${z.name}</option>`).join('');
+      (data||[]).map(z => `<option value="${z.id}" data-color="${z.color||'#3b82f6'}"${z.id===selectedId?' selected':''}>${z.name}</option>`).join('');
   }
 
   function syncColorToZone() {
@@ -16839,7 +16839,7 @@ ${oneCopy}
     const selectedSwatch = document.querySelector('.color-swatch.selected');
     const payload = {
       name,
-      color: zoneColor || (selectedSwatch ? selectedSwatch.dataset.color : '#635bff'),
+      color: zoneColor || (selectedSwatch ? selectedSwatch.dataset.color : '#3b82f6'),
       zone_id: zoneSelect.value || null,
       schedule_days: activeDays,
       window_start: document.getElementById('so-window-start').value + ':00',
@@ -17002,7 +17002,7 @@ ${oneCopy}
           : (overMap[`${t.id}-${day}-pickup`] || null);
       const drvName  = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
-      const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
+      const bg = drvId ? (t.color || '#3b82f6') : '#e5e7eb';
       const fg = drvId ? 'white' : '#9ca3af';
 
       // Status badge (today only)
@@ -17096,7 +17096,7 @@ ${oneCopy}
             ${timeTd}
             <td style="vertical-align:middle;padding:4px 6px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
               <div style="display:flex;align-items:center;gap:5px">
-                <span style="width:7px;height:7px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>
+                <span style="width:7px;height:7px;border-radius:50%;background:${t.color||'#3b82f6'};flex-shrink:0;display:inline-block"></span>
                 <span style="font-size:11px;font-weight:600;color:var(--gray-800)">${t.name}</span>
               </div>
             </td>
@@ -17215,7 +17215,7 @@ ${oneCopy}
           : (overMap[`${t.id}-${day}-pickup`] || null);
       const drvName  = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
-      const bg = drvId ? (t.color || '#635bff') : '#e5e7eb';
+      const bg = drvId ? (t.color || '#3b82f6') : '#e5e7eb';
       const fg = drvId ? 'white' : '#9ca3af';
 
       // Status badge (today only)
@@ -17306,7 +17306,7 @@ ${oneCopy}
             ${timeTd}
             <td style="vertical-align:middle;padding:4px 6px;${!isFirstInBand?'border-top:1px solid var(--gray-100)':''}">
               <div style="display:flex;align-items:center;gap:5px">
-                <span style="width:7px;height:7px;border-radius:50%;background:${t.color||'#635bff'};flex-shrink:0;display:inline-block"></span>
+                <span style="width:7px;height:7px;border-radius:50%;background:${t.color||'#3b82f6'};flex-shrink:0;display:inline-block"></span>
                 <span style="font-size:11px;font-weight:600;color:var(--gray-800)">${t.name}</span>
               </div>
             </td>
@@ -17636,7 +17636,7 @@ ${oneCopy}
       const routeId = route?.id || null;
       const isActive = routeId && _rccActiveRoutes.has(routeId);
       const cnt = routeId ? (_dsCountMap[routeId] || 0) : 0;
-      const c = t.color || '#635bff';
+      const c = t.color || '#3b82f6';
       const noRun = !route;
       const clickAttr = routeId ? `onclick="rccToggleRoute('${routeId}')"` : '';
       const onClass = isActive ? ' rcc-on' : '';
@@ -17690,7 +17690,7 @@ ${oneCopy}
     const route = _dsRoutes.find(r => r.id === routeId);
     if (!route) return;
     const tpl = _dsTemplates.find(t => t.id === route.template_id);
-    const color = tpl?.color || '#635bff';
+    const color = tpl?.color || '#3b82f6';
 
     const { data: stops } = await db.from('route_stops')
       .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id, estimated_arrival,
@@ -18290,7 +18290,7 @@ ${oneCopy}
     unhighlightStopPin();
     if (!routeLiveMap) return;
     _highlightCircle = L.circleMarker([lat, lng], {
-      radius: 18, color: '#635bff', weight: 3, fillColor: '#635bff', fillOpacity: 0.15
+      radius: 18, color: '#3b82f6', weight: 3, fillColor: '#3b82f6', fillOpacity: 0.15
     });
     _highlightCircle._isStopLayer = true;
     _highlightCircle.addTo(routeLiveMap);
@@ -18554,7 +18554,7 @@ ${oneCopy}
       const memberCount = g.members.length;
       const styleBadge = g.invoice_style === 'consolidated'
         ? '<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;background:#dbeafe;color:#1d4ed8">Consolidated</span>'
-        : '<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;background:#f3e8ff;color:#7c3aed">Separate</span>';
+        : '<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;background:var(--accent-light);color:var(--accent)">Separate</span>';
       const contactList = (g.contacts || []).map(c =>
         `<span style="font-size:12px;color:var(--gray-600)">${esc(c.name)} &lt;${esc(c.email)}&gt;</span>`
       ).join('<span style="color:var(--gray-300);margin:0 4px">·</span>');
@@ -18916,7 +18916,7 @@ ${oneCopy}
       }
       let n = 0;
       _custZonesData.forEach(z => {
-        const color = z.color || '#635bff';
+        const color = z.color || '#3b82f6';
         const src = z.unified_geojson || z.geojson;
         if (src) {
           try {
@@ -19014,7 +19014,7 @@ ${oneCopy}
     zonesDrawnItems = new L.FeatureGroup().addTo(zonesMap);
     zoneDrawControl = new L.Control.Draw({
       draw: {
-        polygon: { shapeOptions: { color: '#635bff', fillColor: '#635bff', fillOpacity: 0.2, weight: 2.5 } },
+        polygon: { shapeOptions: { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.2, weight: 2.5 } },
         polyline: false, rectangle: false, circle: false, marker: false, circlemarker: false
       },
       edit: { featureGroup: zonesDrawnItems }
@@ -19027,7 +19027,7 @@ ${oneCopy}
         // Add to the zone's polygon collection (supports multiple non-contiguous areas)
         if (_editZonePolygonLayers === null) _editZonePolygonLayers = [];
         const z = drawnZones.find(z => z.id === editingZoneId);
-        const col = z?.color || '#635bff';
+        const col = z?.color || '#3b82f6';
         if (e.layer.setStyle) e.layer.setStyle({ color: col, fillColor: col, fillOpacity: 0.18, weight: 2.5 });
         zonesDrawnItems.addLayer(e.layer);
         _editZonePolygonLayers.push(e.layer);
@@ -19116,7 +19116,7 @@ ${oneCopy}
     zonePolygonLayers = {};
 
     drawnZones.forEach(z => {
-      const color = z.color || '#635bff';
+      const color = z.color || '#3b82f6';
       const layers = [];
 
       // Unified shape: ST_Union of hand-drawn polygon + city polygons, one clean outline
@@ -19168,7 +19168,7 @@ ${oneCopy}
 
     // ── Load zone's hand-drawn polygon(s) into zonesDrawnItems so the toolbar can edit/delete ──
     // Supports both Polygon and MultiPolygon (multiple drawn areas per zone)
-    const color = z.color || '#635bff';
+    const color = z.color || '#3b82f6';
     if (z.geojson) {
       try {
         const g = typeof z.geojson === 'string' ? JSON.parse(z.geojson) : z.geojson;
@@ -19314,7 +19314,7 @@ ${oneCopy}
     const geojson = await fetchCityBoundary(city);
     inp.disabled = false; btn.disabled = false; inp.value = '';
 
-    const color = document.getElementById('edit-zone-color').value || '#635bff';
+    const color = document.getElementById('edit-zone-color').value || '#3b82f6';
     _editZoneCities.push({ name: city, geojson });
     if (geojson) {
       _addCityLayer(city, geojson, color, _editCityLayers);
@@ -19345,7 +19345,7 @@ ${oneCopy}
     const geojson = await fetchCityBoundary(city);
     inp.disabled = false; btn.disabled = false; inp.value = '';
 
-    const color = document.getElementById('new-zone-color').value || '#635bff';
+    const color = document.getElementById('new-zone-color').value || '#3b82f6';
     _newZoneCities.push({ name: city, geojson });
     if (geojson) {
       _addCityLayer(city, geojson, color, _newCityLayers);
@@ -19413,7 +19413,7 @@ ${oneCopy}
     _editZoneCities = [];
     document.getElementById('zone-detail-title').textContent = 'New City Zone';
     document.getElementById('edit-zone-name').value = '';
-    document.getElementById('edit-zone-color').value = '#635bff';
+    document.getElementById('edit-zone-color').value = '#3b82f6';
     document.getElementById('edit-zone-city-input').value = '';
     const hint = document.getElementById('edit-zone-polygon-hint');
     hint.textContent = 'Add cities below — each will pull in its real boundary from OpenStreetMap and expand the zone on the map.';
@@ -20380,7 +20380,7 @@ ${oneCopy}
         <div class="proc-card-name">${name}</div>
         <div class="proc-card-meta">
           <span>📦 ${o.total_bags||1} bag${(o.total_bags||1)!==1?'s':''}</span>
-          <span style="color:#7c3aed;font-weight:600;text-decoration:underline;text-decoration-style:dotted">🗂️ ${rackLabel}</span>
+          <span style="color:var(--accent);font-weight:600;text-decoration:underline;text-decoration-style:dotted">🗂️ ${rackLabel}</span>
         </div>
       </div>`;
     }).join('');

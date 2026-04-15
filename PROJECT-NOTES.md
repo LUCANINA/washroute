@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 15, 2026 — Session 112: Three-field notes model fully wired (delivery on address, special care on `preferences._notes`, internal on `customers.notes`). 206 legacy `[Perm]` notes auto-classified EN+ES and redistributed. Recurring-order dedup hole closed (function + unique index), self-healing `routing_error` trigger on manual route_stops moves, admin Special Care Notes field added, Processing Queue falls back to customer care notes when order blank.*
+*Last updated: Apr 15, 2026 — Session 112 (extended): Notes model rewired (3-field), recurring dedup hardened, Processing Queue care-note fallback. Reports/Registrations tab added with KPIs + CSV. Daily Revenue: per-day expansion + today-only default. Card-state caches now accumulate across tabs (fixes stale "Request card" button). Rebrand: purple → vibrant blue (#3B82F6) including hardcoded uses across email, refunds, leaflet, kanban pills.*
 
 ---
 
@@ -618,6 +618,45 @@ Working files under `/work/perm_migration/`: `input.json`, `classify.py`, `apply
 - No recurring duplicates at any status now (migration + unique index).
 - `[Perm]` markers: 0.
 
+#### G) Reports — new Registrations tab
+Built `Reports → Registrations` tab. Date-range driven (uses existing From/To pickers). KPIs: New Registrations / Converted (1+ order) / Conversion Rate / Total Spend. Table columns: Name (clickable → customer panel) / Email / Phone / Referral / Signed Up / First Order / Spend to Date. Sortable by Name, Signed Up, First Order, Spend. CSV export.
+
+Implementation: customers query for `created_at` in range + batched orders fetch for first-order-per-customer aggregation in JS. Phone display normalized via `fmtPhone()` to `(XXX) XXX-XXXX` regardless of source format (E.164, with/without country code, formatted) — display only, raw `phone_cache` unchanged.
+
+**Bug caught during dev:** initial render hung on "Loading…" because I called `escHtml()` (the actual helper is `_escHtml()`). Fixed via global replace; added to QA blast-radius checks for future renderers.
+
+#### H) Reports — Daily Revenue per-day expansion
+Click any day row in `Reports → Daily Revenue` to expand inline and see the full per-customer breakdown for that date — same column structure as the day row, sorted by highest Charged total. Customer name links to customer panel; order numbers shown in small gray text below the name.
+
+Implementation: store `dayOrders` on each row (along with `_revRefundsByOrderId` and `_revFeesByPI` lookups) so detail can render without refetching. Toggle function manages expansion state. Tightened row spacing in the breakdown (5px vertical) so 30+ customers fit without scrolling.
+
+#### I) Reports — date defaults to today (was 7 days)
+`initRptDateDefaults` now sets both From and To to today's Pacific date (was: 7 days ago to today). Reduces initial load. Also fixed a latent timezone bug — was using `toISOString().slice(0,10)` which returns UTC; after 5pm Pacific the "default to today" actually became tomorrow. Now uses `toLocaleDateString('en-CA', {timeZone: BIZ_TZ})` per the project rule.
+
+#### J) Card-state caches — Issues + Overview tab fixes
+**Two related bugs**: the unpaid/issues tab buttons (Request card / Update card / Retry charge / Requested) showed the wrong state in two scenarios.
+
+1. **Overview tab**: guard `if (!_cardRequestSent.size)` skipped the SMS-history fetch when another tab had partially populated the map. After visiting Issues then returning to Overview, customers who didn't appear on Issues' list were missing their `_cardRequestSent` entries → all showed "Request card" instead of "Update card". Fix: removed the guard; map now accumulates across tabs.
+
+2. **Issues tab**: side-fetch (`_loadOrdersSideFetches`) ran against Phase 1 orders only (active statuses). Customers with only delivered orders (Heather Covyknight, Irene Atkins, jala green, Kathryn Culp) had no SMS history fetched → "Request card" default. Fix: Phase 2 (delivered orders load) now resets `_sideFetchDone = false` and re-runs the side-fetch for the new customers; refactored side-fetch to accumulate (only fetch missing customer IDs) so re-running is cheap.
+
+Both fixes pair with the same accumulation pattern as Phase 1's `_custWithCard`. State now stays consistent across tab navigation without page refresh.
+
+#### K) Rebrand: purple → vibrant blue
+Changed `--accent` from `#635bff` (purple) to `#3b82f6` (vibrant blue, Tailwind blue-500) and `--accent-light` to `#dbeafe`. Vibrant blue passes WCAG AA contrast (4.6:1 with white text), pairs nicely with the navy sidebar (`#0f2744`).
+
+QA pass found 16 spots that hardcoded the old purple instead of using `var(--accent)`. Cleaned up the user-visible ones:
+- Avatar gradient, admin role badge, refund button, customer "Add My Card" email, refund transaction badge
+- All 5× "📞 Update card" pills
+- Print invoice header/button, leaflet polygon/marker defaults, route radius, zone color picker defaults, rack label, refund amount color, "remaining refundable" callout, "Separate" badge
+- Driver color rotation (`DRV_COLORS`) — swapped the two purples for `#a855f7` and `#0284c7` to maintain visual variety
+- Hover/active backgrounds (`#f5f3ff` → `var(--accent-light)`) in pref-link-badge / rack-btn / cp-order-row / bill-method-opt
+- All `||'#635bff'` fallback patterns
+
+**Left intentionally purple:**
+- Color-swatch picker palette options (lines 3296–3297) — user choices, purple is a valid pick
+- `STATUS_COLORS` for `out_for_delivery` (`#ede9fe`) and `assembled` (`#f3e8ff`) — status-specific hues need to be distinct from `picked_up` (`#dbeafe`)
+
 #### Tech debt / pending
 - **charge-order atomic write** — session 77 carryover; `billed_at` and `billing_status='paid'` still written separately. 2 orders today needed manual Stripe verification because of this. Consolidate into a single atomic UPDATE.
 - **Orphan auth users** — 5 flagged in morning audit, 1 (`cchalifax5@gmail.com`) shadowing Christine Conner and blocking her sign-in. Not cleaned up today.
@@ -625,6 +664,9 @@ Working files under `/work/perm_migration/`: `input.json`, `classify.py`, `apply
 - **Aquarius Gilmer** — 2 scheduled orders on 4/17 to review (likely recurring + manual collision).
 - **Over-capacity Oakland routes** — 6 upcoming runs over the 18-stop limit; may need a capacity review or new Oakland run/driver.
 - **Customer app: no persistent Care Notes UI at the account level** — customers can edit per-order `special_instructions` but the Preferences page doesn't expose `_notes` as an always-editable field. Probably fine for now since the booking flow pre-populates; revisit if customers ask.
+- **Registrations report scale** — currently fetches ALL orders for each registered customer to find the first one. Fine today (~200 registrations). Switch to a server-side aggregate (RPC or `MIN(created_at) GROUP BY`) when the count grows.
+- **Phone formatter falls through for non-10-digit values** — international numbers render unformatted. No fix until international customers exist.
+- **Convention to add to skill rules**: when adding a new render function that displays customer-supplied text, always use `_escHtml` (not `escHtml`). Caught one of these in this session.
 
 ---
 
