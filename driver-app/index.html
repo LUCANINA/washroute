@@ -1645,6 +1645,17 @@ async function doDriverPhoneOTP() {
 
   btn.textContent = 'Sending…'; btn.disabled = true;
 
+  // session 111e: pre-link this phone to an existing staff/customer auth user (if any)
+  // BEFORE Supabase's signInWithOtp creates an orphan phone-only user. Mirrors the
+  // customer-app pattern (prepare-phone-otp v3 handles staff too).
+  try {
+    await fetch(`${SUPA_URL}/functions/v1/prepare-phone-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
+      body: JSON.stringify({ phone: e164 }),
+    });
+  } catch (e) { /* non-fatal — worst case the OTP creates an orphan as before */ }
+
   const { error } = await db.auth.signInWithOtp({ phone: e164 });
 
   if (error) {

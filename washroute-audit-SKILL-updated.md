@@ -508,6 +508,56 @@ DELETE FROM auth.users WHERE id = '<attempted_auth_id>';
 
 ---
 
+## Check 13 — Staff count drops (NEW — session 111e)
+
+**P0** — alerts immediately if any role count dropped from yesterday to today.
+
+This catches the "orphan-auth cleanup nuked a driver" foot-cannon
+(session 111e Andrew Pree incident). The `staff_count_snapshots` table
+captures per-role counts daily at 8am Pacific. This check compares the
+two most recent snapshots and flags any drop.
+
+```sql
+WITH ranked AS (
+  SELECT role, cnt, snapshot_date,
+         ROW_NUMBER() OVER (PARTITION BY role ORDER BY snapshot_date DESC) AS rn
+  FROM staff_count_snapshots
+)
+SELECT
+  today.role,
+  yesterday.cnt AS yesterday_count,
+  today.cnt    AS today_count,
+  yesterday.cnt - today.cnt AS dropped_by,
+  yesterday.snapshot_date AS prev_date,
+  today.snapshot_date AS today_date
+FROM ranked today
+JOIN ranked yesterday
+  ON yesterday.role = today.role AND yesterday.rn = today.rn + 1
+WHERE today.rn = 1
+  AND today.cnt < yesterday.cnt
+ORDER BY dropped_by DESC;
+```
+
+**Why this matters:** A staff role count should only increase or stay
+flat day-over-day under normal operations. A drop almost certainly
+means an auth user was deleted (intentionally or via cleanup). The
+BEFORE DELETE trigger on auth.users (session 111e) prevents accidental
+deletes via SQL, but doesn't catch:
+- Direct service-role API calls (`auth.admin.deleteUser`)
+- Manual deletion via Supabase Dashboard
+- Future migrations that might disable or bypass the trigger
+
+This check is the daily safety net.
+
+**To fix when reported:** Identify which staff member is missing
+(compare current `profiles WHERE role IN (...)` to the snapshot), then
+either restore the user (if the deletion was wrong) or update the
+snapshot baseline (if intentional). For restoration, you'll need to
+re-add via the admin's Add Driver/Add Staff flow — the underlying
+auth.users + profile + drivers row are all gone.
+
+---
+
 ## After the Audit
 
 1. Present the summary

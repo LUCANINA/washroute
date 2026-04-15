@@ -549,6 +549,69 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
+### Apr 14, 2026 (session 111e) — Andrew Pree disappearance: root-cause + 4 prevention layers
+
+**Context:** David noticed driver Andrew Pree was missing from the admin Drivers list. Investigation revealed:
+- Andrew had **no trace** in the current Supabase: no auth.users, no profile, no drivers row, no driver_messages, no route_stops as driver (only 4 stops with NULL driver_id from late March).
+- His customer record (`62a0a73e…`, name "Andrew Pree", email banduppuff@gmail.com — a different/older email than his driver login `preeandrew@gmail.com`) survived because it had `profile_id = NULL`.
+
+**Root cause confirmed via FK introspection:**
+```
+auth.users (deleted)
+  └── profiles (CASCADE → auto-deleted)
+        └── drivers (CASCADE → auto-deleted)
+              ├── driver_messages (CASCADE → auto-deleted)
+              └── route_stops.driver_id (SET NULL → row survives, no driver shown)
+```
+
+The orphan-auth cleanups we ran in sessions 84, 88, 109, 110 all used the test "auth.users with no customer record" — but staff (drivers/admins/managers) by definition usually have NO customer record. Andrew was almost certainly swept up. **Same trap could have wiped any driver/admin at any cleanup.**
+
+**Immediate fixes for Andrew (during the session):**
+- David re-added him via admin Add Driver → email + password (`preeandrew@gmail.com`).
+- Andrew tried phone OTP, which created an orphan phone-auth user (Add Driver had not set phone on auth.users).
+- Cleaned up: deleted the orphan, set phone `15102417282` + `phone_confirmed_at` on his real auth user. Phone OTP login now lands on his real driver-linked account.
+- He's confirmed logged in via email + password.
+
+---
+
+#### Four prevention layers shipped (all live in production):
+
+**1. `create-staff` v3 → v4** (and pattern for `invite-staff`):
+- Now sets `phone` and `phone_confirm: true` on auth.users at creation when the admin provides a phone. Future drivers can use phone OTP from day one.
+- E.164 normalization helper: `toE164()` (1-prefixed, 11 digits, no `+`).
+
+**2. `prepare-phone-otp` v2 → v3**:
+- Existing customer-match path preserved (no behavior change for customers).
+- New staff-match path: if no customer matches, look in `profiles` for staff with the same phone. profile.id IS the auth.users id, so we set the phone directly on it.
+- Driver app now calls `prepare-phone-otp` BEFORE `signInWithOtp` — mirrors the customer-app fix from session 110. Old staff records (who don't have phone on auth.users) get auto-linked on first phone OTP attempt.
+- Defensive: skips deleting staff auth users even when listed as "orphans" (extra protection on top of the trigger).
+
+**3. DB trigger `trg_protect_staff_auth_users` (BEFORE DELETE on auth.users)**:
+- Raises `restrict_violation` if attempting to delete an auth.users row whose linked profile has role IN ('admin','manager','driver','laundry_tech').
+- Tested: confirmed it blocks the deletion of Andrew's auth user.
+- To delete a former staff member, admin must first NULL their `profiles.role` (or change it to 'customer'). Tiny speed bump for the safety it provides.
+
+**4. Daily `staff_count_snapshots` + cron `staff-count-snapshot` + audit Check 13**:
+- New table stores per-role daily counts.
+- pg_cron job runs at `0 16 * * *` (8am/9am Pacific depending on DST) and refreshes today's snapshot.
+- Initial baseline taken: 2 admin, 9 driver, 1 laundry_tech, 2 manager (14 staff total).
+- Audit Check 13 added to staging file `washroute-audit-SKILL-updated.md` — compares today vs yesterday per role and flags any drop as P0.
+
+#### Files touched (session 111e)
+- DB migration: `protect_staff_from_orphan_cleanup_plus_snapshots`
+- Edge functions: `create-staff` v4, `prepare-phone-otp` v3
+- `driver-app/index.html` — `prepare-phone-otp` call before signInWithOtp
+- `washroute-audit-SKILL-updated.md` — Check 13
+- One-time fix to Andrew: deleted orphan auth user `7f40007c…`, set phone on real auth user `ef27235a…`
+
+#### ⚠️ For future sessions
+- **Never write a query like `DELETE FROM auth.users WHERE id NOT IN (SELECT profile_id FROM customers …)` again.** It will trip the trigger and fail loudly — but the right query template is: `… AND NOT EXISTS (SELECT 1 FROM profiles WHERE id = auth.users.id AND role IN ('admin','manager','driver','laundry_tech'))`.
+- **The trigger only blocks SQL deletes.** Direct service-role API calls (`auth.admin.deleteUser`) BYPASS triggers in Supabase. The daily snapshot audit is the safety net for those.
+- **Any code that auto-creates a driver row from a phone-OTP login is dangerous.** The driver-app already had this pattern (auto-create fallback). It generated a blank-named row from a customer's phone earlier today. Hardening this with a uniqueness check by phone-digits is on the tech debt list.
+- **`invite-staff` still doesn't accept phone.** Lower priority since the admin UI's Send Invite tab doesn't collect phone, but if we ever surface phone there, also pass it through.
+
+---
+
 ### Apr 14, 2026 (session 111 part 2) — Subscription Phase 2 (Stripe lifecycle) + POS site selector
 
 **Context:** Two big features shipped in parallel after the tech debt sweep. Subscription Phase 2 makes the customer-app subscription buttons real (no more "coming soon" stubs). POS now respects the multi-site foundation laid in session 110.
