@@ -21583,11 +21583,12 @@ ${oneCopy}
     const fromEl = document.getElementById('rpt-from');
     const toEl   = document.getElementById('rpt-to');
     if (!fromEl || fromEl.value) return;
-    const today = new Date();
-    const fmt = d => d.toISOString().slice(0, 10);
-    const weekAgo = new Date(today); weekAgo.setDate(today.getDate() - 6);
-    fromEl.value = fmt(weekAgo);
-    toEl.value   = fmt(today);
+    // Default to today-only so the Reports page loads fast on first visit.
+    // Using Pacific-local date (en-CA gives YYYY-MM-DD); .toISOString() would
+    // return UTC which rolls forward after 5pm Pacific — banned per PROJECT-NOTES.
+    const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    fromEl.value = todayPT;
+    toEl.value   = todayPT;
   }
 
   function runCurrentReport() {
