@@ -902,6 +902,10 @@
     .rev-tbl th:first-child { text-align:left; }
     .rev-tbl td { padding:11px 14px; border-bottom:1px solid var(--gray-100); text-align:right; color:var(--gray-800); }
     .rev-tbl td:first-child { text-align:left; font-weight:500; color:var(--gray-900); }
+    /* Per-day customer breakdown: tighter spacing so all rows fit without scrolling */
+    .rev-detail-row .rev-tbl th { padding:6px 14px; }
+    .rev-detail-row .rev-tbl td { padding:5px 14px; }
+    .rev-detail-row .rev-tbl td:first-child { line-height:1.25; }
     .rev-tbl tbody tr:hover td { background:var(--gray-50); cursor:default; }
     .rev-tbl tfoot td { font-weight:700; border-top:2px solid var(--gray-200); border-bottom:none; background:var(--gray-50); font-size:13.5px; }
     .rev-tbl tfoot td:first-child { color:var(--gray-700); }
