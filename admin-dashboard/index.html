@@ -6478,12 +6478,16 @@
         if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
       });
     }
-    if (custIds.length && !_cardRequestSent.size) {
+    // Always ensure card-request history is loaded for this tab's specific customers.
+    // Do NOT guard with !_cardRequestSent.size — the Map may have been partially
+    // populated by a prior tab load (e.g. Orders → Issues rebuilds from scratch
+    // with just that tab's customers) and miss customers who only appear here.
+    // Accumulate (don't reset) so state built up across tabs stays intact.
+    if (custIds.length) {
       const [smsRows, emailRows] = await Promise.all([
         batchedIn('sms_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.like('body', '%app.familylaundry.com%')),
         batchedIn('email_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance')),
       ]);
-      _cardRequestSent = new Map();
       [...smsRows, ...emailRows].forEach(r => {
         const prev = _cardRequestSent.get(r.customer_id);
         if (!prev || r.created_at > prev) _cardRequestSent.set(r.customer_id, r.created_at);
