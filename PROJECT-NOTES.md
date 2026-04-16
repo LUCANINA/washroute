@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 16, 2026 — Session 117: Orphan auth user root-cause fix. Full audit of all 9 auth-user-creating paths across customer app, admin dashboard, driver app, and edge functions. Root cause: both signup forms (`handleSignup` + checkout) called `db.auth.signUp()` directly — returning customers with phone-auth accounts created duplicate email auth users with no customer record, blocking sign-in. Fix: `check_account_exists()` SECURITY DEFINER RPC pre-checks both signup paths; deleted stale `index 2.html` backup with zero orphan prevention. Cleaned 10 orphan auth users (6 blocking real customers). All paths now protected.*
+*Last updated: Apr 16, 2026 — Session 118: Subscription auto-pickup. After Stripe subscription checkout, customers now pick a weekly pickup day and time window. First recurring order auto-created with `subscription_id`. Manual orders by active subscribers also get `subscription_id` stamped. `charge-order` v36 deployed with subscription guard (returns "covered by subscription" instead of charging card). Timezone-safe date/time construction throughout.*
+
+*Prior: Session 117: Orphan auth user root-cause fix. Full audit of all 9 auth-user-creating paths across customer app, admin dashboard, driver app, and edge functions. Root cause: both signup forms (`handleSignup` + checkout) called `db.auth.signUp()` directly — returning customers with phone-auth accounts created duplicate email auth users with no customer record, blocking sign-in. Fix: `check_account_exists()` SECURITY DEFINER RPC pre-checks both signup paths; deleted stale `index 2.html` backup with zero orphan prevention. Cleaned 10 orphan auth users (6 blocking real customers). All paths now protected.*
 
 *Prior: Session 116: SMS opt-out desync fix. Audit Check #9 flagged 26 customers in a NULL/NULL limbo state (phone present, neither `sms_consent_at` nor `sms_marketing_opt_out_at` set) — outbound SMS silently blocked for them. Root cause: admin "Add Customer" insert in `admin-dashboard/index.html` omitted `sms_consent_at`. Patched the insert to stamp `now()` when a phone is provided, and backfilled all 26 existing rows with `created_at` as consent timestamp. Audit #9 now clean.*
 
@@ -306,13 +308,17 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 
 **What's built (Phase 1):** DB foundation, admin Subscriptions report tab, customer app subscription UI (hidden until active). All UI-only — no Stripe subscription integration yet.
 
-**Remaining phases (not started):**
-- Phase 2: Stripe integration — `create-subscription` edge function, webhook handlers (`invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated/deleted`), customer signup flow
-- Phase 3: Order flow + usage tracking — deduct from allowance on delivery, log to `subscription_usage_log`
-- Phase 4: Pause/resume/cancel — wire stub buttons to Stripe API
-- Phase 5: Overage billing — immediate Stripe invoice on threshold breach
-- Phase 6: Failed payment recovery — dunning emails, grace period
-- Phase 7: Analytics — churn prediction, usage trends, upgrade prompts
+**Completed phases:**
+- Phase 1: DB foundation + admin report tab + customer app UI (session 109)
+- Phase 2: Stripe lifecycle — `pause-subscription`, `resume-subscription`, `cancel-subscription` edge functions, `stripe-webhook` v29 with subscription event handlers, customer-app pause/resume/cancel buttons wired live (session 111)
+- Phase 3: Order flow + usage tracking — `apply_subscription_usage_fn` trigger deducts weight on delivery, logs to `subscription_usage_log`, marks order `billing_status='paid'` + `billing_payment_method='subscription'` (session 114)
+- Phase 4: Overage auto-billing — `stripe-webhook` v30 attaches `overage_amount_due` as invoice_item on draft renewal invoice (session 115)
+- Phase 5: Auto-pickup — post-checkout day/window picker, first recurring order auto-created with `subscription_id`, manual orders linked to active subscription, `charge-order` v36 subscription guard (session 118)
+
+**Remaining phases:**
+- Phase 6: Mid-cycle cancellation with overage — final invoice on `customer.subscription.deleted`
+- Phase 7: Failed payment recovery — dunning emails, grace period
+- Phase 8: Analytics — churn prediction, usage trends, upgrade prompts
 
 ---
 
@@ -557,6 +563,41 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
+### Apr 16, 2026 (session 118) — Subscription auto-pickup + manual order linking
+
+**Context:** Subscriptions Phase 5. After completing overage billing (session 115), the next gap was that subscribers had to manually book pickups. David asked why we couldn't use the existing recurring order system — answer: we can, the subscriber just needs their first order created. Built the "pick your weekly day" flow that runs after checkout, plus linked all subscriber orders to their subscription.
+
+**What was built:**
+
+1. **Pickup day/window picker modal** (`showSubscriptionPickupPicker()` in customer-app). After Stripe Checkout redirect (`?subscribed=true`), instead of just a toast, the customer sees a modal showing available pickup days (from route templates for their zone) and time windows. If only one window exists for a day, it auto-selects. "I'll book pickups manually" skip link for customers who prefer that.
+
+2. **`saveSubscriptionPickupPreference()`** — saves `preferred_pickup_day` + `preferred_pickup_window` to the `subscriptions` table, then creates the first `recurring_interval: 'weekly'` order with `subscription_id` set. The existing `trg_create_recurring_order_fn` trigger propagates `subscription_id` to all future chain orders automatically.
+
+3. **Manual orders linked to subscription** — `placeOrder()` now checks `_activeSub` (in-memory) with a DB fallback for active subscriptions and stamps `subscription_id` on the order. Only checks `status = 'active'` (not paused/past_due — intentional: paused subscribers shouldn't get free orders).
+
+4. **`charge-order` v36** — subscription guard: if `order.subscription_id` is set, returns `{ success: true, coveredBySubscription: true }` without touching Stripe. Prevents accidental card charges on subscription orders from admin dashboard.
+
+**Timezone handling:** QA caught that the original timestamp construction used `new Date()` browser-local parsing. Fixed to dynamically compute Pacific UTC offset via `toLocaleString` comparison and construct ISO strings with explicit offset (`-07:00` or `-08:00`). All four timestamp fields (pickup start/end, delivery start/end) use this pattern.
+
+**How the full subscription lifecycle now works:**
+1. Customer taps "Subscribe" → Stripe Checkout → `?subscribed=true` redirect
+2. Day picker modal → picks e.g. "Wednesday, 7 AM – 11 AM"
+3. Preference saved to `subscriptions`, first weekly order created
+4. `trg_create_recurring_order_fn` chains future orders (delivered/skipped → next week)
+5. On delivery, `apply_subscription_usage_fn` deducts weight, marks order paid-by-subscription
+6. At period renewal, `stripe-webhook` attaches any overage to the draft invoice
+7. `charge-order` v36 won't charge subscription orders even if manually triggered
+
+**⚠️ For future sessions:**
+1. **Phase 6: mid-cycle cancellation overage** — if a subscriber cancels with `overage_amount_due > 0`, no final invoice is generated yet. Needs a handler on `customer.subscription.deleted` in `stripe-webhook`.
+2. **The pickup day picker relies on the customer having a saved address with lat/lng** for zone lookup. If they have no address (edge case — new subscriber, never ordered), the picker falls back to showing all zones' templates. Not ideal but functional.
+3. **`_activeSub` is only populated when home screen or account screen renders.** The `placeOrder()` fallback DB query covers the case where it's null.
+4. **Delivery window on auto-created orders uses the same time window as pickup.** The `auto_route_order` trigger will sync to the actual delivery template, so this is just an initial estimate.
+
+**Commit:** `fcdccb4` feat: subscription auto-pickup — day picker, recurring order, charge guard
+
+---
+
 ### Apr 16, 2026 (session 117) — Orphan auth user root-cause fix + full auth audit
 
 **Context:** Morning rounds Check #12 flagged 11 orphan auth users — 6 were actively blocking real customers from signing in (Christine Conner, Jeff Scheur, Mallika Potter, Nicole Pena, Michelle Franzoia, Quenjetta McLaurin). David asked for a full no-stone-unturned audit of all orphan sources.
@@ -651,7 +692,7 @@ All three auto-deployed via Vercel.
 
 **Audit updated:** Check #15 added to `washroute-audit.skill` — flags subscriptions with non-zero `overage_amount_due` whose `current_period_end` has passed without a billing event (catches webhook-missed overages).
 
-**Pending (Phase 5 / future edge case):** Mid-cycle cancellation with overage owed — needs a final invoice on `customer.subscription.deleted`. Auto-generated recurring pickups for subscribers is the next feature after that.
+**Pending (Phase 6 / future edge case):** Mid-cycle cancellation with overage owed — needs a final invoice on `customer.subscription.deleted`.
 
 ---
 
