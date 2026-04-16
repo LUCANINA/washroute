@@ -22592,7 +22592,7 @@ ${oneCopy}
     // Lazy-render charts when Trends tab is first shown
     if (tab === 'trends' && !_subTrendsChartsRendered && _cachedActiveSubs) {
       _subTrendsChartsRendered = true;
-      renderFleetCharts(_cachedActiveSubs);
+      renderFleetCharts(_cachedActiveSubs).catch(err => console.error('Fleet charts error:', err));
     }
   }
 
@@ -22894,11 +22894,13 @@ ${oneCopy}
     const ninetyAgo = new Date();
     ninetyAgo.setDate(ninetyAgo.getDate() - 90);
 
-    const { data: logs } = await db
+    const { data: logs, error: logErr } = await db
       .from('subscription_usage_log')
       .select('subscription_id, event_type, weight_delta, pickups_delta, created_at')
       .gte('created_at', ninetyAgo.toISOString())
       .order('created_at', { ascending: true });
+
+    if (logErr) console.error('Usage log query error:', logErr.message);
 
     if (!logs || !logs.length) {
       // No log data — show summary chart from current sub data instead
