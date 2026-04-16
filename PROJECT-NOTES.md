@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 16, 2026 — Session 119: Subscription Phase 7 (Failed Payment Recovery). 7-day grace period dunning flow: `stripe-webhook` v34 handles escalating notifications (initial → reminder → final) via SMS + email on `invoice.payment_failed`, auto-cancels via Stripe `cancel_at` after 7 days, clears dunning + sends recovery notification on `invoice.payment_succeeded`. Customer app shows past_due banner with "Update Payment Method" CTA. Migration: `dunning_started_at` column on subscriptions. QA fixes: transactional SMS bypasses marketing opt-out, voluntary cancel protection (cancel_at_period_end check), cancelled-status race guards.*
+*Last updated: Apr 16, 2026 — Session 119: Subscription Phases 7+8. Phase 7: Failed Payment Recovery — 7-day grace period dunning flow via `stripe-webhook` v34 (escalating SMS+email notifications, Stripe `cancel_at`, customer app past_due banner). Phase 8: Subscription Analytics — 4 sub-tabs added to Reports > Subscriptions: Overview (existing table), At-Risk (rule-based churn signals: past_due, paused, zero/low usage, cancel pending), Upgrade Candidates (near weight/pickup limits, overage balance), Usage Trends (Chart.js fleet charts from `subscription_usage_log` + per-subscriber usage table with days-left). Also fixed duplicate subscriptions tab HTML.*
 
 *Prior: Session 118: Subscription Phases 5+6. Phase 5: auto-pickup (day picker, first recurring order, manual order linking, charge-order v36 subscription guard). Phase 6: mid-cycle cancellation overage billing — `stripe-webhook` v32 creates standalone Stripe invoice on `customer.subscription.deleted` when `overage_amount_due > 0`. Also restored `invoice.created` handler from session 115 (was deployed but never committed). v32 QA fixes: idempotency keys on both `invoiceItems.create` and `invoices.create`, `pending_invoice_items_behavior: 'exclude'` to prevent sweeping unrelated items, and atomic overage claim guards on both handlers to prevent double-billing race conditions.*
 
@@ -237,8 +237,12 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 ### Card Request Button Fix (session 88)
 - **"Request card" / "✓ Requested" / "📞 Update card" button pipeline now works correctly.** The `_cardRequestSent` in-memory map was never populating because SMS lookup matched `'%card on file%'` (wrong) and email lookup matched a single subject that didn't exist in outbound emails. Fixed: SMS matches `'%app.familylaundry.com%'`; email uses `.or()` for all 3 known subject variants. Fixed in both Issues tab and Delivered tab lookup code.
 
-### Reports — Subscriptions Tab (session 109)
-- **New "⭐ Subscriptions" tab** in Reports page. KPI cards: Monthly Recurring Revenue, Active Subscribers, Avg Usage (%), Churned This Month. Subscriber detail table with name, plan, usage progress bar (color-coded: green <75%, amber 75-90%, red >90%), pickups used, status badge, and signup date.
+### Reports — Subscriptions Tab (sessions 109 + 119)
+- **"⭐ Subscriptions" tab** in Reports page. KPI cards: Monthly Recurring Revenue, Active Subscribers, Avg Usage (%), Churned This Month, Past Due, Paused, Overage Revenue. **4 sub-tabs (session 119):**
+  - **Overview:** Subscriber detail table with name, plan, usage progress bar (color-coded: green <75%, amber 75-90%, red >90%), pickups used, status badge, signup date, and click-through to customer billing.
+  - **At-Risk:** Rule-based churn signals — past_due (with dunning day count), paused (with duration), cancel pending, zero usage mid-period, very low usage vs period progress, zero pickups. Sorted by severity (high → medium → low) with color-coded badges.
+  - **Upgrade Candidates:** Active subscribers near or over their plan limits — weight usage >80%, all pickups used, existing overage balance. Sorted by severity with progress bars.
+  - **Usage Trends:** Chart.js bar charts (fleet-wide weight and pickups by week from `subscription_usage_log`), plus per-subscriber usage table sorted by highest usage with days-left-in-period column. Charts render lazily when tab is opened. Falls back to per-subscriber bar chart when no usage log history exists.
 
 ### POS — Stripe Terminal Integration (session 109)
 - **Real card payment flow** via Stripe Terminal JS SDK. Connects to S700 smart reader over internet. Reader status indicator in POS topbar (disconnected/searching/connected). `payWithCard()` creates a PaymentIntent via `stripe-terminal` edge function, collects payment method on reader, confirms, and stores `stripe_payment_intent_id` on the order. Cancel and retry flows with error display. Terminal initializes on POS boot.
@@ -320,9 +324,9 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 
 - Phase 6: Mid-cycle cancellation overage — `stripe-webhook` v32 creates standalone invoice on `customer.subscription.deleted`, with race-condition guards and idempotency (session 118)
 - Phase 7: Failed payment recovery — `stripe-webhook` v34 dunning flow: 7-day grace period via Stripe `cancel_at`, escalating SMS+email notifications (initial/reminder/final/recovered), `dunning_started_at` tracking, customer app past_due banner. QA: transactional SMS bypass, voluntary cancel protection, cancelled-status race guards (session 119)
+- Phase 8: Analytics — Reports > Subscriptions enhanced with 4 sub-tabs: Overview, At-Risk (rule-based churn signals), Upgrade Candidates (near-limit detection), Usage Trends (Chart.js fleet charts + per-subscriber table). Also cleaned up duplicate HTML (session 119)
 
-**Remaining phases:**
-- Phase 8: Analytics — churn prediction, usage trends, upgrade prompts
+**All subscription phases complete.**
 
 ---
 
@@ -599,6 +603,26 @@ There are actually **two separate hang points** that must both be covered:
 4. **Delivery window on auto-created orders uses the same time window as pickup.** The `auto_route_order` trigger will sync to the actual delivery template, so this is just an initial estimate.
 
 **Commit:** `fcdccb4` feat: subscription auto-pickup — day picker, recurring order, charge guard
+
+---
+
+### Apr 16, 2026 (session 119 continued) — Subscription Phase 8: Analytics
+
+**Context:** Final subscription phase. David chose: admin Reports tab with all three features (churn prediction, usage trends, upgrade prompts), rule-based signals (no ML).
+
+**What was built:**
+
+1. **Sub-tab navigation** — Added 4 sub-tabs (Overview, At-Risk, Upgrade Candidates, Usage Trends) inside the existing Subscriptions report tab. Pill-style buttons with blue active state.
+
+2. **At-Risk / Churn Signals** (`renderChurnRisk()`) — Scans all active/paused/past_due subscribers for 6 risk signals: past_due with dunning duration, paused with duration, cancel_at_period_end pending, zero usage >10 days into period, low usage (<20%) past period midpoint, zero pickups >7 days. Color-coded severity badges (red/amber/blue). Sorted highest severity first.
+
+3. **Upgrade Candidates** (`renderUpgradeCandidates()`) — Filters active subscribers showing: weight usage ≥80% of limit, pickups ≥75% used, existing overage balance. Each signal gets a severity badge. Progress bar visualization.
+
+4. **Usage Trends** (`renderUsageTrends()` + `renderFleetCharts()`) — Per-subscriber table sorted by highest usage % with days-left-in-period countdown. Fleet-wide Chart.js bar charts pulling from `subscription_usage_log` (last 90 days, grouped by week). Charts render lazily when Trends tab is opened to avoid rendering in hidden containers. Falls back to per-subscriber bar chart when no usage log history exists.
+
+5. **Cleanup** — Removed duplicate `rpttab-subscriptions` HTML block that was creating duplicate DOM IDs. Added `rpt-drv-tbl` class to all subscription tables for consistent styling.
+
+**Commit:** `bd144e6` feat: Phase 8 — subscription analytics
 
 ---
 
