@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 15, 2026 — Session 116: SMS opt-out desync fix. Audit Check #9 flagged 26 customers in a NULL/NULL limbo state (phone present, neither `sms_consent_at` nor `sms_marketing_opt_out_at` set) — outbound SMS silently blocked for them. Root cause: admin "Add Customer" insert in `admin-dashboard/index.html` omitted `sms_consent_at`. Patched the insert to stamp `now()` when a phone is provided, and backfilled all 26 existing rows with `created_at` as consent timestamp. Audit #9 now clean.*
+*Last updated: Apr 16, 2026 — Session 117: Orphan auth user root-cause fix. Full audit of all 9 auth-user-creating paths across customer app, admin dashboard, driver app, and edge functions. Root cause: both signup forms (`handleSignup` + checkout) called `db.auth.signUp()` directly — returning customers with phone-auth accounts created duplicate email auth users with no customer record, blocking sign-in. Fix: `check_account_exists()` SECURITY DEFINER RPC pre-checks both signup paths; deleted stale `index 2.html` backup with zero orphan prevention. Cleaned 10 orphan auth users (6 blocking real customers). All paths now protected.*
+
+*Prior: Session 116: SMS opt-out desync fix. Audit Check #9 flagged 26 customers in a NULL/NULL limbo state (phone present, neither `sms_consent_at` nor `sms_marketing_opt_out_at` set) — outbound SMS silently blocked for them. Root cause: admin "Add Customer" insert in `admin-dashboard/index.html` omitted `sms_consent_at`. Patched the insert to stamp `now()` when a phone is provided, and backfilled all 26 existing rows with `created_at` as consent timestamp. Audit #9 now clean.*
 
 *Prior: Session 115: Subscriptions Phase 4 — overage auto-billing. Deployed `stripe-webhook` v30 with `invoice.created` handler that attaches `overage_amount_due` as a Stripe `invoice_item` to the draft renewal invoice (idempotency key `overage-${sub.id}-${invoice.id}`, metadata flags, logged to `subscription_usage_log`). David added `invoice.created` to the Stripe webhook endpoint in Dashboard. Added Audit Check #15 (stale subscription overage) to `washroute-audit.skill`.*
 
@@ -554,6 +556,53 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 16, 2026 (session 117) — Orphan auth user root-cause fix + full auth audit
+
+**Context:** Morning rounds Check #12 flagged 11 orphan auth users — 6 were actively blocking real customers from signing in (Christine Conner, Jeff Scheur, Mallika Potter, Nicole Pena, Michelle Franzoia, Quenjetta McLaurin). David asked for a full no-stone-unturned audit of all orphan sources.
+
+**Root cause — 3 layers of exposure:**
+1. **`handleSignup()` + checkout signup** called `db.auth.signUp()` directly with no pre-check. Returning customers who already had phone-auth accounts would create a second email auth user. That orphan auth user had no customer record, and `claim_existing_customer` would ping-pong the `profile_id` between the two auth users — whoever wasn't currently active became the orphan.
+2. **`customer-app/index 2.html`** — stale backup file with completely unprotected auth paths (no `check_account_exists`, no `prepare-phone-otp`, no `send-magic-link` edge function usage). Served by Vercel and accessible directly.
+3. **Abandoned email signups** — brand-new users who start password signup but never confirm email. Supabase creates the auth user immediately; `ensureProfile()` can't run without a session. Low impact (no customer record, no orders) but accumulates.
+
+**Full audit — all 9 auth-user-creating paths:**
+| # | Path | Protection |
+|---|------|-----------|
+| 1 | Password signup (`handleSignup`) | ✅ **FIXED** — `check_account_exists` RPC pre-check |
+| 2 | Checkout signup | ✅ **FIXED** — same pre-check |
+| 3 | Phone OTP (customer) | ✅ `prepare-phone-otp` edge fn |
+| 4 | Phone OTP resend | ✅ same |
+| 5 | Phone OTP (driver) | ✅ `prepare-phone-otp` edge fn |
+| 6 | Magic link (customer) | ✅ `send-magic-link` v17 |
+| 7 | Magic link (OTP fallback) | ✅ same edge fn |
+| 8 | Admin "Send App Invite" | ✅ same edge fn |
+| 9 | Admin create-staff | ✅ `create-staff` edge fn (admin-only) |
+
+**Edge cases verified:**
+- `send-magic-link` filters `profile_id IS NOT NULL` (line 105) — admin-created customers with `profile_id = NULL` aren't pre-linked, BUT `claim_existing_customer` step 2 catches them on sign-in. Correct behavior.
+- `find_orphan_email_auth_user` requires `au.phone IS NULL` — correct because email signups store phone in `user_metadata`, not `auth.users.phone`.
+- `prepare-phone-otp` `listUsers({ perPage: 1000 })` — minor pagination limit, daily audit compensates.
+- DB triggers: only `protect_staff_auth_users` touches `auth.users` (prevents deletion, doesn't create).
+- No DB functions INSERT into `auth.users`.
+
+**Fixes applied:**
+1. **DB migration `add_check_account_exists_rpc` + `fix_check_account_exists_phone_return`:** New `check_account_exists(p_email, p_phone)` SECURITY DEFINER function. Checks `customers` by email and phone (last 10 digits). Returns `{exists: bool, method: 'phone'|'email'}`. Granted to `anon` + `authenticated`.
+2. **customer-app `handleSignup()` (line ~2151):** Pre-check before `signUp()`. If account exists, shows "You already have an account! Please sign in with your phone number instead."
+3. **customer-app checkout signup (line ~4388):** Same pre-check with checkout-specific copy.
+4. **Deleted `customer-app/index 2.html`** — stale backup, 1838 lines, zero orphan prevention.
+5. **Data cleanup:** Deleted 10 orphan auth users (6 blocking + 4 abandoned). `preeandrew@gmail.com` (Andrew Pree) left alone — driver profile, not a real orphan.
+
+**Only remaining orphan source:** Abandoned email signups (someone starts signup, never confirms). Inevitable — daily audit catches and cleans these. Zero operational impact.
+
+**⚠️ For future sessions:**
+- **Audit Check #12 exclusion list** should add `preeandrew@gmail.com` (driver, not a customer orphan).
+- **Never re-introduce direct `db.auth.signUp()` without a `check_account_exists` pre-check.** The pre-check is what stops the returning-customer orphan cycle.
+- **The `check_account_exists` RPC is SECURITY DEFINER and callable by anon.** This is intentional (signup forms run pre-auth). It only returns `exists: bool` + `method` — no customer data leaked. Same info already exposed by Supabase's `signUp` API.
+
+**Commit:** `504fa6b` fix: prevent orphan auth users — pre-check signup + delete stale backup
+
+---
 
 ### Apr 15, 2026 (session 116) — SMS opt-out desync fix (Audit Check #9 → 0)
 
