@@ -114,6 +114,136 @@ Deno.serve(async (req) => {
     return typeof customer === 'string' ? customer : (customer as any)?.id
   }
 
+  // v33: Helper — build dunning email HTML
+  function buildDunningEmailHtml(name: string, type: 'initial' | 'reminder' | 'final', daysLeft: number): string {
+    const appUrl = 'https://app.familylaundry.com/#account'
+    const accent = '#3B82F6'
+    let headline = ''
+    let message = ''
+
+    if (type === 'initial') {
+      headline = 'Your subscription payment didn\u2019t go through'
+      message = `
+        <p>Hi ${name},</p>
+        <p>We weren\u2019t able to process your Family Laundry subscription payment. This can happen when a card expires or your bank declines the charge.</p>
+        <p><strong>Your service is still active</strong> \u2014 we\u2019ll keep your pickups running while you get this sorted. You have <strong>${daysLeft} days</strong> to update your payment method before your subscription is cancelled.</p>
+        <p style="margin:24px 0"><a href="${appUrl}" style="background:${accent};color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Update Payment Method</a></p>
+        <p>If you have any questions, just reply to this email or text us at (510) 588-4102.</p>`
+    } else if (type === 'reminder') {
+      headline = 'Reminder: Please update your payment method'
+      message = `
+        <p>Hi ${name},</p>
+        <p>Just a friendly reminder \u2014 your Family Laundry subscription payment is still pending. You have about <strong>${daysLeft} days left</strong> to update your card before your subscription is cancelled.</p>
+        <p style="margin:24px 0"><a href="${appUrl}" style="background:${accent};color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Update Payment Method</a></p>
+        <p>We\u2019d hate to see you go \u2014 questions? Just reply here or text us.</p>`
+    } else {
+      headline = 'Final notice: Your subscription is about to be cancelled'
+      message = `
+        <p>Hi ${name},</p>
+        <p>This is your final reminder. Your Family Laundry subscription will be <strong>cancelled automatically</strong> very soon unless your payment is resolved.</p>
+        <p style="margin:24px 0"><a href="${appUrl}" style="background:#EF4444;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Update Payment Method Now</a></p>
+        <p>If you\u2019ve already updated your card, you can ignore this \u2014 we\u2019ll retry the charge shortly.</p>`
+    }
+
+    return `<div style="max-width:560px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1a1a1a;line-height:1.6">
+      <div style="background:${accent};padding:20px 24px;border-radius:12px 12px 0 0">
+        <h1 style="color:#fff;font-size:20px;margin:0">Family Laundry</h1>
+      </div>
+      <div style="padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
+        <h2 style="font-size:18px;margin:0 0 16px">${headline}</h2>
+        ${message}
+        <p style="color:#666;font-size:13px;margin-top:24px">\u2014 The Family Laundry Team</p>
+      </div>
+    </div>`
+  }
+
+  // v33: Helper — build recovery email HTML
+  function buildRecoveryEmailHtml(name: string): string {
+    const accent = '#3B82F6'
+    return `<div style="max-width:560px;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1a1a1a;line-height:1.6">
+      <div style="background:${accent};padding:20px 24px;border-radius:12px 12px 0 0">
+        <h1 style="color:#fff;font-size:20px;margin:0">Family Laundry</h1>
+      </div>
+      <div style="padding:24px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
+        <h2 style="font-size:18px;margin:0 0 16px">\u2705 Your subscription payment went through!</h2>
+        <p>Hi ${name},</p>
+        <p>Great news \u2014 your payment was successfully processed and your subscription is back to normal. No action needed on your end.</p>
+        <p>Thanks for sticking with us!</p>
+        <p style="color:#666;font-size:13px;margin-top:24px">\u2014 The Family Laundry Team</p>
+      </div>
+    </div>`
+  }
+
+  // v33: Helper — send dunning or recovery notification (email + SMS)
+  async function sendDunningNotification(
+    customerId: string,
+    type: 'initial' | 'reminder' | 'final' | 'recovered'
+  ) {
+    const { data: customer } = await db.from('customers')
+      .select('id, first_name, email, phone, sms_consent_at, sms_marketing_opt_out_at')
+      .eq('id', customerId)
+      .single()
+    if (!customer) { console.warn('sendDunningNotification: customer not found:', customerId); return }
+
+    const name = customer.first_name || 'there'
+    const appUrl = 'https://app.familylaundry.com/#account'
+
+    // Build SMS body
+    let smsBody: string
+    let emailSubject: string
+    let emailHtml: string
+
+    switch (type) {
+      case 'initial':
+        smsBody = `Hi ${name}, your Family Laundry subscription payment didn\u2019t go through. Please update your card at ${appUrl} within 7 days to keep your plan active. Questions? Reply to this text.`
+        emailSubject = 'Action needed: Your subscription payment failed'
+        emailHtml = buildDunningEmailHtml(name, 'initial', 7)
+        break
+      case 'reminder':
+        smsBody = `Reminder: Your Family Laundry subscription payment is still pending. Update your card at ${appUrl} to avoid cancellation.`
+        emailSubject = 'Reminder: Please update your payment method'
+        emailHtml = buildDunningEmailHtml(name, 'reminder', 3)
+        break
+      case 'final':
+        smsBody = `Final notice: Your Family Laundry subscription will be cancelled soon unless payment is resolved. Update your card: ${appUrl}`
+        emailSubject = 'Final notice: Your subscription is about to be cancelled'
+        emailHtml = buildDunningEmailHtml(name, 'final', 1)
+        break
+      case 'recovered':
+        smsBody = `Great news! Your Family Laundry subscription payment went through. You\u2019re all set \u2014 no action needed.`
+        emailSubject = 'Your subscription payment was successful!'
+        emailHtml = buildRecoveryEmailHtml(name)
+        break
+    }
+
+    // Send SMS if customer has phone + SMS consent
+    // Note: dunning messages are TRANSACTIONAL (billing/account), not marketing.
+    // They require sms_consent_at but bypass sms_marketing_opt_out_at per A2P 10DLC rules.
+    const canSms = customer.phone && customer.sms_consent_at
+    if (canSms) {
+      try {
+        await fetch(`${supabaseUrl}/functions/v1/send-sms`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseServiceKey}` },
+          body: JSON.stringify({ to: customer.phone, body: smsBody, customer_id: customerId }),
+        })
+        console.log(`Dunning SMS (${type}) sent to:`, customerId)
+      } catch (e: any) { console.error('Dunning SMS failed:', e.message) }
+    }
+
+    // Send email if customer has email
+    if (customer.email) {
+      try {
+        await fetch(`${supabaseUrl}/functions/v1/send-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${supabaseServiceKey}` },
+          body: JSON.stringify({ customer_id: customerId, to_email: customer.email, subject: emailSubject, body: emailHtml }),
+        })
+        console.log(`Dunning email (${type}) sent to:`, customerId)
+      } catch (e: any) { console.error('Dunning email failed:', e.message) }
+    }
+  }
+
   try {
     // -- payment_intent.succeeded -- backup: mark order as paid if charge-order missed it --
     if (event.type === 'payment_intent.succeeded') {
@@ -418,11 +548,12 @@ Deno.serve(async (req) => {
         updated_at: now,
       }).eq('stripe_customer_id', stripeCustomerId)
 
-      // v29: Also mark subscription as cancelled
+      // v29: Also mark subscription as cancelled + clear dunning
       const { error: updateErr } = await db.from('subscriptions')
         .update({
           status: 'cancelled',
           cancelled_at: now,
+          dunning_started_at: null,
           last_stripe_event_at: now,
           updated_at: now,
         })
@@ -435,16 +566,27 @@ Deno.serve(async (req) => {
       console.log('Subscription deleted:', sub.id, 'for Stripe customer:', stripeCustomerId)
     }
 
-    // v29: -- invoice.payment_succeeded -- recover from past_due status
+    // v29+v33: -- invoice.payment_succeeded -- recover from past_due + clear dunning + notify
     if (event.type === 'invoice.payment_succeeded') {
       const invoice = event.data.object as Stripe.Invoice
       const subscriptionId = invoice.subscription
 
       if (subscriptionId) {
         const now = new Date().toISOString()
+
+        // Check if this subscription was in dunning (past_due) before recovery
+        const { data: localSub } = await db.from('subscriptions')
+          .select('id, customer_id, dunning_started_at, status')
+          .eq('stripe_subscription_id', subscriptionId as string)
+          .single()
+
+        const wasDunning = localSub?.dunning_started_at != null
+
+        // Update status to active + clear dunning
         const { error: updateErr } = await db.from('subscriptions')
           .update({
             status: 'active',
+            dunning_started_at: null,
             last_stripe_event_at: now,
             updated_at: now,
           })
@@ -455,10 +597,29 @@ Deno.serve(async (req) => {
         } else {
           console.log('Invoice payment succeeded, subscription recovered:', subscriptionId)
         }
+
+        // v33: If was dunning, remove dunning-set cancel_at from Stripe and send recovery notification
+        if (wasDunning && localSub) {
+          // Only clear cancel_at if it was set by dunning (not a voluntary cancel).
+          // Check: if cancel_at_period_end is true, that's a voluntary cancel — leave it.
+          try {
+            const stripeSub = await stripe.subscriptions.retrieve(subscriptionId as string)
+            if (stripeSub.cancel_at && !stripeSub.cancel_at_period_end) {
+              await stripe.subscriptions.update(subscriptionId as string, { cancel_at: '' as any })
+              console.log('Cleared dunning cancel_at on recovered subscription:', subscriptionId)
+            }
+          } catch (e: any) {
+            console.error('Failed to clear cancel_at:', e.message)
+          }
+
+          // Send recovery notification
+          await sendDunningNotification(localSub.customer_id, 'recovered')
+          console.log('Recovery notification sent for subscription:', localSub.id)
+        }
       }
     }
 
-    // -- invoice.payment_failed -- enhanced for subscriptions (v29)
+    // v29+v33: -- invoice.payment_failed -- set past_due + dunning notifications + grace period
     if (event.type === 'invoice.payment_failed') {
       const invoice = event.data.object as Stripe.Invoice
       const subscriptionId = invoice.subscription
@@ -466,19 +627,77 @@ Deno.serve(async (req) => {
         ? invoice.customer
         : (invoice.customer as any)?.id
 
-      // v29: Update subscription status to past_due if it exists
       if (subscriptionId) {
         const now = new Date().toISOString()
-        const { error: updateErr } = await db.from('subscriptions')
-          .update({
-            status: 'past_due',
-            last_stripe_event_at: now,
-            updated_at: now,
-          })
-          .eq('stripe_subscription_id', subscriptionId as string)
 
-        if (updateErr) {
-          console.error('invoice.payment_failed subscriptions update error:', updateErr.message)
+        // Get the local subscription to check dunning state
+        const { data: localSub } = await db.from('subscriptions')
+          .select('id, customer_id, dunning_started_at, status')
+          .eq('stripe_subscription_id', subscriptionId as string)
+          .single()
+
+        // Update status to past_due — but NOT if already cancelled (race guard)
+        if (!localSub || localSub.status !== 'cancelled') {
+          const { error: updateErr } = await db.from('subscriptions')
+            .update({
+              status: 'past_due',
+              last_stripe_event_at: now,
+              updated_at: now,
+            })
+            .eq('stripe_subscription_id', subscriptionId as string)
+            .neq('status', 'cancelled')  // double safety: don't overwrite cancelled
+
+          if (updateErr) {
+            console.error('invoice.payment_failed subscriptions update error:', updateErr.message)
+          }
+        }
+
+        // v33: Dunning flow — skip if subscription is already cancelled (race guard)
+        if (localSub && localSub.status !== 'cancelled') {
+          if (!localSub.dunning_started_at) {
+            // First failure — start grace period
+            await db.from('subscriptions')
+              .update({ dunning_started_at: now, updated_at: now })
+              .eq('id', localSub.id)
+
+            // Set Stripe to auto-cancel in 7 days, but only if customer hasn't
+            // already scheduled a voluntary cancel (cancel_at_period_end).
+            // Don't override their voluntary cancel timing.
+            try {
+              const stripeSub = await stripe.subscriptions.retrieve(subscriptionId as string)
+              if (!stripeSub.cancel_at_period_end && !stripeSub.cancel_at) {
+                const cancelAt = Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60)
+                await stripe.subscriptions.update(subscriptionId as string, { cancel_at: cancelAt })
+                console.log('Grace period set: cancel_at', new Date(cancelAt * 1000).toISOString(), 'for sub:', subscriptionId)
+              } else {
+                console.log('Skipped setting cancel_at — voluntary cancel already pending for sub:', subscriptionId)
+              }
+            } catch (e: any) {
+              console.error('Failed to set cancel_at on Stripe subscription:', e.message)
+            }
+
+            // Send initial dunning notification
+            await sendDunningNotification(localSub.customer_id, 'initial')
+            console.log('Dunning started for subscription:', localSub.id)
+
+          } else {
+            // Subsequent failure — calculate days since dunning started and escalate
+            const daysSinceDunning = Math.floor(
+              (Date.now() - new Date(localSub.dunning_started_at).getTime()) / (1000 * 60 * 60 * 24)
+            )
+
+            if (daysSinceDunning >= 5) {
+              await sendDunningNotification(localSub.customer_id, 'final')
+              console.log('Final dunning notice sent, days since start:', daysSinceDunning, 'sub:', localSub.id)
+            } else if (daysSinceDunning >= 2) {
+              await sendDunningNotification(localSub.customer_id, 'reminder')
+              console.log('Dunning reminder sent, days since start:', daysSinceDunning, 'sub:', localSub.id)
+            } else {
+              console.log('Dunning retry too soon for notification, days:', daysSinceDunning, 'sub:', localSub.id)
+            }
+          }
+        } else if (localSub?.status === 'cancelled') {
+          console.log('Skipped dunning — subscription already cancelled:', localSub.id)
         }
       }
 

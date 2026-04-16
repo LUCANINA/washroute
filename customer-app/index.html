@@ -779,6 +779,10 @@
     .sub-home-status.active { background: rgba(16,185,129,.2); color: #34d399; }
     .sub-home-status.paused { background: rgba(251,191,36,.2); color: #fbbf24; }
     .sub-home-status.past_due { background: rgba(248,113,113,.2); color: #f87171; }
+    .sub-dunning-banner { display:none; margin-top:12px; background:rgba(248,113,113,.15); border:1px solid rgba(248,113,113,.3); border-radius:8px; padding:12px 14px; font-size:13px; line-height:1.4; }
+    .sub-dunning-banner .dunning-title { font-weight:600; color:#f87171; margin-bottom:4px; }
+    .sub-dunning-banner .dunning-text { color:rgba(255,255,255,.85); }
+    .sub-dunning-banner .dunning-btn { display:inline-block; margin-top:8px; background:#f87171; color:#fff; border:none; padding:8px 16px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; }
     .sub-usage-row { display: flex; gap: 16px; margin-bottom: 14px; }
     .sub-usage-item { flex: 1; }
     .sub-usage-label { font-size: 11px; color: rgba(255,255,255,.6); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .3px; }
@@ -1037,6 +1041,11 @@
         <div class="sub-home-footer">
           <span id="home-sub-renew">Renews —</span>
           <button class="sub-home-manage-btn" onclick="goTo('account');setTimeout(()=>openSubPanel('sub-plan'),200)">Manage →</button>
+        </div>
+        <div class="sub-dunning-banner" id="home-sub-dunning">
+          <div class="dunning-title">Payment failed</div>
+          <div class="dunning-text">Please update your card to keep your subscription active. Your service is still running while we sort this out.</div>
+          <button class="dunning-btn" onclick="goTo('account');setTimeout(()=>openSubPanel('sub-plan'),200)">Update Payment Method</button>
         </div>
       </div>
 
@@ -2796,6 +2805,12 @@ async function renderHomeSubscriptionCard() {
     const overLbs = (usageLbs - weightLimit).toFixed(1);
     const overCost = (parseFloat(overLbs) * (plan.overage_price_per_lb || 2.75)).toFixed(2);
     renewEl.textContent += ` · $${overCost} overage charged`;
+  }
+
+  // v33: Dunning banner — show when subscription is past_due
+  const dunningBanner = document.getElementById('home-sub-dunning');
+  if (dunningBanner) {
+    dunningBanner.style.display = sub.status === 'past_due' ? 'block' : 'none';
   }
 
   card.style.display = '';
