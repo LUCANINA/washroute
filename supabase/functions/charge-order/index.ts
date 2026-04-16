@@ -36,7 +36,7 @@ async function stampChargeFailed(db: any, orderId: string) {
   }).eq('id', orderId);
 }
 
-// Compute the driver tip in dollars from tip_amount + tip_type.
+// Compute the team tip in dollars from tip_amount + tip_type.
 // tip_type='pct' means tip_amount is a percentage of total_amount.
 // tip_type='dollar' (or legacy null) means tip_amount is already in dollars.
 // Rounded to cents.
@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
       throw new Error('Customer not found')
     }
 
-    // v33: charge = pre-tip total + driver tip
+    // v33: charge = pre-tip total + team tip
     const preTipAmount = Number(order.total_amount)
     const tipDollars   = computeTipDollars(preTipAmount, order.tip_amount, order.tip_type)
 

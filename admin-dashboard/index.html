@@ -20399,7 +20399,7 @@ ${oneCopy}
     filterKanbanCol('fold'); // re-apply search if active
   }
 
-  // Compute the driver tip in dollars for an order (matches charge-order v33).
+  // Compute the team tip in dollars for an order (matches charge-order v33).
   // Returns { dollars, label, pretaxTotal, totalWithTip } — all numbers/strings.
   function _orderTipBreakdown(o) {
     const pretax = Number(o?.total_amount || 0);
@@ -20407,7 +20407,7 @@ ${oneCopy}
     const type   = o?.tip_type || null;
     if (!amt || amt <= 0) return { dollars: 0, label: '', pretaxTotal: pretax, totalWithTip: pretax };
     const dollars = type === 'pct' ? Math.round(pretax * amt) / 100 : amt;
-    const label   = type === 'pct' ? `Driver tip (${amt}%)` : 'Driver tip';
+    const label   = type === 'pct' ? `Team Tip (${amt}%)` : 'Team Tip';
     return { dollars, label, pretaxTotal: pretax, totalWithTip: pretax + dollars };
   }
   // Returns the HTML row to show inside fold/rack/intake summary tables between
@@ -21515,9 +21515,9 @@ ${oneCopy}
     if (bd.creditApplied > 0) {
       rows.push(`<div class="proc-breakdown-row" style="color:#059669"><span>💰 Account credit</span><span class="amount">−${fmtMoney(bd.creditApplied)}</span></div>`);
     }
-    // Driver tip (from customer booking) — shown informationally; charged on top of subtotal
+    // Team tip (from customer booking) — shown informationally; charged on top of subtotal
     if (bd.tipDollars > 0) {
-      const tipLabel = bd.tipType === 'pct' ? `Driver tip (${bd.tipRaw}%)` : 'Driver tip';
+      const tipLabel = bd.tipType === 'pct' ? `Team Tip (${bd.tipRaw}%)` : 'Team Tip';
       rows.push(`<div class="proc-breakdown-row"><span>${tipLabel}</span><span class="amount">+${fmtMoney(bd.tipDollars)}</span></div>`);
     }
     const totalLabel = bd.weight > 0 ? 'Total' : 'Total (pending weight)';
@@ -21587,7 +21587,7 @@ ${oneCopy}
     const subtotal = base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total + deliveryTotal - discountAmt;
     const creditApplied = Math.min(procCustomerCredits, subtotal); // never exceed total
     const preTipTotal   = Math.max(0, subtotal - creditApplied);
-    // Driver tip — stored on the order, applied on top of the charged subtotal
+    // Team tip — stored on the order, applied on top of the charged subtotal
     // (tip is charged in addition to total_amount by charge-order v33).
     const tipRaw  = parseFloat(procActiveOrder?.tip_amount || 0);
     const tipType = procActiveOrder?.tip_type || null;
