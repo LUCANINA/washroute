@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 16, 2026 — Session 118: Subscription Phases 5+6. Phase 5: auto-pickup (day picker, first recurring order, manual order linking, charge-order v36 subscription guard). Phase 6: mid-cycle cancellation overage billing — `stripe-webhook` v32 creates standalone Stripe invoice on `customer.subscription.deleted` when `overage_amount_due > 0`. Also restored `invoice.created` handler from session 115 (was deployed but never committed). v32 QA fixes: idempotency keys on both `invoiceItems.create` and `invoices.create`, `pending_invoice_items_behavior: 'exclude'` to prevent sweeping unrelated items, and atomic overage claim guards on both handlers to prevent double-billing race conditions.*
+*Last updated: Apr 16, 2026 — Session 119: Subscription Phase 7 (Failed Payment Recovery). 7-day grace period dunning flow: `stripe-webhook` v34 handles escalating notifications (initial → reminder → final) via SMS + email on `invoice.payment_failed`, auto-cancels via Stripe `cancel_at` after 7 days, clears dunning + sends recovery notification on `invoice.payment_succeeded`. Customer app shows past_due banner with "Update Payment Method" CTA. Migration: `dunning_started_at` column on subscriptions. QA fixes: transactional SMS bypasses marketing opt-out, voluntary cancel protection (cancel_at_period_end check), cancelled-status race guards.*
+
+*Prior: Session 118: Subscription Phases 5+6. Phase 5: auto-pickup (day picker, first recurring order, manual order linking, charge-order v36 subscription guard). Phase 6: mid-cycle cancellation overage billing — `stripe-webhook` v32 creates standalone Stripe invoice on `customer.subscription.deleted` when `overage_amount_due > 0`. Also restored `invoice.created` handler from session 115 (was deployed but never committed). v32 QA fixes: idempotency keys on both `invoiceItems.create` and `invoices.create`, `pending_invoice_items_behavior: 'exclude'` to prevent sweeping unrelated items, and atomic overage claim guards on both handlers to prevent double-billing race conditions.*
 
 *Prior: Session 117: Orphan auth user root-cause fix. Full audit of all 9 auth-user-creating paths across customer app, admin dashboard, driver app, and edge functions. Root cause: both signup forms (`handleSignup` + checkout) called `db.auth.signUp()` directly — returning customers with phone-auth accounts created duplicate email auth users with no customer record, blocking sign-in. Fix: `check_account_exists()` SECURITY DEFINER RPC pre-checks both signup paths; deleted stale `index 2.html` backup with zero orphan prevention. Cleaned 10 orphan auth users (6 blocking real customers). All paths now protected.*
 
@@ -123,7 +125,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `geocode-addresses` | **TEMPORARY — deployed & deleted session 41.** Batch-geocoded 5,043 imported customer addresses via Google Maps API. No longer deployed. | N/A |
 | `notify-on-my-way` | Driver "On My Way" button → customer SMS | Off |
 | `charge-order` | Stripe payment charge — **v28 (session 74):** Added `CHARGEABLE_STATUSES` guard (`ready_for_delivery`, `out_for_delivery`, `delivered`) — refuses to charge orders not yet at these statuses. Also sets `billing_status='paid'` + `billed_at` + clears `charge_failed_at` on success; sets `billing_status='failed'` + `charge_failed_at` on decline. | On |
-| `stripe-webhook` | Stripe webhook handler — **v32 (session 118).** Handles: `checkout.session.completed` (card save + migration credit), `payment_intent.succeeded/failed` (backup order status), `customer.subscription.created/updated/deleted` (lifecycle sync), `invoice.payment_succeeded/failed` (recovery + past_due), `invoice.created` (attach overage to draft renewal invoice), `customer.subscription.deleted` (final overage invoice on cancellation). v32 QA: idempotency keys, `pending_invoice_items_behavior: 'exclude'`, atomic overage claim guards. | Off |
+| `stripe-webhook` | Stripe webhook handler — **v34 (session 119).** Handles: `checkout.session.completed` (card save + migration credit), `payment_intent.succeeded/failed` (backup order status), `customer.subscription.created/updated/deleted` (lifecycle sync), `invoice.payment_succeeded` (recovery + clear dunning + cancel_at + recovery notification), `invoice.payment_failed` (past_due + dunning: grace period, escalating SMS+email, Stripe cancel_at), `invoice.created` (attach overage to draft renewal invoice), `customer.subscription.deleted` (final overage invoice on cancellation + clear dunning). v34: dunning flow with 7-day grace period, transactional SMS bypass, voluntary cancel protection, cancelled-status race guards. | Off |
 | `send-order-notification` | Status-change notifications — **v23 (session 75):** Address fallback: when `customer.address_cache` is empty, now fetches actual address from `addresses` table via `order.pickup_address_id`. Fixes blank "Your pickup at is scheduled for..." SMS. Also added `pickup_address_id` + `delivery_address_id` to order fetch. | Off |
 | `cloudprnt` | CloudPRNT server — **v15 (session 70i):** printer polls for jobs; `markupToStarLineMode()` converts Star Markup XML → Star Line Mode binary; serves as `application/vnd.star.starprnt`. Includes `tokenizeXml()` parser and `UNICODE_MAP` for thermal printer ASCII fallback. | Off |
 | `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. Pickups and deliveries optimized independently. **v19 (session 76):** Address resolution hardened — cross-leg fallback (delivery falls back to pickup address and vice versa) + customer fallback no longer requires `is_default = true` (prefers default, accepts any). **v12 (session 27):** No-GPS path uses geographic-extremes algorithm. | Off |
@@ -287,6 +289,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - **Default tip setting in customer app (session 70i):** Customers can now set their own default tip in Account → Payment Method. $/% toggle and numeric input, saves to `default_tip` and `default_tip_type` on the `customers` table — same fields the admin dashboard reads. Tip is auto-applied to each new order.
 - **OTP progressive fallback flow (session 73):** When SMS OTP doesn't arrive, fallback options reveal progressively: "Resend code" appears after 15 seconds, email magic-link fallback after 30 seconds. Email fallback uses the existing `send-magic-link` edge function — customer enters email, gets a one-tap sign-in link. "Need help? Text HELP to (510) 588-4102" support shortcut shown on both the hero (phone entry) and OTP verify screens. Timers reset/clear on panel transitions. No dead-end screens — every state has an escape route.
 - **Cross-method auth re-linking (session 30, commit `778e9d8`):** `ensureProfile()` step 2b — if a customer signs in via email magic link but their account was originally created via phone OTP (or vice versa), the function now detects the existing customer record by `email_cache` even if it already has a `profile_id`, and re-points it to the current auth user. Previously, this created a blank duplicate customer record. Two orphaned records from the first occurrence were deleted from the DB. Note: Supabase creates a new auth UUID per sign-in method; `profile_id` flips to whichever method was used most recently — harmless in practice.
+- **Past-due dunning banner (session 119):** When subscription status is `past_due`, a red banner appears on the home screen subscription card: "Payment failed — Please update your card to keep your subscription active." Includes "Update Payment Method" button that navigates to Account → My Plan. Auto-hides when status recovers.
 - **Subscription home card + My Plan panel (session 109, Phase 1 UI only):** Home screen shows a subscription usage card (plan name, weight used/limit progress bar, pickups used, renewal date, Manage button) — but ONLY when the customer has an active subscription (`_activeSub` global). Default: completely hidden. My Plan menu item in Account is also hidden by default; shown via JS toggle when `_activeSub` is non-null. My Plan panel has dual-mode: subscribers see usage stats, billing period, overage info, and pause/resume/cancel buttons (stubs — "coming soon" toast); non-subscribers see plan picker cards. `renderHomeSubscriptionCard()` fetches from `subscriptions` joined with `subscription_plans` on every `loadHome()`. `loadAccount()` fetches subscription and updates plan badge (Active/Paused/Past Due with colored dots).
 
 ---
@@ -316,9 +319,9 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Phase 5: Auto-pickup — post-checkout day/window picker, first recurring order auto-created with `subscription_id`, manual orders linked to active subscription, `charge-order` v36 subscription guard (session 118)
 
 - Phase 6: Mid-cycle cancellation overage — `stripe-webhook` v32 creates standalone invoice on `customer.subscription.deleted`, with race-condition guards and idempotency (session 118)
+- Phase 7: Failed payment recovery — `stripe-webhook` v34 dunning flow: 7-day grace period via Stripe `cancel_at`, escalating SMS+email notifications (initial/reminder/final/recovered), `dunning_started_at` tracking, customer app past_due banner. QA: transactional SMS bypass, voluntary cancel protection, cancelled-status race guards (session 119)
 
 **Remaining phases:**
-- Phase 7: Failed payment recovery — dunning emails, grace period
 - Phase 8: Analytics — churn prediction, usage trends, upgrade prompts
 
 ---
@@ -596,6 +599,40 @@ There are actually **two separate hang points** that must both be covered:
 4. **Delivery window on auto-created orders uses the same time window as pickup.** The `auto_route_order` trigger will sync to the actual delivery template, so this is just an initial estimate.
 
 **Commit:** `fcdccb4` feat: subscription auto-pickup — day picker, recurring order, charge guard
+
+---
+
+### Apr 16, 2026 (session 119) — Subscription Phase 7: Failed payment dunning flow
+
+**Context:** Phase 7 of the subscription feature. When a subscriber's payment fails, Stripe retries automatically — we needed to track the grace period, notify the customer with escalating urgency, and auto-cancel after 7 days if unresolved. David chose: 7-day grace period, Email + SMS notifications, keep service running during grace.
+
+**What was built:**
+
+1. **Migration: `add_dunning_started_at_to_subscriptions`** — added `dunning_started_at timestamptz DEFAULT NULL` column. Set on first payment failure, cleared on recovery or cancellation.
+
+2. **Dunning email templates** (`buildDunningEmailHtml`, `buildRecoveryEmailHtml`) — branded HTML emails with blue header. Three dunning variants (initial: "payment didn't go through" + 7-day warning; reminder: "please update" + ~3 days left; final: red CTA button). Recovery email: "payment went through!" confirmation.
+
+3. **`sendDunningNotification()` helper** — sends both SMS and email for each dunning stage. SMS consent check uses `sms_consent_at` only (no marketing opt-out — dunning is transactional under A2P 10DLC). Calls `send-sms` and `send-email` edge functions via fetch.
+
+4. **Enhanced `invoice.payment_failed` handler** — first failure: sets `dunning_started_at`, retrieves Stripe sub to check `cancel_at_period_end` before setting `cancel_at` (7 days), sends initial notification. Subsequent failures: calculates `daysSinceDunning`, sends reminder (≥2 days) or final (≥5 days). Guards: skips if status already `cancelled`, `.neq('status', 'cancelled')` on update.
+
+5. **Enhanced `invoice.payment_succeeded` handler** — checks if `wasDunning`, clears `dunning_started_at`, retrieves Stripe sub to check if `cancel_at` was dunning-set (not voluntary cancel — checks `!cancel_at_period_end`), clears it, sends recovery notification.
+
+6. **Customer app past_due banner** — red banner on home subscription card when status is `past_due`. "Update Payment Method" button navigates to Account → My Plan.
+
+7. **Updated `customer.subscription.deleted`** — clears `dunning_started_at` on cancellation.
+
+**QA fixes (5 issues caught and fixed before v34 deploy):**
+- **Transactional SMS bypass** — `sendDunningNotification` was checking `sms_marketing_opt_out_at`, which would suppress dunning SMS for customers who opted out of marketing. Removed — dunning is transactional.
+- **Cancel race guard** — if `customer.subscription.deleted` fires before `invoice.payment_failed`, the subscription is already cancelled. Added `localSub.status !== 'cancelled'` check + `.neq('status', 'cancelled')` on update.
+- **Voluntary cancel check** — setting `cancel_at` for dunning would override `cancel_at_period_end` (voluntary cancel). Now checks `!stripeSub.cancel_at_period_end && !stripeSub.cancel_at` before setting.
+- **Recovery clearing voluntary cancel** — on recovery, `cancel_at` was cleared unconditionally, undoing voluntary cancels. Now checks `stripeSub.cancel_at && !stripeSub.cancel_at_period_end`.
+- **Status overwrite guard** — `.neq('status', 'cancelled')` added to the past_due update query as double safety.
+
+**Design decision:** Rather than building a separate cron job for dunning reminders, leveraged Stripe's built-in retry schedule. Each failed retry triggers `invoice.payment_failed` which escalates notifications based on `daysSinceDunning`. Eliminated need for a scheduled function.
+
+**Deployed:** `stripe-webhook` v34
+**Commit:** `b62a258` feat: Phase 7 — failed payment dunning flow with 7-day grace period
 
 ---
 
