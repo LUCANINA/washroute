@@ -1500,6 +1500,35 @@ The product-category tabs (`.tab`) at the top of the products panel were already
 
 ---
 
+### Apr 15, 2026 (session 115) — Subscription overage auto-billing
+
+**Context:** Phase 4 of subscriptions. Usage deduction and overage calculation was wired in session 114, but nothing actually *billed* the overage — `overage_amount_due` was computed but sat in the DB indefinitely.
+
+**The fix — `stripe-webhook` v30 with `invoice.created` handler:**
+
+When Stripe creates a renewal invoice (fires ~1 hour before the period ends while the invoice is still in `draft` status), the webhook checks whether the subscriber has `overage_amount_due > 0`. If so, it creates a Stripe `invoice_item` attached to that draft invoice — the customer's next monthly charge = base plan fee + overage.
+
+Key details:
+- **Idempotency:** key `overage-${subscription_id}-${invoice_id}` prevents double-billing on webhook retries.
+- **Metadata:** item is tagged `washroute_overage: true` + `washroute_subscription_id` so reports and downstream handlers can identify it.
+- **Audit trail:** appends an `overage_invoiced` event to `subscription_usage_log` with the dollar amount and Stripe invoice ID.
+- **Guard:** only acts on `draft` invoices. If Stripe delivers the webhook after the invoice finalizes (unlikely but possible), it skips gracefully.
+- **Period reset (existing):** `trg_reset_subscription_usage` (session 114) already zeroes `overage_amount_due` when `current_period_end` moves forward (happens on `invoice.payment_succeeded`), so the next cycle starts fresh.
+
+**Audit Check #15 added** to `washroute-audit.skill`: flags subscriptions with `overage_amount_due > 0` whose `current_period_end` is more than 3 days past — indicates an overage that should have been invoiced but wasn't (missed webhook, wrong Stripe event config, failed payment).
+
+**⚠️ IMPORTANT: Stripe Dashboard config step required.** The webhook endpoint must be subscribed to the `invoice.created` event type. If it's not already in the list (Dashboard → Developers → Webhooks → your endpoint → select events), add it. Without this, the `invoice.created` handler will never fire and overages won't get attached.
+
+**Files/functions touched:**
+- `stripe-webhook` edge fn v30 deployed (added `invoice.created` handler, ~45 LOC).
+- `washroute-audit.skill` rebuilt with Check #15 (stale overage).
+
+**⚠️ For future sessions:**
+1. **Edge case — missed draft window.** If the webhook processes late (after the ~1h draft window closes), the overage line item can't be attached and the customer pays only the base fee. The overage stays in `overage_amount_due` and should be caught by Check #15 at the next audit. Resolution: manually invoice or write off. Not automatable without Stripe's `invoice.upcoming` event (2-day advance notice) — consider subscribing to that too as a fallback.
+2. **Overage-only invoicing.** Currently only fires at period renewal. If a subscriber cancels mid-cycle with overage owed, it won't be billed (no next invoice). Phase 5: generate a final invoice on `customer.subscription.deleted` with any outstanding overage.
+
+---
+
 ### Apr 15, 2026 (session 114) — POS polish + Subscriptions end-to-end
 
 **Context:** Stripe Terminal S700 arrives tomorrow; subscriptions DB schema was already in place but the signup flow, usage enforcement, and admin management were unfinished.
