@@ -9079,6 +9079,12 @@
       total = Number(o.total_amount);
     }
     total = Math.max(0, total);
+    // Tip line (between line items and total)
+    const tipInfo = _orderTipBreakdown(o);
+    if (tipInfo.dollars > 0) {
+      breakdownHTML += `<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--gray-600)"><span>${tipInfo.label}</span><span>+${fmtMoney(tipInfo.dollars)}</span></div>`;
+      total += tipInfo.dollars;
+    }
     const totalLine = `<div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--gray-200);padding-top:4px;margin-top:4px;font-size:14px;color:var(--gray-800)"><span>Total</span><span>${fmtMoney(total)}</span></div>`;
 
     el.innerHTML = `
@@ -9419,7 +9425,8 @@
   function buildStarMarkup(data) {
     const { orderNum, custName, custAddr, custPhone, weightLbs, bags,
             pickupStr, delivStr, pickupRouteName, deliveryRouteName,
-            stopNum, routeName, addonTags, lineItems, total } = data;
+            stopNum, routeName, addonTags, lineItems, total,
+            tipAmount, tipType } = data;
 
     // Timestamp
     const now = new Date();
@@ -9454,10 +9461,16 @@
       const space  = Math.max(1, TW - label.length - amtStr.length);
       return `  <text-line>${_escXml(label)}${' '.repeat(space)}${_escXml(amtStr)}</text-line>`;
     };
+    // Tip calculation for receipt
+    const tipAmt = parseFloat(tipAmount || 0);
+    const tipDollars = tipAmt > 0 ? (tipType === 'pct' ? Math.round(subtotal * tipAmt) / 100 : tipAmt) : 0;
+    const tipLabel = tipAmt > 0 ? (tipType === 'pct' ? `Team Tip (${tipAmt}%)` : 'Team Tip') : '';
+
     const totalLinesXml = [
       totLine('Subtotal', subtotal),
       ...(delivFeeItem ? [totLine('Delivery Fee', delivFeeItem.amount)] : []),
       ...(sameDayItem  ? [totLine('Same-day surcharge', sameDayItem.amount)] : []),
+      ...(tipDollars > 0 ? [totLine(tipLabel, tipDollars, '+')] : []),
       ...(creditItem   ? [totLine('Credit applied', creditItem.amount, '-')] : []),
     ].join('\n');
 
@@ -9483,8 +9496,9 @@
       ? `  <text-line size="2:1"><bold>${_escXml('DL: ' + deliveryRouteName.toUpperCase())}</bold></text-line>`
       : '';
 
-    // Amount due
-    const totalStr = fmtAmt(total);
+    // Amount due (includes tip)
+    const grandTotal = total + tipDollars;
+    const totalStr = fmtAmt(grandTotal);
     const amtDueLine = _escXml('AMOUNT DUE' + ' '.repeat(Math.max(1, 22 - 10 - totalStr.length)) + totalStr);
 
     // Build one copy of the receipt body
@@ -9573,7 +9587,7 @@ ${oneCopy}
   function _buildPassPrntHtml(data) {
     const { orderNum: rawOrderNum, custName: rawCustName, custAddr: rawCustAddr, custPhone: rawCustPhone, weightLbs, bags,
             pickupStr: rawPickupStr, delivStr: rawDelivStr, stopNum: rawStopNum, routeName: rawRouteName,
-            addonTags: rawAddonTags, lineItems, total } = data;
+            addonTags: rawAddonTags, lineItems, total, tipAmount, tipType } = data;
 
     // Escape all user-supplied strings to prevent XSS in PassPRNT's WebView
     const orderNum  = _escHtml(rawOrderNum);
@@ -9647,12 +9661,20 @@ ${oneCopy}
       `<div><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">DELIVERY</div>` +
       `<div style="font-size:12px;font-weight:700">${delivStr || '\u2014'}</div></div>${routePart}</div></div>`;
 
+    // Tip calculation
+    const ppTipAmt = parseFloat(tipAmount || 0);
+    const ppTipDollars = ppTipAmt > 0 ? (tipType === 'pct' ? Math.round(subtotal * ppTipAmt) / 100 : ppTipAmt) : 0;
+    const ppTipLabel = ppTipAmt > 0 ? (tipType === 'pct' ? `Team Tip (${ppTipAmt}%)` : 'Team Tip') : '';
+    const ppHasTip = ppTipDollars > 0;
+    const ppGrandTotal = Number(total || 0) + ppTipDollars;
+
     // Totals
     let totalsHtml = '';
-    if (hasFeeSplit) {
+    if (hasFeeSplit || ppHasTip) {
       totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Subtotal</span><span>${fmt(subtotal)}</span></div>`;
       if (delivFeeItem) totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Delivery Fee</span><span>${fmt(delivFeeItem.amount)}</span></div>`;
       if (sameDayItem)  totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Same-day surcharge</span><span>${fmt(sameDayItem.amount)}</span></div>`;
+      if (ppHasTip)     totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(ppTipLabel)}</span><span>+${fmt(ppTipDollars)}</span></div>`;
       if (creditItem)   totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Credit applied</span><span style="color:#16a34a">\u2212${fmt(creditItem.amount)}</span></div>`;
     }
 
@@ -9681,7 +9703,7 @@ ${oneCopy}
       `<hr style="border:none;border-top:2px solid #000;margin:7px 0">` +
       `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px">` +
       `<span style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Amount Due</span>` +
-      `<span style="font-size:28px;font-weight:900">$${Number(total || 0).toFixed(2)}</span></div>` +
+      `<span style="font-size:28px;font-weight:900">$${ppGrandTotal.toFixed(2)}</span></div>` +
       `<hr style="border:none;border-top:1px dashed #aaa;margin:7px 0">` +
       `<div style="text-align:center;margin:6px 0 2px">${barcodeSvg}` +
       `<div style="font-size:10px;color:#777;margin-top:1px;letter-spacing:.08em">${orderNum}</div></div>` +
@@ -9769,7 +9791,7 @@ ${oneCopy}
     copies = copies || 2;
     const { orderNum: rawON, custName: rawCN, custAddr: rawCA, weightLbs, bags,
             pickupStr: rawPS, delivStr: rawDS, stopNum: rawSN, routeName: rawRN,
-            addonTags: rawAT, lineItems, total } = data;
+            addonTags: rawAT, lineItems, total, tipAmount, tipType } = data;
     // Escape all user-supplied strings for safe HTML interpolation
     const orderNum = _escHtml(rawON), custName = _escHtml(rawCN), custAddr = _escHtml(rawCA);
     const pickupStr = _escHtml(rawPS), delivStr = _escHtml(rawDS);
@@ -9822,12 +9844,20 @@ ${oneCopy}
       `<div><div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:1px">🚐 Delivery</div>` +
       `<div style="font-size:12px;font-weight:700">${delivStr}</div></div>${routePart}</div></div>`;
 
-    // Totals rows (subtotal / fees / credit breakdown)
+    // Tip calculation
+    const rTipAmt = parseFloat(tipAmount || 0);
+    const rTipDollars = rTipAmt > 0 ? (tipType === 'pct' ? Math.round(subtotal * rTipAmt) / 100 : rTipAmt) : 0;
+    const rTipLabel = rTipAmt > 0 ? (tipType === 'pct' ? `Team Tip (${rTipAmt}%)` : 'Team Tip') : '';
+    const hasTip = rTipDollars > 0;
+    const receiptGrandTotal = Number(total || 0) + rTipDollars;
+
+    // Totals rows (subtotal / fees / tip / credit breakdown)
     let totalsHtml = '';
-    if (hasFeeSplit) {
+    if (hasFeeSplit || hasTip) {
       totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Subtotal</span><span>${fmt(subtotal)}</span></div>`;
       if (delivFeeItem) totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Delivery Fee</span><span>${fmt(delivFeeItem.amount)}</span></div>`;
       if (sameDayItem)  totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Same-day surcharge</span><span>${fmt(sameDayItem.amount)}</span></div>`;
+      if (hasTip)       totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(rTipLabel)}</span><span>+${fmt(rTipDollars)}</span></div>`;
       if (creditItem)   totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Credit applied</span><span style="color:#16a34a">&#8722;${fmt(creditItem.amount)}</span></div>`;
     }
 
@@ -9857,7 +9887,7 @@ ${oneCopy}
         `<hr class="solid">` +
         `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px">` +
         `<span style="font-family:-apple-system,sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Amount Due</span>` +
-        `<span style="font-family:-apple-system,sans-serif;font-size:22px;font-weight:900">$${Number(total || 0).toFixed(2)}</span></div>` +
+        `<span style="font-family:-apple-system,sans-serif;font-size:22px;font-weight:900">$${receiptGrandTotal.toFixed(2)}</span></div>` +
         `<hr class="dash">` +
         `<div style="text-align:center;margin:6px 0 2px"><svg class="bc-${sn}"></svg>` +
         `<div style="font-size:9px;color:#777;margin-top:1px;letter-spacing:.08em">${orderNum}</div></div>` +
@@ -9956,6 +9986,7 @@ ${oneCopy}
       delivStr:  _fmtReceiptDate(o.delivery_window_start),
       pickupRouteName, deliveryRouteName,
       stopNum, routeName, addonTags, lineItems, total,
+      tipAmount: o.tip_amount, tipType: o.tip_type,
       orderId: targetId,
     };
 
@@ -21879,6 +21910,7 @@ ${oneCopy}
       delivStr:  _fmtReceiptDate(o.delivery_window_start),
       pickupRouteName, deliveryRouteName,
       stopNum, routeName, addonTags, lineItems, total: bd.total,
+      tipAmount: o.tip_amount, tipType: o.tip_type,
       orderId: o.id,
     };
     const transport = _resolveTransport();

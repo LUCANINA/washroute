@@ -4973,7 +4973,8 @@ async function openDetail(orderId) {
     <div class="d-row"><span class="d-key">Delivery</span><span class="d-val">${deliveryDisplay}</span></div>
     ${!sameAddr && dAddr ? `<div class="d-row"><span class="d-key">Delivery address</span><span class="d-val" style="font-size:13px">${escHtml(fmtAddrOneLiner(dAddr))}<br><span style="font-size:11px;color:var(--gray-400);font-weight:400">Updated by your service team · SMS us to change</span></span></div>` : ''}
     ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${escHtml(o.special_instructions)}</span></div>` : ''}
-    <div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total (estimate)</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${o.total_amount ? $m(o.total_amount) : 'Confirmed at pickup'}</span></div>`;
+    ${(() => { const ta = parseFloat(o.tip_amount || 0); if (ta <= 0) return ''; const td = o.tip_type === 'pct' ? Math.round(Number(o.total_amount || 0) * ta) / 100 : ta; const tl = o.tip_type === 'pct' ? `Team Tip (${ta}%)` : 'Team Tip'; return `<div class="d-row"><span class="d-key">${tl}</span><span class="d-val" style="color:var(--green);font-weight:600">+${$m(td)}</span></div>`; })()}
+    <div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${o.total_amount ? (() => { const ta = parseFloat(o.tip_amount || 0); const td = ta > 0 ? (o.tip_type === 'pct' ? Math.round(Number(o.total_amount) * ta) / 100 : ta) : 0; return $m(Number(o.total_amount) + td); })() : 'Confirmed at pickup'}</span></div>`;
 
   // Payment status
   const payEl = document.getElementById('d-pay-section');
