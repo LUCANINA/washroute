@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 15, 2026 — Session 114: POS polish (receipt Print/Email/Text wired, stripe-terminal v2 with idempotency + timeout + structured errors, 5-sec auto-advance on success modal) + Subscriptions end-to-end (customer-facing My Plan always visible, admin Assign Subscription on customer profile Billing tab, usage deduction trigger on order delivery, overage calc, period reset on stripe-webhook period-end update, charge-order v35 refuses to charge subscription-covered orders, pause/resume/cancel/adjust-usage actions on customer profile + Reports table click-through).*
+*Last updated: Apr 15, 2026 — Session 116: SMS opt-out desync fix. Audit Check #9 flagged 26 customers in a NULL/NULL limbo state (phone present, neither `sms_consent_at` nor `sms_marketing_opt_out_at` set) — outbound SMS silently blocked for them. Root cause: admin "Add Customer" insert in `admin-dashboard/index.html` omitted `sms_consent_at`. Patched the insert to stamp `now()` when a phone is provided, and backfilled all 26 existing rows with `created_at` as consent timestamp. Audit #9 now clean.*
+
+*Prior: Session 115: Subscriptions Phase 4 — overage auto-billing. Deployed `stripe-webhook` v30 with `invoice.created` handler that attaches `overage_amount_due` as a Stripe `invoice_item` to the draft renewal invoice (idempotency key `overage-${sub.id}-${invoice.id}`, metadata flags, logged to `subscription_usage_log`). David added `invoice.created` to the Stripe webhook endpoint in Dashboard. Added Audit Check #15 (stale subscription overage) to `washroute-audit.skill`.*
 
 *Prior: Session 113: Delivery window / route template desync fix. Patched `auto_route_order` to sync order's `delivery_window_start/end` to the chosen template window after placing the delivery stop (was only used locally in the PM-bridging path, leaving AM windows on PM-routed orders). Bulk-resynced 153 active orders to match their actual assigned routes. Added Check #14 to daily audit. Root-cause: recurring trigger propagated bad arithmetic delivery windows inherited from old Starchup-imported parents; PM-bridging in auto_route_order silently routed them to PM routes without updating displayed windows — so customer-facing delivery times were wrong across the fleet.*
 
@@ -552,6 +554,57 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 15, 2026 (session 116) — SMS opt-out desync fix (Audit Check #9 → 0)
+
+**Context:** Carryover cleanup from morning rounds — Audit Check #9 had been flagging 26 customers as SMS-opt-out desynced. Investigation showed these weren't actual opt-outs; they were customers with `phone_cache` set but BOTH `sms_consent_at` and `sms_marketing_opt_out_at` = NULL. That limbo state meant any edge function guarding on `sms_consent_at IS NOT NULL` (e.g. `send-scheduled-reminders`) would silently skip them — active customers quietly excluded from SMS.
+
+**Pattern of the 26:**
+- ~16 Kidango childcare centers (batch-added 2026-03-31, each receiving 5–22 outbound SMS already)
+- 3 commercial accounts (Soul Sanctuary, Almanac Beer, Kidango - Toyon Center)
+- 6 recent individual adds (Apr 10–11) with no activity yet
+- 1 business (Almanac) with active back-and-forth on ACH payments
+
+**Root cause:** `admin-dashboard/index.html` line ~14487 — the admin "Add Customer" insert never included `sms_consent_at`. The customer app signup flow does set it, but the admin path quietly skipped it. Every customer you've manually added since the column was added was in limbo.
+
+**Fixes:**
+1. **Data:** `UPDATE customers SET sms_consent_at = created_at WHERE phone_cache IS NOT NULL AND sms_consent_at IS NULL AND sms_marketing_opt_out_at IS NULL` — 26 rows updated with their own creation timestamp as consent date (legitimate since admin added them with intent to communicate).
+2. **Root cause:** Admin insert now includes `sms_consent_at: phone ? new Date().toISOString() : null`. Any future admin-added customer with a phone is auto-consented.
+
+**Preflight:** Ran before the UPDATE. Triggers on `customers` (card sync, pricelist sync) — neither fires on SMS consent columns. Active crons — none watch consent changes. Risk level: LOW, blast radius 0 customers contacted.
+
+**Verification:** Audit Check #9 returns `out_of_sync_count: 0`.
+
+**Commits pushed to main:**
+- `a03767c` — Fix SMS consent desync: stamp sms_consent_at on admin-created customers
+- `222e207` — Session 115: subscription overage auto-billing via stripe-webhook v30
+- `aedc95c` — Session 113+114: delivery window desync fix + POS polish + Subscriptions end-to-end
+
+All three auto-deployed via Vercel.
+
+---
+
+### Apr 15, 2026 (session 115) — Subscriptions Phase 4: overage auto-billing
+
+**Context:** With subscription signup + usage triggers + admin management already shipped (session 114), the last missing piece was billing overage automatically on the next renewal invoice. David picked this as the momentum item before the S700 Terminal arrived.
+
+**Implementation:**
+- `stripe-webhook` v30 deployed with `invoice.created` handler (~45 LOC added).
+- On every `invoice.created` in status `draft` tied to a subscription, the handler:
+  1. Looks up the local `subscriptions` row by `stripe_subscription_id`
+  2. If `overage_amount_due > 0`, creates a Stripe `invoice_item` attached to the draft invoice (via `invoice` param)
+  3. Uses idempotency key `overage-${sub.id}-${invoice.id}` so a webhook retry can't double-bill
+  4. Tags the invoice_item with metadata: `washroute_overage: 'true'`, `washroute_subscription_id`
+  5. Resets local `overage_amount_due` to 0 and logs `overage_invoiced` in `subscription_usage_log`
+- Draft invoice fires ~1 hour before period end, so Stripe finalizes the invoice with the overage included, then auto-charges via the default card.
+
+**Stripe Dashboard:** David added `invoice.created` to the webhook endpoint event list.
+
+**Audit updated:** Check #15 added to `washroute-audit.skill` — flags subscriptions with non-zero `overage_amount_due` whose `current_period_end` has passed without a billing event (catches webhook-missed overages).
+
+**Pending (Phase 5 / future edge case):** Mid-cycle cancellation with overage owed — needs a final invoice on `customer.subscription.deleted`. Auto-generated recurring pickups for subscribers is the next feature after that.
+
+---
 
 ### Apr 15, 2026 (session 112) — Notes redistribution + recurring-dedup hardening + Processing Queue care-note visibility
 
