@@ -1387,8 +1387,8 @@
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
-        <!-- My Plan — always visible so non-subscribers can discover + subscribe -->
-        <div class="menu-item" id="acct-menu-plan-item" onclick="openSubPanel('sub-plan')">
+        <!-- My Plan — hidden behind SUBSCRIPTIONS_ENABLED feature flag -->
+        <div class="menu-item" id="acct-menu-plan-item" onclick="openSubPanel('sub-plan')" style="display:none">
           <div class="mi-left">
             <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
             <div>
@@ -1670,6 +1670,13 @@ let dbPlans         = [];
 let defaultService  = null; // the single W&F service
 let globalPrefs     = []; // global service preferences from preferences table
 let _activeSub      = null; // cached active subscription for this customer
+
+/* ── FEATURE FLAG: Subscriptions ──────────────────────────────
+   Set to true when ready to launch subscriptions to customers.
+   When false, the My Plan menu item, home subscription card,
+   and checkout flow are all hidden from customers.
+   ──────────────────────────────────────────────────────────── */
+const SUBSCRIPTIONS_ENABLED = false;
 
 /* ── USER DATA CACHE ── */
 // Stores profile + customer + cards in localStorage so returning users see the app instantly.
@@ -2413,7 +2420,7 @@ async function _handleCustomerSession(event, session) {
     document.getElementById('bottom-nav').style.display = 'flex';
 
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('subscribed') === 'true') {
+    if (urlParams.get('subscribed') === 'true' && SUBSCRIPTIONS_ENABLED) {
       // Subscription post-checkout redirect — session 118: show pickup day picker
       history.replaceState({}, '', window.location.pathname);
       try { await loadUserData(); } catch (_) {}
@@ -2749,6 +2756,7 @@ function buildProgressTrack(status) {
 /* ── Subscription home card ──────────────────────────────────── */
 async function renderHomeSubscriptionCard() {
   const card = document.getElementById('home-sub-card');
+  if (!SUBSCRIPTIONS_ENABLED) { if (card) card.style.display = 'none'; return; }
   if (!card || !currentCustomer?.id) { if (card) card.style.display = 'none'; return; }
 
   // Fetch the customer's active subscription (active, paused, or past_due — not cancelled)
@@ -6045,6 +6053,7 @@ async function startOrderPayment(orderId) {
 }
 
 async function startSubscription(planId) {
+  if (!SUBSCRIPTIONS_ENABLED) { toast('Subscriptions coming soon!'); return; }
   const btn = document.querySelector(`[data-plan-id="${planId}"] .plan-select-btn`);
   if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
   try {
@@ -6596,11 +6605,11 @@ async function loadAccount() {
   } else if (activePlan?.price_monthly > 0) {
     dotColor = '#2a6fc9';
   }
-  document.getElementById('acct-plan-badge').innerHTML = `
+  document.getElementById('acct-plan-badge').innerHTML = SUBSCRIPTIONS_ENABLED ? `
     <div class="plan-badge" style="margin-top:12px">
       <div class="plan-dot" style="background:${dotColor}"></div>
       ${planBadgeText}
-    </div>`;
+    </div>` : '';
 
   // Update menu value hints
   const planEl = document.getElementById('acct-menu-plan-name');
@@ -6653,10 +6662,10 @@ async function loadAccount() {
       planMenuValue.textContent = 'Not subscribed · tap to browse plans';
     }
   }
-  if (planMenuItem) planMenuItem.style.display = '';
+  if (planMenuItem) planMenuItem.style.display = SUBSCRIPTIONS_ENABLED ? '' : 'none';
 
   // Plan cards (shows subscription detail if subscriber, otherwise plan picker)
-  renderPlanCards(activePlanId);
+  if (SUBSCRIPTIONS_ENABLED) renderPlanCards(activePlanId);
 
   // Payment method card
   renderPaymentSection();

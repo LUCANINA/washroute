@@ -374,43 +374,36 @@ Deno.serve(async (req) => {
       const stripeCustomerId = getStripeCustomerId(sub.customer)
 
       // Get the first item's price to find plan_id
-      const firstItem = sub.items.data[0]
+      const firstItem = sub.items?.data?.[0]
       const stripePriceId = firstItem?.price?.id
 
       let plan: any = null
       let customer: any = null
 
-      if (!stripePriceId) {
-        console.log('customer.subscription.created: no items or price, skipping:', sub.id)
-      } else {
-        // Look up which plan this price belongs to
+      if (stripePriceId) {
         const planRes = await db.from('subscription_plans')
           .select('id')
           .eq('stripe_price_id', stripePriceId)
           .single()
         plan = planRes.data
-        if (!plan) {
-          console.warn('customer.subscription.created: plan not found for price:', stripePriceId)
-        }
+        if (!plan) console.warn('subscription.created: no plan for price:', stripePriceId)
+      } else {
+        console.warn('subscription.created: no items or price on sub:', sub.id)
       }
 
       if (plan) {
-        // Look up the customer by stripe_customer_id
         const custRes = await db.from('customers')
           .select('id')
           .eq('stripe_customer_id', stripeCustomerId)
           .single()
         customer = custRes.data
-        if (!customer) {
-          console.warn('customer.subscription.created: customer not found for stripe_customer_id:', stripeCustomerId)
-        }
+        if (!customer) console.warn('subscription.created: no customer for stripe_customer_id:', stripeCustomerId)
       }
 
       if (plan && customer) {
         const now = new Date().toISOString()
         const subStatus = mapStripeStatus(sub)
 
-        // UPSERT on stripe_subscription_id to handle retries
         const { error: upsertErr } = await db.from('subscriptions')
           .upsert({
             customer_id: customer.id,
@@ -422,14 +415,12 @@ Deno.serve(async (req) => {
             signup_date: now,
             last_stripe_event_at: now,
             updated_at: now,
-          }, {
-            onConflict: 'stripe_subscription_id',
-          })
+          }, { onConflict: 'stripe_subscription_id' })
 
         if (upsertErr) {
-          console.error('customer.subscription.created upsert error:', upsertErr.message)
+          console.error('subscription.created upsert failed:', upsertErr.message, upsertErr.code)
         } else {
-          console.log('Subscription created:', sub.id, 'for customer:', customer.id, 'plan:', plan.id)
+          console.log('Subscription created:', sub.id, 'customer:', customer.id, 'status:', subStatus)
         }
       }
     }
