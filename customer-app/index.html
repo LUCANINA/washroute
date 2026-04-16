@@ -1353,8 +1353,8 @@
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
-        <!-- My Plan — hidden until subscriptions launch -->
-        <div class="menu-item" id="acct-menu-plan-item" onclick="openSubPanel('sub-plan')" style="display:none">
+        <!-- My Plan — always visible so non-subscribers can discover + subscribe -->
+        <div class="menu-item" id="acct-menu-plan-item" onclick="openSubPanel('sub-plan')">
           <div class="mi-left">
             <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
             <div>
@@ -6282,9 +6282,25 @@ async function loadAccount() {
     _activeSub = subs?.[0] || null;
   }
 
-  // Show/hide "My Plan" menu item based on subscription status
-  const planMenuItem = document.getElementById('acct-menu-plan-item');
-  if (planMenuItem) planMenuItem.style.display = _activeSub ? '' : 'none';
+  // "My Plan" menu item is always visible — non-subscribers see a
+  // "Not subscribed · tap to browse plans" sub-label, subscribers see
+  // their plan name + status. Panel itself renders the right view
+  // (plan cards vs subscription detail) based on _activeSub.
+  const planMenuItem   = document.getElementById('acct-menu-plan-item');
+  const planMenuValue  = document.getElementById('acct-menu-plan-name');
+  if (planMenuValue) {
+    if (_activeSub) {
+      const pname = _activeSub.subscription_plans?.name || 'Subscriber';
+      const statusSuffix = _activeSub.status === 'active' ? '' :
+                           _activeSub.status === 'paused' ? ' · paused' :
+                           _activeSub.status === 'past_due' ? ' · past due' :
+                           _activeSub.status === 'cancelled' ? ' · cancelled' : '';
+      planMenuValue.textContent = pname + statusSuffix;
+    } else {
+      planMenuValue.textContent = 'Not subscribed · tap to browse plans';
+    }
+  }
+  if (planMenuItem) planMenuItem.style.display = '';
 
   // Plan cards (shows subscription detail if subscriber, otherwise plan picker)
   renderPlanCards(activePlanId);

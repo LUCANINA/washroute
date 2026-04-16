@@ -1,5 +1,9 @@
 # WashRoute — Project Notes
-*Last updated: Apr 15, 2026 — Session 112 (extended): Notes model rewired (3-field), recurring dedup hardened, Processing Queue care-note fallback. Reports/Registrations tab added with KPIs + CSV. Daily Revenue: per-day expansion + today-only default. Card-state caches now accumulate across tabs (fixes stale "Request card" button). Rebrand: purple → vibrant blue (#3B82F6) including hardcoded uses across email, refunds, leaflet, kanban pills.*
+*Last updated: Apr 15, 2026 — Session 114: POS polish (receipt Print/Email/Text wired, stripe-terminal v2 with idempotency + timeout + structured errors, 5-sec auto-advance on success modal) + Subscriptions end-to-end (customer-facing My Plan always visible, admin Assign Subscription on customer profile Billing tab, usage deduction trigger on order delivery, overage calc, period reset on stripe-webhook period-end update, charge-order v35 refuses to charge subscription-covered orders, pause/resume/cancel/adjust-usage actions on customer profile + Reports table click-through).*
+
+*Prior: Session 113: Delivery window / route template desync fix. Patched `auto_route_order` to sync order's `delivery_window_start/end` to the chosen template window after placing the delivery stop (was only used locally in the PM-bridging path, leaving AM windows on PM-routed orders). Bulk-resynced 153 active orders to match their actual assigned routes. Added Check #14 to daily audit. Root-cause: recurring trigger propagated bad arithmetic delivery windows inherited from old Starchup-imported parents; PM-bridging in auto_route_order silently routed them to PM routes without updating displayed windows — so customer-facing delivery times were wrong across the fleet.*
+
+*Prior: Session 112 (extended): Notes model rewired (3-field), recurring dedup hardened, Processing Queue care-note fallback. Reports/Registrations tab added with KPIs + CSV. Daily Revenue: per-day expansion + today-only default. Card-state caches now accumulate across tabs (fixes stale "Request card" button). Rebrand: purple → vibrant blue (#3B82F6) including hardcoded uses across email, refunds, leaflet, kanban pills.*
 
 ---
 
@@ -1493,6 +1497,93 @@ The product-category tabs (`.tab`) at the top of the products panel were already
 3. **Flat-per-drop-off pricing assumption.** If any add-on ever needs to be per-pound (e.g. a premium soap priced per lb), `lineTotal()` needs to accept a per-addon `priceType` field. Right now every add-on is flat.
 4. **Retail POS pricing tier is still TBD.** See the `pricelist` rename notes from session 97p3 — POS walk-in transactions should pull from a third pricelist (`retail`) tied to the transaction channel, not the customer profile. Not blocking, but worth revisiting when wiring this up.
 5. **Sober aesthetic is the new baseline.** If anything new is added to the POS mockup, match the white + gray-200 outline + dark fill pattern instead of using `--accent` as a fill. Accent is still fine for small hits (active chip check badges, cart add-on pills, the `POS — CASHIER TERMINAL` screen label), just not for large filled buttons.
+
+---
+
+### Apr 15, 2026 (session 114) — POS polish + Subscriptions end-to-end
+
+**Context:** Stripe Terminal S700 arrives tomorrow; subscriptions DB schema was already in place but the signup flow, usage enforcement, and admin management were unfinished.
+
+**Track 1 — POS polish (`pos-mockup.html`, `stripe-terminal` edge fn v2):**
+
+1. **Receipt buttons wired** in the success modal. Print → `print_jobs` insert (Star Document Markup for mC-Print3 CloudPRNT) with browser popup fallback when no printer token is configured. Email → `send-receipt` edge function. Text → `send-sms` with a short "Order #X · $Y · Thank you!" body. Email/Text buttons hide automatically for walk-ins with no attached customer. Each button shows a ✓ Sent / ✓ Emailed / ✓ Printed confirmation.
+2. **Customer lookup extended** to pull `id, email_cache` so the attached-customer object on the cart has everything needed for email/text receipts without a second round-trip. `attachCustomer` now takes an optional `extras` object; new `attachCustomerById` lookups keyed through `_customerLookupCache`.
+3. **`stripe-terminal` edge fn v2** — idempotency key on PaymentIntent creation (deterministic per-sale key generated client-side, regenerated on fresh sale or hard payment failure — prevents duplicate charges if the cashier's retry races a network drop). 25-second timeout wrapper on every Stripe call so a hung API doesn't lock the register. Upper-cap $5,000 guard to prevent typo-driven huge charges. Structured error response shape `{error, code, details?}` so the POS client can distinguish retry-safe vs hard-fail.
+4. **5-second auto-advance** on the success modal — cashier doesn't need to tap "Start new sale" after a successful transaction. Any receipt-button click cancels the timer so the cashier has time to print/email/text before the reset.
+
+**Track 2 — Subscriptions Phase 1 (signup + create):**
+
+5. **`create-checkout` already supported `type: 'subscription'`** (session 109) — no new edge function needed. It opens Stripe Checkout in `mode: 'subscription'` and the existing `stripe-webhook` handler populates the `subscriptions` row on `customer.subscription.created`.
+6. **Customer app "My Plan" menu item is always visible** now (previously hidden until the customer had an active sub, which made the Subscribe flow undiscoverable). Non-subscribers see a sub-label "Not subscribed · tap to browse plans"; the panel itself shows the plan cards + Subscribe CTAs. Subscribers see their plan name + status.
+7. **Admin "Assign Subscription" section** on the customer profile → Billing tab. New card between Billing group and Discount. If no active sub: plan dropdown + "Start Checkout" button that calls `create-checkout` with `customerId` and opens the Stripe-hosted checkout in a new tab — admin can hand the iPad to the customer or email them the link. If active sub: shows plan name, status badge, usage bar, pickup count, overage due, renewal date, plus row action buttons (Phase 3).
+
+**Track 3 — Subscriptions Phase 2 (usage enforcement):**
+
+8. **Migration `subscription_usage_triggers_phase2`** — two new triggers + functions, both `SECURITY DEFINER`:
+   - `trg_apply_subscription_usage` on `orders` (BEFORE UPDATE OF status) — when `status` transitions into `delivered` and `subscription_id IS NOT NULL`, deducts `weight_lbs` from `subscriptions.usage_lbs_this_period`, increments `pickups_this_period`, recomputes `overage_amount_due = MAX(0, (usage - weight_limit_lbs) × overage_price_per_lb)`, appends an `order_delivered` event to `subscription_usage_log`, and marks the order `billing_status='paid', billing_payment_method='subscription'` so charge-order won't double-bill. Transition-guarded so re-saves don't re-fire.
+   - `trg_reset_subscription_usage` on `subscriptions` (BEFORE UPDATE OF current_period_end) — when `current_period_end` moves forward (happens on `invoice.payment_succeeded` webhook), zeros `usage_lbs_this_period / pickups_this_period / overage_amount_due` and logs a `period_reset` event with the old values for audit.
+9. **`charge-order` v35** — defense in depth: if `order.subscription_id IS NOT NULL`, returns `{ success: true, coveredBySubscription: true }` without charging. Trigger already marks these orders paid at delivery time; this is a belt-and-suspenders guard for manual admin clicks or edge-function races.
+
+**Track 4 — Subscriptions Phase 3 (admin actions):**
+
+10. **Customer profile action buttons wired.** `renderCpSubscriptionActions` now renders a context-aware row of Pause/Resume (mutually exclusive based on status), Cancel, and Adjust Usage. The first three call existing edge functions (`pause-subscription`, `resume-subscription`, `cancel-subscription`). Confirm prompts on each. On success, the subscription section + Reports tab (if open) both re-render via `renderCpSubscription()` / `renderSubscriptionsTab()`.
+11. **Adjust Usage** is a manual override for edge cases (printer jammed at the store, order re-weighed after delivery, etc.). Prompts for new lbs + new pickups + reason. Recomputes overage from plan limits. Writes to `subscriptions` + appends an `adjustment` row to `subscription_usage_log` with the delta and reason for audit.
+12. **Reports → Subscriptions tab** gained an Actions column + click-through: clicking any row (or the Manage → button) opens the customer's profile directly to the Billing tab where the row actions live. Table colspan bumped from 8 → 9.
+
+**Files touched:**
+- `pos-mockup.html` — 240+ line additions for receipt handlers, idempotency key, auto-advance, print helpers.
+- `customer-app/index.html` — My Plan menu item made always visible + smart sub-label.
+- `admin-dashboard/index.html` — customer profile Subscription section (~180 LOC), row-action handlers, Reports table click-through, colspan fix.
+
+**Edge functions:**
+- `stripe-terminal` v2 deployed (idempotency + timeout + structured errors + upper-cap).
+- `charge-order` v35 deployed (subscription-covered short-circuit).
+
+**DB changes:**
+- Migration `subscription_usage_triggers_phase2` — 2 functions + 2 triggers. All `SECURITY DEFINER`. Reversible with `DROP TRIGGER` + `DROP FUNCTION`.
+
+**⚠️ For future sessions:**
+1. **Overage auto-billing is not wired.** The trigger computes and stores `overage_amount_due` on the subscription, but nothing charges it automatically. Phase 4: at period-end (in `stripe-webhook` → `invoice.payment_succeeded`), add an `invoice_item` on the Stripe customer for the overage before the invoice is finalized. Then reset the counter on the same event.
+2. **Subscription order creation is not automated.** A subscriber still has to book pickups manually through the customer app. Phase 5 could auto-create recurring orders on the `preferred_pickup_day` / `preferred_pickup_window` stored on the subscription. The existing recurring-order trigger (`trg_create_recurring_order_fn`) handles the cascade once the first order is created — but Phase 5 needs the initial order generator.
+3. **POS S700 needs hardware registration.** When the reader arrives (Thursday), log in to Stripe Dashboard → Terminal → Readers → register the S700 serial. Then the `discoverAndConnect()` flow in `pos-mockup.html` should find it on first try. The reader code still references "M2" in the UI copy (line 3127, 3137) — harmless but worth updating to "S700" once hardware works.
+4. **POS order print_jobs contract vs admin's.** POS uses a minimal Star Markup (header/customer/line items/total/footer) while admin uses the full `buildStarMarkup` with bag info, routes, weight. If you later want them identical, move the markup builder into a shared helper file or expose `send-receipt` to accept a `print: true` flag.
+5. **Custom usage adjustment doesn't scale.** The `adminAdjustUsage` prompt flow is quick & dirty (three `prompt()` dialogs). If this gets used often, replace with a proper modal. But the underlying DB writes are sound and auditable via `subscription_usage_log`.
+
+---
+
+### Apr 15, 2026 (session 113) — Delivery window / route template desync fix + audit Check #14
+
+**Context:** Morning audit flagged two orders (#1473 Chris Whittington, #1514 Courtney Burris) as `delivery_orphaned`. On inspection their admin-panel display showed "4/15 · 7:0–9:0a" delivery windows even though they'd been picked up the night before on PM routes. Tracing the database revealed the order's stored `delivery_window_start` was 4/15 07:00 AM while the actual delivery `route_stop` lived on Berkeley PM / Oakland PM (18:00–22:00). 153 active orders in total had this same desync.
+
+**Three bugs stacked:**
+
+1. **Starchup-imported parent orders** (e.g. #478, #505) were seeded with `delivery_window = pickup_window + 13h`, producing PM-pickup → next-day-AM-delivery combos that didn't match any real route template.
+2. **`trg_create_recurring_order_fn` propagated that bad arithmetic forever** via `next_delivery = next_pickup + (old_delivery - old_pickup)`. Every biweekly/weekly child inherited the 13h delta regardless of business reality.
+3. **`auto_route_order`'s PM-bridging block** (Apr 8, 2026) detected the "PM pickup + AM delivery" combo and silently routed the delivery stop to a PM template in the same zone — but only updated `v_delivery_time` locally. The order's `delivery_window_start` column was never synced, so every UI that rendered that column (admin panel, customer app, SMS templates) displayed the phantom AM time while the driver actually delivered in PM.
+
+**The fix:**
+
+- **Migration — `auto_route_order` v2 (commit of `CREATE OR REPLACE FUNCTION` on 2026-04-15):** After the function successfully places a delivery stop on a route, it now writes the chosen template's `window_start/window_end` on the chosen `run_date` back to the order's `delivery_window_start/end`. This closes the structural hole for all future orders — new, recurring, or rescheduled.
+- **Bulk data resync — 153 orders:** UPDATE of `delivery_window_start/end` to match each order's currently-assigned delivery route template on its current `run_date`. `trg_sync_delivery_stop_on_window_change` was temporarily disabled during the UPDATE (the stops are already on the correct routes; we didn't want the trigger trying to relocate them as a side effect of the window change). Snapshot preserved in `_resync_delivery_window_20260415` for rollback/audit.
+- **Stale `delivery_orphaned` flags** cleared on the 153 orders. The `flag-delivery-orphaned` cron (every 15 min) will re-set accurately against the corrected windows.
+
+**Audit Check #14 added** (patch saved as `audit-check-14-patch.md` in repo root to merge into `washroute-audit/SKILL.md`): surfaces any delivery window / route template mismatch going forward.
+
+**Did NOT touch:**
+- `trg_create_recurring_order_fn` — Migration A on `auto_route_order` catches any bad windows at insert time and rewrites them, so the recurring trigger's arithmetic becomes harmless. Nulling delivery_window in recurring children would have broken the PM-bridging path (which needs a stored AM time to trigger). Left as-is.
+
+**Verification:**
+- 0 orders now show a delivery_window / route mismatch.
+- Both original flagged orders (Chris + Courtney) now display delivery 4/15 18:00–22:00 on Berkeley PM / Oakland PM — will deliver tonight as operationally expected.
+
+**Correction (same session):** First pass of the delivery resync used an over-strict criterion (`time = template.window_start`) and widened 106 legitimate customer sub-windows (e.g. a 7–9 PM slot inside a 6–10 PM Oakland PM route) to the full template window. Caught when running the pickup-side check, which would have falsely flagged 88 legitimate sub-windows. Restored the 106 sub-window values from the `_resync_delivery_window_20260415` snapshot where the old time was within the template's range AND the old date matched `run_date`. Only 47 delivery rows (truly outside template) remain resynced. Pickup side: 2 genuinely-wrong rows (#2451 San Francisco, #2139 Hayward PM — both had `pickup_window_start` one hour before the earliest route slot) were shifted to the template's `window_start`. Pickup snapshot preserved in `_resync_pickup_window_20260415`.
+
+**Revised Check #14** uses *sub-window alignment* semantics: a window is valid if it (a) falls within the template's window range, (b) lands on the same date as `run_date`, AND (c) aligns to a real sub-window boundary (`template.window_start + N × arrival_window_hours`). Oakland PM (6–10 PM, 2h arrival) has exactly two valid slots: 6–8 PM and 8–10 PM. Any stored time like 7 PM or 9 PM is misaligned. Three such rows were found after the initial fix pass (#2458 Oakland PM delivery @19:00, #1799 Hayward PM delivery @20:00, #2510 Hayward PM pickup @20:00) and snapped to the nearest valid sub-window start. See updated `audit-check-14-patch.md` in repo root.
+
+**⚠️ For future sessions:**
+1. The `_resync_delivery_window_20260415` and `_resync_pickup_window_20260415` snapshot tables can be dropped in a week or two once we're confident no rollback is needed.
+2. Audit Check #14 needs to be manually pasted into the washroute-audit skill file on David's host (see `audit-check-14-patch.md`). The Cowork mount of the skills folder is read-only.
+3. The corrected Check #14 is the source of truth — the initial over-strict version is superseded.
 
 ---
 

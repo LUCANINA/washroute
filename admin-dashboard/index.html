@@ -2279,10 +2279,11 @@
                       <th>Overage Due</th>
                       <th>Renews</th>
                       <th>Signed Up</th>
+                      <th style="text-align:right">Actions</th>
                     </tr>
                   </thead>
                   <tbody id="rpt-sub-tbody">
-                    <tr><td colspan="8"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                    <tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
                   </tbody>
                 </table>
               </div>
@@ -2340,10 +2341,11 @@
                       <th>Overage Due</th>
                       <th>Renews</th>
                       <th>Signed Up</th>
+                      <th style="text-align:right">Actions</th>
                     </tr>
                   </thead>
                   <tbody id="rpt-sub-tbody">
-                    <tr><td colspan="8"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                    <tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
                   </tbody>
                 </table>
               </div>
@@ -3789,6 +3791,12 @@
           <option value="">— None —</option>
         </select>
       </div>
+    </div>
+
+    <!-- Subscription -->
+    <div class="cp-section-head"><span>Subscription</span></div>
+    <div class="cp-card" id="cpb-subscription-card">
+      <div id="cpb-sub-content" style="font-size:13px;color:var(--gray-500)">Loading…</div>
     </div>
 
     <!-- Discount -->
@@ -10463,6 +10471,252 @@ ${oneCopy}
     _cardCustomerId = null;
   }
 
+  /* ═════════════════════════════════════════════════════════════
+     CUSTOMER PROFILE — SUBSCRIPTION SECTION (session 113)
+     ═════════════════════════════════════════════════════════════
+     Renders either:
+       a) Active subscription summary + Pause/Resume/Cancel (Phase 3
+          adds the row actions; Phase 1 just shows status)
+       b) "Assign plan" picker + button (calls create-checkout with
+          customerId + planId → Stripe-hosted checkout opened in a
+          new tab so the admin can hand the iPad to the customer to
+          enter a card, or email the link).
+     ═════════════════════════════════════════════════════════════ */
+  async function renderCpSubscription(customerId) {
+    const el = document.getElementById('cpb-sub-content');
+    if (!el) return;
+    el.innerHTML = '<div style="color:var(--gray-400)">Loading subscription…</div>';
+    try {
+      const [subRes, planRes] = await Promise.all([
+        db.from('subscriptions')
+          .select('*, subscription_plans(name, price_monthly, weight_limit_lbs, pickup_limit, overage_price_per_lb)')
+          .eq('customer_id', customerId)
+          .in('status', ['active','paused','past_due'])
+          .order('created_at', { ascending: false })
+          .limit(1),
+        db.from('subscription_plans')
+          .select('id, name, price_monthly, weight_limit_lbs, pickup_limit')
+          .eq('is_active', true)
+          .order('price_monthly'),
+      ]);
+      const sub   = subRes.data?.[0] || null;
+      const plans = planRes.data || [];
+
+      if (sub) {
+        const plan = sub.subscription_plans || {};
+        const usagePct = plan.weight_limit_lbs
+          ? Math.min(100, Math.round(100 * (Number(sub.usage_lbs_this_period || 0) / plan.weight_limit_lbs)))
+          : 0;
+        const usageColor = usagePct >= 90 ? 'var(--red)' : usagePct >= 75 ? '#f59e0b' : 'var(--green)';
+        const statusBadge = sub.status === 'active'   ? '<span style="background:var(--green-light);color:var(--green);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">ACTIVE</span>'
+                          : sub.status === 'paused'   ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">PAUSED</span>'
+                          : sub.status === 'past_due' ? '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">PAST DUE</span>'
+                          : '';
+        const renewTxt = sub.current_period_end
+          ? new Date(sub.current_period_end).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' })
+          : '—';
+        el.innerHTML = `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <div style="font-size:16px;font-weight:700;color:var(--gray-900)">${esc(plan.name || '—')}</div>
+            ${statusBadge}
+            <div style="margin-left:auto;font-size:12px;color:var(--gray-500)">$${Number(plan.price_monthly||0).toFixed(0)}/mo</div>
+          </div>
+          ${plan.weight_limit_lbs ? `
+            <div style="margin-bottom:8px">
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-500);margin-bottom:4px">
+                <span>Usage this period</span>
+                <span><strong style="color:var(--gray-900)">${Number(sub.usage_lbs_this_period||0).toFixed(0)}</strong> / ${plan.weight_limit_lbs} lbs</span>
+              </div>
+              <div style="height:6px;background:var(--gray-100);border-radius:3px;overflow:hidden">
+                <div style="height:100%;width:${usagePct}%;background:${usageColor};"></div>
+              </div>
+            </div>
+          ` : ''}
+          <div style="display:flex;gap:16px;font-size:12px;color:var(--gray-500);margin-top:4px">
+            ${plan.pickup_limit ? `<span>Pickups: <strong style="color:var(--gray-900)">${sub.pickups_this_period || 0} / ${plan.pickup_limit}</strong></span>` : ''}
+            ${Number(sub.overage_amount_due || 0) > 0 ? `<span>Overage: <strong style="color:var(--red)">${fmtMoney(sub.overage_amount_due)}</strong></span>` : ''}
+            <span style="margin-left:auto">Renews ${renewTxt}</span>
+          </div>
+          <div id="cpb-sub-actions" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+            <!-- Phase 3 row actions (pause/resume/cancel/adjust) will mount here -->
+          </div>
+        `;
+        renderCpSubscriptionActions(sub);
+        return;
+      }
+
+      // No active subscription — show Assign Plan picker
+      if (!plans.length) {
+        el.innerHTML = '<div style="color:var(--gray-400)">No active plans. Create one in Settings → Subscription Plans.</div>';
+        return;
+      }
+      el.innerHTML = `
+        <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+          <div class="cp-field" style="flex:1;min-width:220px;margin:0">
+            <div class="cp-field-label">Assign Plan</div>
+            <select class="cp-input" id="cpb-plan-select">
+              ${plans.map(p => `<option value="${p.id}">${esc(p.name)} — $${Number(p.price_monthly).toFixed(0)}/mo${p.weight_limit_lbs ? ` · ${p.weight_limit_lbs} lbs` : ''}${p.pickup_limit ? ` · ${p.pickup_limit} pickups` : ''}</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn btn-primary" id="cpb-assign-sub-btn" onclick="adminAssignSubscription('${customerId}')" style="padding:8px 16px;font-size:13px">Start Checkout</button>
+        </div>
+        <div style="font-size:12px;color:var(--gray-500);margin-top:8px">
+          Opens a Stripe-hosted checkout in a new tab. The customer enters their card to start the subscription. The DB row is created automatically when the checkout completes (via webhook).
+        </div>
+      `;
+    } catch (e) {
+      console.error('[renderCpSubscription]', e);
+      el.innerHTML = '<div style="color:var(--red)">Error loading subscription: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  // Phase 3: wired row actions. Pause/Resume/Cancel hit the existing
+  // edge functions (which handle Stripe + DB state). Adjust usage is
+  // an admin-only manual override for edge cases (printer jammed, order
+  // re-weighed, etc.) — writes directly to the subscription row and
+  // appends an 'adjustment' event to subscription_usage_log.
+  function renderCpSubscriptionActions(sub) {
+    const el = document.getElementById('cpb-sub-actions');
+    if (!el) return;
+    const id = sub.id;
+    const paused    = sub.status === 'paused';
+    const cancelled = sub.status === 'cancelled';
+    el.innerHTML = `
+      ${paused
+        ? `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="adminResumeSubscription('${id}')">▶ Resume</button>`
+        : cancelled
+          ? ''
+          : `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="adminPauseSubscription('${id}')">⏸ Pause</button>`
+      }
+      ${cancelled
+        ? '<span style="font-size:12px;color:var(--gray-400);padding:6px 0">Subscription cancelled</span>'
+        : `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;color:var(--red)" onclick="adminCancelSubscription('${id}')">✕ Cancel</button>`
+      }
+      <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;margin-left:auto" onclick="adminAdjustUsage('${id}')">✎ Adjust usage</button>
+    `;
+  }
+
+  async function _callSubscriptionFn(slug, subscriptionId, confirmMsg) {
+    if (confirmMsg && !confirm(confirmMsg)) return;
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/${slug}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPA_ANON_KEY, Authorization: `Bearer ${SUPA_ANON_KEY}` },
+        body: JSON.stringify({ subscription_id: subscriptionId }),
+      });
+      const { error } = await res.json();
+      if (error) throw new Error(error);
+      showToast('Updated', 'success');
+      // Re-render the subscription section with fresh data
+      if (panelCustomerId) renderCpSubscription(panelCustomerId);
+      // Also refresh the Reports tab if it's the current page
+      if (typeof renderSubscriptionsTab === 'function' && currentPage === 'reports') renderSubscriptionsTab();
+    } catch (e) {
+      console.error(`[${slug}]`, e);
+      showToast('Error: ' + e.message, 'error');
+    }
+  }
+
+  function adminPauseSubscription(id) {
+    return _callSubscriptionFn('pause-subscription', id, 'Pause this subscription? The customer won\'t be charged while paused.');
+  }
+  function adminResumeSubscription(id) {
+    return _callSubscriptionFn('resume-subscription', id, 'Resume this subscription? The next charge will be on the renewal date.');
+  }
+  function adminCancelSubscription(id) {
+    return _callSubscriptionFn('cancel-subscription', id, 'Cancel this subscription? This stops future billing. Usage from the current period stays on record.');
+  }
+
+  // Helper — open customer profile directly to the Billing tab
+  // (where subscription actions live). Used by the Reports → Subscriptions
+  // row click-throughs.
+  function _openCustomerOnBillingTab(customerId) {
+    if (!customerId) return;
+    openCustomerPanel(customerId, 'billing');
+  }
+
+  async function adminAdjustUsage(subscriptionId) {
+    const { data: sub } = await db.from('subscriptions')
+      .select('usage_lbs_this_period, pickups_this_period, overage_amount_due')
+      .eq('id', subscriptionId).single();
+    if (!sub) { showToast('Subscription not found', 'error'); return; }
+    const newLbsStr = prompt(`Current usage: ${Number(sub.usage_lbs_this_period||0).toFixed(1)} lbs\nEnter new value (lbs):`, String(sub.usage_lbs_this_period || 0));
+    if (newLbsStr === null) return;
+    const newLbs = Number(newLbsStr);
+    if (!Number.isFinite(newLbs) || newLbs < 0) { showToast('Invalid value', 'error'); return; }
+    const newPickupsStr = prompt(`Current pickups: ${sub.pickups_this_period || 0}\nEnter new value:`, String(sub.pickups_this_period || 0));
+    if (newPickupsStr === null) return;
+    const newPickups = parseInt(newPickupsStr, 10);
+    if (!Number.isFinite(newPickups) || newPickups < 0) { showToast('Invalid value', 'error'); return; }
+    const reason = prompt('Reason for adjustment? (Saved to usage log)', '');
+    if (reason === null) return;
+    try {
+      // Get plan limits to recompute overage
+      const { data: sub2 } = await db.from('subscriptions')
+        .select('*, subscription_plans(weight_limit_lbs, overage_price_per_lb)')
+        .eq('id', subscriptionId).single();
+      const plan = sub2?.subscription_plans || {};
+      const overage = (plan.weight_limit_lbs && newLbs > plan.weight_limit_lbs)
+        ? Math.round((newLbs - plan.weight_limit_lbs) * (Number(plan.overage_price_per_lb) || 0) * 100) / 100
+        : 0;
+      const deltaLbs     = newLbs - (Number(sub.usage_lbs_this_period) || 0);
+      const deltaPickups = newPickups - (sub.pickups_this_period || 0);
+      const { error: updErr } = await db.from('subscriptions')
+        .update({
+          usage_lbs_this_period: newLbs,
+          pickups_this_period:   newPickups,
+          overage_amount_due:    overage,
+          updated_at:            new Date().toISOString(),
+        })
+        .eq('id', subscriptionId);
+      if (updErr) throw updErr;
+      await db.from('subscription_usage_log').insert({
+        subscription_id: subscriptionId,
+        order_id: null,
+        event_type: 'adjustment',
+        weight_delta: deltaLbs,
+        pickups_delta: deltaPickups,
+        note: 'Admin adjust: ' + (reason || '(no reason given)'),
+      });
+      showToast('Usage adjusted', 'success');
+      if (panelCustomerId) renderCpSubscription(panelCustomerId);
+      if (typeof renderSubscriptionsTab === 'function' && currentPage === 'reports') renderSubscriptionsTab();
+    } catch (e) {
+      console.error('[adminAdjustUsage]', e);
+      showToast('Error: ' + e.message, 'error');
+    }
+  }
+
+  async function adminAssignSubscription(customerId) {
+    const sel = document.getElementById('cpb-plan-select');
+    const btn = document.getElementById('cpb-assign-sub-btn');
+    const planId = sel?.value;
+    if (!planId) { showToast('Pick a plan first', ''); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Opening checkout…'; }
+    try {
+      const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPA_ANON_KEY, Authorization: `Bearer ${SUPA_ANON_KEY}` },
+        body: JSON.stringify({
+          type: 'subscription',
+          planId,
+          customerId,
+          successUrl: window.location.origin + window.location.pathname + '?subscription_started=true',
+          cancelUrl:  window.location.origin + window.location.pathname,
+        }),
+      });
+      const { url, error } = await res.json();
+      if (error) throw new Error(error);
+      window.open(url, '_blank');
+      showToast('Checkout opened in a new tab. The subscription will activate when the customer pays.', 'success');
+    } catch (e) {
+      console.error('[adminAssignSubscription]', e);
+      showToast('Error: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Start Checkout'; }
+    }
+  }
+
   async function adminSubmitCard() {
     const formEl    = document.getElementById('cp-card-form');
     const errEl     = document.getElementById('cp-card-errors');
@@ -14662,6 +14916,8 @@ ${oneCopy}
     document.getElementById('cpb-fee-exempt').checked   = !!c.fee_exempt;
     populateBillingGroupDropdown(c.billing_group_id);
     document.getElementById('cpb-credits-display').textContent = fmtMoney(c.credits || 0);
+    // Render subscription section (fire-and-forget; has its own loading state)
+    renderCpSubscription(customerId);
     document.getElementById('cpb-tip-amount').value     = c.default_tip     || 0;
     // Tip type toggle
     const tipType = c.default_tip_type || '$';
@@ -22177,7 +22433,7 @@ ${oneCopy}
     if (error) {
       console.error('[Reports] Subscription report error:', error);
       document.getElementById('rpt-sub-tbody').innerHTML =
-        '<tr><td colspan="8" class="rpt-no-data">Error loading subscriptions.</td></tr>';
+        '<tr><td colspan="9" class="rpt-no-data">Error loading subscriptions.</td></tr>';
       return;
     }
 
@@ -22205,7 +22461,7 @@ ${oneCopy}
 
     const tbody = document.getElementById('rpt-sub-tbody');
     if (!allSubs.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="rpt-no-data">No subscriptions yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="rpt-no-data">No subscriptions yet.</td></tr>';
       return;
     }
 
@@ -22233,7 +22489,14 @@ ${oneCopy}
         ? new Date(s.signup_date || s.created_at).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric' })
         : '—';
 
-      return `<tr>
+      const custId = s.customers?.id;
+      // Click-through: whole row opens the customer profile → Billing tab
+      // where the pause/resume/cancel/adjust actions live. The inline
+      // "Manage" button is the discoverable affordance for that path.
+      const rowClick = custId
+        ? `onclick="_openCustomerOnBillingTab('${custId}')" style="cursor:pointer"`
+        : '';
+      return `<tr ${rowClick}>
         <td style="font-weight:600">${custName}</td>
         <td>${planName}</td>
         <td><span style="padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600;${statusStyle}">${s.status}</span></td>
@@ -22249,6 +22512,9 @@ ${oneCopy}
         <td style="color:${overage > 0 ? 'var(--red)' : 'var(--gray-400)'};font-weight:${overage > 0 ? '600' : '400'}">${overage > 0 ? fmtMoney(overage) : '—'}</td>
         <td>${renewDate}</td>
         <td style="color:var(--gray-500)">${signupDate}</td>
+        <td style="text-align:right;white-space:nowrap">
+          ${custId ? `<button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="event.stopPropagation();_openCustomerOnBillingTab('${custId}')">Manage →</button>` : ''}
+        </td>
       </tr>`;
     }).join('');
 

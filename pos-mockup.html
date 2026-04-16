@@ -1867,21 +1867,24 @@
             <div id="successOrderNum" style="display:none; margin-top:4px; font-size:13px; font-weight:700; color:var(--accent-dark);"></div>
             <div id="successChange" style="display:none; margin-top:6px; padding:8px 14px; background:var(--green-light); color:var(--green); border-radius:8px; font-size:15px; font-weight:700;"></div>
             <div class="receipt-options">
-              <button class="receipt-btn">
+              <button class="receipt-btn" id="rcptBtnPrint" onclick="handleReceiptPrint()">
                 <div class="receipt-btn-icon">🖨</div>
                 <div>Print</div>
               </button>
-              <button class="receipt-btn">
+              <button class="receipt-btn" id="rcptBtnEmail" onclick="handleReceiptEmail()">
                 <div class="receipt-btn-icon">✉️</div>
                 <div>Email</div>
               </button>
-              <button class="receipt-btn">
+              <button class="receipt-btn" id="rcptBtnText" onclick="handleReceiptText()">
                 <div class="receipt-btn-icon">💬</div>
                 <div>Text</div>
               </button>
             </div>
             <div class="modal-actions" style="margin-top: 20px;">
-              <button class="btn btn-primary" onclick="newSale()">Start new sale</button>
+              <button class="btn btn-primary" id="newSaleBtn" onclick="newSale()">Start new sale</button>
+            </div>
+            <div id="autoAdvanceNote" style="margin-top:10px;font-size:12px;color:var(--gray-500);display:none;">
+              Auto-starts new sale in <span id="autoAdvanceCount">5</span>s
             </div>
           </div>
         </div>
@@ -2621,7 +2624,7 @@
     try {
       const { data, error } = await db
         .from('customers')
-        .select('id, first_name_cache, last_name_cache, phone_cache, total_orders, pricelist')
+        .select('id, first_name_cache, last_name_cache, phone_cache, email_cache, total_orders, pricelist')
         .ilike('phone_cache', `%${last7}%`)
         .limit(20);
       if (error) {
@@ -2658,11 +2661,12 @@
       const initials = (first[0] || '?') + (last[0] || '');
       const orderCount = c.total_orders || 0;
       const badge = c._demo ? 'Demo' : (orderCount >= 10 ? 'Regular' : (orderCount > 0 ? 'Customer' : 'New'));
-      // Escape single quotes for the inline onclick payload
-      const safeName = name.replace(/'/g, "\\'");
-      const safePhone = (c.phone_cache || formatted).replace(/'/g, "\\'");
+      // Stash the matched row in a global keyed by id so the click handler
+      // doesn't have to encode the full object through an inline onclick
+      // (email addresses can contain + and quotes that break escaping).
+      _customerLookupCache[c.id] = c;
       return `
-        <div class="customer-result" onclick="attachCustomer('${safeName}', '${safePhone}', ${orderCount})">
+        <div class="customer-result" onclick="attachCustomerById('${c.id}')">
           <div class="customer-avatar" style="background:var(--accent);color:white;">${initials.toUpperCase()}</div>
           <div>
             <div class="customer-result-name">${name}</div>
@@ -2672,6 +2676,19 @@
         </div>
       `;
     }).join('');
+  }
+
+  // Keyed cache of the last lookup result set so attachCustomerById can pull
+  // the full row (with email + id) without re-querying the DB.
+  const _customerLookupCache = {};
+
+  function attachCustomerById(id) {
+    const c = _customerLookupCache[id];
+    if (!c) return;
+    const first = (c.first_name_cache || '').trim();
+    const last  = (c.last_name_cache || '').trim();
+    const name  = `${first} ${last}`.trim() || 'Unnamed customer';
+    attachCustomer(name, c.phone_cache || '', c.total_orders || 0, { id: c.id, email: c.email_cache || '' });
   }
 
   /* ─── Create new customer ──────────────────────────────────── */
@@ -2712,8 +2729,18 @@
     //   3. Log the create to the POS shift audit trail
   }
 
-  function attachCustomer(name, phone, orderCount) {
-    currentCustomer = { name, phone, orderCount };
+  function attachCustomer(name, phone, orderCount, extras) {
+    // extras: { id?: string, email?: string } — optional, populated when
+    // the customer came from a real DB lookup. Walk-in-created-on-the-spot
+    // customers pass nothing and become session-only until the real row
+    // gets inserted (TBD work).
+    currentCustomer = {
+      name,
+      phone,
+      orderCount,
+      id:    (extras && extras.id)    || null,
+      email: (extras && extras.email) || '',
+    };
     const chip = document.getElementById('customerChip');
     chip.classList.add('attached');
     const initials = name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
@@ -2991,6 +3018,10 @@
   // The last-created POS order — powers the success screen's order #
   // display and will later drive the Print/Email/Text receipt buttons.
   let lastPosOrder = null;
+  // Deterministic per-sale key passed to Stripe so a retried create_payment
+  // request returns the SAME PaymentIntent. Cleared on newSale() and on
+  // hard payment failure so the next attempt gets a fresh intent.
+  let _posIdempotencyKey = null;
 
   function openPay() {
     document.getElementById('payError').style.display = 'none';
@@ -3129,6 +3160,14 @@
 
     try {
       // 1. Create PaymentIntent on the server
+      // Idempotency key: deterministic per-sale, so a retry of the same
+      // attempt (e.g. network drop between request and response) returns
+      // the SAME PaymentIntent instead of creating a second charge.
+      // Regenerated per sale attempt so a fresh retry (different cart /
+      // different customer) still gets a new intent.
+      if (!_posIdempotencyKey) {
+        _posIdempotencyKey = 'pos-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+      }
       const piRes = await fetch(TERMINAL_FN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
@@ -3137,10 +3176,17 @@
           amount_cents: amountCents,
           description: 'WashRoute POS sale' + (currentCustomer ? ' — ' + (currentCustomer.name || currentCustomer.phone_cache) : ''),
           metadata: { source: 'pos', customer_id: currentCustomer?.id || 'walk_in' },
+          idempotency_key: _posIdempotencyKey,
         }),
       });
       const piData = await piRes.json();
-      if (piData.error) throw new Error(piData.error);
+      if (piData.error) {
+        // v2 of stripe-terminal edge fn returns { error, code, details? }.
+        // Surface the code in the console so retry/abort decisions are
+        // traceable; the customer-facing message is still piData.error.
+        console.warn('[POS] create_payment failed:', piData.code, piData.error);
+        throw new Error(piData.error);
+      }
 
       pendingPaymentIntentId = piData.payment_intent_id;
 
@@ -3185,6 +3231,9 @@
         } catch (_) { /* best effort */ }
         pendingPaymentIntentId = null;
       }
+      // Allow a fresh PaymentIntent on the next retry (don't idempotently
+      // return the failed one). The cashier's "Retry" button starts over.
+      _posIdempotencyKey = null;
     }
   }
 
@@ -3263,7 +3312,20 @@
         } else {
           changeEl.style.display = 'none';
         }
+        // Show/hide Email + Text buttons based on attached customer.
+        // Walk-ins with no customer only get the Print option.
+        const emailBtn = document.getElementById('rcptBtnEmail');
+        const textBtn  = document.getElementById('rcptBtnText');
+        if (emailBtn) emailBtn.style.display = (currentCustomer && currentCustomer.email) ? '' : 'none';
+        if (textBtn)  textBtn.style.display  = (currentCustomer && currentCustomer.phone) ? '' : 'none';
+        // Reset each receipt button's visual state (in case a previous sale
+        // left one in "…sent" mode).
+        ['rcptBtnPrint','rcptBtnEmail','rcptBtnText'].forEach(id => {
+          const b = document.getElementById(id);
+          if (b) { b.disabled = false; b.style.opacity = ''; }
+        });
         showModal('successModal');
+        startSuccessAutoAdvance();
       }, 150);
     } catch (e) {
       console.error('[POS] chargeAndFinish error:', e);
@@ -3288,6 +3350,7 @@
   }
 
   function newSale() {
+    stopSuccessAutoAdvance();
     closeAll();
     cart = [];
     lastPosOrder = null;
@@ -3303,6 +3366,227 @@
     // Reset cash state
     cashStr = '';
     lastCashChange = 0;
+    // Fresh sale → fresh idempotency key on next card attempt
+    _posIdempotencyKey = null;
+  }
+
+  /* ─── Auto-advance on success modal (5 sec countdown) ─────────
+     Cashier workflow: after a sale is accepted the screen should
+     reset on its own so the cashier doesn't have to tap. Any
+     receipt-button tap or mouse movement cancels the timer so the
+     cashier has time to email/print if they want to.
+     ───────────────────────────────────────────────────────────── */
+  let _autoAdvanceTimer = null;
+  let _autoAdvanceInterval = null;
+  function startSuccessAutoAdvance() {
+    stopSuccessAutoAdvance();
+    let left = 5;
+    const note = document.getElementById('autoAdvanceNote');
+    const cnt  = document.getElementById('autoAdvanceCount');
+    if (note) note.style.display = 'block';
+    if (cnt) cnt.textContent = String(left);
+    _autoAdvanceInterval = setInterval(() => {
+      left -= 1;
+      if (cnt) cnt.textContent = String(Math.max(0, left));
+    }, 1000);
+    _autoAdvanceTimer = setTimeout(() => {
+      newSale();
+    }, 5000);
+  }
+  function stopSuccessAutoAdvance() {
+    if (_autoAdvanceTimer)    { clearTimeout(_autoAdvanceTimer);  _autoAdvanceTimer = null; }
+    if (_autoAdvanceInterval) { clearInterval(_autoAdvanceInterval); _autoAdvanceInterval = null; }
+    const note = document.getElementById('autoAdvanceNote');
+    if (note) note.style.display = 'none';
+  }
+
+  /* ─── Receipt action handlers (success modal) ─────────────────
+     Print  — queues a CloudPRNT job if a printer token is saved,
+              otherwise falls back to a browser print popup.
+     Email  — calls the existing `send-receipt` edge function.
+     Text   — calls `send-sms` with a short SMS summary.
+     All three cancel the auto-advance timer when clicked so the
+     cashier has time to tap additional options.
+     ───────────────────────────────────────────────────────────── */
+  async function handleReceiptPrint() {
+    stopSuccessAutoAdvance();
+    const btn = document.getElementById('rcptBtnPrint');
+    if (!lastPosOrder) { showToast('No order attached to this sale', 'error'); return; }
+    try {
+      if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+      await queuePosPrintJob(lastPosOrder);
+      if (btn) btn.innerHTML = '<div class="receipt-btn-icon">✓</div><div>Printed</div>';
+    } catch (e) {
+      console.error('[POS] print receipt error:', e);
+      showToast(e.message || 'Could not print receipt', 'error');
+      if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+    }
+  }
+
+  async function handleReceiptEmail() {
+    stopSuccessAutoAdvance();
+    const btn = document.getElementById('rcptBtnEmail');
+    if (!lastPosOrder) { showToast('No order attached to this sale', 'error'); return; }
+    if (!currentCustomer || !currentCustomer.email) {
+      showToast('No email on file for this customer', 'error'); return;
+    }
+    try {
+      if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-receipt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ order_id: lastPosOrder.id }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`send-receipt failed: ${body || res.status}`);
+      }
+      if (btn) btn.innerHTML = '<div class="receipt-btn-icon">✓</div><div>Emailed</div>';
+    } catch (e) {
+      console.error('[POS] email receipt error:', e);
+      showToast(e.message || 'Could not send email', 'error');
+      if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+    }
+  }
+
+  async function handleReceiptText() {
+    stopSuccessAutoAdvance();
+    const btn = document.getElementById('rcptBtnText');
+    if (!lastPosOrder) { showToast('No order attached to this sale', 'error'); return; }
+    if (!currentCustomer || !currentCustomer.phone) {
+      showToast('No phone on file for this customer', 'error'); return;
+    }
+    const amt = Number(lastPosOrder.total_amount || 0).toFixed(2);
+    const num = lastPosOrder.order_number ? `#${lastPosOrder.order_number}` : '';
+    const smsBody = `Family Laundry — receipt for order ${num}. Total: $${amt}. Thank you!`;
+    try {
+      if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-sms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({
+          to: currentCustomer.phone,
+          body: smsBody,
+          customer_id: currentCustomer.id || null,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`send-sms failed: ${body || res.status}`);
+      }
+      if (btn) btn.innerHTML = '<div class="receipt-btn-icon">✓</div><div>Sent</div>';
+    } catch (e) {
+      console.error('[POS] text receipt error:', e);
+      showToast(e.message || 'Could not send text', 'error');
+      if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+    }
+  }
+
+  /* ─── POS print-job queue helper ─────────────────────────────
+     Builds a minimal Star Document Markup receipt for a POS sale
+     and inserts a row into `print_jobs`. The admin-side CloudPRNT
+     edge function converts the markup to Star Line Mode when the
+     printer polls. Falls back to a browser print popup if no
+     printer token is configured.
+     ───────────────────────────────────────────────────────────── */
+  async function queuePosPrintJob(order) {
+    // Read printer token from settings (admin dashboard writes it here)
+    let printerToken = '';
+    try {
+      const { data } = await db.from('settings').select('printer_token, print_transport').eq('id', 1).single();
+      printerToken = data?.printer_token || '';
+    } catch (e) { /* fall through to browser popup */ }
+
+    const markup = buildPosReceiptMarkup(order);
+
+    if (printerToken) {
+      const { error } = await db.from('print_jobs').insert({
+        printer_token: printerToken,
+        order_id: order.id,
+        content: markup,
+        status: 'pending',
+      });
+      if (error) throw new Error(error.message);
+      return;
+    }
+    // No printer configured — open a browser print popup with a
+    // simplified text receipt as a fallback.
+    const win = window.open('', '_blank', 'width=380,height=640');
+    if (!win) { throw new Error('Pop-up blocked — allow pop-ups to print receipts'); }
+    win.document.write(buildPosReceiptHtml(order));
+    win.document.close();
+    setTimeout(() => { try { win.print(); } catch (e) {} }, 300);
+  }
+
+  // Build Star Markup receipt for CloudPRNT printing
+  function buildPosReceiptMarkup(order) {
+    const now = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+    const custName = currentCustomer?.name || 'Walk-in';
+    const orderNum = order.order_number ? `#${order.order_number}` : order.id.slice(-5).toUpperCase();
+    const total = Number(order.total_amount || 0).toFixed(2);
+    const lineItemsXml = (order.line_items || [])
+      .filter(li => (li.type !== 'price_mod') && Number(li.amount || 0) !== 0)
+      .map(li => {
+        const lbl = String(li.label || '').replace(/[<>&]/g, '').slice(0, 28).padEnd(28, ' ');
+        const amt = ('$' + Number(li.amount || 0).toFixed(2)).padStart(10, ' ');
+        return `    <text-line>${lbl}${amt}</text-line>`;
+      }).join('\n');
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<document>
+  <align mode="center">
+    <text-line size="1:2"><bold>FAMILY LAUNDRY</bold></text-line>
+    <text-line>www.familylaundry.com</text-line>
+    <text-line>${now}</text-line>
+  </align>
+  <ruled-line/>
+  <align mode="left">
+    <text-line>Order ${orderNum}</text-line>
+    <text-line>Customer: ${custName}</text-line>
+  </align>
+  <ruled-line/>
+  <align mode="left">
+${lineItemsXml}
+  </align>
+  <ruled-line/>
+  <align mode="right">
+    <text-line size="1:2"><bold>TOTAL: $${total}</bold></text-line>
+  </align>
+  <feed unit="mm" quantity="4"/>
+  <align mode="center">
+    <text-line>Thank you!</text-line>
+    <text-line>Questions? info@familylaundry.com</text-line>
+  </align>
+  <feed unit="mm" quantity="10"/>
+  <cut type="partial"/>
+</document>`;
+  }
+
+  // Fallback browser receipt
+  function buildPosReceiptHtml(order) {
+    const now = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+    const custName = currentCustomer?.name || 'Walk-in';
+    const orderNum = order.order_number ? `#${order.order_number}` : order.id.slice(-5).toUpperCase();
+    const total = Number(order.total_amount || 0).toFixed(2);
+    const rows = (order.line_items || [])
+      .filter(li => (li.type !== 'price_mod') && Number(li.amount || 0) !== 0)
+      .map(li => `<tr><td>${String(li.label || '').replace(/[<>&]/g, '')}</td><td style="text-align:right">$${Number(li.amount || 0).toFixed(2)}</td></tr>`)
+      .join('');
+    return `<!doctype html><html><head><title>Receipt ${orderNum}</title>
+<style>body{font-family:ui-monospace,Menlo,monospace;font-size:13px;padding:18px;width:280px;}
+h1{font-size:16px;margin:0 0 6px;text-align:center}
+.meta{text-align:center;font-size:11px;color:#555;margin-bottom:10px}
+table{width:100%;border-collapse:collapse;margin:8px 0}
+td{padding:3px 0;border-bottom:1px dotted #ccc}
+.total{font-size:15px;font-weight:700;text-align:right;margin-top:8px}
+.foot{text-align:center;margin-top:14px;font-size:11px;color:#555}</style></head>
+<body><h1>FAMILY LAUNDRY</h1>
+<div class="meta">www.familylaundry.com<br>${now}</div>
+<div><strong>Order ${orderNum}</strong><br>Customer: ${custName}</div>
+<table>${rows}</table>
+<div class="total">TOTAL: $${total}</div>
+<div class="foot">Thank you!<br>Questions? info@familylaundry.com</div>
+</body></html>`;
   }
 
   /* ─── createPosOrder: insert a POS walk-in order into Supabase ─
