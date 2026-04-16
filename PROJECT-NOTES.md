@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 16, 2026 — Session 118: Subscription auto-pickup. After Stripe subscription checkout, customers now pick a weekly pickup day and time window. First recurring order auto-created with `subscription_id`. Manual orders by active subscribers also get `subscription_id` stamped. `charge-order` v36 deployed with subscription guard (returns "covered by subscription" instead of charging card). Timezone-safe date/time construction throughout.*
+*Last updated: Apr 16, 2026 — Session 118: Subscription Phases 5+6. Phase 5: auto-pickup (day picker, first recurring order, manual order linking, charge-order v36 subscription guard). Phase 6: mid-cycle cancellation overage billing — `stripe-webhook` v32 creates standalone Stripe invoice on `customer.subscription.deleted` when `overage_amount_due > 0`. Also restored `invoice.created` handler from session 115 (was deployed but never committed). v32 QA fixes: idempotency keys on both `invoiceItems.create` and `invoices.create`, `pending_invoice_items_behavior: 'exclude'` to prevent sweeping unrelated items, and atomic overage claim guards on both handlers to prevent double-billing race conditions.*
 
 *Prior: Session 117: Orphan auth user root-cause fix. Full audit of all 9 auth-user-creating paths across customer app, admin dashboard, driver app, and edge functions. Root cause: both signup forms (`handleSignup` + checkout) called `db.auth.signUp()` directly — returning customers with phone-auth accounts created duplicate email auth users with no customer record, blocking sign-in. Fix: `check_account_exists()` SECURITY DEFINER RPC pre-checks both signup paths; deleted stale `index 2.html` backup with zero orphan prevention. Cleaned 10 orphan auth users (6 blocking real customers). All paths now protected.*
 
@@ -123,7 +123,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `geocode-addresses` | **TEMPORARY — deployed & deleted session 41.** Batch-geocoded 5,043 imported customer addresses via Google Maps API. No longer deployed. | N/A |
 | `notify-on-my-way` | Driver "On My Way" button → customer SMS | Off |
 | `charge-order` | Stripe payment charge — **v28 (session 74):** Added `CHARGEABLE_STATUSES` guard (`ready_for_delivery`, `out_for_delivery`, `delivered`) — refuses to charge orders not yet at these statuses. Also sets `billing_status='paid'` + `billed_at` + clears `charge_failed_at` on success; sets `billing_status='failed'` + `charge_failed_at` on decline. | On |
-| `stripe-webhook` | Stripe webhook handler — **v26 (session 72):** `checkout.session.completed` saves card to `customer_payment_methods`. Signature verified via `STRIPE_WEBHOOK_SECRET`. **Session 74:** fixed by deleting duplicate "Delivery App" webhook endpoint in Stripe Dashboard that was causing 400 signature failures. | On |
+| `stripe-webhook` | Stripe webhook handler — **v32 (session 118).** Handles: `checkout.session.completed` (card save + migration credit), `payment_intent.succeeded/failed` (backup order status), `customer.subscription.created/updated/deleted` (lifecycle sync), `invoice.payment_succeeded/failed` (recovery + past_due), `invoice.created` (attach overage to draft renewal invoice), `customer.subscription.deleted` (final overage invoice on cancellation). v32 QA: idempotency keys, `pending_invoice_items_behavior: 'exclude'`, atomic overage claim guards. | Off |
 | `send-order-notification` | Status-change notifications — **v23 (session 75):** Address fallback: when `customer.address_cache` is empty, now fetches actual address from `addresses` table via `order.pickup_address_id`. Fixes blank "Your pickup at is scheduled for..." SMS. Also added `pickup_address_id` + `delivery_address_id` to order fetch. | Off |
 | `cloudprnt` | CloudPRNT server — **v15 (session 70i):** printer polls for jobs; `markupToStarLineMode()` converts Star Markup XML → Star Line Mode binary; serves as `application/vnd.star.starprnt`. Includes `tokenizeXml()` parser and `UNICODE_MAP` for thermal printer ASCII fallback. | Off |
 | `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. Pickups and deliveries optimized independently. **v19 (session 76):** Address resolution hardened — cross-leg fallback (delivery falls back to pickup address and vice versa) + customer fallback no longer requires `is_default = true` (prefers default, accepts any). **v12 (session 27):** No-GPS path uses geographic-extremes algorithm. | Off |
@@ -315,8 +315,9 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 - Phase 4: Overage auto-billing — `stripe-webhook` v30 attaches `overage_amount_due` as invoice_item on draft renewal invoice (session 115)
 - Phase 5: Auto-pickup — post-checkout day/window picker, first recurring order auto-created with `subscription_id`, manual orders linked to active subscription, `charge-order` v36 subscription guard (session 118)
 
+- Phase 6: Mid-cycle cancellation overage — `stripe-webhook` v32 creates standalone invoice on `customer.subscription.deleted`, with race-condition guards and idempotency (session 118)
+
 **Remaining phases:**
-- Phase 6: Mid-cycle cancellation with overage — final invoice on `customer.subscription.deleted`
 - Phase 7: Failed payment recovery — dunning emails, grace period
 - Phase 8: Analytics — churn prediction, usage trends, upgrade prompts
 
@@ -589,12 +590,31 @@ There are actually **two separate hang points** that must both be covered:
 7. `charge-order` v36 won't charge subscription orders even if manually triggered
 
 **⚠️ For future sessions:**
-1. **Phase 6: mid-cycle cancellation overage** — if a subscriber cancels with `overage_amount_due > 0`, no final invoice is generated yet. Needs a handler on `customer.subscription.deleted` in `stripe-webhook`.
+1. ~~Phase 6: mid-cycle cancellation overage~~ — **DONE** (session 118, see below).
 2. **The pickup day picker relies on the customer having a saved address with lat/lng** for zone lookup. If they have no address (edge case — new subscriber, never ordered), the picker falls back to showing all zones' templates. Not ideal but functional.
 3. **`_activeSub` is only populated when home screen or account screen renders.** The `placeOrder()` fallback DB query covers the case where it's null.
 4. **Delivery window on auto-created orders uses the same time window as pickup.** The `auto_route_order` trigger will sync to the actual delivery template, so this is just an initial estimate.
 
 **Commit:** `fcdccb4` feat: subscription auto-pickup — day picker, recurring order, charge guard
+
+---
+
+### Apr 16, 2026 (session 118 continued) — Subscription Phase 6: mid-cycle cancellation overage billing
+
+**Context:** When a subscriber cancels mid-cycle with outstanding overage (`overage_amount_due > 0`), there's no next renewal invoice to attach the overage to. Phase 6 generates a standalone Stripe invoice on cancellation to collect the remaining amount.
+
+**What was built:**
+
+1. **Final overage invoicing in `customer.subscription.deleted` handler** — reads `overage_amount_due` from local subscription record. If > 0, creates an unattached `invoiceItem` on the Stripe customer, then creates a new invoice with `auto_advance: true` and `collection_method: 'charge_automatically'`. Non-fatal — if it fails, cancellation proceeds and Audit Check #15 catches the outstanding overage.
+
+2. **Restored `invoice.created` handler** (session 115, was deployed as v30 but never committed locally) — attaches overage to draft renewal invoices using idempotency key `overage-${sub.id}-${invoice.id}`.
+
+3. **v32 QA fixes** (three issues caught by QA agent):
+   - **Idempotency key on `invoices.create`** — v31 had idempotency on `invoiceItems.create` but not on `invoices.create`. On webhook retry, this would create a duplicate empty invoice. Fixed: added `idempotencyKey: 'final-overage-inv-${localSub.id}-${sub.id}'`.
+   - **Pending invoice items sweep** — `invoices.create` sweeps ALL pending items for the customer by default. Added `pending_invoice_items_behavior: 'exclude'` and manually attach the specific item via `invoiceItems.update(invoiceItem.id, { invoice: finalInvoice.id })`.
+   - **Race condition between `invoice.created` and `customer.subscription.deleted`** — if both fire simultaneously (cancellation near renewal boundary), both read `overage > 0` and both try to bill. Fixed with atomic claim pattern: `UPDATE subscriptions SET overage_amount_due = 0 WHERE id = ? AND overage_amount_due > 0` — only one handler's update returns rows, the other sees empty result and skips. Both handlers also restore overage on Stripe failure.
+
+**Commit:** `e191998` feat: stripe-webhook v32 — overage billing on cancellation + race-condition guards
 
 ---
 
@@ -692,7 +712,7 @@ All three auto-deployed via Vercel.
 
 **Audit updated:** Check #15 added to `washroute-audit.skill` — flags subscriptions with non-zero `overage_amount_due` whose `current_period_end` has passed without a billing event (catches webhook-missed overages).
 
-**Pending (Phase 6 / future edge case):** Mid-cycle cancellation with overage owed — needs a final invoice on `customer.subscription.deleted`.
+**~~Pending (Phase 6):~~ DONE** — Mid-cycle cancellation overage billing shipped in session 118 (`stripe-webhook` v32).
 
 ---
 
