@@ -14498,6 +14498,10 @@ ${oneCopy}
         phone_cache:          phone || null,
         address_cache:        addr ? `${addr}${unit?' Apt '+unit:''}, ${city}, ${state} ${zip}`.trim() : null,
         access_instructions:  access || null,
+        // Admin-created customer: stamp consent if a phone was provided.
+        // Admin is adding them with intent to communicate — the alternative
+        // (leaving NULL) blocks all outbound SMS until they text START.
+        sms_consent_at:       phone ? new Date().toISOString() : null,
       }).select('id').single();
 
       if (custErr) throw custErr;
