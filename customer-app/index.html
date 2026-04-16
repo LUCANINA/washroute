@@ -790,6 +790,31 @@
     .sub-home-footer a { color: rgba(255,255,255,.7); text-decoration: underline; cursor: pointer; }
     .sub-home-manage-btn { display: inline-flex; align-items: center; gap: 4px; padding: 8px 16px; border: 1.5px solid rgba(255,255,255,.3); border-radius: 8px; background: transparent; color: white; font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 4px; }
     .sub-home-manage-btn:hover { background: rgba(255,255,255,.1); }
+
+    /* ── SUBSCRIPTION PICKUP DAY PICKER (post-checkout) ── */
+    .sub-daypicker-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .sub-daypicker-sheet { background: white; border-radius: 16px; width: 100%; max-width: 420px; padding: 28px 24px 24px; max-height: 90vh; overflow-y: auto; box-sizing: border-box; }
+    .sub-daypicker-title { font-size: 20px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+    .sub-daypicker-desc { font-size: 14px; color: var(--gray-500); margin-bottom: 20px; line-height: 1.4; }
+    .sub-daypicker-label { font-size: 12px; font-weight: 700; color: var(--gray-500); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 10px; }
+    .sub-daypicker-days { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 20px; }
+    .sub-daypicker-day { padding: 12px 8px; border: 1.5px solid var(--gray-200); border-radius: var(--radius); text-align: center; cursor: pointer; transition: all .15s; background: white; }
+    .sub-daypicker-day:hover { border-color: var(--accent); background: #f5f4ff; }
+    .sub-daypicker-day.selected { border-color: var(--accent); background: var(--accent); color: white; }
+    .sub-daypicker-day-name { font-size: 14px; font-weight: 700; }
+    .sub-daypicker-windows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+    .sub-daypicker-win { padding: 14px 16px; border: 1.5px solid var(--gray-200); border-radius: var(--radius); cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 10px; }
+    .sub-daypicker-win:hover { border-color: var(--accent); background: #f5f4ff; }
+    .sub-daypicker-win.selected { border-color: var(--accent); background: var(--accent); color: white; }
+    .sub-daypicker-win-label { font-size: 14px; font-weight: 600; }
+    .sub-daypicker-win-icon { font-size: 16px; }
+    .sub-daypicker-btn { width: 100%; padding: 14px; border: none; border-radius: var(--radius); background: var(--accent); color: white; font-size: 15px; font-weight: 700; cursor: pointer; transition: opacity .15s; }
+    .sub-daypicker-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .sub-daypicker-btn:not(:disabled):hover { opacity: .9; }
+    .sub-daypicker-skip { text-align: center; margin-top: 12px; font-size: 13px; color: var(--gray-500); cursor: pointer; text-decoration: underline; }
+    .sub-daypicker-skip:hover { color: var(--accent); }
+    .sub-daypicker-err { font-size: 13px; color: var(--red, #ef4444); margin-bottom: 12px; display: none; }
+    .sub-daypicker-err.show { display: block; }
   </style>
   <!-- Google Maps (Places + Geocoder) — loaded async; callback initialises global services -->
   <script>
@@ -2380,11 +2405,12 @@ async function _handleCustomerSession(event, session) {
 
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('subscribed') === 'true') {
-      // Subscription post-checkout redirect
+      // Subscription post-checkout redirect — session 118: show pickup day picker
       history.replaceState({}, '', window.location.pathname);
       try { await loadUserData(); } catch (_) {}
-      goTo('account');
-      setTimeout(() => toast('Subscription active 🎉', ''), 400);
+      goTo('home');
+      // Small delay so the home screen is visible behind the modal
+      setTimeout(() => showSubscriptionPickupPicker(), 400);
     } else if (urlParams.get('payment') === 'success') {
       const returnedOrder = urlParams.get('order');
       const returnedPlan  = urlParams.get('plan');
@@ -4600,9 +4626,23 @@ async function placeOrder() {
     return;
   }
 
+  // ── Session 118: link order to active subscription so usage is tracked ──
+  // If the customer has an active subscription, stamp subscription_id on the order.
+  // This ensures charge-order skips payment and the usage trigger deducts weight.
+  let _orderSubId = _activeSub?.id || null;
+  if (!_orderSubId && currentCustomer?.id) {
+    try {
+      const { data: _subs } = await db.from('subscriptions')
+        .select('id').eq('customer_id', currentCustomer.id)
+        .in('status', ['active']).limit(1);
+      _orderSubId = _subs?.[0]?.id || null;
+    } catch (_) {}
+  }
+
   const pad2 = n => String(n).padStart(2,'0');
   const { data: order, error } = await db.from('orders').insert({
     customer_id:          currentCustomer.id,
+    subscription_id:      _orderSubId,
     service_id:           svc?.id || null,
     status:               'scheduled',
     total_bags:           bags,
@@ -6015,6 +6055,268 @@ async function startSubscription(planId) {
     toast('Subscription error: ' + e.message);
     if (btn) { btn.disabled = false; btn.textContent = 'Choose Plan'; }
   }
+}
+
+/* ── SUBSCRIPTION PICKUP DAY PICKER (session 118) ── */
+// Shows after Stripe Checkout return. Customer picks their weekly pickup day + window.
+// Saves to subscriptions table, then creates the first recurring order automatically.
+const _dayNames = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+async function showSubscriptionPickupPicker() {
+  if (!currentCustomer) return;
+
+  // Load the customer's active subscription (just created by webhook)
+  const { data: subs } = await db.from('subscriptions')
+    .select('id, plan_id, preferred_pickup_day, preferred_pickup_window')
+    .eq('customer_id', currentCustomer.id)
+    .in('status', ['active','paused','past_due'])
+    .order('created_at', { ascending: false }).limit(1);
+  const sub = subs?.[0];
+  if (!sub) { toast('Subscription active 🎉', ''); goTo('home'); return; }
+
+  // Find the customer's zone from their default address
+  await loadAddresses();
+  const defaultAddr = _savedAddresses.find(a => a.is_default) || _savedAddresses[0];
+  let zoneId = null;
+  if (defaultAddr?.lat && defaultAddr?.lng) {
+    const { data: zId } = await db.rpc('get_zone_for_point', {
+      lat: defaultAddr.lat, lng: defaultAddr.lng, p_city: defaultAddr.city || null
+    });
+    zoneId = zId;
+  }
+
+  // Fetch active pickup templates for this zone (or all zones if no zone match)
+  let tq = db.from('route_templates')
+    .select('id, name, schedule_days, window_start, window_end, arrival_window_hours')
+    .eq('is_active', true);
+  if (zoneId) tq = tq.eq('zone_id', zoneId);
+  const { data: templates } = await tq;
+
+  // Build set of available ISO weekdays (0=Mon..6=Sun) and their windows
+  const dayWindowMap = {}; // { isoDay: [{ templateId, windowStart, windowEnd, label }] }
+  (templates || []).forEach(t => {
+    (t.schedule_days || []).forEach(isoDay => {
+      if (!dayWindowMap[isoDay]) dayWindowMap[isoDay] = [];
+      const ws = t.window_start || '07:00:00';
+      const we = t.window_end || '22:00:00';
+      const fmtTime = ts => {
+        const [h] = ts.split(':').map(Number);
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const hr = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        return `${hr} ${ampm}`;
+      };
+      const label = `${fmtTime(ws)} – ${fmtTime(we)}`;
+      // Avoid duplicate windows on the same day
+      if (!dayWindowMap[isoDay].some(w => w.label === label)) {
+        dayWindowMap[isoDay].push({ templateId: t.id, windowStart: ws, windowEnd: we, label, name: t.name });
+      }
+    });
+  });
+
+  const availableDays = Object.keys(dayWindowMap).map(Number).sort();
+  if (!availableDays.length) {
+    // No templates found — skip picker, just toast
+    toast('Subscription active 🎉', '');
+    goTo('home');
+    return;
+  }
+
+  // Build modal DOM
+  let _selectedDay = null;
+  let _selectedWin = null;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'sub-daypicker-overlay';
+  overlay.innerHTML = `
+    <div class="sub-daypicker-sheet">
+      <div class="sub-daypicker-title">Subscription active 🎉</div>
+      <div class="sub-daypicker-desc">Pick your weekly pickup day and time window. We'll automatically schedule your pickups every week.</div>
+      <div class="sub-daypicker-label">Pickup day</div>
+      <div class="sub-daypicker-days" id="sub-dp-days"></div>
+      <div id="sub-dp-win-section" style="display:none">
+        <div class="sub-daypicker-label">Time window</div>
+        <div class="sub-daypicker-windows" id="sub-dp-wins"></div>
+      </div>
+      <div class="sub-daypicker-err" id="sub-dp-err"></div>
+      <button class="sub-daypicker-btn" id="sub-dp-btn" disabled>Set Weekly Pickup</button>
+      <div class="sub-daypicker-skip" id="sub-dp-skip">I'll book pickups manually</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Render day chips
+  const daysContainer = overlay.querySelector('#sub-dp-days');
+  availableDays.forEach(isoDay => {
+    const chip = document.createElement('div');
+    chip.className = 'sub-daypicker-day';
+    chip.dataset.day = isoDay;
+    chip.innerHTML = `<div class="sub-daypicker-day-name">${_dayNames[isoDay]}</div>`;
+    chip.onclick = () => {
+      daysContainer.querySelectorAll('.sub-daypicker-day').forEach(c => c.classList.remove('selected'));
+      chip.classList.add('selected');
+      _selectedDay = isoDay;
+      _selectedWin = null;
+      renderWindows(isoDay);
+      overlay.querySelector('#sub-dp-btn').disabled = true;
+    };
+    daysContainer.appendChild(chip);
+  });
+
+  function renderWindows(isoDay) {
+    const wins = dayWindowMap[isoDay] || [];
+    const winSection = overlay.querySelector('#sub-dp-win-section');
+    const winContainer = overlay.querySelector('#sub-dp-wins');
+    winContainer.innerHTML = '';
+    if (wins.length === 0) { winSection.style.display = 'none'; return; }
+    if (wins.length === 1) {
+      // Auto-select the only window
+      _selectedWin = wins[0];
+      overlay.querySelector('#sub-dp-btn').disabled = false;
+      winSection.style.display = 'none';
+      return;
+    }
+    winSection.style.display = '';
+    wins.forEach(w => {
+      const card = document.createElement('div');
+      card.className = 'sub-daypicker-win';
+      const icon = w.windowStart < '12:00' ? '🌅' : '🌆';
+      card.innerHTML = `<span class="sub-daypicker-win-icon">${icon}</span><span class="sub-daypicker-win-label">${w.label}</span>`;
+      card.onclick = () => {
+        winContainer.querySelectorAll('.sub-daypicker-win').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        _selectedWin = w;
+        overlay.querySelector('#sub-dp-btn').disabled = false;
+      };
+      winContainer.appendChild(card);
+    });
+  }
+
+  // Confirm button
+  overlay.querySelector('#sub-dp-btn').onclick = async () => {
+    if (_selectedDay === null || !_selectedWin) return;
+    const btn = overlay.querySelector('#sub-dp-btn');
+    const errEl = overlay.querySelector('#sub-dp-err');
+    btn.disabled = true; btn.textContent = 'Setting up…';
+    errEl.classList.remove('show');
+    try {
+      await saveSubscriptionPickupPreference(sub.id, _selectedDay, _selectedWin, zoneId);
+      overlay.remove();
+      goTo('home');
+      setTimeout(() => toast('Weekly pickup scheduled! 🎉', ''), 300);
+    } catch (e) {
+      errEl.textContent = e.message || 'Something went wrong. Please try again.';
+      errEl.classList.add('show');
+      btn.disabled = false; btn.textContent = 'Set Weekly Pickup';
+    }
+  };
+
+  // Skip link
+  overlay.querySelector('#sub-dp-skip').onclick = () => {
+    overlay.remove();
+    goTo('home');
+    toast('Subscription active! You can book pickups anytime.', '');
+  };
+}
+
+async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId) {
+  const dayName = _dayNames[isoDay].toLowerCase();
+  const windowLabel = win.label;
+
+  // 1. Save preference to subscription
+  const { error: upErr } = await db.from('subscriptions').update({
+    preferred_pickup_day: dayName,
+    preferred_pickup_window: windowLabel,
+    updated_at: new Date().toISOString()
+  }).eq('id', subId);
+  if (upErr) throw new Error('Could not save preference: ' + upErr.message);
+
+  // 2. Calculate the next occurrence of the chosen day (all in BIZ_TZ)
+  const pad2 = n => String(n).padStart(2, '0');
+  const now = new Date();
+  // Get today's date string in Pacific time (YYYY-MM-DD)
+  const todayStr = now.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+  // Get today's JS weekday from the Pacific date (noon parse avoids DST edge)
+  const todayJsDay = new Date(todayStr + 'T12:00:00').getDay(); // 0=Sun..6=Sat
+  // Convert isoDay (0=Mon..6=Sun) to JS day (0=Sun..6=Sat)
+  const targetJsDay = isoDay === 6 ? 0 : isoDay + 1;
+  let daysUntil = (targetJsDay - todayJsDay + 7) % 7;
+  if (daysUntil === 0) daysUntil = 7; // always next week, not today
+  // Build the pickup date by adding days to today's Pacific date
+  const baseDate = new Date(todayStr + 'T12:00:00');
+  baseDate.setDate(baseDate.getDate() + daysUntil);
+  const pickupDateStr = `${baseDate.getFullYear()}-${pad2(baseDate.getMonth()+1)}-${pad2(baseDate.getDate())}`;
+
+  // 3. Parse window times and build timezone-correct ISO strings
+  // Compute the current Pacific UTC offset dynamically (handles PST vs PDT)
+  const [wsH, wsM] = (win.windowStart || '07:00:00').split(':').map(Number);
+  const [weH, weM] = (win.windowEnd || '22:00:00').split(':').map(Number);
+  // Get Pacific offset for the pickup date: format a known time in BIZ_TZ and compare
+  const _refDate = new Date(`${pickupDateStr}T12:00:00Z`);
+  const _ptHour = parseInt(_refDate.toLocaleString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', hour12: false }));
+  const _ptOffset = 12 - _ptHour; // positive = behind UTC (e.g. 7 or 8 for PT)
+  const _offsetStr = `${_ptOffset >= 0 ? '-' : '+'}${pad2(Math.abs(_ptOffset))}:00`;
+  // Build ISO strings with explicit Pacific offset so they're correct regardless of browser TZ
+  const pickupStart = new Date(`${pickupDateStr}T${pad2(wsH)}:${pad2(wsM)}:00${_offsetStr}`).toISOString();
+  const pickupEnd   = new Date(`${pickupDateStr}T${pad2(weH)}:${pad2(weM)}:00${_offsetStr}`).toISOString();
+
+  // 4. Get the default service (Wash & Fold)
+  if (!defaultService) {
+    const { data: svcs } = await db.from('services')
+      .select('id, name, base_price, pricing_type, lbs_per_bag')
+      .eq('pricelist', 'Delivery').eq('is_active', true)
+      .order('display_order').limit(1);
+    if (svcs?.length) defaultService = svcs[0];
+  }
+  const svc = defaultService;
+  const bags = 1;
+  const basePrice = parseFloat(svc?.base_price || 0);
+  const estLbs = svc?.pricing_type === 'per_lb' ? bags * (parseFloat(svc?.lbs_per_bag) || 25) : 0;
+  const total = svc?.pricing_type === 'per_lb' ? estLbs * basePrice : bags * basePrice;
+
+  // 5. Fetch subscription row to get the subscription_id for the order
+  // (sub.id is the DB row id we already have)
+
+  // 6. Get delivery day estimate
+  const deliveryDate = await getNextDeliveryDay(pickupDateStr, zoneId);
+
+  // 7. Build line items
+  const lineItems = [{
+    type: 'base',
+    label: svc?.pricing_type === 'per_lb'
+      ? `Est. ${estLbs} lbs × $${basePrice.toFixed(2)}/lb`
+      : `${bags} bag × $${basePrice.toFixed(2)}`,
+    amount: total
+  }];
+
+  // 8. Get customer's default address
+  const defaultAddr = _savedAddresses.find(a => a.is_default) || _savedAddresses[0];
+
+  // 9. Create the first recurring order with subscription_id
+  const { data: order, error: orderErr } = await db.from('orders').insert({
+    customer_id: currentCustomer.id,
+    subscription_id: subId,
+    service_id: svc?.id || null,
+    status: 'scheduled',
+    total_bags: bags,
+    total_amount: total,
+    pickup_window_start: pickupStart,
+    pickup_window_end: pickupEnd,
+    delivery_window_start: deliveryDate ? new Date(`${deliveryDate}T${pad2(wsH)}:${pad2(wsM)}:00${_offsetStr}`).toISOString() : null,
+    delivery_window_end: deliveryDate ? new Date(`${deliveryDate}T${pad2(weH)}:${pad2(weM)}:00${_offsetStr}`).toISOString() : null,
+    recurring_interval: 'weekly',
+    line_items: lineItems,
+    zone_id: zoneId,
+    pickup_address_id: defaultAddr?.id || null,
+    delivery_address_id: defaultAddr?.id || null,
+    source: 'customer_app',
+    tip_amount: parseFloat(currentCustomer.default_tip_amount || 0),
+    tip_type: (currentCustomer.default_tip_type === '%' ? 'pct' : 'dollar')
+  }).select().single();
+
+  if (orderErr) throw new Error('Could not create pickup: ' + orderErr.message);
+
+  // Refresh user data so home screen shows the subscription card
+  try { await loadUserData(); } catch (_) {}
 }
 
 /* ── CARD MANAGEMENT ── */

@@ -66,15 +66,25 @@ Deno.serve(async (req) => {
 
     if (!orderId) throw new Error('orderId is required')
 
-    // Load order (v33: include tip_amount + tip_type so we charge the full amount)
+    // Load order (v35: include subscription_id for subscription guard)
     const { data: order, error: orderErr } = await db.from('orders')
-      .select('id, order_number, total_amount, tip_amount, tip_type, status, stripe_payment_intent_id, customer_id, line_items, services(name)')
+      .select('id, order_number, total_amount, tip_amount, tip_type, status, stripe_payment_intent_id, customer_id, line_items, subscription_id, services(name)')
       .eq('id', orderId)
       .single()
 
     if (orderErr || !order) throw new Error('Order not found')
     if (order.stripe_payment_intent_id) throw new Error('Order has already been charged')
     if (!order.total_amount || Number(order.total_amount) <= 0) throw new Error('Order has no amount to charge')
+
+    // v35: Subscription guard — orders covered by a subscription should not be charged.
+    // The DB trigger (apply_subscription_usage_fn) marks them paid on delivery.
+    if (order.subscription_id) {
+      return new Response(JSON.stringify({
+        success: true,
+        coveredBySubscription: true,
+        message: `Order #${order.order_number} is covered by subscription — no charge needed`
+      }), { headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
 
     // v30: Guard — block charging for orders that haven't been picked up or are voided
     if (NON_CHARGEABLE_STATUSES.includes(order.status)) {
