@@ -328,11 +328,89 @@ Deno.serve(async (req) => {
       }
     }
 
-    // v29: -- customer.subscription.deleted -- enhanced to also update subscriptions table
+    // v29+v31: -- customer.subscription.deleted -- mark cancelled + bill outstanding overage
     if (event.type === 'customer.subscription.deleted') {
       const sub = event.data.object as Stripe.Subscription
       const stripeCustomerId = getStripeCustomerId(sub.customer)
       const now = new Date().toISOString()
+
+      // v31 (session 118): Bill outstanding overage before marking cancelled
+      // When a subscriber cancels mid-cycle, there's no next renewal invoice to attach
+      // the overage to. Create a standalone invoice for the remaining amount.
+      const { data: localSub } = await db.from('subscriptions')
+        .select('id, overage_amount_due')
+        .eq('stripe_subscription_id', sub.id)
+        .single()
+
+      if (localSub && Number(localSub.overage_amount_due) > 0) {
+        // v32: Race-condition guard — atomically zero the overage so that if
+        // invoice.created fires at the same time, only ONE handler bills it.
+        const overageAmount = Number(localSub.overage_amount_due)
+        const { data: claimResult } = await db.from('subscriptions')
+          .update({ overage_amount_due: 0, updated_at: now })
+          .eq('id', localSub.id)
+          .gt('overage_amount_due', 0)  // only succeeds if still > 0
+          .select('id')
+
+        if (claimResult && claimResult.length > 0) {
+          const overageCents = Math.round(overageAmount * 100)
+          try {
+            // Create an invoice item on the customer (not attached to a specific invoice)
+            const invoiceItem = await stripe.invoiceItems.create({
+              customer: stripeCustomerId,
+              amount: overageCents,
+              currency: 'usd',
+              description: `Final overage: $${overageAmount.toFixed(2)} (subscription cancelled)`,
+              metadata: {
+                washroute_overage: 'true',
+                washroute_subscription_id: localSub.id,
+                washroute_final_overage: 'true',
+              },
+            }, {
+              idempotencyKey: `final-overage-${localSub.id}-${sub.id}`,
+            })
+
+            // v32: Create invoice with only THIS item to avoid sweeping other pending items,
+            // and add idempotency key to prevent duplicate invoices on retries.
+            const finalInvoice = await stripe.invoices.create({
+              customer: stripeCustomerId,
+              pending_invoice_items_behavior: 'exclude',  // don't sweep other pending items
+              auto_advance: true,  // auto-finalize and attempt payment
+              collection_method: 'charge_automatically',
+              description: 'Final overage charge — Family Laundry subscription',
+              metadata: {
+                washroute_final_overage: 'true',
+                washroute_subscription_id: localSub.id,
+              },
+            }, {
+              idempotencyKey: `final-overage-inv-${localSub.id}-${sub.id}`,
+            })
+
+            // Manually attach the invoice item to the invoice
+            // (since we excluded pending items from auto-sweep)
+            await stripe.invoiceItems.update(invoiceItem.id, {
+              invoice: finalInvoice.id,
+            })
+
+            await db.from('subscription_usage_log').insert({
+              subscription_id: localSub.id,
+              event_type: 'final_overage_invoiced',
+              note: `$${overageAmount.toFixed(2)} final overage invoiced on cancellation (invoice ${finalInvoice.id})`,
+            })
+
+            console.log('Final overage invoice created:', finalInvoice.id, 'amount:', overageAmount, 'sub:', localSub.id)
+          } catch (e: any) {
+            console.error('Failed to create final overage invoice:', e.message)
+            // Restore overage so Audit Check #15 can catch it
+            await db.from('subscriptions').update({
+              overage_amount_due: overageAmount,
+              updated_at: now,
+            }).eq('id', localSub.id)
+          }
+        } else {
+          console.log('Final overage: another handler already claimed the overage for sub:', localSub.id)
+        }
+      }
 
       // Clear subscription_plan_id from customers (existing logic)
       await db.from('customers').update({
@@ -405,6 +483,72 @@ Deno.serve(async (req) => {
       }
 
       console.log('Payment failed for Stripe customer:', stripeCustomerId, 'subscription:', subscriptionId)
+    }
+
+    // v30 (session 115): -- invoice.created -- attach overage to draft renewal invoice
+    if (event.type === 'invoice.created') {
+      const invoice = event.data.object as Stripe.Invoice
+      const subscriptionId = typeof invoice.subscription === 'string'
+        ? invoice.subscription
+        : (invoice.subscription as any)?.id
+
+      // Only act on draft invoices tied to a subscription
+      if (subscriptionId && invoice.status === 'draft') {
+        const { data: sub } = await db.from('subscriptions')
+          .select('id, overage_amount_due, stripe_subscription_id')
+          .eq('stripe_subscription_id', subscriptionId)
+          .single()
+
+        if (sub && Number(sub.overage_amount_due) > 0) {
+          const overageAmount = Number(sub.overage_amount_due)
+          const stripeCustomerId = typeof invoice.customer === 'string'
+            ? invoice.customer
+            : (invoice.customer as any)?.id
+
+          // v32: Race-condition guard — atomically zero the overage first
+          const { data: claimResult } = await db.from('subscriptions')
+            .update({ overage_amount_due: 0, updated_at: new Date().toISOString() })
+            .eq('id', sub.id)
+            .gt('overage_amount_due', 0)
+            .select('id')
+
+          if (claimResult && claimResult.length > 0) {
+            const overageCents = Math.round(overageAmount * 100)
+            try {
+              await stripe.invoiceItems.create({
+                customer: stripeCustomerId,
+                invoice: invoice.id,
+                amount: overageCents,
+                currency: 'usd',
+                description: `Overage: $${overageAmount.toFixed(2)}`,
+                metadata: {
+                  washroute_overage: 'true',
+                  washroute_subscription_id: sub.id,
+                },
+              }, {
+                idempotencyKey: `overage-${sub.id}-${invoice.id}`,
+              })
+
+              await db.from('subscription_usage_log').insert({
+                subscription_id: sub.id,
+                event_type: 'overage_invoiced',
+                note: `$${overageAmount.toFixed(2)} overage attached to invoice ${invoice.id}`,
+              })
+
+              console.log('Overage attached to draft invoice:', invoice.id, 'amount:', overageAmount, 'sub:', sub.id)
+            } catch (e: any) {
+              console.error('Failed to attach overage to invoice:', e.message)
+              // Restore overage so another handler or audit can catch it
+              await db.from('subscriptions').update({
+                overage_amount_due: overageAmount,
+                updated_at: new Date().toISOString(),
+              }).eq('id', sub.id)
+            }
+          } else {
+            console.log('Overage already claimed by another handler for sub:', sub.id)
+          }
+        }
+      }
     }
 
   } catch (err) {
