@@ -892,6 +892,7 @@
     .rpt-page-tabs { display:flex;gap:0;border-bottom:1px solid var(--gray-100);padding:0 16px;background:white;border-radius:0 0 var(--radius) var(--radius); }
     .rpt-page-tab { padding:10px 18px;font-size:13.5px;font-weight:500;color:var(--gray-500);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .12s;font-family:inherit; }
     .rpt-page-tab.active { color:var(--accent);border-bottom-color:var(--accent);font-weight:600; }
+    .rpt-sub-subtab.active { background:var(--accent) !important;color:#fff !important; }
     .rpt-status-pills { display:flex;flex-wrap:wrap;gap:8px; }
     .rpt-status-pill { display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:20px;font-size:13px;font-weight:500;border:1px solid rgba(0,0,0,.06); }
     .rpt-status-pill-count { font-size:16px;font-weight:700;color:var(--gray-800); }
@@ -2262,92 +2263,141 @@
                 <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-sub-overage-sub">this period</div>
               </div>
             </div>
-            <div class="card" style="margin-bottom:0">
-              <div class="card-header">
-                <div class="card-title">All Subscribers</div>
-                <div class="card-sub" id="rpt-sub-count-label"></div>
-              </div>
-              <div class="rpt-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Customer</th>
-                      <th>Plan</th>
-                      <th>Status</th>
-                      <th>Usage (lbs)</th>
-                      <th>Pickups</th>
-                      <th>Overage Due</th>
-                      <th>Renews</th>
-                      <th>Signed Up</th>
-                      <th style="text-align:right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="rpt-sub-tbody">
-                    <tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
-                  </tbody>
-                </table>
-              </div>
+            <!-- Analytics sub-tabs -->
+            <div style="display:flex;gap:8px;margin-bottom:16px">
+              <button class="btn btn-ghost rpt-sub-subtab active" onclick="switchSubAnalyticsTab('overview',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px">Overview</button>
+              <button class="btn btn-ghost rpt-sub-subtab" onclick="switchSubAnalyticsTab('risk',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px">At-Risk</button>
+              <button class="btn btn-ghost rpt-sub-subtab" onclick="switchSubAnalyticsTab('upgrade',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px">Upgrade Candidates</button>
+              <button class="btn btn-ghost rpt-sub-subtab" onclick="switchSubAnalyticsTab('trends',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px">Usage Trends</button>
             </div>
-          </div>
 
-          <!-- ── TAB: SUBSCRIPTIONS ── -->
-          <div id="rpttab-subscriptions" style="display:none">
-            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
-              <div class="stat-card">
-                <div class="stat-label">Active Subscribers</div>
-                <div class="stat-value" id="rpt-sub-active">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Monthly Recurring</div>
-                <div class="stat-value" id="rpt-sub-mrr">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Paused</div>
-                <div class="stat-value" id="rpt-sub-paused">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Cancelled (30d)</div>
-                <div class="stat-value" id="rpt-sub-cancelled">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Past Due</div>
-                <div class="stat-value" id="rpt-sub-pastdue">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Avg Usage</div>
-                <div class="stat-value" id="rpt-sub-avg-usage">—</div>
-                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">lbs / 100 limit</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Overage Revenue</div>
-                <div class="stat-value" id="rpt-sub-overage-rev">—</div>
-                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-sub-overage-sub">this period</div>
+            <!-- Sub-tab: Overview (existing subscriber table) -->
+            <div id="sub-analytics-overview">
+              <div class="card" style="margin-bottom:0">
+                <div class="card-header">
+                  <div class="card-title">All Subscribers</div>
+                  <div class="card-sub" id="rpt-sub-count-label"></div>
+                </div>
+                <div class="rpt-table-wrap">
+                  <table class="rpt-drv-tbl">
+                    <thead>
+                      <tr>
+                        <th>Customer</th>
+                        <th>Plan</th>
+                        <th>Status</th>
+                        <th>Usage (lbs)</th>
+                        <th>Pickups</th>
+                        <th>Overage Due</th>
+                        <th>Renews</th>
+                        <th>Signed Up</th>
+                        <th style="text-align:right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="rpt-sub-tbody">
+                      <tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-            <div class="card" style="margin-bottom:0">
-              <div class="card-header">
-                <div class="card-title">All Subscribers</div>
-                <div class="card-sub" id="rpt-sub-count-label"></div>
+
+            <!-- Sub-tab: At-Risk Subscribers -->
+            <div id="sub-analytics-risk" style="display:none">
+              <div class="card">
+                <div class="card-header">
+                  <div class="card-title">Churn Risk Signals</div>
+                  <div class="card-sub" id="rpt-sub-risk-count"></div>
+                </div>
+                <div class="rpt-table-wrap">
+                  <table class="rpt-drv-tbl">
+                    <thead>
+                      <tr>
+                        <th>Customer</th>
+                        <th>Status</th>
+                        <th>Risk Signals</th>
+                        <th>Usage</th>
+                        <th>Pickups</th>
+                        <th>Member Since</th>
+                        <th style="text-align:right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="rpt-sub-risk-tbody">
+                      <tr><td colspan="7" class="rpt-no-data">Loading…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div class="rpt-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Customer</th>
-                      <th>Plan</th>
-                      <th>Status</th>
-                      <th>Usage (lbs)</th>
-                      <th>Pickups</th>
-                      <th>Overage Due</th>
-                      <th>Renews</th>
-                      <th>Signed Up</th>
-                      <th style="text-align:right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="rpt-sub-tbody">
-                    <tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
-                  </tbody>
-                </table>
+            </div>
+
+            <!-- Sub-tab: Upgrade Candidates -->
+            <div id="sub-analytics-upgrade" style="display:none">
+              <div class="card">
+                <div class="card-header">
+                  <div class="card-title">Upgrade Candidates</div>
+                  <div class="card-sub" id="rpt-sub-upgrade-count"></div>
+                </div>
+                <div class="rpt-table-wrap">
+                  <table class="rpt-drv-tbl">
+                    <thead>
+                      <tr>
+                        <th>Customer</th>
+                        <th>Usage vs Limit</th>
+                        <th>Pickups</th>
+                        <th>Overage Due</th>
+                        <th>Signals</th>
+                        <th style="text-align:right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="rpt-sub-upgrade-tbody">
+                      <tr><td colspan="6" class="rpt-no-data">Loading…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Sub-tab: Usage Trends -->
+            <div id="sub-analytics-trends" style="display:none">
+              <div class="rpt-chart-grid">
+                <div class="card">
+                  <div class="card-header">
+                    <div class="card-title">Weight Usage (Fleet)</div>
+                  </div>
+                  <div class="chart-canvas-wrap">
+                    <canvas id="sub-chart-weight" height="220"></canvas>
+                  </div>
+                </div>
+                <div class="card">
+                  <div class="card-header">
+                    <div class="card-title">Pickups (Fleet)</div>
+                  </div>
+                  <div class="chart-canvas-wrap">
+                    <canvas id="sub-chart-pickups" height="220"></canvas>
+                  </div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-header">
+                  <div class="card-title">Per-Subscriber Usage</div>
+                  <div class="card-sub" id="rpt-sub-trend-sub">current period</div>
+                </div>
+                <div class="rpt-table-wrap">
+                  <table class="rpt-drv-tbl">
+                    <thead>
+                      <tr>
+                        <th>Customer</th>
+                        <th>Weight Used</th>
+                        <th>% of Limit</th>
+                        <th>Pickups</th>
+                        <th>Overage</th>
+                        <th>Days Left</th>
+                      </tr>
+                    </thead>
+                    <tbody id="rpt-sub-trend-tbody">
+                      <tr><td colspan="6" class="rpt-no-data">Loading…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
@@ -22523,6 +22573,414 @@ ${oneCopy}
     }).join('');
 
     _subReportLoaded = true;
+
+    // After loading main data, populate analytics sub-tabs
+    renderSubAnalytics(allSubs);
+  }
+
+  /* ── Subscription analytics sub-tab switching ── */
+  let _subAnalyticsTab = 'overview';
+  let _subTrendsChartsRendered = false;
+  function switchSubAnalyticsTab(tab, btn) {
+    _subAnalyticsTab = tab;
+    document.querySelectorAll('.rpt-sub-subtab').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    ['overview','risk','upgrade','trends'].forEach(t => {
+      const el = document.getElementById('sub-analytics-' + t);
+      if (el) el.style.display = t === tab ? '' : 'none';
+    });
+    // Lazy-render charts when Trends tab is first shown
+    if (tab === 'trends' && !_subTrendsChartsRendered && _cachedActiveSubs) {
+      _subTrendsChartsRendered = true;
+      renderFleetCharts(_cachedActiveSubs);
+    }
+  }
+
+  /* ── Subscription Analytics Engine ── */
+  let _subWeightChart = null;
+  let _subPickupsChart = null;
+  let _cachedActiveSubs = null;
+
+  function renderSubAnalytics(allSubs) {
+    const active = allSubs.filter(s => ['active','paused','past_due'].includes(s.status));
+    _cachedActiveSubs = active;
+    _subTrendsChartsRendered = false; // Reset so charts re-render on next tab open
+
+    // ── At-Risk Subscribers ──
+    renderChurnRisk(allSubs, active);
+
+    // ── Upgrade Candidates ──
+    renderUpgradeCandidates(active);
+
+    // ── Usage Trends ──
+    renderUsageTrends(active);
+  }
+
+  function renderChurnRisk(allSubs, activeSubs) {
+    const riskRows = [];
+    const now = new Date();
+
+    for (const s of activeSubs) {
+      const signals = [];
+      const limit = s.subscription_plans?.weight_limit_lbs || 100;
+      const pickLim = s.subscription_plans?.pickup_limit || 4;
+      const usage = Number(s.usage_lbs_this_period || 0);
+      const pickups = s.pickups_this_period || 0;
+
+      // Signal: Past due (in dunning)
+      if (s.status === 'past_due') {
+        const daysDunning = s.dunning_started_at
+          ? Math.floor((now - new Date(s.dunning_started_at)) / (1000*60*60*24))
+          : 0;
+        signals.push({ label: `Past due${daysDunning ? ' (' + daysDunning + 'd)' : ''}`, severity: 'high' });
+      }
+
+      // Signal: Paused
+      if (s.status === 'paused') {
+        const daysPaused = s.paused_at
+          ? Math.floor((now - new Date(s.paused_at)) / (1000*60*60*24))
+          : 0;
+        signals.push({ label: `Paused${daysPaused ? ' (' + daysPaused + 'd)' : ''}`, severity: 'medium' });
+      }
+
+      // Signal: Pending voluntary cancel
+      if (s.cancel_at_period_end) {
+        signals.push({ label: 'Cancel pending', severity: 'high' });
+      }
+
+      // Signal: Zero usage mid-period (more than 10 days into period)
+      if (s.current_period_start) {
+        const daysIntoPeriod = Math.floor((now - new Date(s.current_period_start)) / (1000*60*60*24));
+        if (daysIntoPeriod > 10 && usage === 0 && pickups === 0) {
+          signals.push({ label: 'No usage (' + daysIntoPeriod + 'd into period)', severity: 'medium' });
+        }
+      }
+
+      // Signal: Very low usage (under 20% of limit and more than halfway through period)
+      if (s.current_period_start && s.current_period_end) {
+        const periodLen = (new Date(s.current_period_end) - new Date(s.current_period_start)) / (1000*60*60*24);
+        const daysIn = (now - new Date(s.current_period_start)) / (1000*60*60*24);
+        const pctPeriodDone = daysIn / periodLen;
+        const pctUsage = usage / limit;
+        if (pctPeriodDone > 0.5 && pctUsage < 0.2 && usage > 0) {
+          signals.push({ label: 'Low usage (' + Math.round(pctUsage * 100) + '% at ' + Math.round(pctPeriodDone * 100) + '% of period)', severity: 'low' });
+        }
+      }
+
+      // Signal: Zero pickups used
+      if (s.status === 'active' && pickups === 0 && s.current_period_start) {
+        const daysIn = Math.floor((now - new Date(s.current_period_start)) / (1000*60*60*24));
+        if (daysIn > 7) {
+          signals.push({ label: 'No pickups (' + daysIn + 'd)', severity: 'low' });
+        }
+      }
+
+      if (signals.length > 0) {
+        riskRows.push({ sub: s, signals });
+      }
+    }
+
+    // Sort by highest severity first
+    const severityOrder = { high: 0, medium: 1, low: 2 };
+    riskRows.sort((a, b) => {
+      const aMax = Math.min(...a.signals.map(s => severityOrder[s.severity] ?? 3));
+      const bMax = Math.min(...b.signals.map(s => severityOrder[s.severity] ?? 3));
+      return aMax - bMax;
+    });
+
+    const countEl = document.getElementById('rpt-sub-risk-count');
+    if (countEl) countEl.textContent = riskRows.length + ' at-risk subscriber' + (riskRows.length !== 1 ? 's' : '');
+
+    const tbody = document.getElementById('rpt-sub-risk-tbody');
+    if (!tbody) return;
+
+    if (!riskRows.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="rpt-no-data">No at-risk subscribers detected. All clear!</td></tr>';
+      return;
+    }
+
+    const sevColors = {
+      high: 'background:#fee2e2;color:#991b1b',
+      medium: 'background:#fef3c7;color:#92400e',
+      low: 'background:#e0f2fe;color:#075985'
+    };
+    const statusColors = {
+      active: 'background:#d1fae5;color:#065f46',
+      paused: 'background:#fef3c7;color:#92400e',
+      past_due: 'background:#fee2e2;color:#991b1b'
+    };
+
+    tbody.innerHTML = riskRows.map(({ sub: s, signals }) => {
+      const custName = [s.customers?.first_name_cache, s.customers?.last_name_cache].filter(Boolean).join(' ') || '—';
+      const limit = s.subscription_plans?.weight_limit_lbs || 100;
+      const pickLim = s.subscription_plans?.pickup_limit || 4;
+      const usage = Number(s.usage_lbs_this_period || 0);
+      const pickups = s.pickups_this_period || 0;
+      const signupDate = s.signup_date || s.created_at
+        ? new Date(s.signup_date || s.created_at).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric' })
+        : '—';
+      const custId = s.customers?.id;
+      const rowClick = custId ? `onclick="_openCustomerOnBillingTab('${custId}')" style="cursor:pointer"` : '';
+
+      const signalBadges = signals.map(sig =>
+        `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;margin:1px 3px;${sevColors[sig.severity] || ''}">${sig.label}</span>`
+      ).join('');
+
+      return `<tr ${rowClick}>
+        <td style="font-weight:600">${custName}</td>
+        <td><span style="padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600;${statusColors[s.status] || ''}">${s.status}</span></td>
+        <td>${signalBadges}</td>
+        <td>${usage.toFixed(1)} / ${limit} lbs</td>
+        <td>${pickups} / ${pickLim}</td>
+        <td style="color:var(--gray-500)">${signupDate}</td>
+        <td style="text-align:right">${custId ? `<button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="event.stopPropagation();_openCustomerOnBillingTab('${custId}')">Manage →</button>` : ''}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderUpgradeCandidates(activeSubs) {
+    const candidates = [];
+
+    for (const s of activeSubs) {
+      if (s.status !== 'active') continue;
+      const limit = s.subscription_plans?.weight_limit_lbs || 100;
+      const pickLim = s.subscription_plans?.pickup_limit || 4;
+      const usage = Number(s.usage_lbs_this_period || 0);
+      const pickups = s.pickups_this_period || 0;
+      const overage = Number(s.overage_amount_due || 0);
+      const pctUsage = usage / limit;
+      const pctPickups = pickups / pickLim;
+      const signals = [];
+
+      // Near or over weight limit
+      if (pctUsage >= 1.0) {
+        signals.push({ label: 'Over weight limit (' + Math.round(pctUsage * 100) + '%)', severity: 'high' });
+      } else if (pctUsage >= 0.8) {
+        signals.push({ label: 'Near weight limit (' + Math.round(pctUsage * 100) + '%)', severity: 'medium' });
+      }
+
+      // Used all pickups
+      if (pctPickups >= 1.0) {
+        signals.push({ label: 'All pickups used', severity: 'high' });
+      } else if (pctPickups >= 0.75) {
+        signals.push({ label: pickups + ' of ' + pickLim + ' pickups used', severity: 'medium' });
+      }
+
+      // Has overage balance
+      if (overage > 0) {
+        signals.push({ label: 'Overage: ' + fmtMoney(overage), severity: 'high' });
+      }
+
+      if (signals.length > 0) {
+        candidates.push({ sub: s, signals });
+      }
+    }
+
+    // Sort: most signals / highest severity first
+    const severityOrder = { high: 0, medium: 1, low: 2 };
+    candidates.sort((a, b) => {
+      const aMax = Math.min(...a.signals.map(s => severityOrder[s.severity] ?? 3));
+      const bMax = Math.min(...b.signals.map(s => severityOrder[s.severity] ?? 3));
+      return aMax - bMax || b.signals.length - a.signals.length;
+    });
+
+    const countEl = document.getElementById('rpt-sub-upgrade-count');
+    if (countEl) countEl.textContent = candidates.length + ' candidate' + (candidates.length !== 1 ? 's' : '');
+
+    const tbody = document.getElementById('rpt-sub-upgrade-tbody');
+    if (!tbody) return;
+
+    if (!candidates.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="rpt-no-data">No upgrade candidates right now — all subscribers are comfortably within their plans.</td></tr>';
+      return;
+    }
+
+    const sevColors = {
+      high: 'background:#fee2e2;color:#991b1b',
+      medium: 'background:#fef3c7;color:#92400e',
+      low: 'background:#e0f2fe;color:#075985'
+    };
+
+    tbody.innerHTML = candidates.map(({ sub: s, signals }) => {
+      const custName = [s.customers?.first_name_cache, s.customers?.last_name_cache].filter(Boolean).join(' ') || '—';
+      const limit = s.subscription_plans?.weight_limit_lbs || 100;
+      const pickLim = s.subscription_plans?.pickup_limit || 4;
+      const usage = Number(s.usage_lbs_this_period || 0);
+      const pickups = s.pickups_this_period || 0;
+      const overage = Number(s.overage_amount_due || 0);
+      const pct = Math.min(120, Math.round((usage / limit) * 100));
+      const barColor = pct >= 100 ? 'var(--red)' : pct >= 80 ? 'var(--amber)' : 'var(--green)';
+      const custId = s.customers?.id;
+      const rowClick = custId ? `onclick="_openCustomerOnBillingTab('${custId}')" style="cursor:pointer"` : '';
+
+      const signalBadges = signals.map(sig =>
+        `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;margin:1px 3px;${sevColors[sig.severity] || ''}">${sig.label}</span>`
+      ).join('');
+
+      return `<tr ${rowClick}>
+        <td style="font-weight:600">${custName}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="flex:1;height:6px;background:var(--gray-100);border-radius:3px;min-width:60px;max-width:100px">
+              <div style="height:100%;width:${Math.min(100, pct)}%;background:${barColor};border-radius:3px"></div>
+            </div>
+            <span style="font-size:12px;color:var(--gray-600);white-space:nowrap">${usage.toFixed(1)} / ${limit} lbs</span>
+          </div>
+        </td>
+        <td>${pickups} / ${pickLim}</td>
+        <td style="color:${overage > 0 ? 'var(--red)' : 'var(--gray-400)'};font-weight:${overage > 0 ? '600' : '400'}">${overage > 0 ? fmtMoney(overage) : '—'}</td>
+        <td>${signalBadges}</td>
+        <td style="text-align:right">${custId ? `<button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="event.stopPropagation();_openCustomerOnBillingTab('${custId}')">Manage →</button>` : ''}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderUsageTrends(activeSubs) {
+    // Per-subscriber usage table (current period)
+    const tbody = document.getElementById('rpt-sub-trend-tbody');
+    if (!tbody) return;
+
+    const now = new Date();
+    const rows = activeSubs
+      .filter(s => s.status === 'active')
+      .map(s => {
+        const limit = s.subscription_plans?.weight_limit_lbs || 100;
+        const pickLim = s.subscription_plans?.pickup_limit || 4;
+        const usage = Number(s.usage_lbs_this_period || 0);
+        const pickups = s.pickups_this_period || 0;
+        const overage = Number(s.overage_amount_due || 0);
+        const pct = Math.round((usage / limit) * 100);
+        const daysLeft = s.current_period_end
+          ? Math.max(0, Math.ceil((new Date(s.current_period_end) - now) / (1000*60*60*24)))
+          : '—';
+        return { s, usage, pct, pickups, pickLim, overage, daysLeft, limit };
+      })
+      .sort((a, b) => b.pct - a.pct); // Highest usage first
+
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="rpt-no-data">No active subscribers.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows.map(({ s, usage, pct, pickups, pickLim, overage, daysLeft, limit }) => {
+      const custName = [s.customers?.first_name_cache, s.customers?.last_name_cache].filter(Boolean).join(' ') || '—';
+      const barColor = pct >= 100 ? 'var(--red)' : pct >= 80 ? 'var(--amber)' : 'var(--green)';
+      const custId = s.customers?.id;
+      const rowClick = custId ? `onclick="_openCustomerOnBillingTab('${custId}')" style="cursor:pointer"` : '';
+
+      return `<tr ${rowClick}>
+        <td style="font-weight:600">${custName}</td>
+        <td>${usage.toFixed(1)} / ${limit} lbs</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="flex:1;height:6px;background:var(--gray-100);border-radius:3px;min-width:40px;max-width:80px">
+              <div style="height:100%;width:${Math.min(100, pct)}%;background:${barColor};border-radius:3px"></div>
+            </div>
+            <span style="font-size:12px;font-weight:600;color:${pct >= 100 ? 'var(--red)' : pct >= 80 ? 'var(--amber)' : 'var(--gray-600)'}">${pct}%</span>
+          </div>
+        </td>
+        <td>${pickups} / ${pickLim}</td>
+        <td style="color:${overage > 0 ? 'var(--red)' : 'var(--gray-400)'}">${overage > 0 ? fmtMoney(overage) : '—'}</td>
+        <td style="color:var(--gray-500)">${daysLeft}d</td>
+      </tr>`;
+    }).join('');
+
+    // Fleet-wide charts render lazily when Trends sub-tab is opened
+    // (see switchSubAnalyticsTab → renderFleetCharts)
+  }
+
+  async function renderFleetCharts(activeSubs) {
+    // Fetch usage log entries for the last 90 days
+    const ninetyAgo = new Date();
+    ninetyAgo.setDate(ninetyAgo.getDate() - 90);
+
+    const { data: logs } = await db
+      .from('subscription_usage_log')
+      .select('subscription_id, event_type, weight_delta, pickups_delta, created_at')
+      .gte('created_at', ninetyAgo.toISOString())
+      .order('created_at', { ascending: true });
+
+    if (!logs || !logs.length) {
+      // No log data — show summary chart from current sub data instead
+      renderSummaryCharts(activeSubs);
+      return;
+    }
+
+    // Group by week
+    const weekBuckets = {};
+    for (const log of logs) {
+      const d = new Date(log.created_at);
+      // Get start of week (Monday)
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const weekStart = new Date(d.getFullYear(), d.getMonth(), diff);
+      const key = weekStart.toISOString().split('T')[0];
+      if (!weekBuckets[key]) weekBuckets[key] = { weight: 0, pickups: 0 };
+      weekBuckets[key].weight += Math.abs(Number(log.weight_delta || 0));
+      weekBuckets[key].pickups += Math.abs(Number(log.pickups_delta || 0));
+    }
+
+    const weeks = Object.keys(weekBuckets).sort();
+    const weightData = weeks.map(w => weekBuckets[w].weight);
+    const pickupData = weeks.map(w => weekBuckets[w].pickups);
+    const labels = weeks.map(w => {
+      const d = new Date(w + 'T12:00:00');
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+
+    drawChart('sub-chart-weight', labels, weightData, 'Weight (lbs)', '#3B82F6');
+    drawChart('sub-chart-pickups', labels, pickupData, 'Pickups', '#10B981');
+  }
+
+  function renderSummaryCharts(activeSubs) {
+    // Fallback: bar chart of current usage per subscriber
+    const names = activeSubs.slice(0, 15).map(s =>
+      (s.customers?.first_name_cache || '?').slice(0, 8)
+    );
+    const weights = activeSubs.slice(0, 15).map(s => Number(s.usage_lbs_this_period || 0));
+    const pickups = activeSubs.slice(0, 15).map(s => s.pickups_this_period || 0);
+
+    drawChart('sub-chart-weight', names, weights, 'Weight (lbs)', '#3B82F6');
+    drawChart('sub-chart-pickups', names, pickups, 'Pickups', '#10B981');
+  }
+
+  function drawChart(canvasId, labels, data, label, color) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    // Destroy existing chart if any
+    if (canvasId === 'sub-chart-weight' && _subWeightChart) { _subWeightChart.destroy(); _subWeightChart = null; }
+    if (canvasId === 'sub-chart-pickups' && _subPickupsChart) { _subPickupsChart.destroy(); _subPickupsChart = null; }
+
+    const chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label,
+          data,
+          backgroundColor: color + '33',
+          borderColor: color,
+          borderWidth: 2,
+          borderRadius: 4,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+        },
+        scales: {
+          y: { beginAtZero: true, grid: { color: '#f3f4f6' } },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+
+    if (canvasId === 'sub-chart-weight') _subWeightChart = chart;
+    if (canvasId === 'sub-chart-pickups') _subPickupsChart = chart;
   }
 
 
