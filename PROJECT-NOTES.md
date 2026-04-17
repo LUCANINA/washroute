@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 16, 2026 — Session 122: S700 card reader live + POS refunds. Stripe S700 smart reader connected and tested end-to-end with real card payments (Visa + Amex). Rewrote POS card flow from client-side Terminal JS SDK to server-driven approach (edge function pushes payment to reader via Stripe API, POS polls for completion). Added POS refund flow: recent sales list → confirm → full refund via Stripe. Also patched `auto_route_order` root cause for window/sub-window misalignment (both pickup + delivery sides now snap to sub-window boundaries). `stripe-terminal` edge function v5 deployed.*
+*Last updated: Apr 17, 2026 — Session 123: Permanent fix for orphan email-auth users (4 layers). Root cause: `send-magic-link` v17 called `auth.admin.generateLink()` unconditionally, silently spawning orphan email-auth users whenever the entered email didn't match an existing customer with a `profile_id` — which then blocked the real customer from signing in. Session 117 had fixed signup-form orphans via `check_account_exists`, but missed this path. Four-layer fix: (1) **v18 edge function** — refuses before creating an orphan, returns `{ok:false, noAccount:true, legacyCustomer?:true}`; (2) **customer app UX** — `handleMagicLink()` + `handleOtpEmailFallback()` now show purpose-built "No account — Sign Up" / "Use phone sign-in" banners instead of generic error toasts; (3) **admin dashboard** — `sendAppInvite()` was checking `res.ok` instead of `json.ok`, showing false "Sent!" for 4,170 legacy customers; fixed to surface a helpful toast explaining they need to sign in by phone first; (4) **nightly cron** — `cleanup_orphan_email_auth_users()` SECURITY DEFINER function + pg_cron at 0 10 UTC (3 AM PDT), deletes email-provider auth users >24h old with no customer and no staff role, capped at 50/run. Cleaned up 4 existing orphans (wlockhart, sonnygrewal, mattkyan, fatzler).*
+
+*Prior: Session 122: S700 card reader live + POS refunds. Stripe S700 smart reader connected and tested end-to-end with real card payments (Visa + Amex). Rewrote POS card flow from client-side Terminal JS SDK to server-driven approach (edge function pushes payment to reader via Stripe API, POS polls for completion). Added POS refund flow: recent sales list → confirm → full refund via Stripe. Also patched `auto_route_order` root cause for window/sub-window misalignment (both pickup + delivery sides now snap to sub-window boundaries). `stripe-terminal` edge function v5 deployed.*
 
 *Prior: Session 120: Critical subscription webhook bug fix. Root cause: `subscriptions_status_check` constraint only allowed active/paused/cancelled/past_due, but Stripe sends `incomplete` on `customer.subscription.created`. The upsert silently failed (200 OK to Stripe, no row created). Fix: expanded constraint to include all Stripe statuses (incomplete, incomplete_expired, trialing, unpaid) via migration `expand_subscriptions_status_check_for_stripe`. Also added `SUBSCRIPTIONS_ENABLED = false` feature flag to customer-app gating all 8 subscription UI touchpoints — prevents real customers from seeing/using subscriptions until launch. Cleaned up 2 orphaned customer records (Ashley Thompson, Sandeep Vadivel) who completed checkout during the bug window. Deployed clean `stripe-webhook` v37.*
 
@@ -138,6 +140,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `draft-reply` | **NEW (session 80):** AI-assisted SMS reply drafting. Accepts `customer_id`, `phone`, and optional `current_draft`. **Generate mode** (no current_draft): classifies customer intent (8 categories), fetches conversation history + order context + real admin voice examples from DB, calls Claude Haiku, returns a fresh draft. **Refine mode** (current_draft provided): polishes the admin's existing text for grammar/clarity/tone while preserving all specific details. Requires `ANTHROPIC_API_KEY` Supabase secret. Never sends — admin always reviews before clicking Send. | Off |
 | `stripe-terminal` | Stripe Terminal POS integration for S700 smart reader. **v5 (session 122):** Server-driven flow — no Terminal JS SDK needed. 8 actions: `connection_token`, `create_payment`, `process_payment` (pushes PI to reader via Stripe API), `check_payment_intent` (status polling), `cancel_payment`, `list_recent_payments` (last 20 card_present sales with refund status), `refund_payment` (full refund), `list_readers` (diagnostic). Uses `STRIPE_SECRET_KEY` from Supabase Secrets. | Off |
 | `send-receipt` | Email receipt via SendGrid. **v24 (session 121):** Added `tip_amount, tip_type` to SELECT; tip line shown between credits and total; grand total includes tip. `dedupeLineItems()` filters stale "Name: Yes" entries. | Off |
+| `send-magic-link` | Branded magic-link sign-in via SendGrid. **v18 (session 123):** Added Step A refusal — refuses to call `auth.admin.generateLink()` unless a customer with `profile_id IS NOT NULL` exists for that email. Returns HTTP 200 + `{ok:false, noAccount:true, legacyCustomer?:true}` for no-customer / legacy-only emails so callers can render friendly sign-up / phone-sign-in nudges. Prevents the orphan-auth-user class of bugs entirely. Step B (self-heal) and Step C (generateLink + SendGrid) unchanged from v17. | Off |
 
 ---
 
@@ -582,6 +585,58 @@ There are actually **two separate hang points** that must both be covered:
 
 ## Session Log
 
+### Apr 17, 2026 (session 123) — Permanent fix for orphan email-auth users (4 layers)
+
+**Context:** Morning audit flagged 5 orphan auth users, 4 of which were blocking real customers (Jennifer Fatzler, Matt Kyan, Sonny Grewal, Will Lockhart) from signing in. Session 117 had fixed orphans spawned from the signup forms (`handleSignup` + checkout) via `check_account_exists`, but orphans kept appearing. Had to find the remaining path and close it structurally.
+
+**Root cause found:** `send-magic-link` v17 called `supabase.auth.admin.generateLink({type: 'magiclink', email})` unconditionally (Step C). This Supabase primitive CREATES a new email-auth user if none exists for that email. When no customer record matched Step B (link-to-existing-phone-auth), Step C still fired and silently spawned an orphan every time a customer typed a non-matching email into the magic-link form. Evidence: Jennifer Fatzler's orphan was created at 05:00:30 today and her real customer row at 05:02:26 — 116 seconds apart, classic "user clicked magic link first, then created account fresh".
+
+**What was built (4 layers):**
+
+1. **`send-magic-link` v18** — New Step A pre-check:
+   - Looks up `customers` by `email_cache` with `profile_id IS NOT NULL`.
+   - If no match: checks for a legacy customer (email but `profile_id = NULL`) and returns `{ok:false, noAccount:true, legacyCustomer: true, error: "…phone OTP instead…"}` so the UI can redirect them to phone sign-in.
+   - Otherwise returns `{ok:false, noAccount:true, error: "…we don't have an account…"}`.
+   - Step B (orphan self-heal) and Step C (generateLink + SendGrid) unchanged. Deployed with `verify_jwt: false` preserving v17 behavior.
+
+2. **Customer app UX (`customer-app/index.html`)** — `handleMagicLink()` and `handleOtpEmailFallback()` now parse `noAccount` / `legacyCustomer` from the response body and show purpose-built banners:
+   - "We don't have an account for that email" (amber) with a **Sign Up** button that calls `switchTab('signup')`.
+   - "Use phone sign-in for your account" (blue) for legacy customers, routing them back to the phone flow.
+   - OTP fallback shows a single amber banner with contextual copy for legacy vs unknown-email cases.
+   - Both handlers clear prior banners on retry so stale state doesn't linger.
+
+3. **Admin dashboard (`admin-dashboard/index.html`)** — QA blast-radius check found `sendAppInvite()` checking `res.ok` (HTTP status) instead of `json.ok` (body flag). Because v18 returns HTTP 200 with `{ok:false, noAccount:true, legacyCustomer:true}` for all 4,170 legacy Starchup-imported customers, the admin was getting a false "✓ Sent!" toast while nothing shipped. Fixed to parse `json.ok`, branch on `noAccount`/`legacyCustomer`, and show an informative toast telling admin the customer needs to sign in by phone first to auto-link.
+
+4. **Nightly cleanup cron** — `public.cleanup_orphan_email_auth_users()` SECURITY DEFINER function that deletes email-provider `auth.users` rows older than 24h that have no linked customer and no staff role. Capped at 50 deletions per run. Scheduled via `pg_cron.schedule('cleanup-orphan-email-auth-users', '0 10 * * *', …)` — runs at 10:00 UTC = 3 AM PDT / 2 AM PST. Triple defense: v18 app refusal + function role filter + existing `trg_protect_staff_auth_users` BEFORE DELETE trigger.
+
+**Existing orphans cleaned (4):**
+- `wlockhart151@gmail.com`, `sonnygrewal5@gmail.com`, `mattkyan@gmail.com` — deleted via first manual run of the new function.
+- `fatzler@sbcglobal.net` (Jennifer) — surgically deleted; her phone-auth account (with 1 placed order today) is unaffected.
+
+**Not an orphan (correctly preserved):** `preeandrew@gmail.com` — Andrew Pree, a real driver. Profile role filter correctly skipped.
+
+**Preflight check results:**
+- Triggers on `auth.users`: `on_auth_user_created` (INSERT, no impact) + `trg_protect_staff_auth_users` (BEFORE DELETE, belt-and-suspenders safeguard).
+- Active cron jobs: 8 existing, none query `auth.users` or fan out on its changes.
+- Enabled SMS templates: 14, all order/pickup/delivery/payment-related. None triggered by auth events.
+- Blast radius: 0 customers could receive messages from this change.
+- Risk level: LOW.
+
+**Migration applied:** `orphan_email_auth_cleanup_cron` — function + cron schedule.
+
+**Files changed:**
+- `customer-app/index.html` — `handleMagicLink()`, `handleOtpEmailFallback()`, new banner divs, v17→v18 comment bump at line 1904.
+- `admin-dashboard/index.html` — `sendAppInvite()` rewrite.
+
+**⚠️ For future sessions:**
+1. **Known carry-forward: Jennifer Fatzler has two customer records** — legacy (6 orders, `profile_id=NULL`) + new (1 order, `profile_id` set). Same for other Starchup imports who re-signed up fresh. A broader merge pass (match on email + phone, preserve orders, pick one canonical record) would clean these up. Not in scope this session.
+2. **If the cron job needs to be disabled temporarily:** `SELECT cron.unschedule(jobid) FROM cron.job WHERE jobname = 'cleanup-orphan-email-auth-users';`. To re-enable, re-run the migration.
+3. **Nightly cap of 50 deletions** can be raised in the function body if needed, but with v18 deployed the steady-state orphan rate should be ~0.
+
+**Commit:** `e6f39c2 fix: eliminate orphan email-auth users (4-layer permanent fix)`.
+
+---
+
 ### Apr 16, 2026 (session 122) — S700 card reader live + POS refunds + window snap fix
 
 **Context:** Morning audit flagged 8 window/sub-window misalignments (Check #14). David also received the Stripe S700 reader and wanted to hook it up for real card payments.
@@ -736,9 +791,9 @@ There are actually **two separate hang points** that must both be covered:
 | 3 | Phone OTP (customer) | ✅ `prepare-phone-otp` edge fn |
 | 4 | Phone OTP resend | ✅ same |
 | 5 | Phone OTP (driver) | ✅ `prepare-phone-otp` edge fn |
-| 6 | Magic link (customer) | ✅ `send-magic-link` v17 |
-| 7 | Magic link (OTP fallback) | ✅ same edge fn |
-| 8 | Admin "Send App Invite" | ✅ same edge fn |
+| 6 | Magic link (customer) | ✅ **FIXED (session 123)** — `send-magic-link` v18 refuses to generate a link when no customer with `profile_id` exists, returning `{ok:false, noAccount:true, legacyCustomer?:true}` |
+| 7 | Magic link (OTP fallback) | ✅ same edge fn v18 |
+| 8 | Admin "Send App Invite" | ✅ **FIXED (session 123)** — `sendAppInvite()` now parses `json.ok` correctly and surfaces legacy-customer refusals instead of showing a false "Sent!" toast |
 | 9 | Admin create-staff | ✅ `create-staff` edge fn (admin-only) |
 
 **Edge cases verified:**
