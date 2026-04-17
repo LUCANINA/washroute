@@ -10882,7 +10882,25 @@ ${oneCopy}
         body: JSON.stringify({ email }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Unknown error');
+      // v18 may return HTTP 200 with { ok:false, noAccount:true, legacyCustomer? }
+      // to refuse creating an orphan auth user. Check the body flag, not res.ok.
+      if (!json.ok) {
+        if (json.noAccount && json.legacyCustomer) {
+          // Legacy customer: no email-auth identity yet; magic-link would orphan.
+          // Customer needs to sign in by phone first, which auto-links the account.
+          showToast(
+            'This customer is a legacy (pre-launch) account and needs to sign in by phone first. ' +
+            'Text them the app link instead — once they sign in with their phone, you can send email invites.',
+            'info', 10000
+          );
+        } else if (json.noAccount) {
+          showToast('Email not found in customer records. Double-check the address.', 'error');
+        } else {
+          throw new Error(json.error || 'Unknown error');
+        }
+        if (btn) { btn.disabled = false; btn.textContent = originalText; }
+        return;
+      }
       showToast(`App invite sent to ${email}`, 'success');
       if (btn) {
         btn.textContent = '✓ Sent!';

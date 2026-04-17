@@ -904,6 +904,10 @@
             <p style="margin:0; font-size:14px; color:#166534; font-weight:600">✉️ Check your inbox!</p>
             <p style="margin:4px 0 0; font-size:13px; color:var(--gray-500)">Tap the link we sent to sign in instantly.</p>
           </div>
+          <!-- Shown when the email has no WashRoute account (or only a legacy record) -->
+          <div id="otp-email-no-account" style="display:none; text-align:left; margin-top:10px; padding:12px; background:#fef3c7; border-radius:10px;">
+            <p id="otp-email-no-account-msg" style="margin:0; font-size:13px; color:#78350f; line-height:1.5;"></p>
+          </div>
         </div>
       </div>
     </div>
@@ -959,6 +963,17 @@
           <div id="magic-sent" class="magic-sent" style="display:none">
             <h4>✉️ Check your inbox!</h4>
             <p>We sent a sign-in link to your email.<br>Tap it to log in instantly — no password needed.</p>
+          </div>
+          <!-- Shown when the email has no WashRoute account at all -->
+          <div id="magic-no-account" style="display:none; background:#fef3c7; border-radius:10px; padding:14px; text-align:center; margin-top:12px;">
+            <p style="margin:0 0 10px; font-size:14px; font-weight:700; color:#92400e">We don't have an account for that email.</p>
+            <p style="margin:0 0 12px; font-size:13px; color:#78350f; line-height:1.5">Double-check the spelling, or create a new account to get started.</p>
+            <button type="button" class="btn-primary" style="margin:0" onclick="switchTab('signup')">Sign Up</button>
+          </div>
+          <!-- Shown when a legacy customer exists but has no email-auth user yet -->
+          <div id="magic-use-phone" style="display:none; background:#dbeafe; border-radius:10px; padding:14px; text-align:center; margin-top:12px;">
+            <p style="margin:0 0 8px; font-size:14px; font-weight:700; color:#1e40af">Use phone sign-in for your account</p>
+            <p style="margin:0; font-size:13px; color:#1e3a8a; line-height:1.5">We have your account on file, but it's set up for phone sign-in. Go back and tap <strong>Sign In by Phone</strong> — we'll text you a code.</p>
           </div>
         </form>
         <form class="auth-form" id="form-signup" onsubmit="handleSignup(event)">
@@ -1886,7 +1901,7 @@ async function handlePhoneSubmit() {
   try {
     // Pre-link this phone to an existing customer's auth user (if any) so that
     // signInWithOtp lands on the real account instead of spawning an orphan.
-    // Mirror of send-magic-link v17 for the OTP flow. Always proceeds even on
+    // Mirror of send-magic-link v18 for the OTP flow. Always proceeds even on
     // failure — worst case the OTP creates an orphan as before.
     await preparePhoneOtp(phone);
     const { error } = await db.auth.signInWithOtp({ phone });
@@ -2101,6 +2116,9 @@ async function handleOtpEmailFallback() {
 
   const btn = document.getElementById('btn-otp-email-fallback');
   btn.disabled = true; btn.textContent = 'Sending…';
+  // Clear any prior "no account" banner from a previous attempt
+  const otpNoAcctEl = document.getElementById('otp-email-no-account');
+  if (otpNoAcctEl) otpNoAcctEl.style.display = 'none';
   try {
     const redirectUrl = window.location.protocol === 'https:'
       ? window.location.href.split('?')[0].split('#')[0]
@@ -2110,12 +2128,30 @@ async function handleOtpEmailFallback() {
       headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
       body: JSON.stringify({ email, redirectTo: redirectUrl }),
     });
-    const { ok, error } = await res.json();
-    if (!ok) throw new Error(error || 'Failed to send link');
-    // Show success, hide the form
-    document.getElementById('otp-fallback-email').querySelector('.field').style.display = 'none';
-    btn.style.display = 'none';
-    document.getElementById('otp-email-sent').style.display = '';
+    const data = await res.json();
+    const { ok, error, noAccount, legacyCustomer } = data || {};
+    if (!ok) {
+      // v18 refusal responses — show helpful banner inline instead of erroring
+      if (noAccount) {
+        if (otpNoAcctEl) {
+          // Customize copy for legacy (has phone in our records) vs unknown email
+          const msgEl = document.getElementById('otp-email-no-account-msg');
+          if (msgEl) {
+            msgEl.textContent = legacyCustomer
+              ? "We have your account, but email sign-in isn't set up yet. Keep trying the SMS code above — we can also send it again."
+              : "We don't have an account for that email. Double-check the spelling, or tap the phone sign-in above if you have an account under a different email.";
+          }
+          otpNoAcctEl.style.display = '';
+        }
+      } else {
+        throw new Error(error || 'Failed to send link');
+      }
+    } else {
+      // Show success, hide the form
+      document.getElementById('otp-fallback-email').querySelector('.field').style.display = 'none';
+      btn.style.display = 'none';
+      document.getElementById('otp-email-sent').style.display = '';
+    }
   } catch (err) {
     toast(err.message || 'Error sending link — try again');
   }
@@ -2331,6 +2367,11 @@ async function handleMagicLink() {
   if (!email) { toast('Please enter your email address'); return; }
   const btn = document.getElementById('btn-magic');
   btn.disabled = true; btn.textContent = 'Sending…';
+  // Clear any prior "no account" banners from a previous attempt
+  const noAcctEl = document.getElementById('magic-no-account');
+  const legacyEl = document.getElementById('magic-use-phone');
+  if (noAcctEl) noAcctEl.style.display = 'none';
+  if (legacyEl) legacyEl.style.display = 'none';
   try {
     // Use our branded send-magic-link Edge Function instead of Supabase's default email
     const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://app.familylaundry.com/';
@@ -2339,10 +2380,25 @@ async function handleMagicLink() {
       headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
       body: JSON.stringify({ email, redirectTo: redirectUrl }),
     });
-    const { ok, error } = await res.json();
-    if (!ok) throw new Error(error || 'Failed to send link');
-    document.getElementById('magic-section').style.display = 'none';
-    document.getElementById('magic-sent').style.display = '';
+    const data = await res.json();
+    const { ok, error, noAccount, legacyCustomer } = data || {};
+    if (!ok) {
+      // v18 refusal responses — show helpful banners, NOT generic errors
+      if (noAccount && legacyCustomer) {
+        // Customer exists (legacy Starchup import) but has no email-auth user yet.
+        // Best path: sign in with phone, which auto-links the account.
+        document.getElementById('magic-section').style.display = 'none';
+        if (legacyEl) legacyEl.style.display = '';
+      } else if (noAccount) {
+        // No customer record at all — nudge to Sign Up.
+        if (noAcctEl) noAcctEl.style.display = '';
+      } else {
+        throw new Error(error || 'Failed to send link');
+      }
+    } else {
+      document.getElementById('magic-section').style.display = 'none';
+      document.getElementById('magic-sent').style.display = '';
+    }
   } catch (err) {
     toast(err.message || 'Error sending link');
   }
