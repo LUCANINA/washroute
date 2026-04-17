@@ -691,6 +691,14 @@
     color: var(--gray-400);
     cursor: not-allowed;
   }
+  /* session 114: amber "needs customer" state so the attendant can't
+     miss that they still need to attach someone before charging. */
+  .charge-btn[data-state="needs-customer"] {
+    background: #d97706; /* amber-600 */
+  }
+  .charge-btn[data-state="needs-customer"]:hover:not(:disabled) {
+    background: #b45309; /* amber-700 */
+  }
 
   /* ═════════════════════════════════════════════════════════════
      MODAL FOUNDATION
@@ -1594,8 +1602,8 @@
             <div class="total-row"><span>Subtotal</span><span id="subtotal">$0.00</span></div>
             <div class="total-row"><span>Tax (9.25%)</span><span id="tax">$0.00</span></div>
             <div class="total-row grand"><span>Total</span><span id="grand">$0.00</span></div>
-            <button class="charge-btn" id="chargeBtn" disabled onclick="openPay()">
-              <span>Charge</span>
+            <button class="charge-btn" id="chargeBtn" disabled onclick="chargeBtnTap()">
+              <span id="chargeLabel">Charge</span>
               <span id="chargeAmt"></span>
             </button>
           </div>
@@ -1704,7 +1712,7 @@
               <button class="numkey" onclick="phoneKey('0')">0</button>
               <button class="numkey back" onclick="phoneKey('back')">⌫</button>
             </div>
-            <button class="walk-in-btn" onclick="setWalkIn(); closeAll();">
+            <button class="walk-in-btn" onclick="continueAsWalkIn()">
               <span>👋</span> Continue as walk-in
             </button>
           </div>
@@ -1736,7 +1744,7 @@
             </div>
             <div class="form-field">
               <label class="form-label">Phone</label>
-              <input class="form-input phone-locked" id="newPhone" type="tel" value="(415) 555-0134" readonly>
+              <input class="form-input phone-locked" id="newPhone" type="tel" value="" readonly>
               <div class="sms-disclosure" style="margin-top:8px;margin-bottom:0;">
                 <span class="sms-disclosure-icon">💬</span>
                 <span>We'll text this number when the order is ready for pickup. Standard message rates apply.</span>
@@ -2407,6 +2415,28 @@
     refreshLucideIcons();
   }
 
+  // session 114: Is there any laundry line in the cart?
+  // Used to gate charge-button and guard the orders INSERT. Matches the
+  // logic inside createOrderRow() so the two stay in sync:
+  //   - per_lb drop-off line (Wash & Fold / Wash & Dry),   OR
+  //   - a real retail service whose id is a UUID (Comforter, etc.)
+  // Pure merchandise carts (drinks/snacks/supplies) return false and
+  // can be charged anonymously.
+  function cartHasLaundry() {
+    return cart.some(l =>
+      l.type === 'per_lb' ||
+      (l.service === true && typeof l.id === 'string' && l.id.includes('-'))
+    );
+  }
+
+  // session 114: A customer is "attached" only when we have a real
+  // DB id. Session-only sketches (the old mockup behaviour) no longer
+  // count — createOrderRow needs the UUID so we can text the customer
+  // when the order's ready.
+  function hasAttachedCustomer() {
+    return !!(currentCustomer && currentCustomer.id);
+  }
+
   function updateTotals() {
     const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
     const tax = subtotal * TAX_RATE;
@@ -2414,12 +2444,46 @@
     document.getElementById('subtotal').textContent = '$' + subtotal.toFixed(2);
     document.getElementById('tax').textContent = '$' + tax.toFixed(2);
     document.getElementById('grand').textContent = '$' + grand.toFixed(2);
-    const btn = document.getElementById('chargeBtn');
-    btn.disabled = cart.length === 0;
-    document.getElementById('chargeAmt').textContent = cart.length ? `· $${grand.toFixed(2)}` : '';
+
     document.getElementById('payTotal').textContent = '$' + grand.toFixed(2);
     document.getElementById('terminalAmt').textContent = '$' + grand.toFixed(2);
     document.getElementById('successAmt').textContent = '$' + grand.toFixed(2);
+
+    // ---- Charge-button three-state logic ----
+    // (session 114) Laundry carts MUST have a customer before they can
+    // be charged. Merchandise-only carts don't need one.
+    const btn = document.getElementById('chargeBtn');
+    const label = document.getElementById('chargeLabel');
+    const amt = document.getElementById('chargeAmt');
+    if (cart.length === 0) {
+      btn.disabled = true;
+      label.textContent = 'Charge';
+      amt.textContent = '';
+      btn.dataset.state = 'empty';
+    } else if (cartHasLaundry() && !hasAttachedCustomer()) {
+      btn.disabled = false; // tappable — opens customer lookup
+      label.textContent = 'Attach customer';
+      amt.textContent = `· $${grand.toFixed(2)}`;
+      btn.dataset.state = 'needs-customer';
+    } else {
+      btn.disabled = false;
+      label.textContent = 'Charge';
+      amt.textContent = `· $${grand.toFixed(2)}`;
+      btn.dataset.state = 'ready';
+    }
+  }
+
+  // Dispatcher for the Charge button. In 'needs-customer' state we
+  // route to the customer lookup modal instead of the payment modal
+  // so the card can never be charged without a customer attached.
+  function chargeBtnTap() {
+    const btn = document.getElementById('chargeBtn');
+    if (btn.dataset.state === 'needs-customer') {
+      showToast('Attach a customer first — we need their phone number to text when the order is ready.', 'info');
+      openLookup();
+      return;
+    }
+    openPay();
   }
 
   /* ─── Weight modal ─────────────────────────────────────────── */
@@ -2599,6 +2663,18 @@
     showModal('lookupModal');
   }
 
+  // session 114: tapping "Continue as walk-in" is OK for merchandise-only
+  // carts, but NOT for laundry carts — we need the phone number to text
+  // when the order's ready. Show a toast in that case instead of closing.
+  function continueAsWalkIn() {
+    if (cartHasLaundry()) {
+      showToast('Laundry needs a customer — we text them when the order is ready.', 'error');
+      return;
+    }
+    setWalkIn();
+    closeAll();
+  }
+
   function phoneKey(k) {
     if (k === 'back') {
       phoneDigits = phoneDigits.slice(0, -1);
@@ -2731,6 +2807,10 @@
     document.getElementById('newFirstName').value = '';
     document.getElementById('newLastName').value = '';
     document.getElementById('newEmail').value = '';
+    // session 114: always reset the Save button when the modal opens,
+    // in case a previous save left it in a "Saving…" disabled state.
+    const saveBtn = document.getElementById('saveCustomerBtn');
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save & attach'; }
     showModal('createCustomerModal');
     // Focus first name on open
     setTimeout(() => document.getElementById('newFirstName').focus(), 250);
@@ -2741,30 +2821,97 @@
     setTimeout(() => showModal('lookupModal'), 200);
   }
 
-  function saveNewCustomer() {
+  async function saveNewCustomer() {
+    const btn = document.getElementById('saveCustomerBtn');
     const first = document.getElementById('newFirstName').value.trim();
     const last  = document.getElementById('newLastName').value.trim();
-    const phone = document.getElementById('newPhone').value.trim();
+    const phoneRaw = document.getElementById('newPhone').value.trim();
     const email = document.getElementById('newEmail').value.trim();
     if (!first || !last) {
-      // In a real build, we'd surface inline errors. For the mockup, bail.
-      alert('First and last name are required.');
+      showToast('First and last name are required.', 'error');
       return;
     }
-    const name = `${first} ${last}`;
-    // Attach as a brand-new customer (0 orders)
-    attachCustomer(name, phone, 0);
-    // NOTE (design): on save we'd also:
-    //   1. INSERT into customers with pricelist = 'Delivery', source = 'pos_walkin'
-    //   2. If email present → enqueue welcome email with app download link
-    //   3. Log the create to the POS shift audit trail
+    // Normalize phone to just digits so it matches the phone_cache format
+    // used by lookupCustomerByPhone and the rest of the system.
+    const phoneDigitsOnly = phoneRaw.replace(/\D/g, '');
+    if (phoneDigitsOnly.length !== 10) {
+      showToast('Phone number is required (10 digits).', 'error');
+      return;
+    }
+
+    // Lock the save button so a double-tap can't create duplicate rows.
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    // session 114: ALL exit paths must reset the Save button state.
+    // We can't rely on closeAll() because the modal can be reopened from
+    // openCreateCustomer without clearing a stale "Saving…" label.
+    try {
+      // Defensive: one more check for an existing customer with this
+      // phone before we insert. A walk-in might have been created just
+      // seconds ago by another attendant on the same device.
+      const existing = await lookupCustomerByPhone(phoneDigitsOnly);
+      if (existing.length) {
+        const c = existing[0];
+        const f = (c.first_name_cache || '').trim();
+        const l = (c.last_name_cache  || '').trim();
+        const existingName = `${f} ${l}`.trim() || `${first} ${last}`;
+        showToast(`Found existing customer ${existingName} — attaching instead.`, 'info');
+        attachCustomer(existingName, c.phone_cache || phoneDigitsOnly,
+                       c.total_orders || 0,
+                       { id: c.id, email: c.email_cache || '' });
+        return;
+      }
+
+      // Build the insert payload. Defaults on the customers table cover
+      // the rest (pricelist='Delivery', subscription_plan='paygo',
+      // account_type='individual', risk_status='active', etc.).
+      const payload = {
+        first_name_cache: first,
+        last_name_cache:  last,
+        phone_cache:      phoneDigitsOnly,
+        ...(email ? { email_cache: email } : {}),
+        is_retail:        true,          // POS walk-ins are retail-only by default
+        referral_source:  'pos_walkin',  // distinguish from delivery signups
+      };
+      const { data, error } = await db
+        .from('customers')
+        .insert(payload)
+        .select('id, first_name_cache, last_name_cache, phone_cache, email_cache, total_orders')
+        .single();
+      if (error) {
+        console.error('[POS] saveNewCustomer insert error:', error);
+        showToast('Could not create customer: ' + (error.message || 'unknown error'), 'error');
+        return;
+      }
+      // Defensive: if the SELECT-after-INSERT returned null (RLS could
+      // in theory hide the freshly-inserted row), fall back to attaching
+      // with the payload we just sent.
+      if (!data || !data.id) {
+        console.warn('[POS] saveNewCustomer: insert OK but SELECT returned no row; attaching from payload');
+        const fallbackId = (data && data.id) || null;
+        if (!fallbackId) {
+          showToast('Customer saved but could not be attached — try the phone lookup again.', 'error');
+          return;
+        }
+      }
+      const name = `${first} ${last}`;
+      attachCustomer(name, data.phone_cache || phoneDigitsOnly, 0,
+                     { id: data.id, email: data.email_cache || '' });
+      showToast('New customer created', 'success');
+    } catch (e) {
+      console.error('[POS] saveNewCustomer fatal:', e);
+      showToast('Could not create customer — please try again.', 'error');
+    } finally {
+      // Always restore the button so the modal is usable next open.
+      if (btn) { btn.disabled = false; btn.textContent = 'Save & attach'; }
+    }
   }
 
   function attachCustomer(name, phone, orderCount, extras) {
     // extras: { id?: string, email?: string } — optional, populated when
-    // the customer came from a real DB lookup. Walk-in-created-on-the-spot
-    // customers pass nothing and become session-only until the real row
-    // gets inserted (TBD work).
+    // the customer came from a real DB lookup or fresh INSERT. After
+    // session 114, saveNewCustomer() always persists the row first so
+    // an `id` is always supplied here for a "real" customer.
     currentCustomer = {
       name,
       phone,
@@ -2782,6 +2929,8 @@
       : `${orderCount} orders · tap to change`;
     document.getElementById('custSub').textContent = sub;
     closeAll();
+    // session 114: re-run the button state now that a customer is attached
+    updateTotals();
   }
 
   function setWalkIn() {
@@ -2791,6 +2940,8 @@
     document.getElementById('custAvatar').textContent = '+';
     document.getElementById('custName').textContent = 'Walk-in';
     document.getElementById('custSub').textContent = 'Tap to find customer';
+    // session 114: re-gate the charge button when the customer is cleared
+    updateTotals();
   }
 
   /* ─── Walk-in queue ───────────────────────────────────────────
@@ -3814,10 +3965,15 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
     const weightLbs = weightSum > 0 ? Number(weightSum.toFixed(2)) : null;
 
     // Has any laundry work? (either per_lb service OR a real retail service like Comforter)
-    const hasLaundry = cart.some(l =>
-      l.type === 'per_lb' ||
-      (l.service === true && typeof l.id === 'string' && l.id.includes('-'))
-    );
+    const hasLaundry = cartHasLaundry();
+
+    // session 114: Belt-and-suspenders guard. The Charge button is
+    // already gated on this, but double-check here so a bug in the UI
+    // state machine can never result in a charged laundry order with
+    // no customer we can text.
+    if (hasLaundry && !hasAttachedCustomer()) {
+      throw new Error('Attach a customer before charging laundry.');
+    }
 
     // Merchandise-only sales are complete at the moment of payment.
     // Laundry drop-offs enter the processing queue.
