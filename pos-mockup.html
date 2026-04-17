@@ -1489,6 +1489,9 @@
             <!-- Populated by toggleSiteDropdown() -->
           </div>
         </div>
+        <button class="queue-badge" id="refundBtn" onclick="openRefundModal()" title="Refund a recent sale" style="background:var(--gray-100);">
+          <span class="queue-badge-icon">↩</span>
+        </button>
         <button class="queue-badge" id="queueBadge" onclick="toggleQueue()" title="Walk-in orders in process">
           <span class="queue-badge-icon">📦</span>
           <span class="queue-badge-count" id="queueCount">0</span>
@@ -1890,6 +1893,45 @@
         </div>
       </div>
 
+      <!-- ─── Refund modal ──────────────────────────────────── -->
+      <div class="modal-overlay" id="refundModal">
+        <div class="modal" style="max-width: 480px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Refund a sale</div>
+              <div class="modal-sub">Recent card payments (last 48 hours)</div>
+            </div>
+            <button class="modal-close" onclick="closeAll()">×</button>
+          </div>
+          <div class="modal-body" style="padding: 0; max-height: 400px; overflow-y: auto;">
+            <div id="refundList" style="padding: 12px 20px;">
+              <div style="text-align:center;padding:30px;color:var(--gray-400);">Loading recent sales…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── Refund confirm modal ────────────────────────────── -->
+      <div class="modal-overlay" id="refundConfirmModal">
+        <div class="modal" style="max-width: 400px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Confirm refund</div>
+              <div class="modal-sub" id="refundConfirmSub">Refund $0.00 back to card?</div>
+            </div>
+            <button class="modal-close" onclick="closeAll()">×</button>
+          </div>
+          <div class="modal-body" style="padding: 16px 20px;">
+            <div id="refundConfirmDetails" style="font-size:14px;color:var(--gray-600);line-height:1.5;"></div>
+            <div id="refundConfirmError" style="display:none;margin-top:12px;padding:10px;background:#fef2f2;color:#dc2626;border-radius:8px;font-size:13px;"></div>
+          </div>
+          <div class="modal-footer" style="display:flex;gap:10px;">
+            <button class="btn" onclick="closeAll()" style="flex:1;">Cancel</button>
+            <button class="btn" id="refundConfirmBtn" onclick="executeRefund()" style="flex:1;background:#dc2626;color:white;">Refund</button>
+          </div>
+        </div>
+      </div>
+
     </div><!-- /device-screen -->
   </div><!-- /device -->
 
@@ -1955,7 +1997,7 @@
 
 </div>
 
-<script src="https://js.stripe.com/terminal/v1/"></script>
+<!-- Terminal JS SDK no longer needed — using server-driven flow via edge function -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
   /* ─────────────────────────────────────────────────────────────
@@ -2025,84 +2067,65 @@
   }
 
   /* ─────────────────────────────────────────────────────────────
-     Stripe Terminal  —  M2 reader via internet connection
+     Stripe Terminal  —  S700 smart reader (server-driven)
+     ─────────────────────────────────────────────────────────────
+     The S700 is an internet-connected smart reader. Instead of
+     the browser connecting directly to the reader (which needs
+     local HTTPS and the right SDK version), we use a server-
+     driven flow:
+       1. Edge function creates a PaymentIntent
+       2. Edge function pushes it to the reader via Stripe API
+       3. Reader shows "present card" screen
+       4. POS polls the PaymentIntent status until succeeded
+     No Terminal JS SDK or local connection needed.
      ───────────────────────────────────────────────────────────── */
   const TERMINAL_FN = SUPABASE_URL + '/functions/v1/stripe-terminal';
-  let terminal = null;        // StripeTerminal instance
-  let discoveredReaders = []; // readers found during discovery
-  let connectedReader = null; // currently connected reader
+  const READER_ID = 'tmr_Gd5THwTwVhTw3n'; // Foothill Card Reader (S700)
+  let readerOnline = false;
   let pendingPaymentIntentId = null; // track for cancel
+  let _pollTimer = null; // polling interval for payment status
 
-  async function fetchConnectionToken() {
-    const res = await fetch(TERMINAL_FN, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
-      body: JSON.stringify({ action: 'connection_token' }),
-    });
-    const data = await res.json();
-    if (!data.secret) throw new Error('No connection token received');
-    return data.secret;
-  }
-
-  function initTerminal() {
-    if (terminal) return; // already initialised
-    terminal = StripeTerminal.create({
-      onFetchConnectionToken: fetchConnectionToken,
-      onUnexpectedReaderDisconnect: () => {
-        console.warn('[Terminal] Reader disconnected unexpectedly');
-        connectedReader = null;
-        updateReaderStatus();
-        showToast('Card reader disconnected', 'error');
-      },
-    });
-    console.log('[Terminal] SDK initialised');
-  }
-
-  async function discoverAndConnect() {
-    if (!terminal) initTerminal();
+  // Check if the reader is online (called on page load)
+  async function checkReaderStatus() {
     updateReaderStatus('searching');
-
-    const discoverResult = await terminal.discoverReaders({ simulated: false });
-    if (discoverResult.error) {
-      console.error('[Terminal] Discovery error:', discoverResult.error);
-      showToast('Could not find reader: ' + discoverResult.error.message, 'error');
+    try {
+      const res = await fetch(TERMINAL_FN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: 'list_readers' }),
+      });
+      const data = await res.json();
+      const reader = (data.readers || []).find(r => r.id === READER_ID);
+      if (reader && reader.status === 'online') {
+        readerOnline = true;
+        console.log('[Terminal] Reader online:', reader.label);
+        updateReaderStatus('connected');
+      } else {
+        readerOnline = false;
+        console.warn('[Terminal] Reader not online:', reader?.status || 'not found');
+        updateReaderStatus('disconnected');
+      }
+    } catch (err) {
+      console.error('[Terminal] Status check failed:', err);
+      readerOnline = false;
       updateReaderStatus('disconnected');
-      return false;
     }
-
-    discoveredReaders = discoverResult.discoveredReaders || [];
-    if (discoveredReaders.length === 0) {
-      showToast('No readers found. Make sure the M2 is on and connected to WiFi/Bluetooth.', 'error');
-      updateReaderStatus('disconnected');
-      return false;
-    }
-
-    // Connect to the first reader found (for a single-terminal shop)
-    const connectResult = await terminal.connectReader(discoveredReaders[0]);
-    if (connectResult.error) {
-      console.error('[Terminal] Connect error:', connectResult.error);
-      showToast('Could not connect to reader: ' + connectResult.error.message, 'error');
-      updateReaderStatus('disconnected');
-      return false;
-    }
-
-    connectedReader = connectResult.reader;
-    console.log('[Terminal] Connected to reader:', connectedReader.label || connectedReader.id);
-    updateReaderStatus('connected');
-    return true;
   }
 
   function updateReaderStatus(status) {
     const el = document.getElementById('readerStatus');
     if (!el) return;
-    if (status === 'connected' || connectedReader) {
-      el.innerHTML = '<span style="color:var(--green);font-weight:600;">● Connected</span> <span style="color:var(--gray-500);font-size:12px;">' + (connectedReader?.label || connectedReader?.serial_number || 'M2 Reader') + '</span>';
+    if (status === 'connected' || readerOnline) {
+      el.innerHTML = '<span style="color:var(--green);font-weight:600;">● Online</span> <span style="color:var(--gray-500);font-size:12px;">Foothill Card Reader</span>';
     } else if (status === 'searching') {
-      el.innerHTML = '<span style="color:var(--amber);font-weight:600;">◌ Searching…</span>';
+      el.innerHTML = '<span style="color:var(--amber);font-weight:600;">◌ Checking…</span>';
     } else {
-      el.innerHTML = '<span style="color:var(--gray-400);">○ Not connected</span> <button onclick="discoverAndConnect()" style="font-size:12px;color:var(--accent);background:none;border:none;cursor:pointer;text-decoration:underline;padding:0 4px;">Connect reader</button>';
+      el.innerHTML = '<span style="color:var(--gray-400);">○ Reader offline</span> <button onclick="checkReaderStatus()" style="font-size:12px;color:var(--accent);background:none;border:none;cursor:pointer;text-decoration:underline;padding:0 4px;">Retry</button>';
     }
   }
+
+  // Check reader on page load
+  setTimeout(checkReaderStatus, 500);
 
   /* State */
   let currentTab = 'services';
@@ -3115,33 +3138,22 @@
     await chargeAndFinish('cash');
   }
 
-  // Card flow: jump to the (stubbed) terminal screen. When "Simulate
-  // success" is clicked, the order actually gets posted. Real Stripe
-  // Terminal integration is a future session.
+  // ── Server-driven card flow ──────────────────────────────────
+  // Creates a PaymentIntent, pushes it to the S700 via Stripe API,
+  // then polls until the customer taps/inserts their card.
   async function payWithCard() {
     closeAll();
 
-    // Ensure Terminal SDK is initialised
-    if (!terminal) initTerminal();
-
-    // Connect to reader if not already connected
-    if (!connectedReader) {
+    // Check reader is online
+    if (!readerOnline) {
       setTimeout(() => showModal('terminalModal'), 100);
-      document.getElementById('terminalTitle').textContent = 'Connecting to reader…';
-      document.getElementById('terminalWaitTitle').textContent = 'Looking for your M2 reader…';
-      document.getElementById('terminalAmt').textContent = '';
+      document.getElementById('terminalTitle').textContent = 'Reader offline';
+      document.getElementById('terminalWaitTitle').textContent = 'Could not reach card reader';
+      document.getElementById('terminalAmt').textContent = 'Check that the S700 is powered on and connected to WiFi';
       document.getElementById('terminalCancelBtn').style.display = 'inline-flex';
-      document.getElementById('terminalRetryBtn').style.display = 'none';
+      document.getElementById('terminalRetryBtn').style.display = 'inline-flex';
       document.getElementById('terminalError').style.display = 'none';
-
-      const connected = await discoverAndConnect();
-      if (!connected) {
-        document.getElementById('terminalTitle').textContent = 'Reader not found';
-        document.getElementById('terminalWaitTitle').textContent = 'Could not connect to card reader';
-        document.getElementById('terminalAmt').textContent = 'Check that the M2 is powered on and connected to WiFi';
-        document.getElementById('terminalRetryBtn').style.display = 'inline-flex';
-        return;
-      }
+      return;
     }
 
     // Show terminal modal with amount
@@ -3151,20 +3163,15 @@
     const amountCents = Math.round(grand * 100);
 
     setTimeout(() => showModal('terminalModal'), 100);
-    document.getElementById('terminalTitle').textContent = 'Waiting for card';
-    document.getElementById('terminalWaitTitle').textContent = 'Present card on reader';
+    document.getElementById('terminalTitle').textContent = 'Sending to reader…';
+    document.getElementById('terminalWaitTitle').textContent = 'Setting up payment';
     document.getElementById('terminalAmt').textContent = '$' + grand.toFixed(2);
     document.getElementById('terminalCancelBtn').style.display = 'inline-flex';
     document.getElementById('terminalRetryBtn').style.display = 'none';
     document.getElementById('terminalError').style.display = 'none';
 
     try {
-      // 1. Create PaymentIntent on the server
-      // Idempotency key: deterministic per-sale, so a retry of the same
-      // attempt (e.g. network drop between request and response) returns
-      // the SAME PaymentIntent instead of creating a second charge.
-      // Regenerated per sale attempt so a fresh retry (different cart /
-      // different customer) still gets a new intent.
+      // 1. Create PaymentIntent
       if (!_posIdempotencyKey) {
         _posIdempotencyKey = 'pos-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
       }
@@ -3181,46 +3188,52 @@
       });
       const piData = await piRes.json();
       if (piData.error) {
-        // v2 of stripe-terminal edge fn returns { error, code, details? }.
-        // Surface the code in the console so retry/abort decisions are
-        // traceable; the customer-facing message is still piData.error.
         console.warn('[POS] create_payment failed:', piData.code, piData.error);
         throw new Error(piData.error);
       }
 
       pendingPaymentIntentId = piData.payment_intent_id;
+      console.log('[Terminal] PaymentIntent created:', pendingPaymentIntentId);
 
-      // 2. Collect payment on the reader
-      const collectResult = await terminal.collectPaymentMethod(piData.client_secret);
-      if (collectResult.error) {
-        throw new Error(collectResult.error.message);
+      // 2. Push payment to the reader via server-driven API
+      document.getElementById('terminalTitle').textContent = 'Waiting for card';
+      document.getElementById('terminalWaitTitle').textContent = 'Present card on reader';
+
+      const processRes = await fetch(TERMINAL_FN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+        body: JSON.stringify({
+          action: 'process_payment',
+          payment_intent_id: pendingPaymentIntentId,
+          reader_id: READER_ID,
+        }),
+      });
+      const processData = await processRes.json();
+      if (processData.error) {
+        console.warn('[POS] process_payment failed:', processData.code, processData.error);
+        throw new Error(processData.error);
       }
 
-      // 3. Confirm the payment
-      document.getElementById('terminalWaitTitle').textContent = 'Processing…';
-      const confirmResult = await terminal.confirmPaymentIntent(collectResult.paymentIntent);
-      if (confirmResult.error) {
-        throw new Error(confirmResult.error.message);
-      }
+      console.log('[Terminal] Payment pushed to reader, polling for completion…');
 
-      if (confirmResult.paymentIntent.status === 'succeeded' || confirmResult.paymentIntent.status === 'requires_capture') {
-        // Payment successful — create the order in DB
+      // 3. Poll PaymentIntent status until succeeded or failed
+      const result = await pollPaymentStatus(pendingPaymentIntentId);
+
+      if (result.status === 'succeeded' || result.status === 'requires_capture') {
         pendingPaymentIntentId = null;
-        await chargeAndFinish('card', confirmResult.paymentIntent.id);
+        await chargeAndFinish('card', result.payment_intent_id);
       } else {
-        throw new Error('Payment did not succeed (status: ' + confirmResult.paymentIntent.status + ')');
+        throw new Error('Payment did not succeed (status: ' + result.status + ')');
       }
 
     } catch (err) {
       console.error('[Terminal] Payment error:', err);
-      // Show error in the terminal modal
       const errEl = document.getElementById('terminalError');
       errEl.textContent = err.message || 'Payment failed';
       errEl.style.display = 'block';
       document.getElementById('terminalWaitTitle').textContent = 'Payment failed';
       document.getElementById('terminalRetryBtn').style.display = 'inline-flex';
 
-      // Cancel the payment intent if it was created
       if (pendingPaymentIntentId) {
         try {
           await fetch(TERMINAL_FN, {
@@ -3231,16 +3244,57 @@
         } catch (_) { /* best effort */ }
         pendingPaymentIntentId = null;
       }
-      // Allow a fresh PaymentIntent on the next retry (don't idempotently
-      // return the failed one). The cashier's "Retry" button starts over.
       _posIdempotencyKey = null;
     }
   }
 
+  // Poll the PaymentIntent every 2s until it resolves (max 60s)
+  function pollPaymentStatus(piId) {
+    return new Promise((resolve, reject) => {
+      let elapsed = 0;
+      const interval = 2000;
+      const maxWait = 60000;
+
+      _pollTimer = setInterval(async () => {
+        elapsed += interval;
+        try {
+          const res = await fetch(TERMINAL_FN, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+            body: JSON.stringify({ action: 'check_payment_intent', payment_intent_id: piId }),
+          });
+          const data = await res.json();
+          console.log('[Terminal] Poll:', data.status);
+
+          if (data.status === 'succeeded' || data.status === 'requires_capture') {
+            clearInterval(_pollTimer);
+            _pollTimer = null;
+            document.getElementById('terminalWaitTitle').textContent = 'Processing…';
+            resolve(data);
+          } else if (data.status === 'canceled') {
+            clearInterval(_pollTimer);
+            _pollTimer = null;
+            reject(new Error('Payment was canceled'));
+          } else if (elapsed >= maxWait) {
+            clearInterval(_pollTimer);
+            _pollTimer = null;
+            reject(new Error('Timed out waiting for card — try again'));
+          }
+        } catch (err) {
+          // Network blip — keep polling
+          console.warn('[Terminal] Poll error:', err.message);
+          if (elapsed >= maxWait) {
+            clearInterval(_pollTimer);
+            _pollTimer = null;
+            reject(new Error('Timed out waiting for card — try again'));
+          }
+        }
+      }, interval);
+    });
+  }
+
   async function cancelTerminalPayment() {
-    if (terminal) {
-      try { await terminal.cancelCollectPaymentMethod(); } catch (_) {}
-    }
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     if (pendingPaymentIntentId) {
       try {
         await fetch(TERMINAL_FN, {
@@ -3254,9 +3308,125 @@
     closeAll();
   }
 
-  // Back-compat shim
+  // Back-compat shims
   async function startTerminal() { payWithCard(); }
   async function simulateCardSuccess() { await chargeAndFinish('card'); }
+  // Legacy shims so old UI buttons don't break
+  async function discoverAndConnect() { await checkReaderStatus(); }
+
+  /* ─────────────────────────────────────────────────────────────
+     Refund flow  —  list recent sales, pick one, confirm, refund
+     ───────────────────────────────────────────────────────────── */
+  let _refundTarget = null; // { payment_intent_id, amount, description, card_brand, card_last4 }
+
+  async function openRefundModal() {
+    closeAll();
+    setTimeout(() => showModal('refundModal'), 100);
+    document.getElementById('refundList').innerHTML =
+      '<div style="text-align:center;padding:30px;color:var(--gray-400);">Loading recent sales…</div>';
+
+    try {
+      const res = await fetch(TERMINAL_FN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: 'list_recent_payments' }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      const sales = data.sales || [];
+      if (sales.length === 0) {
+        document.getElementById('refundList').innerHTML =
+          '<div style="text-align:center;padding:30px;color:var(--gray-400);">No recent card sales found</div>';
+        return;
+      }
+
+      document.getElementById('refundList').innerHTML = sales.map(s => {
+        const amt = '$' + (s.amount / 100).toFixed(2);
+        const date = new Date(s.created * 1000);
+        const timeStr = date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        const card = s.card_brand ? (s.card_brand.charAt(0).toUpperCase() + s.card_brand.slice(1) + ' ···' + s.card_last4) : 'Card';
+        const desc = s.description || 'POS sale';
+        const meta = s.metadata?.customer_id && s.metadata.customer_id !== 'walk_in'
+          ? '' : ' · Walk-in';
+
+        if (s.refunded) {
+          return `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--gray-100);opacity:0.5;">
+              <div>
+                <div style="font-weight:600;font-size:14px;">${amt} <span style="font-size:12px;color:#dc2626;font-weight:500;">REFUNDED</span></div>
+                <div style="font-size:12px;color:var(--gray-500);">${timeStr} · ${card}${meta}</div>
+              </div>
+            </div>`;
+        }
+
+        return `
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--gray-100);cursor:pointer;" onclick="selectRefund('${s.payment_intent_id}', ${s.amount}, '${desc.replace(/'/g, "\\'")}', '${card.replace(/'/g, "\\'")}')">
+            <div>
+              <div style="font-weight:600;font-size:14px;">${amt}</div>
+              <div style="font-size:12px;color:var(--gray-500);">${timeStr} · ${card}${meta}</div>
+              <div style="font-size:11px;color:var(--gray-400);margin-top:2px;">${desc}</div>
+            </div>
+            <div style="color:var(--accent);font-size:13px;font-weight:500;">Refund →</div>
+          </div>`;
+      }).join('');
+
+    } catch (err) {
+      console.error('[Refund] Failed to load sales:', err);
+      document.getElementById('refundList').innerHTML =
+        '<div style="text-align:center;padding:30px;color:#dc2626;">Failed to load sales: ' + (err.message || 'Unknown error') + '</div>';
+    }
+  }
+
+  function selectRefund(piId, amountCents, desc, card) {
+    _refundTarget = { payment_intent_id: piId, amount: amountCents, description: desc, card };
+    closeAll();
+    setTimeout(() => {
+      document.getElementById('refundConfirmSub').textContent =
+        'Refund $' + (amountCents / 100).toFixed(2) + ' back to card?';
+      document.getElementById('refundConfirmDetails').innerHTML =
+        '<strong>' + card + '</strong><br>' + desc + '<br><span style="font-size:12px;color:var(--gray-400);">Full amount will be returned to the customer\'s card. This cannot be undone.</span>';
+      document.getElementById('refundConfirmError').style.display = 'none';
+      document.getElementById('refundConfirmBtn').disabled = false;
+      document.getElementById('refundConfirmBtn').textContent = 'Refund';
+      showModal('refundConfirmModal');
+    }, 150);
+  }
+
+  async function executeRefund() {
+    if (!_refundTarget) return;
+    const btn = document.getElementById('refundConfirmBtn');
+    btn.disabled = true;
+    btn.textContent = 'Processing…';
+    document.getElementById('refundConfirmError').style.display = 'none';
+
+    try {
+      const res = await fetch(TERMINAL_FN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+        body: JSON.stringify({
+          action: 'refund_payment',
+          payment_intent_id: _refundTarget.payment_intent_id,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      console.log('[Refund] Success:', data.refund_id, '$' + (data.amount / 100).toFixed(2));
+
+      // Show success
+      closeAll();
+      showToast('Refund of $' + (data.amount / 100).toFixed(2) + ' processed', 'success');
+      _refundTarget = null;
+
+    } catch (err) {
+      console.error('[Refund] Failed:', err);
+      document.getElementById('refundConfirmError').textContent = err.message || 'Refund failed';
+      document.getElementById('refundConfirmError').style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Refund';
+    }
+  }
 
   // Shared finish: guard, create the order in Supabase, show success.
   // stripePaymentIntentId is set when paying by card via Terminal.

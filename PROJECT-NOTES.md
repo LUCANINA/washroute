@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 16, 2026 — Session 121: Tip display bug fix. Customers were charged for tips but tips weren't visible anywhere — totals appeared higher than expected with no explanation. Added "Team Tip" line item to all 6 surfaces: customer app order detail, admin order panel, CloudPRNT thermal receipt, browser popup receipt, PassPRNT receipt, and email receipt (`send-receipt` v24 deployed — SELECT query now includes `tip_amount, tip_type`). Tip calculation consistent everywhere: pct tips calculated as percentage of subtotal, dollar tips used directly. Grand total (base + tip) shown as Amount Due / Total Paid.*
+*Last updated: Apr 16, 2026 — Session 122: S700 card reader live + POS refunds. Stripe S700 smart reader connected and tested end-to-end with real card payments (Visa + Amex). Rewrote POS card flow from client-side Terminal JS SDK to server-driven approach (edge function pushes payment to reader via Stripe API, POS polls for completion). Added POS refund flow: recent sales list → confirm → full refund via Stripe. Also patched `auto_route_order` root cause for window/sub-window misalignment (both pickup + delivery sides now snap to sub-window boundaries). `stripe-terminal` edge function v5 deployed.*
 
 *Prior: Session 120: Critical subscription webhook bug fix. Root cause: `subscriptions_status_check` constraint only allowed active/paused/cancelled/past_due, but Stripe sends `incomplete` on `customer.subscription.created`. The upsert silently failed (200 OK to Stripe, no row created). Fix: expanded constraint to include all Stripe statuses (incomplete, incomplete_expired, trialing, unpaid) via migration `expand_subscriptions_status_check_for_stripe`. Also added `SUBSCRIPTIONS_ENABLED = false` feature flag to customer-app gating all 8 subscription UI touchpoints — prevents real customers from seeing/using subscriptions until launch. Cleaned up 2 orphaned customer records (Ashley Thompson, Sandeep Vadivel) who completed checkout during the bug window. Deployed clean `stripe-webhook` v37.*
 
@@ -57,7 +57,7 @@ Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no d
 | iPad stand (full-size) | **Heckler Design WindFall** (~$150–200) | Not yet purchased |
 | iPad mini stand | **Heckler Design WindFall for iPad mini** (~$100–130) | Not yet purchased |
 | Receipt paper | Standard 80mm thermal roll | Buy in bulk |
-| Card terminal | **Stripe S700** (WiFi, countertop) | Ordered session 109. M2 Bluetooth reader incompatible with browser POS (JS SDK requires smart readers). Register in Stripe Dashboard when it arrives, then test end-to-end POS card flow. |
+| Card terminal | **Stripe S700** (WiFi, countertop) | ✅ Live (session 122). Registered as "Foothill Card Reader" (`tmr_Gd5THwTwVhTw3n`), location `tml_Gdo05A5djBbUyZ`, IP 192.168.7.62. Server-driven flow — edge function pushes payments to reader via Stripe API (no Terminal JS SDK). Tested with Visa + Amex. |
 
 ### Current printing setup (CloudPRNT — mC-Print3)
 Receipt prints automatically — no user tap required. Full handshake built and deployed. Edge function converts Star Document Markup XML → Star Line Mode binary at serve time (v15, session 70i). The mC-Print3 firmware 5.2 does NOT support Star Document Markup natively — it only accepts `application/vnd.star.starprpt` (binary). v13 broke printing by serving raw XML as `text/vnd.star.markup`; v14 used wrong command set (Epson ESC/POS); v15 uses correct Star Line Mode commands (ESC E/F for bold, ESC GS a for alignment, ESC i for sizing, ESC d for cut, ESC b for barcodes). Includes Unicode→ASCII map for thermal printer compatibility.
@@ -136,7 +136,7 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 | `cloudprnt` | CloudPRNT server — **v15 (session 70i):** printer polls for jobs; `markupToStarLineMode()` converts Star Markup XML → Star Line Mode binary; serves as `application/vnd.star.starprnt`. Includes `tokenizeXml()` parser and `UNICODE_MAP` for thermal printer ASCII fallback. | Off |
 | `optimize-route` | Google Maps route optimization. Accepts `route_id` + optional `driver_lat`/`driver_lng`. Separates done vs pending stops; only re-orders pending. Pickups and deliveries optimized independently. **v19 (session 76):** Address resolution hardened — cross-leg fallback (delivery falls back to pickup address and vice versa) + customer fallback no longer requires `is_default = true` (prefers default, accepts any). **v12 (session 27):** No-GPS path uses geographic-extremes algorithm. | Off |
 | `draft-reply` | **NEW (session 80):** AI-assisted SMS reply drafting. Accepts `customer_id`, `phone`, and optional `current_draft`. **Generate mode** (no current_draft): classifies customer intent (8 categories), fetches conversation history + order context + real admin voice examples from DB, calls Claude Haiku, returns a fresh draft. **Refine mode** (current_draft provided): polishes the admin's existing text for grammar/clarity/tone while preserving all specific details. Requires `ANTHROPIC_API_KEY` Supabase secret. Never sends — admin always reviews before clicking Send. | Off |
-| `stripe-terminal` | **NEW (session 109):** Stripe Terminal POS integration for smart readers (S700/WisePOS E). Three actions: `connection_token` (fetches ephemeral token for SDK init), `create_payment` (creates PaymentIntent with `card_present` method), `cancel_payment` (cancels in-flight PaymentIntent). Uses `STRIPE_SECRET_KEY` from Supabase Secrets. | Off |
+| `stripe-terminal` | Stripe Terminal POS integration for S700 smart reader. **v5 (session 122):** Server-driven flow — no Terminal JS SDK needed. 8 actions: `connection_token`, `create_payment`, `process_payment` (pushes PI to reader via Stripe API), `check_payment_intent` (status polling), `cancel_payment`, `list_recent_payments` (last 20 card_present sales with refund status), `refund_payment` (full refund), `list_readers` (diagnostic). Uses `STRIPE_SECRET_KEY` from Supabase Secrets. | Off |
 | `send-receipt` | Email receipt via SendGrid. **v24 (session 121):** Added `tip_amount, tip_type` to SELECT; tip line shown between credits and total; grand total includes tip. `dedupeLineItems()` filters stale "Name: Yes" entries. | Off |
 
 ---
@@ -251,9 +251,11 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
   - **Upgrade Candidates:** Active subscribers near or over their plan limits — weight usage >80%, all pickups used, existing overage balance. Sorted by severity with progress bars.
   - **Usage Trends:** Chart.js bar charts (fleet-wide weight and pickups by week from `subscription_usage_log`), plus per-subscriber usage table sorted by highest usage with days-left-in-period column. Charts render lazily when tab is opened. Falls back to per-subscriber bar chart when no usage log history exists.
 
-### POS — Stripe Terminal Integration (session 109)
-- **Real card payment flow** via Stripe Terminal JS SDK. Connects to S700 smart reader over internet. Reader status indicator in POS topbar (disconnected/searching/connected). `payWithCard()` creates a PaymentIntent via `stripe-terminal` edge function, collects payment method on reader, confirms, and stores `stripe_payment_intent_id` on the order. Cancel and retry flows with error display. Terminal initializes on POS boot.
-- **⚠️ Waiting on hardware:** S700 reader ordered but not yet arrived. M2 Bluetooth reader was incompatible (JS SDK only supports smart readers). POS card flow is fully wired but untestable until S700 is registered in Stripe Dashboard.
+### POS — Stripe Terminal Integration (sessions 109 + 122)
+- **Real card payment flow** via server-driven Stripe API. POS creates PaymentIntent → edge function pushes it to S700 reader → POS polls status every 2s until customer taps/inserts card → order saved with `stripe_payment_intent_id`. Reader status auto-checked on page load (online/offline indicator in topbar). No Terminal JS SDK needed — entirely server-driven via `stripe-terminal` edge function v5.
+- **POS refund flow (session 122):** ↩ button in topbar opens recent card sales list (last 20 succeeded card_present payments from Stripe). Already-refunded sales shown grayed with "REFUNDED" badge. Tap a sale → confirm modal → full refund via Stripe Refunds API. Toast confirmation on success.
+- **S700 reader details:** "Foothill Card Reader" (`tmr_Gd5THwTwVhTw3n`), location `tml_Gdo05A5djBbUyZ`. Reader ID hardcoded in POS as `READER_ID` constant. Single-reader shop — if a second reader is added, this needs to become a selector.
+- **⚠️ Polling bug fix (session 122):** `requires_payment_method` is the normal status while the reader waits for a card. Polling must NOT treat it as a decline — only `canceled` status should abort. The Visa-worked-but-Amex-failed bug was caused by the first poll firing before the card was read and prematurely rejecting.
 
 ### Other
 - Customer management, driver management, services & pricing, reports (all built)
@@ -378,7 +380,7 @@ We use **"Route"** for everything — both the template definition (e.g. "the Oa
 ### Key DB Functions & Triggers
 | Object | Type | Purpose |
 |---|---|---|
-| `auto_route_order(p_order_id)` | Function | Matches order to template by zone+day+time, finds/creates the dated route, assigns driver, creates stops. Sets `routing_error` on orders if no match found. **Session 71: dedup guards added** — before creating pickup/delivery stops, checks if a non-skipped/non-failed stop already exists for that order+type. Prevents duplicate stops when function is called multiple times (e.g. delivery_run_id changes). |
+| `auto_route_order(p_order_id)` | Function | Matches order to template by zone+day+time, finds/creates the dated route, assigns driver, creates stops. Sets `routing_error` on orders if no match found. **Session 71: dedup guards.** **Session 122: sub-window snapping** — after creating pickup/delivery stops, snaps order windows to nearest valid sub-window boundary (based on template `arrival_window_hours`). Fixes misalignment where windows fell inside the template range but not on a sub-window edge. Both pickup AND delivery sides now snap. Migration: `snap_windows_to_subwindow_boundaries`. |
 | `trg_auto_route_new_order` | Trigger (AFTER INSERT on orders) | Fires for all new scheduled orders — sets routing_error for missing zone, calls auto_route_order for valid orders |
 | `trg_create_recurring_order` | Trigger (AFTER UPDATE on orders) | On status → `delivered` OR `skipped` (when `cancelled_by = 'customer'`) with recurring_interval, creates next order. Bumps both pickup AND delivery off Sundays to Monday. **Session 71: dedup check added** — before inserting, checks if customer already has a `scheduled` order on the same pickup date (Pacific time). If so, skips the insert silently. Prevents duplicates when customer manually books via the app before the recurring trigger fires. |
 | `trg_sync_order_status` | Trigger (AFTER UPDATE on route_stops) | When all pickup stops → complete, order → `picked_up`. When all delivery stops → complete, order → `delivered` |
@@ -579,6 +581,35 @@ There are actually **two separate hang points** that must both be covered:
 ---
 
 ## Session Log
+
+### Apr 16, 2026 (session 122) — S700 card reader live + POS refunds + window snap fix
+
+**Context:** Morning audit flagged 8 window/sub-window misalignments (Check #14). David also received the Stripe S700 reader and wanted to hook it up for real card payments.
+
+**What was built:**
+
+1. **Root-cause fix for window misalignment** — Migration `snap_windows_to_subwindow_boundaries` rewrites `auto_route_order()` to snap both pickup AND delivery windows to the nearest valid sub-window boundary after creating stops. Previously, session 113 only fixed delivery windows that fell *outside* the template range; windows that landed inside the range but on wrong sub-window edges (e.g. 7pm on a 6-8-10pm template) were never corrected. The recurring order trigger copies parent windows verbatim, so one bad parent propagated misalignment indefinitely. All 8 existing misaligned orders fixed with direct UPDATEs.
+
+2. **S700 reader connected — server-driven flow** — The Terminal JS SDK's `connectReader()` tried local HTTPS connections to the reader which failed even though the reader was on the same network. `connectInternetReader()` didn't exist in the loaded SDK version. Solution: bypassed the client-side SDK entirely. New server-driven approach: edge function creates PaymentIntent → calls `stripe.terminal.readers.processPaymentIntent()` to push it to the reader over the internet → POS polls `check_payment_intent` every 2s until succeeded. Removed the Terminal JS SDK script tag — no longer needed.
+
+3. **Polling bug fix** — `requires_payment_method` is the normal status while the reader waits for a card tap/insert. The initial polling code treated it as a decline, which canceled the PaymentIntent before slower cards (chip-insert Amex) could be read. Fixed to only abort on `canceled` status.
+
+4. **POS refund flow** — ↩ button in topbar → loads last 20 card_present payments from Stripe → already-refunded shown grayed → tap to select → confirm modal → full refund via `stripe.refunds.create()` → success toast. Edge function v5 adds `list_recent_payments` and `refund_payment` actions.
+
+**Edge function versions deployed:** `stripe-terminal` v3 (list_readers diagnostic), v4 (server-driven flow), v5 (refunds + recent payments).
+
+**Files changed:**
+- `database/migrations/snap_windows_to_subwindow_boundaries.sql` — new migration
+- `pos-mockup.html` — server-driven card flow, refund UI, M2→S700 references
+
+**Audit carryover (not addressed this session):**
+- Key Morgan #1537 (delivery orphaned, stuck at picked_up)
+- Ereene Belamide #2144 (over_capacity_after_reschedule)
+- Oakland PM Apr 17 at 29/18 stops (11 over capacity)
+- Aquarius Gilmer duplicate orders (#1702 + #2353)
+- 4 duplicate customer pairs
+
+---
 
 ### Apr 16, 2026 (session 118) — Subscription auto-pickup + manual order linking
 
