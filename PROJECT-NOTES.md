@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 17, 2026 — Session 123: Permanent fix for orphan email-auth users (4 layers). Root cause: `send-magic-link` v17 called `auth.admin.generateLink()` unconditionally, silently spawning orphan email-auth users whenever the entered email didn't match an existing customer with a `profile_id` — which then blocked the real customer from signing in. Session 117 had fixed signup-form orphans via `check_account_exists`, but missed this path. Four-layer fix: (1) **v18 edge function** — refuses before creating an orphan, returns `{ok:false, noAccount:true, legacyCustomer?:true}`; (2) **customer app UX** — `handleMagicLink()` + `handleOtpEmailFallback()` now show purpose-built "No account — Sign Up" / "Use phone sign-in" banners instead of generic error toasts; (3) **admin dashboard** — `sendAppInvite()` was checking `res.ok` instead of `json.ok`, showing false "Sent!" for 4,170 legacy customers; fixed to surface a helpful toast explaining they need to sign in by phone first; (4) **nightly cron** — `cleanup_orphan_email_auth_users()` SECURITY DEFINER function + pg_cron at 0 10 UTC (3 AM PDT), deletes email-provider auth users >24h old with no customer and no staff role, capped at 50/run. Cleaned up 4 existing orphans (wlockhart, sonnygrewal, mattkyan, fatzler).*
+*Last updated: Apr 17, 2026 — Session 124: Jennifer Fatzler duplicate-customer merge. After session 123's orphan cleanup, Jennifer had two customer rows — legacy `ad2bef79…` (6 Starchup-imported orders, `profile_id=NULL`, uppercase email, old phone) and new `af2a687a…` (1 order today, phone-auth linked, current email/phone, Stripe card on file). Merged surgically: re-pointed orders + addresses + payment method + email/sms messages to the legacy id; copied current profile_id, stripe IDs, card fields, preferences into legacy; deleted the new row. Snapshot of every touched row preserved in `public._merge_backup_jennifer_20260417`. Jennifer now has a single record with legacy tenure (since Mar 2025), 7 total orders, $481.70 lifetime value, and her current phone-auth login. New **🔀 Customer Merges Log** section added to this file as the canonical registry for all past and future customer merges.*
+
+*Prior: Session 123: Permanent fix for orphan email-auth users (4 layers). Root cause: `send-magic-link` v17 called `auth.admin.generateLink()` unconditionally, silently spawning orphan email-auth users whenever the entered email didn't match an existing customer with a `profile_id` — which then blocked the real customer from signing in. Session 117 had fixed signup-form orphans via `check_account_exists`, but missed this path. Four-layer fix: (1) **v18 edge function** — refuses before creating an orphan, returns `{ok:false, noAccount:true, legacyCustomer?:true}`; (2) **customer app UX** — `handleMagicLink()` + `handleOtpEmailFallback()` now show purpose-built "No account — Sign Up" / "Use phone sign-in" banners instead of generic error toasts; (3) **admin dashboard** — `sendAppInvite()` was checking `res.ok` instead of `json.ok`, showing false "Sent!" for 4,170 legacy customers; fixed to surface a helpful toast explaining they need to sign in by phone first; (4) **nightly cron** — `cleanup_orphan_email_auth_users()` SECURITY DEFINER function + pg_cron at 0 10 UTC (3 AM PDT), deletes email-provider auth users >24h old with no customer and no staff role, capped at 50/run. Cleaned up 4 existing orphans (wlockhart, sonnygrewal, mattkyan, fatzler).*
 
 *Prior: Session 122: S700 card reader live + POS refunds. Stripe S700 smart reader connected and tested end-to-end with real card payments (Visa + Amex). Rewrote POS card flow from client-side Terminal JS SDK to server-driven approach (edge function pushes payment to reader via Stripe API, POS polls for completion). Added POS refund flow: recent sales list → confirm → full refund via Stripe. Also patched `auto_route_order` root cause for window/sub-window misalignment (both pickup + delivery sides now snap to sub-window boundaries). `stripe-terminal` edge function v5 deployed.*
 
@@ -583,7 +585,69 @@ There are actually **two separate hang points** that must both be covered:
 
 ---
 
+## 🔀 Customer Merges Log
+
+Running registry of every customer-record merge performed. Each row captures the winning id, the losing id, what got re-pointed, and where the pre-merge snapshot lives. If a merged customer reports missing history later, start here: the snapshot table is the source of truth.
+
+**Merge procedure (keep consistent):**
+1. Pull full FK inventory (`pg_constraint WHERE confrelid = 'public.customers'`). 11 tables today: `addresses, conversations, cs_issues, customer_payment_methods, customer_transactions, draft_events, email_messages, notifications, orders, sms_messages, subscriptions`.
+2. Snapshot both rows + all child rows into `public._merge_backup_{customer}_{YYYYMMDD}` (one table, columns `backup_at`, `source_table`, `row_data jsonb`).
+3. **Delete the losing customer row BEFORE updating the winner** — `customers.stripe_customer_id` has a UNIQUE constraint, so you can't have both rows hold the same value simultaneously. Pattern: `SELECT * INTO n FROM customers WHERE id = new_id; UPDATE children SET customer_id = legacy_id…; DELETE FROM customers WHERE id = new_id; UPDATE customers SET … FROM n WHERE id = legacy_id;` — all inside a single `DO $$ … $$` block (atomic transaction).
+4. Preserve from the new row: `profile_id`, `email_cache` (lowercased), `phone_cache` (current), `stripe_customer_id`, `stripe_default_payment_method_id`, `card_*` fields, `billing_type`, `default_tip*`, `preferences`, most recent `sms_consent_at`.
+5. Preserve from the legacy row: `created_at` (customer tenure), historical `total_orders` / `lifetime_value` counters (add new values to them, don't replace).
+6. Keep the backup table indefinitely — they're tiny and diagnostic-gold. Drop only after the merged customer has successfully signed in and David has confirmed nothing is missing.
+
+**⚠️ Important constraints when merging:**
+- `customers.stripe_customer_id` — UNIQUE. See pattern above.
+- `customer_payment_methods` — UNIQUE on `(customer_id, stripe_payment_method_id)`. If both rows have the same Stripe pm attached, dedup before re-pointing.
+- `trg_sync_customer_type_pricelist` fires BEFORE UPDATE on customers — if you change `customer_type`, pricelist will also update. Fine for our purposes.
+- `trg_sync_customer_card_to_payment_methods` fires AFTER UPDATE when `stripe_default_payment_method_id IS NOT NULL`. Setting this on the winner row will trigger a sync into `customer_payment_methods` — no-op if that row already exists via re-pointing.
+
+**Merges performed:**
+
+| Date | Winner (kept) | Loser (deleted) | Customer | Re-pointed | Backup table | Session |
+|------|---------------|-----------------|----------|------------|--------------|---------|
+| Apr 17, 2026 | `ad2bef79-c301-4d3e-b544-28fbc3877259` | `af2a687a-cb47-4527-921d-21d6f4ba3269` | Jennifer Fatzler (fatzler@sbcglobal.net / +15104247527) | 1 order, 1 address, 1 payment method, 2 emails, 4 SMS | `public._merge_backup_jennifer_20260417` | 124 |
+
+**Deferred / not yet merged (flagged for future decision):**
+- **Re-Up Refills / Reup Refill Shop** — two customer rows share an email (business shared inbox). Could be the same business or two staff at the same org. David to confirm before merging.
+- **Homebase / Soul Sanctuary** — share a phone number. Likely distinct businesses sharing a contact phone; do not merge without confirmation.
+- **Faye Navarro / Russell Moore** — share an email (couple? one account for two people?). Needs confirmation.
+- **John Taladiar ×2** — flagged session 112; two rows, same name. Unknown whether same person or coincidence.
+
+**Audit idea for future:** a daily "duplicate email/phone across active customers" check to surface new duplicates before they accumulate. Not yet built.
+
+---
+
 ## Session Log
+
+### Apr 17, 2026 (session 124) — Jennifer Fatzler duplicate-customer merge
+
+**Context:** Session 123 cleaned up Jennifer's orphan email-auth user, but left her with two customer records: a legacy Starchup-imported row (`ad2bef79…`, 6 orders, `profile_id=NULL`, uppercase email, old landline phone) and a new row (`af2a687a…`, 1 order placed today, phone-auth linked, lowercase current email, current mobile, Stripe customer + Mastercard on file). A returning-customer scoping pass showed only two email-matched duplicate pairs existed across the entire customer base (Jennifer + Re-Up Refills), since `claim_existing_customer` already auto-links most returning Starchup customers at sign-in. David authorized Jennifer's merge only; Re-Up is deferred pending his call on whether it's one business or two.
+
+**What was done:**
+
+1. **FK inventory** — 11 tables reference `customers.id`: `orders, addresses, customer_payment_methods, conversations, cs_issues, customer_transactions, draft_events, email_messages, notifications, sms_messages, subscriptions`. Only 5 had rows on the losing id: 1 order, 1 address, 1 payment method, 2 emails, 4 SMS.
+2. **Snapshot backup** — `public._merge_backup_jennifer_20260417` table (JSONB format) captured both customer rows, all 5 child rows on the loser, and legacy's 1 address / 1 email / 1 SMS for reference. 14 rows total.
+3. **Merge transaction** — single `DO $$ … $$` atomic block: re-pointed all 5 child tables' `customer_id` from new to legacy, deleted the new row, applied the new row's current-state fields to the legacy row, ran post-merge sanity check (must be 0 rows on new_id — passed).
+4. **First attempt failed** on `customers_stripe_customer_id_key` UNIQUE violation — the UPDATE tried to copy `cus_ULxK242p9avQz5` to the legacy row while the new row still held it. Fixed by capturing the new row into a `customers%ROWTYPE` variable, deleting the new row first, then applying the snapshot to the legacy row.
+
+**Final Jennifer row (`ad2bef79…`):** name Jennifer Fatzler, email `fatzler@sbcglobal.net`, phone `+15104247527`, `profile_id` = her phone-auth user, customer_type `Delivery`, Mastercard •7335, `stripe_customer_id` `cus_ULxK242p9avQz5`, `total_orders` = 7, `lifetime_value` = $481.70, `last_order_at` = today, `created_at` preserved as 2025-03-09 (legacy tenure).
+
+**Quirk noted:** actual `orders` table has 1 row for her (today's new order), but `total_orders = 7`. Legacy's 6 historical Starchup orders were imported as a cached counter without individual order records — consistent with other Starchup legacy customers.
+
+**Documentation added:**
+- New **🔀 Customer Merges Log** section in PROJECT-NOTES (above). Running registry with standard procedure, constraint gotchas, and deferred cases (Re-Up Refills, Homebase/Soul Sanctuary, Faye/Russell, John Taladiar ×2).
+
+**⚠️ For future sessions:**
+1. **Backup table `public._merge_backup_jennifer_20260417` is still in place.** Drop it only after Jennifer has successfully signed in at least once and confirmed the merge looks right — then: `DROP TABLE public._merge_backup_jennifer_20260417;`.
+2. **When doing the next merge, read the 🔀 Customer Merges Log section first.** The constraint gotcha (stripe_customer_id UNIQUE) is easy to forget.
+3. **Re-Up Refills decision pending.** If David confirms it's one business, the same procedure applies. If two separate orgs, leave alone.
+4. **Audit idea — duplicate email/phone across active customers.** Not yet implemented. Would catch new pairs before they pile up.
+
+**Commit:** pending (will commit PROJECT-NOTES after this update).
+
+---
 
 ### Apr 17, 2026 (session 123) — Permanent fix for orphan email-auth users (4 layers)
 
@@ -629,7 +693,7 @@ There are actually **two separate hang points** that must both be covered:
 - `admin-dashboard/index.html` — `sendAppInvite()` rewrite.
 
 **⚠️ For future sessions:**
-1. **Known carry-forward: Jennifer Fatzler has two customer records** — legacy (6 orders, `profile_id=NULL`) + new (1 order, `profile_id` set). Same for other Starchup imports who re-signed up fresh. A broader merge pass (match on email + phone, preserve orders, pick one canonical record) would clean these up. Not in scope this session.
+1. **~~Known carry-forward: Jennifer Fatzler has two customer records~~ — RESOLVED in session 124.** Merged legacy + new into the legacy row; backup at `public._merge_backup_jennifer_20260417`. Full scoping showed only one other email-matched pair exists (Re-Up Refills, deferred pending David's call). `claim_existing_customer` is already catching most returning Starchup customers at sign-in, so the merge pass turned out tiny. See **🔀 Customer Merges Log** section for details and procedure.
 2. **If the cron job needs to be disabled temporarily:** `SELECT cron.unschedule(jobid) FROM cron.job WHERE jobname = 'cleanup-orphan-email-auth-users';`. To re-enable, re-run the migration.
 3. **Nightly cap of 50 deletions** can be raised in the function body if needed, but with v18 deployed the steady-state orphan rate should be ~0.
 
