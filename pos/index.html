@@ -1994,21 +1994,20 @@
   async function loadDevice() {
     const { data: { user } } = await db.auth.getUser();
     if (!user) { showToast('Session expired. Please sign in again.', 'error'); setTimeout(()=>showAuthScreen('screen-login'),400); return false; }
+    // pos_devices has no site_id column (yet). Register-to-site mapping is
+    // done by localStorage → default site → first-active fallback inside
+    // enterRegister().
     const { data, error } = await db.from('pos_devices')
-      .select('id, name, location, site_id, stripe_reader_id, printer_token, is_active')
+      .select('id, name, location, stripe_reader_id, printer_token, is_active')
       .eq('is_active', true).eq('auth_user_id', user.id).limit(1).maybeSingle();
     if (error || !data) {
+      console.error('[POS] loadDevice error:', error);
       showToast('No device linked to this login. Contact admin.', 'error');
       await db.auth.signOut();
       setTimeout(()=>showAuthScreen('screen-login'),400);
       return false;
     }
     device = data;
-    // Use device site as the current site for orders/queue
-    if (device.site_id) {
-      currentSiteId = device.site_id;
-      try { localStorage.setItem('wr-pos-site-id', currentSiteId); } catch (_) {}
-    }
     return true;
   }
 
@@ -2131,7 +2130,20 @@
     showAuthScreen('screen-register');
     updateCashierBadge();
     await loadSites();
-    if (device && device.site_id) { currentSiteId = device.site_id; }
+    // Site selection fallback: localStorage → default site → first active.
+    // (pos_devices has no site_id column yet — future schema change will
+    // pin each register to a site explicitly.)
+    const activeSites = allSites.filter(s => s.is_active);
+    if (activeSites.length) {
+      let picked = null;
+      const remembered = localStorage.getItem('wr-pos-site-id');
+      if (remembered) {
+        picked = activeSites.find(s => s.id === remembered) || null;
+      }
+      if (!picked) picked = activeSites.find(s => s.is_default) || activeSites[0];
+      currentSiteId = picked.id;
+      try { localStorage.setItem('wr-pos-site-id', currentSiteId); } catch (_) {}
+    }
     updateSiteBadge();
     await loadRetailServices();
     renderTiles();
