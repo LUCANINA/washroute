@@ -21,6 +21,14 @@ import Stripe from "https://esm.sh/stripe@14.21.0?target=deno"
        returns: { id, status, amount, last_payment_error }
    • cancel_reader_action   — dismisses an in-progress prompt on the reader
        body: { action, reader_id }
+
+   Deployed with verify_jwt = false (matches cloudprnt / send-receipt /
+   charge-order). The Supabase gateway was rejecting POS calls under
+   verify_jwt=true with 401 even though the staff user was signed in —
+   flipping the flag unblocked the S700 reader on 2026-04-17. Callers
+   still pass the apikey header (gateway-enforced). Amounts are bounded
+   by the Stripe $0.50 minimum and reader_id must belong to the Stripe
+   account.
    ────────────────────────────────────────────────────────────── */
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {

@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 17, 2026 — Session 124: Jennifer Fatzler duplicate-customer merge. After session 123's orphan cleanup, Jennifer had two customer rows — legacy `ad2bef79…` (6 Starchup-imported orders, `profile_id=NULL`, uppercase email, old phone) and new `af2a687a…` (1 order today, phone-auth linked, current email/phone, Stripe card on file). Merged surgically: re-pointed orders + addresses + payment method + email/sms messages to the legacy id; copied current profile_id, stripe IDs, card fields, preferences into legacy; deleted the new row. Snapshot of every touched row preserved in `public._merge_backup_jennifer_20260417`. Jennifer now has a single record with legacy tenure (since Mar 2025), 7 total orders, $481.70 lifetime value, and her current phone-auth login. New **🔀 Customer Merges Log** section added to this file as the canonical registry for all past and future customer merges.*
+*Last updated: Apr 17, 2026 — Session 125: POS v1 deployed to Vercel at washroute.vercel.app/pos. Fixed two blockers after push: (1) Foothill staff auth user had NULL token columns from direct SQL creation, throwing "Database error querying schema" on login — patched to empty strings (known Supabase Go scan bug). (2) `stripe-terminal` edge function had `verify_jwt: true`, which returned 401 from the gateway before the function code ran — flipped to `verify_jwt: false` to match cloudprnt/send-receipt/charge-order, redeployed v7. Card payment on S700 reader verified end-to-end with David's PIN (6467). Cash drop-off + reprint smoke tests deferred to next week when mC-Print3 is hooked up. STAGING banner stays up until those pass.*
+
+*Prior: Session 124: Jennifer Fatzler duplicate-customer merge. After session 123's orphan cleanup, Jennifer had two customer rows — legacy `ad2bef79…` (6 Starchup-imported orders, `profile_id=NULL`, uppercase email, old phone) and new `af2a687a…` (1 order today, phone-auth linked, current email/phone, Stripe card on file). Merged surgically: re-pointed orders + addresses + payment method + email/sms messages to the legacy id; copied current profile_id, stripe IDs, card fields, preferences into legacy; deleted the new row. Snapshot of every touched row preserved in `public._merge_backup_jennifer_20260417`. Jennifer now has a single record with legacy tenure (since Mar 2025), 7 total orders, $481.70 lifetime value, and her current phone-auth login. New **🔀 Customer Merges Log** section added to this file as the canonical registry for all past and future customer merges.*
 
 *Prior: Session 123: Permanent fix for orphan email-auth users (4 layers). Root cause: `send-magic-link` v17 called `auth.admin.generateLink()` unconditionally, silently spawning orphan email-auth users whenever the entered email didn't match an existing customer with a `profile_id` — which then blocked the real customer from signing in. Session 117 had fixed signup-form orphans via `check_account_exists`, but missed this path. Four-layer fix: (1) **v18 edge function** — refuses before creating an orphan, returns `{ok:false, noAccount:true, legacyCustomer?:true}`; (2) **customer app UX** — `handleMagicLink()` + `handleOtpEmailFallback()` now show purpose-built "No account — Sign Up" / "Use phone sign-in" banners instead of generic error toasts; (3) **admin dashboard** — `sendAppInvite()` was checking `res.ok` instead of `json.ok`, showing false "Sent!" for 4,170 legacy customers; fixed to surface a helpful toast explaining they need to sign in by phone first; (4) **nightly cron** — `cleanup_orphan_email_auth_users()` SECURITY DEFINER function + pg_cron at 0 10 UTC (3 AM PDT), deletes email-provider auth users >24h old with no customer and no staff role, capped at 50/run. Cleaned up 4 existing orphans (wlockhart, sonnygrewal, mattkyan, fatzler).*
 
@@ -620,6 +622,34 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 17, 2026 (session 125) — POS v1 deployed to Vercel; first live card charge on S700
+
+**Context:** Continuation from session 124. POS v1 had been QA'd and the commit was sitting locally. David wanted to push, set his PIN, and run the three smoke tests on the iPad.
+
+**What was done:**
+
+1. **Set David's staff PIN to `6467`** on his admin profile. Confirmed no collision with other PINs. (Jorge and Evie still need PINs assigned — task #22 still in_progress.)
+2. **Committed and pushed the POS v1 work** — commit `8ba9988` "feat: POS v1 — walk-in drop-offs with card + cash + receipt printing". Vercel auto-deployed to `washroute.vercel.app` (the project name is `washroute`, not `family-laundry-app` — previous 404 was a wrong-URL issue).
+3. **Fixed "Database error querying schema" on first login attempt.** Root cause: the Foothill staff auth user (`9dda1a43-063e-4d6f-96af-56652d24c7e3`, `pos-foothill@familylaundry.com`) was created via direct SQL in a prior session, which left four token columns as `NULL` (`confirmation_token`, `recovery_token`, `email_change_token_new`, `email_change`). The Supabase auth Go service fails with `Scan error on column index 3, name "confirmation_token": converting NULL to string is unsupported` because it expects empty strings in those columns. Patched with a one-row `UPDATE` setting all four to `''`. Login immediately succeeded.
+4. **Fixed HTTP 401 from stripe-terminal on "Charge Card on Reader".** Root cause: the function was deployed with `verify_jwt: true`, so the Supabase gateway was rejecting every POST at the auth layer before the function code ran (56ms 401s visible in edge-function logs). The other edge functions the POS calls (`cloudprnt`, `send-receipt`, `charge-order`) are all `verify_jwt: false`. Redeployed `stripe-terminal` as v7 with `verify_jwt: false` to match. The `apikey` header is still enforced by the gateway, and charge safety still comes from (a) the $0.50 Stripe minimum, (b) `reader_id` belonging to our Stripe account, and (c) staff being RLS-gated out of `pos_devices`/`pos_shifts` without a valid session anyway. Added a comment in `supabase/functions/stripe-terminal/index.ts` explaining why the flag is off.
+5. **Smoke test #1 passed: card drop-off on S700.** David completed a $3 Wash & Dry on his own customer record — reader lit up, card tapped, PI confirmed, order created.
+6. **Smoke tests #2 and #3 deferred to next week** — cash drop-off and reprint both need the mC-Print3 physically connected. The receipt path would still queue a `print_jobs` row today, it just wouldn't print.
+
+**Still open:**
+- Cash drop-off smoke test (needs printer)
+- Reprint smoke test (needs printer)
+- Jorge + Evie PIN assignment (task #22)
+- Once all three smoke tests pass, strip the STAGING banner from `pos/index.html`
+- `pos.familylaundry.com` custom domain wiring in Vercel + Wix DNS (vercel.json rewrite already in place — just needs the domain added to the Vercel project)
+
+**⚠️ For future sessions:**
+1. **Any direct-SQL-created auth user must have `confirmation_token = ''`, `recovery_token = ''`, `email_change_token_new = ''`, and `email_change = ''` (not NULL).** If you ever insert into `auth.users` bypassing the Supabase API, set those four columns explicitly. The "Database error querying schema" toast on login is the symptom.
+2. **The `stripe-terminal` function is intentionally `verify_jwt: false`.** Don't redeploy it with the flag flipped back on without also handling JWT auth internally — that will break the S700 reader flow again.
+
+**Commit:** `8ba9988` (POS v1) already pushed. The verify_jwt comment update and this notes entry will go in a follow-up commit.
+
+---
 
 ### Apr 17, 2026 (session 124) — Jennifer Fatzler duplicate-customer merge
 
