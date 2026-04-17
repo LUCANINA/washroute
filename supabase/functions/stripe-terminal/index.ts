@@ -5,13 +5,22 @@ import Stripe from "https://esm.sh/stripe@14.21.0?target=deno"
    stripe-terminal  —  Stripe Terminal helpers for POS
    ──────────────────────────────────────────────────────────────
    POST /stripe-terminal
-   Body: { "action": "connection_token" | "create_payment" | "cancel_payment" }
+   Body: { "action": "connection_token" | "create_payment" | "cancel_payment"
+                   | "charge_reader"    | "get_payment"    | "cancel_reader_action" }
 
-   • connection_token  — returns { secret } for the Terminal JS SDK
-   • create_payment    — creates a PaymentIntent for the reader
+   • connection_token       — returns { secret } for the Terminal JS SDK
+   • create_payment         — creates a PaymentIntent for the reader
        body: { action, amount_cents, description?, metadata? }
-   • cancel_payment    — cancels a PaymentIntent by id
+   • cancel_payment         — cancels a PaymentIntent by id
        body: { action, payment_intent_id }
+   • charge_reader          — SERVER-DRIVEN: creates PI + pushes it to the reader in one call
+       body: { action, amount_cents, reader_id, description?, metadata? }
+       returns: { payment_intent_id, reader_action_id }
+   • get_payment            — returns current PI status so the POS can poll
+       body: { action, payment_intent_id }
+       returns: { id, status, amount, last_payment_error }
+   • cancel_reader_action   — dismisses an in-progress prompt on the reader
+       body: { action, reader_id }
    ────────────────────────────────────────────────────────────── */
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
@@ -85,6 +94,67 @@ Deno.serve(async (req) => {
       const cancelled = await stripe.paymentIntents.cancel(payment_intent_id)
       console.log(`[stripe-terminal] PaymentIntent cancelled: ${cancelled.id}`)
       return json({ status: cancelled.status })
+    }
+
+    /* ── 4. Server-driven: create PI and push it straight to the reader ─ */
+    if (action === 'charge_reader') {
+      const { amount_cents, reader_id, description, metadata } = body
+
+      if (!amount_cents || amount_cents < 50) {
+        return json({ error: 'amount_cents must be at least 50 ($0.50)' }, 400)
+      }
+      if (!reader_id) {
+        return json({ error: 'reader_id is required' }, 400)
+      }
+
+      // Create PaymentIntent
+      const pi = await stripe.paymentIntents.create({
+        amount: Math.round(amount_cents),
+        currency: 'usd',
+        payment_method_types: ['card_present'],
+        capture_method: 'automatic',
+        description: description || 'WashRoute POS sale',
+        metadata: metadata || {},
+      })
+
+      // Push it to the reader (server-driven — no client SDK needed).
+      // The reader displays the amount and waits for the customer to tap / dip / swipe.
+      const reader = await stripe.terminal.readers.processPaymentIntent(reader_id, {
+        payment_intent: pi.id,
+      })
+
+      console.log(`[stripe-terminal] Charge pushed to reader ${reader_id}: PI ${pi.id} for $${(pi.amount / 100).toFixed(2)}`)
+      return json({
+        payment_intent_id: pi.id,
+        reader_action_id:  reader.action?.id || null,
+        reader_status:     reader.status || null,
+      })
+    }
+
+    /* ── 5. Poll PaymentIntent status ─────────────────────────── */
+    if (action === 'get_payment') {
+      const { payment_intent_id } = body
+      if (!payment_intent_id) {
+        return json({ error: 'payment_intent_id is required' }, 400)
+      }
+      const pi = await stripe.paymentIntents.retrieve(payment_intent_id)
+      return json({
+        id:     pi.id,
+        status: pi.status,
+        amount: pi.amount,
+        last_payment_error: pi.last_payment_error?.message || null,
+      })
+    }
+
+    /* ── 6. Cancel whatever the reader is currently doing ───── */
+    if (action === 'cancel_reader_action') {
+      const { reader_id } = body
+      if (!reader_id) {
+        return json({ error: 'reader_id is required' }, 400)
+      }
+      const reader = await stripe.terminal.readers.cancelAction(reader_id)
+      console.log(`[stripe-terminal] Reader action cancelled on ${reader_id}`)
+      return json({ reader_status: reader.status })
     }
 
     return json({ error: `Unknown action: ${action}` }, 400)

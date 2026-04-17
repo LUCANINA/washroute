@@ -3,23 +3,30 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>WashRoute POS</title>
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>Family Laundry POS</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
     --accent:       #635bff;
+    --accent-dark:  #4f46e5;
     --accent-light: #ede9fe;
     --green:        #059669;
     --green-light:  #d1fae5;
-    --red:          #ef4444;
+    --red:          #dc2626;
+    --red-light:    #fee2e2;
+    --amber:        #d97706;
+    --amber-light:  #fef3c7;
     --gray-50:      #f9fafb;
     --gray-100:     #f3f4f6;
     --gray-200:     #e5e7eb;
     --gray-300:     #d1d5db;
     --gray-400:     #9ca3af;
     --gray-500:     #6b7280;
+    --gray-600:     #4b5563;
     --gray-700:     #374151;
     --gray-900:     #111827;
     --radius:       16px;
@@ -27,18 +34,35 @@
 
   html, body {
     height: 100%;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
     background: var(--gray-50);
     color: var(--gray-900);
     -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+
+  button, input, textarea { font-family: inherit; }
+  button { cursor: pointer; }
+
+  /* ── STAGING BANNER ── */
+  #staging-banner {
+    background: var(--amber);
+    color: white;
+    text-align: center;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
   /* ── TOAST ── */
   #toast {
-    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(80px);
-    background: var(--gray-900); color: #fff; padding: 12px 22px; border-radius: 40px;
-    font-size: 14px; font-weight: 500; z-index: 9999; transition: transform .25s ease;
-    white-space: nowrap; pointer-events: none;
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(120px);
+    background: var(--gray-900); color: #fff; padding: 14px 26px; border-radius: 40px;
+    font-size: 15px; font-weight: 600; z-index: 9999; transition: transform .25s ease;
+    max-width: 90vw; text-align: center; pointer-events: none;
+    box-shadow: 0 10px 30px rgba(0,0,0,.2);
   }
   #toast.show { transform: translateX(-50%) translateY(0); }
   #toast.error { background: var(--red); }
@@ -47,14 +71,14 @@
   /* ── LAYOUT ── */
   .screen {
     display: none; flex-direction: column; align-items: center;
-    min-height: 100vh; padding: 0 0 40px;
+    min-height: 100vh; padding: 0 0 40px; width: 100%;
   }
   .screen.active { display: flex; }
 
   /* ── HEADER ── */
   .pos-header {
     width: 100%; background: white; border-bottom: 1px solid var(--gray-200);
-    padding: 16px 24px; display: flex; align-items: center; gap: 14px;
+    padding: 14px 20px; display: flex; align-items: center; gap: 12px;
     position: sticky; top: 0; z-index: 100;
   }
   .pos-logo {
@@ -62,20 +86,26 @@
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
   .pos-logo svg { width: 20px; height: 20px; }
-  .pos-header-title { font-size: 18px; font-weight: 700; color: var(--gray-900); }
-  .pos-header-sub   { font-size: 13px; color: var(--gray-400); margin-top: 1px; }
+  .pos-header-title { font-size: 17px; font-weight: 700; color: var(--gray-900); line-height: 1.2; }
+  .pos-header-sub   { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
+  .pos-header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
   .pos-back-btn {
-    margin-left: auto; padding: 8px 18px; border-radius: 10px; border: 1.5px solid var(--gray-200);
+    padding: 8px 16px; border-radius: 10px; border: 1.5px solid var(--gray-200);
     background: white; font-size: 14px; font-weight: 600; color: var(--gray-700);
-    cursor: pointer; display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: center; gap: 6px;
   }
   .pos-back-btn:active { background: var(--gray-100); }
+  .pos-cashier-chip {
+    padding: 8px 14px; border-radius: 20px; background: var(--accent-light);
+    color: var(--accent); font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; gap: 6px;
+  }
 
   /* ── CARD ── */
   .pos-card {
-    width: 100%; max-width: 600px; background: white;
+    width: 100%; max-width: 640px; background: white;
     border-radius: var(--radius); border: 1.5px solid var(--gray-200);
-    padding: 28px; margin: 24px 16px 0;
+    padding: 28px; margin: 20px 16px 0;
   }
   .pos-card-title {
     font-size: 16px; font-weight: 700; color: var(--gray-900); margin-bottom: 20px;
@@ -83,7 +113,7 @@
 
   /* ── STEP INDICATOR ── */
   .pos-steps {
-    display: flex; align-items: center; gap: 0; width: 100%; max-width: 600px;
+    display: flex; align-items: center; gap: 0; width: 100%; max-width: 640px;
     padding: 20px 16px 0;
   }
   .pos-step {
@@ -99,11 +129,6 @@
   }
   .pos-step.active .pos-step-dot { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
   .pos-step.done   .pos-step-dot { border-color: var(--green); background: var(--green-light); color: var(--green); }
-  .pos-step-line {
-    position: absolute; top: 14px; left: 50%; width: 100%;
-    height: 2px; background: var(--gray-200); z-index: -1;
-  }
-  .pos-step.done .pos-step-line { background: var(--green); }
 
   /* ── INPUTS ── */
   .pos-label {
@@ -112,100 +137,198 @@
   }
   .pos-input {
     width: 100%; padding: 14px 16px; border-radius: 12px;
-    border: 1.5px solid var(--gray-200); font-size: 16px; font-family: inherit;
+    border: 1.5px solid var(--gray-200); font-size: 16px;
     color: var(--gray-900); background: white; outline: none;
     transition: border-color .15s;
   }
   .pos-input:focus  { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.1); }
-  .pos-input.large  { font-size: 28px; font-weight: 700; text-align: center; padding: 18px; }
+  .pos-input.large  { font-size: 28px; font-weight: 700; text-align: center; padding: 18px; letter-spacing: 0.05em; }
   .pos-input-group  { margin-bottom: 18px; }
 
   /* ── BUTTONS ── */
   .pos-btn {
     width: 100%; padding: 18px; border-radius: 14px; border: none;
-    font-size: 17px; font-weight: 700; font-family: inherit;
-    cursor: pointer; transition: all .12s; display: flex;
+    font-size: 17px; font-weight: 700;
+    transition: all .12s; display: flex;
     align-items: center; justify-content: center; gap: 10px;
   }
   .pos-btn-primary  { background: var(--accent); color: white; }
-  .pos-btn-primary:active { opacity: .88; }
+  .pos-btn-primary:active { background: var(--accent-dark); }
   .pos-btn-primary:disabled { background: var(--gray-300); cursor: not-allowed; }
   .pos-btn-green    { background: var(--green); color: white; }
   .pos-btn-green:active { opacity: .88; }
+  .pos-btn-green:disabled { background: var(--gray-300); cursor: not-allowed; }
+  .pos-btn-red      { background: var(--red); color: white; }
+  .pos-btn-red:active { opacity: .88; }
   .pos-btn-outline  {
     background: white; color: var(--gray-700);
-    border: 1.5px solid var(--gray-200) !important;
+    border: 1.5px solid var(--gray-200);
   }
   .pos-btn-outline:active { background: var(--gray-100); }
   .pos-btn-sm {
     padding: 12px 20px; font-size: 14px; border-radius: 10px; width: auto;
   }
 
-  /* ── HOME SCREEN ── */
+  /* ── LOGIN SCREEN ── */
+  #screen-login { justify-content: center; padding-top: 0; background: linear-gradient(180deg, var(--gray-50), var(--gray-100)); }
+  .login-box {
+    width: 100%; max-width: 420px; background: white;
+    border-radius: 20px; padding: 40px 32px;
+    box-shadow: 0 20px 50px rgba(0,0,0,.05);
+    margin: 16px;
+  }
+  .login-logo {
+    width: 80px; height: 80px; background: var(--accent); border-radius: 22px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 20px;
+  }
+  .login-logo svg { width: 42px; height: 42px; }
+  .login-title { font-size: 26px; font-weight: 800; text-align: center; margin-bottom: 6px; }
+  .login-sub   { font-size: 14px; color: var(--gray-500); text-align: center; margin-bottom: 28px; }
+
+  /* ── PIN PAD ── */
+  #screen-pin { justify-content: center; }
+  .pin-card {
+    width: 100%; max-width: 380px; padding: 36px 24px; text-align: center;
+    background: white; border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,.06);
+    margin: 16px;
+  }
+  .pin-title { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
+  .pin-sub   { font-size: 14px; color: var(--gray-500); margin-bottom: 28px; }
+  .pin-dots {
+    display: flex; justify-content: center; gap: 14px; margin-bottom: 28px;
+  }
+  .pin-dot {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid var(--gray-300); background: white;
+    transition: all .15s;
+  }
+  .pin-dot.filled { background: var(--accent); border-color: var(--accent); }
+  .pin-dot.error { background: var(--red); border-color: var(--red); animation: shake .3s; }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-6px); }
+    75% { transform: translateX(6px); }
+  }
+  .pin-pad {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  }
+  .pin-key {
+    aspect-ratio: 1; border: none; background: var(--gray-100);
+    border-radius: 16px; font-size: 28px; font-weight: 700; color: var(--gray-900);
+    transition: all .1s;
+  }
+  .pin-key:active { background: var(--accent-light); color: var(--accent); }
+  .pin-key.backspace { background: white; color: var(--gray-500); font-size: 22px; }
+  .pin-key.empty { visibility: hidden; }
+  .pin-footer {
+    margin-top: 24px; display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px; color: var(--gray-500);
+  }
+  .pin-footer a { color: var(--accent); font-weight: 600; text-decoration: none; }
+
+  /* ── HOME ── */
   .home-hero {
     display: flex; flex-direction: column; align-items: center;
-    padding: 48px 24px 32px; text-align: center;
+    padding: 40px 24px 24px; text-align: center;
   }
-  .home-logo {
-    width: 72px; height: 72px; background: var(--accent); border-radius: 20px;
-    display: flex; align-items: center; justify-content: center; margin-bottom: 20px;
-  }
-  .home-logo svg { width: 40px; height: 40px; }
-  .home-title { font-size: 28px; font-weight: 800; color: var(--gray-900); }
-  .home-sub   { font-size: 15px; color: var(--gray-400); margin-top: 6px; }
+  .home-title { font-size: 26px; font-weight: 800; color: var(--gray-900); }
+  .home-sub   { font-size: 14px; color: var(--gray-500); margin-top: 4px; }
   .home-new-btn {
-    width: 100%; max-width: 440px; padding: 22px; border-radius: 16px;
-    background: var(--accent); color: white; font-size: 20px; font-weight: 800;
-    border: none; cursor: pointer; margin-top: 32px;
-    box-shadow: 0 4px 24px rgba(99,91,255,.3); transition: all .12s;
+    width: 100%; max-width: 440px; padding: 24px; border-radius: 18px;
+    background: var(--accent); color: white; font-size: 22px; font-weight: 800;
+    border: none; margin-top: 28px;
+    box-shadow: 0 6px 24px rgba(99,91,255,.3); transition: all .12s;
     display: flex; align-items: center; justify-content: center; gap: 12px;
   }
-  .home-new-btn:active { transform: scale(.98); opacity: .9; }
+  .home-new-btn:active { transform: scale(.98); background: var(--accent-dark); }
 
-  /* ── RECENT ORDERS ── */
   .recent-section {
-    width: 100%; max-width: 600px; padding: 0 16px; margin-top: 32px;
+    width: 100%; max-width: 640px; padding: 0 16px; margin-top: 32px;
   }
   .recent-title {
-    font-size: 13px; font-weight: 700; color: var(--gray-400);
-    text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px;
+    font-size: 12px; font-weight: 800; color: var(--gray-500);
+    text-transform: uppercase; letter-spacing: .08em; margin-bottom: 12px;
   }
   .recent-row {
-    background: white; border: 1.5px solid var(--gray-200); border-radius: 12px;
+    background: white; border: 1.5px solid var(--gray-200); border-radius: 14px;
     padding: 14px 18px; margin-bottom: 8px;
     display: flex; align-items: center; gap: 14px;
   }
   .recent-badge {
     background: var(--accent-light); color: var(--accent);
-    font-size: 11px; font-weight: 700; padding: 3px 9px;
+    font-size: 11px; font-weight: 800; padding: 4px 10px;
     border-radius: 20px; white-space: nowrap;
+    text-transform: uppercase; letter-spacing: 0.03em;
   }
-  .recent-badge.ready {
-    background: var(--green-light); color: var(--green);
-  }
-  .recent-name  { font-size: 14px; font-weight: 600; }
-  .recent-meta  { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
-  .recent-amt   { margin-left: auto; font-size: 15px; font-weight: 700; color: var(--gray-900); }
+  .recent-badge.ready   { background: var(--green-light); color: var(--green); }
+  .recent-badge.delivered { background: var(--gray-100); color: var(--gray-500); }
+  .recent-name  { font-size: 14px; font-weight: 700; }
+  .recent-meta  { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
+  .recent-amt   { margin-left: auto; font-size: 15px; font-weight: 800; color: var(--gray-900); }
 
-  /* ── CUSTOMER RESULT ── */
+  /* ── CUSTOMER RESULT CARD ── */
   .cust-result {
     border: 2px solid var(--green); border-radius: 12px; padding: 16px;
     background: var(--green-light); margin-bottom: 18px; display: none;
   }
-  .cust-result-name { font-size: 16px; font-weight: 700; color: var(--gray-900); }
-  .cust-result-meta { font-size: 13px; color: var(--gray-500); margin-top: 3px; }
+  .cust-result.show { display: block; }
+  .cust-result-name { font-size: 17px; font-weight: 800; color: var(--gray-900); }
+  .cust-result-meta { font-size: 13px; color: var(--gray-600); margin-top: 3px; }
   .cust-new-form { display: none; }
+  .cust-new-form.show { display: block; }
+
+  /* ── SERVICE CARDS ── */
+  .svc-card {
+    padding: 16px; border-radius: 14px; border: 1.5px solid var(--gray-200);
+    background: white; margin-bottom: 10px; transition: border-color .12s, background .12s;
+  }
+  .svc-card.selected { border-color: var(--accent); background: var(--accent-light); }
+  .svc-header {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .svc-name   { font-size: 16px; font-weight: 700; color: var(--gray-900); }
+  .svc-price  { font-size: 13px; color: var(--gray-500); margin-top: 2px; }
+  .svc-qty    { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .qty-btn {
+    width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid var(--gray-300);
+    background: white; font-size: 22px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--gray-700); line-height: 1; transition: all .1s;
+  }
+  .qty-btn:active { background: var(--gray-100); }
+  .qty-btn:disabled { opacity: .4; cursor: not-allowed; }
+  .qty-val { font-size: 18px; font-weight: 700; min-width: 28px; text-align: center; color: var(--gray-900); }
+
+  /* Weight entry row inside a per-lb service card */
+  .svc-weight {
+    display: none; margin-top: 14px; padding-top: 14px;
+    border-top: 1px dashed var(--gray-200);
+  }
+  .svc-card.selected .svc-weight { display: flex; align-items: center; gap: 10px; }
+  .svc-weight-input {
+    flex: 1; padding: 12px 14px; border-radius: 10px;
+    border: 1.5px solid var(--gray-200); font-size: 18px; font-weight: 700;
+    text-align: center; outline: none;
+  }
+  .svc-weight-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.1); }
+  .svc-weight-label { font-size: 13px; font-weight: 600; color: var(--gray-500); }
+
+  .svc-empty {
+    text-align: center; padding: 28px 16px; color: var(--gray-400);
+    font-size: 14px; border: 1.5px dashed var(--gray-200); border-radius: 12px;
+  }
 
   /* ── PRICE DISPLAY ── */
   .price-display {
     background: var(--accent-light); border-radius: 14px; padding: 24px;
-    text-align: center; margin: 20px 0;
+    text-align: center; margin-top: 16px;
   }
-  .price-display-label { font-size: 13px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
-  .price-display-amount { font-size: 48px; font-weight: 800; color: var(--accent); line-height: 1; }
-  .price-display-breakdown { font-size: 13px; color: var(--gray-500); margin-top: 8px; }
+  .price-display-label { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .price-display-amount { font-size: 44px; font-weight: 800; color: var(--accent); line-height: 1; }
+  .price-display-breakdown { font-size: 13px; color: var(--gray-600); margin-top: 8px; }
 
-  /* ── ORDER SUMMARY ── */
+  /* ── SUMMARY (payment screen) ── */
   .summary-row {
     display: flex; justify-content: space-between; align-items: center;
     padding: 10px 0; border-bottom: 1px solid var(--gray-100); font-size: 15px;
@@ -216,279 +339,319 @@
   .summary-total .summary-row-label { font-weight: 700; font-size: 16px; color: var(--gray-900); }
   .summary-total .summary-row-value { font-size: 22px; font-weight: 800; color: var(--accent); }
 
-  /* ── SUCCESS ── */
-  .success-icon {
-    width: 80px; height: 80px; background: var(--green-light); border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    margin: 40px auto 20px; font-size: 40px;
-  }
-  .success-title { font-size: 24px; font-weight: 800; text-align: center; color: var(--gray-900); }
-  .success-sub   { font-size: 15px; color: var(--gray-400); text-align: center; margin-top: 8px; }
-  .success-order { font-size: 13px; color: var(--gray-400); text-align: center; margin-top: 4px; }
-
-  /* ── SERVICE CARDS ── */
-  .svc-card {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 16px; border-radius: 12px; border: 1.5px solid var(--gray-200);
-    background: white; margin-bottom: 10px; transition: border-color .12s, background .12s;
-  }
-  .svc-card.selected { border-color: var(--accent); background: var(--accent-light); }
-  .svc-info { flex: 1; }
-  .svc-name  { font-size: 15px; font-weight: 600; color: var(--gray-900); }
-  .svc-price { font-size: 13px; color: var(--gray-500); margin-top: 2px; }
-  .svc-qty   { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-  .qty-btn {
-    width: 34px; height: 34px; border-radius: 8px; border: 1.5px solid var(--gray-300);
-    background: white; font-size: 20px; font-weight: 600; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--gray-700); line-height: 1; transition: all .1s;
-  }
-  .qty-btn:active { background: var(--gray-100); }
-  .qty-val { font-size: 17px; font-weight: 700; min-width: 22px; text-align: center; color: var(--gray-900); }
-  .svc-empty {
-    text-align: center; padding: 28px 16px; color: var(--gray-400);
-    font-size: 14px; border: 1.5px dashed var(--gray-200); border-radius: 12px;
-  }
-
   /* ── PAYMENT METHOD CHIPS ── */
-  .pay-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .pay-methods {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;
+  }
   .pay-chip {
-    padding: 16px; border-radius: 12px; border: 2px solid var(--gray-200);
-    background: white; font-size: 15px; font-weight: 600; cursor: pointer;
-    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 20px 16px; border-radius: 14px; border: 2px solid var(--gray-200);
+    background: white; font-size: 16px; font-weight: 700;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
     transition: all .12s; color: var(--gray-700);
   }
-  .pay-chip:active, .pay-chip.selected { border-color: var(--accent); background: var(--accent-light); color: var(--accent); }
-  .pay-chip-stripe {
-    grid-column: 1 / -1; border-style: dashed; color: var(--gray-400);
-    font-size: 13px;
+  .pay-chip .pay-chip-icon { font-size: 28px; }
+  .pay-chip:active, .pay-chip.selected {
+    border-color: var(--accent); background: var(--accent-light); color: var(--accent);
   }
-  .pay-chip-stripe.selected { border-style: solid; }
+  .pay-chip:disabled { opacity: .5; }
 
+  /* ── CARD STATUS / SPINNER ── */
+  .pay-status {
+    display: none; padding: 20px; border-radius: 14px; background: var(--gray-100);
+    text-align: center; margin-bottom: 16px;
+  }
+  .pay-status.show { display: block; }
+  .pay-status-title { font-size: 16px; font-weight: 700; color: var(--gray-900); margin-bottom: 4px; }
+  .pay-status-sub   { font-size: 13px; color: var(--gray-500); }
+
+  .spinner {
+    width: 36px; height: 36px; border: 3px solid var(--gray-300);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .7s linear infinite; display: inline-block;
+  }
   .spinner-sm {
     width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.4);
-    border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; display: inline-block;
+    border-top-color: white; border-radius: 50%;
+    animation: spin .7s linear infinite; display: inline-block;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── SUCCESS ── */
+  .success-icon {
+    width: 88px; height: 88px; background: var(--green-light); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin: 40px auto 20px; font-size: 44px;
+  }
+  .success-title { font-size: 26px; font-weight: 800; text-align: center; color: var(--gray-900); }
+  .success-sub   { font-size: 15px; color: var(--gray-500); text-align: center; margin-top: 8px; padding: 0 24px; }
+  .success-order { font-size: 13px; color: var(--gray-400); text-align: center; margin-top: 8px; }
+  .success-actions {
+    width: 100%; max-width: 440px; padding: 0 16px; margin-top: 36px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+
+  /* ── UTILITY ── */
+  .hidden { display: none !important; }
+  .muted  { color: var(--gray-400); }
+  .row    { display: flex; gap: 10px; align-items: center; }
 </style>
 </head>
 <body>
 
+<div id="staging-banner">⚠️ STAGING — Remove banner after first live test sale</div>
 <div id="toast"></div>
 
-<!-- ══════════════════════════════════════════════
-     SCREEN 1 — HOME
-══════════════════════════════════════════════ -->
-<div class="screen active" id="screen-home">
-  <div class="pos-header">
-    <div class="pos-logo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+<!-- ══════════════════════════════════════════════════════
+     LOGIN — device / location account
+══════════════════════════════════════════════════════ -->
+<div class="screen active" id="screen-login">
+  <div class="login-box">
+    <div class="login-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M12 3v4M12 17v4M3 12h4M17 12h4"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
     </div>
-    <div>
-      <div class="pos-header-title">WashRoute POS</div>
-      <div class="pos-header-sub">Retail drop-off</div>
-    </div>
-  </div>
+    <div class="login-title">Family Laundry POS</div>
+    <div class="login-sub">Sign in with this register's account.</div>
 
-  <div class="home-hero">
-    <div class="home-logo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="3"/></svg>
+    <div class="pos-input-group">
+      <label class="pos-label">Register email</label>
+      <input class="pos-input" id="login-email" type="email" autocomplete="username"
+             placeholder="pos-foothill@familylaundry.com" />
     </div>
-    <div class="home-title">Walk-In Drop-Off</div>
-    <div class="home-sub">Weigh, bill, and send to processing</div>
-    <button class="home-new-btn" onclick="startNewOrder()">
-      ＋ New Order
-    </button>
-  </div>
-
-  <div class="recent-section">
-    <div class="recent-title">Recent Walk-In Orders</div>
-    <div id="recent-list">
-      <div style="text-align:center;color:var(--gray-400);font-size:13px;padding:24px 0">Loading…</div>
+    <div class="pos-input-group">
+      <label class="pos-label">Password</label>
+      <input class="pos-input" id="login-password" type="password" autocomplete="current-password"
+             placeholder="••••••••" onkeydown="if(event.key==='Enter') doLogin()" />
+    </div>
+    <button class="pos-btn pos-btn-primary" id="login-btn" onclick="doLogin()">Sign in</button>
+    <div style="text-align:center;font-size:13px;color:var(--gray-400);margin-top:20px">
+      Need help? Ask the manager.
     </div>
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════
-     SCREEN 2 — CUSTOMER
-══════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════
+     PIN GATE
+══════════════════════════════════════════════════════ -->
+<div class="screen" id="screen-pin">
+  <div class="pin-card">
+    <div class="pin-title">Enter your PIN</div>
+    <div class="pin-sub" id="pin-sub">Foothill Register</div>
+    <div class="pin-dots" id="pin-dots">
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+      <div class="pin-dot"></div>
+    </div>
+    <div class="pin-pad">
+      <button class="pin-key" onclick="pinPress('1')">1</button>
+      <button class="pin-key" onclick="pinPress('2')">2</button>
+      <button class="pin-key" onclick="pinPress('3')">3</button>
+      <button class="pin-key" onclick="pinPress('4')">4</button>
+      <button class="pin-key" onclick="pinPress('5')">5</button>
+      <button class="pin-key" onclick="pinPress('6')">6</button>
+      <button class="pin-key" onclick="pinPress('7')">7</button>
+      <button class="pin-key" onclick="pinPress('8')">8</button>
+      <button class="pin-key" onclick="pinPress('9')">9</button>
+      <button class="pin-key empty"></button>
+      <button class="pin-key" onclick="pinPress('0')">0</button>
+      <button class="pin-key backspace" onclick="pinBackspace()">⌫</button>
+    </div>
+    <div class="pin-footer">
+      <span id="pin-device-name">—</span>
+      <a href="#" onclick="doLogout(); return false;">Sign out register</a>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     HOME
+══════════════════════════════════════════════════════ -->
+<div class="screen" id="screen-home">
+  <div class="pos-header">
+    <div class="pos-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2">
+        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+    </div>
+    <div>
+      <div class="pos-header-title">Family Laundry POS</div>
+      <div class="pos-header-sub" id="home-header-sub">Walk-in register</div>
+    </div>
+    <div class="pos-header-right">
+      <div class="pos-cashier-chip" id="cashier-chip">—</div>
+      <button class="pos-back-btn" onclick="endShiftAndPrompt()">Switch</button>
+    </div>
+  </div>
+
+  <div class="home-hero">
+    <div class="home-title">Walk-In Drop-Off</div>
+    <div class="home-sub">Weigh · bill · send to processing</div>
+    <button class="home-new-btn" onclick="startNewOrder()">＋ New Drop-Off</button>
+  </div>
+
+  <div class="recent-section">
+    <div class="recent-title">Recent walk-in orders</div>
+    <div id="recent-list">
+      <div class="svc-empty">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     CUSTOMER — Step 1
+══════════════════════════════════════════════════════ -->
 <div class="screen" id="screen-customer">
   <div class="pos-header">
     <div class="pos-logo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2">
+        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
     </div>
     <div>
       <div class="pos-header-title">Customer</div>
       <div class="pos-header-sub">Step 1 of 3</div>
     </div>
-    <button class="pos-back-btn" onclick="goHome()">✕ Cancel</button>
+    <div class="pos-header-right">
+      <button class="pos-back-btn" onclick="goHome()">✕ Cancel</button>
+    </div>
   </div>
 
-  <div class="pos-steps" style="max-width:600px;width:100%">
-    <div class="pos-step active">
-      <div class="pos-step-dot">1</div>
-      Customer
-      <div class="pos-step-line"></div>
-    </div>
-    <div class="pos-step" id="step2-dot">
-      <div class="pos-step-dot">2</div>
-      Order
-      <div class="pos-step-line"></div>
-    </div>
-    <div class="pos-step" id="step3-dot">
-      <div class="pos-step-dot">3</div>
-      Payment
-    </div>
+  <div class="pos-steps">
+    <div class="pos-step active"><div class="pos-step-dot">1</div>Customer</div>
+    <div class="pos-step"><div class="pos-step-dot">2</div>Order</div>
+    <div class="pos-step"><div class="pos-step-dot">3</div>Payment</div>
   </div>
 
   <div class="pos-card">
-    <div class="pos-card-title">👤 Find or Add Customer</div>
+    <div class="pos-card-title">👤 Find or add customer</div>
 
-    <!-- Phone lookup -->
     <div class="pos-input-group">
-      <label class="pos-label">Phone Number</label>
-      <div style="display:flex;gap:10px">
-        <input class="pos-input" id="cust-phone" type="tel" placeholder="(555) 000-0000"
-               oninput="formatPhone(this)" onkeydown="if(event.key==='Enter')lookupCustomer()" />
-        <button class="pos-btn pos-btn-primary pos-btn-sm" onclick="lookupCustomer()" id="lookup-btn">Search</button>
+      <label class="pos-label">Phone number</label>
+      <div class="row">
+        <input class="pos-input" id="cust-phone" type="tel" inputmode="tel"
+               placeholder="(555) 000-0000" oninput="onPhoneInput()"
+               onkeydown="if(event.key==='Enter') lookupCustomer()" />
+        <button class="pos-btn pos-btn-primary pos-btn-sm" id="lookup-btn" onclick="lookupCustomer()">Search</button>
       </div>
     </div>
 
-    <!-- Found customer -->
     <div class="cust-result" id="cust-found">
       <div class="cust-result-name" id="cust-found-name">—</div>
       <div class="cust-result-meta" id="cust-found-meta">—</div>
     </div>
 
-    <!-- New customer form -->
     <div class="cust-new-form" id="cust-new-form">
-      <div style="color:var(--gray-500);font-size:13px;margin-bottom:16px">
-        No customer found — enter their details to create a new profile.
+      <div style="color:var(--gray-500);font-size:13px;margin-bottom:16px;padding:12px;background:var(--amber-light);border-radius:10px;border-left:3px solid var(--amber)">
+        New customer — let's create a quick profile.
       </div>
       <div class="pos-input-group">
-        <label class="pos-label">First Name</label>
-        <input class="pos-input" id="cust-first" type="text" placeholder="First name" />
+        <label class="pos-label">First name</label>
+        <input class="pos-input" id="cust-first" type="text" placeholder="First name" autocapitalize="words" />
       </div>
       <div class="pos-input-group">
-        <label class="pos-label">Last Name</label>
-        <input class="pos-input" id="cust-last" type="text" placeholder="Last name" />
+        <label class="pos-label">Last name <span style="font-weight:400;color:var(--gray-400)">(optional)</span></label>
+        <input class="pos-input" id="cust-last" type="text" placeholder="Last name" autocapitalize="words" />
       </div>
     </div>
 
-    <button class="pos-btn pos-btn-primary" id="cust-next-btn" onclick="confirmCustomer()" disabled style="margin-top:8px">
+    <button class="pos-btn pos-btn-primary" id="cust-next-btn" onclick="confirmCustomer()" disabled>
       Continue →
     </button>
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════
-     SCREEN 3 — ORDER (weight + notes)
-══════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════
+     ORDER — Step 2 (services, weight, notes)
+══════════════════════════════════════════════════════ -->
 <div class="screen" id="screen-order">
   <div class="pos-header">
     <div class="pos-logo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2">
+        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
     </div>
     <div>
       <div class="pos-header-title" id="order-header-name">Order</div>
       <div class="pos-header-sub">Step 2 of 3</div>
     </div>
-    <button class="pos-back-btn" onclick="showScreen('screen-customer')">← Back</button>
+    <div class="pos-header-right">
+      <button class="pos-back-btn" onclick="showScreen('screen-customer')">← Back</button>
+    </div>
   </div>
 
-  <div class="pos-steps" style="max-width:600px;width:100%">
-    <div class="pos-step done">
-      <div class="pos-step-dot">✓</div>
-      Customer
-      <div class="pos-step-line"></div>
-    </div>
-    <div class="pos-step active">
-      <div class="pos-step-dot">2</div>
-      Order
-      <div class="pos-step-line"></div>
-    </div>
-    <div class="pos-step">
-      <div class="pos-step-dot">3</div>
-      Payment
-    </div>
+  <div class="pos-steps">
+    <div class="pos-step done"><div class="pos-step-dot">✓</div>Customer</div>
+    <div class="pos-step active"><div class="pos-step-dot">2</div>Order</div>
+    <div class="pos-step"><div class="pos-step-dot">3</div>Payment</div>
   </div>
 
   <div class="pos-card">
-    <div class="pos-card-title">🧺 Select Services</div>
+    <div class="pos-card-title">🧺 Services</div>
     <div id="service-cards">
       <div class="svc-empty">Loading services…</div>
     </div>
 
-    <div class="price-display" id="price-display" style="display:none;margin-top:8px">
-      <div class="price-display-label">Total Due</div>
+    <div class="price-display" id="price-display" style="display:none">
+      <div class="price-display-label">Total</div>
       <div class="price-display-amount" id="price-amount">$0.00</div>
       <div class="price-display-breakdown" id="price-breakdown"></div>
     </div>
   </div>
 
   <div class="pos-card" style="margin-top:12px">
-    <div class="pos-card-title" style="margin-bottom:16px">📋 Order Details</div>
+    <div class="pos-card-title">📋 Notes <span style="font-weight:400;color:var(--gray-400);font-size:13px">(optional)</span></div>
+    <textarea class="pos-input" id="order-notes" rows="3" maxlength="500"
+              placeholder="E.g. delicate items, separate whites…"
+              style="resize:none;font-size:15px"></textarea>
+  </div>
 
-    <div class="pos-input-group">
-      <label class="pos-label">Weight (lbs) — optional, for records</label>
-      <input class="pos-input" id="order-weight" type="number" step="0.1" min="0" placeholder="0.0" />
-    </div>
-
-    <div class="pos-input-group">
-      <label class="pos-label">Special Instructions (optional)</label>
-      <textarea class="pos-input" id="order-notes" rows="3" placeholder="E.g. delicate items, separate colours…"
-                style="resize:none;font-size:15px"></textarea>
-    </div>
-
+  <div style="width:100%;max-width:640px;padding:12px 16px 0">
     <button class="pos-btn pos-btn-primary" id="order-next-btn" onclick="goToPayment()" disabled>
-      Continue →
+      Continue to Payment →
     </button>
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════
-     SCREEN 4 — PAYMENT
-══════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════
+     PAYMENT — Step 3
+══════════════════════════════════════════════════════ -->
 <div class="screen" id="screen-payment">
   <div class="pos-header">
     <div class="pos-logo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2">
+        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
     </div>
     <div>
       <div class="pos-header-title">Payment</div>
       <div class="pos-header-sub">Step 3 of 3</div>
     </div>
-    <button class="pos-back-btn" onclick="showScreen('screen-order')">← Back</button>
+    <div class="pos-header-right">
+      <button class="pos-back-btn" onclick="backFromPayment()">← Back</button>
+    </div>
   </div>
 
-  <div class="pos-steps" style="max-width:600px;width:100%">
-    <div class="pos-step done">
-      <div class="pos-step-dot">✓</div>
-      Customer
-      <div class="pos-step-line"></div>
-    </div>
-    <div class="pos-step done">
-      <div class="pos-step-dot">✓</div>
-      Order
-      <div class="pos-step-line"></div>
-    </div>
-    <div class="pos-step active">
-      <div class="pos-step-dot">3</div>
-      Payment
-    </div>
+  <div class="pos-steps">
+    <div class="pos-step done"><div class="pos-step-dot">✓</div>Customer</div>
+    <div class="pos-step done"><div class="pos-step-dot">✓</div>Order</div>
+    <div class="pos-step active"><div class="pos-step-dot">3</div>Payment</div>
   </div>
 
   <div class="pos-card">
-    <div class="pos-card-title">🧾 Order Summary</div>
+    <div class="pos-card-title">🧾 Order summary</div>
     <div class="summary-row">
       <span class="summary-row-label">Customer</span>
       <span class="summary-row-value" id="pay-cust-name">—</span>
     </div>
-    <div class="summary-row" id="pay-weight-row">
-      <span class="summary-row-label">Weight</span>
-      <span class="summary-row-value" id="pay-weight">—</span>
-    </div>
-    <div id="pay-services-list"><!-- service line items injected here --></div>
+    <div id="pay-lines"></div>
     <div class="summary-row summary-total" style="margin-top:8px;padding-top:16px;border-top:2px solid var(--gray-200);border-bottom:none">
       <span class="summary-row-label">Total</span>
       <span class="summary-row-value" id="pay-total">—</span>
@@ -496,244 +659,408 @@
   </div>
 
   <div class="pos-card" style="margin-top:12px">
-    <div class="pos-card-title">💳 Payment Method</div>
+    <div class="pos-card-title">💳 Payment method</div>
     <div class="pay-methods">
-      <button class="pay-chip selected" id="pm-cash" onclick="selectPayMethod('cash')">💵 Cash</button>
-      <button class="pay-chip" id="pm-card-manual" onclick="selectPayMethod('card_manual')">💳 Card (manual)</button>
-      <button class="pay-chip pay-chip-stripe" id="pm-stripe" onclick="selectPayMethod('stripe_terminal')">
-        🔌 Stripe Terminal — coming in Phase 2
+      <button class="pay-chip selected" id="pm-cash" onclick="selectPayMethod('cash')">
+        <span class="pay-chip-icon">💵</span>
+        Cash
       </button>
+      <button class="pay-chip" id="pm-card" onclick="selectPayMethod('card')">
+        <span class="pay-chip-icon">💳</span>
+        Card (Reader)
+      </button>
+    </div>
+
+    <div class="pay-status" id="pay-status">
+      <div class="spinner" style="margin-bottom:10px"></div>
+      <div class="pay-status-title" id="pay-status-title">Waiting for card…</div>
+      <div class="pay-status-sub"   id="pay-status-sub">Customer is using the reader.</div>
     </div>
 
     <button class="pos-btn pos-btn-green" id="charge-btn" onclick="collectPayment()">
       ✓ Collect Payment &amp; Create Order
     </button>
+    <button class="pos-btn pos-btn-red hidden" id="cancel-charge-btn" onclick="cancelCardCharge()" style="margin-top:10px">
+      ✕ Cancel Charge
+    </button>
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════
-     SCREEN 5 — SUCCESS
-══════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════
+     SUCCESS
+══════════════════════════════════════════════════════ -->
 <div class="screen" id="screen-success">
   <div class="pos-header">
     <div class="pos-logo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2">
+        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
     </div>
     <div>
-      <div class="pos-header-title">Done!</div>
+      <div class="pos-header-title">Done</div>
       <div class="pos-header-sub">Order sent to processing</div>
     </div>
   </div>
 
   <div class="success-icon">✅</div>
-  <div class="success-title" id="success-title">Order Created!</div>
-  <div class="success-sub"  id="success-sub">The order is now in the Cleaning queue.</div>
+  <div class="success-title" id="success-title">Order created</div>
+  <div class="success-sub"   id="success-sub">Receipt printing to the counter printer…</div>
   <div class="success-order" id="success-order-num"></div>
 
-  <div style="width:100%;max-width:440px;padding:0 16px;margin-top:40px;display:flex;flex-direction:column;gap:12px">
-    <button class="pos-btn pos-btn-primary" onclick="startNewOrder()">＋ New Order</button>
+  <div class="success-actions">
+    <button class="pos-btn pos-btn-primary" onclick="startNewOrder()">＋ New Drop-Off</button>
+    <button class="pos-btn pos-btn-outline" id="reprint-btn" onclick="reprintReceipt()">🖨 Reprint Receipt</button>
     <button class="pos-btn pos-btn-outline" onclick="goHome()">↩ Back to Home</button>
   </div>
 </div>
 
 <script>
-  // ── SUPABASE ──
+  // ═══════════════════════════════════════════════════════════════
+  // SUPABASE CLIENT
+  // ═══════════════════════════════════════════════════════════════
   const { createClient } = supabase;
   const db = createClient(
     'https://umjpbuxrdydwejqtensq.supabase.co',
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY'
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY',
+    { auth: { persistSession: true, storage: localStorage, storageKey: 'flpos_auth' } }
   );
 
-  // ── STATE ──
-  let currentCust      = null;  // { id, first_name_cache, last_name_cache, phone_cache, is_new }
-  let currentWeight    = 0;
-  let currentTotal     = 0;
-  let payMethod        = 'cash';
-  let retailServices   = [];    // loaded from DB once on init
-  let selectedServices = {};    // { fee_id: { fee, qty } }
+  const FN_BASE = 'https://umjpbuxrdydwejqtensq.supabase.co/functions/v1';
 
-  // ── TOAST ──
-  let _toastTimer;
-  function showToast(msg, type = 'info') {
-    const el = document.getElementById('toast');
-    el.textContent = msg;
-    el.className = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
-    el.classList.add('show');
-    clearTimeout(_toastTimer);
-    _toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
-  }
+  // ═══════════════════════════════════════════════════════════════
+  // STATE
+  // ═══════════════════════════════════════════════════════════════
+  let device          = null;        // { id, name, location, stripe_reader_id, printer_token }
+  let shift           = null;        // { shift_id, cashier_profile_id, cashier_first_name, cashier_last_name }
+  let retailServices  = [];          // services where category='Retail'
+  let cart            = {};          // { service_id: { service, qty, weight_lbs, line_total } }
+  let currentCust     = null;        // customer row
+  let payMethod       = 'cash';
+  let currentPI       = null;        // { payment_intent_id }
+  let lastOrder       = null;        // for reprint
+  let pinBuffer       = '';
+  let pollTimer       = null;
 
-  function fmtMoney(n) {
-    return '$' + Number(n).toFixed(2);
-  }
-
-  // ── SCREEN NAVIGATION ──
+  // ═══════════════════════════════════════════════════════════════
+  // UTILITIES
+  // ═══════════════════════════════════════════════════════════════
   function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById(id).classList.add('active');
     window.scrollTo(0, 0);
   }
 
-  function goHome() {
-    currentCust   = null;
-    currentWeight = 0;
-    currentTotal  = 0;
-    payMethod     = 'cash';
-    // Reset customer screen
-    document.getElementById('cust-phone').value = '';
-    document.getElementById('cust-first').value = '';
-    document.getElementById('cust-last').value  = '';
-    document.getElementById('cust-found').style.display    = 'none';
-    document.getElementById('cust-new-form').style.display = 'none';
-    document.getElementById('cust-next-btn').disabled      = true;
-    // Reset order screen
-    selectedServices = {};
-    renderServiceCards();   // resets all qty counters + selected styles
-    document.getElementById('order-weight').value = '';
-    document.getElementById('order-notes').value  = '';
-    document.getElementById('price-display').style.display = 'none';
-    document.getElementById('order-next-btn').disabled = true;
-    showScreen('screen-home');
-    loadRecent();
+  let toastTimer;
+  function showToast(msg, type = 'info') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
   }
 
-  function startNewOrder() { showScreen('screen-customer'); }
-
-  // ── INIT ──
-  async function init() {
-    await loadRetailServices();
-    await loadRecent();
+  const fmtMoney = n => '$' + Number(n || 0).toFixed(2);
+  const fmtDigits = v => String(v || '').replace(/\D/g, '');
+  function normalizePhone(v) {
+    const d = fmtDigits(v);
+    return d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
+  }
+  function formatPhoneMask(v) {
+    const d = fmtDigits(v).slice(0, 10);
+    if (d.length >= 7)      return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+    if (d.length >= 4)      return `(${d.slice(0,3)}) ${d.slice(3)}`;
+    if (d.length >= 1)      return `(${d}`;
+    return '';
+  }
+  function escXml(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // ── RETAIL SERVICES ──
-  async function loadRetailServices() {
-    const { data, error } = await db.from('service_fees')
-      .select('id, name, amount, unit_label, fee_type')
-      .eq('category', 'Retail')
-      .eq('is_active', true)
-      .order('sort_order');
-    if (error) { console.warn('Failed to load retail services:', error.message); }
-    retailServices = data || [];
-    renderServiceCards();
-  }
-
-  function renderServiceCards() {
-    const container = document.getElementById('service-cards');
-    if (!retailServices.length) {
-      container.innerHTML = `<div class="svc-empty">No Retail services configured yet.<br>Go to Admin → Services & Pricing to add them.</div>`;
+  // ═══════════════════════════════════════════════════════════════
+  // BOOT — check session, resume shift, or show login
+  // ═══════════════════════════════════════════════════════════════
+  async function boot() {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) {
+      showScreen('screen-login');
+      document.getElementById('login-email').focus();
       return;
     }
-    container.innerHTML = retailServices.map(s => `
-      <div class="svc-card" id="svc-card-${s.id}">
-        <div class="svc-info">
-          <div class="svc-name">${s.name}</div>
-          <div class="svc-price">${fmtMoney(s.amount)} / ${s.unit_label || 'each'}</div>
-        </div>
-        <div class="svc-qty">
-          <button class="qty-btn" onclick="adjustQty('${s.id}', -1)">−</button>
-          <span class="qty-val" id="qty-${s.id}">0</span>
-          <button class="qty-btn" onclick="adjustQty('${s.id}', 1)">+</button>
-        </div>
-      </div>
-    `).join('');
+    // Logged in — load the device row tied to this auth user
+    const ok = await loadDevice();
+    if (!ok) return;  // loadDevice handles errors / logout
+    // Check for an active shift
+    const active = await checkActiveShift();
+    if (active) {
+      shift = active;
+      enterHome();
+    } else {
+      showPinGate();
+    }
   }
 
-  function adjustQty(feeId, delta) {
-    const fee = retailServices.find(s => s.id === feeId);
-    if (!fee) return;
-    const current = selectedServices[feeId]?.qty || 0;
-    const newQty  = Math.max(0, current + delta);
-    if (newQty === 0) {
-      delete selectedServices[feeId];
-      document.getElementById(`svc-card-${feeId}`)?.classList.remove('selected');
-    } else {
-      selectedServices[feeId] = { fee, qty: newQty };
-      document.getElementById(`svc-card-${feeId}`)?.classList.add('selected');
+  async function loadDevice() {
+    const { data: { user } } = await db.auth.getUser();
+    if (!user) {
+      showToast('Session expired. Please sign in again.', 'error');
+      setTimeout(() => showScreen('screen-login'), 400);
+      return false;
     }
-    document.getElementById(`qty-${feeId}`).textContent = newQty;
-    calcPrice();
+    const { data, error } = await db.from('pos_devices')
+      .select('id, name, location, stripe_reader_id, printer_token, is_active')
+      .eq('is_active', true)
+      .eq('auth_user_id', user.id)
+      .limit(1).maybeSingle();
+    if (error || !data) {
+      showToast('No device linked to this login. Contact admin.', 'error');
+      await db.auth.signOut();
+      setTimeout(() => showScreen('screen-login'), 400);
+      return false;
+    }
+    device = data;
+    return true;
+  }
+
+  async function checkActiveShift() {
+    const { data, error } = await db.rpc('get_active_pos_shift', { p_device_id: device.id });
+    if (error) return null;
+    const row = Array.isArray(data) ? data[0] : data;
+    return row && row.shift_id ? row : null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // LOGIN
+  // ═══════════════════════════════════════════════════════════════
+  async function doLogin() {
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!email || !password) {
+      showToast('Enter email and password', 'error');
+      return;
+    }
+    const btn = document.getElementById('login-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-sm"></span> Signing in…';
+    const { error } = await db.auth.signInWithPassword({ email, password });
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+    if (error) {
+      showToast(error.message, 'error');
+      return;
+    }
+    document.getElementById('login-password').value = '';
+    const ok = await loadDevice();
+    if (!ok) return;
+    const active = await checkActiveShift();
+    if (active) { shift = active; enterHome(); }
+    else showPinGate();
+  }
+
+  async function doLogout() {
+    if (shift) {
+      const { error } = await db.rpc('end_pos_shift', { p_shift_id: shift.shift_id });
+      if (error) showToast('Could not end shift cleanly — admin may need to force-close it.', 'error');
+    }
+    shift = null;
+    device = null;
+    resetOrderState();
+    await db.auth.signOut();
+    showScreen('screen-login');
+    document.getElementById('login-email').focus();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // PIN GATE
+  // ═══════════════════════════════════════════════════════════════
+  function showPinGate() {
+    pinBuffer = '';
+    renderPinDots(false);
+    document.getElementById('pin-device-name').textContent = device?.name || '—';
+    document.getElementById('pin-sub').textContent = device?.location
+      ? `${device.name} · ${device.location}`
+      : (device?.name || 'Register');
+    showScreen('screen-pin');
+  }
+
+  function renderPinDots(error = false) {
+    const dots = document.querySelectorAll('#pin-dots .pin-dot');
+    dots.forEach((d, i) => {
+      d.classList.toggle('filled', i < pinBuffer.length);
+      d.classList.toggle('error', error && i < 4);
+    });
+  }
+
+  async function pinPress(digit) {
+    if (pinBuffer.length >= 4) return;
+    pinBuffer += digit;
+    renderPinDots(false);
+    if (pinBuffer.length === 4) await submitPin();
+  }
+  function pinBackspace() {
+    if (!pinBuffer.length) return;
+    pinBuffer = pinBuffer.slice(0, -1);
+    renderPinDots(false);
+  }
+
+  async function submitPin() {
+    const { data, error } = await db.rpc('start_pos_shift', {
+      p_device_id: device.id,
+      p_pin: pinBuffer,
+    });
+    if (error || !data) {
+      renderPinDots(true);
+      showToast('Invalid PIN — try again', 'error');
+      setTimeout(() => { pinBuffer = ''; renderPinDots(false); }, 450);
+      return;
+    }
+    const active = await checkActiveShift();
+    if (active) { shift = active; enterHome(); }
+    else { showToast('Could not start shift', 'error'); }
+  }
+
+  async function endShiftAndPrompt() {
+    if (!shift) { showPinGate(); return; }
+    await db.rpc('end_pos_shift', { p_shift_id: shift.shift_id });
+    shift = null;
+    showPinGate();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // HOME
+  // ═══════════════════════════════════════════════════════════════
+  async function enterHome() {
+    document.getElementById('cashier-chip').textContent =
+      '👤 ' + (shift.cashier_first_name || 'Staff');
+    document.getElementById('home-header-sub').textContent =
+      device.location ? `${device.name} · ${device.location}` : (device.name || 'Register');
+    await Promise.all([loadRetailServices(), loadRecent()]);
+    showScreen('screen-home');
+  }
+
+  function goHome() { resetCart(); resetCustomer(); showScreen('screen-home'); loadRecent(); }
+
+  async function loadRetailServices() {
+    const { data, error } = await db.from('services')
+      .select('id, name, pricing_type, base_price, lbs_per_bag, overage_rate_per_lb, has_weight_overage, category, is_active')
+      .eq('category', 'Retail')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+    if (error) {
+      console.warn('services load:', error.message);
+      showToast('Could not load services — check connection and try again', 'error');
+    }
+    retailServices = data || [];
   }
 
   async function loadRecent() {
     const list = document.getElementById('recent-list');
-    const { data } = await db.from('orders')
-      .select('id, order_number, status, total_amount, total_bags, weight_lbs, created_at, customers(first_name_cache, last_name_cache)')
+    const { data, error } = await db.from('orders')
+      .select('id, order_number, status, total_amount, weight_lbs, created_at, customer_id, customers(first_name_cache, last_name_cache)')
       .eq('source', 'walk_in')
       .order('created_at', { ascending: false })
       .limit(8);
-    if (!data || !data.length) {
-      list.innerHTML = `<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:24px 0">No walk-in orders yet.</div>`;
+    if (error) {
+      list.innerHTML = `<div class="svc-empty">Couldn't load recent orders.</div>`;
       return;
     }
-    const statusLabel = { processing:'Cleaning', folding:'Folding', assembled:'Ready ✓', delivered:'Picked Up' };
-    const statusClass = { assembled:'ready' };
+    if (!data || !data.length) {
+      list.innerHTML = `<div class="svc-empty">No walk-in orders yet.</div>`;
+      return;
+    }
+    const statusLabel = {
+      picked_up:  'Dropped off',
+      processing: 'Cleaning',
+      folding:    'Folding',
+      assembled:  'Ready',
+      ready:      'Ready',
+      delivered:  'Picked up',
+    };
+    const statusClass = { assembled: 'ready', ready: 'ready', delivered: 'delivered' };
     list.innerHTML = data.map(o => {
-      const fn   = o.customers?.first_name_cache || '';
-      const ln   = o.customers?.last_name_cache  || '';
-      const name = `${fn} ${ln}`.trim() || 'Unknown';
-      const lbl  = statusLabel[o.status] || o.status;
-      const cls  = statusClass[o.status] || '';
-      const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
+      const fn = o.customers?.first_name_cache || '';
+      const ln = o.customers?.last_name_cache  || '';
+      const name = `${fn} ${ln}`.trim() || 'Customer';
+      const lbl = statusLabel[o.status] || o.status;
+      const cls = statusClass[o.status] || '';
+      const lbs = o.weight_lbs ? `${Number(o.weight_lbs).toFixed(1)} lbs` : '—';
       return `<div class="recent-row">
-        <span class="recent-badge ${cls}">${lbl}</span>
-        <div>
-          <div class="recent-name">${name}</div>
+        <span class="recent-badge ${cls}">${escapeHtml(lbl)}</span>
+        <div style="min-width:0">
+          <div class="recent-name">${escapeHtml(name)}</div>
           <div class="recent-meta">#${o.order_number || '—'} · ${lbs}</div>
         </div>
         <div class="recent-amt">${fmtMoney(o.total_amount || 0)}</div>
       </div>`;
     }).join('');
   }
+  function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
 
-  // ── PHONE FORMAT ──
-  function formatPhone(input) {
-    let v = input.value.replace(/\D/g, '').slice(0, 10);
-    if (v.length >= 7)      input.value = `(${v.slice(0,3)}) ${v.slice(3,6)}-${v.slice(6)}`;
-    else if (v.length >= 4) input.value = `(${v.slice(0,3)}) ${v.slice(3)}`;
-    else if (v.length >= 1) input.value = `(${v}`;
-    document.getElementById('cust-found').style.display    = 'none';
-    document.getElementById('cust-new-form').style.display = 'none';
-    document.getElementById('cust-next-btn').disabled      = true;
+  // ═══════════════════════════════════════════════════════════════
+  // CUSTOMER STEP
+  // ═══════════════════════════════════════════════════════════════
+  function startNewOrder() {
+    resetOrderState();
+    showScreen('screen-customer');
+    setTimeout(() => document.getElementById('cust-phone').focus(), 100);
+  }
+
+  function resetOrderState() {
+    resetCart();
+    resetCustomer();
+    lastOrder = null;
+    currentPI = null;
+  }
+
+  function resetCustomer() {
+    currentCust = null;
+    document.getElementById('cust-phone').value = '';
+    document.getElementById('cust-first').value = '';
+    document.getElementById('cust-last').value  = '';
+    document.getElementById('cust-found').classList.remove('show');
+    document.getElementById('cust-new-form').classList.remove('show');
+    document.getElementById('cust-next-btn').disabled = true;
+  }
+
+  function onPhoneInput() {
+    const input = document.getElementById('cust-phone');
+    input.value = formatPhoneMask(input.value);
+    // Any edit invalidates a previous lookup
+    document.getElementById('cust-found').classList.remove('show');
+    document.getElementById('cust-new-form').classList.remove('show');
+    document.getElementById('cust-next-btn').disabled = true;
     currentCust = null;
   }
 
-  // Normalize phone to plain 10-digit string (how the DB stores it)
-  function normalizePhone(val) {
-    return val.replace(/\D/g, '').replace(/^1(\d{10})$/, '$1'); // strip leading country code if present
-  }
-
-  // ── CUSTOMER LOOKUP ──
   async function lookupCustomer() {
-    const phoneRaw = document.getElementById('cust-phone').value.trim();
-    if (!phoneRaw) { showToast('Enter a phone number first', 'error'); return; }
+    const phone = normalizePhone(document.getElementById('cust-phone').value);
+    if (phone.length !== 10) { showToast('Enter a 10-digit phone number', 'error'); return; }
     const btn = document.getElementById('lookup-btn');
     btn.disabled = true; btn.textContent = '…';
-
-    const digits = normalizePhone(phoneRaw); // plain 10-digit string matching DB format
-    const { data } = await db.from('customers')
-      .select('id, first_name_cache, last_name_cache, phone_cache, email_cache')
-      .eq('phone_cache', digits)
+    const { data, error } = await db.from('customers')
+      .select('id, first_name_cache, last_name_cache, phone_cache, email_cache, pricelist')
+      .eq('phone_cache', phone)
       .limit(1).maybeSingle();
-
     btn.disabled = false; btn.textContent = 'Search';
-
+    if (error) { showToast('Lookup failed: ' + error.message, 'error'); return; }
     if (data) {
-      // Found existing customer
       currentCust = { ...data, is_new: false };
-      const name = `${data.first_name_cache || ''} ${data.last_name_cache || ''}`.trim();
-      document.getElementById('cust-found-name').textContent = name || 'Customer';
+      const name = `${data.first_name_cache || ''} ${data.last_name_cache || ''}`.trim() || 'Customer';
+      document.getElementById('cust-found-name').textContent = name;
       document.getElementById('cust-found-meta').textContent =
         [data.email_cache, data.phone_cache].filter(Boolean).join(' · ');
-      document.getElementById('cust-found').style.display    = 'flex';
-      document.getElementById('cust-new-form').style.display = 'none';
-      document.getElementById('cust-next-btn').disabled      = false;
+      document.getElementById('cust-found').classList.add('show');
+      document.getElementById('cust-new-form').classList.remove('show');
+      document.getElementById('cust-next-btn').disabled = false;
     } else {
-      // New customer — show create form
-      currentCust = { phone_cache: digits, is_new: true };
-      document.getElementById('cust-found').style.display    = 'none';
-      document.getElementById('cust-new-form').style.display = 'block';
-      document.getElementById('cust-next-btn').disabled      = false;
-      document.getElementById('cust-first').focus();
+      currentCust = { phone_cache: phone, is_new: true };
+      document.getElementById('cust-found').classList.remove('show');
+      document.getElementById('cust-new-form').classList.add('show');
+      document.getElementById('cust-next-btn').disabled = false;
+      setTimeout(() => document.getElementById('cust-first').focus(), 50);
     }
   }
 
@@ -743,41 +1070,138 @@
       const first = document.getElementById('cust-first').value.trim();
       const last  = document.getElementById('cust-last').value.trim();
       if (!first) { showToast('Enter a first name', 'error'); return; }
-      // Create the customer. Walk-ins go on the Delivery price list by default;
-      // admin can promote them to Commercial later via the customer panel.
+      const btn = document.getElementById('cust-next-btn');
+      btn.disabled = true; btn.innerHTML = '<span class="spinner-sm"></span> Creating…';
       const { data, error } = await db.from('customers').insert({
         first_name_cache: first,
         last_name_cache:  last || null,
         phone_cache:      currentCust.phone_cache,
         pricelist:        'Delivery',
       }).select().single();
-      if (error) { showToast(error.message, 'error'); return; }
+      btn.disabled = false; btn.textContent = 'Continue →';
+      if (error) { showToast('Create failed: ' + error.message, 'error'); return; }
       currentCust = { ...data, is_new: false };
     }
-    const name = `${currentCust.first_name_cache || ''} ${currentCust.last_name_cache || ''}`.trim();
-    document.getElementById('order-header-name').textContent = name || 'Order';
+    const name = `${currentCust.first_name_cache || ''} ${currentCust.last_name_cache || ''}`.trim() || 'Customer';
+    document.getElementById('order-header-name').textContent = name;
+    document.getElementById('pay-cust-name').textContent = name;
+    renderServiceCards();
     showScreen('screen-order');
-    document.getElementById('order-weight').focus();
   }
 
-  // ── PRICE CALC ──
-  function calcPrice() {
-    // Sum selected services
-    currentTotal = 0;
-    Object.values(selectedServices).forEach(({ fee, qty }) => {
-      currentTotal += parseFloat(fee.amount) * qty;
-    });
-    currentTotal = Math.round(currentTotal * 100) / 100;
+  // ═══════════════════════════════════════════════════════════════
+  // ORDER STEP — services + weight
+  // ═══════════════════════════════════════════════════════════════
+  function resetCart() {
+    cart = {};
+    document.getElementById('order-notes').value = '';
+    document.getElementById('price-display').style.display = 'none';
+    document.getElementById('order-next-btn').disabled = true;
+  }
+
+  function renderServiceCards() {
+    const container = document.getElementById('service-cards');
+    if (!retailServices.length) {
+      container.innerHTML = `<div class="svc-empty">No Retail services configured.<br>
+        Open the admin dashboard → Services to add some.</div>`;
+      return;
+    }
+    container.innerHTML = retailServices.map(s => {
+      const isPerLb = s.pricing_type === 'per_lb';
+      const priceLabel = isPerLb
+        ? `${fmtMoney(s.base_price)} / lb`
+        : `${fmtMoney(s.base_price)} each`;
+      const entry = cart[s.id];
+      const qty = entry?.qty || 0;
+      const weightVal = entry?.weight_lbs || '';
+      return `<div class="svc-card ${entry ? 'selected' : ''}" id="svc-card-${s.id}">
+        <div class="svc-header">
+          <div>
+            <div class="svc-name">${escapeHtml(s.name)}</div>
+            <div class="svc-price">${priceLabel}</div>
+          </div>
+          ${isPerLb
+            ? `<div class="svc-qty">
+                 <button class="qty-btn" onclick="toggleService('${s.id}')">${entry ? '✓' : '+'}</button>
+               </div>`
+            : `<div class="svc-qty">
+                 <button class="qty-btn" onclick="adjustQty('${s.id}', -1)" ${qty ? '' : 'disabled'}>−</button>
+                 <span class="qty-val" id="qty-${s.id}">${qty}</span>
+                 <button class="qty-btn" onclick="adjustQty('${s.id}', 1)">+</button>
+               </div>`}
+        </div>
+        ${isPerLb ? `
+          <div class="svc-weight">
+            <span class="svc-weight-label">Weight</span>
+            <input class="svc-weight-input" id="wt-${s.id}" type="number" step="0.1" min="0"
+                   value="${weightVal}" placeholder="0.0"
+                   oninput="setWeight('${s.id}', this.value)" />
+            <span class="svc-weight-label">lbs</span>
+          </div>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  function toggleService(sid) {
+    const svc = retailServices.find(s => s.id === sid);
+    if (!svc) return;
+    if (cart[sid]) { delete cart[sid]; }
+    else { cart[sid] = { service: svc, weight_lbs: 0, line_total: 0 }; }
+    renderServiceCards();
+    calcTotal();
+    if (cart[sid]) setTimeout(() => document.getElementById(`wt-${sid}`)?.focus(), 50);
+  }
+
+  function setWeight(sid, val) {
+    const svc = retailServices.find(s => s.id === sid);
+    if (!svc) return;
+    const wt = Math.max(0, parseFloat(val) || 0);
+    if (!cart[sid]) cart[sid] = { service: svc, weight_lbs: 0, line_total: 0 };
+    cart[sid].weight_lbs = wt;
+    cart[sid].line_total = Math.round(wt * Number(svc.base_price) * 100) / 100;
+    calcTotal();
+  }
+
+  function adjustQty(sid, delta) {
+    const svc = retailServices.find(s => s.id === sid);
+    if (!svc) return;
+    const current = cart[sid]?.qty || 0;
+    const newQty  = Math.max(0, current + delta);
+    if (newQty === 0) {
+      delete cart[sid];
+    } else {
+      cart[sid] = {
+        service: svc,
+        qty: newQty,
+        line_total: Math.round(newQty * Number(svc.base_price) * 100) / 100,
+      };
+    }
+    renderServiceCards();
+    calcTotal();
+  }
+
+  function calcTotal() {
+    let total = 0;
+    let hasLines = false;
+    for (const k of Object.keys(cart)) {
+      const it = cart[k];
+      total += it.line_total || 0;
+      if ((it.qty || it.weight_lbs) && it.line_total) hasLines = true;
+    }
+    total = Math.round(total * 100) / 100;
 
     const display = document.getElementById('price-display');
     const nextBtn = document.getElementById('order-next-btn');
 
-    if (currentTotal > 0) {
-      const lines = Object.values(selectedServices)
-        .map(({ fee, qty }) => `${qty}× ${fee.name}`)
+    if (hasLines && total > 0) {
+      const lines = Object.values(cart)
+        .filter(it => it.line_total > 0)
+        .map(it => it.qty
+          ? `${it.qty}× ${it.service.name}`
+          : `${it.weight_lbs.toFixed(1)} lbs ${it.service.name}`)
         .join(' · ');
-      document.getElementById('price-amount').textContent     = fmtMoney(currentTotal);
-      document.getElementById('price-breakdown').textContent  = lines;
+      document.getElementById('price-amount').textContent = fmtMoney(total);
+      document.getElementById('price-breakdown').textContent = lines;
       display.style.display = 'block';
       nextBtn.disabled = false;
     } else {
@@ -786,89 +1210,396 @@
     }
   }
 
+  function orderTotal() {
+    return Math.round(
+      Object.values(cart).reduce((s, it) => s + (it.line_total || 0), 0) * 100
+    ) / 100;
+  }
+  function orderWeight() {
+    return Object.values(cart).reduce((s, it) => s + (it.weight_lbs || 0), 0);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // PAYMENT STEP
+  // ═══════════════════════════════════════════════════════════════
   function goToPayment() {
-    if (!currentTotal) return;
-    currentWeight = parseFloat(document.getElementById('order-weight').value) || 0;
-    const name = `${currentCust.first_name_cache || ''} ${currentCust.last_name_cache || ''}`.trim();
-    document.getElementById('pay-cust-name').textContent = name || '—';
-
-    // Weight row — hide if not entered
-    const weightRow = document.getElementById('pay-weight-row');
-    if (currentWeight > 0) {
-      document.getElementById('pay-weight').textContent = `${currentWeight.toFixed(1)} lbs`;
-      weightRow.style.display = '';
-    } else {
-      weightRow.style.display = 'none';
-    }
-
-    // Service line items
-    const serviceLines = Object.values(selectedServices).map(({ fee, qty }) => `
-      <div class="summary-row">
-        <span class="summary-row-label">${fee.name} ×${qty}</span>
-        <span class="summary-row-value">${fmtMoney(parseFloat(fee.amount) * qty)}</span>
-      </div>
-    `).join('');
-    document.getElementById('pay-services-list').innerHTML = serviceLines;
-
-    document.getElementById('pay-total').textContent = fmtMoney(currentTotal);
+    const total = orderTotal();
+    if (total <= 0) return;
+    // Stripe Terminal requires minimum $0.50 — disable Card chip below that
+    const cardOk = total >= 0.50;
+    const cardChip = document.getElementById('pm-card');
+    cardChip.disabled = !cardOk;
+    cardChip.title = cardOk ? '' : 'Card requires a minimum of $0.50';
+    cardChip.style.opacity = cardOk ? '' : '0.45';
+    cardChip.style.pointerEvents = cardOk ? '' : 'none';
+    // Build summary lines
+    const lines = Object.values(cart)
+      .filter(it => it.line_total > 0)
+      .map(it => {
+        const label = it.qty
+          ? `${it.service.name} ×${it.qty}`
+          : `${it.service.name} (${it.weight_lbs.toFixed(1)} lbs)`;
+        return `<div class="summary-row">
+          <span class="summary-row-label">${escapeHtml(label)}</span>
+          <span class="summary-row-value">${fmtMoney(it.line_total)}</span>
+        </div>`;
+      }).join('');
+    document.getElementById('pay-lines').innerHTML = lines;
+    document.getElementById('pay-total').textContent = fmtMoney(total);
+    selectPayMethod('cash');
+    document.getElementById('pay-status').classList.remove('show');
+    document.getElementById('charge-btn').classList.remove('hidden');
+    document.getElementById('charge-btn').disabled = false;
+    document.getElementById('charge-btn').innerHTML = '✓ Collect Payment &amp; Create Order';
+    document.getElementById('cancel-charge-btn').classList.add('hidden');
     showScreen('screen-payment');
   }
 
-  // ── PAYMENT METHOD ──
-  function selectPayMethod(method) {
-    payMethod = method;
-    ['cash','card_manual','stripe_terminal'].forEach(m => {
-      const el = document.getElementById(`pm-${m.replace('_','-')}`);
-      if (el) el.classList.toggle('selected', m === method);
-    });
-  }
-
-  // ── COLLECT PAYMENT + CREATE ORDER ──
-  async function collectPayment() {
-    if (payMethod === 'stripe_terminal') {
-      showToast('Stripe Terminal coming in Phase 2 — use cash or manual card for now', 'error');
+  function backFromPayment() {
+    // Don't allow going back mid-charge
+    if (currentPI) {
+      showToast('Cancel the charge first', 'error');
       return;
     }
+    showScreen('screen-order');
+  }
+
+  function selectPayMethod(m) {
+    payMethod = m;
+    document.getElementById('pm-cash').classList.toggle('selected', m === 'cash');
+    document.getElementById('pm-card').classList.toggle('selected', m === 'card');
+    const btn = document.getElementById('charge-btn');
+    btn.innerHTML = m === 'card'
+      ? '💳 Charge Card on Reader'
+      : '✓ Collect Cash &amp; Create Order';
+  }
+
+  async function collectPayment() {
+    const total = orderTotal();
+    if (total <= 0) return;
+    if (!currentCust?.id) { showToast('No customer selected', 'error'); return; }
+    if (!shift?.shift_id) { showToast('No active shift', 'error'); return; }
+    if (payMethod === 'card' && total < 0.50) {
+      showToast('Card charges require a minimum of $0.50', 'error');
+      return;
+    }
+
     const btn = document.getElementById('charge-btn');
     btn.disabled = true;
-    btn.innerHTML = `<span class="spinner-sm"></span> Creating order…`;
 
-    try {
-      // Generate next order number
-      const { count } = await db.from('orders').select('*', { count: 'exact', head: true });
-      const orderNum = `WR-${String((count || 0) + 1).padStart(4, '0')}`;
-
-      // Create the order — goes straight to 'processing' (Cleaning column)
-      const { data: order, error } = await db.from('orders').insert({
-        customer_id:    currentCust.id,
-        source:         'walk_in',
-        status:         'processing',
-        weight_lbs:     currentWeight,
-        total_bags:     Math.ceil(currentWeight / 10) || 1,
-        total_amount:   currentTotal,
-        order_number:   orderNum,
-        special_instructions: document.getElementById('order-notes').value.trim() || null,
-        paid_at:        new Date().toISOString(),
-        actual_pickup_at: new Date().toISOString(),
-      }).select().single();
-
-      if (error) throw new Error(error.message);
-
-      // Success
-      const name = `${currentCust.first_name_cache || ''} ${currentCust.last_name_cache || ''}`.trim();
-      document.getElementById('success-title').textContent    = `${fmtMoney(currentTotal)} collected!`;
-      document.getElementById('success-sub').textContent      = `${name}'s order is now in the Cleaning queue.`;
-      document.getElementById('success-order-num').textContent = `Order ${order.order_number}`;
-      showScreen('screen-success');
-    } catch (err) {
-      showToast(err.message, 'error');
-      btn.disabled = false;
-      btn.innerHTML = '✓ Collect Payment &amp; Create Order';
+    if (payMethod === 'card') {
+      btn.innerHTML = '<span class="spinner-sm"></span> Sending to reader…';
+      try {
+        const res = await callEdge('stripe-terminal', {
+          action: 'charge_reader',
+          amount_cents: Math.round(total * 100),
+          reader_id: device.stripe_reader_id,
+          description: `Walk-in: ${currentCust.first_name_cache || ''} ${currentCust.last_name_cache || ''}`.trim(),
+          metadata: {
+            pos_device_id: device.id,
+            pos_shift_id:  shift.shift_id,
+            customer_id:   currentCust.id,
+          },
+        });
+        if (!res.payment_intent_id) throw new Error(res.error || 'Failed to send charge to reader');
+        currentPI = { payment_intent_id: res.payment_intent_id };
+        document.getElementById('pay-status').classList.add('show');
+        document.getElementById('pay-status-title').textContent = 'Waiting for card…';
+        document.getElementById('pay-status-sub').textContent = 'Customer is using the reader.';
+        document.getElementById('charge-btn').classList.add('hidden');
+        document.getElementById('cancel-charge-btn').classList.remove('hidden');
+        startPollingPayment();
+      } catch (err) {
+        btn.disabled = false;
+        selectPayMethod(payMethod); // reset button label
+        showToast(err.message || 'Charge failed', 'error');
+      }
+    } else {
+      // Cash — create order directly
+      btn.innerHTML = '<span class="spinner-sm"></span> Creating order…';
+      try {
+        await createOrderAndPrint({ payment_method: 'cash', stripe_payment_intent_id: null });
+      } catch (err) {
+        btn.disabled = false;
+        selectPayMethod(payMethod);
+        showToast(err.message || 'Order creation failed', 'error');
+      }
     }
   }
 
-  // ── START ──
-  init();
+  // Poll Stripe for PI completion
+  function startPollingPayment() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      if (!currentPI) { clearInterval(pollTimer); pollTimer = null; return; }
+      try {
+        const res = await callEdge('stripe-terminal', {
+          action: 'get_payment',
+          payment_intent_id: currentPI.payment_intent_id,
+        });
+        if (res.status === 'succeeded') {
+          clearInterval(pollTimer); pollTimer = null;
+          document.getElementById('pay-status-title').textContent = 'Card approved! Creating order…';
+          document.getElementById('pay-status-sub').textContent = '';
+          await createOrderAndPrint({
+            payment_method: 'card',
+            stripe_payment_intent_id: currentPI.payment_intent_id,
+          });
+        } else if (res.status === 'canceled') {
+          clearInterval(pollTimer); pollTimer = null;
+          resetAfterCardFailure('Payment canceled');
+        } else if (res.status === 'requires_payment_method' && res.last_payment_error) {
+          // Declined — Stripe populates last_payment_error only after a real attempt
+          clearInterval(pollTimer); pollTimer = null;
+          resetAfterCardFailure(res.last_payment_error);
+        }
+        // Otherwise keep polling (e.g. 'requires_action' = waiting for tap, 'processing',
+        // or initial 'requires_payment_method' before the reader has reported in)
+      } catch (err) {
+        console.warn('poll error:', err);
+      }
+    }, 1800);
+  }
+
+  // Shared UI reset for all card-failure paths (decline, cancel, error)
+  function resetAfterCardFailure(msg) {
+    currentPI = null;
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    document.getElementById('pay-status').classList.remove('show');
+    document.getElementById('charge-btn').classList.remove('hidden');
+    document.getElementById('cancel-charge-btn').classList.add('hidden');
+    document.getElementById('charge-btn').disabled = false;
+    document.getElementById('cancel-charge-btn').disabled = false;
+    selectPayMethod(payMethod);
+    if (msg) showToast(msg, 'error');
+  }
+
+  async function cancelCardCharge() {
+    if (!currentPI) return;
+    const btn = document.getElementById('cancel-charge-btn');
+    btn.disabled = true;
+    let hadError = false;
+    try {
+      // Cancel the reader action first
+      const r1 = await callEdge('stripe-terminal', {
+        action: 'cancel_reader_action',
+        reader_id: device.stripe_reader_id,
+      }).catch(err => ({ error: err.message }));
+      if (r1 && r1.error) hadError = true;
+      // Then cancel the PI
+      const r2 = await callEdge('stripe-terminal', {
+        action: 'cancel_payment',
+        payment_intent_id: currentPI.payment_intent_id,
+      }).catch(err => ({ error: err.message }));
+      if (r2 && r2.error) hadError = true;
+    } finally {
+      resetAfterCardFailure(hadError
+        ? 'Charge canceled, but Stripe reported an issue — verify on the reader'
+        : 'Charge canceled');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // ORDER CREATION + RECEIPT
+  // ═══════════════════════════════════════════════════════════════
+  async function createOrderAndPrint({ payment_method, stripe_payment_intent_id }) {
+    const total = orderTotal();
+    const totalWeight = orderWeight();
+    const nowIso = new Date().toISOString();
+
+    // Build line_items jsonb — format matches existing admin/processing orders
+    const lineItems = Object.values(cart)
+      .filter(it => it.line_total > 0)
+      .map(it => {
+        if (it.qty) {
+          return {
+            type: 'service',
+            service_id: it.service.id,
+            label: `${it.service.name} × ${it.qty}`,
+            qty: it.qty,
+            unit_price: Number(it.service.base_price),
+            amount: it.line_total,
+          };
+        }
+        return {
+          type: 'service',
+          service_id: it.service.id,
+          label: `${it.service.name} — ${it.weight_lbs.toFixed(1)} lbs`,
+          weight_lbs: it.weight_lbs,
+          unit_price: Number(it.service.base_price),
+          amount: it.line_total,
+        };
+      });
+
+    const notes = document.getElementById('order-notes').value.trim() || null;
+
+    const { data: order, error } = await db.from('orders').insert({
+      customer_id:              currentCust.id,
+      source:                   'walk_in',
+      status:                   'picked_up',
+      pos_shift_id:             shift.shift_id,
+      total_amount:             total,
+      weight_lbs:               totalWeight > 0 ? totalWeight : null,
+      line_items:               lineItems,
+      special_instructions:     notes,
+      paid_at:                  nowIso,
+      actual_pickup_at:         nowIso,
+      billing_status:           'paid',
+      billing_payment_method:   payment_method,
+      stripe_payment_intent_id: stripe_payment_intent_id,
+    }).select('id, order_number, total_amount, weight_lbs, created_at').single();
+
+    if (error) throw new Error(error.message);
+
+    // Reset payment UI state
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    currentPI = null;
+    document.getElementById('pay-status').classList.remove('show');
+
+    // Queue receipt (best-effort — don't block success on printer failure)
+    lastOrder = { ...order, payment_method, lineItems, notes };
+    queueReceiptPrint(lastOrder).catch(err => {
+      console.warn('print queue error:', err);
+      showToast('Order saved but receipt failed to queue: ' + err.message, 'error');
+    });
+
+    // Show success
+    const name = `${currentCust.first_name_cache || ''} ${currentCust.last_name_cache || ''}`.trim() || 'Customer';
+    document.getElementById('success-title').textContent =
+      `${fmtMoney(total)} collected`;
+    document.getElementById('success-sub').textContent =
+      `${name}'s laundry is tagged and on its way to cleaning. Receipt printing…`;
+    document.getElementById('success-order-num').textContent = `Order #${order.order_number}`;
+    showScreen('screen-success');
+  }
+
+  async function queueReceiptPrint(order) {
+    const markup = buildReceiptMarkup(order);
+    const { error } = await db.from('print_jobs').insert({
+      printer_token: device.printer_token,
+      order_id:      order.id,
+      content:       markup,
+      status:        'pending',
+    });
+    if (error) throw new Error(error.message);
+  }
+
+  function buildReceiptMarkup(order) {
+    const ts = new Date(order.created_at || Date.now()).toLocaleString('en-US', {
+      timeZone: 'America/Los_Angeles',
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+    });
+    const cashierName =
+      ((shift?.cashier_first_name || '') + ' ' + (shift?.cashier_last_name || '')).trim() || 'Staff';
+    const custName = `${currentCust.first_name_cache || ''} ${currentCust.last_name_cache || ''}`.trim() || 'Walk-In';
+    const custPhone = currentCust.phone_cache || '';
+
+    // Line-items block (left-padded)
+    const TW = 46;
+    const lineRow = (label, amount) => {
+      const amt = fmtMoney(amount);
+      const lab = String(label).substring(0, TW - amt.length - 2);
+      const pad = ' '.repeat(Math.max(1, TW - lab.length - amt.length));
+      return `  <text-line>${escXml(lab)}${pad}${escXml(amt)}</text-line>`;
+    };
+    const itemLines = order.lineItems.map(li => lineRow(li.label, li.amount)).join('\n');
+
+    const total = Number(order.total_amount || 0);
+    const payLabel = order.payment_method === 'card' ? 'Paid — Card' : 'Paid — Cash';
+    const notesBlock = order.notes
+      ? `  <text-line><bold>Notes:</bold> ${escXml(order.notes)}</text-line>
+  <ruled-line/>`
+      : '';
+
+    const bodyXml = `  <align mode="center">
+    <text-line size="2:2"><bold>FAMILY LAUNDRY</bold></text-line>
+    <text-line>${escXml(device.location || '')}</text-line>
+    <text-line>www.familylaundry.com</text-line>
+    <text-line>${escXml(ts)}</text-line>
+  </align>
+  <ruled-line/>
+  <text-line><bold>ORDER #${escXml(String(order.order_number))}</bold></text-line>
+  <text-line>Cashier: ${escXml(cashierName)}</text-line>
+  <ruled-line/>
+  <text-line><bold>${escXml(custName.toUpperCase())}</bold></text-line>
+  ${custPhone ? `<text-line>${escXml(custPhone)}</text-line>` : ''}
+  <ruled-line/>
+${itemLines}
+  <ruled-line/>
+  ${lineRow('TOTAL', total)}
+  <text-line>${escXml(payLabel)}</text-line>
+  <ruled-line/>
+${notesBlock}
+  <align mode="center">
+    <barcode type="Code128" hri="below" height="50">${escXml(String(order.order_number))}</barcode>
+    <text-line>Thank you for choosing Family Laundry!</text-line>
+    <text-line>Questions? info@familylaundry.com</text-line>
+  </align>`;
+
+    // Two copies — one for the bag tag, one for the customer
+    return `<document>
+${bodyXml}
+  <feed unit="mm" quantity="10"/>
+  <cut type="partial"/>
+${bodyXml}
+  <feed unit="mm" quantity="10"/>
+  <cut type="partial"/>
+</document>`;
+  }
+
+  async function reprintReceipt() {
+    if (!lastOrder) { showToast('No receipt to reprint', 'error'); return; }
+    const btn = document.getElementById('reprint-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-sm"></span> Queuing…';
+    try {
+      await queueReceiptPrint(lastOrder);
+      showToast('Receipt queued', 'success');
+    } catch (err) {
+      showToast('Reprint failed: ' + err.message, 'error');
+    }
+    btn.disabled = false;
+    btn.innerHTML = '🖨 Reprint Receipt';
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // EDGE-FUNCTION HELPER
+  // ═══════════════════════════════════════════════════════════════
+  async function callEdge(name, body) {
+    const { data: { session } } = await db.auth.getSession();
+    const headers = {
+      'Content-Type': 'application/json',
+      'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY',
+    };
+    if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
+    const res = await fetch(`${FN_BASE}/${name}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    return json;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // AUTH STATE CHANGES — kick back to login if signed out elsewhere
+  // ═══════════════════════════════════════════════════════════════
+  db.auth.onAuthStateChange((_evt, session) => {
+    if (!session) {
+      shift = null;
+      device = null;
+      resetOrderState();
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      showScreen('screen-login');
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // GO
+  // ═══════════════════════════════════════════════════════════════
+  boot();
 </script>
 </body>
 </html>
