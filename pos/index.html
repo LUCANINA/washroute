@@ -3825,6 +3825,11 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
     const nowIso = new Date().toISOString();
 
     // --- Assemble the insert payload ---
+    // pos_shift_id is REQUIRED by the pos_order_insert RLS policy.
+    // Without it the INSERT fails with: "new row violates row-level security".
+    if (!shift || !shift.shift_id) {
+      throw new Error('No active POS shift — please sign in with your PIN again.');
+    }
     const payload = {
       customer_id:           currentCustomer?.id || null,
       source:                'walk_in',
@@ -3837,6 +3842,8 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
       special_instructions:  null,
       // session 111: Stamp the site explicitly; trigger respects explicit values
       site_id:               currentSiteId,
+      // session 114: required by RLS policy pos_order_insert
+      pos_shift_id:          shift.shift_id,
       // Payment bookkeeping — POS transactions are paid at time of sale.
       paid_at:               nowIso,
       billed_at:             nowIso,
