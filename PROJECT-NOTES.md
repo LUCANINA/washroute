@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 17, 2026 — Session 125: POS v1 deployed to Vercel at washroute.vercel.app/pos. Fixed two blockers after push: (1) Foothill staff auth user had NULL token columns from direct SQL creation, throwing "Database error querying schema" on login — patched to empty strings (known Supabase Go scan bug). (2) `stripe-terminal` edge function had `verify_jwt: true`, which returned 401 from the gateway before the function code ran — flipped to `verify_jwt: false` to match cloudprnt/send-receipt/charge-order, redeployed v7. Card payment on S700 reader verified end-to-end with David's PIN (6467). Cash drop-off + reprint smoke tests deferred to next week when mC-Print3 is hooked up. STAGING banner stays up until those pass.*
+*Last updated: Apr 17, 2026 — Session 126: Retail SMS pipeline for walk-in drop-offs. Two client-triggered texts now fire from the POS: (1) "order placed" confirmation the moment a laundry drop-off is charged and saved (status = `processing`), and (2) "your laundry is ready for pickup" when an attendant taps **Mark Ready** on the walk-in queue card (status transition `processing` → `ready_for_delivery`). Merchandise-only sales stay silent. Added two rows to `message_templates` (`walkin_order_placed`, `walkin_order_ready`) so David can edit copy or flip the live kill-switch from the admin dashboard's Notifications editor. Added RLS policy `pos_read_message_templates` so the POS authenticated (non-admin) session can read templates scoped by `pos_session_active()`. New helper `sendPosTemplateSms()` in `pos/index.html` handles template lookup, `{{first_name}}` + `{{order_number}}` substitution, E.164 phone normalization, and fire-and-forget invocation of `send-sms` (a Twilio hiccup never blocks a sale). Browser-console smoke test at `tests/test-walkin-sms.js`. Customer-required gate from session 114 guarantees every laundry queue card already has a customer with a phone, so the ready-for-pickup hook always has what it needs. Commit `88040b7`.*
+
+*Prior: Session 125: POS v1 deployed to Vercel at washroute.vercel.app/pos. Fixed two blockers after push: (1) Foothill staff auth user had NULL token columns from direct SQL creation, throwing "Database error querying schema" on login — patched to empty strings (known Supabase Go scan bug). (2) `stripe-terminal` edge function had `verify_jwt: true`, which returned 401 from the gateway before the function code ran — flipped to `verify_jwt: false` to match cloudprnt/send-receipt/charge-order, redeployed v7. Card payment on S700 reader verified end-to-end with David's PIN (6467). Cash drop-off + reprint smoke tests deferred to next week when mC-Print3 is hooked up. STAGING banner stays up until those pass.*
 
 *Prior: Session 124: Jennifer Fatzler duplicate-customer merge. After session 123's orphan cleanup, Jennifer had two customer rows — legacy `ad2bef79…` (6 Starchup-imported orders, `profile_id=NULL`, uppercase email, old phone) and new `af2a687a…` (1 order today, phone-auth linked, current email/phone, Stripe card on file). Merged surgically: re-pointed orders + addresses + payment method + email/sms messages to the legacy id; copied current profile_id, stripe IDs, card fields, preferences into legacy; deleted the new row. Snapshot of every touched row preserved in `public._merge_backup_jennifer_20260417`. Jennifer now has a single record with legacy tenure (since Mar 2025), 7 total orders, $481.70 lifetime value, and her current phone-auth login. New **🔀 Customer Merges Log** section added to this file as the canonical registry for all past and future customer merges.*
 
@@ -413,11 +415,13 @@ Postgres function: `find_customer_by_phone(digits TEXT)`.
 
 ## SMS Automation — Status
 
-### SMS Template Status (updated session 56)
+### SMS Template Status (updated session 126)
 
-**12 of 14 templates are `sms_enabled = true`.** Operational SMS (order confirmations, driver on-way, pickup reminders, etc.) is fully live. Only marketing templates remain off.
+**14 of 16 templates are `sms_enabled = true`.** Operational SMS (delivery + walk-in) is fully live. Only marketing templates remain off.
 
-**Enabled (12):** `customer_registered`, `order_confirmed`, `driver_on_way_pickup`, `order_picked_up`, `driver_on_way_delivery`, `order_delivered`, `payment_received`, `payment_failed`, `pickup_reminder_recurring`, `pickup_day_reminder`, `skip_confirmation`, `pickup_failed`
+**Enabled — delivery fleet (12):** `customer_registered`, `order_confirmed`, `driver_on_way_pickup`, `order_picked_up`, `driver_on_way_delivery`, `order_delivered`, `payment_received`, `payment_failed`, `pickup_reminder_recurring`, `pickup_day_reminder`, `skip_confirmation`, `pickup_failed`
+
+**Enabled — walk-in retail (2, added session 126):** `walkin_order_placed`, `walkin_order_ready`. Both fire client-side from the POS (`pos/index.html` → `sendPosTemplateSms`), not from triggers or cron. Placeholders: `{{first_name}}`, `{{order_number}}`. Kill switch: flip `sms_enabled = false` in the admin dashboard's Notifications editor.
 
 **Still disabled (2):** `review_request`, `reorder_reminder` — both marketing. Re-enable when ready.
 
@@ -622,6 +626,33 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 17, 2026 (session 126) — Retail SMS: walk-in "order placed" + "ready for pickup"
+
+**Context:** POS v1 was live (session 125) with card + cash charge paths working, but walk-in drop-off customers got no communication. Session 114 had already made a customer (name + phone) mandatory for any cart containing laundry, so every laundry drop-off lands in the queue with someone to text. This session added the two retail SMS David specified: an immediate confirmation after charge, and a ready-for-pickup text when the attendant flips the queue card to ready.
+
+**What was done:**
+
+1. **Verified the pipeline was clean before touching it** — ran the preflight checklist: zero triggers on `orders`, `customers`, `sms_log`, `route_stops`, `addresses`, or `message_templates` that could fan out SMS on INSERT/UPDATE. The only SMS-sending cron (`wr-reminder-morning` + `wr-reminder-evening` → `send-scheduled-reminders`) targets delivery schedules and keys off the `pickup_reminder_recurring` / `pickup_day_reminder` templates only. Adding new `walkin_order_*` rows touches no automated pathway.
+2. **Migration `add_walkin_order_sms_templates`** — inserted two rows into `message_templates`:
+   - `walkin_order_placed` / "Walk-in: Order Placed" / category `order` / sort_order 30 / sms_enabled `true` / body: *"Hi {{first_name}}, thanks for dropping off your laundry at Family Laundry! Order #{{order_number}} received. We'll text you when it's ready for pickup."*
+   - `walkin_order_ready` / "Walk-in: Ready for Pickup" / category `order` / sort_order 31 / sms_enabled `true` / body: *"Hi {{first_name}}, your laundry is ready for pickup at Family Laundry! Order #{{order_number}}. We're open 7am–9pm daily."*
+3. **Migration `pos_read_message_templates`** — added a new RLS policy on `message_templates`: `FOR SELECT TO authenticated USING (pos_session_active())`. Required because the only existing policy (`admin_all_message_templates`) is gated on `is_admin()`, which is false for the dedicated `pos-foothill@familylaundry.com` auth user. Without this the client-side template lookup would silently return zero rows and skip every send.
+4. **`pos/index.html` — new `sendPosTemplateSms(triggerKey, order, customer)` helper** (around line 3774). Reads the template, honors `sms_enabled` as a live kill switch, substitutes `{{first_name}}` and `{{order_number}}` via regex that tolerates `{{ first_name }}`-style whitespace, normalizes the phone to E.164 (US-only: `+1` + last 10 digits), and calls the existing `send-sms` edge function with the admin/customer's session. Wrapped in try/catch — a Twilio hiccup or network failure is logged but never propagates.
+5. **`chargeAndFinish` hook** — right after `lastPosOrder = order` and before the success modal, fires `sendPosTemplateSms('walkin_order_placed', order, currentCustomer)` when `order.status === 'processing'` and `currentCustomer.phone` is set. Fire-and-forget so it never delays the success screen. Merchandise-only sales (status `'delivered'`) stay silent.
+6. **`loadWalkInQueue` hydration change** — customer select now pulls `first_name_cache, last_name_cache, phone_cache` and the cache shape changed from a name string to `{ name, phone }`. Each queue order gets `_customerName` and `_customerPhone` attached so the Mark Ready action has everything it needs without a second DB round-trip.
+7. **`advanceQueueOrder` hook** — on transition to `ready_for_delivery` only, looks up the just-updated order in the `queueOrders` cache and fires `sendPosTemplateSms('walkin_order_ready', ...)`. Transition to `delivered` stays silent (customer has already picked up; no third text needed).
+8. **Test file** — `tests/test-walkin-sms.js`: browser-console smoke test that verifies templates load via the POS session (exercises the new RLS policy), renders placeholders cleanly, and normalizes 6 phone-format variants to the expected E.164 output. No SMS is sent unless the commented LIVE SEND block is uncommented.
+
+**⚠️ For future sessions:**
+1. **Walk-in SMS is client-triggered, NOT trigger-driven.** There is no DB trigger on `orders` that sends these texts — the fan-out risk that took down session 110's import is structurally impossible for walk-ins. If you ever add a trigger-based pathway here, run preflight and beware: the customer-required gate already means ≈100% of rows would be eligible recipients.
+2. **`pos_read_message_templates` policy is required for `sendPosTemplateSms` to work at all.** If RLS on `message_templates` is ever restructured, the POS loses SMS silently (fails closed). Keep the policy or grant the POS user `is_admin()`-equivalent read.
+3. **`sms_enabled = false` is the kill switch.** If either template goes rogue (wrong copy, wrong data), flip the flag in the admin dashboard's Notifications editor and sends stop instantly — no code deploy needed.
+4. **Ready-for-pickup text relies on the queue cache.** If someone refactors `advanceQueueOrder` to accept arbitrary order ids (not from the queue panel), add a fresh customer lookup or the SMS will skip. The current belt-and-suspenders is: cache miss → silently skip.
+
+**Commit:** `88040b7` "pos: auto-send 'order placed' + 'ready for pickup' SMS for walk-ins".
+
+---
 
 ### Apr 17, 2026 (session 125) — POS v1 deployed to Vercel; first live card charge on S700
 
