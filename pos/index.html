@@ -3013,25 +3013,35 @@
         return;
       }
 
-      // Hydrate customer names where available. Since we already
-      // have admin session, we can query customers.
+      // Hydrate customer info. Since we already have admin session,
+      // we can query customers. We also pull first_name_cache and
+      // phone_cache so the "Mark Ready" action can text the customer
+      // without another round-trip (session 114).
       const custIds = [...new Set((data || []).map(o => o.customer_id).filter(Boolean))];
       let custMap = {};
       if (custIds.length) {
         const { data: custs } = await db
           .from('customers')
-          .select('id, first_name_cache, last_name_cache')
+          .select('id, first_name_cache, last_name_cache, phone_cache')
           .in('id', custIds);
         for (const c of (custs || [])) {
-          custMap[c.id] = `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || 'Customer';
+          const fullName = `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || 'Customer';
+          custMap[c.id] = {
+            name:  fullName,
+            phone: c.phone_cache || '',
+          };
         }
       }
 
-      // Attach name to each order
-      queueOrders = (data || []).map(o => ({
-        ...o,
-        _customerName: o.customer_id ? (custMap[o.customer_id] || 'Customer') : 'Walk-in'
-      }));
+      // Attach name + phone to each order
+      queueOrders = (data || []).map(o => {
+        const c = o.customer_id ? custMap[o.customer_id] : null;
+        return {
+          ...o,
+          _customerName:  c ? c.name  : (o.customer_id ? 'Customer' : 'Walk-in'),
+          _customerPhone: c ? c.phone : '',
+        };
+      });
 
       renderQueue(queueOrders);
     } catch (e) {
@@ -3157,6 +3167,25 @@
       console.error('[POS] advanceQueueOrder error:', error);
       if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
       return;
+    }
+
+    // session 114: When the attendant flips an order to ready_for_delivery,
+    // text the customer "your laundry is ready for pickup". Uses the hydrated
+    // cache built by loadWalkInQueue(), so no extra DB round-trip is needed.
+    // Fire-and-forget — a send failure must not block the status update.
+    if (newStatus === 'ready_for_delivery') {
+      const cachedOrder = (queueOrders || []).find(o => o.id === orderId);
+      if (cachedOrder && cachedOrder._customerPhone) {
+        sendPosTemplateSms(
+          'walkin_order_ready',
+          { order_number: cachedOrder.order_number },
+          {
+            id:    cachedOrder.customer_id,
+            name:  cachedOrder._customerName,
+            phone: cachedOrder._customerPhone,
+          }
+        );
+      }
     }
 
     // Refresh the queue
@@ -3563,6 +3592,13 @@
     try {
       const order = await createPosOrder({ paymentMethod: method, stripePaymentIntentId });
       lastPosOrder = order;
+      // session 114: For laundry drop-offs (status = 'processing'),
+      // fire the "order placed — we'll text you when it's ready" SMS
+      // automatically. Fire-and-forget; any failure is logged but
+      // never blocks the UI or the sale.
+      if (order && order.status === 'processing' && currentCustomer && currentCustomer.phone) {
+        sendPosTemplateSms('walkin_order_placed', order, currentCustomer);
+      }
       // Refresh queue badge immediately so the new order appears
       loadWalkInQueue();
       closeAll();
@@ -3719,6 +3755,79 @@
       console.error('[POS] email receipt error:', e);
       showToast(e.message || 'Could not send email', 'error');
       if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+    }
+  }
+
+  /* ─── Walk-in SMS helper (session 114) ─────────────────────────
+     Sends one of the walk-in message templates to an attached
+     customer. Fire-and-forget: any failure is logged to the console
+     but never surfaces as an error in the POS UI (we don't want a
+     Twilio hiccup to block a sale or a "Mark Ready" tap).
+
+     triggerKey  : 'walkin_order_placed' | 'walkin_order_ready'
+     order       : { order_number } — the freshly-saved order row
+     customer    : { id, name, phone } — the attached customer
+
+     The template's sms_enabled flag acts as a kill switch — flip it
+     off in the admin dashboard and these texts stop immediately.
+     ───────────────────────────────────────────────────────────── */
+  async function sendPosTemplateSms(triggerKey, order, customer) {
+    try {
+      if (!order || !customer || !customer.phone) return;
+
+      // Load the template — if disabled or missing, silently skip.
+      const { data: tmpl, error: tErr } = await db
+        .from('message_templates')
+        .select('sms_enabled, sms_body')
+        .eq('trigger_key', triggerKey)
+        .maybeSingle();
+      if (tErr) {
+        console.warn('[POS] sendPosTemplateSms template lookup failed:', triggerKey, tErr);
+        return;
+      }
+      if (!tmpl || !tmpl.sms_enabled || !tmpl.sms_body) return;
+
+      // Extract first name from "First Last" (fall back to "there").
+      const firstName =
+        (customer.name || '').trim().split(/\s+/)[0] || 'there';
+
+      // Placeholder substitution. Keep this list tight — only what the
+      // two walk-in templates actually reference.
+      const body = tmpl.sms_body
+        .replace(/\{\{\s*first_name\s*\}\}/g,  firstName)
+        .replace(/\{\{\s*order_number\s*\}\}/g, order.order_number || '');
+
+      // Normalize to E.164 (US assumed). phone_cache may be bare digits,
+      // "(415) 555-0134", or "+14155550134" — we only care about the
+      // last 10 digits.
+      const digits = (customer.phone || '').replace(/\D/g, '').slice(-10);
+      if (digits.length !== 10) {
+        console.warn('[POS] sendPosTemplateSms bad phone, skipping:', customer.phone);
+        return;
+      }
+      const to = '+1' + digits;
+
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-sms`, {
+        method: 'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          apikey:          SUPABASE_ANON_KEY,
+          Authorization:   `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          to,
+          body,
+          customer_id: customer.id || null,
+        }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        console.warn('[POS] sendPosTemplateSms send failed:', triggerKey, res.status, txt);
+      } else {
+        console.log('[POS] sendPosTemplateSms sent:', triggerKey, 'to', to);
+      }
+    } catch (e) {
+      console.warn('[POS] sendPosTemplateSms error:', triggerKey, e);
     }
   }
 
