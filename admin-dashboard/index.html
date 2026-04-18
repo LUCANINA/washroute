@@ -16047,26 +16047,32 @@ ${oneCopy}
       try {
         const { data: freshCust } = await db.from('customers').select('credits').eq('id', panelCustomerId).single();
         const creditBal = parseFloat(freshCust?.credits || 0);
-        const total = cpAllOrders.filter(o => ids.includes(o.id)).reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+        // Include tips in the total — tips can come out of credits, but must never disappear.
+        const total = cpAllOrders.filter(o => ids.includes(o.id)).reduce((s, o) => {
+          return s + _orderTipBreakdown(o).totalWithTip;
+        }, 0);
         if (creditBal <= 0) { showToast('No credit balance available', 'error'); return; }
         const applied = Math.min(creditBal, total);
-        const ok = confirm(`Apply ${fmtMoney(applied)} in account credits to ${ids.length} order${ids.length !== 1 ? 's' : ''}?${creditBal < total ? `\n\n${fmtMoney(total - applied)} will remain outstanding.` : ''}`);
+        const ok = confirm(`Apply ${fmtMoney(applied)} in account credits to ${ids.length} order${ids.length !== 1 ? 's' : ''} (tips included)?${creditBal < total ? `\n\n${fmtMoney(total - applied)} will remain outstanding.` : ''}`);
         if (!ok) return;
 
         btn.disabled = true; btn.textContent = 'Applying…';
 
-        // Step 1: Mark orders as paid FIRST (most important)
+        // Step 1: Mark orders as paid FIRST (most important). paid_at matches billed_at
+        // so the Transactions tab and receipts show a consistent timestamp.
+        const nowIso = new Date().toISOString();
         const { error: ordErr } = await db.from('orders').update({
           billing_status: 'paid',
           billing_payment_method: 'credit',
           billing_notes: notes || null,
-          billed_at: new Date().toISOString()
+          billed_at: nowIso,
+          paid_at: nowIso,
         }).in('id', ids);
         if (ordErr) { showToast('Failed to mark orders paid: ' + ordErr.message, 'error'); btn.disabled = false; btn.textContent = 'Confirm & Apply Credit'; return; }
 
         // Step 2: Deduct credits (only after orders are marked paid)
         const newBal = Math.round((creditBal - applied) * 100) / 100;
-        await db.from('customers').update({ credits: newBal, updated_at: new Date().toISOString() }).eq('id', panelCustomerId);
+        await db.from('customers').update({ credits: newBal, updated_at: nowIso }).eq('id', panelCustomerId);
 
         // Step 3: Log credit_use transaction (best-effort)
         await db.from('customer_transactions').insert({
@@ -16078,10 +16084,12 @@ ${oneCopy}
           note: notes || null,
         });
 
-        // Step 4: Log billing events (best-effort)
+        // Step 4: Log billing events (best-effort). Show the per-order amount that
+        // was covered (subtotal + tip) so the audit trail is accurate.
         for (const oid of ids) {
           const ord = cpAllOrders.find(x => x.id === oid);
-          await logOrderEvent(oid, 'billing', `Paid via account credit — ${fmtMoney(ord?.total_amount || 0)}`, null, 'paid');
+          const orderTotalWithTip = ord ? _orderTipBreakdown(ord).totalWithTip : 0;
+          await logOrderEvent(oid, 'billing', `Paid via account credit — ${fmtMoney(orderTotalWithTip)}`, null, 'paid');
         }
 
         // Update in-memory credit balance
@@ -20862,13 +20870,75 @@ ${oneCopy}
     const hasAmount = Number(rackActiveOrder.total_amount) > 0;
     const isOnAccount = rackActiveOrder.customers?.billing_type === 'on_account';
 
-    // ── Mark fully-credited orders ($0) as paid without charging ──
+    // ── Fully-credited subtotal ($0 after intake credit). Must still handle any tip
+    //    (tips can come out of credits, but they cannot silently disappear).
     if (!isRerack && !alreadyCharged && !hasAmount) {
-      await db.from('orders').update({
-        stripe_payment_intent_id: 'credit_applied',
-        updated_at: new Date().toISOString(),
-      }).eq('id', rackActiveOrder.id);
-      showToast(`💰 Order #${rackActiveOrder.order_number} — fully covered by credits`, 'success');
+      const tipDollars = _orderTipBreakdown(rackActiveOrder).dollars;
+      const custId = rackActiveOrder.customers?.id || rackActiveOrder.customer_id;
+      const nowIso = new Date().toISOString();
+
+      if (tipDollars > 0 && custId) {
+        // Try to pull the tip from remaining credit balance (fresh read).
+        const { data: freshCust } = await db.from('customers').select('credits').eq('id', custId).single();
+        const bal = parseFloat(freshCust?.credits || 0);
+
+        if (bal >= tipDollars) {
+          // Cover the tip from credits + log the ledger entry.
+          const newBal = Math.round((bal - tipDollars) * 100) / 100;
+          await db.from('customers').update({ credits: newBal, updated_at: nowIso }).eq('id', custId);
+          await db.from('customer_transactions').insert({
+            customer_id: custId,
+            type: 'credit_use',
+            amount: tipDollars,
+            description: `Tip for order #${rackActiveOrder.order_number}`,
+            order_id: rackActiveOrder.id,
+            payment_method: 'credit',
+          });
+          await db.from('orders').update({
+            stripe_payment_intent_id: 'credit_applied',
+            billing_status: 'paid',
+            billing_payment_method: 'credit',
+            billing_notes: `Fully covered by credits (incl. ${fmtMoney(tipDollars)} tip)`,
+            paid_at: nowIso,
+            updated_at: nowIso,
+          }).eq('id', rackActiveOrder.id);
+          rackActiveOrder.billing_status = 'paid';
+          showToast(`💰 Order #${rackActiveOrder.order_number} — fully covered by credits (incl. tip)`, 'success');
+        } else {
+          // Insufficient credits to cover the tip — route to charge-order so the tip hits the card.
+          try {
+            const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+              method: 'POST',
+              headers: { 'Content-Type':'application/json', 'apikey': SUPA_ANON_KEY },
+              body: JSON.stringify({ orderId: rackActiveOrder.id }),
+            });
+            const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+            if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
+            showToast(`💳 Order #${rackActiveOrder.order_number} — tip (${fmtMoney(tipDollars)}) charged to card`, 'success');
+          } catch (e) {
+            // No card or charge failure — flag for admin follow-up (tip will show in Issues).
+            await db.from('orders').update({
+              billing_status: 'failed',
+              charge_failed_at: nowIso,
+              billing_notes: `Subtotal covered by credits; tip (${fmtMoney(tipDollars)}) could not be charged`,
+            }).eq('id', rackActiveOrder.id);
+            rackActiveOrder.billing_status = 'failed';
+            showToast(`⚠️ Subtotal covered by credits, but tip (${fmtMoney(tipDollars)}) needs collecting — see Issues`, 'error');
+          }
+        }
+      } else {
+        // No tip — simple fully-credited case.
+        await db.from('orders').update({
+          stripe_payment_intent_id: 'credit_applied',
+          billing_status: 'paid',
+          billing_payment_method: 'credit',
+          billing_notes: 'Fully covered by credits',
+          paid_at: nowIso,
+          updated_at: nowIso,
+        }).eq('id', rackActiveOrder.id);
+        rackActiveOrder.billing_status = 'paid';
+        showToast(`💰 Order #${rackActiveOrder.order_number} — fully covered by credits`, 'success');
+      }
     }
 
     // ── On Account: skip Stripe charge, add to customer balance ──
@@ -21866,15 +21936,27 @@ ${oneCopy}
       btn.disabled = false; btn.textContent = '⚖️ Save & Start Processing';
       return;
     }
-    // Deduct credits from customer if applied
+    // Deduct credits from customer if applied + log a credit_use transaction
+    // so the ledger matches the balance (prevents Transactions-tab drift).
     if (bd.creditApplied > 0 && procCustomerId) {
-      const newCredits = Math.max(0, procCustomerCredits - bd.creditApplied);
+      const newCredits = Math.max(0, Math.round((procCustomerCredits - bd.creditApplied) * 100) / 100);
       const { error: creditErr } = await db.from('customers')
         .update({ credits: newCredits, updated_at: new Date().toISOString() })
         .eq('id', procCustomerId);
       if (creditErr) {
         showToast('Order saved but credit deduction failed — please adjust credits manually', 'error');
         console.error('Credit deduction failed:', creditErr);
+      } else {
+        // Ledger entry — parity with Bill Orders → credit and charge-order v34.
+        const { error: txErr } = await db.from('customer_transactions').insert({
+          customer_id: procCustomerId,
+          type: 'credit_use',
+          amount: bd.creditApplied,
+          description: `Applied to order #${procActiveOrder.order_number} at Intake`,
+          order_id: procActiveOrder.id,
+          payment_method: 'credit',
+        });
+        if (txErr) console.error('credit_use ledger insert failed at Intake:', txErr);
       }
     }
     const movedId  = procActiveOrder.id;
