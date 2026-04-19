@@ -18810,7 +18810,10 @@ ${oneCopy}
         .select('stop_number').eq('route_id', targetRouteId).order('stop_number', {ascending:false}).limit(1);
       const nextNum = (tgt?.[0]?.stop_number || 0) + 1;
       const sourceRouteId = routeLiveRouteId; // capture before any state change
-      await db.from('route_stops').update({ route_id: targetRouteId, stop_number: nextNum }).eq('id', routeStopMoving.stopId);
+      // Clearing driver_id is critical: a stale per-stop override from the source
+      // route would make the driver app hide this stop from the destination route's
+      // driver. NULL = inherit from destination route's default driver.
+      await db.from('route_stops').update({ route_id: targetRouteId, stop_number: nextNum, driver_id: null }).eq('id', routeStopMoving.stopId);
       // Keep order's run_id in sync with the stop's new route
       if (stopData) {
         const runCol = stopData.stop_type === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
