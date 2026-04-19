@@ -3060,20 +3060,24 @@ async function cantCompleteStop(stopId) {
   if (idx >= 0) {
     allStops[idx].status = 'skipped';
     if (stop?.orders?.id) {
-      // All "can't complete" map to pickup_failed on the order
+      // Map the order status + notification event to the correct stop type.
+      // Pickup failures → pickup_failed, delivery failures → delivery_failed.
+      const failedStatus = isPickup ? 'pickup_failed' : 'delivery_failed';
+      const failedEvent  = isPickup ? 'pickup_failed' : 'delivery_failed';
+
       await db.from('orders').update({
-        status: 'pickup_failed',
+        status: failedStatus,
         cancelled_by: 'driver',
         driver_skip_reason: reason,
       }).eq('id', stop.orders.id);
-      allStops[idx].orders.status = 'pickup_failed';
+      allStops[idx].orders.status = failedStatus;
 
-      // Notify customer via SMS (pickup_failed template)
+      // Notify customer via SMS (matching template)
       try {
         await fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
-          body: JSON.stringify({ orderId: stop.orders.id, event: 'pickup_failed' })
+          body: JSON.stringify({ orderId: stop.orders.id, event: failedEvent })
         });
       } catch(e) { console.warn('Notification failed:', e); }
     }
