@@ -18364,6 +18364,13 @@ ${oneCopy}
       movedBadge = `<span class="rcc-card-dot"></span><span class="rcc-moved-badge" style="--badge-color:${origColor};" title="Moved from ${origName}">↩ ${origName}</span>`;
     }
 
+    // En-route tag — discrete indicator that the driver is currently on the way
+    // to this stop (has tapped "Notify" / "I've Arrived" in the driver app).
+    let enRouteBadge = '';
+    if (s.status === 'en_route') {
+      enRouteBadge = `<span class="rcc-card-dot"></span><span style="font-size:9.5px;font-weight:600;color:#1d4ed8;background:#eff6ff;padding:1px 5px;border-radius:4px;border:1px solid #bfdbfe;letter-spacing:.02em;" title="Driver is on the way">→ en route</span>`;
+    }
+
     // ETA + at-risk badge for active stops (pending or en_route)
     let etaBadge = '';
     if (s.estimated_arrival && ['pending','en_route'].includes(s.status)) {
@@ -18394,6 +18401,7 @@ ${oneCopy}
         <span class="rcc-card-dot"></span>
         <span>${bags} bag${bags!==1?'s':''}</span>
         ${movedBadge}
+        ${enRouteBadge}
         ${etaBadge}
       </div>
     </div>`;
