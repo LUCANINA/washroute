@@ -18148,9 +18148,11 @@ ${oneCopy}
     rccUpdatePanelWidth();
     rccUpdateOptimizeBtn();
 
-    // Auto-fill missing ETAs: if pending stops lack estimated_arrival, trigger optimization in background
-    const pendingWithoutEta = enriched.filter(s => s.status === 'pending' && !s.estimated_arrival);
-    const pendingTotal = enriched.filter(s => s.status === 'pending').length;
+    // Auto-fill missing ETAs: if any active (pending or en_route) stop lacks estimated_arrival,
+    // trigger optimization in background. We include en_route so that stops the driver has tapped
+    // "Notify" / "Arrived" on still get a fresh ETA — admin view would otherwise go blank for them.
+    const pendingWithoutEta = enriched.filter(s => ['pending','en_route'].includes(s.status) && !s.estimated_arrival);
+    const pendingTotal = enriched.filter(s => ['pending','en_route'].includes(s.status)).length;
     if (pendingWithoutEta.length > 0 && pendingTotal >= 2) {
       (async () => {
         const { data: { session } } = await db.auth.getSession();
@@ -18362,9 +18364,9 @@ ${oneCopy}
       movedBadge = `<span class="rcc-card-dot"></span><span class="rcc-moved-badge" style="--badge-color:${origColor};" title="Moved from ${origName}">↩ ${origName}</span>`;
     }
 
-    // ETA + at-risk badge for pending stops
+    // ETA + at-risk badge for active stops (pending or en_route)
     let etaBadge = '';
-    if (s.estimated_arrival && s.status === 'pending') {
+    if (s.estimated_arrival && ['pending','en_route'].includes(s.status)) {
       const etaTime = new Date(s.estimated_arrival);
       const etaStr = etaTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ });
       // Check if at-risk: ETA past the ROUTE TEMPLATE's window end (not the order's
@@ -18713,13 +18715,13 @@ ${oneCopy}
     const btn = document.getElementById('btn-optimize');
     btn.disabled = true; btn.textContent = 'Optimizing…';
     try {
-      // Filter to routes that actually have pending stops
+      // Filter to routes that actually have active (pending or en_route) stops
       const routesWithStops = activeIds.filter(rid => {
         const rd = _rccRouteData[rid];
-        return rd?.stops?.some(s => s.status === 'pending');
+        return rd?.stops?.some(s => ['pending','en_route'].includes(s.status));
       });
       if (!routesWithStops.length) {
-        showToast('No pending stops to optimize');
+        showToast('No active stops to optimize');
         return;
       }
       const { data: { session } } = await db.auth.getSession();
