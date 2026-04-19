@@ -4554,8 +4554,21 @@ async function placeOrder() {
   // ── Save new address BEFORE creating the order so we have an address ID ──
   if (!draft.addressId && draft._addrComponents && currentCustomer) {
     try {
-      const { line1, city, state, zip, lat, lng } = draft._addrComponents;
+      const { line1, city, state, zip } = draft._addrComponents;
+      let { lat, lng } = draft._addrComponents;
       if (line1 && city) {
+        // Fallback geocode if the user typed manually and coords are missing.
+        // We'd rather block order placement than save a null-coord address the
+        // driver can't find on the map.
+        if (!lat || !lng) {
+          const geo = await _geocodeFallback(line1, city, zip);
+          if (geo) { lat = geo.lat; lng = geo.lng; }
+        }
+        if (!lat || !lng) {
+          toast('We couldn\'t verify your delivery address. Please re-enter it and select from the dropdown.');
+          if (btn) { btn.disabled = false; btn.textContent = 'Place Order'; }
+          return;
+        }
         const isFirstAddr = !_savedAddresses.length;
         if (isFirstAddr) {
           await db.from('addresses').update({ is_default: false }).eq('customer_id', currentCustomer.id);
@@ -4568,7 +4581,7 @@ async function placeOrder() {
           customer_id: currentCustomer.id,
           label: autoLabel,
           line1, city, state: state || 'CA', zip: zip || '',
-          lat: lat || null, lng: lng || null,
+          lat, lng,
           is_default: isFirstAddr
         }).select().single();
         if (newAddr) {
@@ -5317,6 +5330,26 @@ function afHideSugg() {
   if (box) { box.style.display = 'none'; box.innerHTML = ''; }
 }
 
+// Helper: resolve lat/lng for an address, falling back to Google Geocoder when
+// the user didn't pick from the Places autocomplete dropdown. Prevents addresses
+// from being saved with null coords (which would make them invisible on the map
+// and unable to be routed).
+async function _geocodeFallback(line1, city, zip) {
+  if (!window._googleGeocoder) return null;
+  const full = [line1, city, 'CA', zip].filter(Boolean).join(', ');
+  try {
+    const result = await new Promise((resolve, reject) => {
+      window._googleGeocoder.geocode({ address: full }, (results, status) => {
+        if (status === 'OK' && results[0]) resolve(results[0]);
+        else reject(new Error(status));
+      });
+    });
+    return { lat: result.geometry.location.lat(), lng: result.geometry.location.lng() };
+  } catch (_) {
+    return null;
+  }
+}
+
 async function saveAddressForm(existingId) {
   const label  = document.getElementById('af-label')?.value.trim();
   const line1  = document.getElementById('af-line1')?.value.trim();
@@ -5328,14 +5361,25 @@ async function saveAddressForm(existingId) {
 
   if (!line1 || !city || !zip) { toast('Please fill in street, city, and zip'); return; }
 
+  // If the user typed the address without clicking a suggestion, _afGeo is null.
+  // Try a server-side geocode before saving so we never write null coords.
+  let geo = _afGeo;
+  if (!geo?.lat || !geo?.lng) {
+    geo = await _geocodeFallback(line1, city, zip);
+  }
+  if (!geo?.lat || !geo?.lng) {
+    toast('We couldn\'t verify that address. Please pick it from the dropdown.');
+    return;
+  }
+
   const payload = {
     customer_id: currentCustomer.id,
     label: label || 'Home',
     line1, line2, city, state: 'CA', zip,
     delivery_instructions: notes,
     is_default: makeDefault,
-    lat: _afGeo?.lat || null,
-    lng: _afGeo?.lng || null
+    lat: geo.lat,
+    lng: geo.lng
   };
 
   let error;

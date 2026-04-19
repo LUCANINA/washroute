@@ -126,6 +126,15 @@
     body.tech-mode .main    { margin-left: 0; }
     body.tech-mode .topbar  { display: none; }
     body.tech-mode .content { padding: 0; }
+
+    /* ── MAP FULLSCREEN MODE: reclaim vertical space on Orders → Map ── */
+    /* Toggled via the Maximize button in the date bar. Hides the page topbar
+       and the List/Map tabs so the map can fill the viewport. Sidebar stays
+       visible so navigation still works. */
+    body.map-fullscreen .topbar              { display: none; }
+    body.map-fullscreen #orders-view-toggle  { display: none !important; }
+    body.map-fullscreen .content             { padding: 0; }
+    body.map-fullscreen #orders-schedule-view{ height: 100vh !important; }
     body.tech-mode .tech-header { display: flex; }
     body.tech-mode #page-processing > .card { margin:0;border-radius:0;border:none;box-shadow:none; }
     body.tech-mode #page-processing > .card > div:first-child { display:none; } /* hide "Processing Queue / No orders waiting" bar */
@@ -1562,7 +1571,15 @@
             <div style="padding:10px 16px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:12px;flex-shrink:0;background:#fff;">
               <span style="font-size:13px;font-weight:600;color:var(--gray-700)">Date:</span>
               <input type="date" id="runs-date-picker" class="form-input" style="width:155px;padding:5px 10px;font-size:13px;" onchange="loadDailyRuns()">
-              <button class="btn btn-ghost" id="btn-optimize" style="font-size:12px;padding:5px 12px;display:none;margin-left:auto;" onclick="optimizeRoute()">Optimize</button>
+              <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+                <button class="btn btn-ghost" id="btn-optimize" style="font-size:12px;padding:5px 12px;display:none;" onclick="optimizeRoute()">Optimize</button>
+                <button class="btn btn-ghost" id="btn-map-fullscreen" style="font-size:12px;padding:5px 10px;display:flex;align-items:center;gap:5px;" onclick="toggleMapFullscreen()" title="Maximize map (Esc to exit)">
+                  <svg id="btn-map-fullscreen-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+                  </svg>
+                  <span id="btn-map-fullscreen-label">Maximize</span>
+                </button>
+              </div>
             </div>
             <!-- ── RCC: Route chip strip (AM/PM toggle, single row) ── -->
             <div class="rcc-chips-wrap">
@@ -1583,6 +1600,12 @@
                 </div>
                 <!-- Map legend -->
                 <div id="rcc-legend" style="position:absolute;bottom:14px;left:12px;z-index:500;background:rgba(255,255,255,.95);border:1px solid var(--gray-200);border-radius:9px;padding:9px 12px;font-size:11.5px;box-shadow:0 3px 10px rgba(0,0,0,.08);display:none;line-height:1.8;"></div>
+                <!-- Missing-coords warning (shown when stops can't be pinned because lat/lng is null) -->
+                <div id="rcc-missing-coords-warn" style="position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:500;background:#fef3c7;border:1px solid #f59e0b;border-radius:9px;padding:8px 14px;font-size:12px;color:#78350f;box-shadow:0 3px 10px rgba(0,0,0,.08);display:none;align-items:center;gap:10px;max-width:92%;">
+                  <span style="font-size:14px;">⚠</span>
+                  <span id="rcc-missing-coords-text" style="font-weight:600;"></span>
+                  <button onclick="rccFixMissingCoords()" style="background:#f59e0b;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">Fix now</button>
+                </div>
               </div>
               <!-- Columns panel — grows as routes are activated -->
               <div id="rcc-cols-panel" style="display:flex;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-left:1px solid var(--gray-200);background:var(--gray-50);transition:width .25s ease;width:0;flex-shrink:0;"></div>
@@ -5664,8 +5687,16 @@
       return;
     }
 
-    // If leaving orders page, clear any active batch selection
-    if (currentPage === 'orders' && id !== 'orders') clearOrderSelection();
+    // If leaving orders page, clear any active batch selection.
+    // Also exit map-fullscreen — otherwise the topbar stays hidden on other pages.
+    if (currentPage === 'orders' && id !== 'orders') {
+      clearOrderSelection();
+      if (document.body.classList.contains('map-fullscreen')) {
+        document.body.classList.remove('map-fullscreen');
+        const lbl = document.getElementById('btn-map-fullscreen-label');
+        if (lbl) lbl.textContent = 'Maximize';
+      }
+    }
 
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById('page-'+id).classList.add('active');
@@ -11445,6 +11476,12 @@ ${oneCopy}
       ovtOrders.classList.add('active');
       document.getElementById('topbar-cta-label').textContent = 'New Order';
       document.getElementById('topbar-cta').style.display = '';
+      // Leaving the Map view should also exit fullscreen so List view renders normally.
+      if (document.body.classList.contains('map-fullscreen')) {
+        document.body.classList.remove('map-fullscreen');
+        const lbl = document.getElementById('btn-map-fullscreen-label');
+        if (lbl) lbl.textContent = 'Maximize';
+      }
       loadOrders(currentOrderFilter);
       try { history.replaceState(null, '', '#orders/' + (currentOrderFilter || 'scheduled')); } catch(_) {}
     } else if (view === 'schedule') {
@@ -14614,6 +14651,25 @@ ${oneCopy}
       // Insert service address if provided (with geocoding)
       if (addr && cust?.id) {
         const geo = await geocodeAddress(addr, city, state, zip);
+        // If geocoding failed, confirm before saving null coords — otherwise the
+        // stop will be invisible on the route map and drivers won't get directions.
+        let saveCoords = !!(geo?.lat && geo?.lng);
+        if (!saveCoords) {
+          saveCoords = confirm(
+            'Could not verify this address with Google Maps.\n\n' +
+            'If you save without coordinates the stop won\'t appear on the route map ' +
+            'and drivers won\'t get turn-by-turn directions.\n\n' +
+            'Save customer anyway?'
+          );
+          if (!saveCoords) {
+            // User declined — don't insert the address. Customer row was already
+            // created; they can re-enter the address from the customer panel.
+            showToast('Customer saved without address — please re-enter address from the customer panel.', 'warning');
+            closeModal('add-customer');
+            loadCustomers();
+            return;
+          }
+        }
         await db.from('addresses').insert({
           customer_id:           cust.id,
           label:                 'Home',
@@ -15243,6 +15299,18 @@ ${oneCopy}
     const state = document.getElementById('cpna-state').value.trim();
     const zip   = document.getElementById('cpna-zip').value.trim();
     const geo   = await geocodeAddress(line1, city, state, zip);
+    // Block silent null-coord inserts. If the geocoder can't resolve the address,
+    // let the user decide whether to save anyway (rare — e.g. new construction
+    // not yet on Google) so this doesn't become a quiet "invisible on map" bug.
+    if (!geo?.lat || !geo?.lng) {
+      const proceed = confirm(
+        'Could not verify this address with Google Maps.\n\n' +
+        'If you save without coordinates the stop won\'t appear on the route map ' +
+        'and drivers won\'t get turn-by-turn directions.\n\n' +
+        'Save anyway?'
+      );
+      if (!proceed) return;
+    }
     await db.from('addresses').insert({
       customer_id: panelCustomerId,
       label:  document.getElementById('cpna-label').value.trim() || 'Home',
@@ -18552,15 +18620,19 @@ ${oneCopy}
       }
     }
 
-    if (!_rccActiveRoutes.size) return;
+    if (!_rccActiveRoutes.size) { rccUpdateMissingCoordsWarning([]); return; }
 
     const allCoords = [];
+    const missing = []; // stops with null lat/lng — will be surfaced in a warning banner
     _rccActiveRoutes.forEach(routeId => {
       const rd = _rccRouteData[routeId];
       if (!rd) return;
       const { color, stops } = rd;
       // Only show remaining stops on the map (hide complete/skipped/failed)
       const remaining = stops.filter(s => s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed');
+      // Track any remaining stops whose address is missing coordinates — these would
+      // silently disappear from the map otherwise.
+      remaining.forEach(s => { if (!s._addr?.lat || !s._addr?.lng) missing.push(s); });
       const valid = remaining.filter(s => s._addr?.lat && s._addr?.lng);
       if (!valid.length) return;
 
@@ -18603,7 +18675,91 @@ ${oneCopy}
     if (allCoords.length) {
       routeLiveMap.fitBounds(L.latLngBounds(allCoords), { padding: [30, 30] });
     }
+
+    // Surface any stops that couldn't be pinned because their address has null lat/lng.
+    rccUpdateMissingCoordsWarning(missing);
   }
+
+  // ── RCC: Missing-coord warning banner ──
+  // Shows a banner above the map when one or more stops can't be drawn because
+  // their address has null lat/lng. Clicking "Fix now" runs geocodeMissing()
+  // which resolves the coords via Google Maps and updates the addresses table.
+  function rccUpdateMissingCoordsWarning(missing) {
+    const banner = document.getElementById('rcc-missing-coords-warn');
+    const text = document.getElementById('rcc-missing-coords-text');
+    if (!banner || !text) return;
+    if (!missing || !missing.length) {
+      banner.style.display = 'none';
+      return;
+    }
+    const names = missing.slice(0, 3).map(s => {
+      const c = s.orders?.customers || {};
+      return `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || 'Unknown';
+    });
+    const extra = missing.length > 3 ? ` +${missing.length - 3} more` : '';
+    const label = missing.length === 1 ? 'stop not shown' : 'stops not shown';
+    text.textContent = `${missing.length} ${label} — address missing coordinates: ${names.join(', ')}${extra}`;
+    banner.style.display = 'flex';
+  }
+
+  async function rccFixMissingCoords() {
+    if (typeof window.geocodeMissing !== 'function') {
+      showToast('Geocoder not loaded yet — try again in a moment', 'error');
+      return;
+    }
+    const banner = document.getElementById('rcc-missing-coords-warn');
+    const text = document.getElementById('rcc-missing-coords-text');
+    if (text) text.textContent = 'Geocoding missing addresses…';
+    try {
+      await window.geocodeMissing();
+      showToast('Addresses geocoded — reloading map', 'success');
+      // Reload each active route so the fresh coords flow through the stop pins.
+      if (typeof rccRefreshRoute === 'function') {
+        _rccActiveRoutes.forEach(routeId => rccRefreshRoute(routeId));
+      } else if (banner) {
+        banner.style.display = 'none';
+      }
+    } catch (e) {
+      console.error('rccFixMissingCoords:', e);
+      showToast('Geocoding failed — check console', 'error');
+    }
+  }
+
+  // ── RCC: Toggle map fullscreen mode ──
+  // Adds/removes the `map-fullscreen` class on <body>. CSS hides the topbar
+  // and the List/Map tabs, collapses .content padding, and stretches the
+  // schedule view to 100vh. Leaflet needs invalidateSize() so its internal
+  // pixel grid re-syncs to the new container height.
+  function toggleMapFullscreen() {
+    const on = !document.body.classList.contains('map-fullscreen');
+    document.body.classList.toggle('map-fullscreen', on);
+    const label = document.getElementById('btn-map-fullscreen-label');
+    const icon  = document.getElementById('btn-map-fullscreen-icon');
+    if (label) label.textContent = on ? 'Exit' : 'Maximize';
+    if (icon) {
+      icon.innerHTML = on
+        // minimize-2 icon (arrows pointing inward)
+        ? '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>'
+        // maximize-2 icon (arrows pointing outward)
+        : '<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>';
+    }
+    // Let the CSS transition settle, then invalidate Leaflet so it re-tiles.
+    if (window.routeLiveMap) {
+      setTimeout(() => { try { routeLiveMap.invalidateSize(); } catch(_) {} }, 220);
+    }
+  }
+
+  // Exit fullscreen with Escape. Attach once at load (idempotent thanks to the
+  // classList check — no-op if not in fullscreen mode).
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.body.classList.contains('map-fullscreen')) {
+      // Only exit if no modal is currently open (modals already handle Escape).
+      const anyModalOpen = document.querySelector('.modal-overlay.open') ||
+                           document.getElementById('refund-modal')?.style.display === 'flex' ||
+                           document.getElementById('bill-modal')?.style.display === 'flex';
+      if (!anyModalOpen) toggleMapFullscreen();
+    }
+  });
 
   // ── RCC: Update panel width as columns open/close ──
   function rccUpdatePanelWidth() {
