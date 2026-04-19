@@ -18143,11 +18143,15 @@ ${oneCopy}
     const pendingWithoutEta = enriched.filter(s => s.status === 'pending' && !s.estimated_arrival);
     const pendingTotal = enriched.filter(s => s.status === 'pending').length;
     if (pendingWithoutEta.length > 0 && pendingTotal >= 2) {
-      fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` },
-        body: JSON.stringify({ route_id: routeId })
-      }).then(async resp => {
+      (async () => {
+        const { data: { session } } = await db.auth.getSession();
+        const authToken = session?.access_token || SUPA_KEY;
+        return fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY, 'Authorization': `Bearer ${authToken}` },
+          body: JSON.stringify({ route_id: routeId })
+        });
+      })().then(async resp => {
         if (!resp.ok) return;
         // Re-fetch stops with fresh ETAs and update the column
         const { data: freshStops } = await db.from('route_stops')
@@ -18678,9 +18682,11 @@ ${oneCopy}
   async function autoOptimizeRoute(routeId) {
     if (!routeId) return;
     try {
+      const { data: { session } } = await db.auth.getSession();
+      const authToken = session?.access_token || SUPA_ANON_KEY;
       const resp = await fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, 'Authorization': `Bearer ${authToken}` },
         body: JSON.stringify({ route_id: routeId })
       });
       if (!resp.ok) return; // fail silently
@@ -18707,10 +18713,12 @@ ${oneCopy}
         showToast('No pending stops to optimize');
         return;
       }
+      const { data: { session } } = await db.auth.getSession();
+      const authToken = session?.access_token || SUPA_ANON_KEY;
       const results = await Promise.allSettled(routesWithStops.map(async routeId => {
         const resp = await fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, 'Authorization': `Bearer ${authToken}` },
           body: JSON.stringify({ route_id: routeId })
         });
         if (!resp.ok) {
