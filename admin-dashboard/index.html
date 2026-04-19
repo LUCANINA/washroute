@@ -711,18 +711,25 @@
     .rsl-pin { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 2px; color: white; }
 
     /* ── ROUTE COMMAND CENTER ── */
-    /* Chip strip wrapper — two stacked rows (AM / PM) */
+    /* Chip strip wrapper — single row; AM/PM toggle selects bucket */
     .rcc-chips-wrap { border-bottom:1px solid var(--gray-200);background:#fff;flex-shrink:0; }
-    .rcc-chip-row { display:flex;align-items:center;flex-wrap:wrap;gap:5px; }
+    .rcc-chip-row { display:flex;align-items:center;flex-wrap:wrap;gap:4px; }
     .rcc-slot-label { font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--gray-400);width:22px;flex-shrink:0;user-select:none; }
-    .rcc-chip { display:flex;align-items:center;gap:5px;padding:4px 9px 4px 7px;border-radius:7px;border:1.5px solid var(--gray-200);background:#fff;cursor:pointer;transition:all .14s;white-space:nowrap;user-select:none;flex-shrink:0; }
+    /* AM/PM segmented toggle */
+    .rcc-slot-toggle { display:inline-flex;border:1px solid var(--gray-200);border-radius:6px;overflow:hidden;background:#fff;flex-shrink:0;margin-right:6px; }
+    .rcc-slot-btn { border:none;background:transparent;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--gray-500);padding:3px 9px;cursor:pointer;transition:all .14s;user-select:none; }
+    .rcc-slot-btn:hover { background:var(--gray-50);color:var(--gray-700); }
+    .rcc-slot-btn.on { background:var(--gray-900);color:#fff; }
+    .rcc-slot-btn.on:hover { background:var(--gray-800); }
+    /* Chips — compact */
+    .rcc-chip { display:flex;align-items:center;gap:4px;padding:2px 6px 2px 5px;border-radius:6px;border:1.25px solid var(--gray-200);background:#fff;cursor:pointer;transition:all .14s;white-space:nowrap;user-select:none;flex-shrink:0; }
     .rcc-chip:hover { border-color:var(--gray-400);background:var(--gray-50); }
     .rcc-chip.rcc-on { border-color:var(--rcc-color);background:color-mix(in srgb,var(--rcc-color) 7%,#fff); }
-    .rcc-chip .rcc-dot { width:7px;height:7px;border-radius:50%;background:var(--gray-300);transition:background .14s;flex-shrink:0; }
+    .rcc-chip .rcc-dot { width:6px;height:6px;border-radius:50%;background:var(--gray-300);transition:background .14s;flex-shrink:0; }
     .rcc-chip.rcc-on .rcc-dot { background:var(--rcc-color); }
-    .rcc-chip .rcc-chip-name { font-size:12px;font-weight:700;color:var(--gray-900); }
-    .rcc-chip .rcc-chip-sub  { font-size:10.5px;color:var(--gray-400); }
-    .rcc-chip .rcc-chip-cnt  { font-size:10.5px;font-weight:700;padding:1px 5px;border-radius:5px;background:var(--gray-100);color:var(--gray-500);transition:all .14s; }
+    .rcc-chip .rcc-chip-name { font-size:10.5px;font-weight:700;color:var(--gray-900); }
+    .rcc-chip .rcc-chip-sub  { font-size:9px;color:var(--gray-400); }
+    .rcc-chip .rcc-chip-cnt  { font-size:9px;font-weight:700;padding:0 4px;border-radius:4px;background:var(--gray-100);color:var(--gray-500);transition:all .14s; }
     .rcc-chip.rcc-on .rcc-chip-cnt { background:color-mix(in srgb,var(--rcc-color) 14%,#fff);color:var(--rcc-color); }
     .rcc-chip .rcc-chip-cnt.rcc-warn { background:#fef2f2;color:#ef4444; }
     /* Driver columns */
@@ -1559,9 +1566,9 @@
               <input type="date" id="runs-date-picker" class="form-input" style="width:155px;padding:5px 10px;font-size:13px;" onchange="loadDailyRuns()">
               <button class="btn btn-ghost" id="btn-optimize" style="font-size:12px;padding:5px 12px;display:none;margin-left:auto;" onclick="optimizeRoute()">Optimize</button>
             </div>
-            <!-- ── RCC: Route chip strip (2-row: AM top, PM bottom) ── -->
+            <!-- ── RCC: Route chip strip (AM/PM toggle, single row) ── -->
             <div class="rcc-chips-wrap">
-              <div id="rcc-chips" style="display:flex;flex-direction:column;gap:5px;padding:7px 12px;width:100%;box-sizing:border-box;"></div>
+              <div id="rcc-chips" style="padding:6px 12px;width:100%;box-sizing:border-box;"></div>
             </div>
             <!-- ── RCC: Map + columns workspace ── -->
             <div id="rcc-workspace" style="display:flex;flex:1;overflow:hidden;min-height:0;">
@@ -17919,7 +17926,7 @@ ${oneCopy}
   let _rccDragStopId   = null;        // stop id being dragged
   let _rccStopMarkers  = {};          // stopId → L.marker (for hover)
   let _rccPolylines    = {};          // (unused — route lines removed for clarity)
-  let _rccSlot         = null;        // 'AM' | 'PM' — chip strip filter
+  let _rccSlot         = null;        // 'AM' | 'PM' — chip strip toggle (auto-set on first render by time of day)
   let _rccReassigned   = {};          // stopId → { fromRouteName, fromColor } — cleared on date change
 
   // ── ROUTE COMMAND CENTER — load date data + render chips ──
@@ -17989,7 +17996,7 @@ ${oneCopy}
     }
   }
 
-  // ── RCC: Render route chip strip (all routes, sorted by start time) ──
+  // ── RCC: Render route chip strip (AM/PM toggle; templates whose window spans both show in both) ──
   function rccRenderChips() {
     const el = document.getElementById('rcc-chips');
     if (!el) return;
@@ -17999,15 +18006,24 @@ ${oneCopy}
       return;
     }
 
+    // Auto-default: AM before noon, PM after. Persisted per toggle click.
+    if (!_rccSlot) {
+      _rccSlot = (new Date().getHours() < 12) ? 'AM' : 'PM';
+    }
+
     const fmtH = hr => { const p = hr >= 12 ? 'PM' : 'AM'; return `${hr > 12 ? hr-12 : (hr===0?12:hr)}${p}`; };
 
-    // Split templates into AM (window_start < 12 or unset) and PM (≥ 12), sorted within each group
-    const amTemplates = [..._dsTemplates]
-      .filter(t => !t.window_start || parseInt(t.window_start) < 12)
-      .sort((a, b) => (parseInt(a.window_start)||0) - (parseInt(b.window_start)||0));
-    const pmTemplates = [..._dsTemplates]
-      .filter(t => t.window_start && parseInt(t.window_start) >= 12)
-      .sort((a, b) => parseInt(a.window_start) - parseInt(b.window_start));
+    // Dual-listing rule:
+    //   AM bucket = any template with window_start < 12 (or no start set)
+    //   PM bucket = any template with window_end > 12
+    //   A long template like COMMERCIAL 9AM–3PM qualifies for BOTH buckets.
+    const parseH = v => v == null ? null : parseInt(v);
+    const inAM = t => { const s = parseH(t.window_start); return s == null || s < 12; };
+    const inPM = t => { const e = parseH(t.window_end);   return e != null && e > 12; };
+
+    const bucket = [..._dsTemplates]
+      .filter(t => _rccSlot === 'AM' ? inAM(t) : inPM(t))
+      .sort((a, b) => (parseH(a.window_start)||0) - (parseH(b.window_start)||0));
 
     const buildChip = t => {
       const route = _dsRoutes.find(r => r.template_id === t.id) || null;
@@ -18021,7 +18037,7 @@ ${oneCopy}
       const disabledStyle = noRun ? 'opacity:.4;cursor:default;' : '';
       const cntBadge = cnt > 0 ? `<span class="rcc-chip-cnt">${cnt}</span>` : '';
       const noRunBadge = noRun ? `<span class="rcc-chip-sub">no run</span>` : '';
-      const winLabel = t.window_start ? `${fmtH(parseInt(t.window_start))}–${fmtH(parseInt(t.window_end))}` : '';
+      const winLabel = t.window_start ? `${fmtH(parseH(t.window_start))}–${fmtH(parseH(t.window_end))}` : '';
       return `<button class="rcc-chip${onClass}" style="--rcc-color:${c};${disabledStyle}" data-route-id="${routeId||''}" ${clickAttr}>
         <div class="rcc-dot" style="background:${c};"></div>
         <span class="rcc-chip-name">${t.name}</span>
@@ -18030,23 +18046,27 @@ ${oneCopy}
       </button>`;
     };
 
-    let html = '';
-    if (amTemplates.length) {
-      html += `<div class="rcc-chip-row"><span class="rcc-slot-label">AM</span>${amTemplates.map(buildChip).join('')}</div>`;
-    }
-    if (pmTemplates.length) {
-      html += `<div class="rcc-chip-row"><span class="rcc-slot-label">PM</span>${pmTemplates.map(buildChip).join('')}</div>`;
-    }
-    el.innerHTML = html;
+    const toggle = `<div class="rcc-slot-toggle" role="tablist" aria-label="AM/PM route filter">
+      <button type="button" class="rcc-slot-btn${_rccSlot==='AM'?' on':''}" onclick="rccSetSlot('AM')" aria-pressed="${_rccSlot==='AM'}">AM</button>
+      <button type="button" class="rcc-slot-btn${_rccSlot==='PM'?' on':''}" onclick="rccSetSlot('PM')" aria-pressed="${_rccSlot==='PM'}">PM</button>
+    </div>`;
+
+    const chipsHtml = bucket.length
+      ? bucket.map(buildChip).join('')
+      : `<span style="font-size:11px;color:var(--gray-400);padding:2px 0;">No ${_rccSlot} routes</span>`;
+    el.innerHTML = `<div class="rcc-chip-row">${toggle}${chipsHtml}</div>`;
   }
 
   // ── RCC: Scroll helpers kept as no-ops for any lingering references ──
   function rccScrollChips() {}
   function rccUpdateScrollArrows() {}
 
-  // ── RCC: rccSetSlot kept for backwards-compat but AM/PM no longer filters routes ──
+  // ── RCC: Set AM/PM slot filter and re-render chips ──
   function rccSetSlot(slot) {
-    _rccSlot = slot; // stored but not used as a filter
+    if (slot !== 'AM' && slot !== 'PM') return;
+    if (_rccSlot === slot) return;
+    _rccSlot = slot;
+    rccRenderChips();
   }
 
   // ── RCC: Toggle a route column open/closed ──
