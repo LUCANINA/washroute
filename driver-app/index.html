@@ -1348,7 +1348,7 @@ async function reoptimizeRoute(routeId) {
     }
     const resp = await fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY },
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPA_KEY, 'Authorization': `Bearer ${SUPA_KEY}` },
       body: JSON.stringify(body)
     });
     if (!resp.ok) return; // silent fail — driver experience unaffected

@@ -18680,7 +18680,7 @@ ${oneCopy}
     try {
       const resp = await fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
         body: JSON.stringify({ route_id: routeId })
       });
       if (!resp.ok) return; // fail silently
@@ -18710,7 +18710,7 @@ ${oneCopy}
       const results = await Promise.allSettled(routesWithStops.map(async routeId => {
         const resp = await fetch(`${SUPA_URL}/functions/v1/optimize-route`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
           body: JSON.stringify({ route_id: routeId })
         });
         if (!resp.ok) {
