@@ -3551,10 +3551,16 @@ function subscribeToRouteStopUpdates() {
       const isMyDriver = d => d === currentDriver?.id || d === null;
 
       if (idx < 0) {
-        // Stop not in our list — check if it just became ours (explicit assignment).
-        // Don't require isMyRoute — the route itself may have just been reassigned
-        // to us too, so todayRoutes won't know about it yet. Full reload handles it.
-        if (updated.driver_id === currentDriver?.id) {
+        // Stop not in our list — check if it just became ours, either by:
+        //   (a) explicit assignment to me (driver_id set to my id), OR
+        //   (b) inherit (driver_id=NULL) on one of my own routes — e.g. a stop
+        //       moved onto my route by admin, or an optimize pass re-emitting
+        //       an UPDATE we didn't see the first time.
+        // Don't require isMyRoute for the explicit case — the route itself may have
+        // just been reassigned to me too, so todayRoutes won't know about it yet.
+        const explicitlyMine = updated.driver_id === currentDriver?.id;
+        const inheritedOnMyRoute = updated.driver_id === null && isMyRoute(updated.route_id);
+        if (explicitlyMine || inheritedOnMyRoute) {
           loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
         }
         return;
