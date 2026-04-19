@@ -15283,12 +15283,21 @@ ${oneCopy}
     const ln    = document.getElementById('cpe-last').value.trim();
     const phone = document.getElementById('cpe-phone').value.trim();
     const email = document.getElementById('cpe-email').value.trim();
+    // Guard: refuse to save if both name fields are blank. This prevents an empty-form save
+    // from wiping the customer's name (session 115 "Unknown" incident). The trigger
+    // sync_customer_cache_from_profile already ignores '' incoming, but keep the UI honest.
+    if (!fn && !ln) {
+      btn.disabled = false; btn.textContent = origText;
+      showToast('First or last name is required', 'error');
+      return;
+    }
     const type   = document.getElementById('cpe-type').value;
     const src    = document.getElementById('cpe-source').value;
     const routeOverride = document.getElementById('cpe-route-override').value || null;
     const defaultSite   = document.getElementById('cpe-default-site')?.value || null;
     const { data: c } = await db.from('customers').select('profile_id').eq('id',panelCustomerId).single();
-    if (c?.profile_id) await db.from('profiles').update({ first_name:fn, last_name:ln, phone, email }).eq('id', c.profile_id);
+    // Write null for blanks so profile never stores '' (which would get denormalised downstream).
+    if (c?.profile_id) await db.from('profiles').update({ first_name: fn || null, last_name: ln || null, phone: phone || null, email: email || null }).eq('id', c.profile_id);
     const { error } = await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, pricelist:type||'Delivery', referral_source:src||null, route_template_override_id:routeOverride, default_site_id:defaultSite }).eq('id', panelCustomerId);
     btn.disabled=false; btn.textContent=origText;
     if (error) { showToast('Error: ' + error.message, 'error'); return; }

@@ -2011,13 +2011,15 @@ async function handleNameSubmit() {
     // Ensure global currentUser is set (race condition: auth state change may not have fired yet)
     if (!currentUser) currentUser = user;
     const phoneVal = _pendingPhone || phoneInput || user?.phone || '';
-    // Ensure profile row exists with all fields
+    // Ensure profile row exists with all fields.
+    // Write NULL for blanks so the trigger sync_customer_cache_from_profile skips them
+    // and doesn't wipe customers.first_name_cache (session 115 "Unknown" incident).
     await db.from('profiles').upsert({
       id:         user.id,
-      first_name: firstName,
-      last_name:  lastName,
-      email:      email,
-      phone:      phoneVal
+      first_name: firstName || null,
+      last_name:  lastName  || null,
+      email:      email     || null,
+      phone:      phoneVal  || null
     }, { onConflict: 'id' });
     // Try to claim an existing customer (bypasses RLS — catches returning customers
     // whose old record has a different profile_id, closing the last dedup gap)
@@ -2282,12 +2284,14 @@ async function _findCustomerByPhone(phone) {
 }
 
 async function ensureProfile(user, first, last, email, phone, smsConsent = false, referralSource = null) {
+  // Write NULL (not '') so the trigger doesn't wipe customers.first_name_cache on returning
+  // sign-ins whose auth metadata has no first_name (session 115 "Unknown" incident).
   await db.from('profiles').upsert({
     id: user.id,
-    first_name: first || user.user_metadata?.first_name || '',
-    last_name:  last  || user.user_metadata?.last_name  || '',
-    email:      email || user.email,
-    phone:      phone || user.user_metadata?.phone || ''
+    first_name: first || user.user_metadata?.first_name || null,
+    last_name:  last  || user.user_metadata?.last_name  || null,
+    email:      email || user.email                      || null,
+    phone:      phone || user.user_metadata?.phone      || null
   }, { onConflict: 'id' });
 
   // 1-4. Try to claim an existing customer account via server-side RPC.
@@ -2578,10 +2582,10 @@ async function loadUserData() {
         const existing = linked[0];
         await db.from('profiles').upsert({
           id:         currentUser.id,
-          first_name: existing.first_name_cache || '',
-          last_name:  existing.last_name_cache  || '',
-          email:      existing.email_cache || '',
-          phone:      currentUser.phone
+          first_name: existing.first_name_cache || null,
+          last_name:  existing.last_name_cache  || null,
+          email:      existing.email_cache       || null,
+          phone:      currentUser.phone           || null
         }, { onConflict: 'id' });
         const { data: linkedProf } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
         currentProfile  = linkedProf;
@@ -2610,10 +2614,10 @@ async function loadUserData() {
     const m = currentUser.user_metadata || {};
     const { error: pe } = await db.from('profiles').upsert({
       id: currentUser.id,
-      first_name: m.first_name || currentProfile?.first_name || '',
-      last_name:  m.last_name  || currentProfile?.last_name  || '',
-      email:      currentUser.email || currentProfile?.email  || '',
-      phone:      m.phone      || currentProfile?.phone      || ''
+      first_name: m.first_name || currentProfile?.first_name || null,
+      last_name:  m.last_name  || currentProfile?.last_name  || null,
+      email:      currentUser.email || currentProfile?.email  || null,
+      phone:      m.phone      || currentProfile?.phone      || null
     }, { onConflict: 'id' });
     if (pe) console.warn('Profile:', pe.message);
     const { data } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
@@ -4408,10 +4412,14 @@ async function renderConfirmAuth() {
     const email = currentProfile?.email || currentUser.email || '';
     const phone = currentProfile?.phone || m.phone || '';
 
-    // Ensure profile exists
+    // Ensure profile exists. Write NULL for blanks so the trigger doesn't wipe the cache.
     if (!currentProfile) {
       await db.from('profiles').upsert({
-        id: currentUser.id, first_name: first, last_name: last, email, phone
+        id: currentUser.id,
+        first_name: first || null,
+        last_name:  last  || null,
+        email:      email || null,
+        phone:      phone || null
       }, { onConflict: 'id' });
       const { data: prof } = await db.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
       currentProfile = prof;
@@ -7096,8 +7104,10 @@ async function saveContactInfo() {
 
   try {
     // 1. Update profiles table (drives the hero display)
+    // Write null for blanks so profile never stores '' — the trigger sync_customer_cache_from_profile
+    // ignores NULL/'' inputs and keeps the existing cache. Prevents session 115 "Unknown" regression.
     const { error: profErr } = await db.from('profiles')
-      .update({ first_name: first, last_name: last })
+      .update({ first_name: first || null, last_name: last || null })
       .eq('id', currentUser.id);
     if (profErr) throw profErr;
 
