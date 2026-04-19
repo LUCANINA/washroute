@@ -127,10 +127,13 @@
     body.tech-mode .topbar  { display: none; }
     body.tech-mode .content { padding: 0; }
 
-    /* ── MAP FULLSCREEN MODE: reclaim vertical space on Orders → Map ── */
-    /* Toggled via the Maximize button in the date bar. Hides the page topbar
-       and the List/Map tabs so the map can fill the viewport. Sidebar stays
-       visible so navigation still works. */
+    /* ── MAP FULLSCREEN MODE: reclaim all chrome on Orders → Map ── */
+    /* Toggled via the Maximize button in the date bar. Hides the topbar,
+       the sidebar, and the List/Map tabs so the map fills the viewport.
+       Exit via the button (now labeled "Exit"), Escape, or by leaving the
+       Orders page — all three paths reset the class. */
+    body.map-fullscreen .sidebar             { display: none; }
+    body.map-fullscreen .main                { margin-left: 0; }
     body.map-fullscreen .topbar              { display: none; }
     body.map-fullscreen #orders-view-toggle  { display: none !important; }
     body.map-fullscreen .content             { padding: 0; }
