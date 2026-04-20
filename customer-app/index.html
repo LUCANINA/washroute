@@ -654,6 +654,12 @@
     .sched-opt .slot-badge.almost-full { background: #fef3c7; color: #b45309; }
     .sched-opt .slot-badge.available { background: #d1fae5; color: #059669; }
     .sched-nudge { padding: 10px 16px; font-size: 13px; color: #b45309; background: #fffbeb; border-radius: 8px; margin: 0 14px 8px; line-height: 1.4; }
+    .sched-alt-row { margin: 4px 14px 10px; }
+    .sched-alt-label { font-size: 12px; font-weight: 600; color: var(--gray-500); margin-bottom: 6px; }
+    .sched-alt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .sched-alt-chip { padding: 8px 12px; border: 1.5px solid var(--navy); border-radius: 8px; background: #eef3ff; color: var(--navy); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background .12s; }
+    .sched-alt-chip:active { background: #dce5ff; }
+    .sched-alt-loading { font-size: 12px; color: var(--gray-400); padding: 2px 0; }
     .sched-opt-check { font-size: 15px; opacity: 0; color: var(--navy); }
     .sched-opt.selected .sched-opt-check { opacity: 1; }
 
@@ -3860,6 +3866,8 @@ function _renderSchedWindowOpts(which) {
 
   if (!windows.length) {
     container.innerHTML = '<div class="sched-opts"><div style="font-size:13px;color:var(--gray-400)">No windows available for this date.</div></div>';
+    // Offer nearest open alternatives instead of a dead-end.
+    _renderAltSlotsInto(which, container);
     if (which === 'pickup') draft.pickupWindow = null;
     const valEl = document.getElementById(`val-${which}-window`);
     if (valEl) valEl.textContent = '—';
@@ -3876,7 +3884,7 @@ function _renderSchedWindowOpts(which) {
 
   let html = '';
   if (allFull) {
-    html += `<div class="sched-nudge">All ${which} slots are full for this date. Please pick a different day for faster service.</div>`;
+    html += `<div class="sched-nudge">All ${which} slots are full for this date — try one of the nearest open times below.</div>`;
   } else if (anyFull) {
     html += `<div class="sched-nudge">Some slots are filling up — available times shown below.</div>`;
   }
@@ -3902,6 +3910,135 @@ function _renderSchedWindowOpts(which) {
   }).join('') + '</div>';
 
   container.innerHTML = html;
+  // If every slot on this day is full, surface the 3 nearest open times so the
+  // user has real alternatives instead of a dead-end.
+  if (allFull) _renderAltSlotsInto(which, container);
+}
+
+// ── ALTERNATIVE SLOTS ──
+// When the user's chosen date has no open windows, surface the 3 nearest
+// available sub-windows across adjacent days so they can tap one instead of
+// giving up or guessing.
+function _formatAltSlotLabel(row) {
+  const today    = localIso();
+  const tomorrow = localIso(new Date(Date.now() + 86400000));
+  const d = new Date(row.run_date + 'T12:00:00');
+  let dayLabel;
+  if (row.run_date === today)         dayLabel = 'Today';
+  else if (row.run_date === tomorrow) dayLabel = 'Tomorrow';
+  else dayLabel = d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', timeZone: BIZ_TZ });
+  const h2hr = t => {
+    const [h] = t.split(':').map(Number);
+    const p = h >= 12 ? 'PM' : 'AM';
+    const h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+    return `${h12}${p}`;
+  };
+  return `${dayLabel} ${h2hr(row.sub_window_start)}–${h2hr(row.sub_window_end)}`;
+}
+
+async function _renderAltSlotsInto(which, hostEl) {
+  if (!hostEl || !draft.zoneId) return;
+  const baseDate = which === 'pickup' ? draft.pickupDate : draft.deliveryDate;
+  if (!baseDate) return;
+  // Anchor on the user's current (or last intended) window start when we have one,
+  // otherwise default to 10:00 AM so "nearest" feels natural for a daytime service.
+  const curWin = which === 'pickup' ? draft.pickupWindow : (draft.deliveryWindow || draft.pickupWindow);
+  const anchorMins = curWin?.startMins != null ? curWin.startMins : 600;
+  const preferredTime = `${String(Math.floor(anchorMins/60)).padStart(2,'0')}:${String(anchorMins%60).padStart(2,'0')}:00`;
+
+  // Token to guard against a stale response (user changed date mid-request).
+  // Stamp the row with a unique token and compare when the promise resolves.
+  const token = Date.now() + ':' + Math.random().toString(36).slice(2, 8);
+  const rowId = `alt-row-${which}`;
+  hostEl.insertAdjacentHTML('beforeend', `<div class="sched-alt-row" id="${rowId}" data-token="${token}"><div class="sched-alt-label">Finding nearby open times…</div><div class="sched-alt-loading">Checking the next few days…</div></div>`);
+
+  try {
+    const { data, error } = await db.rpc('get_nearest_available_slots', {
+      p_zone_id: draft.zoneId,
+      p_preferred_date: baseDate,
+      p_preferred_time: preferredTime,
+      p_stop_type: which,
+      p_limit: 3,
+      p_day_radius: 3,
+    });
+    const row = document.getElementById(rowId);
+    // Bail if the row was removed or replaced since we kicked off the request.
+    if (!row || row.getAttribute('data-token') !== token) return;
+    let filtered = data || [];
+
+    // Drop slots whose actual start-time has already passed (or within a 30min cutoff).
+    // Conservative: the RPC doesn't know each template's booking_cutoff_minutes.
+    const nowMs = Date.now();
+    filtered = filtered.filter(r => {
+      const slotStartMs = new Date(`${r.run_date}T${r.sub_window_start}`).getTime();
+      return slotStartMs - nowMs > 30 * 60 * 1000;
+    });
+
+    // For delivery alternatives: only suggest dates that are in the turnaround-allowed
+    // delivery date list. Any other date would be silently reset by _updateSchedDelivery
+    // after the user taps the chip, confusing them.
+    if (which === 'delivery' && draft._deliveryOptions?.length) {
+      const allowed = new Set(draft._deliveryOptions);
+      filtered = filtered.filter(r => allowed.has(r.run_date));
+    }
+
+    if (error || !filtered.length) {
+      row.innerHTML = `<div class="sched-alt-label">No open times in the next few days.</div>`;
+      return;
+    }
+    draft._altSlots = draft._altSlots || {};
+    draft._altSlots[which] = filtered;
+    const chips = filtered.map((r, i) =>
+      `<button class="sched-alt-chip" onclick="_selectAltSlot('${which}', ${i})">${_formatAltSlotLabel(r)}</button>`
+    ).join('');
+    row.innerHTML = `<div class="sched-alt-label">Nearest open times:</div><div class="sched-alt-chips">${chips}</div>`;
+  } catch (err) {
+    console.warn('[alt-slots] fetch error:', err);
+    const row = document.getElementById(rowId);
+    if (row && row.getAttribute('data-token') === token) {
+      row.innerHTML = `<div class="sched-alt-label">Couldn't load alternatives — try another date.</div>`;
+    }
+  }
+}
+
+async function _selectAltSlot(which, idx) {
+  const row = draft._altSlots?.[which]?.[idx];
+  if (!row) return;
+  if (which === 'pickup') {
+    // Jump the pickup date, then let the existing date-change logic fetch + render.
+    const needDateChange = draft.pickupDate !== row.run_date;
+    draft.pickupDate = row.run_date;
+    draft.pickupWindow = null;
+    if (needDateChange) {
+      // pickupDate changed: blow away derived state so delivery + same-day recalculate cleanly
+      draft._windowsForDate = null;
+      draft.deliveryDate    = null;
+      draft.deliveryWindow  = null;
+      draft.isSameDay       = false;
+      draft._sameDayWindows = [];
+    }
+    await fetchWindowsForDate(row.run_date);
+    // Snap to the matching window from the fresh fetch
+    const tgt = draft.availableWindows.find(w => w.routeId === row.template_id
+      && w.startMins === (parseInt(row.sub_window_start.slice(0,2))*60 + parseInt(row.sub_window_start.slice(3,5))));
+    if (tgt) draft.pickupWindow = tgt;
+  } else {
+    const needDateChange = draft.deliveryDate !== row.run_date;
+    draft.deliveryDate = row.run_date;
+    draft.deliveryWindow = null;
+    if (needDateChange) draft._deliveryWindows = null;
+    await _updateSchedDelivery();
+    const src = draft._deliveryWindows || draft.availableWindows;
+    const tgt = src.find(w => w.routeId === row.template_id
+      && w.startMins === (parseInt(row.sub_window_start.slice(0,2))*60 + parseInt(row.sub_window_start.slice(3,5))));
+    if (tgt) draft.deliveryWindow = tgt;
+  }
+  // Close the dropdown if open, then re-render the card so labels/options refresh.
+  const expandEl = document.getElementById(`expand-${which}-window`);
+  const chevEl   = document.getElementById(`chev-${which}-window`);
+  if (expandEl) { expandEl.classList.remove('open'); expandEl.innerHTML = ''; }
+  if (chevEl)   chevEl.classList.remove('open');
+  renderSchedCard();
 }
 
 // Called when a window option is tapped

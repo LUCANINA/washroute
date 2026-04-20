@@ -744,6 +744,8 @@
     .rcc-chip .rcc-chip-cnt  { font-size:9px;font-weight:700;padding:0 4px;border-radius:4px;background:var(--gray-100);color:var(--gray-500);transition:all .14s; }
     .rcc-chip.rcc-on .rcc-chip-cnt { background:color-mix(in srgb,var(--rcc-color) 14%,#fff);color:var(--rcc-color); }
     .rcc-chip .rcc-chip-cnt.rcc-warn { background:#fef2f2;color:#ef4444; }
+    .rcc-chip .rcc-chip-overcap { font-size:9px;font-weight:700;padding:0 5px;border-radius:4px;background:#fff4e5;color:#c2560a;border:1px solid #fed7aa;cursor:help; }
+    .rcc-chip.rcc-on .rcc-chip-overcap { background:#fff4e5;color:#c2560a; }
     /* Driver columns */
     #rcc-cols-panel::-webkit-scrollbar { height:4px; }
     #rcc-cols-panel::-webkit-scrollbar-thumb { background:var(--gray-200);border-radius:4px; }
@@ -7204,7 +7206,7 @@
                actual_pickup_at, actual_delivery_at,
                pickup_run_id, delivery_run_id,
                pickup_address_id, delivery_address_id,
-               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, cancelled_by, driver_skip_reason, site_id,
+               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, overcap_booking, cancelled_by, driver_skip_reason, site_id,
                services(name),
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
                pickup_run:pickup_run_id(id, name),
@@ -7533,7 +7535,7 @@
           <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${esc(o.customers?.phone_cache||'')}" data-cust-name="${esc((o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||''))}" onchange="updateOrderBatchBar()"></td>
           <td style="font-size:11.5px;color:var(--gray-400);font-weight:600;white-space:nowrap;padding:8px 4px">${o.order_number ? '#'+o.order_number : '—'}</td>
           <td class="td-name" style="padding:8px 8px">${orderCustomerCell(o)}</td>
-          <td style="padding:8px 6px">${inIssues ? issueBadge(o) : statusBadge(o.status)}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:3px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : ''}</td>
+          <td style="padding:8px 6px">${inIssues ? issueBadge(o) : statusBadge(o.status)}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:3px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : (o.overcap_booking ? `<span style="color:#c2560a;font-size:11px;margin-left:3px;cursor:help" title="Booked over base capacity — within 125% soft ceiling">▲</span>` : '')}</td>
           <td style="white-space:nowrap;padding:6px 8px">${pickupCombinedCell(o)}</td>
           <td style="white-space:nowrap;padding:6px 8px">${deliveryCombinedCell(o)}</td>
           <td style="font-size:12px;text-align:center;padding:8px 4px;line-height:1.3">${bagsDisplay}</td>
@@ -7696,8 +7698,13 @@
     }
     if (o.routing_error) {
       const safeErr = o.routing_error.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      routeErrEl.style.cssText = 'background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:8px 12px;border-radius:8px;font-size:12.5px;margin:0 16px 8px;display:block';
       routeErrEl.innerHTML = `⚠️ <strong>Routing error:</strong> ${safeErr}`;
-      routeErrEl.style.display = 'block';
+    } else if (o.overcap_booking) {
+      // Soft notice: order was accepted into an overcap route (within 125% ceiling).
+      // Distinct color from routing_error so it's clear this is advisory, not a blocker.
+      routeErrEl.style.cssText = 'background:#fff4e5;border:1px solid #fed7aa;color:#9a3412;padding:8px 12px;border-radius:8px;font-size:12.5px;margin:0 16px 8px;display:block';
+      routeErrEl.innerHTML = `▲ <strong>Over base capacity:</strong> booked within 125% soft ceiling — route is running hot.`;
     } else {
       routeErrEl.style.display = 'none';
     }
@@ -17987,7 +17994,7 @@ ${oneCopy}
   }
 
   // RCC state
-  let _dsTemplates = [], _dsRoutes = [], _dsCountMap = {}, _dsDateStr = '';
+  let _dsTemplates = [], _dsRoutes = [], _dsCountMap = {}, _dsOvercapMap = {}, _dsDateStr = '';
   let _rccDriverSched = {};            // `${template_id}-${dow}` → driver_id (for RCC fallback)
   let _dsActiveZone = null, _dsActiveSlot = null; // kept for backward-compat with autoOptimizeRoute refresh
   let _rccActiveRoutes = new Set();   // routeId → open column
@@ -18038,15 +18045,23 @@ ${oneCopy}
     (schedRows || []).forEach(r => { _rccDriverSched[`${r.template_id}-${r.day_of_week}`] = r.driver_id; });
 
     // Get live stop counts per route (only remaining — exclude done/dead)
+    // Also tally overcap_booking flag per route so RCC chips can show a soft badge
+    // when the route is carrying orders booked above base capacity (within 125% ceiling).
     _dsCountMap = {};
+    _dsOvercapMap = {};
     const routeIds = _dsRoutes.map(r => r.id);
     if (routeIds.length) {
-      const { data: sc } = await db.from('route_stops').select('route_id, status, stop_type, orders(status)').in('route_id', routeIds);
+      const { data: sc } = await db.from('route_stops').select('route_id, status, stop_type, orders(status, overcap_booking)').in('route_id', routeIds);
       const _notReady = ['processing', 'folding', 'picked_up'];
       (sc||[]).filter(s => s.orders && !DEAD_ORDER_STATUSES.includes(s.orders.status)
           && s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed'
           && !(s.stop_type === 'delivery' && _notReady.includes(s.orders.status)))
-        .forEach(s => { _dsCountMap[s.route_id] = (_dsCountMap[s.route_id]||0) + 1; });
+        .forEach(s => {
+          _dsCountMap[s.route_id] = (_dsCountMap[s.route_id]||0) + 1;
+          if (s.orders?.overcap_booking) {
+            _dsOvercapMap[s.route_id] = (_dsOvercapMap[s.route_id]||0) + 1;
+          }
+        });
     }
 
     rccRenderChips();
@@ -18099,19 +18114,23 @@ ${oneCopy}
       const routeId = route?.id || null;
       const isActive = routeId && _rccActiveRoutes.has(routeId);
       const cnt = routeId ? (_dsCountMap[routeId] || 0) : 0;
+      const overcap = routeId ? (_dsOvercapMap[routeId] || 0) : 0;
       const c = t.color || '#3b82f6';
       const noRun = !route;
       const clickAttr = routeId ? `onclick="rccToggleRoute('${routeId}')"` : '';
       const onClass = isActive ? ' rcc-on' : '';
       const disabledStyle = noRun ? 'opacity:.4;cursor:default;' : '';
       const cntBadge = cnt > 0 ? `<span class="rcc-chip-cnt">${cnt}</span>` : '';
+      const overcapBadge = overcap > 0
+        ? `<span class="rcc-chip-overcap" title="${overcap} order${overcap>1?'s':''} booked over base capacity (still within 125% ceiling)">+${overcap} over</span>`
+        : '';
       const noRunBadge = noRun ? `<span class="rcc-chip-sub">no run</span>` : '';
       const winLabel = t.window_start ? `${fmtH(parseH(t.window_start))}–${fmtH(parseH(t.window_end))}` : '';
       return `<button class="rcc-chip${onClass}" style="--rcc-color:${c};${disabledStyle}" data-route-id="${routeId||''}" ${clickAttr}>
         <div class="rcc-dot" style="background:${c};"></div>
         <span class="rcc-chip-name">${t.name}</span>
         ${winLabel ? `<span class="rcc-chip-sub">${winLabel}</span>` : ''}
-        ${cntBadge}${noRunBadge}
+        ${cntBadge}${overcapBadge}${noRunBadge}
       </button>`;
     };
 
@@ -18178,7 +18197,7 @@ ${oneCopy}
     const { data: stops } = await db.from('route_stops')
       .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id, estimated_arrival,
                orders(id, status, total_bags, customer_id, pickup_address_id, delivery_address_id,
-                 pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
+                 pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end, overcap_booking,
                  customers(first_name_cache, last_name_cache))`)
       .eq('route_id', routeId)
       .order('stop_number');
@@ -18570,6 +18589,11 @@ ${oneCopy}
     toData.stops.push(stop);
     _dsCountMap[fromRouteId] = Math.max(0, (_dsCountMap[fromRouteId]||1) - 1);
     _dsCountMap[toRouteId] = (_dsCountMap[toRouteId]||0) + 1;
+    // Keep overcap badge in sync when moving an overcap stop between routes
+    if (stop.orders?.overcap_booking) {
+      _dsOvercapMap[fromRouteId] = Math.max(0, (_dsOvercapMap[fromRouteId]||1) - 1);
+      _dsOvercapMap[toRouteId] = (_dsOvercapMap[toRouteId]||0) + 1;
+    }
     rccRenderColumns();
     rccRenderMap();
     rccRenderChips();
@@ -18817,7 +18841,7 @@ ${oneCopy}
     const { data: stops } = await db.from('route_stops')
       .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id, estimated_arrival,
                orders(id, status, total_bags, customer_id, pickup_address_id, delivery_address_id,
-                 pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
+                 pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end, overcap_booking,
                  customers(first_name_cache, last_name_cache))`)
       .eq('route_id', routeId)
       .order('stop_number');
