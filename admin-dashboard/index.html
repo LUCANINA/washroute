@@ -18131,11 +18131,20 @@ ${oneCopy}
   function rccUpdateScrollArrows() {}
 
   // ── RCC: Set AM/PM slot filter and re-render chips ──
+  // Switching AM↔PM fully clears any selected routes so the view starts fresh
+  // with nothing selected — otherwise routes from the prior bucket would stay
+  // rendered in columns + map even though their chip is no longer visible.
   function rccSetSlot(slot) {
     if (slot !== 'AM' && slot !== 'PM') return;
     if (_rccSlot === slot) return;
     _rccSlot = slot;
+    _rccActiveRoutes.clear();
+    _rccRouteData = {};
     rccRenderChips();
+    rccRenderColumns();
+    rccRenderMap();
+    rccUpdatePanelWidth();
+    rccUpdateOptimizeBtn();
   }
 
   // ── RCC: Toggle a route column open/closed ──
