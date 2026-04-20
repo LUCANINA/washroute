@@ -18168,6 +18168,13 @@ ${oneCopy}
     const tpl = _dsTemplates.find(t => t.id === route.template_id);
     const color = tpl?.color || '#3b82f6';
 
+    // Optimistic UI: flip the chip to "selected" immediately so the user
+    // sees instant feedback. Columns + map will render once data arrives
+    // (both rccRenderColumns and rccRenderMap guard against missing _rccRouteData).
+    _rccActiveRoutes.add(routeId);
+    rccRenderChips();
+    rccUpdatePanelWidth();
+
     const { data: stops } = await db.from('route_stops')
       .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id, estimated_arrival,
                orders(id, status, total_bags, customer_id, pickup_address_id, delivery_address_id,
@@ -18235,15 +18242,17 @@ ${oneCopy}
     const driverInitials = driverName === 'Unassigned' ? '?'
       : driverName.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2);
 
+    // Bail if the user deselected this route while we were awaiting the fetch.
+    if (!_rccActiveRoutes.has(routeId)) return;
+
     _rccRouteData[routeId] = {
       route, color, driverName, driverInitials,
       stops: enriched, templateName: tpl?.name || route.name
     };
-    _rccActiveRoutes.add(routeId);
-    rccRenderChips();
+    // Chip + panel width already rendered optimistically above; now fill in
+    // the heavy UI now that data is loaded.
     rccRenderColumns();
     rccRenderMap();
-    rccUpdatePanelWidth();
     rccUpdateOptimizeBtn();
 
     // Auto-fill missing ETAs: if any active (pending or en_route) stop lacks estimated_arrival,
