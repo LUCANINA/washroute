@@ -1510,7 +1510,7 @@ Assignment model (per David's decision): pre-arranged routing by customer. Kasa-
    - Ghost-catch audit check: "orders handled at wrong site" — add once POS starts logging site_id on status changes
 6. ~~**Tech debt flagged:** No trigger yet flags orders whose delivery window has passed without reaching `ready_for_delivery`.~~ ✅ Resolved session 111 — `flag_delivery_orphaned_orders()` + hourly cron now sets `routing_error = 'delivery_orphaned: ...'` so the Issues tab surfaces these automatically.
 7. **Git divergence recovered:** Local branch had drifted from origin/main by ~3 weeks (114 commits). Performed a `git reset --hard origin/main` + re-applied the 2 session commits on top. Pre-existing uncommitted work on `pos-mockup.html` / `PROJECT-NOTES.md` was backed up to `/tmp/wr-backup/*.patch` (not yet restored to working tree).
-8. **Repo was renamed on GitHub: `WashRoute` → `washroute`.** The old URL still works via redirect. When convenient: `git remote set-url origin https://github.com/dmacquart/washroute.git`.
+8. **Repo was renamed on GitHub: `WashRoute` → `washroute`.** The old URL still works via redirect. When convenient: `git remote set-url origin https://github.com/LUCANINA/washroute.git`. *(Apr 20, 2026: repo transferred from `dmacquart` to `LUCANINA` org — local remote updated, GitHub redirects old URL automatically.)*
 
 ---
 
