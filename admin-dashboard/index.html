@@ -18070,11 +18070,30 @@ ${oneCopy}
     rccAutoOpenSlotRoutes();
   }
 
-  // ── RCC: Auto-open all routes that have pending stops (fire-and-forget) ──
+  // ── RCC: Auto-open all routes in the current AM/PM slot that have pending stops ──
   async function rccAutoOpenSlotRoutes() {
-    // Open every route that has at least 1 pending stop — regardless of AM/PM
-    const toOpen = _dsRoutes
-      .filter(r => !_rccActiveRoutes.has(r.id) && (_dsCountMap[r.id] || 0) > 0);
+    // Only auto-open routes whose template falls in the current slot (AM/PM).
+    // Opening "everything" on load dumps both shifts onto the map, which
+    // defeats the point of the toggle. Matches the same slot rule as the
+    // chip strip — long templates (e.g. COMMERCIAL 9AM–3PM) still open
+    // because they qualify for whichever bucket is active.
+    const parseH = v => v == null ? null : parseInt(v);
+    const inSlot = t => {
+      if (!t) return false;
+      if (_rccSlot === 'AM') {
+        const s = parseH(t.window_start);
+        return s == null || s < 12;
+      } else {
+        const e = parseH(t.window_end);
+        return e != null && e > 12;
+      }
+    };
+    const toOpen = _dsRoutes.filter(r => {
+      if (_rccActiveRoutes.has(r.id)) return false;
+      if ((_dsCountMap[r.id] || 0) === 0) return false;
+      const tpl = _dsTemplates.find(t => t.id === r.template_id);
+      return inSlot(tpl);
+    });
     for (const route of toOpen) {
       await rccToggleRoute(route.id);
     }
@@ -18090,9 +18109,14 @@ ${oneCopy}
       return;
     }
 
-    // Auto-default: AM before noon, PM after. Persisted per toggle click.
+    // Auto-default: AM before noon Pacific, PM after. Uses BIZ_TZ so the
+    // default is correct even when the browser's clock is in a different zone.
+    // After first toggle click the choice sticks for the rest of the session.
     if (!_rccSlot) {
-      _rccSlot = (new Date().getHours() < 12) ? 'AM' : 'PM';
+      const bizHour = parseInt(new Date().toLocaleString('en-US', {
+        hour: 'numeric', hour12: false, timeZone: BIZ_TZ
+      }));
+      _rccSlot = (bizHour < 12) ? 'AM' : 'PM';
     }
 
     const fmtH = hr => { const p = hr >= 12 ? 'PM' : 'AM'; return `${hr > 12 ? hr-12 : (hr===0?12:hr)}${p}`; };
