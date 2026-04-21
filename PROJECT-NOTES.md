@@ -663,6 +663,37 @@ Running registry of every customer-record merge performed. Each row captures the
 
 ## Session Log
 
+### Apr 21, 2026 (session 132 pt 4) — Rename 'staff' role → 'pos_device'
+
+**Context:** With the POS launcher shipped (pt 3), David noticed the Foothill POS account on the Team page still showed a "STAFF" badge. The 'staff' role was a generic holdover from early setup — the one and only holder was the shared POS device account (`pos-foothill@familylaundry.com`). Renamed for semantic clarity.
+
+**Scoping decisions (AskUserQuestion):**
+- Label → **"POS Device"**.
+- Depth → **Rename DB role too** (full migration, not just a display label flip) so the DB value matches the badge and there's no lingering `'staff'` mismatch.
+
+**Pre-work check:** `SELECT id, email, role FROM profiles WHERE role='staff'` returned exactly one row (Foothill POS). No other humans would be affected. No dropdowns have `value="staff"` anywhere in the admin dashboard — the 'staff' role was only ever created via a direct DB insert, never via the UI — so there's no user-facing option surface to renumber.
+
+**What was done:**
+
+1. **Migration `session_132_rename_staff_to_pos_device`:**
+   - Drop `profiles_role_check`, UPDATE the single `role='staff'` row to `role='pos_device'`, re-install CHECK with `'staff'` removed and `'pos_device'` added (allowed set is now: customer, driver, admin, manager, laundry_tech, attendant, pos_device).
+   - `CREATE OR REPLACE FUNCTION protect_staff_auth_users()` — added `'pos_device'` to the blocklist. Previously `'staff'` was NOT in the list (since attendants were added in pt 2 without back-filling 'staff'), which meant the Foothill POS account had weaker delete protection than other staff rows. Renaming gave us a reason to close that gap.
+2. **Admin dashboard — 3 targeted edits:**
+   - CSS: `.team-role-badge.staff` → `.team-role-badge.pos_device` (same sky-blue styling, just the class hook renamed so the badge renders correctly post-migration).
+   - `ROLE_LABELS_MAP`: replaced `staff: 'Staff'` with `pos_device: 'POS Device'`.
+   - `loadTeamPage()` query filter: `.in('role', [..., 'staff'])` → `.in('role', [..., 'pos_device'])` so the Foothill POS row still surfaces on the Team page.
+3. **Intentionally left alone — two defensive sentinel fallbacks** that still literal-string `'staff'`:
+   - Line 5096: `const role = profile?.role || 'staff';` — fires only if `profile.role` is nullish (shouldn't happen; `handle_new_user` always seeds a role).
+   - Line 5501: `document.getElementById('tm-role').value = p.role || 'staff';` — dropdown default for an edit modal, but no `<option value="staff">` exists so the dropdown just shows blank if this path fires.
+   Both are client-side-only sentinels that never reach the DB. Changing them was out of scope and risked altering a sign-out edge case.
+
+**QA + verification:**
+- `SELECT role, count(*) FROM profiles GROUP BY role` confirms 0 'staff' rows, 1 'pos_device' row, all other counts unchanged.
+- admin-dashboard syntax-clean via `new Function()` parse.
+- `grep -n "'staff'"` in admin-dashboard returns 2 matches, both flagged above as intentional defensive fallbacks.
+
+**Reversibility:** Trivial — UPDATE 'pos_device' back to 'staff' (after DROP CHECK), re-add old CHECK with 'staff' instead of 'pos_device', `CREATE OR REPLACE` trigger back to the prior blocklist.
+
 ### Apr 21, 2026 (session 132 pt 3) — POS launcher in admin sidebar
 
 **Context:** With the attendant role + PINs shipped (pt 2), David asked whether to add a POS page to the admin sidebar and give attendants permission to see only it. Decision (AskUserQuestion): **Launcher for admins/managers** — attendants don't have admin-app login credentials (their emails are non-deliverable `.local` placeholders with no password), so they can't visit the admin dashboard at all; the launcher's only purpose is letting admins + managers jump to `pos.familylaundry.com` in a new tab without leaving the admin sidebar.

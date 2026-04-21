@@ -1142,7 +1142,7 @@
     .team-role-badge.manager { background:#fef3c7;color:#92400e; }
     .team-role-badge.laundry_tech { background:#d1fae5;color:#065f46; }
     .team-role-badge.attendant { background:#ede9fe;color:#5b21b6; }
-    .team-role-badge.staff { background:#f0f9ff;color:#0369a1; }
+    .team-role-badge.pos_device { background:#f0f9ff;color:#0369a1; }
     .team-actions { display:flex;gap:8px; }
     /* Billing feature */
     .bill-badge { display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap; }
@@ -5241,7 +5241,7 @@
   });
 
   // ── ROLE-BASED NAV ──
-  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', attendant: 'Attendant', staff: 'Staff' };
+  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', attendant: 'Attendant', pos_device: 'POS Device' };
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','drivers','pos',
                         'reports','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
@@ -5294,7 +5294,7 @@
     const { data, error } = await db
       .from('profiles')
       .select('id, first_name, last_name, email, phone, role, pos_pin')
-      .in('role', ['admin', 'manager', 'laundry_tech', 'attendant', 'staff'])
+      .in('role', ['admin', 'manager', 'laundry_tech', 'attendant', 'pos_device'])
       .order('role').order('first_name');
     if (error || !data) {
       container.innerHTML = '<div style="color:var(--red);text-align:center;padding:40px 0">Failed to load team.</div>';
