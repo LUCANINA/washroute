@@ -1141,6 +1141,7 @@
     .team-role-badge.admin { background:#dbeafe;color:#1e40af; }
     .team-role-badge.manager { background:#fef3c7;color:#92400e; }
     .team-role-badge.laundry_tech { background:#d1fae5;color:#065f46; }
+    .team-role-badge.attendant { background:#ede9fe;color:#5b21b6; }
     .team-role-badge.staff { background:#f0f9ff;color:#0369a1; }
     .team-actions { display:flex;gap:8px; }
     /* Billing feature */
@@ -2713,6 +2714,7 @@
                 <div style="margin-bottom:18px">
                   <label style="font-size:12px;font-weight:600;color:var(--gray-600);display:block;margin-bottom:5px">Role</label>
                   <select id="invite-role" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none">
+                    <option value="attendant">Attendant (POS only)</option>
                     <option value="laundry_tech">Laundry Tech (Processing only)</option>
                     <option value="manager">Manager (Operations)</option>
                     <option value="admin">Admin (Full access)</option>
@@ -2748,6 +2750,7 @@
                 <div style="margin-bottom:18px">
                   <label style="font-size:12px;font-weight:600;color:var(--gray-600);display:block;margin-bottom:5px">Role</label>
                   <select id="create-role" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none">
+                    <option value="attendant">Attendant (POS only)</option>
                     <option value="laundry_tech">Laundry Tech (Processing only)</option>
                     <option value="manager">Manager (Operations)</option>
                     <option value="admin">Admin (Full access)</option>
@@ -2770,6 +2773,7 @@
               <h3 style="margin:0 0 6px;font-size:16px;font-weight:700">Change Role</h3>
               <p id="role-modal-name" style="margin:0 0 18px;font-size:14px;color:var(--gray-600)"></p>
               <select id="role-modal-select" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none;margin-bottom:22px">
+                <option value="attendant">Attendant (POS only)</option>
                 <option value="laundry_tech">Laundry Tech (Processing only)</option>
                 <option value="manager">Manager (Operations)</option>
                 <option value="admin">Admin (Full access)</option>
@@ -2822,6 +2826,7 @@
     <div class="so-section">
       <div class="so-label">Role</div>
       <select class="form-input" id="tm-role" style="background:white">
+        <option value="attendant">Attendant (POS only)</option>
         <option value="laundry_tech">Laundry Tech (Processing only)</option>
         <option value="manager">Manager (Operations)</option>
         <option value="admin">Admin (Full access)</option>
@@ -4507,7 +4512,7 @@
     }
     return out;
   }
-  let currentUserRole = null; // 'admin' | 'manager' | 'laundry_tech'
+  let currentUserRole = null; // 'admin' | 'manager' | 'laundry_tech' | 'attendant'
   let currentUserId   = null; // logged-in admin's auth user ID
   let currentUserFirstName = null; // first name of logged-in user (for nudge SMS etc.)
   let rolePermissions = {};   // { page_id: true/false } — loaded from role_permissions table
@@ -5231,7 +5236,7 @@
   });
 
   // ── ROLE-BASED NAV ──
-  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', staff: 'Staff' };
+  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', attendant: 'Attendant', staff: 'Staff' };
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','drivers',
                         'reports','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
@@ -5276,7 +5281,7 @@
     notifications:'Notifications', maps:'Delivery Zones', launderers:'Launderers',
     racks:'Racks', discounts:'Discounts', team:'Team', settings:'General'
   };
-  const EDITABLE_ROLES = ['manager', 'laundry_tech']; // admin is always full access
+  const EDITABLE_ROLES = ['manager', 'laundry_tech', 'attendant']; // admin is always full access
 
   async function loadTeamPage() {
     const container = document.getElementById('team-list');
@@ -5284,7 +5289,7 @@
     const { data, error } = await db
       .from('profiles')
       .select('id, first_name, last_name, email, phone, role, pos_pin')
-      .in('role', ['admin', 'manager', 'laundry_tech', 'staff'])
+      .in('role', ['admin', 'manager', 'laundry_tech', 'attendant', 'staff'])
       .order('role').order('first_name');
     if (error || !data) {
       container.innerHTML = '<div style="color:var(--red);text-align:center;padding:40px 0">Failed to load team.</div>';
@@ -5334,8 +5339,8 @@
       perms[r.role][r.page_id] = r.allowed;
     });
 
-    const roles = ['admin', 'manager', 'laundry_tech'];
-    const roleHeaders = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech' };
+    const roles = ['admin', 'manager', 'laundry_tech', 'attendant'];
+    const roleHeaders = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', attendant: 'Attendant' };
 
     let html = `<table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr>
@@ -13997,8 +14002,8 @@ ${oneCopy}
   function custComboFilter(term) {
     const t = term.trim().toLowerCase();
     const list = document.getElementById('o-customer-list');
-    // Exclude drivers and laundry techs from the order customer picker (admins can also be customers)
-    const realCustomers = allCustomers.filter(c => !c.profiles?.role || !['driver','laundry_tech'].includes(c.profiles.role));
+    // Exclude drivers, laundry techs, and attendants from the order customer picker (admins can also be customers)
+    const realCustomers = allCustomers.filter(c => !c.profiles?.role || !['driver','laundry_tech','attendant'].includes(c.profiles.role));
     const filtered = t
       ? realCustomers.filter(c => {
           const p  = custProfile(c);
@@ -14108,8 +14113,8 @@ ${oneCopy}
     }
 
     // Init combobox — use prefilled customer if provided, otherwise first real customer
-    // Exclude drivers and laundry techs from the default selection (admins can also be customers)
-    const _orderableCustomers = allCustomers.filter(c => !c.profiles?.role || !['driver','laundry_tech'].includes(c.profiles.role));
+    // Exclude drivers, laundry techs, and attendants from the default selection (admins can also be customers)
+    const _orderableCustomers = allCustomers.filter(c => !c.profiles?.role || !['driver','laundry_tech','attendant'].includes(c.profiles.role));
     if (_orderableCustomers.length) {
       const target = prefillCustomerId
         ? (allCustomers.find(c => c.id === prefillCustomerId) || _orderableCustomers[0])
