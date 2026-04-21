@@ -7284,37 +7284,56 @@
     // This is ~500 rows instead of ~2000, cutting load time by ~75%
     _deliveredLoaded = false;
     _sideFetchDone = false;
+    _custWithCard = new Set(); _custCardAddedAt = new Map(); _cardRequestSent = new Map();
     const activeStatuses = ['scheduled','confirmed','pending_confirmation','picked_up','processing','folding','ready_for_delivery','out_for_delivery','on_hold','delivery_failed','pickup_failed'];
-    const { data: activeData, error } = await db.from('orders')
-      .select(_orderSelectCols)
-      .in('status', activeStatuses)
-      .order('created_at', { ascending: false });
+
+    // Fetch orders + the full card cache IN PARALLEL so the payment icon
+    // renders correctly on the first paint (no "no card on file" flash).
+    // customer_payment_methods is small (~800 rows) so a full unfiltered
+    // fetch is cheap and runs alongside the orders query.
+    const [activeResult, cardsResult] = await Promise.all([
+      db.from('orders')
+        .select(_orderSelectCols)
+        .in('status', activeStatuses)
+        .order('created_at', { ascending: false }),
+      db.from('customer_payment_methods').select('customer_id, created_at'),
+    ]);
+    const { data: activeData, error } = activeResult;
     if (error) {
       console.error('loadOrders error:', error);
       if (el) el.innerHTML = `<div class="empty"><div class="empty-title" style="color:var(--red)">Failed to load orders</div><div class="empty-sub">${error.message}</div></div>`;
       return;
     }
     allOrders = activeData || [];
-    _custWithCard = new Set(); _custCardAddedAt = new Map(); _cardRequestSent = new Map();
+    // Populate card cache BEFORE first render so icons paint correctly
+    if (cardsResult.error) {
+      console.warn('card cache prefetch failed:', cardsResult.error);
+    } else {
+      for (const r of (cardsResult.data || [])) {
+        _custWithCard.add(r.customer_id);
+        const prev = _custCardAddedAt.get(r.customer_id);
+        if (!prev || r.created_at > prev) _custCardAddedAt.set(r.customer_id, r.created_at);
+      }
+    }
 
-    // Stat cards + pill counts + render
+    // Stat cards + pill counts + render — now with correct payment icons
     updateOrderStatCards();
     updateOrderFilterCounts();
     renderOrders(getFilteredOrders());
 
     // Phase 2: Background load — delivered + terminal orders and side-fetches
-    // This happens after the page is already interactive
+    // (SMS/email request history for the Issues tab). This happens after the
+    // page is already interactive. The card cache is already populated above,
+    // so the side-fetch only runs SMS/email queries for customers without a
+    // card on file (the filter at _loadOrdersSideFetches skips cached IDs).
     _loadDeliveredOrders().then(() => {
       // Re-render only if user is still on the orders/delivered tab
       if (currentPage === 'orders' && currentOrderFilter === 'delivered') renderOrders(getFilteredOrders());
     });
     _loadOrdersSideFetches().then(() => {
-      // Re-render if user is still on any orders tab — the payment icon
-      // (rendered in the Total column) depends on _custWithCard, which this
-      // call populates. Without the re-render, rows painted before this
-      // resolves show the "No card on file" warning for every customer until
-      // something else forces a redraw (tab switch).
-      if (currentPage === 'orders') renderOrders(getFilteredOrders());
+      // Re-render if user is still on the Issues tab — SMS/email data drives
+      // the "Request card" vs "Requested" vs "Update card" button state there.
+      if (currentPage === 'orders' && currentOrderFilter === 'issues') renderOrders(getFilteredOrders());
     });
   }
 
