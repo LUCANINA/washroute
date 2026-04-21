@@ -1260,6 +1260,11 @@
         Drivers
         <span class="nav-badge" id="admin-msg-badge" style="display:none;background:var(--red)">0</span>
       </div>
+      <div class="nav-item" data-page="pos" data-section="ops" onclick="openPosLauncher()" title="Open POS in a new tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="8" y2="15"/><line x1="10" y1="15" x2="12" y2="15"/></svg>
+        POS
+        <svg style="width:11px;height:11px;margin-left:auto;opacity:.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M14 10l7-7M10 21H5a2 2 0 01-2-2v-5"/></svg>
+      </div>
       <div class="sidebar-section-label" data-section="analytics">Analytics</div>
       <div id="nav-reports" class="nav-item" data-page="reports" data-section="analytics" onclick="showPage('reports',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
@@ -5237,7 +5242,7 @@
 
   // ── ROLE-BASED NAV ──
   const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', attendant: 'Attendant', staff: 'Staff' };
-  const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','drivers',
+  const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','drivers','pos',
                         'reports','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
 
@@ -5277,7 +5282,7 @@
 
   const PAGE_LABELS = {
     overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing',
-    inbox:'Inbox', drivers:'Drivers', reports:'Reports', services:'Services',
+    inbox:'Inbox', drivers:'Drivers', pos:'POS', reports:'Reports', services:'Services',
     notifications:'Notifications', maps:'Delivery Zones', launderers:'Launderers',
     racks:'Racks', discounts:'Discounts', team:'Team', settings:'General'
   };
@@ -5751,12 +5756,23 @@
   const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', settings:'General', team:'Team' };
   const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', settings:'', team:'' };
 
+  // POS launcher — opens the POS app in a new tab (not an SPA page, just an external link)
+  function openPosLauncher() {
+    if (!canAccessPage('pos')) {
+      showToast("You don't have permission to open the POS.", 'error');
+      return;
+    }
+    window.open('https://pos.familylaundry.com', '_blank', 'noopener');
+  }
+
   function showPage(id, navEl) {
+    // POS is an external launcher, not an SPA page — reroute to openPosLauncher
+    if (id === 'pos') { openPosLauncher(); return; }
     // Role guard — check dynamic permissions
     if (!canAccessPage(id)) {
       showToast("You don't have permission to view that page.", 'error');
-      // Redirect to first allowed page
-      const fallback = ALL_PAGE_IDS.find(p => canAccessPage(p)) || 'processing';
+      // Redirect to first allowed page (skip 'pos' — it's external, not a real SPA page to fall through to)
+      const fallback = ALL_PAGE_IDS.find(p => p !== 'pos' && canAccessPage(p)) || 'processing';
       showPage(fallback, document.querySelector(`.nav-item[data-page="${fallback}"]`));
       return;
     }

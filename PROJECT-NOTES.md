@@ -663,6 +663,36 @@ Running registry of every customer-record merge performed. Each row captures the
 
 ## Session Log
 
+### Apr 21, 2026 (session 132 pt 3) — POS launcher in admin sidebar
+
+**Context:** With the attendant role + PINs shipped (pt 2), David asked whether to add a POS page to the admin sidebar and give attendants permission to see only it. Decision (AskUserQuestion): **Launcher for admins/managers** — attendants don't have admin-app login credentials (their emails are non-deliverable `.local` placeholders with no password), so they can't visit the admin dashboard at all; the launcher's only purpose is letting admins + managers jump to `pos.familylaundry.com` in a new tab without leaving the admin sidebar.
+
+**What was done:**
+
+1. **Admin dashboard nav (`admin-dashboard/index.html`):**
+   - New `.nav-item` added directly after Drivers in the Ops section, with a receipt-style SVG icon and a faint external-link glyph on the right to telegraph that clicking opens a new tab. Uses `onclick="openPosLauncher()"` + `title="Open POS in a new tab"`.
+   - New `openPosLauncher()` function — guards with `canAccessPage('pos')` (shows error toast if the current user's role can't see POS) and calls `window.open('https://pos.familylaundry.com', '_blank', 'noopener')`.
+   - `showPage(id, navEl)` patched at the top to reroute `id === 'pos'` → `openPosLauncher()` and to **exclude 'pos' from the permission-denied fallback** (`ALL_PAGE_IDS.find(p => p !== 'pos' && canAccessPage(p))`) so nobody can accidentally land on a nonexistent `page-pos` element.
+   - Added `'pos'` to `ALL_PAGE_IDS` and `PAGE_LABELS = { ..., pos: 'POS' }` so the permissions table on the Team page exposes a POS row per role, letting David toggle access later if the model changes.
+
+2. **Database — `role_permissions` seed (no migration needed, just a seed):**
+   ```sql
+   INSERT INTO role_permissions (role, page_id, allowed) VALUES
+     ('admin', 'pos', true),
+     ('manager', 'pos', true),
+     ('laundry_tech', 'pos', false),
+     ('attendant', 'pos', false)
+   ON CONFLICT (role, page_id) DO UPDATE SET allowed = EXCLUDED.allowed;
+   ```
+   Admins + managers see the POS nav item immediately; laundry_techs and attendants don't (even if an attendant ever logged into the admin app, they wouldn't see the launcher). Defaults can be flipped per-role in the Team page permissions table.
+
+**QA + verification:**
+- Syntax-check: `new Function(...)` on the full script block parses clean.
+- DB state: 4 rows present in `role_permissions` for `page_id='pos'` with the correct booleans.
+- Architecture sanity: the POS is an **external URL**, not a SPA page — there is intentionally no `page-pos` `<section>`. The two guards in `showPage` (reroute + exclude from fallback) prevent any accidental navigation to a nonexistent page.
+
+**Reversibility:** Trivial. Remove the nav item + `openPosLauncher()` + showPage reroute; `DELETE FROM role_permissions WHERE page_id='pos';` to drop the seeded rows.
+
 ### Apr 21, 2026 (session 132 pt 2) — 'attendant' role + 9 launderer POS accounts with PINs
 
 **Context:** With the PIN UI from session 132 pt 1 live, David asked to set PINs for 9 named launderers (Angelica Sanchez, Benita Juarez, Juana Olivar Casiano, Martha Cruz, Mayra Menjivar, Odixci Abiles, Ofir Sanchez, Sandra Ozuna Lorenzo, Yorleny Abiles). Discovered those humans live in a separate `launderers` table (lightweight — `id`, `name`, `is_active`; 17 rows total) not in `profiles`, so they couldn't receive PINs via the new UI and couldn't sign in on the POS at all. Also discovered the existing `laundry_tech` role is specifically for the admin-dashboard Processing Queue — it is **not** the same as the POS-facing floor staff David wanted to give sign-in access to.
