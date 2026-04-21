@@ -279,7 +279,6 @@
 
     /* ── FORM SECTION HEADS ── */
     .form-section-head { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--gray-400); padding-bottom:10px; border-bottom:1px solid var(--gray-100); margin-bottom:14px; }
-    .ctype-active { border-color:var(--accent) !important; background:var(--accent-light); color:var(--accent) !important; }
 
     /* ── TOAST ── */
     .toast { position: fixed; bottom: 24px; right: 24px; background: var(--gray-900); color: white; padding: 12px 18px; border-radius: var(--radius); font-size: 13.5px; font-weight: 500; z-index: 999; box-shadow: var(--shadow); transform: translateY(80px); opacity: 0; transition: all .25s; }
@@ -3042,20 +3041,6 @@
     </div>
     <div class="modal-body">
 
-      <!-- ── Customer Type ── -->
-      <div style="display:flex;gap:20px;margin-bottom:20px;">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px;font-weight:500;color:var(--gray-700);padding:9px 16px;border:1.5px solid var(--gray-200);border-radius:var(--radius);flex:1;transition:all .12s;" id="ctype-individual-label">
-          <input type="radio" name="c-type" value="individual" id="c-type-individual" checked style="accent-color:var(--accent);" onchange="highlightCtype()" />
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-          Individual
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px;font-weight:500;color:var(--gray-700);padding:9px 16px;border:1.5px solid var(--gray-200);border-radius:var(--radius);flex:1;transition:all .12s;" id="ctype-business-label">
-          <input type="radio" name="c-type" value="business" id="c-type-business" style="accent-color:var(--accent);" onchange="highlightCtype()" />
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
-          Business / Group
-        </label>
-      </div>
-
       <!-- ── Contact Info ── -->
       <div class="form-section-head">Contact Information</div>
       <div class="form-row">
@@ -3108,6 +3093,28 @@
       <div class="form-group">
         <label class="form-label">Access &amp; Delivery Instructions</label>
         <textarea class="form-textarea" id="c-access" placeholder="Gate code #1234 · Leave at back door · Ring back doorbell · Dog in yard — leave bag on porch…" style="min-height:58px;"></textarea>
+      </div>
+
+      <!-- ── Pricing & Billing ── -->
+      <div class="form-section-head" style="margin-top:20px;">Pricing &amp; Billing</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Price List</label>
+          <select class="form-select" id="c-pricelist">
+            <option value="Delivery">Delivery (residential)</option>
+            <option value="Commercial">Commercial (per-lb)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Billing Type</label>
+          <select class="form-select" id="c-billing-type" onchange="document.getElementById('c-onaccount-note').style.display=this.value==='on_account'?'':'none'">
+            <option value="automatic">Automatic — charge card on file</option>
+            <option value="on_account">On Account — invoice / net terms</option>
+          </select>
+        </div>
+      </div>
+      <div id="c-onaccount-note" style="display:none;font-size:12px;color:var(--gray-500);line-height:1.5;margin-top:-4px;margin-bottom:4px;padding:8px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);">
+        <strong style="color:var(--gray-700);">On-account customers</strong> are billed by invoice — no card required up front. You can assign them to a billing group later from the customer panel.
       </div>
 
       <!-- ── Plan & Referral ── -->
@@ -12055,8 +12062,10 @@ ${oneCopy}
     document.getElementById('c-source').value = '';
     document.getElementById('c-ambassador-row').style.display = 'none';
     document.getElementById('c-error').style.display = 'none';
-    document.getElementById('c-type-individual').checked = true;
-    highlightCtype();
+    // Default pricing & billing to the most common case (residential card-on-file)
+    document.getElementById('c-pricelist').value = 'Delivery';
+    document.getElementById('c-billing-type').value = 'automatic';
+    document.getElementById('c-onaccount-note').style.display = 'none';
     // Load subscription plans
     const { data: plans } = await db.from('subscription_plans').select('*').eq('is_active', true).order('price');
     const sel = document.getElementById('c-plan');
@@ -12065,16 +12074,6 @@ ${oneCopy}
   }
 
   // ── CUSTOMER FORM UX HELPERS ──
-  function highlightCtype() {
-    const isInd = document.getElementById('c-type-individual').checked;
-    [['ctype-individual-label', isInd], ['ctype-business-label', !isInd]].forEach(([id, active]) => {
-      const el = document.getElementById(id);
-      el.style.borderColor = active ? 'var(--accent)'       : 'var(--gray-200)';
-      el.style.background  = active ? 'var(--accent-light)' : 'white';
-      el.style.color       = active ? 'var(--accent)'       : 'var(--gray-700)';
-    });
-  }
-
   function toggleAmbassador(val) {
     document.getElementById('c-ambassador-row').style.display = val === 'ambassador' ? '' : 'none';
   }
@@ -14631,7 +14630,8 @@ ${oneCopy}
     err.style.display = 'none';
 
     // Collect all fields
-    const accountType = document.querySelector('input[name="c-type"]:checked')?.value || 'individual';
+    const pricelist   = document.getElementById('c-pricelist').value || 'Delivery';
+    const billingType = document.getElementById('c-billing-type').value || 'automatic';
     const first  = document.getElementById('c-first').value.trim();
     const last   = document.getElementById('c-last').value.trim();
     const email  = document.getElementById('c-email').value.trim();
@@ -14665,8 +14665,8 @@ ${oneCopy}
         referral_source:      source || null,
         ambassador_code:      ambassador,
         subscription_plan_id: planId || null,
-        pricelist:            'Delivery',
-        account_type:         accountType,
+        pricelist:            pricelist,
+        billing_type:         billingType,
         first_name_cache:     first,
         last_name_cache:      last || null,
         email_cache:          email || null,
