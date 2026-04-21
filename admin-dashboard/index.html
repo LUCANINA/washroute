@@ -7309,8 +7309,12 @@
       if (currentPage === 'orders' && currentOrderFilter === 'delivered') renderOrders(getFilteredOrders());
     });
     _loadOrdersSideFetches().then(() => {
-      // Re-render if user is still on the orders/issues tab
-      if (currentPage === 'orders' && currentOrderFilter === 'issues') renderOrders(getFilteredOrders());
+      // Re-render if user is still on any orders tab — the payment icon
+      // (rendered in the Total column) depends on _custWithCard, which this
+      // call populates. Without the re-render, rows painted before this
+      // resolves show the "No card on file" warning for every customer until
+      // something else forces a redraw (tab switch).
+      if (currentPage === 'orders') renderOrders(getFilteredOrders());
     });
   }
 
