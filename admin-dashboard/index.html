@@ -2839,6 +2839,15 @@
       </label>
       <div style="font-size:11.5px;color:var(--gray-400);margin-top:5px">When enabled, this person can log into the driver app with their phone number.</div>
     </div>
+    <div class="so-section">
+      <div class="so-label">POS PIN</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="form-input" id="tm-pin" type="text" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="4-digit PIN" autocomplete="off" style="letter-spacing:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-width:140px" oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)">
+        <button type="button" class="btn btn-ghost" id="tm-pin-clear" onclick="clearTmPin()" style="font-size:12.5px;padding:6px 10px;display:none">Clear</button>
+        <span id="tm-pin-status" style="font-size:12px;color:var(--gray-500)"></span>
+      </div>
+      <div style="font-size:11.5px;color:var(--gray-400);margin-top:5px">Used to sign in on the shared POS iPad. Must be exactly 4 digits and unique across the team.</div>
+    </div>
   </div>
   <div class="slide-over-footer">
     <div id="tm-error" style="display:none;color:var(--red);font-size:12.5px;flex:1;line-height:1.4"></div>
@@ -5274,7 +5283,7 @@
     container.innerHTML = '<div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>';
     const { data, error } = await db
       .from('profiles')
-      .select('id, first_name, last_name, email, phone, role')
+      .select('id, first_name, last_name, email, phone, role, pos_pin')
       .in('role', ['admin', 'manager', 'laundry_tech', 'staff'])
       .order('role').order('first_name');
     if (error || !data) {
@@ -5291,6 +5300,9 @@
       const roleLabel = ROLE_LABELS_MAP[p.role] || 'Staff';
       const emailLine = p.email ? `<div style="font-size:12.5px;color:var(--gray-500);margin-top:1px">${p.email}</div>` : '';
       const phoneLine = p.phone ? `<div style="font-size:12.5px;color:var(--gray-500)">${p.phone}</div>` : '';
+      const pinChip   = p.pos_pin ? `<span title="POS PIN set" style="display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:600;color:var(--gray-600);background:var(--gray-100);padding:2px 7px;border-radius:999px;margin-right:6px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="10" height="10"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        PIN</span>` : '';
       const encoded = encodeURIComponent(JSON.stringify({ id: p.id, first: p.first_name||'', last: p.last_name||'', email: p.email||'', phone: p.phone||'', role: p.role }));
       return `
         <div class="team-card" onclick="openTeamMemberEditor('${encoded}')" style="cursor:pointer">
@@ -5299,7 +5311,7 @@
             <div class="team-name">${name}</div>
             ${emailLine}${phoneLine}
           </div>
-          <span class="team-role-badge ${p.role}">${roleLabel}</span>
+          ${pinChip}<span class="team-role-badge ${p.role}">${roleLabel}</span>
         </div>`;
     }).join('');
 
@@ -5464,6 +5476,9 @@
     document.getElementById('tm-driver-thumb').style.transform  = on ? 'translateX(16px)' : 'translateX(0)';
   }
 
+  // Tracks the PIN value the slideover opened with so we only UPDATE when it actually changes.
+  let _tmOriginalPin = null;
+
   async function openTeamMemberEditor(encoded) {
     const p = JSON.parse(decodeURIComponent(encoded));
     _tmProfileId = p.id;
@@ -5477,15 +5492,38 @@
     document.getElementById('tm-error').style.display = 'none';
     document.getElementById('tm-save-btn').disabled = false;
     document.getElementById('tm-save-btn').textContent = 'Save';
+    // Reset PIN field while we fetch the latest value (avoids flashing previous user's PIN)
+    document.getElementById('tm-pin').value = '';
+    document.getElementById('tm-pin-clear').style.display = 'none';
+    document.getElementById('tm-pin-status').textContent = 'Loading…';
+    _tmOriginalPin = null;
     // Hide delete button for own account
     document.getElementById('tm-delete-btn').style.display = p.id === currentUserId ? 'none' : '';
-    // Check if this person has a drivers row
-    const { data: drvRow } = await db.from('drivers').select('id').eq('profile_id', p.id).maybeSingle();
+    // Fetch PIN + drivers row in parallel. Snapshot the profile id so a
+    // fast re-open (user closes and clicks a different row) can't have
+    // the previous fetch clobber the new row's UI state.
+    const fetchForId = p.id;
+    const [{ data: drvRow }, { data: profRow }] = await Promise.all([
+      db.from('drivers').select('id').eq('profile_id', p.id).maybeSingle(),
+      db.from('profiles').select('pos_pin').eq('id', p.id).maybeSingle(),
+    ]);
+    if (_tmProfileId !== fetchForId) return; // stale — another open happened
     _tmHasDriverRow = !!drvRow;
     document.getElementById('tm-driver-toggle').checked = _tmHasDriverRow;
     syncTmDriverToggle();
+    const currentPin = profRow?.pos_pin || null;
+    _tmOriginalPin = currentPin;
+    document.getElementById('tm-pin').value = currentPin || '';
+    document.getElementById('tm-pin-clear').style.display = currentPin ? '' : 'none';
+    document.getElementById('tm-pin-status').textContent = currentPin ? 'Currently set' : 'None set';
     document.getElementById('slideover-team-member').classList.add('open');
     document.getElementById('team-member-backdrop').style.display = 'block';
+  }
+
+  function clearTmPin() {
+    document.getElementById('tm-pin').value = '';
+    document.getElementById('tm-pin-clear').style.display = 'none';
+    document.getElementById('tm-pin-status').textContent = _tmOriginalPin ? 'Will clear on save' : 'None set';
   }
 
   function closeTeamMemberEditor() {
@@ -5503,12 +5541,31 @@
     const phone  = document.getElementById('tm-phone').value.trim();
     const role   = document.getElementById('tm-role').value;
     const wantsDriver = document.getElementById('tm-driver-toggle').checked;
+    const pinRaw = document.getElementById('tm-pin').value.trim();
     errEl.style.display = 'none';
+
+    // Validate PIN: blank (clear) or exactly 4 digits
+    let pinToSave; // undefined = don't touch, null = clear, string = set
+    if (pinRaw === '') {
+      pinToSave = _tmOriginalPin ? null : undefined;
+    } else if (/^\d{4}$/.test(pinRaw)) {
+      pinToSave = pinRaw === _tmOriginalPin ? undefined : pinRaw;
+    } else {
+      errEl.textContent = 'POS PIN must be exactly 4 digits.'; errEl.style.display = 'block'; return;
+    }
+
     btn.disabled = true; btn.textContent = 'Saving…';
+    // Build update payload
+    const patch = { first_name: first || null, last_name: last || null, phone: phone || null, role };
+    if (pinToSave !== undefined) patch.pos_pin = pinToSave;
     // Save profile
-    const { error } = await db.from('profiles').update({ first_name: first || null, last_name: last || null, phone: phone || null, role }).eq('id', _tmProfileId);
+    const { error } = await db.from('profiles').update(patch).eq('id', _tmProfileId);
     if (error) {
-      errEl.textContent = 'Save failed: ' + error.message; errEl.style.display = 'block';
+      // Surface PIN-collision error nicely (partial unique index: profiles_pos_pin_unique)
+      const msg = (error.code === '23505' || /profiles_pos_pin_unique|pos_pin/i.test(error.message || ''))
+        ? 'That PIN is already used by another team member. Pick a different 4-digit code.'
+        : 'Save failed: ' + error.message;
+      errEl.textContent = msg; errEl.style.display = 'block';
       btn.disabled = false; btn.textContent = 'Save'; return;
     }
     // Handle driver access toggle

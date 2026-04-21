@@ -1777,6 +1777,10 @@
             <div class="pay-total">
               <div class="pay-total-label">Total due</div>
               <div class="pay-total-value" id="payTotal">$0.00</div>
+              <div id="payTipRow" style="display:none;font-size:13px;color:var(--gray-500);margin-top:6px;">
+                Includes <span id="payTipAmt">$0.00</span> tip
+                · <a href="#" onclick="event.preventDefault();reopenTipFromPay()" style="color:var(--accent);font-weight:600;text-decoration:none">change</a>
+              </div>
             </div>
             <div class="pay-methods">
               <button class="pay-method" onclick="payWithCard()">
@@ -1791,6 +1795,78 @@
               </button>
             </div>
             <div id="payError" style="display:none; margin-top:14px; padding:10px 12px; background:var(--red-light); color:var(--red); border-radius:8px; font-size:13px; font-weight:600;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════
+           MODAL: Tip prompt — customer-facing (session 132)
+           Shown only for laundry drop-offs, between Charge tap
+           and pay-method selection. Flip iPad toward customer.
+           ══════════════════════════════════════════════════════ -->
+      <div class="modal-overlay" id="tipModal">
+        <div class="modal" style="max-width: 560px;">
+          <div class="modal-header">
+            <div style="flex:1">
+              <div class="modal-title" style="font-size:24px;">Add a tip?</div>
+              <div class="modal-sub" style="font-size:14px;">100% of tips go to our laundry team</div>
+            </div>
+            <button class="modal-close" onclick="closeAll()" aria-label="Close">×</button>
+          </div>
+          <div class="modal-body" style="padding: 6px 24px 24px;">
+            <div class="pay-total" style="margin-bottom:14px;">
+              <div class="pay-total-label">Subtotal</div>
+              <div class="pay-total-value" id="tipSubtotalAmt" style="font-size:28px;">$0.00</div>
+            </div>
+            <div id="tipPresets" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;">
+              <!-- filled by renderTipPresets() -->
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <button class="tip-btn tip-btn-secondary" onclick="openTipCustom()" style="padding:18px;border:2px solid var(--gray-200);background:white;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;color:var(--gray-800);">
+                Custom amount
+              </button>
+              <button class="tip-btn tip-btn-skip" onclick="setTipAndContinue(0)" style="padding:18px;border:2px solid var(--gray-200);background:white;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;color:var(--gray-600);">
+                No tip
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════════════════════════════
+           MODAL: Custom tip amount (session 132)
+           ══════════════════════════════════════════════════════ -->
+      <div class="modal-overlay" id="tipCustomModal">
+        <div class="modal" style="max-width: 380px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Custom tip</div>
+              <div class="modal-sub">Enter amount</div>
+            </div>
+            <button class="modal-close" onclick="backToTipModal()" aria-label="Back">×</button>
+          </div>
+          <div class="modal-body" style="padding: 10px 20px 18px;">
+            <div class="cash-tendered-display" style="margin-bottom:14px;">
+              <div class="cash-tendered-label">Tip amount</div>
+              <div class="cash-tendered-value" id="tipCustomValue">$0.00</div>
+            </div>
+            <div class="numpad" style="margin-bottom: 8px;">
+              <button class="numkey" onclick="tipCustomKey('1')">1</button>
+              <button class="numkey" onclick="tipCustomKey('2')">2</button>
+              <button class="numkey" onclick="tipCustomKey('3')">3</button>
+              <button class="numkey" onclick="tipCustomKey('4')">4</button>
+              <button class="numkey" onclick="tipCustomKey('5')">5</button>
+              <button class="numkey" onclick="tipCustomKey('6')">6</button>
+              <button class="numkey" onclick="tipCustomKey('7')">7</button>
+              <button class="numkey" onclick="tipCustomKey('8')">8</button>
+              <button class="numkey" onclick="tipCustomKey('9')">9</button>
+              <button class="numkey zero" onclick="tipCustomKey('0')">0</button>
+              <button class="numkey back" onclick="tipCustomKey('back')">⌫</button>
+            </div>
+            <div class="modal-actions" style="margin-top:6px;">
+              <button class="btn btn-ghost" onclick="backToTipModal()">Back</button>
+              <button class="btn btn-primary" id="tipCustomConfirmBtn" onclick="confirmTipCustom()" disabled>Add tip</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1883,6 +1959,7 @@
             <div class="success-title">Payment accepted</div>
             <div class="success-amount" id="successAmt">$0.00</div>
             <div class="success-sub" id="successSub">Paid in full · Thank you!</div>
+            <div id="successTipLine" style="display:none; margin-top:2px; font-size:13px; font-weight:600; color:var(--gray-500);"></div>
             <div id="successOrderNum" style="display:none; margin-top:4px; font-size:13px; font-weight:700; color:var(--accent-dark);"></div>
             <div id="successChange" style="display:none; margin-top:6px; padding:8px 14px; background:var(--green-light); color:var(--green); border-radius:8px; font-size:15px; font-weight:700;"></div>
             <div class="receipt-options">
@@ -2274,6 +2351,12 @@
   let phoneDigits = '';
   const TAX_RATE = 0.0925;
 
+  // Tip state (session 132): customer-facing tip prompt for laundry drop-offs.
+  // _currentTip is the dollar amount the customer selected (0 = no tip, null = not yet prompted).
+  // _tipCustomCents holds the in-progress custom amount while the custom keypad is open.
+  let _currentTip = 0;
+  let _tipCustomCents = 0;
+
   /* ─── SVG icon helper ─────────────────────────────────────── */
   // Renders a Lucide icon by its kebab-case name (e.g. 'cup-soda').
   // Returns an inline SVG string. Falls back to 'package' if not found.
@@ -2481,7 +2564,90 @@
       openLookup();
       return;
     }
-    openPay();
+    // session 132: Tip prompt for laundry drop-offs only. Merchandise-only
+    // carts (drinks, snacks, detergent) skip straight to pay-method picker.
+    if (cartHasLaundry()) {
+      openTipModal();
+    } else {
+      _currentTip = 0; // reset — merch-only sales never carry a tip forward
+      openPay();
+    }
+  }
+
+  /* ─── Tip prompt (session 132) ──────────────────────────────
+     Customer-facing: flip the iPad toward the customer after
+     they confirm the cart. Presets are computed on pre-tax
+     subtotal (industry standard). Tip is a flat dollar amount
+     stored in orders.tip_amount — no tip_type magic.
+     ────────────────────────────────────────────────────────── */
+  const TIP_PRESETS = [0.15, 0.18, 0.20]; // 15% / 18% / 20%
+
+  function _cartSubtotal() {
+    return cart.reduce((a, l) => a + lineTotal(l), 0);
+  }
+
+  function openTipModal() {
+    const sub = _cartSubtotal();
+    document.getElementById('tipSubtotalAmt').textContent = '$' + sub.toFixed(2);
+    renderTipPresets(sub);
+    showModal('tipModal');
+  }
+
+  function renderTipPresets(subtotal) {
+    const wrap = document.getElementById('tipPresets');
+    wrap.innerHTML = TIP_PRESETS.map(pct => {
+      const dollars = Math.round(subtotal * pct * 100) / 100;
+      return `<button class="tip-btn tip-btn-primary" onclick="setTipAndContinue(${dollars})" style="padding:22px 12px;border:2px solid var(--accent);background:var(--accent);color:white;border-radius:12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <span style="font-size:22px;font-weight:800;letter-spacing:-0.3px;">${Math.round(pct * 100)}%</span>
+        <span style="font-size:13px;opacity:.92;font-weight:600;">$${dollars.toFixed(2)}</span>
+      </button>`;
+    }).join('');
+  }
+
+  function setTipAndContinue(dollars) {
+    _currentTip = Math.max(0, Math.round(Number(dollars) * 100) / 100);
+    closeAll();
+    setTimeout(() => openPay(), 120);
+  }
+
+  function openTipCustom() {
+    _tipCustomCents = 0;
+    renderTipCustomDisplay();
+    showModal('tipCustomModal');
+  }
+
+  function tipCustomKey(k) {
+    if (k === 'back') {
+      _tipCustomCents = Math.floor(_tipCustomCents / 10);
+    } else {
+      const next = _tipCustomCents * 10 + parseInt(k, 10);
+      if (next > 99999) return; // cap at $999.99 — guard against fat-finger
+      _tipCustomCents = next;
+    }
+    renderTipCustomDisplay();
+  }
+
+  function renderTipCustomDisplay() {
+    const dollars = _tipCustomCents / 100;
+    document.getElementById('tipCustomValue').textContent = '$' + dollars.toFixed(2);
+    document.getElementById('tipCustomConfirmBtn').disabled = _tipCustomCents <= 0;
+  }
+
+  function confirmTipCustom() {
+    if (_tipCustomCents <= 0) return;
+    setTipAndContinue(_tipCustomCents / 100);
+  }
+
+  function backToTipModal() {
+    closeAll();
+    setTimeout(() => openTipModal(), 120);
+  }
+
+  // Called from the "change" link on the pay-method screen so the
+  // customer (or cashier) can revise the tip without cancelling.
+  function reopenTipFromPay() {
+    closeAll();
+    setTimeout(() => openTipModal(), 120);
   }
 
   /* ─── Weight modal ─────────────────────────────────────────── */
@@ -3227,6 +3393,18 @@
 
   function openPay() {
     document.getElementById('payError').style.display = 'none';
+    // Update displayed total to include tip if any (session 132)
+    const subtotal = _cartSubtotal();
+    const tax = subtotal * TAX_RATE;
+    const grandWithTip = Math.round((subtotal + tax + (_currentTip || 0)) * 100) / 100;
+    document.getElementById('payTotal').textContent = '$' + grandWithTip.toFixed(2);
+    const tipRow = document.getElementById('payTipRow');
+    if (_currentTip > 0) {
+      document.getElementById('payTipAmt').textContent = '$' + _currentTip.toFixed(2);
+      tipRow.style.display = '';
+    } else {
+      tipRow.style.display = 'none';
+    }
     showModal('payModal');
   }
 
@@ -3236,10 +3414,10 @@
   let lastCashChange = 0; // stored for success screen
 
   function payWithCash() {
-    // Calculate the total due right now
+    // Calculate the total due right now (includes tip from session 132 flow)
     const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
     const tax = subtotal * TAX_RATE;
-    cashDueTotal = Math.round((subtotal + tax) * 100) / 100;
+    cashDueTotal = Math.round((subtotal + tax + (_currentTip || 0)) * 100) / 100;
 
     // Reset numpad
     cashStr = '';
@@ -3306,8 +3484,8 @@
 
   function closeCashModal() {
     closeAll();
-    // Re-show the payment method picker
-    setTimeout(() => showModal('payModal'), 150);
+    // Re-show the payment method picker (via openPay so tip display stays current)
+    setTimeout(() => openPay(), 150);
   }
 
   async function cashCompleteSale() {
@@ -3335,10 +3513,10 @@
       return;
     }
 
-    // Show terminal modal with amount
+    // Show terminal modal with amount (includes tip from session 132 flow)
     const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
     const tax = subtotal * TAX_RATE;
-    const grand = subtotal + tax;
+    const grand = subtotal + tax + (_currentTip || 0);
     const amountCents = Math.round(grand * 100);
 
     setTimeout(() => showModal('terminalModal'), 100);
@@ -3611,6 +3789,18 @@
         } else {
           num.style.display = 'none';
         }
+        // session 132: Success screen amount should reflect the TOTAL charged
+        // (subtotal + tax + tip). updateTotals() only tracks pre-tip, so
+        // explicitly refresh here using the numbers we just paid.
+        const paidTotal = Number(order?.total_amount || 0) + Number(_currentTip || 0);
+        document.getElementById('successAmt').textContent = '$' + paidTotal.toFixed(2);
+        const tipLineEl = document.getElementById('successTipLine');
+        if (_currentTip > 0) {
+          tipLineEl.textContent = `Includes $${_currentTip.toFixed(2)} tip`;
+          tipLineEl.style.display = 'block';
+        } else {
+          tipLineEl.style.display = 'none';
+        }
         // Show change due on success screen for cash payments
         const changeEl = document.getElementById('successChange');
         if (method === 'cash' && lastCashChange > 0.004) {
@@ -3670,9 +3860,14 @@
     if (num) { num.style.display = 'none'; num.textContent = ''; }
     const chg = document.getElementById('successChange');
     if (chg) chg.style.display = 'none';
+    const tipLineEl = document.getElementById('successTipLine');
+    if (tipLineEl) tipLineEl.style.display = 'none';
     // Reset cash state
     cashStr = '';
     lastCashChange = 0;
+    // session 132: Reset tip state so it never bleeds into the next sale
+    _currentTip = 0;
+    _tipCustomCents = 0;
     // Fresh sale → fresh idempotency key on next card attempt
     _posIdempotencyKey = null;
   }
@@ -3836,7 +4031,9 @@
     if (!currentCustomer || !currentCustomer.phone) {
       showToast('No phone on file for this customer', 'error'); return;
     }
-    const amt = Number(lastPosOrder.total_amount || 0).toFixed(2);
+    const preTip = Number(lastPosOrder.total_amount || 0);
+    const tipAmt = Number(lastPosOrder.tip_amount || 0);
+    const amt = (preTip + tipAmt).toFixed(2);
     const num = lastPosOrder.order_number ? `#${lastPosOrder.order_number}` : '';
     const smsBody = `Family Laundry — receipt for order ${num}. Total: $${amt}. Thank you!`;
     try {
@@ -3900,7 +4097,9 @@
     const now = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
     const custName = currentCustomer?.name || 'Walk-in';
     const orderNum = order.order_number ? `#${order.order_number}` : order.id.slice(-5).toUpperCase();
-    const total = Number(order.total_amount || 0).toFixed(2);
+    const preTipTotal = Number(order.total_amount || 0);
+    const tipAmt = Number(order.tip_amount || 0);
+    const grandTotal = (preTipTotal + tipAmt).toFixed(2);
     const lineItemsXml = (order.line_items || [])
       .filter(li => (li.type !== 'price_mod') && Number(li.amount || 0) !== 0)
       .map(li => {
@@ -3908,6 +4107,16 @@
         const amt = ('$' + Number(li.amount || 0).toFixed(2)).padStart(10, ' ');
         return `    <text-line>${lbl}${amt}</text-line>`;
       }).join('\n');
+
+    // session 132: Show tip as a separate line + a grand total when present.
+    const tipXml = tipAmt > 0
+      ? `
+  <align mode="left">
+    <text-line>${'Subtotal'.padEnd(28, ' ')}${('$' + preTipTotal.toFixed(2)).padStart(10, ' ')}</text-line>
+    <text-line>${'Tip'.padEnd(28, ' ')}${('$' + tipAmt.toFixed(2)).padStart(10, ' ')}</text-line>
+  </align>
+  <ruled-line/>`
+      : '';
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <document>
@@ -3925,9 +4134,9 @@
   <align mode="left">
 ${lineItemsXml}
   </align>
-  <ruled-line/>
+  <ruled-line/>${tipXml}
   <align mode="right">
-    <text-line size="1:2"><bold>TOTAL: $${total}</bold></text-line>
+    <text-line size="1:2"><bold>TOTAL: $${grandTotal}</bold></text-line>
   </align>
   <feed unit="mm" quantity="4"/>
   <align mode="center">
@@ -3944,11 +4153,18 @@ ${lineItemsXml}
     const now = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
     const custName = currentCustomer?.name || 'Walk-in';
     const orderNum = order.order_number ? `#${order.order_number}` : order.id.slice(-5).toUpperCase();
-    const total = Number(order.total_amount || 0).toFixed(2);
+    const preTipTotal = Number(order.total_amount || 0);
+    const tipAmt = Number(order.tip_amount || 0);
+    const grandTotal = (preTipTotal + tipAmt).toFixed(2);
     const rows = (order.line_items || [])
       .filter(li => (li.type !== 'price_mod') && Number(li.amount || 0) !== 0)
       .map(li => `<tr><td>${String(li.label || '').replace(/[<>&]/g, '')}</td><td style="text-align:right">$${Number(li.amount || 0).toFixed(2)}</td></tr>`)
       .join('');
+    // session 132: Break out subtotal + tip when a tip is present.
+    const tipRows = tipAmt > 0
+      ? `<tr><td><strong>Subtotal</strong></td><td style="text-align:right"><strong>$${preTipTotal.toFixed(2)}</strong></td></tr>
+         <tr><td>Tip</td><td style="text-align:right">$${tipAmt.toFixed(2)}</td></tr>`
+      : '';
     return `<!doctype html><html><head><title>Receipt ${orderNum}</title>
 <style>body{font-family:ui-monospace,Menlo,monospace;font-size:13px;padding:18px;width:280px;}
 h1{font-size:16px;margin:0 0 6px;text-align:center}
@@ -3960,8 +4176,8 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
 <body><h1>FAMILY LAUNDRY</h1>
 <div class="meta">www.familylaundry.com<br>${now}</div>
 <div><strong>Order ${orderNum}</strong><br>Customer: ${custName}</div>
-<table>${rows}</table>
-<div class="total">TOTAL: $${total}</div>
+<table>${rows}${tipRows}</table>
+<div class="total">TOTAL: $${grandTotal}</div>
 <div class="foot">Thank you!<br>Questions? info@familylaundry.com</div>
 </body></html>`;
   }
@@ -4100,7 +4316,9 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
       total_bags:            totalBags,
       weight_lbs:            weightLbs,
       total_amount:          Number(total.toFixed(2)),
-      tip_amount:            0,
+      // session 132: Tip stored as flat dollars (tip_type=null). Admin
+      // revenue reporting already handles this case via _tipToDollars().
+      tip_amount:            Number((_currentTip || 0).toFixed(2)),
       line_items:            lineItems,
       special_instructions:  null,
       // session 111: Stamp the site explicitly; trigger respects explicit values
@@ -4125,7 +4343,7 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
     const { data, error } = await db
       .from('orders')
       .insert(payload)
-      .select('id, order_number, status, total_amount')
+      .select('id, order_number, status, total_amount, tip_amount, line_items')
       .single();
 
     if (error) {
