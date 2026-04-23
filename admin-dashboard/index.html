@@ -19892,6 +19892,39 @@ ${oneCopy}
     return JSON.stringify(layer.toGeoJSON().geometry);
   }
 
+  // Defensive: true if a polygon's outer-ring coords are degenerate
+  // (fewer than 4 points, or zero signed area via shoelace).
+  // Protects against invisible junk pieces (e.g. [[0,0],[0,0],...]) sneaking
+  // in from stale saved state and corrupting a MultiPolygon on save.
+  function _isDegenerateRing(ring) {
+    if (!Array.isArray(ring) || ring.length < 4) return true;
+    let area = 0;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1];
+      const xj = ring[j][0], yj = ring[j][1];
+      area += (xj + xi) * (yj - yi);
+    }
+    return Math.abs(area) < 1e-12;
+  }
+  function _isDegeneratePolygonCoords(coords) {
+    // Polygon coords: [outerRing, ...holes]
+    if (!Array.isArray(coords) || coords.length === 0) return true;
+    return _isDegenerateRing(coords[0]);
+  }
+  function _layerToPolygonCoords(layer) {
+    if (!layer) return null;
+    let gj = null;
+    if (typeof layer.toGeoJSON === 'function') gj = layer.toGeoJSON();
+    else if (typeof layer.getLayers === 'function') {
+      const c = layer.getLayers();
+      gj = c.length ? c[0].toGeoJSON() : null;
+    }
+    if (!gj) return null;
+    const geom = gj.type === 'Feature' ? gj.geometry : gj;
+    if (!geom || geom.type !== 'Polygon' || !geom.coordinates) return null;
+    return geom.coordinates;
+  }
+
   function openZoneDetail(zoneId) {
     const z = drawnZones.find(z => z.id === zoneId);
     if (!z) return;
@@ -19995,22 +20028,33 @@ ${oneCopy}
     //   _editZonePolygonLayers === []   → all deleted by user, clear in DB
     //   [layer]                         → single Polygon
     //   [layer, layer, ...]             → multiple areas → save as MultiPolygon
+    //
+    // Defensive: drop any layers whose outer ring is degenerate (zero-area or
+    // fewer than 4 points) before serializing. This prevents invisible junk
+    // pieces (from stale loaded state) from being written to the DB on save.
     let p_geojson = null;
     let p_clear_polygon = false;
     if (_editZonePolygonLayers !== null) {
-      if (_editZonePolygonLayers.length === 0) {
-        p_clear_polygon = true;
-      } else if (_editZonePolygonLayers.length === 1) {
-        p_geojson = _layerToGeojsonString(_editZonePolygonLayers[0]);
+      let cleanCoords = _editZonePolygonLayers
+        .map(_layerToPolygonCoords)
+        .filter(c => c && !_isDegeneratePolygonCoords(c));
+      const droppedCount = _editZonePolygonLayers.length - cleanCoords.length;
+      if (droppedCount > 0) {
+        console.warn(`[saveZoneEdit] Dropped ${droppedCount} degenerate polygon layer(s) before save.`);
+      }
+      if (cleanCoords.length === 0) {
+        // Only clear the polygon in DB if the user explicitly had no layers.
+        // If they had layers but they were all degenerate, treat as error.
+        if (_editZonePolygonLayers.length === 0) {
+          p_clear_polygon = true;
+        } else {
+          showToast('All drawn areas are empty or degenerate — please redraw.', 'error');
+          return;
+        }
+      } else if (cleanCoords.length === 1) {
+        p_geojson = JSON.stringify({ type: 'Polygon', coordinates: cleanCoords[0] });
       } else {
-        // Multiple areas — merge into a MultiPolygon
-        const coords = _editZonePolygonLayers.map(l => {
-          const gj = l.toGeoJSON ? l.toGeoJSON() : null;
-          if (!gj) return null;
-          const geom = gj.type === 'Feature' ? gj.geometry : gj;
-          return geom.coordinates; // array of rings for this polygon
-        }).filter(Boolean);
-        p_geojson = JSON.stringify({ type: 'MultiPolygon', coordinates: coords });
+        p_geojson = JSON.stringify({ type: 'MultiPolygon', coordinates: cleanCoords });
       }
     }
 

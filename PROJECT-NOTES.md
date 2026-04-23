@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: Apr 22, 2026 — Session 133: Service-zone polygon hygiene — repaired Berkeley's invalid MultiPolygon (removed `POLYGON((0 0))` junk piece via `ST_CollectionExtract(ST_MakeValid(polygon), 3)`) and clipped Oakland to remove all overlap with Berkeley (10.29 sq km) and Hayward (14.28 sq km). Trigger was yesterday's investigation into daily Oakland ↔ Berkeley / Oakland → Hayward route-stop moves — 184 manual rehomings over 60 days (~3.1/day) traced back to overlapping zone polygons causing non-deterministic `zone_id` assignment during `ST_Contains` lookup. **Safety verified before applying:** every one of today's 126 active orders (78 pickups, 48 deliveries) already had `zone_id` set; all five routing functions (`auto_route_order`, `trg_create_recurring_order_fn`, `sync_pickup_stop_on_window_change`, `sync_delivery_stop_on_window_change`, `get_nearest_available_slots`) read the stored `zone_id` column directly — none re-resolve from polygon geometry. Only trigger on `service_zones` is a generic `updated_at` timestamp stamp. Tonight's routes completely unaffected. **Impact going forward:** future bookings from ~515 addresses in north Oakland / Rockridge / Temescal will resolve cleanly to Berkeley; ~305 addresses in East Oakland Hills / Montclair will resolve to Hayward — matching how drivers actually run them today. The 3/day rehoming pattern should decay toward zero over the next several weeks as existing orders cycle out. **Post-flight:** all East Bay zones now disjoint (0.0000 sq km residual on all pairwise intersections); Oakland area 41.51 sq km (was 66.08), single connected piece, valid MultiPolygon. **Rollback WKTs captured** in session log entry for both Berkeley and Oakland. **Side observation for a future session:** the stored polygons are extremely coarse (Berkeley = 7 vertices, Oakland = 19) — they're rough hexagonal approximations, not real city outlines. The coarseness is part of why we had overlaps in the first place. Worth upgrading to actual city boundary polygons (OSM / census TIGER data) when time allows. **No commit needed** — all changes are to Supabase data, not repo files.*
+*Last updated: Apr 22, 2026 — Session 133 (pt 2): Admin-UI zone-save regression + root-cause harden. ~90 min after the Berkeley repair + Oakland clip shipped, a David-initiated save from the zone detail panel overwrote the repaired Berkeley polygon with just the newly drawn Richmond piece. Root cause: (a) stale browser session still held an invisible `((0 0))` layer in `_editZonePolygonLayers` from before the repair, and (b) `upsert_service_zone` did wholesale replace with no server-side sanitization. **Recovery** (done first): UNION of the repaired hexagon (from session log snapshot) + the new Richmond piece, re-wrapped with `ST_MakeValid` + `ST_CollectionExtract`. Berkeley restored to 2 pieces, valid, 83.55 sq km; 1,111 addresses back in coverage; 165 active orders safe. **Root-cause fix — two layers:** (1) Migration `session_133_harden_upsert_service_zone` — RPC now sanitizes incoming geojson with `ST_Force2D` → `ST_GeomFromGeoJSON` → `ST_MakeValid` → `ST_CollectionExtract(.,3)` → `ST_Multi`, and rejects zero-area / empty results with a clear exception before writing. Every polygon write path flows through this RPC. Verified with negative test (degenerate `[[0,0]×4]` → rejected) and positive test (mixed junk+valid → junk stripped). (2) Client-side defensive filter in `admin-dashboard/index.html saveZoneEdit()` — new helpers `_isDegenerateRing` / `_isDegeneratePolygonCoords` / `_layerToPolygonCoords` strip zero-area / <4-vertex layers before serializing; partial drops log a `console.warn`, all-junk triggers a user-visible toast. **Lesson added:** any structured-field RPC with replace semantics needs server-side sanitization — added to `washroute-migration-review` as a pattern to watch for. **Prior this session:** Service-zone polygon hygiene — repaired Berkeley's invalid MultiPolygon (removed `POLYGON((0 0))` junk piece via `ST_CollectionExtract(ST_MakeValid(polygon), 3)`) and clipped Oakland to remove all overlap with Berkeley (10.29 sq km) and Hayward (14.28 sq km). Trigger was yesterday's investigation into daily Oakland ↔ Berkeley / Oakland → Hayward route-stop moves — 184 manual rehomings over 60 days (~3.1/day) traced back to overlapping zone polygons causing non-deterministic `zone_id` assignment during `ST_Contains` lookup. **Safety verified before applying:** every one of today's 126 active orders (78 pickups, 48 deliveries) already had `zone_id` set; all five routing functions (`auto_route_order`, `trg_create_recurring_order_fn`, `sync_pickup_stop_on_window_change`, `sync_delivery_stop_on_window_change`, `get_nearest_available_slots`) read the stored `zone_id` column directly — none re-resolve from polygon geometry. Only trigger on `service_zones` is a generic `updated_at` timestamp stamp. Tonight's routes completely unaffected. **Impact going forward:** future bookings from ~515 addresses in north Oakland / Rockridge / Temescal will resolve cleanly to Berkeley; ~305 addresses in East Oakland Hills / Montclair will resolve to Hayward — matching how drivers actually run them today. The 3/day rehoming pattern should decay toward zero over the next several weeks as existing orders cycle out. **Post-flight:** all East Bay zones now disjoint (0.0000 sq km residual on all pairwise intersections); Oakland area 41.51 sq km (was 66.08), single connected piece, valid MultiPolygon. **Rollback WKTs captured** in session log entry for both Berkeley and Oakland. **Side observation for a future session:** the stored polygons are extremely coarse (Berkeley = 7 vertices, Oakland = 19) — they're rough hexagonal approximations, not real city outlines. The coarseness is part of why we had overlaps in the first place. Worth upgrading to actual city boundary polygons (OSM / census TIGER data) when time allows. **No commit needed** — all changes are to Supabase data, not repo files.*
 
 *Prior: Apr 21, 2026 — Session 132: Orders-page payment-icon flash fix (two passes) + New Customer modal: replaced dead Individual/Business radio with real Price List + Billing Type dropdowns + POS PIN management + POS customer-facing tip flow + new 'attendant' role with 9 launderers onboarded to POS sign-in + POS launcher nav item in admin sidebar + renamed 'staff' role → 'pos_device' (Foothill POS badge now reads "POS DEVICE" + delete-protection gap closed) + pos-foothill password reset to shared 6-digit (bcrypt-via-SQL pattern documented). **(A) Payment-icon flash, pass 1 (`e0ec612`):** Orders → List painted every Delivery customer with the "No card on file" warning icon on first open; icons self-corrected after a tab switch (~seconds later). Root cause in `admin-dashboard/index.html` `loadOrders()`: the Phase-2 side-fetch that populates `_custWithCard` was firing a re-render gated to `currentOrderFilter === 'issues'` only, so Scheduled / In Process / Ready tabs never re-rendered after the cache filled. Widened the gate to `currentPage === 'orders'`. Fixed the flash but left a ~1s visible lag. **(B) Payment-icon flash, pass 2 (`3ab5475`):** restructured `loadOrders()` to fetch the card cache (`customer_payment_methods`, 778 rows / 742 distinct customers — small enough for a full unfiltered query) **in parallel with** the orders query via `Promise.all`, then populate `_custWithCard` + `_custCardAddedAt` **before** the first `renderOrders()` call. Cache reset moved ahead of the await. Result: icons render correctly on frame one — no flash, no lag. Side-fetch still runs for SMS/email request history (Issues tab only); its re-render was narrowed back to `currentOrderFilter === 'issues'` since cards are no longer pending. Blast-radius check: `_custWithCard` is admin-only (driver + customer apps don't reference it); the realtime INSERT handler on `customer_payment_methods` is idempotent with the Set, so the reset-before-await is race-safe. **(C) New Customer modal — Individual/Business radio replaced (`be8d40d`):** Audit of `customers.account_type` showed the field was purely decorative — no DB function, trigger, view, RLS policy, edge function, or app-code branch reads it anywhere across admin/driver/customer/POS. Proof in the data: the 8 non-individual customers were labeled interchangeably as `commercial` (4) / `business` (3) / `standard` (1), inconsistent because the field wasn't load-bearing. Removed the radio and the `highlightCtype()` helper + dead `.ctype-active` CSS. Replaced with a real **Pricing & Billing** section between Service Address and Plan & Referral: `Price List` (Delivery / Commercial) + `Billing Type` (Automatic / On Account) dropdowns, with an explanatory note that reveals when On Account is picked. Previously `saveCustomer()` hardcoded `pricelist: 'Delivery'` and never set `billing_type`, forcing a manual fix-up in the customer panel after creation for every commercial / on-account customer. `account_type` column left in place (NOT NULL default `'individual'` handles the insert silently); can be dropped in a later migration once external consumers (Stripe tags, Excel exports) are confirmed clean.*
 
@@ -744,6 +744,74 @@ MULTIPOLYGON(((0 0)),((-122.35611 37.836293,-122.323151 37.798323,-122.300835 37
 - Template rename "Hayward PM" → "East Bay PM" (it covers more than Hayward).
 - Upgrade zone polygons from coarse hexagons to real city boundaries (OSM / TIGER).
 - Task #9 still open — optimize-route v25 fix not yet committed.
+
+### Apr 22, 2026 (session 133 pt 2) — Admin-UI zone-save regression + root-cause harden
+
+**Context:** Ninety minutes after shipping the Berkeley repair + Oakland clip, David opened the zone detail panel for Berkeley, drew a new polygon to extend coverage into Richmond / El Cerrito, and saved. The repaired Berkeley polygon disappeared — the save overwrote it with just the newly drawn piece. "Help: I added a polygon section [to] the berkeley zone, saved, and the work we did today disappeared."
+
+**Symptoms observed on the DB:**
+- `service_zones.polygon` for Berkeley replaced with a single ~6 sq km polygon (just the Richmond piece).
+- The repaired hexagon and all existing coverage gone.
+- 1,111 Berkeley addresses fell out of coverage; 165 active Berkeley orders at risk of losing their `zone_id` on next re-resolve.
+
+**Root-cause analysis — two overlapping bugs:**
+
+1. **Stale load state.** `openZoneDetail()` rehydrates `_editZonePolygonLayers` by iterating the stored MultiPolygon via `L.geoJSON(g).eachLayer(rawLayer => _editZonePolygonLayers.push(rawLayer))`. For Berkeley this had historically contained a degenerate `((0 0))` piece. Even though Fix #1 cleaned it out of the DB, a **stale browser session** David had open from before the repair still carried the pre-repair polygon in memory — including an invisible Atlantic-Ocean `((0 0))` layer sitting in `_editZonePolygonLayers`. When he added the Richmond piece and clicked Save, the UI serialized *the stale layers it had*, not the fresh DB state.
+
+2. **RPC does wholesale replace, not union.** `upsert_service_zone` overwrites `polygon` with the incoming geojson with no server-side sanitization. A client sending `MultiPolygon(((0 0)), ((richmond...)))` (after `ST_MakeValid` strips the junk) collapses to a Polygon of just Richmond. The real Berkeley hexagon was never part of the payload and was simply gone.
+
+So: stale state + replace-not-union + no sanitization = data loss.
+
+**Recovery (done first — customer-impacting):**
+```sql
+-- Union: repaired hexagon + David's new Richmond piece
+-- (both were still reachable: hexagon from pre-regression snapshot, Richmond
+--  piece from the current corrupted-replacement polygon)
+WITH
+  old_hex AS (SELECT ST_GeomFromText('POLYGON((...repaired_hexagon_wkt...))', 4326) AS g),
+  new_rich AS (SELECT polygon AS g FROM service_zones WHERE name = 'Berkeley')
+UPDATE service_zones
+SET polygon = ST_Multi(
+  ST_CollectionExtract(
+    ST_MakeValid(ST_Union((SELECT g FROM old_hex), (SELECT g FROM new_rich))),
+    3))
+WHERE name = 'Berkeley';
+```
+Berkeley restored: 2 pieces, valid, area 83.55 sq km (hexagon 51.48 + Richmond extension 32.07). All 1,111 dead-zone addresses re-covered; 165 active orders' `zone_id` remains valid. Oakland ∩ Berkeley residual re-checked: 0.0000 sq km (the new Richmond piece doesn't overlap the clipped Oakland).
+
+**Fix — server-side harden (migration `session_133_harden_upsert_service_zone`):**
+```sql
+CREATE OR REPLACE FUNCTION public.upsert_service_zone(...) AS $$
+DECLARE v_poly geometry; ...
+BEGIN
+  IF p_geojson IS NOT NULL THEN
+    v_poly := extensions.ST_Multi(
+      extensions.ST_CollectionExtract(
+        extensions.ST_MakeValid(
+          extensions.ST_Force2D(extensions.ST_GeomFromGeoJSON(p_geojson))
+        ), 3));
+    IF v_poly IS NULL
+       OR extensions.ST_IsEmpty(v_poly)
+       OR extensions.ST_Area(v_poly::geography) < 1 THEN
+      RAISE EXCEPTION 'Zone polygon is empty or has zero area after validation. Please redraw and try again.';
+    END IF;
+  END IF;
+  -- INSERT/UPDATE now uses sanitized v_poly, not raw p_geojson
+END; $$;
+```
+Every path that writes `service_zones.polygon` flows through this RPC — client drawing, city autofill, bulk imports. Now degenerate input is rejected with a clear error before it can land. Tested both:
+- **Negative:** Degenerate `[[0,0]×4]` payload → rejected with "zero area" exception. No test zone written.
+- **Positive:** MultiPolygon with real ~1 sq km piece + junk `[[0,0]]` piece → stored as single-piece Polygon (junk stripped), ~1 sq km retained.
+
+**Fix — client-side defensive filter (`admin-dashboard/index.html saveZoneEdit()`):**
+
+Added `_isDegenerateRing` / `_isDegeneratePolygonCoords` / `_layerToPolygonCoords` helpers + rewrote the save-time branch in `saveZoneEdit()` to filter out zero-area / <4-vertex layers before serializing. Also surfaces a user-visible toast ("All drawn areas are empty or degenerate — please redraw") if every layer is junk, and a `console.warn` for partial drops. Prevents the RPC error message from being the user's first clue that something's wrong, and eliminates the stale-state attack surface at the source.
+
+**Why two layers of defense:** The server RPC is the definitive guardrail (every write path hits it), but surfacing the error on the client gives the user useful feedback instead of a generic "Update failed" toast. If someone adds a new write path in the future and forgets to sanitize, the RPC still catches it.
+
+**Lessons:**
+- Whenever a migration alters a row that the admin UI edits, stale browser sessions are a live risk. For single-row fixes we normally live with this, but the zone-save flow does a full-row replace — the worst possible combination.
+- "Replace semantics" on any structured-data field (polygon, opening_hours, city_polygons) needs a server-side sanitizer or a union/merge strategy. Add to the migration-review skill as a pattern to look for.
 
 ### Apr 21, 2026 (session 132 pt 5) — Reset pos-foothill password + document bcrypt-via-SQL pattern
 
