@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 21, 2026 — Session 132: Orders-page payment-icon flash fix (two passes) + New Customer modal: replaced dead Individual/Business radio with real Price List + Billing Type dropdowns + POS PIN management + POS customer-facing tip flow + new 'attendant' role with 9 launderers onboarded to POS sign-in + POS launcher nav item in admin sidebar + renamed 'staff' role → 'pos_device' (Foothill POS badge now reads "POS DEVICE" + delete-protection gap closed) + pos-foothill password reset to shared 6-digit (bcrypt-via-SQL pattern documented). **(A) Payment-icon flash, pass 1 (`e0ec612`):** Orders → List painted every Delivery customer with the "No card on file" warning icon on first open; icons self-corrected after a tab switch (~seconds later). Root cause in `admin-dashboard/index.html` `loadOrders()`: the Phase-2 side-fetch that populates `_custWithCard` was firing a re-render gated to `currentOrderFilter === 'issues'` only, so Scheduled / In Process / Ready tabs never re-rendered after the cache filled. Widened the gate to `currentPage === 'orders'`. Fixed the flash but left a ~1s visible lag. **(B) Payment-icon flash, pass 2 (`3ab5475`):** restructured `loadOrders()` to fetch the card cache (`customer_payment_methods`, 778 rows / 742 distinct customers — small enough for a full unfiltered query) **in parallel with** the orders query via `Promise.all`, then populate `_custWithCard` + `_custCardAddedAt` **before** the first `renderOrders()` call. Cache reset moved ahead of the await. Result: icons render correctly on frame one — no flash, no lag. Side-fetch still runs for SMS/email request history (Issues tab only); its re-render was narrowed back to `currentOrderFilter === 'issues'` since cards are no longer pending. Blast-radius check: `_custWithCard` is admin-only (driver + customer apps don't reference it); the realtime INSERT handler on `customer_payment_methods` is idempotent with the Set, so the reset-before-await is race-safe. **(C) New Customer modal — Individual/Business radio replaced (`be8d40d`):** Audit of `customers.account_type` showed the field was purely decorative — no DB function, trigger, view, RLS policy, edge function, or app-code branch reads it anywhere across admin/driver/customer/POS. Proof in the data: the 8 non-individual customers were labeled interchangeably as `commercial` (4) / `business` (3) / `standard` (1), inconsistent because the field wasn't load-bearing. Removed the radio and the `highlightCtype()` helper + dead `.ctype-active` CSS. Replaced with a real **Pricing & Billing** section between Service Address and Plan & Referral: `Price List` (Delivery / Commercial) + `Billing Type` (Automatic / On Account) dropdowns, with an explanatory note that reveals when On Account is picked. Previously `saveCustomer()` hardcoded `pricelist: 'Delivery'` and never set `billing_type`, forcing a manual fix-up in the customer panel after creation for every commercial / on-account customer. `account_type` column left in place (NOT NULL default `'individual'` handles the insert silently); can be dropped in a later migration once external consumers (Stripe tags, Excel exports) are confirmed clean.*
+*Last updated: Apr 22, 2026 — Session 133: Service-zone polygon hygiene — repaired Berkeley's invalid MultiPolygon (removed `POLYGON((0 0))` junk piece via `ST_CollectionExtract(ST_MakeValid(polygon), 3)`) and clipped Oakland to remove all overlap with Berkeley (10.29 sq km) and Hayward (14.28 sq km). Trigger was yesterday's investigation into daily Oakland ↔ Berkeley / Oakland → Hayward route-stop moves — 184 manual rehomings over 60 days (~3.1/day) traced back to overlapping zone polygons causing non-deterministic `zone_id` assignment during `ST_Contains` lookup. **Safety verified before applying:** every one of today's 126 active orders (78 pickups, 48 deliveries) already had `zone_id` set; all five routing functions (`auto_route_order`, `trg_create_recurring_order_fn`, `sync_pickup_stop_on_window_change`, `sync_delivery_stop_on_window_change`, `get_nearest_available_slots`) read the stored `zone_id` column directly — none re-resolve from polygon geometry. Only trigger on `service_zones` is a generic `updated_at` timestamp stamp. Tonight's routes completely unaffected. **Impact going forward:** future bookings from ~515 addresses in north Oakland / Rockridge / Temescal will resolve cleanly to Berkeley; ~305 addresses in East Oakland Hills / Montclair will resolve to Hayward — matching how drivers actually run them today. The 3/day rehoming pattern should decay toward zero over the next several weeks as existing orders cycle out. **Post-flight:** all East Bay zones now disjoint (0.0000 sq km residual on all pairwise intersections); Oakland area 41.51 sq km (was 66.08), single connected piece, valid MultiPolygon. **Rollback WKTs captured** in session log entry for both Berkeley and Oakland. **Side observation for a future session:** the stored polygons are extremely coarse (Berkeley = 7 vertices, Oakland = 19) — they're rough hexagonal approximations, not real city outlines. The coarseness is part of why we had overlaps in the first place. Worth upgrading to actual city boundary polygons (OSM / census TIGER data) when time allows. **No commit needed** — all changes are to Supabase data, not repo files.*
+
+*Prior: Apr 21, 2026 — Session 132: Orders-page payment-icon flash fix (two passes) + New Customer modal: replaced dead Individual/Business radio with real Price List + Billing Type dropdowns + POS PIN management + POS customer-facing tip flow + new 'attendant' role with 9 launderers onboarded to POS sign-in + POS launcher nav item in admin sidebar + renamed 'staff' role → 'pos_device' (Foothill POS badge now reads "POS DEVICE" + delete-protection gap closed) + pos-foothill password reset to shared 6-digit (bcrypt-via-SQL pattern documented). **(A) Payment-icon flash, pass 1 (`e0ec612`):** Orders → List painted every Delivery customer with the "No card on file" warning icon on first open; icons self-corrected after a tab switch (~seconds later). Root cause in `admin-dashboard/index.html` `loadOrders()`: the Phase-2 side-fetch that populates `_custWithCard` was firing a re-render gated to `currentOrderFilter === 'issues'` only, so Scheduled / In Process / Ready tabs never re-rendered after the cache filled. Widened the gate to `currentPage === 'orders'`. Fixed the flash but left a ~1s visible lag. **(B) Payment-icon flash, pass 2 (`3ab5475`):** restructured `loadOrders()` to fetch the card cache (`customer_payment_methods`, 778 rows / 742 distinct customers — small enough for a full unfiltered query) **in parallel with** the orders query via `Promise.all`, then populate `_custWithCard` + `_custCardAddedAt` **before** the first `renderOrders()` call. Cache reset moved ahead of the await. Result: icons render correctly on frame one — no flash, no lag. Side-fetch still runs for SMS/email request history (Issues tab only); its re-render was narrowed back to `currentOrderFilter === 'issues'` since cards are no longer pending. Blast-radius check: `_custWithCard` is admin-only (driver + customer apps don't reference it); the realtime INSERT handler on `customer_payment_methods` is idempotent with the Set, so the reset-before-await is race-safe. **(C) New Customer modal — Individual/Business radio replaced (`be8d40d`):** Audit of `customers.account_type` showed the field was purely decorative — no DB function, trigger, view, RLS policy, edge function, or app-code branch reads it anywhere across admin/driver/customer/POS. Proof in the data: the 8 non-individual customers were labeled interchangeably as `commercial` (4) / `business` (3) / `standard` (1), inconsistent because the field wasn't load-bearing. Removed the radio and the `highlightCtype()` helper + dead `.ctype-active` CSS. Replaced with a real **Pricing & Billing** section between Service Address and Plan & Referral: `Price List` (Delivery / Commercial) + `Billing Type` (Automatic / On Account) dropdowns, with an explanatory note that reveals when On Account is picked. Previously `saveCustomer()` hardcoded `pricelist: 'Delivery'` and never set `billing_type`, forcing a manual fix-up in the customer panel after creation for every commercial / on-account customer. `account_type` column left in place (NOT NULL default `'individual'` handles the insert silently); can be dropped in a later migration once external consumers (Stripe tags, Excel exports) are confirmed clean.*
 
 *Prior: Apr 20, 2026 — Session 131 (pt 5): POS live on custom domain + staging banner retired. **DNS:** added a CNAME in Wix for `pos` → `cname.vercel-dns.com` (same target as `app` and `driver`). Saved + propagated in under a minute. **Vercel:** `pos.familylaundry.com` was already registered as a domain on the washroute project from a prior session, waiting on DNS; the moment the Wix record went live Vercel picked it up and provisioned the Let's Encrypt SSL cert automatically (~5 min). **Routing:** `vercel.json` rewrite rule `{ "has": [{ "type": "host", "value": "pos.familylaundry.com" }], "source": "/(.*)", "destination": "/pos/index.html" }` was already in place from the POS v1 deploy (session 125), so hitting `pos.familylaundry.com/` transparently serves `/pos/index.html` with the URL bar staying pretty. No code changes to vercel.json needed. **Banner:** removed the orange STAGING banner from `pos/index.html` (element `#staging-banner` at line 1447 — "REMOVE BANNER AFTER FIRST LIVE TEST SALE" per session 125's TODO). Blast-radius grep for `staging-banner` / `staging_banner` / `stagingBanner` came back empty — no JS referenced the id, so removal is clean. **Side observation flagged non-urgent:** Vercel's Domains page shows "DNS Change Recommended" yellow badges on `admin`, `driver`, and `app` (CNAME → A record upgrade advisory). Purely optional, sites all work fine; queued for a rainy day. **Commit:** `b9c22c4`.*
 
@@ -662,6 +664,86 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 22, 2026 (session 133) — Service-zone polygon hygiene (Berkeley repair + Oakland clip)
+
+**Context:** Yesterday's investigation into route-stop moves ("why does Lucia's delivery show 'moved from another route'?") surfaced a root cause that went deeper than a UI label bug: three of our East Bay service-zone polygons (Oakland, Berkeley, Hayward) overlapped significantly, and the point-in-polygon lookup used to set `orders.zone_id` at booking time picks whichever zone's polygon happens to contain the address first — so the same apartment could land in Oakland one day and Berkeley the next, purely by query ordering.
+
+**Evidence (pulled session 132-day-2):**
+- Oakland ∩ Berkeley overlap: **10.29 sq km** (515 addresses, 511 unique customers live here)
+- Oakland ∩ Hayward overlap: **14.28 sq km** (305 addresses, 305 unique customers)
+- Actual operational cost: **184 route-stop rehomings in the last 60 days** (~3.1/day) between Oakland and Berkeley templates — 162 Oakland → Berkeley, 22 Berkeley → Oakland, plus the well-known Oakland → "Hayward PM" (which actually runs East Oakland Hills + Hayward + San Leandro + Castro Valley) capacity-balancing moves.
+
+**Discovery #1 — Berkeley polygon was corrupt.** PostGIS's `ST_Intersection(oakland.polygon, berkeley.polygon)` was throwing `IllegalArgumentException: point array must contain 0 or >1 elements`. Root cause: Berkeley was stored as `MULTIPOLYGON(((0 0)), ((...real Berkeley...)))` — a two-piece multipolygon where piece #1 was a degenerate `POLYGON((0 0))` (a single-coordinate polygon somewhere in the Atlantic Ocean, almost certainly an early seed-data artifact). This is invalid under OGC rules and crashes any downstream spatial op.
+
+**Discovery #2 — stored polygons are very coarse.** Berkeley = 7 vertices. Oakland = 19 vertices. Not real city outlines — rough hexagonal approximations that naturally bleed into neighbouring zones. Flagged as a future upgrade (real city boundaries from OSM or census TIGER data); not addressed this session.
+
+**Pre-flight safety check (critical — did before any writes):**
+1. Every one of today's 126 active orders (78 pickups, 48 deliveries) already has `zone_id` set.
+2. All five routing/trigger functions read the stored `zone_id` column — none re-resolve from polygon geometry: `auto_route_order`, `trg_create_recurring_order_fn`, `sync_pickup_stop_on_window_change`, `sync_delivery_stop_on_window_change`, `get_nearest_available_slots`. Verified by grepping `pg_get_functiondef()` for each.
+3. Only trigger on `service_zones` is a generic `updated_at` timestamp stamp (`moddatetime`). No cascade to orders or addresses.
+4. Helper functions that DO read polygon (`get_zone_for_point`, `check_point_in_zone`, `get_zones_for_point`) are not invoked by any routing path.
+
+Conclusion: polygon edits only affect how **future** `zone_id` lookups resolve. Tonight's routes completely unaffected. Existing orders keep their current zone_id until they're delivered and roll off.
+
+**Fix #1 — Berkeley repair.**
+```sql
+UPDATE service_zones
+SET polygon = ST_CollectionExtract(ST_MakeValid(polygon), 3)
+WHERE name = 'Berkeley' AND NOT ST_IsValid(polygon);
+```
+Initial attempt used bare `ST_MakeValid()`, but it produced a `GeometryCollection(Polygon, Point(0 0))` — the degenerate piece collapsed to a point and got preserved. Wrapped with `ST_CollectionExtract(..., 3)` to keep polygonal components only. Result: `ST_MultiPolygon`, 1 piece, valid, SRID 4326 preserved, area 51.48 sq km (identical to pre-repair — junk piece contributed 0 area).
+
+**Fix #2 — Oakland clip.**
+```sql
+WITH
+  oak AS (SELECT polygon AS p FROM service_zones WHERE name = 'Oakland'),
+  brk AS (SELECT polygon AS p FROM service_zones WHERE name = 'Berkeley'),
+  hay AS (SELECT polygon AS p FROM service_zones WHERE name = 'Hayward'),
+  new_oak AS (
+    SELECT ST_Multi(
+      ST_CollectionExtract(
+        ST_MakeValid(
+          ST_Difference(
+            ST_Difference((SELECT p FROM oak), (SELECT p FROM brk)),
+            (SELECT p FROM hay)
+          )
+        ),
+        3
+      )
+    ) AS p
+  )
+UPDATE service_zones z
+SET polygon = (SELECT p FROM new_oak)
+WHERE z.name = 'Oakland';
+```
+Oakland went from `ST_Polygon` → `ST_MultiPolygon` (1 piece, valid). Area 66.08 → 41.51 sq km. No code depends on Oakland specifically being a Polygon vs MultiPolygon — containment queries treat them identically, and Berkeley + Concord already store as MultiPolygon without issue.
+
+**Post-flight verification:**
+- `invalid_zones_system_wide`: 0
+- Oakland ∩ Berkeley residual: 0.0000 sq km
+- Oakland ∩ Hayward residual: 0.0000 sq km
+- Berkeley ∩ Hayward residual: 0.0000 sq km
+
+**Rollback WKTs (keep these if we ever need to restore):**
+
+Oakland (pre-clip):
+```
+POLYGON((-122.208481 37.854729,-122.179298 37.836835,-122.176208 37.815683,-122.160072 37.799679,-122.2229 37.770104,-122.232857 37.771732,-122.243156 37.776889,-122.24659 37.785843,-122.255173 37.788014,-122.261696 37.786114,-122.278175 37.793982,-122.294312 37.795339,-122.273369 37.814598,-122.264099 37.842258,-122.243843 37.849849,-122.234573 37.849849,-122.22702 37.852018,-122.219124 37.860692,-122.208481 37.854729))
+```
+
+Berkeley (pre-repair, with invalid piece):
+```
+MULTIPOLYGON(((0 0)),((-122.35611 37.836293,-122.323151 37.798323,-122.300835 37.793168,-122.286415 37.794796,-122.24247 37.82843,-122.220497 37.862318,-122.245903 37.864487,-122.35611 37.836293)))
+```
+
+**Expected impact on operations:** the 3/day Oakland ↔ Berkeley rehoming rate should decay toward zero over ~2–4 weeks as orders placed before today cycle through. Orders placed from today onward in the Rockridge / Temescal corridor will land cleanly in Berkeley; East Oakland Hills / Montclair will land in Hayward. The ~60% figure from yesterday's analysis (proportion of moves that happen *inside* the overlap region) is a floor — some moves happen for reasons unrelated to zone (capacity balancing, driver preference) and won't be eliminated by this fix.
+
+**Deferred from this session — still on the board:**
+- Customer window redesign (7–10 AM / 7–10 PM) — scoped, decided, not implemented. David explicitly parked it to address the zone-overlap root cause first.
+- Template rename "Hayward PM" → "East Bay PM" (it covers more than Hayward).
+- Upgrade zone polygons from coarse hexagons to real city boundaries (OSM / TIGER).
+- Task #9 still open — optimize-route v25 fix not yet committed.
 
 ### Apr 21, 2026 (session 132 pt 5) — Reset pos-foothill password + document bcrypt-via-SQL pattern
 
