@@ -1568,6 +1568,7 @@
                     <button class="filter-tab" data-filter="ready" onclick="filterOrders('ready',this)">Ready</button>
                     <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
                     <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
+                    <button class="filter-tab" data-filter="archived" onclick="filterOrders('archived',this)" title="Archived failed/skipped orders — history preserved, hidden from Overview">Archived</button>
                   </div>
                 </div>
               </div>
@@ -4061,6 +4062,7 @@
         <button class="filter-tab active" id="cpof-scheduled" onclick="filterCpOrders('scheduled',this)">Scheduled</button>
         <button class="filter-tab" id="cpof-active" onclick="filterCpOrders('active',this)">Active</button>
         <button class="filter-tab" id="cpof-done" onclick="filterCpOrders('billing',this)">Completed</button>
+        <button class="filter-tab" id="cpof-archived" onclick="filterCpOrders('archived',this)" title="Archived failed/skipped orders for this customer">Archived</button>
       </div>
     </div>
     <div class="cp-card" style="padding:0;overflow:hidden">
@@ -4278,6 +4280,34 @@
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button class="btn" onclick="closeRefundModal()">Cancel</button>
       <button class="btn btn-primary" id="refund-confirm-btn" onclick="submitRefund()" style="background:var(--accent);border-color:var(--accent)">Issue Refund</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── ARCHIVE ORDER MODAL ── -->
+<div id="archive-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1200;align-items:center;justify-content:center" onclick="if(event.target===this)closeArchiveModal()">
+  <div style="background:white;border-radius:16px;padding:28px;width:420px;max-width:92vw;box-shadow:0 24px 64px rgba(0,0,0,.2)">
+    <h3 style="margin:0 0 4px;font-size:17px;font-weight:700">Archive Order</h3>
+    <p id="archive-modal-desc" style="margin:0 0 20px;font-size:13px;color:var(--gray-500)"></p>
+
+    <div style="margin-bottom:18px">
+      <div style="font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:6px">Reason <span style="font-weight:400;color:var(--red)">*</span></div>
+      <input type="text" id="archive-reason-input" maxlength="200" placeholder="e.g. Customer no-show 3x, duplicate of #3048, cancelled verbally"
+        style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:inherit;outline:none"
+        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--gray-200)'"
+        onkeydown="if(event.key==='Enter')submitArchive()">
+      <div style="font-size:11px;color:var(--gray-400);margin-top:4px">This note is for your records — customer won't see it.</div>
+    </div>
+
+    <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px;margin-bottom:22px;font-size:12px;color:var(--gray-500);line-height:1.5">
+      Archiving hides this order from Overview and the active Orders tabs. The order, route-stop history, and customer record stay intact and searchable. You can restore it anytime from the Archived tab.
+    </div>
+
+    <div id="archive-modal-error" style="display:none;color:var(--red);font-size:13px;margin-bottom:14px;padding:8px 12px;background:#fef2f2;border-radius:8px"></div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn" onclick="closeArchiveModal()">Cancel</button>
+      <button class="btn btn-primary" id="archive-confirm-btn" onclick="submitArchive()">Archive</button>
     </div>
   </div>
 </div>
@@ -4547,6 +4577,10 @@
   let _custWithCard = new Set(); // customer IDs that have at least one payment method on file
   let _custCardAddedAt = new Map(); // customer ID → latest card created_at (ISO string)
   let _cardRequestSent = new Map(); // customer ID → ISO timestamp of when card-request was sent
+  // Archive pattern detection: per-customer archived-order count (lifetime) + lightweight recent history for popover
+  let _custArchiveCount = new Map(); // customer ID → total lifetime archived-order count
+  let _custArchiveRecent = new Map(); // customer ID → array of {order_number, archived_at, archived_reason, status} (most recent 5)
+  const ARCHIVE_PATTERN_THRESHOLD = 2; // ≥ this many archived orders triggers the pattern badge
 
   // Batched .in() helper — Supabase/PostgREST URLs break above ~16 KB, so we chunk large ID arrays
   const IN_BATCH = 200; // ~200 UUIDs × 37 chars ≈ 7.4 KB per request — safe margin
@@ -4787,7 +4821,15 @@
       }
       return `<button onclick="event.stopPropagation();requestCardFromIssues('${custId}','${phone}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Request card</button>`;
     }
-    return `<button onclick="event.stopPropagation();openOrderPanel('${o.id}')" style="font-size:11px;font-weight:700;color:#1a56db;background:#eff6ff;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Reschedule →</button>`;
+    // Non-billing issue (pickup_failed, delivery_failed, on_hold, skipped) —
+    // offer Reschedule + Archive side-by-side. Archive is only visible for
+    // terminal-failed statuses (the 4 archivable ones); on_hold shows only Reschedule.
+    const ARCHIVABLE = ['pickup_failed','delivery_failed','skipped','cancelled'];
+    const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
+    const archiveBtn = ARCHIVABLE.includes(o.status)
+      ? `<button onclick="event.stopPropagation();openArchiveModal('${o.id}','${o.order_number}','${name.replace(/'/g,"\\'")}','${o.status}')" style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap;margin-left:4px" title="Archive — hide but keep history">Archive</button>`
+      : '';
+    return `<span style="display:inline-flex;gap:0;align-items:center;white-space:nowrap"><button onclick="event.stopPropagation();openOrderPanel('${o.id}')" style="font-size:11px;font-weight:700;color:#1a56db;background:#eff6ff;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Reschedule →</button>${archiveBtn}</span>`;
   };
 
   // Action button for Delivered tab — shows card request / retry for unpaid orders
@@ -6687,7 +6729,9 @@
     const { data: rawData, error } = await db.from('orders')
       .select('id, order_number, status, billing_status, charge_failed_at, total_amount, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, billing_type)')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery'])
-      .not('billing_status', 'in', '("paid","refunded")')
+      // NULL-safe "not paid/refunded" — PostgREST .not('col','in',...) drops NULL rows
+      // (SQL NULL NOT IN (...) is NULL, not TRUE), so we need an explicit null branch.
+      .or('billing_status.is.null,billing_status.not.in.(paid,refunded)')
       .order('created_at', { ascending: false });
 
     if (error || !rawData) {
@@ -6766,9 +6810,11 @@
     if (!el) return;
 
     // Same statuses as ORDER_FILTER_GROUPS.issues: pickup_failed, delivery_failed, on_hold, skipped
+    // Archived orders are hidden here — they remain fully intact in the DB but sit in the Archived tab.
     const { data, error } = await db.from('orders')
       .select('id, order_number, status, total_amount, billing_status, cancelled_by, driver_skip_reason, pickup_window_start, delivery_window_start, recurring_interval, customers(id, first_name_cache, last_name_cache, phone_cache)')
       .in('status', ['pickup_failed', 'delivery_failed', 'on_hold', 'skipped'])
+      .is('archived_at', null)
       .order('created_at', { ascending: false });
 
     if (error || !data) {
@@ -6816,7 +6862,10 @@
           <td>${issueBadge(o)}</td>
           <td style="font-size:12px;color:var(--gray-500)">${esc(reasonText)}</td>
           <td style="font-size:12px">${pickupDate}</td>
-          <td style="text-align:right"><button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="event.stopPropagation();showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">Reschedule →</button></td>
+          <td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">
+            <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--accent)" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)">Reschedule →</button>
+            <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;color:var(--gray-500);margin-left:4px" onclick="openArchiveModal('${o.id}','${o.order_number}','${esc(name).replace(/'/g,"\\'")}','${o.status}')" title="Archive — hide from Overview, keep history intact">Archive</button>
+          </td>
         </tr>`;
       }).join('')}
     </tbody></table>`;
@@ -7272,7 +7321,53 @@
 
   function orderCustomerCell(o) {
     const icon = _recurSvg(o.recurring_interval);
-    return `<span style="display:flex;align-items:center;gap:6px">${icon}<span>${orderCustomerName(o)}</span></span>`;
+    const cid  = o.customers?.id;
+    const archCount = cid ? (_custArchiveCount.get(cid) || 0) : 0;
+    // Show pattern badge only if customer has ≥ threshold archived orders AND we're
+    // not already on the Archived tab (no point decorating archived rows with archive count).
+    const patternBadge = (archCount >= ARCHIVE_PATTERN_THRESHOLD && currentOrderFilter !== 'archived')
+      ? `<span onclick="event.stopPropagation();showArchivePatternPopover(event,'${cid}')" style="display:inline-flex;align-items:center;gap:3px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;cursor:pointer;line-height:1.4;margin-left:2px" title="Click for archive history">⚠ ${archCount}</span>`
+      : '';
+    return `<span style="display:flex;align-items:center;gap:6px">${icon}<span>${orderCustomerName(o)}</span>${patternBadge}</span>`;
+  }
+
+  // Archive-pattern popover: lightweight floating card anchored to the badge, showing the 5 most recent archived orders.
+  function showArchivePatternPopover(event, customerId) {
+    // Close any existing popover first
+    const existing = document.getElementById('archive-pattern-popover');
+    if (existing) existing.remove();
+
+    const count  = _custArchiveCount.get(customerId) || 0;
+    const recent = _custArchiveRecent.get(customerId) || [];
+    const rect = event.currentTarget.getBoundingClientRect();
+    const pop = document.createElement('div');
+    pop.id = 'archive-pattern-popover';
+    pop.style.cssText = `position:fixed;top:${rect.bottom + 6}px;left:${Math.max(12, rect.left - 100)}px;background:white;border:1px solid var(--gray-200);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.15);padding:14px;min-width:280px;max-width:340px;z-index:1300;font-size:12.5px`;
+    const rowsHtml = recent.length
+      ? recent.map(r => `<div style="padding:6px 0;border-bottom:1px solid var(--gray-100);line-height:1.4">
+          <div style="display:flex;justify-content:space-between;gap:8px">
+            <span style="font-weight:600;color:var(--gray-700)">#${r.order_number}</span>
+            <span style="color:var(--gray-400);font-size:11px">${fmtDate(r.archived_at)}</span>
+          </div>
+          <div style="color:var(--gray-500);font-size:11.5px">${(r.status||'').replace(/_/g,' ')}${r.archived_reason ? ' · ' + esc(r.archived_reason) : ''}</div>
+        </div>`).join('')
+      : '<div style="color:var(--gray-400);font-size:12px;padding:6px 0">No archive history cached.</div>';
+    pop.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.04em">Archive pattern · ${count} order${count===1?'':'s'}</div>
+        <span onclick="document.getElementById('archive-pattern-popover')?.remove()" style="cursor:pointer;color:var(--gray-400);font-size:16px;line-height:1">×</span>
+      </div>
+      ${rowsHtml}
+      <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--gray-100);font-size:11px;color:var(--gray-400)">Consider billing a no-show fee or removing from recurring orders.</div>
+    `;
+    document.body.appendChild(pop);
+    // Auto-dismiss on outside click
+    setTimeout(() => {
+      const handler = (e) => {
+        if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('click', handler, true); }
+      };
+      document.addEventListener('click', handler, true);
+    }, 10);
   }
 
   // Group filter → actual statuses mapping
@@ -7282,7 +7377,11 @@
     ready:      ['ready_for_delivery','out_for_delivery'],
     issues:     ['pickup_failed','delivery_failed','on_hold','skipped'],
     delivered:  ['delivered'],  // last DELIVERED_TAB_WINDOW_DAYS (7d) of delivered orders; cancelled are archived
+    archived:   ['pickup_failed','delivery_failed','skipped','cancelled'],  // only rows where archived_at IS NOT NULL
   };
+
+  // Statuses eligible for manual admin archive (kept in sync with DB check — see add_archive_columns migration)
+  const ARCHIVABLE_STATUSES = ['pickup_failed','delivery_failed','skipped','cancelled'];
 
   const _orderSelectCols = `id, order_number, status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, billing_status,
                weight_lbs, total_bags, service_id, special_instructions, line_items,
@@ -7292,6 +7391,7 @@
                pickup_run_id, delivery_run_id,
                pickup_address_id, delivery_address_id,
                created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, overcap_booking, cancelled_by, driver_skip_reason, site_id,
+               archived_at, archived_reason, archived_by,
                services(name),
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
                pickup_run:pickup_run_id(id, name),
@@ -7308,10 +7408,11 @@
     const allCustIds = [...new Set(allOrders.map(o => o.customers?.id).filter(Boolean))];
     const custIds = allCustIds.filter(id => !_custWithCard.has(id) && !_cardRequestSent.has(id));
     if (custIds.length) {
-      const [cardRows, smsRows, emailRows] = await Promise.all([
+      const [cardRows, smsRows, emailRows, archiveRows] = await Promise.all([
         batchedIn('customer_payment_methods', 'customer_id, created_at', 'customer_id', custIds),
         batchedIn('sms_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.like('body', '%app.familylaundry.com%')),
         batchedIn('email_messages', 'customer_id, created_at', 'customer_id', custIds, q => q.or('subject.like.%Action needed: payment%,subject.eq.Add your card to Family Laundry,subject.eq.Your Family Laundry balance')),
+        batchedIn('orders', 'customer_id, order_number, status, archived_at, archived_reason', 'customer_id', custIds, q => q.not('archived_at','is',null).order('archived_at',{ascending:false})),
       ]);
       for (const r of cardRows) {
         _custWithCard.add(r.customer_id);
@@ -7322,6 +7423,14 @@
         const prev = _cardRequestSent.get(r.customer_id);
         if (!prev || r.created_at > prev) _cardRequestSent.set(r.customer_id, r.created_at);
       });
+      // Archive pattern: count + keep the 5 most recent for the popover
+      for (const r of (archiveRows || [])) {
+        const cid = r.customer_id;
+        _custArchiveCount.set(cid, (_custArchiveCount.get(cid) || 0) + 1);
+        const recent = _custArchiveRecent.get(cid) || [];
+        if (recent.length < 5) recent.push(r);
+        _custArchiveRecent.set(cid, recent);
+      }
     }
   }
 
@@ -7370,6 +7479,7 @@
     _deliveredLoaded = false;
     _sideFetchDone = false;
     _custWithCard = new Set(); _custCardAddedAt = new Map(); _cardRequestSent = new Map();
+    _custArchiveCount = new Map(); _custArchiveRecent = new Map();
     const activeStatuses = ['scheduled','confirmed','pending_confirmation','picked_up','processing','folding','ready_for_delivery','out_for_delivery','on_hold','delivery_failed','pickup_failed'];
 
     // Fetch orders + the full card cache IN PARALLEL so the payment icon
@@ -7456,7 +7566,7 @@
   const DELIVERED_TAB_WINDOW_DAYS = 7;
   function getFilteredOrders() {
     let data = allOrders;
-    // If user is searching, skip tab filter — search across ALL orders (active + inactive)
+    // If user is searching, skip tab filter — search across ALL orders (active + inactive + archived)
     if (orderSearchTerm) {
       data = data.filter(o => {
         const name = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.toLowerCase();
@@ -7467,6 +7577,12 @@
       });
       return data;
     }
+    // Archived tab: show ONLY archived orders (archived_at set). All other tabs exclude them.
+    if (currentOrderFilter === 'archived') {
+      return data.filter(o => o.archived_at);
+    }
+    // Hide archived orders from all non-archived tabs
+    data = data.filter(o => !o.archived_at);
     // No search term — normal tab filtering
     if (currentOrderFilter) {
       if (currentOrderFilter === 'issues') {
@@ -7500,13 +7616,16 @@
 
   // Updates each pill button to show its count badge
   function updateOrderFilterCounts() {
-    const TAB_LABELS = { scheduled:'Scheduled', in_process:'In Process', ready:'Ready', issues:'Issues', delivered:'Delivered' };
+    const TAB_LABELS = { scheduled:'Scheduled', in_process:'In Process', ready:'Ready', issues:'Issues', delivered:'Delivered', archived:'Archived' };
+    // Active-tab counts must exclude archived orders — otherwise Issues would still show rows we've hidden
+    const activeOnly = allOrders.filter(o => !o.archived_at);
     const counts = {
-      scheduled:  allOrders.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
-      in_process: allOrders.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
-      ready:      allOrders.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
-      issues:     allOrders.filter(o => { if (o.status === 'skipped' && o.cancelled_by === 'customer') return false; if (o.status === 'skipped' && o.recurring_interval) return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; const _cs = ['ready_for_delivery','out_for_delivery','delivered']; if (o.billing_status === 'failed' && _cs.includes(o.status) && o.customers?.billing_type !== 'on_account') return true; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status); }).length,
-      delivered:  (() => { const cutoff = new Date(Date.now() - DELIVERED_TAB_WINDOW_DAYS*24*60*60*1000).toISOString(); return allOrders.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
+      scheduled:  activeOnly.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
+      in_process: activeOnly.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
+      ready:      activeOnly.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
+      issues:     activeOnly.filter(o => { if (o.status === 'skipped' && o.cancelled_by === 'customer') return false; if (o.status === 'skipped' && o.recurring_interval) return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; const _cs = ['ready_for_delivery','out_for_delivery','delivered']; if (o.billing_status === 'failed' && _cs.includes(o.status) && o.customers?.billing_type !== 'on_account') return true; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status); }).length,
+      delivered:  (() => { const cutoff = new Date(Date.now() - DELIVERED_TAB_WINDOW_DAYS*24*60*60*1000).toISOString(); return activeOnly.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
+      archived:   allOrders.filter(o => o.archived_at).length,
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
       const key = btn.dataset.filter;
@@ -7621,7 +7740,7 @@
         ${thSort('delivery_window_start','Delivery')}
         ${thSort('weight_lbs','Bags')}
         ${thSort('total_amount','Total')}
-        ${['issues','in_process','ready','delivered'].includes(currentOrderFilter) ? '<th style="padding-right:10px"></th>' : ''}
+        ${['issues','in_process','ready','delivered','archived'].includes(currentOrderFilter) ? '<th style="padding-right:10px"></th>' : ''}
       </tr></thead><tbody>
       ${visible.map(o => {
         const custId = o.customers?.id || '';
@@ -7632,10 +7751,13 @@
             ? `<span style="font-weight:600">${bags}</span> <span style="font-size:10px;color:var(--gray-400)">${o.weight_lbs}lb</span>`
             : String(bags);
         const inIssues = currentOrderFilter === 'issues';
-        const showAction = ['issues','in_process','ready','delivered'].includes(currentOrderFilter);
+        const inArchived = currentOrderFilter === 'archived';
+        const showAction = ['issues','in_process','ready','delivered','archived'].includes(currentOrderFilter);
         let actionCell = '';
         if (inIssues) {
           actionCell = issueActionBtn(o);
+        } else if (inArchived) {
+          actionCell = `<button onclick="event.stopPropagation();unarchiveOrder('${o.id}','${o.order_number}')" style="font-size:11px;font-weight:600;color:var(--accent);background:white;border:1px solid var(--accent);border-radius:6px;padding:4px 10px;cursor:pointer;white-space:nowrap" title="Restore order — clears the archive flag">Restore</button>`;
         } else if (showAction) {
           actionCell = _deliveredActionBtn(o);
         }
@@ -7643,7 +7765,7 @@
           <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${esc(o.customers?.phone_cache||'')}" data-cust-name="${esc((o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||''))}" onchange="updateOrderBatchBar()"></td>
           <td style="font-size:11.5px;color:var(--gray-400);font-weight:600;white-space:nowrap;padding:8px 4px">${o.order_number ? '#'+o.order_number : '—'}</td>
           <td class="td-name" style="padding:8px 8px">${orderCustomerCell(o)}</td>
-          <td style="padding:8px 6px">${inIssues ? issueBadge(o) : statusBadge(o.status)}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:3px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : (o.overcap_booking ? `<span style="color:#c2560a;font-size:11px;margin-left:3px;cursor:help" title="Booked over base capacity — within 125% soft ceiling">▲</span>` : '')}</td>
+          <td style="padding:8px 6px">${inIssues ? issueBadge(o) : statusBadge(o.status)}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:3px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : (o.overcap_booking ? `<span style="color:#c2560a;font-size:11px;margin-left:3px;cursor:help" title="Booked over base capacity — within 125% soft ceiling">▲</span>` : '')}${inArchived && o.archived_at ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:3px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.archived_reason || '')}">📦 ${fmtDate(o.archived_at)}${o.archived_reason ? ' · ' + esc(o.archived_reason) : ''}</div>` : ''}</td>
           <td style="white-space:nowrap;padding:6px 8px">${pickupCombinedCell(o)}</td>
           <td style="white-space:nowrap;padding:6px 8px">${deliveryCombinedCell(o)}</td>
           <td style="font-size:12px;text-align:center;padding:8px 4px;line-height:1.3">${bagsDisplay}</td>
@@ -15208,12 +15330,15 @@ ${oneCopy}
     hideCreditAdjust();
 
     // Balance — unpaid orders at ready_for_delivery or later (includes recurring)
+    // NULL-safe: PostgREST .not('col','in',...) silently drops NULL rows (SQL semantics),
+    // so orders with billing_status IS NULL (e.g. charge-order never fired) wouldn't
+    // appear in the balance. Use .or() to include them explicitly.
     const { data: balOrders } = await db
       .from('orders')
       .select('total_amount, billing_status')
       .eq('customer_id', customerId)
       .in('status', ['ready_for_delivery', 'out_for_delivery', 'delivered'])
-      .not('billing_status', 'in', '("paid","refunded")');
+      .or('billing_status.is.null,billing_status.not.in.(paid,refunded)');
     const balance = (balOrders || []).reduce((s, o) => s + (Number(o.total_amount) || 0), 0);
     const balDisplay = document.getElementById('cpb-balance-display');
     const balDetail  = document.getElementById('cpb-balance-detail');
@@ -15743,6 +15868,90 @@ ${oneCopy}
     }
   }
 
+  // ── ARCHIVE ORDER ─────────────────────────────────────────────────
+  // Soft-archive failed/skipped/cancelled orders: hides them from Overview and active Orders tabs,
+  // keeps history intact, and surfaces a per-customer pattern badge (see _orderArchiveMeta in _orderSelectCols).
+  let _archiveCtx = { orderId: null, orderNumber: null, customerName: null, status: null };
+
+  function openArchiveModal(orderId, orderNumber, customerName, status) {
+    _archiveCtx = { orderId, orderNumber, customerName: customerName || '—', status: status || '—' };
+    const desc = document.getElementById('archive-modal-desc');
+    if (desc) {
+      const statusLabel = (status || '').replace(/_/g, ' ');
+      desc.textContent = `Order #${orderNumber} · ${_archiveCtx.customerName} · ${statusLabel}`;
+    }
+    const input = document.getElementById('archive-reason-input');
+    if (input) input.value = '';
+    const err = document.getElementById('archive-modal-error');
+    if (err) { err.style.display = 'none'; err.textContent = ''; }
+    const btn = document.getElementById('archive-confirm-btn');
+    if (btn) { btn.disabled = false; btn.textContent = 'Archive'; }
+    const modal = document.getElementById('archive-modal');
+    if (modal) modal.style.display = 'flex';
+    setTimeout(() => { if (input) input.focus(); }, 30);
+  }
+
+  function closeArchiveModal() {
+    const modal = document.getElementById('archive-modal');
+    if (modal) modal.style.display = 'none';
+    _archiveCtx = { orderId: null, orderNumber: null, customerName: null, status: null };
+  }
+
+  async function submitArchive() {
+    const reason = (document.getElementById('archive-reason-input').value || '').trim();
+    const errEl  = document.getElementById('archive-modal-error');
+    const btn    = document.getElementById('archive-confirm-btn');
+    errEl.style.display = 'none';
+
+    if (!reason) {
+      errEl.textContent = 'Please enter a short reason (required).';
+      errEl.style.display = 'block'; return;
+    }
+    if (!_archiveCtx.orderId) {
+      errEl.textContent = 'No order selected.';
+      errEl.style.display = 'block'; return;
+    }
+
+    btn.disabled = true; btn.textContent = 'Archiving…';
+
+    const orderId = _archiveCtx.orderId;
+    const orderNumber = _archiveCtx.orderNumber;
+
+    try {
+      const { error } = await db.from('orders').update({
+        archived_at: new Date().toISOString(),
+        archived_reason: reason,
+        archived_by: currentUserId || null,
+      }).eq('id', orderId);
+      if (error) throw new Error(error.message);
+
+      closeArchiveModal();
+      showToast(`📦 Order #${orderNumber} archived — restore from the Archived tab if needed`, 'success');
+
+      // Refresh whatever view we're on
+      if (typeof loadOverview === 'function' && currentPage === 'overview') loadOverview();
+      if (typeof loadOrders === 'function' && currentPage === 'orders') loadOrders(currentOrderFilter);
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Archive';
+    }
+  }
+
+  // Restore an archived order (used by Undo toast and Restore button on Archived tab)
+  async function unarchiveOrder(orderId, orderNumber) {
+    if (!orderId) return;
+    const { error } = await db.from('orders').update({
+      archived_at: null,
+      archived_reason: null,
+      archived_by: null,
+    }).eq('id', orderId);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    showToast(`↩ Order ${orderNumber ? '#' + orderNumber : ''} restored`, 'success');
+    if (typeof loadOverview === 'function' && currentPage === 'overview') loadOverview();
+    if (typeof loadOrders === 'function' && currentPage === 'orders') loadOrders(currentOrderFilter);
+  }
+
   // ── ENGAGEMENT TAB ───────────────────────────────────────────────
   let _allCpMsgs = [];
   let _cpEngFilter = 'all';
@@ -15927,7 +16136,7 @@ ${oneCopy}
     const el = document.getElementById('cp-orders-list');
     el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
     const { data } = await db.from('orders')
-      .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, total_bags, tip_amount, line_items, billing_status, billing_payment_method, billed_at, pickup_window_start, pickup_window_end, created_at, services:service_id(name), pickup_run:pickup_run_id(id, name)')
+      .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, total_bags, tip_amount, line_items, billing_status, billing_payment_method, billed_at, pickup_window_start, pickup_window_end, created_at, archived_at, archived_reason, services:service_id(name), pickup_run:pickup_run_id(id, name)')
       .eq('customer_id', customerId).order('created_at', { ascending: false });
     cpAllOrders = data || [];
     if (!cpAllOrders.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>'; return; }
@@ -15973,15 +16182,39 @@ ${oneCopy}
     const doneStatuses   = ['delivered'];
     const scheduledStatuses = ['scheduled'];
     let filtered = data;
-    if (filter==='scheduled') filtered = data.filter(o=>scheduledStatuses.includes(o.status));
-    if (filter==='active')    filtered = data.filter(o=>activeStatuses.includes(o.status));
-    if (filter==='billing')   filtered = data.filter(o=>o.status==='delivered' || o.billing_status);
+    // Exclude archived from all non-archived tabs; show only archived on the archived tab.
+    if (filter==='archived') {
+      filtered = data.filter(o => o.archived_at);
+    } else {
+      filtered = data.filter(o => !o.archived_at);
+      if (filter==='scheduled') filtered = filtered.filter(o=>scheduledStatuses.includes(o.status));
+      if (filter==='active')    filtered = filtered.filter(o=>activeStatuses.includes(o.status));
+      if (filter==='billing')   filtered = filtered.filter(o=>o.status==='delivered' || o.billing_status);
+    }
     const el = document.getElementById('cp-orders-list');
     if (!filtered.length) {
       const msg = filter==='scheduled' ? 'No scheduled orders.'
                 : filter==='billing'  ? 'No completed orders yet.'
+                : filter==='archived' ? 'No archived orders for this customer.'
                 : 'No orders in this filter.';
       el.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:14px 16px">${msg}</div>`;
+      return;
+    }
+
+    // Archived tab: simple list with reason + restore button, no billing selection
+    if (filter === 'archived') {
+      el.innerHTML = filtered.map(o => {
+        const dateStr = fmtDate(o.pickup_window_start || o.created_at);
+        const archDate = fmtDate(o.archived_at);
+        return `<div class="cp-order-row" style="padding:10px 14px;border-bottom:1px solid var(--gray-100);display:flex;gap:10px;align-items:center" onclick="openOrderPanel('${o.id}')">
+          <span class="cp-order-num" style="font-weight:600;color:var(--gray-400);font-size:11.5px">#${o.order_number}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:500;font-size:13px;display:flex;gap:6px;align-items:center">${(o.status||'').replace(/_/g,' ')} <span style="font-size:10.5px;color:var(--gray-400);font-weight:400">· ${dateStr}</span></div>
+            <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px">📦 ${archDate}${o.archived_reason ? ' · ' + esc(o.archived_reason) : ''}</div>
+          </div>
+          <button onclick="event.stopPropagation();unarchiveOrder('${o.id}','${o.order_number}');setTimeout(()=>loadPanelOrders(panelCustomerId),400)" style="font-size:11px;font-weight:600;color:var(--accent);background:white;border:1px solid var(--accent);border-radius:6px;padding:4px 10px;cursor:pointer;white-space:nowrap">Restore</button>
+        </div>`;
+      }).join('');
       return;
     }
 
