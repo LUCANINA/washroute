@@ -1802,11 +1802,14 @@ function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US',{h
 function fmtSlot(start, end) {
   function compact(iso) {
     if (!iso) return '';
-    const _pd = new Date(new Date(iso).toLocaleString('en-US', { timeZone: BIZ_TZ }));
-    const h = _pd.getHours() % 12 || 12;
-    const m = _pd.getMinutes();
-    const p = _pd.getHours() < 12 ? 'am' : 'pm';
-    return m === 0 ? `${h}${p}` : `${h}:${String(m).padStart(2,'0')}${p}`;
+    // Use Intl.DateTimeFormat directly — the previous `new Date(toLocaleString)`
+    // round-trip silently gave wrong hours for non-Pacific browsers (re-parses
+    // the formatted string as browser-local).
+    const mins = pacificMinutesOfDay(iso);
+    const hh = Math.floor(mins / 60), mm = mins % 60;
+    const h = hh % 12 || 12;
+    const p = hh < 12 ? 'am' : 'pm';
+    return mm === 0 ? `${h}${p}` : `${h}:${String(mm).padStart(2,'0')}${p}`;
   }
   if (!start) return '—';
   const s = compact(start);
@@ -1819,6 +1822,30 @@ function daysFromNow(n) { const d = new Date(); d.setDate(d.getDate() + n); retu
 // Return YYYY-MM-DD in the user's LOCAL timezone — never use toISOString() for calendar
 // dates because that returns UTC, which can be a different day in the evenings.
 function localIso(d) { d = d || new Date(); return d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ }); }
+// Pacific-safe date arithmetic on YYYY-MM-DD strings.
+function addDaysPacific(iso, n) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const utc = new Date(Date.UTC(y, m - 1, d));
+  utc.setUTCDate(utc.getUTCDate() + n);
+  return utc.getUTCFullYear() + '-' + String(utc.getUTCMonth() + 1).padStart(2, '0') + '-' + String(utc.getUTCDate()).padStart(2, '0');
+}
+// Returns the Pacific UTC offset string ('-07:00' or '-08:00') for a given Pacific date.
+function pacificOffsetStr(iso) {
+  const noonUtc = new Date(`${iso}T12:00:00Z`);
+  const ptHour  = parseInt(noonUtc.toLocaleString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', hour12: false }));
+  const offset  = 12 - ptHour;
+  return (offset >= 0 ? '-' : '+') + String(Math.abs(offset)).padStart(2, '0') + ':00';
+}
+// Extract the hour:minute (in Pacific) from an ISO timestamp as a number-of-minutes value
+// (e.g. 9:30 AM PT → 570). Robust replacement for the `new Date(toLocaleString)` round-trip
+// pattern, which silently corrupts when the user's browser isn't on Pacific time.
+function pacificMinutesOfDay(iso) {
+  if (!iso) return null;
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: BIZ_TZ, hour12: false, hour: 'numeric', minute: 'numeric' }).formatToParts(new Date(iso));
+  const h = parseInt(parts.find(p => p.type === 'hour').value, 10);
+  const m = parseInt(parts.find(p => p.type === 'minute').value, 10);
+  return (h % 24) * 60 + m;  // hour12:false sometimes returns 24 for midnight; normalize
+}
 function fmtDay(d) { return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ }); }
 // Returns the next business day (Mon–Fri) after a given date string or Date.
 // Pickup on Friday → delivery Monday. Pickup on Thursday → delivery Friday.
@@ -2938,13 +2965,13 @@ function buildActiveCard(o) {
     const d = new Date(o.pickup_window_start);
     if (!isNaN(d.getTime())) {
       const dateStr   = fmtDay(d);
-      const _pd1 = new Date(d.toLocaleString('en-US', { timeZone: BIZ_TZ }));
-      const startMins = _pd1.getHours() * 60 + _pd1.getMinutes();
+      // pacificMinutesOfDay extracts hour/minute correctly via Intl.DateTimeFormat —
+      // the previous `new Date(toLocaleString)` round-trip silently corrupted on non-Pacific browsers.
+      const startMins = pacificMinutesOfDay(o.pickup_window_start);
       let timeStr = fmtHourMin(startMins);
       if (o.pickup_window_end) {
-        const e = new Date(o.pickup_window_end);
-        const _pe1 = new Date(e.toLocaleString('en-US', { timeZone: BIZ_TZ }));
-        if (!isNaN(e.getTime())) timeStr += ' – ' + fmtHourMin(_pe1.getHours() * 60 + _pe1.getMinutes());
+        const endMins = pacificMinutesOfDay(o.pickup_window_end);
+        if (endMins != null) timeStr += ' – ' + fmtHourMin(endMins);
       }
       pickupLine = `<div style="font-size:12px;color:var(--gray-600);margin-top:4px">📅 ${dateStr} · ${timeStr}</div>`;
     }
@@ -3522,13 +3549,17 @@ function computeSubWindows(runDate, tmpl, routeId, routeName) {
   const step  = (tmpl.arrival_window_hours || 2) * 60;
   const cutoff = tmpl.booking_cutoff_minutes ?? 30;
   const pad2  = n => String(n).padStart(2, '0');
+  // Compute Pacific UTC offset for this date once (handles DST boundary days correctly)
+  const offsetStr = pacificOffsetStr(runDate);
   const windows = [];
   for (let from = sMins; from + step <= eMins; from += step) {
     const to        = from + step;
-    // Use new Date() to treat the time as local, then .toISOString() converts to UTC
-    // so that Postgres timestamptz stores the correct wall-clock time for the customer's timezone
-    const slotStart = new Date(`${runDate}T${pad2(Math.floor(from/60))}:${pad2(from%60)}:00`).toISOString();
-    const slotEnd   = new Date(`${runDate}T${pad2(Math.floor(to/60))}:${pad2(to%60)}:00`).toISOString();
+    // Build ISO with explicit Pacific offset so the slot is correct regardless of
+    // the customer's browser timezone. Previously we built `${runDate}T09:00:00`
+    // (no offset → browser-local), which for a NY customer booking a 9–11 AM
+    // Pacific slot would write 13:00–15:00 UTC instead of 17:00–19:00 UTC.
+    const slotStart = new Date(`${runDate}T${pad2(Math.floor(from/60))}:${pad2(from%60)}:00${offsetStr}`).toISOString();
+    const slotEnd   = new Date(`${runDate}T${pad2(Math.floor(to/60))}:${pad2(to%60)}:00${offsetStr}`).toISOString();
     const label     = `${fmtHourMin(from)} – ${fmtHourMin(to)}`;
     windows.push({ routeId, routeName, slotStart, slotEnd, label, icon: slotIcon(from), startMins: from, endMins: to, cutoffMins: cutoff, turnaroundHours: tmpl.turnaround_hours || 0, templateStartMins: sMins });
   }
@@ -3694,20 +3725,24 @@ function toggleSchedExpand(key) {
 function _renderSchedPickupCal() {
   const container = document.getElementById('expand-pickup-date');
   if (!container) return;
-  const now      = new Date();
-  const todayIso = localIso(now);
-  const days     = [];
+  const todayIso = localIso();  // Pacific YYYY-MM-DD
+  // Build 14 days as Pacific-anchored Date objects (each at Pacific noon for safe display)
+  const days = [];
   for (let i = 0; i <= 13; i++) {
-    const d = new Date(now); d.setDate(now.getDate() + i); days.push(d);
+    const iso = addDaysPacific(todayIso, i);
+    days.push({ iso, d: new Date(`${iso}T12:00:00${pacificOffsetStr(iso)}`) });
   }
-  const firstDOW = days[0].getDay();
+  // Pacific weekday of the first day (anchored to Pacific noon, so getDay() in BIZ_TZ is correct)
+  const firstDowName = days[0].d.toLocaleDateString('en-US', { weekday: 'short', timeZone: BIZ_TZ });
+  const _DOW_SUN_FIRST = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+  const firstDOW = _DOW_SUN_FIRST[firstDowName];
   let grid = '<div class="mini-cal-dow">Su</div><div class="mini-cal-dow">Mo</div><div class="mini-cal-dow">Tu</div><div class="mini-cal-dow">We</div><div class="mini-cal-dow">Th</div><div class="mini-cal-dow">Fr</div><div class="mini-cal-dow">Sa</div>';
   for (let i = 0; i < firstDOW; i++) grid += '<div></div>';
-  days.forEach(d => {
-    const iso   = localIso(d);
-    const sel   = draft.pickupDate === iso;
-    const isTod = iso === todayIso && !sel;
-    grid += `<div class="mini-cal-day${sel ? ' selected' : ''}${isTod ? ' today-marker' : ''}" onclick="selectSchedPickupDate('${iso}')">${d.getDate()}</div>`;
+  days.forEach(({ iso, d }) => {
+    const sel    = draft.pickupDate === iso;
+    const isTod  = iso === todayIso && !sel;
+    const dayNum = d.toLocaleDateString('en-US', { day: 'numeric', timeZone: BIZ_TZ });
+    grid += `<div class="mini-cal-day${sel ? ' selected' : ''}${isTod ? ' today-marker' : ''}" onclick="selectSchedPickupDate('${iso}')">${dayNum}</div>`;
   });
   container.innerHTML = `<div class="sched-cal-wrap"><div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Choose a date (up to 14 days)</div><div class="mini-cal-grid">${grid}</div></div>`;
 }
@@ -5766,17 +5801,17 @@ function openEditOrder() {
       </div>`;
   }
 
-  // Initialise edit-schedule state from the order's stored timestamps
-  const _esPickupDate  = o.pickup_window_start  ? new Date(o.pickup_window_start).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' })  : null;
-  const _esDelivDate   = o.delivery_window_start ? new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }) : null;
+  // Initialise edit-schedule state from the order's stored timestamps (Pacific dates)
+  const _esPickupDate  = o.pickup_window_start   ? new Date(o.pickup_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ })  : null;
+  const _esDelivDate   = o.delivery_window_start ? new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;
   function _winFromOrder(startIso, endIso) {
     if (!startIso) return null;
-    const _pd2 = new Date(new Date(startIso).toLocaleString('en-US', { timeZone: BIZ_TZ }));
-    const _pe2 = endIso ? new Date(new Date(endIso).toLocaleString('en-US', { timeZone: BIZ_TZ })) : null;
     return { slotStart: startIso, slotEnd: endIso || null,
              label: fmtSlot(startIso, endIso),
-             startMins: _pd2.getHours() * 60 + _pd2.getMinutes(),
-             endMins:   _pe2 ? (_pe2.getHours() * 60 + _pe2.getMinutes()) : undefined };
+             // Use pacificMinutesOfDay — the prior `new Date(toLocaleString)` round-trip
+             // silently corrupted on non-Pacific browsers.
+             startMins: pacificMinutesOfDay(startIso),
+             endMins:   endIso ? pacificMinutesOfDay(endIso) : undefined };
   }
   window._editSchedule = {
     pickupDate:       _esPickupDate,

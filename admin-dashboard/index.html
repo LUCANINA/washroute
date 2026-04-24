@@ -4763,6 +4763,27 @@
     return routeHtml + timeHtml;
   };
   const today = () => new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+  // Pacific-safe date arithmetic on YYYY-MM-DD strings — DST-safe because we
+  // do the math in UTC space (a "Pacific date" + 1 day is always the next
+  // Pacific date regardless of DST transitions on the wall clock).
+  const addDaysPacific = (iso, n) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    const utc = new Date(Date.UTC(y, m - 1, d));
+    utc.setUTCDate(utc.getUTCDate() + n);
+    return utc.getUTCFullYear() + '-' + String(utc.getUTCMonth() + 1).padStart(2, '0') + '-' + String(utc.getUTCDate()).padStart(2, '0');
+  };
+  // Returns the Pacific UTC offset string ('-07:00' or '-08:00') for a given Pacific date.
+  // Handles DST automatically by asking Intl what hour 'noon UTC' is in Pacific that day.
+  const pacificOffsetStr = (iso) => {
+    const noonUtc = new Date(`${iso}T12:00:00Z`);
+    const ptHour = parseInt(noonUtc.toLocaleString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', hour12: false }));
+    const offset = 12 - ptHour; // positive = behind UTC
+    return (offset >= 0 ? '-' : '+') + String(Math.abs(offset)).padStart(2, '0') + ':00';
+  };
+  // Returns a Date instant at the start (00:00:00) of the given Pacific date.
+  // Use for query filters / start-of-day boundaries that need to be Pacific-anchored.
+  const pacificDayStart = (iso) => new Date(`${iso}T00:00:00${pacificOffsetStr(iso)}`);
+  const pacificDayEnd   = (iso) => new Date(`${iso}T23:59:59.999${pacificOffsetStr(iso)}`);
   // Convert a UTC timestamp to YYYY-MM-DD in business timezone
   const toLocalDate = (ts) => ts ? new Date(ts).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '';
 
@@ -9201,11 +9222,9 @@
     renderOrders(getFilteredOrders());
 
     if (leg === 'pickup' && startIso) {
-      // Auto-update delivery date min + pre-fill to pickup+1 so it's ready to set
+      // Auto-update delivery date min + pre-fill to pickup+1 (Pacific-safe)
       const pickupLocalDate = toLocalDate(startIso);
-      const [yr, mo, dy] = pickupLocalDate.split('-').map(Number);
-      const nextDay = new Date(yr, mo-1, dy+1);
-      const deliveryMin = `${nextDay.getFullYear()}-${String(nextDay.getMonth()+1).padStart(2,'0')}-${String(nextDay.getDate()).padStart(2,'0')}`;
+      const deliveryMin = addDaysPacific(pickupLocalDate, 1);
       const deliveryDateInput = document.getElementById('op-delivery-date');
       if (deliveryDateInput) {
         deliveryDateInput.min = deliveryMin;
@@ -14518,16 +14537,19 @@ ${oneCopy}
     return slots;
   }
 
-  // Shared helper: find the next route-available ISO date after a given ISO date
+  // Shared helper: find the next route-available Pacific date after a given Pacific date.
+  // Pure Pacific-date arithmetic — no JS Date local-time pitfalls.
   function nextAvailableDay(afterIso, tmpl, skipCount = 0) {
     const activeDays = tmpl.schedule_days || [0,1,2,3,4];
-    const base = new Date(afterIso + 'T00:00:00');
     let found = 0;
     for (let i = 1; i <= 90; i++) {
-      const d = new Date(base); d.setDate(base.getDate() + i);
-      const dow = (d.getDay() + 6) % 7;
+      const iso = addDaysPacific(afterIso, i);
+      // Get the Pacific weekday by asking Intl what day-of-week noon-Pacific is
+      const dowName = new Date(`${iso}T12:00:00${pacificOffsetStr(iso)}`).toLocaleDateString('en-US', { weekday: 'short', timeZone: BIZ_TZ });
+      const _DOW = { Mon:0, Tue:1, Wed:2, Thu:3, Fri:4, Sat:5, Sun:6 };
+      const dow = _DOW[dowName];
       if (activeDays.includes(dow)) {
-        if (found === skipCount) return d.toLocaleDateString('sv');
+        if (found === skipCount) return iso;
         found++;
       }
     }
@@ -14538,24 +14560,27 @@ ${oneCopy}
     const tmpl = _noSelectedTmpl; if (!tmpl) return;
     const activeDays = tmpl.schedule_days || [0,1,2,3,4];
     const DAY_ABBR   = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    const now        = new Date();
-    const base       = new Date(); base.setHours(0,0,0,0);
+    const todayIso   = today();  // Pacific YYYY-MM-DD
 
     // Admin can schedule any day including today — no cutoff (cutoff is customer-facing only)
     const days = [];
     for (let i = 0; i <= _noDayLimit; i++) {
-      const d   = new Date(base); d.setDate(base.getDate() + i);
-      const dow = (d.getDay() + 6) % 7;
-      const iso = d.toLocaleDateString('sv');
+      const iso  = addDaysPacific(todayIso, i);  // Pacific-safe; works from any browser TZ
+      // Get Pacific weekday — anchor to noon Pacific so we never roll across midnight
+      const d    = new Date(`${iso}T12:00:00${pacificOffsetStr(iso)}`);
+      const _wd  = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: BIZ_TZ });
+      const _DOW = { Mon:0, Tue:1, Wed:2, Thu:3, Fri:4, Sat:5, Sun:6 };
+      const dow  = _DOW[_wd];
       const avail = activeDays.includes(dow);
       days.push({ d, dow, iso, avail });
     }
     document.getElementById('no-days').innerHTML = days.map(({ d, dow, iso, avail }) => {
-      const mon = d.toLocaleDateString('en-US', { month: 'short' });
+      const mon = d.toLocaleDateString('en-US', { month: 'short', timeZone: BIZ_TZ });
+      const dayNum = d.toLocaleDateString('en-US', { day: 'numeric', timeZone: BIZ_TZ });
       return `<button class="sp-day-btn${avail?'':' sp-day-disabled'}" data-no-iso="${iso}"
         onclick="selectNoDay('${iso}')" ${avail?'':'disabled'}>
         <span class="sp-day-abbr">${DAY_ABBR[dow]}</span>
-        <span class="sp-day-num">${d.getDate()}</span>
+        <span class="sp-day-num">${dayNum}</span>
         <span class="sp-day-mon">${mon}</span>
       </button>`;
     }).join('');
@@ -14783,8 +14808,8 @@ ${oneCopy}
     // Highlight the selected pill
     document.querySelectorAll('[data-nd-tmpl]').forEach(b =>
       b.classList.toggle('selected', b.dataset.ndTmpl === tmplId));
-    // Refresh days for the new template
-    renderNdDays(_noPickupDate || new Date().toLocaleDateString('sv'));
+    // Refresh days for the new template — anchor to Pacific today (today() is Pacific-safe)
+    renderNdDays(_noPickupDate || today());
     document.getElementById('nd-day-section').style.display  = '';
     document.getElementById('nd-slot-section').style.display = 'none';
     document.getElementById('nd-delivery-summary').textContent = 'Select a delivery day and time below.';
@@ -14803,20 +14828,22 @@ ${oneCopy}
     const tmpl = _noDelivTmpl || _noSelectedTmpl; if (!tmpl) return;
     const activeDays = tmpl.schedule_days || [0,1,2,3,4];
     const DAY_ABBR   = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    const base = new Date(afterIso + 'T00:00:00');
+    const _DOW = { Mon:0, Tue:1, Wed:2, Thu:3, Fri:4, Sat:5, Sun:6 };
     const days = [];
     for (let i = 1; i <= 60; i++) {
-      const d   = new Date(base); d.setDate(base.getDate() + i);
-      const dow = (d.getDay() + 6) % 7;
-      const iso = d.toLocaleDateString('sv');
+      const iso = addDaysPacific(afterIso, i);  // Pacific-safe; works from any browser TZ
+      const d   = new Date(`${iso}T12:00:00${pacificOffsetStr(iso)}`);
+      const _wd = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: BIZ_TZ });
+      const dow = _DOW[_wd];
       days.push({ d, dow, iso, avail: activeDays.includes(dow) });
     }
     document.getElementById('nd-days').innerHTML = days.map(({ d, dow, iso, avail }) => {
-      const mon = d.toLocaleDateString('en-US', { month: 'short' });
+      const mon    = d.toLocaleDateString('en-US', { month: 'short', timeZone: BIZ_TZ });
+      const dayNum = d.toLocaleDateString('en-US', { day: 'numeric', timeZone: BIZ_TZ });
       return `<button class="sp-day-btn${avail?'':' sp-day-disabled'}" data-nd-iso="${iso}"
         onclick="selectNdDay('${iso}')" ${avail?'':'disabled'}>
         <span class="sp-day-abbr">${DAY_ABBR[dow]}</span>
-        <span class="sp-day-num">${d.getDate()}</span>
+        <span class="sp-day-num">${dayNum}</span>
         <span class="sp-day-mon">${mon}</span>
       </button>`;
     }).join('');
@@ -15101,9 +15128,11 @@ ${oneCopy}
         }
       }
       const _fmtD = s => {
-        // Parse as local date (YYYY-MM-DD portion) to avoid UTC-shift day-off-by-one
-        const d = s.includes('T') ? new Date(s) : new Date(s + 'T12:00:00');
-        return d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+        // Parse as either ISO timestamp or YYYY-MM-DD; format in Pacific so the
+        // customer-facing email always shows the correct day-of-week regardless
+        // of the admin's browser timezone.
+        const d = s.includes('T') ? new Date(s) : new Date(`${s}T12:00:00${pacificOffsetStr(s)}`);
+        return d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',timeZone:BIZ_TZ});
       };
       const _esc  = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       // Build pickup / delivery display with time window label when available
@@ -17732,14 +17761,19 @@ ${oneCopy}
   }
 
   function getWeekDates(offset) {
-    // Returns [Mon, Tue, Wed, Thu, Fri, Sat, Sun] as Date objects
-    const now = new Date();
-    const dow = now.getDay(); // 0=Sun
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - ((dow + 6) % 7) + offset * 7);
-    monday.setHours(0, 0, 0, 0);
+    // Returns [Mon, Tue, Wed, Thu, Fri, Sat, Sun] as Date objects anchored to
+    // Pacific noon — works correctly for any browser TZ. Each Date's
+    // toLocaleDateString({timeZone: BIZ_TZ}) yields the correct Pacific calendar date.
+    const todayIso = today();  // Pacific YYYY-MM-DD
+    // Find Pacific Monday of this week. Start by getting Pacific weekday name for today.
+    const _wd = new Date(`${todayIso}T12:00:00${pacificOffsetStr(todayIso)}`)
+      .toLocaleDateString('en-US', { weekday: 'short', timeZone: BIZ_TZ });
+    const _DOW_FROM_MON = { Mon:0, Tue:1, Wed:2, Thu:3, Fri:4, Sat:5, Sun:6 };
+    const todayDayFromMon = _DOW_FROM_MON[_wd];
+    const mondayIso = addDaysPacific(todayIso, -todayDayFromMon + offset * 7);
     return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(monday); d.setDate(monday.getDate() + i); return d;
+      const iso = addDaysPacific(mondayIso, i);
+      return new Date(`${iso}T12:00:00${pacificOffsetStr(iso)}`);
     });
   }
 
@@ -17762,7 +17796,9 @@ ${oneCopy}
     // Compute week dates early so we can fetch actual route records for the whole week
     const weekDates = getWeekDates(schedWeekOffset);
     schedWeekDates = weekDates;
-    const _fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    // Pacific date — getWeekDates anchors at Pacific noon; using browser-local
+    // accessors here would shift weekStart/End by 1 day for non-Pacific browsers.
+    const _fmt = d => d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
     const weekStartStr = _fmt(weekDates[0]);
     const weekEndStr   = _fmt(weekDates[6]);
 
@@ -17829,7 +17865,9 @@ ${oneCopy}
       const runs = (t.schedule_days||[]).includes(day);
       if (!runs) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
 
-      const dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+      // date is anchored at Pacific noon (see getWeekDates) — pull the Pacific
+      // calendar date so dateStr matches what today() returns for comparisons.
+      const dateStr = date.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
       const todayDateStr = today();
       const isPast   = dateStr < todayDateStr;
       const isToday  = dateStr === todayDateStr;
@@ -17977,7 +18015,9 @@ ${oneCopy}
     // Compute week dates early so we can fetch actual route records for the whole week
     const weekDates = getWeekDates(schedWeekOffset);
     schedWeekDates = weekDates;
-    const _fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    // Pacific date — getWeekDates anchors at Pacific noon; using browser-local
+    // accessors here would shift weekStart/End by 1 day for non-Pacific browsers.
+    const _fmt = d => d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
     const weekStartStr = _fmt(weekDates[0]);
     const weekEndStr   = _fmt(weekDates[6]);
 
@@ -18042,7 +18082,9 @@ ${oneCopy}
       const runs = (t.schedule_days||[]).includes(day);
       if (!runs) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
 
-      const dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+      // date is anchored at Pacific noon (see getWeekDates) — pull the Pacific
+      // calendar date so dateStr matches what today() returns for comparisons.
+      const dateStr = date.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
       const todayDateStr = today();
       const isPast   = dateStr < todayDateStr;
       const isToday  = dateStr === todayDateStr;
@@ -22910,8 +22952,9 @@ ${oneCopy}
     };
     const rows = _regRows.map(r => [
       r.name, r.email, fmtPhoneCSV(r.phone), r.referral,
-      r.signup ? new Date(r.signup).toISOString().slice(0,10) : '',
-      r.firstOrder ? new Date(r.firstOrder).toISOString().slice(0,10) : '',
+      // Pacific date — toISOString().slice(0,10) returns UTC date, off by 1 day for evening signups.
+      r.signup ? new Date(r.signup).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '',
+      r.firstOrder ? new Date(r.firstOrder).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '',
       r.spend.toFixed(2),
     ]);
     const csv = [header, ...rows].map(row =>
@@ -22931,20 +22974,22 @@ ${oneCopy}
   }
 
   function rptDateRange(period) {
-    const now = new Date();
-    const end = new Date(now); end.setHours(23,59,59,999);
-    let start, prevStart, prevEnd;
-    // Trailing-day periods: today, yesterday, 7d, 30d, 90d
-    if (period === 'yesterday') {
-      start = new Date(now); start.setDate(now.getDate() - 1); start.setHours(0,0,0,0);
-      end.setTime(start.getTime()); end.setHours(23,59,59,999);
-    }
-    const days = period === 'today' || period === 'yesterday' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 90;
-    if (period !== 'yesterday') { start = new Date(now); start.setDate(now.getDate() - (days - 1)); start.setHours(0,0,0,0); }
-    // Previous period = same number of days immediately before
-    prevEnd = new Date(start); prevEnd.setMilliseconds(-1);
-    prevStart = new Date(start); prevStart.setDate(prevStart.getDate() - days);
-    return { start, end, prevStart, prevEnd };
+    // Anchor everything in Pacific dates — the previous browser-local approach
+    // would shift the boundary by 3 hours (Eastern) or more, dropping orders
+    // that fell in the gap. e.g. an Eastern admin running "today" at noon ET
+    // would only see Pacific orders from 9 AM PT onward.
+    const todayIso = today();
+    const days     = period === 'today' || period === 'yesterday' ? 1 : period === '7d' ? 7 : period === '30d' ? 30 : 90;
+    const endIso   = period === 'yesterday' ? addDaysPacific(todayIso, -1) : todayIso;
+    const startIso = period === 'yesterday' ? endIso : addDaysPacific(todayIso, -(days - 1));
+    const prevEndIso   = addDaysPacific(startIso, -1);
+    const prevStartIso = addDaysPacific(prevEndIso, -(days - 1));
+    return {
+      start:     pacificDayStart(startIso),
+      end:       pacificDayEnd(endIso),
+      prevStart: pacificDayStart(prevStartIso),
+      prevEnd:   pacificDayEnd(prevEndIso),
+    };
   }
 
   function rptTrendHTML(curr, prev) {
@@ -25217,10 +25262,10 @@ ${oneCopy}
       .order('pickup_window_start', { ascending: false });
 
     if (startVal) {
-      query = query.gte('pickup_window_start', new Date(startVal + 'T00:00:00').toISOString());
+      query = query.gte('pickup_window_start', pacificDayStart(startVal).toISOString());
     }
     if (endVal) {
-      query = query.lte('pickup_window_start', new Date(endVal + 'T23:59:59').toISOString());
+      query = query.lte('pickup_window_start', pacificDayEnd(endVal).toISOString());
     }
 
     const { data, error } = await query;
@@ -25580,8 +25625,9 @@ ${oneCopy}
   window.closeInvoiceModal = closeInvoiceModal;
 
   function generateInvoiceHTML(title, orders, period, groupName) {
-    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    const dueDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    // Customer-facing PDF — must always show Pacific dates regardless of where admin is.
+    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
+    const dueDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
 
     // Build per-order detail sections
     let grandSubtotal = 0, grandDeliveryFees = 0, grandTotal = 0;
@@ -25814,8 +25860,9 @@ ${orderSections}
     // Right side
     doc.setFontSize(14); doc.setFont('helvetica', 'bold');
     rText('INVOICE', 10);
-    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    const dueDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    // Customer-facing PDF — Pacific dates regardless of admin's browser TZ.
+    const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
+    const dueDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
     doc.setFontSize(8); doc.setFont('helvetica', 'normal');
     rText('Statement Date: ' + today, 15);
     rText('Due Date: ' + dueDate, 19);
