@@ -1741,6 +1741,7 @@ let _addrSuggCache = []; // Google Places predictions for the current suggestion
 let _zoneReadyPromise = null; // resolves when draft.zoneId is confirmed (avoids race on step 1)
 let _afSuggCache   = []; // Google Places predictions for the Add Address modal
 let _afGeo         = null; // { lat, lng } captured when a suggestion is chosen in the Add Address modal
+let _afGeoLine1    = null; // line1 value at the time _afGeo was set — used to detect manual edits that would stale the coords
 
 /* ── ROUTING ── */
 function showScreen(id) {
@@ -1835,6 +1836,17 @@ function pacificOffsetStr(iso) {
   const ptHour  = parseInt(noonUtc.toLocaleString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', hour12: false }));
   const offset  = 12 - ptHour;
   return (offset >= 0 ? '-' : '+') + String(Math.abs(offset)).padStart(2, '0') + ':00';
+}
+// Build an ISO string for a given Pacific date + minutes-of-day. Embeds the
+// Pacific offset explicitly so .toISOString() produces the correct UTC instant
+// regardless of the customer's browser timezone. Use this anywhere you would
+// otherwise write `new Date(\`${date}T${HH}:${MM}:00\`).toISOString()` — that
+// pattern silently corrupts on non-Pacific browsers (NY customer booking 10
+// AM PT → DB stores 14:00 UTC instead of 17:00 UTC).
+function pacificIsoFromMins(date, mins) {
+  const pad2 = n => String(n).padStart(2, '0');
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return new Date(`${date}T${pad2(h)}:${pad2(m)}:00${pacificOffsetStr(date)}`).toISOString();
 }
 // Extract the hour:minute (in Pacific) from an ISO timestamp as a number-of-minutes value
 // (e.g. 9:30 AM PT → 570). Robust replacement for the `new Date(toLocaleString)` round-trip
@@ -4949,17 +4961,18 @@ async function placeOrder() {
       if (!deliveryDate) return null;
       const dw = _effectiveDW || pw; // _effectiveDW is null only for standard orders with no custom window
       if (dw?.startMins !== undefined) {
-        return new Date(`${deliveryDate}T${pad2(Math.floor(dw.startMins/60))}:${pad2(dw.startMins%60)}:00`).toISOString();
+        // Pacific-anchored — pacificIsoFromMins embeds the correct offset.
+        return pacificIsoFromMins(deliveryDate, dw.startMins);
       }
-      return new Date(deliveryDate + 'T08:00:00').toISOString();
+      return pacificIsoFromMins(deliveryDate, 8 * 60);  // 8 AM PT default
     })(),
     delivery_window_end: (() => {
       if (!deliveryDate) return null;
       const dw = _effectiveDW || pw;
       if (dw?.endMins !== undefined) {
-        return new Date(`${deliveryDate}T${pad2(Math.floor(dw.endMins/60))}:${pad2(dw.endMins%60)}:00`).toISOString();
+        return pacificIsoFromMins(deliveryDate, dw.endMins);
       }
-      return new Date(deliveryDate + 'T18:00:00').toISOString();
+      return pacificIsoFromMins(deliveryDate, 18 * 60);  // 6 PM PT default
     })(),
     pickup_run_id:        null,                   // auto-assigned by DB trigger
     is_same_day:          draft.isSameDay || false,
@@ -5518,6 +5531,9 @@ function afSelectSugg(idx) {
     if (f1) { f1.style.borderColor = 'var(--green)'; setTimeout(() => { if(f1) f1.style.borderColor = ''; }, 2000); }
 
     _afGeo = { lat: r.geometry.location.lat(), lng: r.geometry.location.lng() };
+    // Snapshot the line1 the user picked. If they later edit it without re-selecting a suggestion,
+    // saveAddressForm will detect the mismatch and re-geocode rather than save stale coords.
+    _afGeoLine1 = line1;
   });
 }
 
@@ -5558,7 +5574,13 @@ async function saveAddressForm(existingId) {
   if (!line1 || !city || !zip) { toast('Please fill in street, city, and zip'); return; }
 
   // If the user typed the address without clicking a suggestion, _afGeo is null.
-  // Try a server-side geocode before saving so we never write null coords.
+  // Also: if the user picked a suggestion but then EDITED line1 manually
+  // (without re-selecting), _afGeo retains the OLD coords — would route
+  // the driver to the wrong house. Detect the mismatch and re-geocode.
+  if (_afGeo && _afGeoLine1 && line1 !== _afGeoLine1) {
+    _afGeo = null;
+    _afGeoLine1 = null;
+  }
   let geo = _afGeo;
   if (!geo?.lat || !geo?.lng) {
     geo = await _geocodeFallback(line1, city, zip);
@@ -6044,10 +6066,10 @@ async function saveEditOrder() {
 
   // Build schedule fields from _editSchedule
   const es  = window._editSchedule;
-  const pad2 = n => String(n).padStart(2, '0');
-  function _minsToTime(date, mins) {
-    return new Date(`${date}T${pad2(Math.floor(mins/60))}:${pad2(mins%60)}:00`).toISOString();
-  }
+  // Use the shared pacificIsoFromMins helper — the previous local _minsToTime helper
+  // built ISO strings without an offset, silently corrupting the delivery window
+  // for any non-Pacific customer (NY edit of 10 AM PT delivery → DB stored 14:00 UTC
+  // instead of 17:00 UTC). Same bug class as C-H2 we fixed in computeSubWindows.
   const pw = es?.pickupWindow;
   const dw = es?.deliveryWindow || es?._origDelivWindow || pw; // customer choice > original delivery win > pickup win
   const schedFields = {};
@@ -6056,9 +6078,9 @@ async function saveEditOrder() {
     if (pw?.slotEnd)   schedFields.pickup_window_end   = pw.slotEnd;
     if (es.deliveryDate && dw) {
       schedFields.delivery_window_start = dw.startMins !== undefined
-        ? _minsToTime(es.deliveryDate, dw.startMins) : dw.slotStart;
+        ? pacificIsoFromMins(es.deliveryDate, dw.startMins) : dw.slotStart;
       schedFields.delivery_window_end   = dw.endMins !== undefined
-        ? _minsToTime(es.deliveryDate, dw.endMins)   : dw.slotEnd;
+        ? pacificIsoFromMins(es.deliveryDate, dw.endMins)   : dw.slotEnd;
     }
   }
 
@@ -6642,7 +6664,9 @@ async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId) {
     pickup_address_id: defaultAddr?.id || null,
     delivery_address_id: defaultAddr?.id || null,
     source: 'customer_app',
-    tip_amount: parseFloat(currentCustomer.default_tip_amount || 0),
+    // Field is `default_tip` everywhere in the schema — `default_tip_amount` was a typo
+    // that silently zeroed the tip on every subscription auto-pickup order.
+    tip_amount: parseFloat(currentCustomer.default_tip || 0),
     tip_type: (currentCustomer.default_tip_type === '%' ? 'pct' : 'dollar')
   }).select().single();
 

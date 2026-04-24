@@ -1194,6 +1194,7 @@ async function processPhotoQueue() {
 
   // Work through queue — newest first so current stop finishes fastest
   const queue = [..._photoQueue];
+  const MAX_PHOTO_ATTEMPTS = 20;  // ~10 minutes of retries (every 30s); after this we give up
   for (const item of queue) {
     try {
       // Convert dataURL back to Blob
@@ -1202,9 +1203,13 @@ async function processPhotoQueue() {
       const ext = 'jpg';
       const path = `stops/${item.stopId}/${item.ts}.${ext}`;
 
+      // upsert:true makes re-upload idempotent. Without it, if the storage upload
+      // succeeded once but the route_stops update failed (network blip between
+      // the two awaits), every retry would 409 forever — bytes in the bucket but
+      // never linked to the stop. Re-uploading identical bytes is harmless.
       const { data, error } = await db.storage
         .from('stop-photos')
-        .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+        .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
 
       if (error) throw error;
 
@@ -1227,8 +1232,17 @@ async function processPhotoQueue() {
     } catch (e) {
       item.attempts++;
       console.warn(`Photo upload attempt ${item.attempts} failed for ${item.stopId}:`, e.message || e);
-      // Update in IDB with new attempt count
-      try { await _idbPut(item); } catch(e2) {}
+      // Give up after MAX_PHOTO_ATTEMPTS — without this gate, a permanently-broken
+      // photo (corrupt blob, bucket policy denial, RLS rejection) retries every 30s
+      // for the entire shift forever, wasting mobile data.
+      if (item.attempts >= MAX_PHOTO_ATTEMPTS) {
+        console.error(`Photo for stop ${item.stopId} failed permanently after ${item.attempts} attempts — dropping from queue`);
+        _photoQueue = _photoQueue.filter(q => q.id !== item.id);
+        try { await _idbDelete(item.id); } catch(e2) {}
+        toast(`Photo upload failed permanently — please reshoot if needed`, 5000);
+      } else {
+        try { await _idbPut(item); } catch(e2) {}
+      }
     }
   }
 
@@ -3605,7 +3619,12 @@ function subscribeToDriverMessages() {
     })
     .subscribe(status => {
       console.log('Messages channel:', status);
-      if (status === 'SUBSCRIBED' && allAdminMessages.length > 0) {
+      // Always reload after SUBSCRIBED — events that arrived during initial loadDriverMessages
+      // could be dropped by handler guards. The previous `&& allAdminMessages.length > 0`
+      // gate meant the FIRST subscribe (when no messages yet loaded) skipped the recovery
+      // reload, permanently losing any admin message sent in the gap. Mirrors the D-M5 fix
+      // we made for the route_stops channel.
+      if (status === 'SUBSCRIBED') {
         loadDriverMessages().then(() => {
           if (_msgActiveThread === 'admin') renderThreadMessages();
           else if (document.getElementById('screen-messages')?.classList.contains('active')) renderConversationList();
