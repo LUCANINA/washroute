@@ -8191,6 +8191,13 @@
       if (routeRow?.window_start) update.delivery_window_start = routeRow.window_start;
       if (routeRow?.window_end)   update.delivery_window_end   = routeRow.window_end;
 
+      // Log the route change with the real admin actor BEFORE the orders update.
+      // The log_order_change trigger dedups on (event_type='routed', new_value) within 3 seconds,
+      // so this attributed row suppresses its "System" twin.
+      if (routeId && routeId !== o.delivery_run_id) {
+        await logOrderEvent(opCurrentOrderId, 'routed', `Delivery route: ${routeRow?.name || routeLabel}`, null, routeId);
+      }
+
       // 2) Update the order row.
       const { error: updErr } = await db.from('orders').update(update).eq('id', opCurrentOrderId);
       if (updErr) throw updErr;
@@ -9097,6 +9104,14 @@
     const newTime = startIso ? new Date(startIso).toLocaleTimeString('en-US',{timeZone:BIZ_TZ,hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase() : '';
     const routeName = _opRoutes.find(x => x.id === routeId)?.name || '';
     await logOrderEvent(opCurrentOrderId, 'rescheduled', `${legLabel} rescheduled to ${newDate} ${newTime}${routeName ? ' · ' + routeName : ''}`, null, startIso);
+    // Also log the 'routed' event with the real actor ONLY if the route actually changed,
+    // so the log_order_change trigger's 3-second dedup suppresses its "System" twin
+    // (trigger matches on event_type='routed' + new_value=route_id). Skip when only the
+    // time slot changed (same route) — trigger won't fire either.
+    const prevRunId = leg === 'pickup' ? o.pickup_run_id : o.delivery_run_id;
+    if (routeId && routeId !== prevRunId) {
+      await logOrderEvent(opCurrentOrderId, 'routed', `${legLabel} route: ${routeName || 'route changed'}`, null, routeId);
+    }
     if (update.status) {
       const statusLabel = _OP_STATUS_LABELS[update.status] || update.status;
       await logOrderEvent(opCurrentOrderId, 'status_change', `Status reset to ${statusLabel}`, o.status, update.status);
@@ -10601,6 +10616,9 @@ ${oneCopy}
     const selOpt = document.getElementById('reassign-run-select').selectedOptions[0];
     const routeLabel = selOpt ? selOpt.textContent.trim() : '';
     await logOrderEvent(_rescheduleOrderId, 'rescheduled', `${legLabel} moved to route: ${routeLabel}`, null, runId);
+    // Also log 'routed' with actor so the log_order_change trigger's 3-sec dedup
+    // (event_type='routed' + new_value=route_id) suppresses its "System" twin.
+    await logOrderEvent(_rescheduleOrderId, 'routed', `${legLabel} route: ${routeLabel || 'route changed'}`, null, runId);
     const { error } = await db.from('orders').update({ [col]: runId }).eq('id', _rescheduleOrderId);
     if (error) { errEl.textContent = error.message; errEl.style.display=''; return; }
     closeReassignModal();
@@ -18973,6 +18991,12 @@ ${oneCopy}
       const orderId = stop.orders?.id || stopObj?.orders?.id;
       if (orderId) {
         const runField = stop.stop_type === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
+        // Log the move with the real admin actor BEFORE the orders update. The
+        // log_order_change trigger has a 3-second dedup on (event_type='routed', new_value)
+        // so our attributed row suppresses its "System" twin.
+        const legLabel = stop.stop_type === 'pickup' ? 'Pickup' : 'Delivery';
+        const toName = toData?.templateName || 'another route';
+        await logOrderEvent(orderId, 'routed', `${legLabel} route: ${toName}`, null, toRouteId);
         await db.from('orders').update({ [runField]: toRouteId }).eq('id', orderId);
         // Update local allOrders cache too so the order panel reflects the change immediately
         const localOrder = typeof allOrders !== 'undefined' && allOrders?.find(o => o.id === orderId);
@@ -19369,6 +19393,13 @@ ${oneCopy}
       // Keep order's run_id in sync with the stop's new route
       if (stopData) {
         const runCol = stopData.stop_type === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
+        // Log the move with the real admin actor BEFORE the orders update.
+        // The log_order_change trigger dedups on (event_type='routed', new_value)
+        // within 3 seconds, so our attributed row suppresses its "System" twin.
+        const legLabel = stopData.stop_type === 'pickup' ? 'Pickup' : 'Delivery';
+        const tgtBtn = document.querySelector('.run-toggle-btn[data-rid="'+targetRouteId+'"]');
+        const toName = (tgtBtn?.textContent || '').trim() || 'another route';
+        await logOrderEvent(stopData.order_id, 'routed', `${legLabel} route: ${toName}`, null, targetRouteId);
         await db.from('orders').update({ [runCol]: targetRouteId }).eq('id', stopData.order_id);
       }
       const [{ count: srcCnt }, { count: dstCnt }] = await Promise.all([
