@@ -16598,19 +16598,22 @@ ${oneCopy}
         }).in('id', ids);
         if (ordErr) { showToast('Failed to mark orders paid: ' + ordErr.message, 'error'); btn.disabled = false; btn.textContent = 'Confirm & Apply Credit'; return; }
 
-        // Step 2: Deduct credits (only after orders are marked paid)
-        const newBal = Math.round((creditBal - applied) * 100) / 100;
-        await db.from('customers').update({ credits: newBal, updated_at: nowIso }).eq('id', panelCustomerId);
-
-        // Step 3: Log credit_use transaction (best-effort)
-        await db.from('customer_transactions').insert({
-          customer_id: panelCustomerId,
-          type: 'credit_use',
-          amount: applied,
-          description: `Applied to ${ids.length} order${ids.length !== 1 ? 's' : ''}: ${ids.map(id => '#' + (cpAllOrders.find(x => x.id === id)?.order_number || '?')).join(', ')}`,
-          payment_method: 'credit',
-          note: notes || null,
+        // Step 2 + 3: Atomic credit deduction + ledger insert via RPC.
+        // Replaces the prior sequential update + insert which could drift if the ledger
+        // failed mid-pair. The RPC returns the new balance so we don't need to re-query.
+        const orderNums = ids.map(id => '#' + (cpAllOrders.find(x => x.id === id)?.order_number || '?')).join(', ');
+        const { data: creditResult, error: creditErr } = await db.rpc('apply_customer_credit_to_order', {
+          p_customer_id:    panelCustomerId,
+          p_amount:         applied,
+          p_description:    `Applied to ${ids.length} order${ids.length !== 1 ? 's' : ''}: ${orderNums}${notes ? ' — ' + notes : ''}`,
+          p_order_id:       null,  // batch — not tied to a single order
+          p_payment_method: 'credit',
         });
+        if (creditErr) {
+          console.error('apply_customer_credit_to_order failed in Bill Orders:', creditErr);
+          showToast('Orders marked paid but credit deduction failed — please adjust manually', 'error');
+        }
+        const newBal = creditResult?.[0]?.new_balance ?? Math.round((creditBal - applied) * 100) / 100;
 
         // Step 4: Log billing events (best-effort). Show the per-order amount that
         // was covered (subtotal + tip) so the audit trail is accurate.
@@ -21666,17 +21669,19 @@ ${oneCopy}
         const bal = parseFloat(freshCust?.credits || 0);
 
         if (bal >= tipDollars) {
-          // Cover the tip from credits + log the ledger entry.
-          const newBal = Math.round((bal - tipDollars) * 100) / 100;
-          await db.from('customers').update({ credits: newBal, updated_at: nowIso }).eq('id', custId);
-          await db.from('customer_transactions').insert({
-            customer_id: custId,
-            type: 'credit_use',
-            amount: tipDollars,
-            description: `Tip for order #${rackActiveOrder.order_number}`,
-            order_id: rackActiveOrder.id,
-            payment_method: 'credit',
+          // Atomic credit deduction + ledger insert via RPC. Replaces the prior
+          // sequential pattern which could drift if either step failed.
+          const { error: tipCreditErr } = await db.rpc('apply_customer_credit_to_order', {
+            p_customer_id:    custId,
+            p_amount:         tipDollars,
+            p_description:    `Tip for order #${rackActiveOrder.order_number}`,
+            p_order_id:       rackActiveOrder.id,
+            p_payment_method: 'credit',
           });
+          if (tipCreditErr) {
+            console.error('apply_customer_credit_to_order failed for rack tip:', tipCreditErr);
+            // Fall through — the order will still be marked paid below; tip will need manual adjustment
+          }
           await db.from('orders').update({
             stripe_payment_intent_id: 'credit_applied',
             billing_status: 'paid',
@@ -22719,27 +22724,20 @@ ${oneCopy}
       btn.disabled = false; btn.textContent = '⚖️ Save & Start Processing';
       return;
     }
-    // Deduct credits from customer if applied + log a credit_use transaction
-    // so the ledger matches the balance (prevents Transactions-tab drift).
+    // Atomic credit deduction + ledger insert via apply_customer_credit_to_order RPC.
+    // Replaces the previous sequential update + insert pattern that could drift if the
+    // ledger insert failed mid-pair (the silent-drift class that session 128 backfilled).
     if (bd.creditApplied > 0 && procCustomerId) {
-      const newCredits = Math.max(0, Math.round((procCustomerCredits - bd.creditApplied) * 100) / 100);
-      const { error: creditErr } = await db.from('customers')
-        .update({ credits: newCredits, updated_at: new Date().toISOString() })
-        .eq('id', procCustomerId);
+      const { error: creditErr } = await db.rpc('apply_customer_credit_to_order', {
+        p_customer_id:    procCustomerId,
+        p_amount:         bd.creditApplied,
+        p_description:    `Applied to order #${procActiveOrder.order_number} at Intake`,
+        p_order_id:       procActiveOrder.id,
+        p_payment_method: 'credit',
+      });
       if (creditErr) {
         showToast('Order saved but credit deduction failed — please adjust credits manually', 'error');
-        console.error('Credit deduction failed:', creditErr);
-      } else {
-        // Ledger entry — parity with Bill Orders → credit and charge-order v34.
-        const { error: txErr } = await db.from('customer_transactions').insert({
-          customer_id: procCustomerId,
-          type: 'credit_use',
-          amount: bd.creditApplied,
-          description: `Applied to order #${procActiveOrder.order_number} at Intake`,
-          order_id: procActiveOrder.id,
-          payment_method: 'credit',
-        });
-        if (txErr) console.error('credit_use ledger insert failed at Intake:', txErr);
+        console.error('apply_customer_credit_to_order failed at Intake:', creditErr);
       }
     }
     const movedId  = procActiveOrder.id;
