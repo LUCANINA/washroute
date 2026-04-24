@@ -10431,7 +10431,7 @@ ${oneCopy}
     if (_advBtn) { _advBtn.disabled = true; _advBtn.style.opacity = '0.5'; }
     if (_delBtn) { _delBtn.disabled = true; _delBtn.style.opacity = '0.5'; }
     const now = new Date().toISOString();
-    let succeeded = 0, chargeNeeded = 0;
+    let succeeded = 0, chargeNeeded = 0, chargeFailedCount = 0;
     for (const s of advanceable) {
       const nextStatus = STATUS_FLOW[s.status];
       if (nextStatus === 'ready_for_delivery') {
@@ -10439,6 +10439,11 @@ ${oneCopy}
         if (orderObj?.customers?.billing_type === 'on_account') {
           // On Account — skip Stripe, balance increases naturally
         } else {
+          // Track charge outcome — must propagate to the orders update so a failed
+          // charge doesn't silently advance the order without a billing_status='failed'
+          // stamp (the order would be marked ready_for_delivery with no record of the
+          // failed payment, and would not appear in the Issues tab).
+          let chargeOk = false, chargeErrMsg = null;
           try {
             const { data: { session } } = await db.auth.getSession();
             const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
@@ -10446,9 +10451,24 @@ ${oneCopy}
               headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},
               body: JSON.stringify({ orderId: s.id }),
             });
-            const result = await res.json();
-            if (!result.error) chargeNeeded++;
-          } catch(e) { console.warn('Charge failed for', s.num, e); }
+            const result = await res.json().catch(() => ({}));
+            chargeOk = res.ok && !result.error;
+            if (!chargeOk) chargeErrMsg = result.error || `HTTP ${res.status}`;
+          } catch(e) {
+            chargeErrMsg = e.message || 'network error';
+            console.warn('Charge failed for', s.num, e);
+          }
+          if (chargeOk) {
+            chargeNeeded++;
+          } else {
+            // Stamp the failure on the order so it surfaces in Issues tab + customer outreach.
+            chargeFailedCount++;
+            await db.from('orders').update({
+              billing_status: 'failed',
+              charge_failed_at: now,
+              billing_notes: `Charge failed during batch advance: ${chargeErrMsg || 'unknown'}`
+            }).eq('id', s.id);
+          }
         }
       }
       const payload = { status: nextStatus };
@@ -10459,8 +10479,9 @@ ${oneCopy}
       const { error } = await db.from('orders').update(payload).eq('id', s.id);
       if (!error) succeeded++;
     }
-    const msg = chargeNeeded > 0 ? `✓ ${succeeded} advanced (${chargeNeeded} charged)` : `✓ ${succeeded} order${succeeded>1?'s':''} advanced`;
-    showToast(msg);
+    const failPart = chargeFailedCount > 0 ? ` · ⚠️ ${chargeFailedCount} payment failed (see Issues)` : '';
+    const msg = chargeNeeded > 0 ? `✓ ${succeeded} advanced (${chargeNeeded} charged${failPart})` : `✓ ${succeeded} order${succeeded>1?'s':''} advanced${failPart}`;
+    showToast(msg, chargeFailedCount > 0 ? 'warning' : '');
     clearOrderSelection();
     if (_advBtn) { _advBtn.disabled = false; _advBtn.style.opacity = ''; }
     if (_delBtn) { _delBtn.disabled = false; _delBtn.style.opacity = ''; }
@@ -22853,8 +22874,11 @@ ${oneCopy}
     const fromEl = document.getElementById('rpt-from');
     const toEl   = document.getElementById('rpt-to');
     if (!fromEl?.value || !toEl?.value) return;
-    const fromISO = new Date(fromEl.value + 'T00:00:00').toISOString();
-    const toISO   = new Date(toEl.value   + 'T23:59:59.999').toISOString();
+    // Pacific-anchored bounds — the previous browser-local construction shifted the window
+    // by 3+ hours for non-Pacific admins (Eastern admin running "today" got Pacific 9am-9am
+    // instead of midnight-midnight, missing 3 hours of orders at each end).
+    const fromISO = pacificDayStart(fromEl.value).toISOString();
+    const toISO   = pacificDayEnd(toEl.value).toISOString();
     const tbody = document.getElementById('rpt-reg-tbody');
     if (tbody) tbody.innerHTML = `<tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>`;
 
