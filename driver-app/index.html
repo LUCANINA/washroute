@@ -1037,16 +1037,33 @@
 // ── AUTO-UPDATE (PWA tablet reload) ──────────────────────────────────────
 (function() {
   let _wrVer = null;
+  let _wrPendingReload = false;  // version mismatch detected — reload at next safe moment
+  // "Safe to reload" = driver is not mid-action on a stop. Phase 2 = at-stop, taking
+  // photo/notes/marking complete. Reloading there could lose in-flight state.
+  function _wrSafeToReload() {
+    return typeof currentStopPhase === 'undefined' || currentStopPhase !== 2;
+  }
   async function _wrCheckVer() {
     try {
       const r = await fetch('/build-version.txt?t=' + Date.now(), { cache: 'no-store' });
       const v = (await r.text()).trim();
-      if (_wrVer && v !== _wrVer) { window.location.reload(true); return; }
+      if (_wrVer && v !== _wrVer) {
+        if (_wrSafeToReload()) { window.location.reload(true); return; }
+        _wrPendingReload = true;  // queue for when driver finishes the current stop
+        return;
+      }
       _wrVer = v;
     } catch(e) {}
   }
+  // Re-attempt the reload after every nav/screen change so a queued mismatch lands
+  // as soon as the driver leaves Phase 2.
+  function _wrTryPendingReload() {
+    if (_wrPendingReload && _wrSafeToReload()) window.location.reload(true);
+  }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') _wrCheckVer(); });
   setInterval(_wrCheckVer, 5 * 60 * 1000);
+  // Check after every screen change too — handles "finished a stop, now safe to reload"
+  setInterval(_wrTryPendingReload, 5 * 1000);
   _wrCheckVer();
 })();
 // ─────────────────────────────────────────────────────────────────────────
@@ -1330,6 +1347,9 @@ function stopGpsTracking() {
     clearInterval(_gpsInterval);
     _gpsInterval = null;
   }
+  // Reset the throttle timer so a re-login within GPS_SEND_INTERVAL still gets
+  // a fresh ping. Otherwise the first GPS fix on the new session is silently dropped.
+  _lastGpsSend = 0;
 }
 
 /* ──────────────────────────────
@@ -1429,6 +1449,12 @@ function showScreen(id) {
   const threadScreen = document.getElementById('screen-msg-thread');
   if (threadScreen) { threadScreen.classList.remove('active'); threadScreen.style.display = 'none'; }
   if (typeof _msgActiveThread !== 'undefined') _msgActiveThread = null;
+  // Resolve any pending Can't-Complete promise so it doesn't leak when driver navigates away
+  // mid-flow (e.g. tapped a bottom-nav icon while the overlay was up). Without this the
+  // overlay stays modal-blocking and the promise never resolves.
+  if (typeof resolveCantComplete === 'function' && typeof _cantCompleteResolve !== 'undefined' && _cantCompleteResolve) {
+    resolveCantComplete(null);
+  }
   document.getElementById('screen-' + id)?.classList.add('active');
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   const nb = document.getElementById('nav-' + id);
@@ -2490,10 +2516,14 @@ function renderStopDetail(stopOrId) {
 
     if (currentStopPhase === 1) {
       // ════ PHASE 1: Pre-arrival ════
-      const alreadySent = !!stop.on_my_way_sent_at || isEnRoute;
+      // Two distinct flags — splitting these prevents the "Customer notified" chip from
+      // lying when the driver tapped "I'm already here" (which sets en_route locally
+      // but does NOT send an SMS — only sendOnMyWay() stamps on_my_way_sent_at).
+      const sentSms = !!stop.on_my_way_sent_at;
+      const arrivedOrSent = sentSms || isEnRoute;
       const mapsHref = stop._addr ? mapsLink(stop._addr) : null;
       h += `<div class="phase1-actions">`;
-      if (!alreadySent) {
+      if (!arrivedOrSent) {
         h += `<button class="btn-notify-big" id="btn-notify-cust" onclick="sendOnMyWay('${stop.id}')">
           I'm On My Way
         </button>`;
@@ -2505,8 +2535,11 @@ function renderStopDetail(stopOrId) {
         }
         h += `<button class="btn-arrive-text" onclick="arrivedAtStop('${stop.id}')">I'm already here</button>`;
       } else {
-        // En route state — show notified chip, Maps, then big "I've Arrived" CTA
-        h += `<div class="enroute-notified-chip">✓&nbsp; Customer notified</div>`;
+        // En route OR already-arrived state. Only show the "Customer notified" chip
+        // when the SMS was actually sent — never lie when the driver chose to skip it.
+        if (sentSms) {
+          h += `<div class="enroute-notified-chip">✓&nbsp; Customer notified</div>`;
+        }
         if (mapsHref) {
           h += `<a href="${mapsHref}" target="_blank" class="btn-maps" style="margin-top:10px;text-decoration:none">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
@@ -3211,9 +3244,14 @@ async function loadCustomerSms() {
   if (!currentDriver) return;
   // Record session start — driver thread only shows messages from this point forward
   if (!_smsSessionStart) _smsSessionStart = new Date().toISOString();
-  // RLS policy ensures we only get SMS for customers on today's routes
+  // RLS policy ensures we only get SMS for customers on today's routes.
+  // Date filter caps the payload to the last 7 days — without it, every login
+  // pulled the entire SMS history for every customer the driver has ever served
+  // (sometimes thousands of rows). 7 days is plenty of context for any active stop.
+  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
   const { data } = await db.from('sms_messages')
     .select('*')
+    .gte('created_at', sevenDaysAgo)
     .order('created_at', { ascending: true });
   allCustomerSms = data || [];
 
@@ -3754,8 +3792,13 @@ function subscribeToRouteStopUpdates() {
 
     .subscribe(status => {
       console.log('Route/order updates channel:', status);
-      // After reconnection, reload all stop data to catch missed events
-      if (status === 'SUBSCRIBED' && allStops.length > 0) {
+      // After SUBSCRIBED, always reload stop data — events that arrived during
+      // the initial loadDriverData() got dropped by `if (_dataLoading) return`
+      // in each handler. The previous `allStops.length > 0` guard meant the
+      // first subscribe (when allStops is still empty) skipped the reload,
+      // so any UPDATE that landed between the routes-fetch and stops-fetch
+      // was permanently lost.
+      if (status === 'SUBSCRIBED') {
         loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
       }
     });
@@ -3834,11 +3877,11 @@ db.auth.onAuthStateChange((event, session) => {
 // Global error handler — surface JS errors that would otherwise silently crash the app
 window.addEventListener('error', e => {
   console.error('Unhandled error:', e.error || e.message);
-  toast('Something went wrong — pull down to refresh');
+  toast('Something went wrong — tap the ↻ refresh icon at the top');
 });
 window.addEventListener('unhandledrejection', e => {
   console.error('Unhandled promise rejection:', e.reason);
-  toast('Something went wrong — pull down to refresh');
+  toast('Something went wrong — tap the ↻ refresh icon at the top');
 });
 </script>
 </body>
