@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 24, 2026 — Session 134 (pt 3): Three QA-pass fixes — single-status ReferenceError, XSS via customer name in onclick attributes, and Bill modal undercharge by tip. **(1) `_singleStatusCurrentStatus` was referenced at line 10585 but never declared or assigned anywhere in the file.** The single-order status picker (used from the orders list "Set status →" affordance) threw `ReferenceError` silently inside the `await logOrderEvent(...)` call, killing the function before the DB update — admin clicked status, modal closed, nothing happened, no toast. Declared the global next to `_singleStatusOrderId/Num` and assigned it from the `currentStatus` parameter in `openSingleStatusPicker`. **(2) XSS via customer-controlled name in 9 inline `onclick` attribute interpolations.** Six `promptUpdateCard` + one `openArchiveModal` (in `issueActionBtn` and `_deliveredActionBtn` at lines ~4809-4873) plus two `launderer-name` sites (lines ~20551) used `name.replace(/'/g, "\\'")` — single-quote escape only. A customer registering through the customer app with a name containing `"`, `<`, `\`, or template-confusing chars could break out of the attribute and execute arbitrary JS in the admin's authenticated session. New helper `escAttrJSArg(val)` wraps `JSON.stringify` (canonical, fully-escaped JS string literal handling all special chars including newlines and unicode) + the existing `esc()` (HTML attribute escaping). Browser HTML-decodes the attribute, then the JS engine parses a valid quoted string literal — no break-out path. Verified against classic payloads (`O'Brien`, `<script>alert(1)</script>`, `"; alert(1); //`, etc.) — all become harmless string literals. **(3) Bill modal undercharged customers when their order had a tip.** `openBillModal` summed `parseFloat(o.total_amount || 0)` and displayed that as the modal total + the user-facing "Charge $X to card?" confirm prompt. But the credit-card path goes through `charge-order` edge fn which has always charged `pretax + tip`. Result: customer's card was hit for more than admin agreed to. Fixed three sites in `confirmBilling`/`openBillModal` to use `_orderTipBreakdown(o).totalWithTip` (same source of truth the edge fn uses). The credit-card billing log message and the cash/check/venmo log message also updated for consistency. Commit `4173219`. **Session 134 cumulative diff: 4 commits, ~150 LOC, 1 migration.** Next session 134 work probably continues from the QA report's medium-severity items (timezone bugs cluster, paid_at schema decision).*
+*Last updated: Apr 24, 2026 — Session 134 (pt 4): Dropped redundant `orders.paid_at` column. Schema decision after walking the on-account billing model: WashRoute has no scenario where `paid_at` ever differs from `billed_at` — auto-pay customers get both at racking in the same instant, on-account customers get both when admin marks payment received. The "invoice sent" intermediate state for on-account is already represented (UI badge derives from `billing_type='on_account' AND status>=ready_for_delivery`; aged receivables in the On Account report clock from `actual_delivery_at`). `paid_at` was only set by 4 of 5 production code sites (1,557 of 1,575 paid orders never had it populated), so it was permanent schema drift. Single-column model = one less thing to forget. **Order of ops:** patched all 5 writers + 1 unused SELECT, deployed via Vercel (commit `7c3770c`), waited 30 sec for deploy, captured `_backfill_paid_at_20260424` snapshot of 33 non-null rows for full reversibility, dropped column via migration `session_134_drop_paid_at`. **DB-side blast-radius checked clean before drop:** zero DB functions, triggers, views, policies, or indexes referenced `paid_at`. Edge functions clean. **Bonus finding while verifying:** audit Check 3 ("Unpaid delivered orders") returns ~170 rows but only ~16 are actionable — 104 are on-account awaiting batch billing, 48 are refunded orders, both of which the check should exclude. Flagged as tech debt for `washroute-audit` skill update next session. **If we ever need to track "invoice sent vs payment received" separately,** that's a future `invoice_sent_at` column with a clearer name — not bringing `paid_at` back. Reverse with: `ALTER TABLE orders ADD COLUMN paid_at TIMESTAMPTZ; UPDATE orders o SET paid_at = b.paid_at FROM _backfill_paid_at_20260424 b WHERE o.id = b.id;`. **Earlier this session:** three QA-pass fixes (single-status crash, XSS in onclick, bill modal tip undercharge), driver Skip Photo flow, real-actor attribution on admin route moves.*
+
+*Prior: Apr 24, 2026 — Session 134 (pt 3): Three QA-pass fixes — single-status ReferenceError, XSS via customer name in onclick attributes, and Bill modal undercharge by tip. **(1) `_singleStatusCurrentStatus` was referenced at line 10585 but never declared or assigned anywhere in the file.** The single-order status picker (used from the orders list "Set status →" affordance) threw `ReferenceError` silently inside the `await logOrderEvent(...)` call, killing the function before the DB update — admin clicked status, modal closed, nothing happened, no toast. Declared the global next to `_singleStatusOrderId/Num` and assigned it from the `currentStatus` parameter in `openSingleStatusPicker`. **(2) XSS via customer-controlled name in 9 inline `onclick` attribute interpolations.** Six `promptUpdateCard` + one `openArchiveModal` (in `issueActionBtn` and `_deliveredActionBtn` at lines ~4809-4873) plus two `launderer-name` sites (lines ~20551) used `name.replace(/'/g, "\\'")` — single-quote escape only. A customer registering through the customer app with a name containing `"`, `<`, `\`, or template-confusing chars could break out of the attribute and execute arbitrary JS in the admin's authenticated session. New helper `escAttrJSArg(val)` wraps `JSON.stringify` (canonical, fully-escaped JS string literal handling all special chars including newlines and unicode) + the existing `esc()` (HTML attribute escaping). Browser HTML-decodes the attribute, then the JS engine parses a valid quoted string literal — no break-out path. Verified against classic payloads (`O'Brien`, `<script>alert(1)</script>`, `"; alert(1); //`, etc.) — all become harmless string literals. **(3) Bill modal undercharged customers when their order had a tip.** `openBillModal` summed `parseFloat(o.total_amount || 0)` and displayed that as the modal total + the user-facing "Charge $X to card?" confirm prompt. But the credit-card path goes through `charge-order` edge fn which has always charged `pretax + tip`. Result: customer's card was hit for more than admin agreed to. Fixed three sites in `confirmBilling`/`openBillModal` to use `_orderTipBreakdown(o).totalWithTip` (same source of truth the edge fn uses). The credit-card billing log message and the cash/check/venmo log message also updated for consistency. Commit `4173219`. **Session 134 cumulative diff: 4 commits, ~150 LOC, 1 migration.** Next session 134 work probably continues from the QA report's medium-severity items (timezone bugs cluster, paid_at schema decision).*
 
 *Prior: Apr 24, 2026 — Session 134 (pt 2): Driver "Skip Photo" flow + 1-char unlock bug + admin 📷✗ badge. Spawned out of QA finding D-H1 (the no-photo bail-out left the primary action button disabled, locking drivers into a dead-end requiring back-out + re-enter). David surfaced the deeper UX pain: drivers in low-signal areas can't always take a photo at all, and the previous photo-mandate would block them entirely. **Solution:** new Skip Photo button (small underlined link below Take Photo) opens a native confirm explaining the consequence; on confirm, an in-memory `_photoSkippedStopIds` Set bypasses the photo guard for that one stop and the completion stamps `route_stops.photo_skipped_at = now`. Driver sees a yellow "✗ Photo will be skipped" banner with an Undo affordance until they either complete the stop or capture a photo (which clears the flag — photo wins). The original 1-char bug is fixed in the same commit (`disabled = true` → `false`) so even drivers who DO want a photo aren't stuck. **Admin side:** RCC stop cards now show a small `📷✗` badge on any stop with `photo_skipped_at` set, so David / Lili can spot patterns (one driver skipping daily = phone needs replacing). Both RCC `route_stops` SELECT queries (initial + refresh) updated to pull the new column. **DB:** migration `session_134_add_photo_skipped_at` adds a nullable TIMESTAMPTZ column; reversible via DROP COLUMN; existing 99k+ stop rows unaffected (default NULL = "photo provided OR predates feature"). **Design choice deferred:** no reason dropdown — David's call: "99% service-related, no need to ask." Trust + track instead of nag. **No analytics surface yet** — admin badge first, dedicated Reports view later only if patterns warrant. Commit `ed593eb`. **Earlier this session:** real-actor attribution on admin route moves.*
 
@@ -671,6 +673,61 @@ Running registry of every customer-record merge performed. Each row captures the
 
 ## Session Log
 
+### Apr 24, 2026 (session 134, pt 4) — Dropped `orders.paid_at` (redundant with `billed_at`)
+
+After walking the on-account billing model with David, established that WashRoute has no scenario where `paid_at` ever differs from `billed_at`. Auto-pay customers: charge fires at racking, both timestamps would be the same instant. On-account: admin marks payment received, both timestamps would be the same instant (we don't track when the customer actually wrote the check). The implied 3-state on-account model (invoiced → invoice sent → paid) is already represented in the existing system without a separate timestamp:
+
+- "Invoiced" = derived UI badge (`billing_type='on_account' AND status>=ready_for_delivery`)
+- "Awaiting payment" = no explicit state; aged receivables in the On Account report clocks from `actual_delivery_at`
+- "Paid" = `billing_status='paid'` + `billed_at`
+
+The On Account report (Reports → On Account) already does the heavy lifting: per-customer Invoiced/Paid/Outstanding totals, aged receivables (current/30/60/90), billing groups, CSV export. None of it touched `paid_at`.
+
+**Schema state pre-drop:** 1,557 of 1,575 paid orders had `paid_at IS NULL` (only 4 of 5 production writers ever set it). Permanent drift caused by inconsistent discipline across code sites — exactly the kind of thing that gets worse over time.
+
+**Ops sequence:**
+
+1. Read all 5 writer sites + 1 unused SELECT to confirm context.
+2. Patched code:
+   - `admin-dashboard/index.html` — Bill modal credit-only path (line 16538): dropped `paid_at`
+   - `admin-dashboard/index.html` — `saveRacking` fully-credited-with-tip (~21613): swapped `paid_at` → `billed_at` (the row had `paid_at` but no `billed_at`, so swap preserves the timestamp)
+   - `admin-dashboard/index.html` — `saveRacking` fully-credited-no-tip (~21647): same swap
+   - `admin-dashboard/index.html` — On Account report SELECT (line 25208): removed `paid_at` from select list (was selected but never read; `isPaid` derives from `billing_status='paid'`)
+   - `pos/index.html` (line 4329): dropped `paid_at`
+   - `pos-mockup.html`: same patch for repo consistency
+3. Verified zero references in `supabase/functions/`.
+4. Verified zero references in `pg_proc`, `pg_views`, `pg_policies`, `pg_indexes` (this was the blast-radius blind spot from the QA report — checked explicitly this time).
+5. Deployed code (commit `7c3770c`); waited 30 sec for Vercel.
+6. Snapshotted the 33 rows where `paid_at IS NOT NULL` to `public._backfill_paid_at_20260424` (full reversibility).
+7. Migration `session_134_drop_paid_at` — `ALTER TABLE orders DROP COLUMN paid_at`.
+8. Verified column gone via `information_schema.columns`.
+
+**Reversibility:**
+```sql
+ALTER TABLE orders ADD COLUMN paid_at TIMESTAMPTZ;
+UPDATE orders o SET paid_at = b.paid_at
+FROM _backfill_paid_at_20260424 b
+WHERE o.id = b.id;
+```
+
+**Bonus finding (tech debt):** Audit Check 3 ("Unpaid delivered orders") returns ~170 rows but the actionable subset is only ~16. Breakdown:
+
+| Category | Rows | Action |
+|---|---|---|
+| On-account, awaiting batch billing | 104 | Expected — Homebase / Kidango / etc. |
+| Refunded orders | 48 | Should be excluded — refund means "not paid" by design |
+| Failed billing (auto-pay) | 12 | Real issues, already in Issues tab |
+| Marked paid but no payment intent | 4 | Data anomaly, worth investigating |
+| Misc | 2 | — |
+
+The audit's Check 3 SQL should exclude `customers.billing_type='on_account'` and `orders.billing_status='refunded'`. Logged as tech debt for the `washroute-audit` skill update — David needs the audit to flag actionable items only, not 170 daily false positives. Will tackle in a future skill-update pass (per the skill-update workflow at the top of this file).
+
+**Future-proof note:** If WashRoute ever needs to track "invoice sent to customer vs payment actually received" separately for on-account commercial accounts (e.g. for accurate aging that clocks from invoice-send instead of delivery), that should be a new `invoice_sent_at` column with a clearer name — not resurrecting `paid_at`.
+
+Commits: code `7c3770c`, notes (this entry).
+
+---
+
 ### Apr 24, 2026 (session 134, pt 3) — Three QA-pass fixes (single-status crash, XSS, bill undercharge)
 
 Three high-severity items from the Apr 24 comprehensive QA pass, all in `admin-dashboard/index.html`. Single commit `4173219`.
@@ -720,7 +777,7 @@ Fix three sites in `admin-dashboard/index.html`:
 `_orderTipBreakdown(o)` is the existing helper at line 21121 used by other parts of the file — same source of truth as the charge-order edge function's tip computation. Single point of truth for "what does this order actually cost the customer".
 
 **Out of scope for this session (deferred to future sessions):**
-- The `paid_at` schema redundancy (1,555 paid orders missing `paid_at`, but all have `billed_at`). Decision pending: drop `paid_at` and use `billed_at` everywhere, OR backfill + start setting both.
+- ~~The `paid_at` schema redundancy~~ — Resolved session 134 pt 4 (column dropped).
 - The cluster of 11 timezone bugs (admin × 6 + customer × 5) — best fixed with a single Pacific-anchored helper.
 - Customer Past tab UX (currently hides skipped/cancelled orders entirely vs the briefing's "show in Past" spec).
 
