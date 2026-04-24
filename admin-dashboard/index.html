@@ -8684,9 +8684,15 @@
     const newIdx = _STATUS_ORDER.indexOf(newStatus);
     const isRollback = oldIdx > 0 && newIdx >= 0 && newIdx < oldIdx;
 
-    // If rolling back: detach route stops and redirect to on_hold so it lands in Issues
+    // If rolling back: detach route stops and redirect to on_hold so it lands in Issues.
+    // The user picked an earlier status (e.g. "back to Picked Up") but operationally we
+    // always land in On Hold — that's the only safe state for an order that's been
+    // un-done. The prompt below is explicit about that so the user isn't surprised.
+    // Note: billing_status is intentionally NOT cleared here. If the customer was
+    // already charged at racking, that money still belongs to them. Admin can issue
+    // a refund via the Stripe path if the rollback ultimately means cancellation.
     if (isRollback) {
-      const confirmMsg = `Rolling "${_OP_STATUS_LABELS[o.status]}" back to "${_OP_STATUS_LABELS[newStatus]}".\n\nThis will remove the order from its current route(s) and place it On Hold in the Issues queue so your team can reassign it.\n\nContinue?`;
+      const confirmMsg = `Reopen this ${_OP_STATUS_LABELS[o.status]} order?\n\nIt will be removed from its current route(s) and placed On Hold in the Issues queue so your team can reschedule it.\n\nThe order's billing status (paid / failed) will not change — handle refunds separately if needed.\n\nContinue?`;
       if (!confirm(confirmMsg)) return;
 
       // Detach: delete route_stops for this order and clear route references

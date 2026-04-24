@@ -6057,12 +6057,16 @@ async function skipPickup(orderId) {
 
 async function cancelOrder(orderId) {
   if (!confirm('Cancel this order? This cannot be undone.')) return;
-  const { error } = await db.from('orders').update({ status: 'cancelled' }).eq('id', orderId);
+  // cancelled_by: 'customer' is critical for attribution — admin reports filter
+  // by this field to distinguish customer cancellations from admin/system ones.
+  // Without it, customer cancels show up as 'system' (default NULL), polluting
+  // the metrics. Matches the pattern in skipPickup() above.
+  const { error } = await db.from('orders').update({ status: 'cancelled', cancelled_by: 'customer' }).eq('id', orderId);
   if (error) { toast('Could not cancel order: ' + error.message); return; }
   toast('Order cancelled');
   // Refresh cached orders and return to orders list
   window._cachedOrders = (window._cachedOrders || []).map(o =>
-    o.id === orderId ? { ...o, status: 'cancelled' } : o
+    o.id === orderId ? { ...o, status: 'cancelled', cancelled_by: 'customer' } : o
   );
   showScreen('orders');
   renderOrdersList(window._cachedOrders);
