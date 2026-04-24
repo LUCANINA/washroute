@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 24, 2026 — Session 134 (pt 5): Three small QA-pass cleanups. **(1) customer-app `cancelOrder()` now writes `cancelled_by: 'customer'`** — matches the existing `skipPickup()` pattern. Without it, customer-initiated cancellations from the customer app were stamped NULL and misattributed as 'system' in admin reports. **(2) Admin status rollback prompt copy made honest** — the dialog said "Rolling X back to Y" but the payload always sets `status='on_hold'`. User picked "Picked Up", order landed "On Hold" — surprising. Rewrote prompt to be explicit about the destination and to note that `billing_status` (paid / failed) is intentionally NOT cleared on rollback (money belongs to us; refunds are a separate flow). **(3) `washroute-audit.skill` Check 3 noise reduction** — the "Unpaid Delivered Orders" check was returning ~170 rows daily but only ~16 were actionable (104 on-account awaiting batch billing, 48 refunded). Added two filter clauses (`billing_type != 'on_account'` AND `billing_status != 'refunded'`) so morning rounds only flag genuinely problematic orders. Skill rebuilt and committed; David's next install of the skill picks up the new query. **Session 134 cumulative: 5 code commits + 4 doc commits + 2 migrations.** Earlier this session: real-actor route move attribution, driver Skip Photo flow, three QA-pass fixes (single-status crash, XSS, bill undercharge), `paid_at` column drop. Commit `a232fb0`.*
+*Last updated: Apr 24, 2026 — Session 134 (pt 6): Timezone cluster — 11 sites across admin + customer apps silently corrupted dates when the user's browser wasn't on Pacific time, or even on Pacific time near the day-roll boundary (after 5pm PT, browser-local midnight = next Pacific day). Single root cause: code that built or formatted dates using browser-local time methods (`toLocaleDateString('sv')`, `getFullYear/Month/Date`, `new Date(toLocaleString)` round-trips, implicit `T00:00:00` parsing as local). For Pacific users this rarely bit; for Lili-traveling-east, NY/EU customers, or anyone past 5pm PT the corruption was real and silent. **Worst offender:** `customer-app computeSubWindows` was building slot ISO strings without an explicit offset → `new Date()` parsed as browser-local → `.toISOString()` then committed wrong UTC times to `orders.pickup_window_start/end` in the DB. Customer in NY booking 9–11 AM Pacific would write 13:00–15:00 UTC instead of 17:00–19:00 UTC. Fixed by computing the Pacific offset string per pickup date (DST-safe) and embedding it in the parsed string. **Fix shape:** added 3 helpers to admin near `today()` (`addDaysPacific`, `pacificOffsetStr`, `pacificDayStart/End`) and mirrored them in customer-app plus `pacificMinutesOfDay` (Intl.DateTimeFormat replacement for the broken round-trip pattern). Patched 10 admin sites + 5 customer sites. Diff: +173 / -91 lines. Commit `ab164e6`. **Session 134 cumulative: 6 code commits + 5 doc commits + 2 migrations + 1 skill update.**  Earlier this session: real-actor route move attribution, driver Skip Photo flow, three QA-pass fixes (single-status crash, XSS, bill undercharge), `paid_at` column drop, customer cancel attribution, status rollback honesty, audit Check 3 noise reduction.*
+
+*Prior: Apr 24, 2026 — Session 134 (pt 5): Three small QA-pass cleanups. **(1) customer-app `cancelOrder()` now writes `cancelled_by: 'customer'`** — matches the existing `skipPickup()` pattern. Without it, customer-initiated cancellations from the customer app were stamped NULL and misattributed as 'system' in admin reports. **(2) Admin status rollback prompt copy made honest** — the dialog said "Rolling X back to Y" but the payload always sets `status='on_hold'`. User picked "Picked Up", order landed "On Hold" — surprising. Rewrote prompt to be explicit about the destination and to note that `billing_status` (paid / failed) is intentionally NOT cleared on rollback (money belongs to us; refunds are a separate flow). **(3) `washroute-audit.skill` Check 3 noise reduction** — the "Unpaid Delivered Orders" check was returning ~170 rows daily but only ~16 were actionable (104 on-account awaiting batch billing, 48 refunded). Added two filter clauses (`billing_type != 'on_account'` AND `billing_status != 'refunded'`) so morning rounds only flag genuinely problematic orders. Skill rebuilt and committed; David's next install of the skill picks up the new query. **Session 134 cumulative: 5 code commits + 4 doc commits + 2 migrations.** Earlier this session: real-actor route move attribution, driver Skip Photo flow, three QA-pass fixes (single-status crash, XSS, bill undercharge), `paid_at` column drop. Commit `a232fb0`.*
 
 *Prior: Apr 24, 2026 — Session 134 (pt 4): Dropped redundant `orders.paid_at` column. Schema decision after walking the on-account billing model: WashRoute has no scenario where `paid_at` ever differs from `billed_at` — auto-pay customers get both at racking in the same instant, on-account customers get both when admin marks payment received. The "invoice sent" intermediate state for on-account is already represented (UI badge derives from `billing_type='on_account' AND status>=ready_for_delivery`; aged receivables in the On Account report clock from `actual_delivery_at`). `paid_at` was only set by 4 of 5 production code sites (1,557 of 1,575 paid orders never had it populated), so it was permanent schema drift. Single-column model = one less thing to forget. **Order of ops:** patched all 5 writers + 1 unused SELECT, deployed via Vercel (commit `7c3770c`), waited 30 sec for deploy, captured `_backfill_paid_at_20260424` snapshot of 33 non-null rows for full reversibility, dropped column via migration `session_134_drop_paid_at`. **DB-side blast-radius checked clean before drop:** zero DB functions, triggers, views, policies, or indexes referenced `paid_at`. Edge functions clean. **Bonus finding while verifying:** audit Check 3 ("Unpaid delivered orders") returns ~170 rows but only ~16 are actionable — 104 are on-account awaiting batch billing, 48 are refunded orders, both of which the check should exclude. Flagged as tech debt for `washroute-audit` skill update next session. **If we ever need to track "invoice sent vs payment received" separately,** that's a future `invoice_sent_at` column with a clearer name — not bringing `paid_at` back. Reverse with: `ALTER TABLE orders ADD COLUMN paid_at TIMESTAMPTZ; UPDATE orders o SET paid_at = b.paid_at FROM _backfill_paid_at_20260424 b WHERE o.id = b.id;`. **Earlier this session:** three QA-pass fixes (single-status crash, XSS in onclick, bill modal tip undercharge), driver Skip Photo flow, real-actor attribution on admin route moves.*
 
@@ -674,6 +676,62 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 24, 2026 (session 134, pt 6) — Timezone cluster (11 sites)
+
+**Root cause** (consistent across both apps): code built or formatted dates using browser-local time, which silently corrupted on non-Pacific browsers and even on Pacific browsers near the day-roll boundary. Three families of bug pattern:
+
+1. **Constructing YYYY-MM-DD from a JS Date** with `getFullYear/Month/Date` or `toLocaleDateString('sv')` — both browser-local. Wrong day for any browser east of Pacific past midnight UTC.
+2. **Building ISO timestamps without an explicit offset** (`new Date(\`${date}T${time}\`)`) — JS parses as browser-local before `.toISOString()` converts to UTC. Wrong UTC for non-Pacific browsers.
+3. **`new Date(toLocaleString('en-US', {timeZone: BIZ_TZ}))` round-trip** — formats then re-parses as browser-local, silently undoing the timezone shift for non-Pacific browsers.
+
+**Helpers added** (admin near `today()`, customer near `localIso()`):
+
+```js
+addDaysPacific(iso, n)          // Pacific date arithmetic on YYYY-MM-DD strings (DST-safe)
+pacificOffsetStr(iso)           // '-07:00' or '-08:00' for the given Pacific date
+pacificDayStart(iso)            // Date instant at Pacific 00:00 — for query filters
+pacificDayEnd(iso)              // Date instant at Pacific 23:59:59.999
+pacificMinutesOfDay(iso)        // (customer only) Intl.DateTimeFormat extraction
+                                // — replaces the broken round-trip pattern
+```
+
+**Admin sites patched (10):**
+
+| Site | Was | Now |
+|---|---|---|
+| `nextAvailableDay` | `d.toLocaleDateString('sv')` | Pacific arithmetic via `addDaysPacific` |
+| `renderNoDays` (order day grid) | `base.setHours(0,0,0,0)` + browser-local | Anchored to `today()` + `addDaysPacific` |
+| `renderNdDays` (delivery day grid) | Same | Same fix |
+| `selectNoDelivTemplate` | `new Date().toLocaleDateString('sv')` | `today()` |
+| `opSaveRouteAndSlot` (delivery min) | Manual YYYY-MM-DD construction | `addDaysPacific(pickupDate, 1)` |
+| Order confirmation email `_fmtD` | No timeZone option, parses YYYY-MM-DD as local | Adds `timeZone: BIZ_TZ` + parses with explicit Pacific offset |
+| Invoice HTML generator | No timeZone | Adds `timeZone: BIZ_TZ` |
+| Invoice PDF generator | No timeZone | Same |
+| `rptDateRange` | Browser-local midnight | Pacific-anchored start/end via `pacificDayStart/End` |
+| Registrations CSV export | `.toISOString().slice(0,10)` (UTC) | `.toLocaleDateString('en-CA', {timeZone: BIZ_TZ})` |
+| `getWeekDates` (weekly schedule) | `now.setHours(0)` + setDate iter | Pacific-anchored noon Date objects via `addDaysPacific` |
+| `makeChip` `dateStr` (weekly grid, ×2) | `getFullYear/Month/Date` | `.toLocaleDateString('en-CA', {timeZone: BIZ_TZ})` |
+| Weekly schedule `_fmt` (×2) | `getFullYear/Month/Date` | Same |
+| On-account report ISO range filter | `new Date(startVal + 'T00:00:00').toISOString()` | `pacificDayStart(startVal).toISOString()` |
+
+**Customer sites patched (5):**
+
+| Site | Was | Now |
+|---|---|---|
+| `computeSubWindows` (slot ISO build) | `new Date(\`${runDate}T${time}\`).toISOString()` (browser-local) | Explicit Pacific offset embedded in the ISO before parse |
+| `fmtSlot.compact` | `new Date(toLocaleString)` round-trip | `pacificMinutesOfDay(iso)` via Intl.DateTimeFormat |
+| `buildActiveCard` pickup line | Same round-trip | Same fix |
+| `_winFromOrder` (edit modal) | Same round-trip | Same fix |
+| Mini-calendar (sched pickup date) | `new Date()` + `setDate()` | Pacific-anchored 14-day grid via `addDaysPacific` |
+
+**The corruption case worth knowing about:** `computeSubWindows` was the only site that wrote bad data to the database (the others displayed wrong values). For a non-Pacific customer placing an order, the pickup_window_start/end timestamps were stored at the wrong UTC instant — the displayed label said one thing, the DB stored another, and admin would see the wrong time on the order panel. Verify after deploy: a NY-locale browser placing a 9–11 AM Pacific pickup should write `17:00:00Z` to `orders.pickup_window_start` (was writing `13:00:00Z` previously).
+
+**Out of scope (deferred tech debt):** subscription analytics weekly bucketing at `~line 23810` uses browser-local week boundaries — only affects the David-facing fleet usage chart. Low priority. Logged for a future session.
+
+Commit `ab164e6`.
+
+---
 
 ### Apr 24, 2026 (session 134, pt 5) — Small data integrity + audit Check 3 noise reduction
 
