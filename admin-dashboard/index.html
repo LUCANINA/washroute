@@ -4806,7 +4806,7 @@
           // Same card already tried and declined — admin should call customer to update
           const phone = o.customers?.phone_cache || '';
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
         return `<button onclick="event.stopPropagation();retryChargeFromIssues('${o.id}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Retry charge</button>`;
       }
@@ -4816,7 +4816,7 @@
         const stale = sentAt && (Date.now() - new Date(sentAt).getTime()) > 24 * 60 * 60 * 1000;
         if (stale) {
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
         return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
       }
@@ -4828,7 +4828,7 @@
     const ARCHIVABLE = ['pickup_failed','delivery_failed','skipped','cancelled'];
     const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
     const archiveBtn = ARCHIVABLE.includes(o.status)
-      ? `<button onclick="event.stopPropagation();openArchiveModal('${o.id}','${o.order_number}','${name.replace(/'/g,"\\'")}','${o.status}')" style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap;margin-left:4px" title="Archive — hide but keep history">Archive</button>`
+      ? `<button onclick="event.stopPropagation();openArchiveModal('${o.id}','${o.order_number}',${escAttrJSArg(name)},'${o.status}')" style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap;margin-left:4px" title="Archive — hide but keep history">Archive</button>`
       : '';
     return `<span style="display:inline-flex;gap:0;align-items:center;white-space:nowrap"><button onclick="event.stopPropagation();openOrderPanel('${o.id}')" style="font-size:11px;font-weight:700;color:#1a56db;background:#eff6ff;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Reschedule →</button>${archiveBtn}</span>`;
   };
@@ -4845,7 +4845,7 @@
         if (cardIsStale) {
           const phone = o.customers?.phone_cache || '';
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
         return `<button onclick="event.stopPropagation();retryChargeFromIssues('${o.id}',${o.order_number},this)" style="font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">Retry charge</button>`;
       }
@@ -4855,7 +4855,7 @@
         const stale = sentAt && (Date.now() - new Date(sentAt).getTime()) > 24 * 60 * 60 * 1000;
         if (stale) {
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
         return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
       }
@@ -4870,7 +4870,7 @@
         const stale = sentAt && (Date.now() - new Date(sentAt).getTime()) > 24 * 60 * 60 * 1000;
         if (stale) {
           const name = `${o.customers?.first_name_cache || ''} ${o.customers?.last_name_cache || ''}`.trim();
-          return `<button onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
+          return `<button onclick="event.stopPropagation();promptUpdateCard(${escAttrJSArg(name)},${escAttrJSArg(phone)},${o.order_number})" style="font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-light);border:none;border-radius:6px;padding:4px 9px;cursor:pointer;white-space:nowrap">📞 Update card</button>`;
         }
         return `<span style="font-size:11px;font-weight:600;color:#6b7280;background:#f3f4f6;border-radius:6px;padding:4px 9px;white-space:nowrap">✓ Requested</span>`;
       }
@@ -10536,11 +10536,12 @@ ${oneCopy}
   }
 
   // ── SINGLE ORDER STATUS PICKER ──
-  let _singleStatusOrderId = null, _singleStatusOrderNum = null;
+  let _singleStatusOrderId = null, _singleStatusOrderNum = null, _singleStatusCurrentStatus = null;
 
   function openSingleStatusPicker(orderId, orderNum, currentStatus) {
     _singleStatusOrderId = orderId;
     _singleStatusOrderNum = orderNum;
+    _singleStatusCurrentStatus = currentStatus;
     document.getElementById('set-status-subtitle').textContent = `Order #${orderNum}`;
     const allOpts = [
       ...ALL_STATUSES,
@@ -11492,6 +11493,16 @@ ${oneCopy}
   /** Escape for use inside JS string literals within onclick HTML attributes */
   function escJS(s) {
     return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"');
+  }
+  /** Safely embed an arbitrary value as a quoted JS string argument inside an HTML
+   *  onclick attribute. JSON.stringify() produces a valid, fully-escaped JS string
+   *  literal (handles ', ", \, newlines, control chars). esc() then makes it safe
+   *  for the surrounding HTML attribute. Use this anywhere a customer- or
+   *  driver-controlled value (name, address, etc.) is interpolated into an
+   *  inline event handler — prevents the XSS class where a customer registers
+   *  with a name like  O" onclick="..."  and breaks out of the attribute. */
+  function escAttrJSArg(val) {
+    return esc(JSON.stringify(String(val ?? '')));
   }
 
   function inboxTimeAgo(iso) {
@@ -16368,9 +16379,14 @@ ${oneCopy}
 
   function openBillModal() {
     if (!cpBillingSelection.size) return;
+    // IMPORTANT: sum totalWithTip (subtotal + tip), not just total_amount.
+    // The credit-card path goes through charge-order edge fn which always charges
+    // pretax + tip, so the displayed total + the user-facing confirm prompt MUST
+    // include the tip. Fixed Apr 24, 2026 — previously customers were charged
+    // more than what admin saw on the modal.
     const total = cpAllOrders
       .filter(o => cpBillingSelection.has(o.id))
-      .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
+      .reduce((sum, o) => sum + _orderTipBreakdown(o).totalWithTip, 0);
     const count = cpBillingSelection.size;
     document.getElementById('bill-modal-count').textContent = count;
     document.getElementById('bill-modal-plural').textContent = count === 1 ? '' : 's';
@@ -16445,10 +16461,13 @@ ${oneCopy}
 
       const successIds = ids.filter(id => !failedOrders.find(f => f.orderId === id));
 
-      // Log billing events for each successfully charged order
+      // Log billing events for each successfully charged order — log totalWithTip,
+      // since charge-order edge fn always charges pretax + tip (matching what was
+      // actually billed on the customer's card).
       for (const oid of successIds) {
         const ord = cpAllOrders.find(x => x.id === oid);
-        await logOrderEvent(oid, 'billing', `Charged ${fmtMoney(ord?.total_amount || 0)} via credit card`, null, 'paid');
+        const charged = ord ? _orderTipBreakdown(ord).totalWithTip : 0;
+        await logOrderEvent(oid, 'billing', `Charged ${fmtMoney(charged)} via credit card`, null, 'paid');
       }
 
       // Mark successfully charged orders as paid in DB
@@ -16565,7 +16584,8 @@ ${oneCopy}
     const methodLabel = method === 'check' ? 'check' : method === 'cash' ? 'cash' : method === 'venmo' ? 'Venmo' : method;
     for (const oid of ids) {
       const ord = cpAllOrders.find(x => x.id === oid);
-      await logOrderEvent(oid, 'billing', `Marked paid via ${methodLabel} — ${fmtMoney(ord?.total_amount || 0)}`, null, 'paid');
+      const collected = ord ? _orderTipBreakdown(ord).totalWithTip : 0;
+      await logOrderEvent(oid, 'billing', `Marked paid via ${methodLabel} — ${fmtMoney(collected)}`, null, 'paid');
     }
     const { error } = await db.from('orders').update({
       billing_status: 'paid',
@@ -20531,8 +20551,8 @@ ${oneCopy}
         <input type="checkbox" ${l.is_active?'checked':''} onchange="toggleLaunActive('${l.id}',this.checked)" />
         <span class="toggle-slider"></span>
       </label>
-      <button class="btn btn-ghost" style="padding:5px 10px;font-size:13px;flex-shrink:0" title="View packed orders" onclick="openLaunHistory('${l.id}','${l.name.replace(/'/g,"\\'")}')">📋</button>
-      <button class="svc-del-btn" onclick="deleteLaunderer('${l.id}','${l.name.replace(/'/g,"\\'")}')" title="Remove">
+      <button class="btn btn-ghost" style="padding:5px 10px;font-size:13px;flex-shrink:0" title="View packed orders" onclick="openLaunHistory('${l.id}',${escAttrJSArg(l.name)})">📋</button>
+      <button class="svc-del-btn" onclick="deleteLaunderer('${l.id}',${escAttrJSArg(l.name)})" title="Remove">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
       </button>
     </div>`).join('');
