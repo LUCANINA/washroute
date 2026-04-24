@@ -1083,6 +1083,7 @@ let _photoQueue = [];          // in-memory mirror of IndexedDB queue
 let _photoRetryTimer = null;
 let _photoDbReady = false;
 let _photoDB = null;
+const _photoSkippedStopIds = new Set();  // stops where the driver explicitly tapped "Skip photo" — bypasses the photo guard for that one stop
 
 // ── IndexedDB helpers ──
 function _openPhotoDB() {
@@ -2575,6 +2576,8 @@ function renderStopDetail(stopOrId) {
 
         // Photo capture
         const hasPhoto = !!stop.proof_photo_url;
+        const photoSkipped = _photoSkippedStopIds.has(stop.id);
+        const canComplete = hasPhoto || photoSkipped;  // either real photo OR explicit skip
         const photoLabel = isPickup ? 'Pickup Photo' : 'Delivery Photo';
         h += `<div class="dsection">
           <div class="dsection-title">${photoLabel}</div>
@@ -2586,14 +2589,33 @@ function renderStopDetail(stopOrId) {
           </div>
           <div class="photo-uploading" id="photo-uploading">Compressing…</div>
           <input class="photo-input" type="file" accept="image/*" capture="environment" id="photo-input" onchange="handlePhoto(this, '${stop.id}')">
+          ${!hasPhoto && !photoSkipped ? `
+            <div style="text-align:center;margin-top:10px">
+              <button onclick="confirmSkipPhoto('${stop.id}')"
+                style="background:none;border:none;color:var(--muted);font-size:13px;
+                       text-decoration:underline;cursor:pointer;padding:6px 10px">
+                Skip photo (low signal / can't capture)
+              </button>
+            </div>` : ''}
+          ${!hasPhoto && photoSkipped ? `
+            <div style="margin-top:10px;padding:10px 14px;background:#fef3c7;color:#92400e;
+                        border-radius:8px;font-size:13px;display:flex;align-items:center;
+                        justify-content:space-between;gap:10px">
+              <span>✗ Photo will be skipped</span>
+              <button onclick="undoSkipPhoto('${stop.id}')"
+                style="background:none;border:none;color:#92400e;text-decoration:underline;
+                       font-size:13px;font-weight:600;cursor:pointer;padding:0">
+                Undo
+              </button>
+            </div>` : ''}
         </div>`;
 
-        // Complete + Skip (complete is locked until photo is taken)
+        // Complete + Skip (complete is locked until photo is taken OR explicitly skipped)
         const cls   = isPickup ? '' : 'delivery';
         const label = isPickup ? 'Mark Picked Up' : 'Mark Delivered';
         h += `<div class="detail-actions">
-          <button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')" ${!hasPhoto ? 'disabled' : ''}>${label}</button>
-          ${!hasPhoto ? `<div style="text-align:center;font-size:13px;color:var(--muted);margin-top:8px">Photo required to continue</div>` : ''}
+          <button class="btn-complete ${cls}" id="btn-do-complete" onclick="completeStop('${stop.id}', '${stop.stop_type}')" ${!canComplete ? 'disabled' : ''}>${label}</button>
+          ${!canComplete ? `<div style="text-align:center;font-size:13px;color:var(--muted);margin-top:8px">Take a photo or tap "Skip photo" to continue</div>` : ''}
           <button class="btn-back-subphase" onclick="prevSubPhase('${stop.id}')">← Back</button>
           <div style="height:1px;background:var(--border);margin:4px 0 2px"></div>
           <button class="btn-skip-stop" onclick="cantCompleteStop('${stop.id}')">Can't Complete</button>
@@ -2770,9 +2792,36 @@ function adjustBags(delta) {
 /* ──────────────────────────────
    PHOTO CAPTURE
 ────────────────────────────── */
+/* ──────────────────────────────
+   SKIP PHOTO (driver explicitly chooses to complete without a photo —
+   typically when cell signal is too weak or the camera won't cooperate)
+────────────────────────────── */
+function confirmSkipPhoto(stopId) {
+  const ok = confirm(
+    'Skip the photo for this stop?\n\n' +
+    'The pickup will be recorded without proof. Use this only when you cannot take a photo ' +
+    '(no signal, camera issue, etc.). Tap "Take Photo" any time to capture one instead.'
+  );
+  if (!ok) return;
+  _photoSkippedStopIds.add(stopId);
+  const stop = allStops.find(s => s.id === stopId);
+  if (stop) renderStopDetail(stop);
+  toast('Photo skipped — you can now mark the stop');
+}
+
+function undoSkipPhoto(stopId) {
+  _photoSkippedStopIds.delete(stopId);
+  const stop = allStops.find(s => s.id === stopId);
+  if (stop) renderStopDetail(stop);
+}
+
 async function handlePhoto(input, stopId) {
   const file = input.files[0];
   if (!file) return;
+
+  // If the driver had previously tapped "Skip photo" but now took one, clear the skip flag
+  // so the photo is the source of truth (don't write photo_skipped_at on this completion).
+  _photoSkippedStopIds.delete(stopId);
 
   const uploading = document.getElementById('photo-uploading');
   const thumb     = document.getElementById('photo-thumb');
@@ -2921,19 +2970,26 @@ async function completeStop(stopId, stopType) {
   const now   = new Date().toISOString();
   const stop  = allStops.find(s => s.id === stopId);
   if (!stop) { toast('Stop no longer exists'); goTo('route'); return; }
-  // Safety guard: proof photo required before completing
-  // Accept both remote URLs and local data URLs (queued for background upload)
+  // Safety guard: either a proof photo OR an explicit "Skip photo" tap is required.
+  // Accepts remote URLs and local data URLs (queued for background upload).
   const hasLocalOrRemotePhoto = stop.proof_photo_url || _photoQueue.some(q => q.stopId === stopId);
-  if (!hasLocalOrRemotePhoto) {
-    toast('Please take a photo before completing');
-    if (btn) { btn.disabled = true; btn.textContent = stopType === 'pickup' ? 'Mark Picked Up' : 'Mark Delivered'; }
+  const photoSkipped = _photoSkippedStopIds.has(stopId);
+  if (!hasLocalOrRemotePhoto && !photoSkipped) {
+    toast('Take a photo or tap "Skip photo" to continue');
+    // Re-enable the button so the driver can act — was a 1-char typo (`true` should be `false`)
+    if (btn) { btn.disabled = false; btn.textContent = stopType === 'pickup' ? 'Mark Picked Up' : 'Mark Delivered'; }
     return;
   }
   const prevOrderStatus = stop?.orders?.status || null;
 
-  const { error: stopErr } = await db.from('route_stops').update({
+  const updatePayload = {
     status: 'complete', completed_at: now, actual_arrival: now, driver_notes: notes
-  }).eq('id', stopId);
+  };
+  // If driver explicitly chose to skip the photo, stamp it so admin can see (📷✗ badge on the stop card)
+  if (photoSkipped && !hasLocalOrRemotePhoto) {
+    updatePayload.photo_skipped_at = now;
+  }
+  const { error: stopErr } = await db.from('route_stops').update(updatePayload).eq('id', stopId);
 
   if (stopErr) {
     toast('Error: ' + stopErr.message);
@@ -2943,7 +2999,15 @@ async function completeStop(stopId, stopType) {
 
   // Update local state first (needed to compute route progress accurately)
   const idx = allStops.findIndex(s => s.id === stopId);
-  if (idx >= 0) allStops[idx] = { ...allStops[idx], status: 'complete', completed_at: now, driver_notes: notes };
+  if (idx >= 0) {
+    allStops[idx] = {
+      ...allStops[idx],
+      status: 'complete', completed_at: now, driver_notes: notes,
+      ...(updatePayload.photo_skipped_at ? { photo_skipped_at: updatePayload.photo_skipped_at } : {})
+    };
+  }
+  // Clear the skip flag — stop is done, the in-memory flag is no longer needed
+  _photoSkippedStopIds.delete(stopId);
 
   // Build parallel DB update promises
   const updatePromises = [];
