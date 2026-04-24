@@ -4326,7 +4326,8 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
       // session 114: required by RLS policy pos_order_insert
       pos_shift_id:          shift.shift_id,
       // Payment bookkeeping — POS transactions are paid at time of sale.
-      paid_at:               nowIso,
+      // billed_at is the single source of truth for payment timestamp
+      // (paid_at column dropped session 134 — see PROJECT-NOTES).
       billed_at:             nowIso,
       billing_status:        'paid',
       billing_payment_method: paymentMethod, // 'cash' or 'card'

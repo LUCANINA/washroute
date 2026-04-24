@@ -16527,15 +16527,15 @@ ${oneCopy}
 
         btn.disabled = true; btn.textContent = 'Applying…';
 
-        // Step 1: Mark orders as paid FIRST (most important). paid_at matches billed_at
-        // so the Transactions tab and receipts show a consistent timestamp.
+        // Step 1: Mark orders as paid FIRST (most important).
+        // billed_at is the single source of truth for "when was this order paid"
+        // (paid_at column was dropped session 134 — see PROJECT-NOTES).
         const nowIso = new Date().toISOString();
         const { error: ordErr } = await db.from('orders').update({
           billing_status: 'paid',
           billing_payment_method: 'credit',
           billing_notes: notes || null,
           billed_at: nowIso,
-          paid_at: nowIso,
         }).in('id', ids);
         if (ordErr) { showToast('Failed to mark orders paid: ' + ordErr.message, 'error'); btn.disabled = false; btn.textContent = 'Confirm & Apply Credit'; return; }
 
@@ -21610,7 +21610,7 @@ ${oneCopy}
             billing_status: 'paid',
             billing_payment_method: 'credit',
             billing_notes: `Fully covered by credits (incl. ${fmtMoney(tipDollars)} tip)`,
-            paid_at: nowIso,
+            billed_at: nowIso,
             updated_at: nowIso,
           }).eq('id', rackActiveOrder.id);
           rackActiveOrder.billing_status = 'paid';
@@ -21644,7 +21644,7 @@ ${oneCopy}
           billing_status: 'paid',
           billing_payment_method: 'credit',
           billing_notes: 'Fully covered by credits',
-          paid_at: nowIso,
+          billed_at: nowIso,
           updated_at: nowIso,
         }).eq('id', rackActiveOrder.id);
         rackActiveOrder.billing_status = 'paid';
@@ -25205,7 +25205,7 @@ ${oneCopy}
     // Build query — fetch all delivered/ready orders for on_account customers
     // Filter by pickup_window_start (actual service date) not created_at (import date)
     let query = db.from('orders')
-      .select('id, order_number, total_amount, status, billing_status, paid_at, actual_delivery_at, created_at, pickup_window_start, customer_id, line_items, total_bags, weight_lbs, customers!inner(id, first_name_cache, last_name_cache, billing_type, billing_group_id)')
+      .select('id, order_number, total_amount, status, billing_status, billed_at, actual_delivery_at, created_at, pickup_window_start, customer_id, line_items, total_bags, weight_lbs, customers!inner(id, first_name_cache, last_name_cache, billing_type, billing_group_id)')
       .eq('customers.billing_type', 'on_account')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery', 'picked_up', 'processing', 'folding', 'scheduled'])
       .order('pickup_window_start', { ascending: false });

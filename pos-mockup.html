@@ -3859,7 +3859,7 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
       // session 111: Stamp the site explicitly; trigger respects explicit values
       site_id:               currentSiteId,
       // Payment bookkeeping — POS transactions are paid at time of sale.
-      paid_at:               nowIso,
+      // billed_at is the single source of truth (paid_at column dropped session 134).
       billed_at:             nowIso,
       billing_status:        'paid',
       billing_payment_method: paymentMethod, // 'cash' or 'card'
