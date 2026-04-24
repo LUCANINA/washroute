@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 24, 2026 — Session 134 (pt 2): Driver "Skip Photo" flow + 1-char unlock bug + admin 📷✗ badge. Spawned out of QA finding D-H1 (the no-photo bail-out left the primary action button disabled, locking drivers into a dead-end requiring back-out + re-enter). David surfaced the deeper UX pain: drivers in low-signal areas can't always take a photo at all, and the previous photo-mandate would block them entirely. **Solution:** new Skip Photo button (small underlined link below Take Photo) opens a native confirm explaining the consequence; on confirm, an in-memory `_photoSkippedStopIds` Set bypasses the photo guard for that one stop and the completion stamps `route_stops.photo_skipped_at = now`. Driver sees a yellow "✗ Photo will be skipped" banner with an Undo affordance until they either complete the stop or capture a photo (which clears the flag — photo wins). The original 1-char bug is fixed in the same commit (`disabled = true` → `false`) so even drivers who DO want a photo aren't stuck. **Admin side:** RCC stop cards now show a small `📷✗` badge on any stop with `photo_skipped_at` set, so David / Lili can spot patterns (one driver skipping daily = phone needs replacing). Both RCC `route_stops` SELECT queries (initial + refresh) updated to pull the new column. **DB:** migration `session_134_add_photo_skipped_at` adds a nullable TIMESTAMPTZ column; reversible via DROP COLUMN; existing 99k+ stop rows unaffected (default NULL = "photo provided OR predates feature"). **Design choice deferred:** no reason dropdown — David's call: "99% service-related, no need to ask." Trust + track instead of nag. **No analytics surface yet** — admin badge first, dedicated Reports view later only if patterns warrant. Commit `ed593eb`. **Earlier this session:** real-actor attribution on admin route moves.*
+*Last updated: Apr 24, 2026 — Session 134 (pt 3): Three QA-pass fixes — single-status ReferenceError, XSS via customer name in onclick attributes, and Bill modal undercharge by tip. **(1) `_singleStatusCurrentStatus` was referenced at line 10585 but never declared or assigned anywhere in the file.** The single-order status picker (used from the orders list "Set status →" affordance) threw `ReferenceError` silently inside the `await logOrderEvent(...)` call, killing the function before the DB update — admin clicked status, modal closed, nothing happened, no toast. Declared the global next to `_singleStatusOrderId/Num` and assigned it from the `currentStatus` parameter in `openSingleStatusPicker`. **(2) XSS via customer-controlled name in 9 inline `onclick` attribute interpolations.** Six `promptUpdateCard` + one `openArchiveModal` (in `issueActionBtn` and `_deliveredActionBtn` at lines ~4809-4873) plus two `launderer-name` sites (lines ~20551) used `name.replace(/'/g, "\\'")` — single-quote escape only. A customer registering through the customer app with a name containing `"`, `<`, `\`, or template-confusing chars could break out of the attribute and execute arbitrary JS in the admin's authenticated session. New helper `escAttrJSArg(val)` wraps `JSON.stringify` (canonical, fully-escaped JS string literal handling all special chars including newlines and unicode) + the existing `esc()` (HTML attribute escaping). Browser HTML-decodes the attribute, then the JS engine parses a valid quoted string literal — no break-out path. Verified against classic payloads (`O'Brien`, `<script>alert(1)</script>`, `"; alert(1); //`, etc.) — all become harmless string literals. **(3) Bill modal undercharged customers when their order had a tip.** `openBillModal` summed `parseFloat(o.total_amount || 0)` and displayed that as the modal total + the user-facing "Charge $X to card?" confirm prompt. But the credit-card path goes through `charge-order` edge fn which has always charged `pretax + tip`. Result: customer's card was hit for more than admin agreed to. Fixed three sites in `confirmBilling`/`openBillModal` to use `_orderTipBreakdown(o).totalWithTip` (same source of truth the edge fn uses). The credit-card billing log message and the cash/check/venmo log message also updated for consistency. Commit `4173219`. **Session 134 cumulative diff: 4 commits, ~150 LOC, 1 migration.** Next session 134 work probably continues from the QA report's medium-severity items (timezone bugs cluster, paid_at schema decision).*
+
+*Prior: Apr 24, 2026 — Session 134 (pt 2): Driver "Skip Photo" flow + 1-char unlock bug + admin 📷✗ badge. Spawned out of QA finding D-H1 (the no-photo bail-out left the primary action button disabled, locking drivers into a dead-end requiring back-out + re-enter). David surfaced the deeper UX pain: drivers in low-signal areas can't always take a photo at all, and the previous photo-mandate would block them entirely. **Solution:** new Skip Photo button (small underlined link below Take Photo) opens a native confirm explaining the consequence; on confirm, an in-memory `_photoSkippedStopIds` Set bypasses the photo guard for that one stop and the completion stamps `route_stops.photo_skipped_at = now`. Driver sees a yellow "✗ Photo will be skipped" banner with an Undo affordance until they either complete the stop or capture a photo (which clears the flag — photo wins). The original 1-char bug is fixed in the same commit (`disabled = true` → `false`) so even drivers who DO want a photo aren't stuck. **Admin side:** RCC stop cards now show a small `📷✗` badge on any stop with `photo_skipped_at` set, so David / Lili can spot patterns (one driver skipping daily = phone needs replacing). Both RCC `route_stops` SELECT queries (initial + refresh) updated to pull the new column. **DB:** migration `session_134_add_photo_skipped_at` adds a nullable TIMESTAMPTZ column; reversible via DROP COLUMN; existing 99k+ stop rows unaffected (default NULL = "photo provided OR predates feature"). **Design choice deferred:** no reason dropdown — David's call: "99% service-related, no need to ask." Trust + track instead of nag. **No analytics surface yet** — admin badge first, dedicated Reports view later only if patterns warrant. Commit `ed593eb`. **Earlier this session:** real-actor attribution on admin route moves.*
 
 *Prior: Apr 24, 2026 — Session 134 (pt 1): Real-actor attribution on admin route moves. Triggered by David's question "why did the system put Lai-San Seto on Hayward AM when she's in Oakland?" Investigation showed the order was correctly `zone_id = Oakland` at creation (4/18, auto-routed to Oakland AM) and then at 10:16 pm PT on 4/23 her pickup stop — along with 5 other Oakland-zone stops (Lauren Ripley, Clarissa Doutherd, Dayna Dennis, Erin MaloneShkurkin, Kate Pardi) — was moved from Oakland AM → Hayward AM over a 2-minute window. All 6 moves logged with `actor_name = 'System'` in `order_events`. Root cause: the DB trigger `log_order_change` writes 'routed' events with hardcoded `actor_name = 'System'` regardless of who actually changed `orders.pickup_run_id` / `delivery_run_id`, because at the trigger layer there's no way to see the authenticated admin. Five admin-action paths in `admin-dashboard/index.html` updated the field without first logging an attributed row — so the trigger always won, and the history widget couldn't distinguish admin-dragged moves from system auto-routing. **Fix:** every admin-action path now inserts an attributed 'routed' row via `logOrderEvent()` BEFORE the orders update, and the trigger's existing 3-second dedup on `(event_type='routed', new_value=route_id)` silently suppresses its 'System' twin. Paths patched: `rccHandleDrop` (Route Command Center drag-drop), `confirmMoveStop` (Move Stop modal), `opSaveRouteAndSlot` (Order panel Edit route/slot), `confirmReassignRun` (Reassign Route modal from orders list), `confirmRecallOrder` (Recall Delivered Order modal). Initial order-creation auto-routing legitimately stays as "System" (no admin moved it). Commit `327b240`. **Answer to the original question:** the system did NOT auto-route Lai-San to Hayward — the assignment at creation was correct (Oakland zone → Oakland AM). A human used the RCC (or the Move/Reassign modal) on Thursday evening to rebalance 6 stops to Hayward AM. Going forward we'll see who.*
 
@@ -668,6 +670,61 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 24, 2026 (session 134, pt 3) — Three QA-pass fixes (single-status crash, XSS, bill undercharge)
+
+Three high-severity items from the Apr 24 comprehensive QA pass, all in `admin-dashboard/index.html`. Single commit `4173219`.
+
+**1. `_singleStatusCurrentStatus` undefined → silent crash on single-order status change.**
+
+The Set Status modal opened from the orders list never actually changed the status. Variable was referenced once at line 10585 in `setSingleOrderStatus()`'s call to `logOrderEvent` (as the `oldValue` argument) but never declared or assigned anywhere. JS threw `ReferenceError` on the read, killing the function before the `db.from('orders').update(payload)` line. The modal had already closed, so there was no error toast — admin clicked status, modal disappeared, nothing happened. Almost certainly rarely hit in practice (most status changes go through the order panel or batch advance), which is why it survived.
+
+Fix: declared the global alongside `_singleStatusOrderId` / `_singleStatusOrderNum`, assigned it in `openSingleStatusPicker(orderId, orderNum, currentStatus)` from the existing parameter.
+
+**2. XSS via customer-controlled name in 9 inline `onclick` attributes.**
+
+Pattern (line 4809 and 5 siblings, plus 1 `openArchiveModal` site at 4831, plus 2 launderer sites at 20551):
+```html
+onclick="event.stopPropagation();promptUpdateCard('${name.replace(/'/g,"\\'")}','${phone}',${o.order_number})"
+```
+
+`name` comes from `customers.first_name_cache + last_name_cache`, which the customer app populates at signup. The `.replace(/'/g,"\\'")` only escapes single quotes — not `"`, `<`, `>`, `&`, or backslash. A customer registering with a name like `O" onclick="alert(1)` could break out of the attribute and run arbitrary JS in the admin's authenticated session.
+
+Fix: new helper `escAttrJSArg(val)` next to the existing `esc()` and `escJS()`:
+```js
+function escAttrJSArg(val) {
+  return esc(JSON.stringify(String(val ?? '')));
+}
+```
+
+`JSON.stringify` produces a valid, fully-escaped JS string literal (handles all special chars: `'`, `"`, `\`, newlines, control chars, unicode). `esc()` then makes the result safe inside an HTML attribute. The browser HTML-decodes the attribute value back to the JSON-encoded string; the JS engine parses it as a valid quoted string literal. No break-out path.
+
+Verified against classic XSS payloads:
+- `O'Brien` → `&quot;O&#39;Brien&quot;` → JS string `O'Brien` ✓
+- `<script>alert(1)</script>` → `&quot;&lt;script&gt;alert(1)&lt;\/script&gt;&quot;` → JS string `<script>alert(1)</script>` (just text, no execution) ✓
+- `"; alert(1); //` → `&quot;\&quot;; alert(1); //&quot;` → JS string `"; alert(1); //` (just text) ✓
+
+All 9 sites swapped to use the helper. The 2 launderer sites were lower-risk (admin enters launderer names, not customer-controlled) but fixed for consistency — same pattern, same one-line replacement.
+
+**3. Bill modal undercharged customers by the tip amount.**
+
+`openBillModal()` summed `parseFloat(o.total_amount || 0)` (no tip) and showed that as the modal total + the user-facing confirm prompt: `"Charge ${customerName} ${amountText} to their card on file?"`. But the credit-card path goes through `charge-order` edge function, which has always (since v33) charged `pretax + tip`. Result: customer's card was hit for an amount larger than the admin agreed to.
+
+This was bounded — most bagged-laundry customers don't tip from the customer app and most on-account batch billing is tipless — but real and a trust issue when it did happen.
+
+Fix three sites in `admin-dashboard/index.html`:
+- `openBillModal()` line 16373: sum `_orderTipBreakdown(o).totalWithTip` instead of `total_amount`
+- `confirmBilling()` credit-card log at line 16451: log `_orderTipBreakdown(ord).totalWithTip` (matches what was actually charged)
+- `confirmBilling()` other-methods log at line 16579: same
+
+`_orderTipBreakdown(o)` is the existing helper at line 21121 used by other parts of the file — same source of truth as the charge-order edge function's tip computation. Single point of truth for "what does this order actually cost the customer".
+
+**Out of scope for this session (deferred to future sessions):**
+- The `paid_at` schema redundancy (1,555 paid orders missing `paid_at`, but all have `billed_at`). Decision pending: drop `paid_at` and use `billed_at` everywhere, OR backfill + start setting both.
+- The cluster of 11 timezone bugs (admin × 6 + customer × 5) — best fixed with a single Pacific-anchored helper.
+- Customer Past tab UX (currently hides skipped/cancelled orders entirely vs the briefing's "show in Past" spec).
+
+---
 
 ### Apr 24, 2026 (session 134, pt 2) — Driver Skip Photo + 1-char unlock bug + admin badge
 
