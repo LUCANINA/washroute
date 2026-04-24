@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 24, 2026 — Session 134 (pt 6): Timezone cluster — 11 sites across admin + customer apps silently corrupted dates when the user's browser wasn't on Pacific time, or even on Pacific time near the day-roll boundary (after 5pm PT, browser-local midnight = next Pacific day). Single root cause: code that built or formatted dates using browser-local time methods (`toLocaleDateString('sv')`, `getFullYear/Month/Date`, `new Date(toLocaleString)` round-trips, implicit `T00:00:00` parsing as local). For Pacific users this rarely bit; for Lili-traveling-east, NY/EU customers, or anyone past 5pm PT the corruption was real and silent. **Worst offender:** `customer-app computeSubWindows` was building slot ISO strings without an explicit offset → `new Date()` parsed as browser-local → `.toISOString()` then committed wrong UTC times to `orders.pickup_window_start/end` in the DB. Customer in NY booking 9–11 AM Pacific would write 13:00–15:00 UTC instead of 17:00–19:00 UTC. Fixed by computing the Pacific offset string per pickup date (DST-safe) and embedding it in the parsed string. **Fix shape:** added 3 helpers to admin near `today()` (`addDaysPacific`, `pacificOffsetStr`, `pacificDayStart/End`) and mirrored them in customer-app plus `pacificMinutesOfDay` (Intl.DateTimeFormat replacement for the broken round-trip pattern). Patched 10 admin sites + 5 customer sites. Diff: +173 / -91 lines. Commit `ab164e6`. **Session 134 cumulative: 6 code commits + 5 doc commits + 2 migrations + 1 skill update.**  Earlier this session: real-actor route move attribution, driver Skip Photo flow, three QA-pass fixes (single-status crash, XSS, bill undercharge), `paid_at` column drop, customer cancel attribution, status rollback honesty, audit Check 3 noise reduction.*
+*Last updated: Apr 24, 2026 — Session 134 (pt 7): Driver app polish (7 fixes), 4 missing FK indexes, customer app polish (2 fixes), Renee Hahn duplicate cleanup. **Driver fixes (commit `b8f2cf9`):** (1) "Customer notified" chip now only shows when SMS was actually sent, not when driver tapped "I'm already here" (which sets en_route locally without notifying). (2) Misleading "pull down to refresh" toast updated to point at the actual refresh icon. (3) GPS `_lastGpsSend` reset on stopGpsTracking so re-login within throttle window gets a fresh ping. (4) Removed `allStops.length > 0` guard from realtime SUBSCRIBED reload — first subscribe was skipping the recovery reload, dropping events that arrived during initial loadDriverData. (5) Auto-update reload now defers if driver is mid-action on a stop (currentStopPhase === 2) — checks every 5 sec and reloads when safe. (6) Can't-Complete overlay's promise no longer leaks when driver navigates away mid-flow — showScreen() resolves any pending overlay. (7) loadCustomerSms now caps at last 7 days instead of pulling entire SMS history (potentially thousands of rows) on every login. **DB indexes (migration `session_134_add_fk_indexes`):** added 4 partial/functional indexes — `orders.pickup_run_id`, `orders.delivery_run_id`, `route_stops.driver_id`, and a functional index on `customers.phone_cache` matching the `find_customer_by_phone()` regex pattern (last-10-digits). The phone index is the most impactful — every inbound SMS hits this lookup. **Customer fixes (commit `4997a97`):** (1) `placeOrder` no longer swallows address-save errors — both the inner addrErr check and outer catch now surface the failure and re-enable the button. Previously a network blip would silently insert an order with pickup_address_id=NULL. (2) `_fetchSameDaySurcharge` cache now invalidates after 5 minutes so admin's price changes propagate to in-flight sessions. **Renee Hahn duplicate cleanup:** Two records (one orphan-OTP, one real) merged. Real account (b5f9c38f) kept its address — promoted to is_default=true and re-labeled "Home". Orphan deleted. Snapshots: `_merge_backup_renee_hahn_20260424` + `_merge_backup_renee_hahn_addresses_20260424`. **Session 134 cumulative: 8 code commits + 7 doc commits + 3 migrations + 1 skill update + 2 backfill snapshots.**  Earlier this session: real-actor route move attribution, driver Skip Photo flow, three QA-pass fixes (single-status crash, XSS, bill undercharge), `paid_at` column drop, customer cancel attribution, status rollback honesty, audit Check 3 noise reduction, timezone cluster (11 sites).*
+
+*Prior: Apr 24, 2026 — Session 134 (pt 6): Timezone cluster — 11 sites across admin + customer apps silently corrupted dates when the user's browser wasn't on Pacific time, or even on Pacific time near the day-roll boundary (after 5pm PT, browser-local midnight = next Pacific day). Single root cause: code that built or formatted dates using browser-local time methods (`toLocaleDateString('sv')`, `getFullYear/Month/Date`, `new Date(toLocaleString)` round-trips, implicit `T00:00:00` parsing as local). For Pacific users this rarely bit; for Lili-traveling-east, NY/EU customers, or anyone past 5pm PT the corruption was real and silent. **Worst offender:** `customer-app computeSubWindows` was building slot ISO strings without an explicit offset → `new Date()` parsed as browser-local → `.toISOString()` then committed wrong UTC times to `orders.pickup_window_start/end` in the DB. Customer in NY booking 9–11 AM Pacific would write 13:00–15:00 UTC instead of 17:00–19:00 UTC. Fixed by computing the Pacific offset string per pickup date (DST-safe) and embedding it in the parsed string. **Fix shape:** added 3 helpers to admin near `today()` (`addDaysPacific`, `pacificOffsetStr`, `pacificDayStart/End`) and mirrored them in customer-app plus `pacificMinutesOfDay` (Intl.DateTimeFormat replacement for the broken round-trip pattern). Patched 10 admin sites + 5 customer sites. Diff: +173 / -91 lines. Commit `ab164e6`. **Session 134 cumulative: 6 code commits + 5 doc commits + 2 migrations + 1 skill update.**  Earlier this session: real-actor route move attribution, driver Skip Photo flow, three QA-pass fixes (single-status crash, XSS, bill undercharge), `paid_at` column drop, customer cancel attribution, status rollback honesty, audit Check 3 noise reduction.*
 
 *Prior: Apr 24, 2026 — Session 134 (pt 5): Three small QA-pass cleanups. **(1) customer-app `cancelOrder()` now writes `cancelled_by: 'customer'`** — matches the existing `skipPickup()` pattern. Without it, customer-initiated cancellations from the customer app were stamped NULL and misattributed as 'system' in admin reports. **(2) Admin status rollback prompt copy made honest** — the dialog said "Rolling X back to Y" but the payload always sets `status='on_hold'`. User picked "Picked Up", order landed "On Hold" — surprising. Rewrote prompt to be explicit about the destination and to note that `billing_status` (paid / failed) is intentionally NOT cleared on rollback (money belongs to us; refunds are a separate flow). **(3) `washroute-audit.skill` Check 3 noise reduction** — the "Unpaid Delivered Orders" check was returning ~170 rows daily but only ~16 were actionable (104 on-account awaiting batch billing, 48 refunded). Added two filter clauses (`billing_type != 'on_account'` AND `billing_status != 'refunded'`) so morning rounds only flag genuinely problematic orders. Skill rebuilt and committed; David's next install of the skill picks up the new query. **Session 134 cumulative: 5 code commits + 4 doc commits + 2 migrations.** Earlier this session: real-actor route move attribution, driver Skip Photo flow, three QA-pass fixes (single-status crash, XSS, bill undercharge), `paid_at` column drop. Commit `a232fb0`.*
 
@@ -676,6 +678,64 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 24, 2026 (session 134, pt 7) — Driver polish + indexes + customer polish + Renee dedup
+
+**Driver app medium polish (commit `b8f2cf9`)** — 7 fixes from the Apr 24 QA list:
+
+| # | Fix | Where |
+|---|---|---|
+| D-M1 | "Customer notified" chip stops lying when driver tapped "I'm already here". Split `alreadySent` into two flags: `sentSms` (gates the chip) and `arrivedOrSent` (gates the button flip). | `renderStopDetail` Phase 1 (~line 2491) |
+| D-M2 | Toast "pull down to refresh" updated to point at the actual ↻ refresh icon — there's no pull-to-refresh handler in the app | global error handlers (~line 3837/3841) |
+| D-M3 | `_lastGpsSend = 0` reset in `stopGpsTracking` so re-login within throttle window doesn't drop the first ping | (~line 1334) |
+| D-M5 | Removed `&& allStops.length > 0` from realtime SUBSCRIBED reload — first subscribe was skipping the recovery reload, permanently dropping events that arrived during initial `loadDriverData()` | `subscribeToRouteStopUpdates` (~line 3758) |
+| D-M6 | Auto-update reload (build-version check) now defers via `_wrPendingReload` if driver is mid-action (Phase 2). Checks every 5 sec and lands the reload as soon as the driver leaves the at-stop screen | `_wrCheckVer` (~line 1040) |
+| D-M7 | `showScreen()` resolves any open Can't-Complete overlay promise to prevent leak when driver hits a bottom-nav icon mid-flow | (~line 1426) |
+| D-M8 | `loadCustomerSms` caps at last 7 days via `.gte('created_at', sevenDaysAgo)` — was pulling entire SMS history every login | (~line 3151) |
+
+**D-M4 (admin map shows stale GPS forever) skipped** — admin's `loadLiveDriverLocations` already filters to last 30 minutes, so stale pins drop off naturally on next admin map render. Lower-impact than the agent claimed.
+
+---
+
+**4 missing FK indexes (migration `session_134_add_fk_indexes`):**
+
+```sql
+CREATE INDEX idx_orders_pickup_run_id   ON orders(pickup_run_id)   WHERE pickup_run_id IS NOT NULL;
+CREATE INDEX idx_orders_delivery_run_id ON orders(delivery_run_id) WHERE delivery_run_id IS NOT NULL;
+CREATE INDEX idx_route_stops_driver_id  ON route_stops(driver_id)  WHERE driver_id IS NOT NULL;
+CREATE INDEX idx_customers_phone_digits ON customers((RIGHT(REGEXP_REPLACE(phone_cache,'[^0-9]','','g'),10))) WHERE phone_cache IS NOT NULL;
+```
+
+The first three are partial indexes (only index non-NULL rows — saves space and matches common query patterns like "all orders on this route"). The fourth is a **functional index** matching the exact regex pattern `find_customer_by_phone()` uses to normalize phone numbers — every inbound SMS goes through this lookup, so this is the most impactful index of the four. Reversible via `DROP INDEX idx_*`.
+
+---
+
+**Customer-app medium polish (commit `4997a97`):**
+
+| # | Fix | Where |
+|---|---|---|
+| C-M5 | `placeOrder` address-save block: outer try/catch had an empty catch with comment "continue — order will just have null address". A network blip would silently insert an order with `pickup_address_id=NULL` — driver sees no map pin. Now both the inner `addrErr` check AND the outer catch surface the failure to the customer and re-enable the Place Order button. | `placeOrder` (~line 4752) |
+| C-M7 | `_fetchSameDaySurcharge` cache had no invalidation — once set, customer's session would use the same surcharge amount forever. Added 5-minute TTL via `_sameDaySurchargeCachedAt` so admin price changes propagate within minutes. | (~line 4272) |
+
+---
+
+**Renee Hahn duplicate cleanup:**
+
+Two `customers` rows shared phone `+14157221723`:
+- `b5f9c38f...` (real account, has profile, 1 order, Stripe card on file, created 4/22 19:09 PT)
+- `5584fd62...` (orphan-OTP duplicate, no profile, no orders, created 4/22 20:07 PT)
+
+Both pointed at the same physical address (459 Fulton St, SF — same lat/lng) just labeled differently. Operations:
+
+1. Snapshotted both rows + their addresses to `_merge_backup_renee_hahn_20260424` and `_merge_backup_renee_hahn_addresses_20260424` for full reversibility.
+2. Promoted real account's address (was "Work / not default") to "Home / is_default=true" — it's now the only one.
+3. Deleted orphan customer (cascaded its address).
+
+Verified: 1 Renee Hahn record remains, address is Home + default.
+
+The other 3 phone duplicates from the QA report are intentional or staff (John Taladiar = staff dup, Homebase/Soul Sanctuary = same agency multi-program, Myra/Sarang = known-intentional per audit-skill exclusions).
+
+---
 
 ### Apr 24, 2026 (session 134, pt 6) — Timezone cluster (11 sites)
 
