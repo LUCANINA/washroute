@@ -6848,14 +6848,10 @@
       return;
     }
 
-    // Match exact Issues tab filter logic, then keep only non-billing-failed (those get card/retry, not reschedule)
-    const needsReschedule = data.filter(o => {
-      if (o.status === 'skipped' && o.cancelled_by === 'customer') return false;
-      if (o.status === 'skipped' && o.recurring_interval) return false;
-      if (o.status === 'pickup_failed' && o.recurring_interval) return false;
-      if (o.billing_status === 'failed') return false; // these get card/retry actions, not reschedule
-      return true;
-    });
+    // Match exact Issues tab filter logic via _isIssueRow, then keep only non-billing-failed
+    // (those get card/retry actions, not reschedule). _isIssueRow lives near the Orders
+    // filter so the two definitions can never drift apart.
+    const needsReschedule = data.filter(o => _isIssueRow(o) && o.billing_status !== 'failed');
 
     const badge = document.getElementById('reschedule-count-badge');
     if (!needsReschedule.length) {
@@ -7586,6 +7582,29 @@
     _s('ostat-revenue', fmtMoney(revenueToday));
   }
 
+  // Single source of truth for "what's an Issue row?" — used by the Orders → Issues tab
+  // filter AND the Overview's "needs reschedule" tile. Previously these had two
+  // independent inline filter implementations that were already drifting apart
+  // (Overview tile excluded billing_status='failed' outright; Issues tab kept it
+  // when chargeable). This shared helper prevents future drift.
+  //
+  // Excludes:
+  //   - customer-initiated skips (intentional, not actionable)
+  //   - skipped recurring orders (chain auto-continues)
+  //   - recurring pickup_failed (chain auto-continues, treat as a skip)
+  // Includes:
+  //   - billing_status='failed' on chargeable statuses, EXCEPT on_account customers
+  //     (they're billed via invoicing, not Stripe)
+  //   - any other status in ORDER_FILTER_GROUPS.issues
+  function _isIssueRow(o) {
+    if (o.status === 'skipped' && o.cancelled_by === 'customer') return false;
+    if (o.status === 'skipped' && o.recurring_interval) return false;
+    if (o.status === 'pickup_failed' && o.recurring_interval) return false;
+    const chargeableStatuses = ['ready_for_delivery','out_for_delivery','delivered'];
+    if (o.billing_status === 'failed' && chargeableStatuses.includes(o.status) && o.customers?.billing_type !== 'on_account') return true;
+    return ORDER_FILTER_GROUPS.issues.includes(o.status);
+  }
+
   // Returns allOrders filtered by currentOrderFilter + orderSearchTerm
   // When a search term is active, search spans ALL orders including delivered/cancelled
   // so staff can locate past orders for recall, comments, or reference.
@@ -7612,19 +7631,7 @@
     // No search term — normal tab filtering
     if (currentOrderFilter) {
       if (currentOrderFilter === 'issues') {
-        data = data.filter(o => {
-          // Exclude customer skips (intentional, not actionable)
-          if (o.status === 'skipped' && o.cancelled_by === 'customer') return false;
-          // Exclude skipped recurring orders — chain auto-continues regardless of who skipped
-          if (o.status === 'skipped' && o.recurring_interval) return false;
-          // Exclude recurring pickup_failed — chain auto-continues, treat like a skip
-          if (o.status === 'pickup_failed' && o.recurring_interval) return false;
-          // Only show billing failures for orders that are actually chargeable (ready_for_delivery+)
-          // Exclude on_account customers — they are billed through invoicing, not Stripe
-          const chargeableStatuses = ['ready_for_delivery','out_for_delivery','delivered'];
-          if (o.billing_status === 'failed' && chargeableStatuses.includes(o.status) && o.customers?.billing_type !== 'on_account') return true;
-          return ORDER_FILTER_GROUPS.issues.includes(o.status);
-        });
+        data = data.filter(_isIssueRow);
       } else if (currentOrderFilter === 'delivered') {
         const cutoff = new Date(Date.now() - DELIVERED_TAB_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
         data = data.filter(o =>
@@ -8250,12 +8257,11 @@
           proof_photo_url: null,
         }).eq('id', existStop.id);
       } else {
-        const { data: maxS } = await db.from('route_stops').select('stop_number').eq('route_id', routeId).order('stop_number',{ascending:false}).limit(1);
+        // stop_number assigned atomically by trg_assign_stop_number — no select-then-insert race.
         await db.from('route_stops').insert({
           route_id: routeId,
           order_id: opCurrentOrderId,
           stop_type: 'delivery',
-          stop_number: (maxS?.[0]?.stop_number || 0) + 1,
           address_id: addrId,
           status: 'pending',
         });
@@ -9179,8 +9185,8 @@
       if (existStop) {
         await db.from('route_stops').update({ route_id: routeId, driver_id: null }).eq('id', existStop.id);
       } else {
-        const { data: maxS } = await db.from('route_stops').select('stop_number').eq('route_id', routeId).order('stop_number',{ascending:false}).limit(1);
-        await db.from('route_stops').insert({ route_id: routeId, order_id: opCurrentOrderId, stop_type:'pickup', stop_number:(maxS?.[0]?.stop_number||0)+1, address_id: addrId, status:'pending' });
+        // stop_number assigned atomically by trg_assign_stop_number
+        await db.from('route_stops').insert({ route_id: routeId, order_id: opCurrentOrderId, stop_type:'pickup', address_id: addrId, status:'pending' });
       }
     }
 
@@ -9194,8 +9200,8 @@
       if (existStop) {
         await db.from('route_stops').update({ route_id: routeId, driver_id: null }).eq('id', existStop.id);
       } else {
-        const { data: maxS } = await db.from('route_stops').select('stop_number').eq('route_id', routeId).order('stop_number',{ascending:false}).limit(1);
-        await db.from('route_stops').insert({ route_id: routeId, order_id: opCurrentOrderId, stop_type:'delivery', stop_number:(maxS?.[0]?.stop_number||0)+1, address_id: addrId, status:'pending' });
+        // stop_number assigned atomically by trg_assign_stop_number
+        await db.from('route_stops').insert({ route_id: routeId, order_id: opCurrentOrderId, stop_type:'delivery', address_id: addrId, status:'pending' });
       }
     }
 
@@ -10495,11 +10501,18 @@ ${oneCopy}
       if (!to) { showToast('Enter a phone number.', 'error'); return; }
       const btn = document.getElementById('sms-send-btn');
       btn.disabled = true; btn.textContent = 'Sending…';
+      // Look up the customer by phone (last-10-digit match) so the resulting
+      // sms_messages row is properly attributed. Without this, the conversation
+      // shows up orphaned in the Inbox and replies don't surface in the customer panel.
+      const _toDigits = String(to).replace(/\D/g, '').slice(-10);
+      const _matchCust = _toDigits.length === 10 && allCustomers
+        ? allCustomers.find(c => String(c.phone_cache || '').replace(/\D/g, '').slice(-10) === _toDigits)
+        : null;
       try {
         const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
-          body: JSON.stringify({ to, body }),
+          body: JSON.stringify({ to, body, ...(_matchCust ? { customer_id: _matchCust.id } : {}) }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Send failed');
@@ -15088,13 +15101,12 @@ ${oneCopy}
     const newOrderId = newOrder?.id;
     if (newOrderId) {
       if (pickupRunId) {
-        const { data: maxS } = await db.from('route_stops').select('stop_number').eq('route_id', pickupRunId).order('stop_number',{ascending:false}).limit(1);
-        await db.from('route_stops').insert({ route_id: pickupRunId, order_id: newOrderId, stop_type:'pickup', stop_number:(maxS?.[0]?.stop_number||0)+1, address_id: addressId, status:'pending' });
+        // stop_number assigned atomically by trg_assign_stop_number
+        await db.from('route_stops').insert({ route_id: pickupRunId, order_id: newOrderId, stop_type:'pickup', address_id: addressId, status:'pending' });
         autoOptimizeRoute(pickupRunId);
       }
       if (delivRunId) {
-        const { data: maxD } = await db.from('route_stops').select('stop_number').eq('route_id', delivRunId).order('stop_number',{ascending:false}).limit(1);
-        await db.from('route_stops').insert({ route_id: delivRunId, order_id: newOrderId, stop_type:'delivery', stop_number:(maxD?.[0]?.stop_number||0)+1, address_id: addressId, status:'pending' });
+        await db.from('route_stops').insert({ route_id: delivRunId, order_id: newOrderId, stop_type:'delivery', address_id: addressId, status:'pending' });
         autoOptimizeRoute(delivRunId);
       }
     }
@@ -15245,12 +15257,26 @@ ${oneCopy}
   });
 
   // ── ESCAPE KEY: CLOSE ANY OPEN MODAL OR SIDE PANEL ──
+  // Order: most specific custom-close handlers first (refund/bill have dedicated cleanup),
+  // then the generic .modal-overlay class, then a catch-all sweep that closes any visible
+  // *-modal element. The catch-all handles the dozens of modals that use the
+  // `style.display='flex'` open / `'none'` close pattern without needing per-modal wiring.
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     if (document.getElementById('refund-modal')?.style.display === 'flex') { closeRefundModal(); return; }
     if (document.getElementById('bill-modal')?.style.display === 'flex') { closeBillModal(); return; }
     const openModal = document.querySelector('.modal-overlay.open');
     if (openModal) { openModal.classList.remove('open'); return; }
+    // Catch-all: close the topmost visible element whose id ends in '-modal'.
+    // Allowlist things that should NOT close on Escape (login screen is not a modal).
+    const ESC_SKIP = new Set(['login-screen','login-form-wrap','app']);
+    const visibleModals = [...document.querySelectorAll('[id$="-modal"]')]
+      .filter(m => !ESC_SKIP.has(m.id) && (m.style.display === 'flex' || m.style.display === 'block'));
+    if (visibleModals.length) {
+      // Topmost = last in DOM order (modals appended at the end of <body> typically render on top)
+      visibleModals[visibleModals.length - 1].style.display = 'none';
+      return;
+    }
     const panel = document.getElementById('customer-panel');
     if (panel && panel.classList.contains('open')) { closeCustomerPanel(); }
   });
@@ -15637,13 +15663,11 @@ ${oneCopy}
   async function deleteAddress(addrId) {
     if (!confirm('Remove this address?')) return;
 
-    // Clear FK references so the address can be deleted
-    // (orders and route_stops reference addresses with NO ACTION)
-    await db.from('orders').update({ pickup_address_id: null }).eq('pickup_address_id', addrId);
-    await db.from('orders').update({ delivery_address_id: null }).eq('delivery_address_id', addrId);
-    await db.from('route_stops').update({ address_id: null }).eq('address_id', addrId);
-
-    const { error } = await db.from('addresses').delete().eq('id', addrId);
+    // Atomic clear-FKs + delete via the delete_address RPC. The previous client-side
+    // 4-statement pattern (3 UPDATEs then DELETE) could fail with a FK violation if
+    // any concurrent INSERT landed between the cleanup and the DELETE — the RPC runs
+    // the whole sequence in a single transaction.
+    const { error } = await db.rpc('delete_address', { p_id: addrId });
     if (error) {
       showToast('Could not delete address: ' + error.message, 'error');
       return;
@@ -23802,26 +23826,30 @@ ${oneCopy}
       return;
     }
 
-    // Group by week
+    // Group by week — Pacific-anchored Monday-start bucketing.
+    // Previous browser-local arithmetic shifted week boundaries on non-Pacific browsers
+    // (e.g. an Eastern admin's "week" started 3h before Pacific Monday).
+    const _DOW_FROM_MON = { Mon:0, Tue:1, Wed:2, Thu:3, Fri:4, Sat:5, Sun:6 };
     const weekBuckets = {};
     for (const log of logs) {
-      const d = new Date(log.created_at);
-      // Get start of week (Monday)
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-      const weekStart = new Date(d.getFullYear(), d.getMonth(), diff);
-      const key = weekStart.toISOString().split('T')[0];
-      if (!weekBuckets[key]) weekBuckets[key] = { weight: 0, pickups: 0 };
-      weekBuckets[key].weight += Math.abs(Number(log.weight_delta || 0));
-      weekBuckets[key].pickups += Math.abs(Number(log.pickups_delta || 0));
+      const dateIso = new Date(log.created_at).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      // Pacific weekday name → days from Monday
+      const _wd = new Date(`${dateIso}T12:00:00${pacificOffsetStr(dateIso)}`)
+        .toLocaleDateString('en-US', { weekday: 'short', timeZone: BIZ_TZ });
+      const dayFromMon = _DOW_FROM_MON[_wd];
+      const weekStartIso = addDaysPacific(dateIso, -dayFromMon);
+      if (!weekBuckets[weekStartIso]) weekBuckets[weekStartIso] = { weight: 0, pickups: 0 };
+      weekBuckets[weekStartIso].weight += Math.abs(Number(log.weight_delta || 0));
+      weekBuckets[weekStartIso].pickups += Math.abs(Number(log.pickups_delta || 0));
     }
 
     const weeks = Object.keys(weekBuckets).sort();
     const weightData = weeks.map(w => weekBuckets[w].weight);
     const pickupData = weeks.map(w => weekBuckets[w].pickups);
     const labels = weeks.map(w => {
-      const d = new Date(w + 'T12:00:00');
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      // Anchor at Pacific noon for safe display formatting
+      const d = new Date(`${w}T12:00:00${pacificOffsetStr(w)}`);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: BIZ_TZ });
     });
 
     drawChart('sub-chart-weight', labels, weightData, 'Weight (lbs)', '#3B82F6');
