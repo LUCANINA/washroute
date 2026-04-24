@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 24, 2026 — Session 134 (pt 7): Driver app polish (7 fixes), 4 missing FK indexes, customer app polish (2 fixes), Renee Hahn duplicate cleanup. **Driver fixes (commit `b8f2cf9`):** (1) "Customer notified" chip now only shows when SMS was actually sent, not when driver tapped "I'm already here" (which sets en_route locally without notifying). (2) Misleading "pull down to refresh" toast updated to point at the actual refresh icon. (3) GPS `_lastGpsSend` reset on stopGpsTracking so re-login within throttle window gets a fresh ping. (4) Removed `allStops.length > 0` guard from realtime SUBSCRIBED reload — first subscribe was skipping the recovery reload, dropping events that arrived during initial loadDriverData. (5) Auto-update reload now defers if driver is mid-action on a stop (currentStopPhase === 2) — checks every 5 sec and reloads when safe. (6) Can't-Complete overlay's promise no longer leaks when driver navigates away mid-flow — showScreen() resolves any pending overlay. (7) loadCustomerSms now caps at last 7 days instead of pulling entire SMS history (potentially thousands of rows) on every login. **DB indexes (migration `session_134_add_fk_indexes`):** added 4 partial/functional indexes — `orders.pickup_run_id`, `orders.delivery_run_id`, `route_stops.driver_id`, and a functional index on `customers.phone_cache` matching the `find_customer_by_phone()` regex pattern (last-10-digits). The phone index is the most impactful — every inbound SMS hits this lookup. **Customer fixes (commit `4997a97`):** (1) `placeOrder` no longer swallows address-save errors — both the inner addrErr check and outer catch now surface the failure and re-enable the button. Previously a network blip would silently insert an order with pickup_address_id=NULL. (2) `_fetchSameDaySurcharge` cache now invalidates after 5 minutes so admin's price changes propagate to in-flight sessions. **Renee Hahn duplicate cleanup:** Two records (one orphan-OTP, one real) merged. Real account (b5f9c38f) kept its address — promoted to is_default=true and re-labeled "Home". Orphan deleted. Snapshots: `_merge_backup_renee_hahn_20260424` + `_merge_backup_renee_hahn_addresses_20260424`. **Session 134 cumulative: 8 code commits + 7 doc commits + 3 migrations + 1 skill update + 2 backfill snapshots.**  Earlier this session: real-actor route move attribution, driver Skip Photo flow, three QA-pass fixes (single-status crash, XSS, bill undercharge), `paid_at` column drop, customer cancel attribution, status rollback honesty, audit Check 3 noise reduction, timezone cluster (11 sites).*
+*Last updated: Apr 24, 2026 — Session 134 (pt 8): New guiding principle ("⚠️ ALWAYS CHOOSE THE CLEANEST ARCHITECTURAL PATH") added to PROJECT-NOTES Guiding Principle section + applied immediately to fix DB-M3 (`reoptimize_active_routes`). The old function joined `driver_locations` on `routes.driver_id` (legacy single-driver column = always pickup_driver_id), so once pickups were done and the delivery driver took over, the cron found stale GPS for the wrong driver and silently skipped the route — no dynamic re-routing for the second half of any split-driver day. Quick-fix would have been "add a second loop joining on delivery_driver_id." Cleanest path: derive the active driver from `route_stops.driver_id` (which `trg_fill_stop_driver` populates correctly for split drivers AND per-stop overrides AND legacy single-driver), pick the most-recently-pinging driver per route via `DISTINCT ON (r.id) ... ORDER BY dl.updated_at DESC`. One source of truth, handles all routing models — current and future. Migration `session_134_reoptimize_active_routes_per_driver`. Function preserved as SECURITY DEFINER. Old function definition snapshotted to `_backup_function_defs` for full rollback. Performance: the new join uses the partial index `idx_route_stops_driver_id` added earlier today. **Session 134 cumulative: 8 code commits + 8 doc commits + 4 migrations + 1 skill update + 3 backfill snapshots + 1 new guiding principle.*
+
+*Prior: Apr 24, 2026 — Session 134 (pt 7): Driver app polish (7 fixes), 4 missing FK indexes, customer app polish (2 fixes), Renee Hahn duplicate cleanup. **Driver fixes (commit `b8f2cf9`):** (1) "Customer notified" chip now only shows when SMS was actually sent, not when driver tapped "I'm already here" (which sets en_route locally without notifying). (2) Misleading "pull down to refresh" toast updated to point at the actual refresh icon. (3) GPS `_lastGpsSend` reset on stopGpsTracking so re-login within throttle window gets a fresh ping. (4) Removed `allStops.length > 0` guard from realtime SUBSCRIBED reload — first subscribe was skipping the recovery reload, dropping events that arrived during initial loadDriverData. (5) Auto-update reload now defers if driver is mid-action on a stop (currentStopPhase === 2) — checks every 5 sec and reloads when safe. (6) Can't-Complete overlay's promise no longer leaks when driver navigates away mid-flow — showScreen() resolves any pending overlay. (7) loadCustomerSms now caps at last 7 days instead of pulling entire SMS history (potentially thousands of rows) on every login. **DB indexes (migration `session_134_add_fk_indexes`):** added 4 partial/functional indexes — `orders.pickup_run_id`, `orders.delivery_run_id`, `route_stops.driver_id`, and a functional index on `customers.phone_cache` matching the `find_customer_by_phone()` regex pattern (last-10-digits). The phone index is the most impactful — every inbound SMS hits this lookup. **Customer fixes (commit `4997a97`):** (1) `placeOrder` no longer swallows address-save errors — both the inner addrErr check and outer catch now surface the failure and re-enable the button. Previously a network blip would silently insert an order with pickup_address_id=NULL. (2) `_fetchSameDaySurcharge` cache now invalidates after 5 minutes so admin's price changes propagate to in-flight sessions. **Renee Hahn duplicate cleanup:** Two records (one orphan-OTP, one real) merged. Real account (b5f9c38f) kept its address — promoted to is_default=true and re-labeled "Home". Orphan deleted. Snapshots: `_merge_backup_renee_hahn_20260424` + `_merge_backup_renee_hahn_addresses_20260424`. **Session 134 cumulative: 8 code commits + 7 doc commits + 3 migrations + 1 skill update + 2 backfill snapshots.**  Earlier this session: real-actor route move attribution, driver Skip Photo flow, three QA-pass fixes (single-status crash, XSS, bill undercharge), `paid_at` column drop, customer cancel attribution, status rollback honesty, audit Check 3 noise reduction, timezone cluster (11 sites).*
 
 *Prior: Apr 24, 2026 — Session 134 (pt 6): Timezone cluster — 11 sites across admin + customer apps silently corrupted dates when the user's browser wasn't on Pacific time, or even on Pacific time near the day-roll boundary (after 5pm PT, browser-local midnight = next Pacific day). Single root cause: code that built or formatted dates using browser-local time methods (`toLocaleDateString('sv')`, `getFullYear/Month/Date`, `new Date(toLocaleString)` round-trips, implicit `T00:00:00` parsing as local). For Pacific users this rarely bit; for Lili-traveling-east, NY/EU customers, or anyone past 5pm PT the corruption was real and silent. **Worst offender:** `customer-app computeSubWindows` was building slot ISO strings without an explicit offset → `new Date()` parsed as browser-local → `.toISOString()` then committed wrong UTC times to `orders.pickup_window_start/end` in the DB. Customer in NY booking 9–11 AM Pacific would write 13:00–15:00 UTC instead of 17:00–19:00 UTC. Fixed by computing the Pacific offset string per pickup date (DST-safe) and embedding it in the parsed string. **Fix shape:** added 3 helpers to admin near `today()` (`addDaysPacific`, `pacificOffsetStr`, `pacificDayStart/End`) and mirrored them in customer-app plus `pacificMinutesOfDay` (Intl.DateTimeFormat replacement for the broken round-trip pattern). Patched 10 admin sites + 5 customer sites. Diff: +173 / -91 lines. Commit `ab164e6`. **Session 134 cumulative: 6 code commits + 5 doc commits + 2 migrations + 1 skill update.**  Earlier this session: real-actor route move attribution, driver Skip Photo flow, three QA-pass fixes (single-status crash, XSS, bill undercharge), `paid_at` column drop, customer cancel attribution, status rollback honesty, audit Check 3 noise reduction.*
 
@@ -78,6 +80,8 @@ Project moved from the old Cowork sandbox path to a proper local git repo:
 Every session: Jony Ive and Steve Jobs attention to detail. No orphan code, no dead references, no hardcoded strings that should be configurable. Whether the customer sees it or not — the system must be tidy. Clean up after every job.
 
 **⚠️ FIX PERMANENTLY, NOT JUST FOR NOW.** When fixing any bug or issue, always ask: "How do we make sure this can never happen again?" Every fix should come with a suggestion for structural prevention — a DB constraint, a trigger guard, a skill update, or a PROJECT-NOTES warning. Fixing the symptom is step 1. Making the bug impossible to reintroduce is step 2. If a field's meaning changes, check every consumer (app code AND DB triggers/functions). If a previous fix is being reversed, the ⚠️ CRITICAL warnings in this file exist for a reason — read them before changing related code.
+
+**⚠️ ALWAYS CHOOSE THE CLEANEST ARCHITECTURAL PATH.** When two implementations are on the table — a quick patch that handles 90% of cases vs. a slightly more thoughtful design that handles all of them correctly — pick the second one. We are not optimizing for time-to-merge; we are optimizing for a system that doesn't accumulate edge-case footguns. Examples of the right call: the session 134 timezone cluster used a single `pacificDayStart`/`addDaysPacific` helper everywhere instead of inlining quick fixes per site; `reoptimize_active_routes` was rewritten to derive the active driver from `route_stops.driver_id` (correct for split-driver days, per-stop overrides, and any future routing model) instead of just adding a second loop on `delivery_driver_id`. If the cleaner path takes 30 extra minutes, take them. The cost of doing it twice — first the quick way, then again later when the edge case bites — is always higher than doing it right once.
 
 **⚠️ DELIVERY WINDOWS MUST MATCH ROUTE TEMPLATES.** When creating orders, always check the route template's `arrival_window_hours` to determine the correct delivery window size. San Francisco and Hayward routes have 3-hour arrival windows (7–10 PM), so the delivery window is the full route window. Berkeley, Alameda, and Oakland routes have 2-hour arrival windows (sub-windows: 6–8 PM or 8–10 PM). Never assume all routes use the same window size. One-time orders use `recurring_interval = NULL` (not `'one_time'`).
 
@@ -678,6 +682,59 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 24, 2026 (session 134, pt 8) — Cleanest-path principle + reoptimize_active_routes fix
+
+**New Guiding Principle added to PROJECT-NOTES** (after the "FIX PERMANENTLY" rule):
+
+> ⚠️ ALWAYS CHOOSE THE CLEANEST ARCHITECTURAL PATH. When two implementations are on the table — a quick patch that handles 90% of cases vs. a slightly more thoughtful design that handles all of them correctly — pick the second one.
+
+Prompted by the DB-M3 question. The quick fix (add a second loop joining on `delivery_driver_id`) handles split-driver days but leaves per-stop overrides on the table. The clean fix (derive active driver from `route_stops.driver_id`, the trigger-maintained source of truth) handles all current AND future routing models with one query.
+
+**`reoptimize_active_routes` rewrite (migration `session_134_reoptimize_active_routes_per_driver`):**
+
+The old function:
+```sql
+JOIN driver_locations dl ON dl.driver_id = r.driver_id
+```
+
+Always joins on the legacy `routes.driver_id` column = `pickup_driver_id` (set by `generate_route_runs`). For split-driver days (separate AM pickup driver and PM delivery driver), the cron always looks at the pickup driver's GPS — which goes stale at noon when they finish. So the entire delivery half of those days runs without dynamic re-routing.
+
+The new function:
+```sql
+SELECT DISTINCT ON (r.id)
+  r.id AS route_id,
+  dl.lat AS driver_lat,
+  dl.lng AS driver_lng
+FROM routes r
+JOIN route_stops rs
+  ON rs.route_id = r.id AND rs.status = 'pending'
+JOIN driver_locations dl
+  ON dl.driver_id = rs.driver_id   -- ← actual driver per stop, not just route default
+ AND dl.updated_at > now() - interval '15 minutes'
+WHERE r.date = pacific_today
+GROUP BY r.id, dl.driver_id, dl.lat, dl.lng, dl.updated_at
+HAVING COUNT(rs.id) >= 2
+ORDER BY r.id, dl.updated_at DESC
+```
+
+Key shape: `route_stops.driver_id` is the source of truth for "who is responsible for this stop" — the `trg_fill_stop_driver` trigger fills it in from the route's pickup_driver / delivery_driver / legacy driver_id / per-stop override. By joining through `route_stops`, the function automatically handles every routing model.
+
+`DISTINCT ON (r.id) ... ORDER BY r.id, dl.updated_at DESC` picks the most-recently-pinging driver per route. For WashRoute's sequential pickup → delivery handoff model, this is exactly right: during the pickup phase the pickup driver pings, during the delivery phase the delivery driver pings, never both at once. Even in the rare concurrent case (pickup not quite done when delivery starts), the function picks one driver and re-optimizes from their position — strictly better than the old "skip the route entirely" behavior.
+
+**Performance:** Joins use the partial index `idx_route_stops_driver_id` added earlier this session — designed for exactly this query shape.
+
+**Function characteristics preserved:** `SECURITY DEFINER`, `search_path = 'public', 'pg_temp'`. Behavior unchanged for callers (cron is the only caller; signature is the same `()` → `void`).
+
+**Reversibility:** Old function definition snapshotted to `_backup_function_defs` (table created this session). Restore via `CREATE OR REPLACE FUNCTION ... AS $$<saved-body>$$` from that table.
+
+**What's still tech debt (out of scope for this fix):** Two narrow edge cases neither old nor new handles cleanly:
+- Concurrent two drivers on the same route with mixed pending stops belonging to each — new function picks the freshest GPS and optimizes the whole route from that position. The other driver's stops get a sub-optimal re-order until the next 5-min cron tick (when they'll likely be the freshest). Acceptable.
+- Route with stops belonging to drivers not in `driver_locations` at all (e.g., driver app closed) — neither function does anything. This is the correct behavior (no GPS, no re-optimization possible), but admin's RCC "Optimize" button is the manual fallback.
+
+Commit (this entry).
+
+---
 
 ### Apr 24, 2026 (session 134, pt 7) — Driver polish + indexes + customer polish + Renee dedup
 
