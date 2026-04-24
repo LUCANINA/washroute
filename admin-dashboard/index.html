@@ -4550,6 +4550,7 @@
   let currentUserRole = null; // 'admin' | 'manager' | 'laundry_tech' | 'attendant'
   let currentUserId   = null; // logged-in admin's auth user ID
   let currentUserFirstName = null; // first name of logged-in user (for nudge SMS etc.)
+  let currentUserDisplayName = null; // "First L" — shown in order history + issue comments to disambiguate admins with the same first name
   let rolePermissions = {};   // { page_id: true/false } — loaded from role_permissions table
   let allRolePermissions = []; // full table cache for the permissions grid UI
 
@@ -5147,6 +5148,10 @@
         currentUserRole = role;
         currentUserId   = session.user.id;
         currentUserFirstName = profile?.first_name || null;
+        const _lastInitial = (profile?.last_name || '').trim().charAt(0).toUpperCase();
+        currentUserDisplayName = currentUserFirstName
+          ? (_lastInitial ? `${currentUserFirstName} ${_lastInitial}` : currentUserFirstName)
+          : null;
 
         // Load permissions for this role from role_permissions table
         try {
@@ -8554,7 +8559,7 @@
 
   // Helper: log an order event from admin JS (with admin's name)
   async function logOrderEvent(orderId, eventType, description, oldValue, newValue) {
-    const actorName = currentUserFirstName || 'Admin';
+    const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
     try {
       await db.from('order_events').insert({
         order_id: orderId,
@@ -11977,7 +11982,7 @@ ${oneCopy}
     const priority = document.getElementById('issue-priority')?.value || 'normal';
     const category = document.getElementById('issue-category')?.value || 'other';
     const assignee = (document.getElementById('issue-assignee')?.value || '').trim();
-    const author   = currentUserFirstName || 'Admin';
+    const author   = currentUserDisplayName || currentUserFirstName || 'Admin';
     if (!title) { showToast('Please add a title for the issue.', 'error'); return; }
 
     const conv = currentConv?.conv_id
@@ -12444,7 +12449,7 @@ ${oneCopy}
     const input = document.getElementById('iss-assign-input');
     const newAssignee = (input?.value || '').trim();
     const oldAssignee = _currentIssueData?.assigned_to || null;
-    const author = currentUserFirstName || 'Admin';
+    const author = currentUserDisplayName || currentUserFirstName || 'Admin';
 
     if (newAssignee === (oldAssignee || '')) { openIssueDetail(_currentIssueId); return; }
 
@@ -12472,7 +12477,7 @@ ${oneCopy}
     if (!_currentIssueId || !_currentIssueData) return;
     const oldPriority = _currentIssueData.priority;
     if (newPriority === oldPriority) return;
-    const author = currentUserFirstName || 'Admin';
+    const author = currentUserDisplayName || currentUserFirstName || 'Admin';
 
     const { error: commentErr } = await db.from('cs_issue_comments').insert({
       issue_id: _currentIssueId, author,
@@ -12497,7 +12502,7 @@ ${oneCopy}
     const input = document.getElementById('iss-comment-input');
     const body = input.value.trim();
     if (!body) return;
-    const author = currentUserFirstName || 'Admin';
+    const author = currentUserDisplayName || currentUserFirstName || 'Admin';
     input.value = '';
 
     const { error } = await db.from('cs_issue_comments').insert({
@@ -12517,7 +12522,7 @@ ${oneCopy}
 
   async function changeIssueStatus(newStatus) {
     if (!_currentIssueId) return;
-    const author = currentUserFirstName || 'Admin';
+    const author = currentUserDisplayName || currentUserFirstName || 'Admin';
     const label = newStatus === 'resolved' ? 'Resolved' : newStatus === 'in_progress' ? 'In Progress' : 'Open';
     const ts = new Date().toISOString();
 
@@ -12581,7 +12586,7 @@ ${oneCopy}
     const priority = document.getElementById('ci-priority').value;
     const assignee = (document.getElementById('ci-assignee').value || '').trim();
     const note     = (document.getElementById('ci-note').value || '').trim();
-    const author   = currentUserFirstName || 'Admin';
+    const author   = currentUserDisplayName || currentUserFirstName || 'Admin';
 
     if (!title) { showToast('Please add a title.', 'error'); return; }
 
