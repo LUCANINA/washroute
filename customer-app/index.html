@@ -4268,10 +4268,18 @@ async function _checkSameDayAvailable() {
   return qualifying.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
 }
 
-// Fetch same-day surcharge amount once and cache it
+// Fetch same-day surcharge amount and cache it for 5 minutes.
+// Time-based invalidation so admin's price changes propagate to in-flight customer
+// sessions within a few minutes — without it, a customer who opened the booking flow
+// before the price change would pay the old amount until they reload.
 let _sameDaySurchargeCache = null;
+let _sameDaySurchargeCachedAt = 0;
+const _SAMEDAY_CACHE_TTL_MS = 5 * 60 * 1000;  // 5 minutes
 async function _fetchSameDaySurcharge() {
-  if (_sameDaySurchargeCache !== null) return _sameDaySurchargeCache;
+  const now = Date.now();
+  if (_sameDaySurchargeCache !== null && (now - _sameDaySurchargeCachedAt) < _SAMEDAY_CACHE_TTL_MS) {
+    return _sameDaySurchargeCache;
+  }
   const { data } = await db.from('service_fees')
     .select('amount')
     .ilike('name', '%same%day%')
@@ -4279,6 +4287,7 @@ async function _fetchSameDaySurcharge() {
     .limit(1)
     .single();
   _sameDaySurchargeCache = parseFloat(data?.amount || 0);
+  _sameDaySurchargeCachedAt = now;
   return _sameDaySurchargeCache;
 }
 
@@ -4749,19 +4758,34 @@ async function placeOrder() {
         const autoLabel = !existingLabels.includes('home') ? 'Home'
           : !existingLabels.includes('work') ? 'Work'
           : `Address ${_savedAddresses.length + 1}`;
-        const { data: newAddr } = await db.from('addresses').insert({
+        const { data: newAddr, error: addrErr } = await db.from('addresses').insert({
           customer_id: currentCustomer.id,
           label: autoLabel,
           line1, city, state: state || 'CA', zip: zip || '',
           lat, lng,
           is_default: isFirstAddr
         }).select().single();
+        if (addrErr) {
+          // Surface the address-save failure rather than silently continuing.
+          // Without this guard, a network blip during address save would let the
+          // order get inserted with pickup_address_id=NULL — driver sees no map pin.
+          toast('Could not save your address — please try again.');
+          if (btn) { btn.disabled = false; btn.textContent = 'Place Order'; }
+          return;
+        }
         if (newAddr) {
           draft.addressId = newAddr.id;
           _savedAddresses = [..._savedAddresses, newAddr];
         }
       }
-    } catch (_) { /* continue — order will just have null address */ }
+    } catch (e) {
+      // Don't swallow — surface and abort. Same reasoning as above: order-with-no-address
+      // is worse than a clear retry prompt to the customer.
+      console.error('Address save failed:', e);
+      toast('Could not save your address — please try again.');
+      if (btn) { btn.disabled = false; btn.textContent = 'Place Order'; }
+      return;
+    }
   }
 
   const svc           = getCustomerService();
