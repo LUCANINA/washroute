@@ -9226,21 +9226,25 @@
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
     const col = leg === 'pickup' ? 'pickup_address_id' : 'delivery_address_id';
-    const legLabel = leg === 'pickup' ? 'Pickup' : 'Delivery';
-    const cust = allCustomers.find(c => c.id === opCurrentCustId);
-    const addrs = Array.isArray(cust?.addresses) ? cust.addresses : [];
-    const addr = addrs.find(a => a.id === addressId);
-    const addrLabel = addr ? (addr.label || addr.line1 || 'new address') : 'new address';
-    await logOrderEvent(opCurrentOrderId, 'rescheduled', `${legLabel} address changed to ${addrLabel}`, null, addressId);
-    const { error } = await db.from('orders').update({ [col]: addressId }).eq('id', opCurrentOrderId);
-    if (error) { showToast('Failed to save address', 'error'); return; }
-    o[col] = addressId;
 
-    // Also update route_stop address if it exists
-    if (leg === 'pickup') {
-      const { data: stop } = await db.from('route_stops').select('id').eq('order_id', opCurrentOrderId).eq('stop_type','pickup').maybeSingle();
-      if (stop) await db.from('route_stops').update({ address_id: addressId }).eq('id', stop.id);
-    }
+    // Session 136: single transactional RPC — save_order_address. Replaces the
+    // prior non-atomic orders UPDATE + route_stops UPDATE pair which had three
+    // bugs: (1) the two writes weren't atomic, (2) `.maybeSingle()` on
+    // route_stops threw if the order had duplicate stops (a known issue
+    // commented in the old code), and (3) only the pickup branch updated the
+    // route_stop — delivery address changes left the delivery stop's
+    // address_id stale, so the driver navigated to the old delivery address.
+    // The RPC also updates ALL non-terminal stops of the matching type
+    // (handles the duplicates case cleanly) and validates that the address
+    // belongs to the order's customer.
+    const { data: rpcRes, error } = await db.rpc('save_order_address', {
+      p_order_id:   opCurrentOrderId,
+      p_leg:        leg,
+      p_address_id: addressId,
+      p_actor_name: currentUserDisplayName || currentUserFirstName || 'Admin',
+    });
+    if (error) { showToast('Failed to save address: ' + error.message, 'error'); return; }
+    o[col] = addressId;
 
     opRefreshAddresses(o);
     document.getElementById(`op-${leg}-addr-picker`).style.display = 'none';
