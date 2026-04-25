@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 25, 2026 — Session 136 pt 12 (`customers.total_orders` denormalized counter fix): David noticed Itay Levy + E. King didn't show the "Ordered" ✓ checkmark on the New Customers report despite having real orders. Root cause: `total_orders` was incremented ONLY by customer-app's confirmOrder; admin/Claude/DB-direct paths silently skipped it. Drift sweep: 654 customers — 567 over-counted (Starchup legacy, preserved) + 87 under-counted (real bug, backfilled). Three-part fix: (1) extended `update_customer_last_order_at` trigger to also bump `total_orders` so every INSERT path maintains the counter automatically, (2) backfilled 85 undercount customers, (3) removed the now-redundant client-side increment in customer-app/confirmOrder. **Architectural lesson:** denormalized counters maintained only client-side WILL drift the moment any non-client path writes to the source table; if the counter matters, it needs a DB trigger. Commit `0f406c4`.*
+*Last updated: Apr 25, 2026 — Session 136 pt 13 (Daily Revenue report client timeout): David tried Apr 1-25 daily revenue, appeared to hang. Edge function logs showed `get-stripe-fees` legitimately took 54.8s — Stripe pagination over ~1300 BTs needs ~13 round-trips. Not hung, just slow. **Fix:** wrapped the fetch in an `AbortController` with a 12-second timeout; falls back to existing estimated-fees path (italic column + tooltip already communicate "estimated"). Report now renders within 15s for any range. Lesson logged: every external HTTP from a long client flow needs an explicit timeout. Commit `659afdc`.*
+
+*Prior: Apr 25, 2026 — Session 136 pt 12 (`customers.total_orders` denormalized counter fix): David noticed Itay Levy + E. King didn't show the "Ordered" ✓ checkmark on the New Customers report despite having real orders. Root cause: `total_orders` was incremented ONLY by customer-app's confirmOrder; admin/Claude/DB-direct paths silently skipped it. Drift sweep: 654 customers — 567 over-counted (Starchup legacy, preserved) + 87 under-counted (real bug, backfilled). Three-part fix: (1) extended `update_customer_last_order_at` trigger to also bump `total_orders` so every INSERT path maintains the counter automatically, (2) backfilled 85 undercount customers, (3) removed the now-redundant client-side increment in customer-app/confirmOrder. **Architectural lesson:** denormalized counters maintained only client-side WILL drift the moment any non-client path writes to the source table; if the counter matters, it needs a DB trigger. Commit `0f406c4`.*
 
 *Prior: Apr 25, 2026 — Session 136 pt 11 (full audit pass — security gap closed + 3 findings flagged): David asked for a full audit. **🔴 Security gap caught and fixed:** every architectural mutation RPC had `anon=X` EXECUTE in `pg_proc.proacl`. Supabase grants anon EXECUTE on every public function by default, and `REVOKE FROM PUBLIC` does NOT undo that direct grant. Migration `session_136_revoke_anon_from_mutation_rpcs` explicit-revokes anon on all 13 mutation RPCs. Same migration also dropped the old 6-arg `reschedule_order_leg` (PostgreSQL kept it as an overload instead of replacing when pt 10 added `p_clear_route`). **3 pending findings flagged but not fixed today:** (1) 9 customers silently rescheduled by an Apr 15 mass UPDATE — David to decide per-customer outreach; (2) pre-existing credit ledger drift across 292 customers ($8.5K over + $0.4K under); (3) `cantCompleteStop` is the failure-path analog to RPC #3 — non-atomic route_stops + advance_order_status, worth closing for consistency. **Verifications passed:** Check 14 = 0, all 17 today's migrations applied, all 13 RPCs locked down, every remaining raw `db.from('orders').update(...)` matches the audit's "leave alone" list, git fully committed. The full session is in the entry below.*
 
@@ -718,6 +720,18 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 25, 2026 (session 136, pt 13) — Daily Revenue report timeout on get-stripe-fees
+
+**Trigger event:** David tried to load the Daily Revenue report for Apr 1–25 and the spinner appeared to hang. Edge function logs (`POST | 200 | get-stripe-fees`) showed the call **took 54.8 seconds** — not hung, just slow. Stripe's `balanceTransactions` API paginates 100/page; for a 25-day window with ~1300 charges + assorted refund/transfer BTs the function needs ~13 round-trips to Stripe. The report's catch block already handled the fallback to estimated fees, but there was no client-side timeout so the user just waited.
+
+**Fix (commit `659afdc`):** wrapped the `get-stripe-fees` fetch in an `AbortController` with a 12-second timeout. If Stripe's response doesn't come in time, abort and fall back to the existing `2.9% + $0.30` estimate (the column already renders italic when `feeEstimated=true` with a tooltip noting estimated vs actual). Report now renders within 15 seconds for any range. For exact reconciliation admin can pull a smaller date window under 12s.
+
+**Lesson:** every external HTTP call from a long-running client flow needs an explicit timeout. Browsers will wait indefinitely on a slow-but-responsive HTTP stream, and edge functions can run up to 60s — far longer than a user's patience. The catch block alone isn't enough; need an `AbortController` to interrupt the wait.
+
+No DB or edge function changes — pure client patch.
+
+---
 
 ### Apr 25, 2026 (session 136, pt 12) — `customers.total_orders` denormalized counter fix
 
