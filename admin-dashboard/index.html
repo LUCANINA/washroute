@@ -17131,12 +17131,37 @@ ${oneCopy}
     // Mark saving state
     document.querySelectorAll('.sp-slot-btn').forEach(b => b.classList.add('saving'));
     btn.textContent = 'Saving…';
+
+    // Session 135: look up the matching route run (template + date) so pickup_run_id
+    // moves alongside the window. Without this, picking a slot from a different
+    // template (e.g. Berkeley AM when the order was on Berkeley PM) would silently
+    // leave the order on the old route — driver wouldn't show up, customer would
+    // be told the new time. Same bug shape as customer-app saveEditOrder. The DB
+    // trigger enforce_window_in_route_template() also blocks this at the DB layer;
+    // this code path makes the right thing happen instead.
+    const newDateIso = new Date(startIso).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    let pickupRunId = null;
+    if (_spSelectedTmpl?.id) {
+      const { data: pickupRun } = await db.from('routes')
+        .select('id')
+        .eq('template_id', _spSelectedTmpl.id)
+        .eq('run_date', newDateIso)
+        .maybeSingle();
+      pickupRunId = pickupRun?.id || null;
+    }
+    if (!pickupRunId) {
+      document.querySelectorAll('.sp-slot-btn').forEach(b => { b.classList.remove('saving'); });
+      showToast('No route generated for that template + date — pick another day or template.', 'error');
+      return;
+    }
+
     const newDate = new Date(startIso).toLocaleDateString('en-US',{timeZone:BIZ_TZ});
     const newTime = new Date(startIso).toLocaleTimeString('en-US',{timeZone:BIZ_TZ,hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase();
     await logOrderEvent(_spOrderId, 'rescheduled', `Pickup rescheduled to ${newDate} ${newTime}`, null, startIso);
     const { error } = await db.from('orders').update({
       pickup_window_start: startIso,
       pickup_window_end: endIso,
+      pickup_run_id: pickupRunId,
     }).eq('id', _spOrderId);
     if (error) {
       document.querySelectorAll('.sp-slot-btn').forEach(b => { b.classList.remove('saving'); });

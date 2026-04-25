@@ -6084,6 +6084,41 @@ async function saveEditOrder() {
     }
   }
 
+  // Session 135: when a window changes, also update the matching pickup_run_id /
+  // delivery_run_id so the order moves to the correct route. Previously we wrote
+  // the new window time but left run_id pointing at the old route — so a customer
+  // could change pickup from PM to AM and the order would silently stay on the PM
+  // route, leading to "no driver showed up" complaints (Jeanbaptiste #3128 04/24).
+  // The session 135 DB trigger enforce_window_in_route_template() also blocks this
+  // at the DB layer; this code path makes the right thing happen instead.
+  // window objects from computeSubWindows carry `routeId` = template id.
+  if (pw?.slotStart && pw?.routeId && es?.pickupDate) {
+    const { data: pickupRun } = await db.from('routes')
+      .select('id')
+      .eq('template_id', pw.routeId)
+      .eq('run_date', es.pickupDate)
+      .maybeSingle();
+    if (!pickupRun?.id) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+      toast('Could not save: no route generated for that pickup date yet. Please pick another window.');
+      return;
+    }
+    schedFields.pickup_run_id = pickupRun.id;
+  }
+  if (es?.deliveryDate && dw?.routeId) {
+    const { data: deliveryRun } = await db.from('routes')
+      .select('id')
+      .eq('template_id', dw.routeId)
+      .eq('run_date', es.deliveryDate)
+      .maybeSingle();
+    if (!deliveryRun?.id) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+      toast('Could not save: no route generated for that delivery date yet. Please pick another window.');
+      return;
+    }
+    schedFields.delivery_run_id = deliveryRun.id;
+  }
+
   const { error } = await db.from('orders').update({
     total_bags:           bags,
     special_instructions: instructions,
