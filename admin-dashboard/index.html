@@ -8417,13 +8417,28 @@
   }
 
   async function _opShiftDeliveryWindow(o, newStart, newEnd) {
-    const update = { delivery_window_start: newStart, delivery_window_end: newEnd, updated_at: new Date().toISOString() };
-    const oldDel = o.delivery_window_start ? new Date(o.delivery_window_start).toLocaleDateString('en-US',{timeZone:BIZ_TZ}) : '—';
-    const newDel = new Date(newStart).toLocaleDateString('en-US',{timeZone:BIZ_TZ});
-    await logOrderEvent(o.id, 'rescheduled', `Delivery rescheduled from ${oldDel} to ${newDel}`, oldDel, newDel);
-    const { error } = await db.from('orders').update(update).eq('id', o.id);
-    if (error) { showToast('Failed to update delivery window', 'error'); return; }
-    Object.assign(o, update);
+    // Session 136 tech debt #1: route through reschedule_order_leg with the
+    // p_clear_route flag so this path goes through the same trusted RPC as
+    // every other reschedule. p_clear_route=true explicitly nulls
+    // delivery_run_id (the original window-only-restore path was for orders
+    // that had no run_id at the time of same-day toggle). The RPC handles
+    // the event log + route_stop detach atomically.
+    const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+    const { error } = await db.rpc('reschedule_order_leg', {
+      p_order_id:         o.id,
+      p_leg:              'delivery',
+      p_new_window_start: newStart,
+      p_new_window_end:   newEnd,
+      p_clear_route:      true,
+      p_actor_name:       actorName,
+    });
+    if (error) { showToast('Failed to update delivery window: ' + error.message, 'error'); return; }
+    Object.assign(o, {
+      delivery_window_start: newStart,
+      delivery_window_end:   newEnd,
+      delivery_run_id:       null,
+      updated_at:            new Date().toISOString(),
+    });
     opRefreshScheduleUI(o);
   }
 
@@ -8686,24 +8701,28 @@
       const confirmMsg = `Reopen this ${_OP_STATUS_LABELS[o.status]} order?\n\nIt will be removed from its current route(s) and placed On Hold in the Issues queue so your team can reschedule it.\n\nThe order's billing status (paid / failed) will not change — handle refunds separately if needed.\n\nContinue?`;
       if (!confirm(confirmMsg)) return;
 
-      // Detach: delete route_stops for this order and clear route references
-      const { error: delErr } = await db.from('route_stops').delete().eq('order_id', opCurrentOrderId);
-      if (delErr) console.warn('Could not detach route stops:', delErr.message);
-
-      const reopenNote = `Reopened from ${_OP_STATUS_LABELS[o.status] || o.status} → needs reassignment`;
-      const payload = {
-        status: 'on_hold',
-        pickup_run_id: null,
-        delivery_run_id: null,
-        actual_pickup_at: null,
-        actual_delivery_at: null,
-        routing_error: reopenNote,
-      };
-
-      await logOrderEvent(opCurrentOrderId, 'status_change', `Rolled back from ${_OP_STATUS_LABELS[o.status]} → On Hold`, o.status, 'on_hold');
-      const { error } = await db.from('orders').update(payload).eq('id', opCurrentOrderId);
+      // Session 136 tech debt #2: rollback_order_to_on_hold RPC. Atomically
+      // DELETEs route_stops + UPDATEs orders (status, run_ids, timestamps,
+      // routing_error) + logs the attributed status_change event. Replaces
+      // the prior non-atomic DELETE + UPDATE + logOrderEvent sequence which
+      // could leave the order with no stops if the orders UPDATE failed.
+      // billing_status preserved per design.
+      const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+      const { data: rpcRes, error } = await db.rpc('rollback_order_to_on_hold', {
+        p_order_id:   opCurrentOrderId,
+        p_actor_name: actorName,
+      });
       if (error) { showToast('Failed to update status: ' + error.message, 'error'); return; }
-      Object.assign(o, payload);
+
+      // Mirror server state into local cache.
+      Object.assign(o, {
+        status:             'on_hold',
+        pickup_run_id:      null,
+        delivery_run_id:    null,
+        actual_pickup_at:   null,
+        actual_delivery_at: null,
+        routing_error:      rpcRes?.routing_error || `Reopened from ${_OP_STATUS_LABELS[o.status] || o.status} → needs reassignment`,
+      });
       document.getElementById('op-status-dropdown').style.display = 'none';
       document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(o.status);
       opRefreshAdvanceBtn(o);

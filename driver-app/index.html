@@ -2943,35 +2943,38 @@ function clearUndo() {
 async function triggerUndo() {
   if (!pendingUndo) return;
   clearUndo();
-  const { type, stopId, prevStopStatus, prevOrderStatus, prevDriverNotes } = pendingUndo;
+  const { stopId, prevStopStatus, prevOrderStatus, prevDriverNotes } = pendingUndo;
   pendingUndo = null;
 
   showLoading(true);
   try {
-    // Reverse the stop status (and restore driver_notes if we appended a reason)
-    await db.from('route_stops').update({
-      status: prevStopStatus,
-      completed_at: null,
-      actual_arrival: null,
-      on_my_way_sent_at: null,
-      ...(prevDriverNotes !== undefined ? { driver_notes: prevDriverNotes } : {}),
-    }).eq('id', stopId);
-
-    // Reverse the order status
-    const stop = allStops.find(s => s.id === stopId);
-    if (stop?.orders?.id && prevOrderStatus) {
-      const clearField = type === 'complete'
-        ? (stop.stop_type === 'pickup' ? { actual_pickup_at: null } : { actual_delivery_at: null })
-        : {};
-      await db.from('orders').update({ status: prevOrderStatus, cancelled_by: null, driver_skip_reason: null, ...clearField }).eq('id', stop.orders.id);
-      stop.orders.status = prevOrderStatus;
+    // Session 136 tech debt #3: undo_stop_completion RPC. Atomically reverts
+    // route_stops + orders + routes counter in one transaction. Replaces the
+    // prior 3 sequential UPDATEs which could leave the system inconsistent
+    // if any one failed (e.g. stop reverted to pending but order still in
+    // pickup_failed status).
+    const driverName = (currentProfile?.first_name || '') + (currentProfile?.last_name ? ' ' + currentProfile.last_name : '');
+    const { data: rpcRes, error } = await db.rpc('undo_stop_completion', {
+      p_stop_id:           stopId,
+      p_prev_stop_status:  prevStopStatus,
+      p_prev_order_status: prevOrderStatus || null,
+      p_prev_driver_notes: prevDriverNotes !== undefined ? prevDriverNotes : null,
+      p_actor_name:        driverName.trim() || 'Driver',
+    });
+    if (error) {
+      console.error('Undo error:', error);
+      toast('Could not undo — refresh and try again');
+      return;
     }
 
-    // Update route progress
+    // Sync local cache from the RPC result.
+    const stop = allStops.find(s => s.id === stopId);
+    if (stop?.orders && prevOrderStatus) {
+      stop.orders.status = prevOrderStatus;
+    }
     const idx = allStops.findIndex(s => s.id === stopId);
     if (idx >= 0) {
       allStops[idx] = { ...allStops[idx], status: prevStopStatus, completed_at: null, on_my_way_sent_at: null };
-      // Reset phase so stop detail re-renders from Phase 1
       if (stopId === currentStopId) {
         currentStopPhase = 1;
         currentStopSubPhase = 1;
@@ -2979,18 +2982,11 @@ async function triggerUndo() {
         draftNotes = null;
       }
     }
-
     const routeId = stop?.route_id;
     const route   = todayRoutes.find(r => r.id === routeId);
-    if (route) {
-      const newDone = allStops.filter(s => s.route_id === routeId && s.status === 'complete').length;
-      await db.from('routes').update({
-        completed_stops: newDone,
-        status: 'in_progress',
-        completed_at: null,
-      }).eq('id', routeId);
-      route.completed_stops = newDone;
-      route.status = 'in_progress';
+    if (route && rpcRes) {
+      route.completed_stops = rpcRes.route_completed;
+      route.status          = rpcRes.route_status || 'in_progress';
     }
 
     toast('Action undone');
