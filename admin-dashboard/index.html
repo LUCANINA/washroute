@@ -9107,6 +9107,27 @@
     ).join('');
   }
 
+  // Helper: fire the customer-facing reschedule SMS for one leg, but only if the
+  // window actually moved. Used by every admin path that calls reschedule_order_leg
+  // (opSaveRouteAndSlot, selectSpSlot, confirmReassignRun, rccDrop, confirmMoveStop).
+  // Session 136 audit found 4 of 5 paths sent no SMS at all — admin reshuffles
+  // could silently move a customer's window with no notification. The "compare
+  // old vs new" gate avoids spam when the auto-snap landed on the same slot.
+  async function _maybeNotifyReschedule(orderId, leg, oldStartIso, newStartIso) {
+    if (!orderId || !leg || !newStartIso) return;
+    const oldMs = oldStartIso ? new Date(oldStartIso).getTime() : null;
+    const newMs = new Date(newStartIso).getTime();
+    if (oldMs === newMs) return; // window unchanged — no SMS
+    const event = leg === 'delivery' ? 'delivery_rescheduled' : 'schedule_changed';
+    try {
+      await fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+        body: JSON.stringify({ orderId, event })
+      });
+    } catch (_) { /* best-effort */ }
+  }
+
   async function opSaveRouteAndSlot(leg, routeId, startIso, endIso, btn) {
     if (btn) {
       document.querySelectorAll(`#op-${leg}-slots .sp-slot-btn`).forEach(b => b.classList.add('saving'));
@@ -9114,6 +9135,8 @@
     }
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
+    // Capture old window BEFORE the RPC so the SMS gate can compare.
+    const _oldWindowStart = leg === 'pickup' ? o.pickup_window_start : o.delivery_window_start;
 
     // Client-side UX validation: delivery must be after pickup
     if (leg === 'delivery' && startIso && o.pickup_window_end && new Date(startIso) <= new Date(o.pickup_window_end)) {
@@ -9170,15 +9193,11 @@
       showToast(`Window auto-snapped to ${rpcRes.route_name} default — adjust if needed`, '');
     }
 
-    // Notify customer of schedule change if the time window was updated (best-effort)
-    if (startIso) {
-      const rescheduleEvent = leg === 'delivery' ? 'delivery_rescheduled' : 'schedule_changed';
-      fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
-        body: JSON.stringify({ orderId: opCurrentOrderId, event: rescheduleEvent })
-      }).catch(() => {});
-    }
+    // Notify customer of schedule change if the time window actually moved.
+    // This now also catches the auto-snap case (admin reassigned route only,
+    // RPC snapped window to new template's first sub-window) where the customer
+    // sees a different time even though admin didn't pick a slot explicitly.
+    _maybeNotifyReschedule(opCurrentOrderId, leg, _oldWindowStart, rpcRes?.window_start);
 
     // Silently re-optimize the route in the background now that a new stop was added
     autoOptimizeRoute(routeId);
@@ -10654,6 +10673,12 @@ ${oneCopy}
     // Previously this function just slammed the run_id and left the route_stops row
     // pointing at the old route + window potentially mismatched with the new template.
     const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+    // Capture old window before RPC so we can fire SMS only if the customer-visible
+    // time actually changed (session 136 audit fix).
+    const _rrOrder = (typeof allOrders !== 'undefined') ? allOrders.find(x => x.id === _rescheduleOrderId) : null;
+    const _oldStart = _rrOrder
+      ? (_rescheduleLeg === 'pickup' ? _rrOrder.pickup_window_start : _rrOrder.delivery_window_start)
+      : null;
     const { data: rpcRes, error } = await db.rpc('reschedule_order_leg', {
       p_order_id:     _rescheduleOrderId,
       p_leg:          _rescheduleLeg,
@@ -10661,6 +10686,7 @@ ${oneCopy}
       p_actor_name:   actorName,
     });
     if (error) { errEl.textContent = error.message; errEl.style.display=''; return; }
+    _maybeNotifyReschedule(_rescheduleOrderId, _rescheduleLeg, _oldStart, rpcRes?.window_start);
     closeReassignModal();
     const snapNote = rpcRes?.auto_snapped ? ' (window auto-adjusted to new template)' : '';
     showToast(`✓ Order #${_rescheduleOrderNum} rescheduled${snapNote}`);
@@ -17125,7 +17151,10 @@ ${oneCopy}
     }
 
     const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
-    const { error } = await db.rpc('reschedule_order_leg', {
+    // Capture old window before the RPC for the SMS gate (session 136 audit fix).
+    const _spOrderRef = (typeof allOrders !== 'undefined') ? allOrders.find(x => x.id === _spOrderId) : null;
+    const _oldStart = _spOrderRef?.pickup_window_start || null;
+    const { data: rpcRes, error } = await db.rpc('reschedule_order_leg', {
       p_order_id:         _spOrderId,
       p_leg:              'pickup',
       p_new_route_id:     pickupRunId,
@@ -17138,6 +17167,7 @@ ${oneCopy}
       showToast('Failed to save: ' + error.message, 'error');
       return;
     }
+    _maybeNotifyReschedule(_spOrderId, 'pickup', _oldStart, rpcRes?.window_start || startIso);
     showToast(`✓ Order #${_spOrderNum} → ${fmtDate(startIso)} · ${fmtSlot(startIso, endIso)}`, 'success');
     closeSlotPicker();
     // Refresh open views
@@ -19107,13 +19137,18 @@ ${oneCopy}
       const orderId = stop.orders?.id || stopObj?.orders?.id;
       if (orderId) {
         const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
-        const { error: rpcErr } = await db.rpc('reschedule_order_leg', {
+        // Capture old window before the RPC for the SMS gate (session 136 audit fix).
+        const _oldStart = stop.stop_type === 'pickup'
+          ? (stop.orders?.pickup_window_start || stopObj?.orders?.pickup_window_start)
+          : (stop.orders?.delivery_window_start || stopObj?.orders?.delivery_window_start);
+        const { data: rpcRes, error: rpcErr } = await db.rpc('reschedule_order_leg', {
           p_order_id:     orderId,
           p_leg:          stop.stop_type,
           p_new_route_id: toRouteId,
           p_actor_name:   actorName,
         });
         if (rpcErr) throw rpcErr;
+        _maybeNotifyReschedule(orderId, stop.stop_type, _oldStart, rpcRes?.window_start);
 
         // Local cache sync — RPC updated orders.run_id atomically
         const runField = stop.stop_type === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
@@ -19508,9 +19543,11 @@ ${oneCopy}
     const targetRouteId = document.getElementById('move-stop-target-route').value;
     document.getElementById('move-stop-modal').style.display = 'none';
     try {
-      // Fetch stop details so we can identify the order + leg
+      // Fetch stop details so we can identify the order + leg, plus the order's
+      // current window so the SMS gate (session 136) can compare old vs new.
       const { data: stopData } = await db.from('route_stops')
-        .select('order_id, stop_type').eq('id', routeStopMoving.stopId).single();
+        .select('order_id, stop_type, orders(pickup_window_start, delivery_window_start)')
+        .eq('id', routeStopMoving.stopId).single();
       const sourceRouteId = routeLiveRouteId; // capture before any state change
 
       // Session 135: route-only move via reschedule_order_leg RPC. Atomically
@@ -19520,13 +19557,17 @@ ${oneCopy}
       // (route_stops update → orders update → events).
       if (stopData) {
         const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
-        const { error: rpcErr } = await db.rpc('reschedule_order_leg', {
+        const _oldStart = stopData.stop_type === 'pickup'
+          ? stopData.orders?.pickup_window_start
+          : stopData.orders?.delivery_window_start;
+        const { data: rpcRes, error: rpcErr } = await db.rpc('reschedule_order_leg', {
           p_order_id:     stopData.order_id,
           p_leg:          stopData.stop_type,
           p_new_route_id: targetRouteId,
           p_actor_name:   actorName,
         });
         if (rpcErr) throw rpcErr;
+        _maybeNotifyReschedule(stopData.order_id, stopData.stop_type, _oldStart, rpcRes?.window_start);
       }
 
       // Layered: stop_number for ordering on the destination route (RPC doesn't manage)

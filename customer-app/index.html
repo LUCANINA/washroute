@@ -6120,6 +6120,15 @@ async function saveEditOrder() {
   // 2) Then route the schedule changes through reschedule_order_leg, one call per
   //    leg that actually changed. The RPC atomically updates orders.run_id +
   //    window + repoints route_stops + logs attributed events.
+  // Track which legs were actually rescheduled so we fire the matching SMS for
+  // each — session 136 found Ja'Naie #3117 had her same-day delivery silently
+  // pushed to next-day after a bag-count edit, and the SMS only mentioned the
+  // unchanged pickup. The flag below replaces the old "delivery_rescheduled
+  // ONLY if pickup didn't change" branch which suppressed the delivery message
+  // whenever both legs moved.
+  let _pickupRescheduled   = false;
+  let _deliveryRescheduled = false;
+
   if (_pickupRpcNeeded) {
     const { error: pErr } = await db.rpc('reschedule_order_leg', {
       p_order_id:         orderId,
@@ -6134,6 +6143,7 @@ async function saveEditOrder() {
       toast('Pickup time could not be saved: ' + pErr.message);
       return;
     }
+    _pickupRescheduled = true;
   }
   if (es?.deliveryDate && dw?.routeId && deliveryRunId) {
     const dStart = dw.startMins !== undefined
@@ -6153,6 +6163,7 @@ async function saveEditOrder() {
       toast('Delivery time could not be saved: ' + dErr.message);
       return;
     }
+    _deliveryRescheduled = true;
   }
 
   document.getElementById('edit-order-modal')?.remove();
@@ -6161,19 +6172,22 @@ async function saveEditOrder() {
     ord.id === orderId ? { ...ord, total_bags: bags, special_instructions: instructions, total_amount: total } : ord
   );
 
-  // Notify customer if the schedule window changed (best-effort)
-  // delivery_rescheduled if only delivery changed; schedule_changed for pickup or both
-  if (es) {
-    const pickupChanged  = !!(pw?.slotStart);
-    const deliveryChanged = !!(es.deliveryDate) && !pickupChanged;
-    const rescheduleEvent = deliveryChanged ? 'delivery_rescheduled' : 'schedule_changed';
-    if (pickupChanged || deliveryChanged) {
-      fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
-        body: JSON.stringify({ orderId, event: rescheduleEvent })
-      }).catch(() => {});
-    }
+  // Notify customer per leg that actually moved. When BOTH change in one edit
+  // the customer gets BOTH messages so they see what's happening on each side.
+  // Each fire is best-effort; SMS errors don't block the UI.
+  if (_pickupRescheduled) {
+    fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
+      body: JSON.stringify({ orderId, event: 'schedule_changed' })
+    }).catch(() => {});
+  }
+  if (_deliveryRescheduled) {
+    fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
+      body: JSON.stringify({ orderId, event: 'delivery_rescheduled' })
+    }).catch(() => {});
   }
 
   openDetail(orderId);
