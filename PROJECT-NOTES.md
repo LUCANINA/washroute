@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 25, 2026 — Session 136 pt 10 (post-audit tech debt — **all RPC work closed**): Three tech-debt items from the audit doc shipped. (1) `p_clear_route` flag added to `reschedule_order_leg` so admin `_opShiftDeliveryWindow` can null out `delivery_run_id` via the RPC instead of a raw UPDATE — last bare orders-window write path closed. (2) `rollback_order_to_on_hold` RPC consolidates admin's status-dropdown rollback (`opSetOrderStatus` rollback branch) — DELETE route_stops + UPDATE orders + event log atomic, billing_status preserved by design. (3) `undo_stop_completion` RPC consolidates driver `triggerUndo` (still alive for the cantCompleteStop undo bar) — reverse of RPC #3, atomically reverts stop+order+route counter; 4-test verification suite passes. **Architectural state: every order/stop/route/credit mutation in the system now goes through a transactional RPC. Customer-app, admin-app, driver-app all RPC-only for mutation paths.** Commit `0c467d3`. Three migrations applied. The RPC refactor + post-audit cleanup is fully closed.*
+*Last updated: Apr 25, 2026 — Session 136 pt 11 (full audit pass — security gap closed + 3 findings flagged): David asked for a full audit. **🔴 Security gap caught and fixed:** every architectural mutation RPC had `anon=X` EXECUTE in `pg_proc.proacl`. Supabase grants anon EXECUTE on every public function by default, and `REVOKE FROM PUBLIC` does NOT undo that direct grant. Migration `session_136_revoke_anon_from_mutation_rpcs` explicit-revokes anon on all 13 mutation RPCs. Same migration also dropped the old 6-arg `reschedule_order_leg` (PostgreSQL kept it as an overload instead of replacing when pt 10 added `p_clear_route`). **3 pending findings flagged but not fixed today:** (1) 9 customers silently rescheduled by an Apr 15 mass UPDATE — David to decide per-customer outreach; (2) pre-existing credit ledger drift across 292 customers ($8.5K over + $0.4K under); (3) `cantCompleteStop` is the failure-path analog to RPC #3 — non-atomic route_stops + advance_order_status, worth closing for consistency. **Verifications passed:** Check 14 = 0, all 17 today's migrations applied, all 13 RPCs locked down, every remaining raw `db.from('orders').update(...)` matches the audit's "leave alone" list, git fully committed. The full session is in the entry below.*
+
+*Prior: Apr 25, 2026 — Session 136 pt 10 (post-audit tech debt — **all RPC work closed**): Three tech-debt items from the audit doc shipped. (1) `p_clear_route` flag added to `reschedule_order_leg` so admin `_opShiftDeliveryWindow` can null out `delivery_run_id` via the RPC instead of a raw UPDATE — last bare orders-window write path closed. (2) `rollback_order_to_on_hold` RPC consolidates admin's status-dropdown rollback (`opSetOrderStatus` rollback branch) — DELETE route_stops + UPDATE orders + event log atomic, billing_status preserved by design. (3) `undo_stop_completion` RPC consolidates driver `triggerUndo` (still alive for the cantCompleteStop undo bar) — reverse of RPC #3, atomically reverts stop+order+route counter; 4-test verification suite passes. **Architectural state: every order/stop/route/credit mutation in the system now goes through a transactional RPC. Customer-app, admin-app, driver-app all RPC-only for mutation paths.** Commit `0c467d3`. Three migrations applied. The RPC refactor + post-audit cleanup is fully closed.*
 
 *Prior: Apr 25, 2026 — Session 136 pt 9 (RPC #9 `save_order_address` shipped — **architectural refactor audit complete**): Final RPC. Replaces admin `opSaveAddress`'s non-atomic orders + route_stops writes with one transactional RPC. **Three bugs fixed simultaneously:** (1) atomic now, (2) `.maybeSingle()` amplification bug on duplicate stops eliminated by UPDATEing all non-terminal stops of the matching type, (3) prior code only updated the route_stop for the pickup branch — delivery address changes left the delivery stop's address_id stale, so the driver navigated to the old delivery address. Plus a defensive cross-customer address rejection. **6-test verification suite** covers all paths. Net: -8 lines. Commit `ee2a849`. **🎉 ALL 9 ARCHITECTURAL MUTATION RPCs FROM THE AUDIT ARE SHIPPED:** #1 reschedule_order_leg, #2 advance_order_status, #3 complete_route_stop, #4 record_order_intake, #5 rack_order, #6 mark_orders_paid, #7 recall_delivered_order, #8 adjust_customer_credits, #9 save_order_address. **Pending tech debt** (3 items, lower priority): `p_clear_route` extension on #1, `rollback_order_to_on_hold` for admin status-dropdown rollback, `undo_stop_completion` for driver triggerUndo.*
 
@@ -714,6 +716,45 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 25, 2026 (session 136, pt 11) — Full audit pass — **security gap closed + 3 findings flagged**
+
+David asked for a full audit on everything we did today. Findings:
+
+**Audit results across the 18 morning checks:** mostly clean. Notable counts:
+- ✅ Check 14 (window/sub-window alignment): 0 — the structural fix from pt 1 is holding
+- ✅ Check 4 (stop/order desync): 0
+- ✅ All P0 checks clean
+- 📋 Check 3 (12 unpaid delivered, all known batch-retry candidates with no card)
+- 📋 Check 8 (1 driverless route in next 7 days)
+- 📋 Check 10 (19 dup addresses, 275 orphan profiles — long-running housekeeping)
+- 📋 Check 16 (4 small zone overlaps, all sub-1 sq km)
+
+**🔴 Security finding — RPCs were callable by anon role.** Supabase grants EXECUTE on every public function to `anon` AND `authenticated` by default. My session-136 migrations did `REVOKE FROM PUBLIC + GRANT TO authenticated`, but `REVOKE FROM PUBLIC` does NOT remove a direct anon grant — only the privilege inherited via the PUBLIC pseudo-role. Verified: every architectural mutation RPC had `anon=X/postgres` in `pg_proc.proacl`. Anyone with the published anon key (which is in the customer/driver apps' source) could call mutation RPCs to modify orders/credits/route_stops without authentication. **Fixed with migration `session_136_revoke_anon_from_mutation_rpcs`** — explicit `REVOKE EXECUTE FROM anon` for all 13 mutation RPCs (the 9 audit RPCs + `refund_order_credits` + 3 tech-debt RPCs + `apply_customer_credit_to_order`). Also dropped the old 6-arg `reschedule_order_leg` signature that lingered after pt 10's migration added `p_clear_route` (PostgreSQL kept both as overloads instead of replacing). Verified post-fix: every RPC now has `auth=true, anon=false, public=false`. Same migration also closed PUBLIC EXECUTE on `advance_order_status` and `reschedule_order_leg` — both session-135 RPCs had `=X/postgres` because their original migrations skipped the REVOKE step.
+
+**📋 Pending finding — 9 customers silently rescheduled by an Apr 15 mass UPDATE.** Check 18 (silent reschedules) returned 10 hits. 9 of them trace back to a single transaction at `2026-04-15 21:43:58.195419+00` UTC (= Apr 15 14:43 PT) where 152 orders were rescheduled in one go by `actor_name='System'` — most likely the session 113 window-alignment fix migration. The 9 active orders shifted from 7 AM to 6/7 PM same-day delivery, no SMS sent. Affected customers (active orders only): Ronnie Reed #2072 (today 6 PM), Tiffany Lewis #2283 (today 6 PM), Lisa Cole #2457 (Apr 28), Lizzette Duke—Blake #2453 (Apr 29), Naiomi Chorneau #1623 (May 2), Margueritte Amable #1670 (May 5), Linda Salazar #1221 (May 1), jaime quijada #1466 (May 2), Andrea Diaz #2478 (May 14). Today's two (Ronnie + Tiffany) may have been waiting at 7 AM not realizing delivery is now 6 PM. **Not auto-firing catch-up SMS — David to decide per-customer (lesson from this morning's false-positive batch).** 10th hit was Ja'Naie Sinclair #3117, already in dialogue.
+
+**📋 Pending finding — credit ledger drift.** 292 customers have drift between `customers.credits` and the ledger sum: 276 over-credited by $8,542 total (likely sign-up bonuses written directly to the column without a `credit_add` transaction row), 16 under-credited by $443.90 (real "we owe you" cases). Pre-existing data drift, not introduced today. Worth a future session to backfill missing ledger rows + verify the 16 undercredit cases.
+
+**📋 Pending finding — `cantCompleteStop` is the failure-path analog to RPC #3.** Driver-app's `cantCompleteStop` (line 3143) does a raw `route_stops` UPDATE for `status='skipped'` then calls `advance_order_status` RPC for the order side — not atomic. If the route_stops UPDATE succeeds but the RPC fails, stop is skipped while order stays in flight. Same architectural pattern that RPC #3 (`complete_route_stop`) fixed for the success path. Wasn't explicitly in the audit doc — surfaced during today's full review. Could be a `skip_route_stop` RPC (or fold into `complete_route_stop` with a skip mode). Low frequency, but worth closing for consistency in a future session.
+
+**Verifications passed:**
+- ✅ All 17 session-136 migrations applied
+- ✅ 13 RPCs exist with correct grants (after the REVOKE migration)
+- ✅ Code review of all 3 apps — every remaining raw `db.from('orders').update(...)` and friends matches the audit doc's intentional "leave alone" list (single isolated fields, no order-correlated invariants)
+- ✅ Git: every code change committed; no untracked work files
+- ✅ Sub-window alignment audit (Check 14): 0 misalignments active
+
+**Migration applied this part:** `session_136_revoke_anon_from_mutation_rpcs`.
+
+**Outstanding items for next session** (not blocking today):
+1. Reach out to the 9 silently-shifted customers (or proactively SMS just the today-delivery pair Ronnie + Tiffany).
+2. Backfill credit ledger drift (8.5K over, 0.4K under — investigate the 16 undercredit customers first).
+3. Build `skip_route_stop` RPC for `cantCompleteStop`'s failure path.
+4. Investigate the 4 small zone polygon overlaps (Hayward/Concord 0.87 sq km is the largest).
+5. Long-running: 19 duplicate addresses + 275 orphan customer profiles (P3 housekeeping).
+
+---
 
 ### Apr 25, 2026 (session 136, pt 10) — Post-audit tech debt cleanup — **all RPC work closed**
 
