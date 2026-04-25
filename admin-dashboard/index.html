@@ -17300,19 +17300,23 @@ ${oneCopy}
 
   async function loadAllDriversCache() {
     const { data, error } = await db.from('drivers')
-      .select('id, profiles(first_name, last_name, role)')
+      .select('id, profiles(first_name, last_name, role, square_employee_name)')
       .eq('is_active', true);
     if (error) {
       console.warn('drivers table unavailable:', error.message);
       allDriversCache = [];
       return;
     }
-    // Include drivers, admins, and managers (managers can have "Also a driver" toggle)
+    // Include drivers, admins, and managers (managers can have "Also a driver" toggle).
+    // square_employee_name is an optional override used by the Drivers report when
+    // the Square Labor payroll name differs from the WashRoute display name
+    // (e.g. Eve Piñon → Evelia Piñon).
     allDriversCache = (data||[])
       .filter(d => !d.profiles?.role || ['driver','admin','manager'].includes(d.profiles.role))
       .map(d => ({
         id: d.id,
-        name: `${d.profiles?.first_name||''} ${d.profiles?.last_name||''}`.trim() || 'Driver'
+        name: `${d.profiles?.first_name||''} ${d.profiles?.last_name||''}`.trim() || 'Driver',
+        squareName: d.profiles?.square_employee_name || null,
       }));
   }
 
@@ -23163,6 +23167,12 @@ ${oneCopy}
 
   function renderDriverStats(routes, routeStops, orders, driverHours = {}) {
     const driverName = id => allDriversCache.find(d => d.id === id)?.name || 'Unknown';
+    // Square's payroll name override — falls back to display name if not set.
+    // Used to look up driverHours which is keyed by Square's team_member name.
+    const driverSquareKey = id => {
+      const d = allDriversCache.find(x => x.id === id);
+      return (d?.squareName) || (d?.name) || 'Unknown';
+    };
 
     // Build routeId → driverId lookup
     const routeDriver = {};
@@ -23185,7 +23195,7 @@ ${oneCopy}
     // Avg stops/hr: total stops ÷ total hours, only for drivers with hour data
     let trackedStops = 0, trackedHrs = 0;
     Object.entries(drvMap).forEach(([did, s]) => {
-      const hrs = driverHours[driverName(did)];
+      const hrs = driverHours[driverSquareKey(did)];
       if (hrs != null && s.stops > 0) { trackedStops += s.stops; trackedHrs += hrs; }
     });
     const sphEl = document.getElementById('rpt-drv-stops-per-hr');
@@ -23219,7 +23229,7 @@ ${oneCopy}
       to:   toVal,
       rows: rows.map(([did, s]) => {
         const name = driverName(did);
-        const hrs  = driverHours[name] ?? null;
+        const hrs  = driverHours[driverSquareKey(did)] ?? null;
         return { name, stops: s.stops, bags: s.bags, hrs };
       })
     };
@@ -23227,7 +23237,7 @@ ${oneCopy}
 
     tbody.innerHTML = rows.map(([did, s]) => {
       const name = driverName(did);
-      const hrs  = driverHours[name];
+      const hrs  = driverHours[driverSquareKey(did)];
       const hrsCell = hrs != null
         ? `<span style="font-weight:600">${hrs.toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> hrs</span>`
         : `<span style="color:var(--gray-300)">—</span>`;
