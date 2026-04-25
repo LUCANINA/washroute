@@ -3027,92 +3027,67 @@ async function completeStop(stopId, stopType) {
     if (btn) { btn.disabled = false; btn.textContent = stopType === 'pickup' ? 'Mark Picked Up' : 'Mark Delivered'; }
     return;
   }
-  const prevOrderStatus = stop?.orders?.status || null;
+  // Session 136: single trusted entry point — complete_route_stop RPC. Atomically
+  // updates route_stops + advances the order via advance_order_status + updates the
+  // route counter/status. Replaces the previous 3 non-atomic writes (route_stops
+  // raw UPDATE → advance_order_status RPC → routes raw UPDATE in Promise.all) which
+  // could leave the system in inconsistent state if any one call failed mid-flight.
+  // The RPC also fixes a latent bug where a route never reached status='complete'
+  // if any of its stops were skipped — the new "no pending or en_route remain"
+  // check correctly handles mixed terminal states.
+  const driverName = (currentProfile?.first_name || '') + (currentProfile?.last_name ? ' ' + currentProfile.last_name : '');
+  const newStatus = stopType === 'pickup' ? 'picked_up' : 'delivered';
+  const actualBags = adjustedBagCount !== null ? adjustedBagCount : (stop?.orders?.total_bags || 1);
+  const bagsChanged = stop?.orders?.id && actualBags !== stop.orders.total_bags;
 
-  const updatePayload = {
-    status: 'complete', completed_at: now, actual_arrival: now, driver_notes: notes
-  };
-  // If driver explicitly chose to skip the photo, stamp it so admin can see (📷✗ badge on the stop card)
-  if (photoSkipped && !hasLocalOrRemotePhoto) {
-    updatePayload.photo_skipped_at = now;
-  }
-  const { error: stopErr } = await db.from('route_stops').update(updatePayload).eq('id', stopId);
+  const { data: rpcRes, error: rpcErr } = await db.rpc('complete_route_stop', {
+    p_stop_id:       stopId,
+    p_actor_name:    driverName.trim() || 'Driver',
+    p_notes:         notes,
+    p_photo_url:     null,                    // photo upload runs in IndexedDB queue; URL lands later
+    p_photo_skipped: photoSkipped && !hasLocalOrRemotePhoto,
+    p_adjusted_bags: bagsChanged ? actualBags : null,
+  });
 
-  if (stopErr) {
-    toast('Error: ' + stopErr.message);
+  if (rpcErr) {
+    toast('Error: ' + rpcErr.message);
     if (btn) { btn.disabled = false; btn.textContent = stopType === 'pickup' ? 'Mark Picked Up' : 'Mark Delivered'; }
     return;
   }
 
-  // Update local state first (needed to compute route progress accurately)
+  // Sync local cache from RPC result so UI reflects truth without a re-fetch.
   const idx = allStops.findIndex(s => s.id === stopId);
   if (idx >= 0) {
     allStops[idx] = {
       ...allStops[idx],
-      status: 'complete', completed_at: now, driver_notes: notes,
-      ...(updatePayload.photo_skipped_at ? { photo_skipped_at: updatePayload.photo_skipped_at } : {})
+      status:           'complete',
+      completed_at:     rpcRes?.completed_at || now,
+      driver_notes:     notes,
+      ...(photoSkipped && !hasLocalOrRemotePhoto ? { photo_skipped_at: rpcRes?.completed_at || now } : {})
     };
+    if (allStops[idx].orders) {
+      allStops[idx].orders.status = newStatus;
+      if (bagsChanged) allStops[idx].orders.total_bags = actualBags;
+    }
   }
-  // Clear the skip flag — stop is done, the in-memory flag is no longer needed
+  if (stop?.orders) stop.orders.status = newStatus;
   _photoSkippedStopIds.delete(stopId);
 
-  // Build parallel DB update promises
-  const updatePromises = [];
-
-  // Order status update (includes adjusted bag count if changed)
-  // Session 135: advance_order_status RPC atomically stamps actual_*_at, logs attributed
-  // status_change event, and updates total_bags if driver adjusted the count at pickup.
-  let newStatus = null;
-  if (stop?.orders?.id) {
-    newStatus = stopType === 'pickup' ? 'picked_up' : 'delivered';
-    const actualBags = adjustedBagCount !== null ? adjustedBagCount : (stop.orders.total_bags || 1);
-    if (actualBags !== stop.orders.total_bags) {
-      // Update local cache too
-      const si = allStops.findIndex(s => s.id === stopId);
-      if (si >= 0 && allStops[si].orders) allStops[si].orders.total_bags = actualBags;
-    }
-    const driverName = (currentProfile?.first_name || '') + (currentProfile?.last_name ? ' ' + currentProfile.last_name : '');
-    updatePromises.push(
-      db.rpc('advance_order_status', {
-        p_order_id:      stop.orders.id,
-        p_new_status:    newStatus,
-        p_actor_name:    driverName.trim() || 'Driver',
-        p_adjusted_bags: (actualBags !== stop.orders.total_bags) ? actualBags : null,
-      })
-    );
-    stop.orders.status = newStatus;
-  }
-
-  // Route progress update
   const routeId = stop?.route_id;
   const route   = todayRoutes.find(r => r.id === routeId);
-  if (route) {
-    const newDone    = allStops.filter(s => s.route_id === routeId && s.status === 'complete').length;
-    const routeTotal = allStops.filter(s => s.route_id === routeId).length;
-    const allDone    = newDone >= routeTotal;
-    updatePromises.push(
-      db.from('routes').update({
-        completed_stops: newDone,
-        status: allDone ? 'complete' : 'in_progress',
-        started_at:   route.started_at || now,
-        completed_at: allDone ? now : null,
-      }).eq('id', routeId)
-    );
-    route.completed_stops = newDone;
-    route.status = allDone ? 'complete' : 'in_progress';
-    if (!route.started_at) route.started_at = now;
-    // Stop GPS tracking when all routes for today are complete
-    if (allDone) {
+  if (route && rpcRes) {
+    route.completed_stops = rpcRes.route_completed_stops;
+    route.status          = rpcRes.route_status;
+    if (!route.started_at) route.started_at = rpcRes.completed_at || now;
+    // Stop GPS tracking when all of today's routes are done.
+    if (rpcRes.all_done) {
       const anyActive = todayRoutes.some(r => r.status !== 'complete');
       if (!anyActive) stopGpsTracking();
     }
   }
 
-  // Fire both DB writes in parallel
-  try { await Promise.all(updatePromises); } catch(e) { console.warn('Partial update error:', e); }
-
-  // Fire SMS notification (best-effort, non-blocking)
-  if (stop?.orders?.id && newStatus) {
+  // Fire SMS notification (best-effort, non-blocking).
+  if (stop?.orders?.id) {
     const smsEvent = stopType === 'pickup' ? 'picked_up' : 'delivered';
     fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
       method: 'POST',
