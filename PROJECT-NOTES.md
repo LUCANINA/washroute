@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 25, 2026 — Session 136 pt 13 (Daily Revenue report client timeout): David tried Apr 1-25 daily revenue, appeared to hang. Edge function logs showed `get-stripe-fees` legitimately took 54.8s — Stripe pagination over ~1300 BTs needs ~13 round-trips. Not hung, just slow. **Fix:** wrapped the fetch in an `AbortController` with a 12-second timeout; falls back to existing estimated-fees path (italic column + tooltip already communicate "estimated"). Report now renders within 15s for any range. Lesson logged: every external HTTP from a long client flow needs an explicit timeout. Commit `659afdc`.*
+*Last updated: Apr 25, 2026 — Session 136 pt 14 (Square name override for Eve Piñon): David noticed Eve's hours weren't pulling on the Drivers report. Square has her as `Evelia Piñon` (legal/payroll); WashRoute has her as `Eve Piñon` (nickname). String-match lookup failed. Fix: added nullable `profiles.square_employee_name` column, set Eve's value, updated `loadAllDriversCache` + `renderDriverStats` to use `squareName || name` for the Square lookup. Display name stays "Eve" everywhere in the UI. Eve is the only mismatch in the active driver pool — verified by dumping Square's actual `driver_hours` keys. Same pattern could be applied to the Launderer report if a similar mismatch surfaces. Commit `23ecce8`.*
+
+*Prior: Apr 25, 2026 — Session 136 pt 13 (Daily Revenue report client timeout): David tried Apr 1-25 daily revenue, appeared to hang. Edge function logs showed `get-stripe-fees` legitimately took 54.8s — Stripe pagination over ~1300 BTs needs ~13 round-trips. Not hung, just slow. **Fix:** wrapped the fetch in an `AbortController` with a 12-second timeout; falls back to existing estimated-fees path (italic column + tooltip already communicate "estimated"). Report now renders within 15s for any range. Lesson logged: every external HTTP from a long client flow needs an explicit timeout. Commit `659afdc`.*
 
 *Prior: Apr 25, 2026 — Session 136 pt 12 (`customers.total_orders` denormalized counter fix): David noticed Itay Levy + E. King didn't show the "Ordered" ✓ checkmark on the New Customers report despite having real orders. Root cause: `total_orders` was incremented ONLY by customer-app's confirmOrder; admin/Claude/DB-direct paths silently skipped it. Drift sweep: 654 customers — 567 over-counted (Starchup legacy, preserved) + 87 under-counted (real bug, backfilled). Three-part fix: (1) extended `update_customer_last_order_at` trigger to also bump `total_orders` so every INSERT path maintains the counter automatically, (2) backfilled 85 undercount customers, (3) removed the now-redundant client-side increment in customer-app/confirmOrder. **Architectural lesson:** denormalized counters maintained only client-side WILL drift the moment any non-client path writes to the source table; if the counter matters, it needs a DB trigger. Commit `0f406c4`.*
 
@@ -720,6 +722,26 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 25, 2026 (session 136, pt 14) — Square name override for nickname/payroll mismatches
+
+**Trigger event:** David noticed Eve Piñon's hours weren't pulling on the Drivers report. Root cause: Square stores her legal/payroll name (`Evelia Piñon`); WashRoute uses her nickname (`Eve Piñon`). The driverHours lookup is exact-string-match keyed by name — no match, no hours.
+
+**Audit:** dumped Square's `driver_hours` keys for the period and compared to WashRoute's active drivers. Eve is the only nickname/payroll mismatch among the 8 drivers Square returned. The other 3 unmatched WashRoute names (David, John Roi, Luis) just don't have Square shifts in the period.
+
+**Fix (commit `23ecce8`):**
+
+1. **Migration `session_136_profiles_square_employee_name`** — adds nullable `profiles.square_employee_name TEXT` column. Set Eve's to `'Evelia Piñon'`. Future mismatches can be set the same way (e.g. via the Edit Profile UI when admin notices new ones).
+
+2. **`loadAllDriversCache`** now pulls `square_employee_name` into the in-memory cache as `squareName`.
+
+3. **`renderDriverStats`** uses a new `driverSquareKey(did)` helper that returns `squareName || name`. Both the table render and the stops-per-hour calculation use the override. Display name stays `Eve Piñon` everywhere in the UI; only the Square lookup uses `Evelia Piñon`.
+
+**Same name-mismatch issue could affect the Launderer report** (same `square-labor` source, similar lookup pattern). Not patched in this part — flag for later if it surfaces. The pattern to apply if it does: same column, same `squareName || name` lookup in `loadLaundererReport`.
+
+**Lesson logged:** when matching across two systems by human name, exact-string-match is fragile. Nicknames, hyphenation, accents, and middle-name conventions all differ. Either store the foreign-system's name explicitly (this fix) or store the foreign-system's stable ID (more sustainable but bigger refactor).
+
+---
 
 ### Apr 25, 2026 (session 136, pt 13) — Daily Revenue report timeout on get-stripe-fees
 
