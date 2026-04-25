@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 25, 2026 — Session 136 pt 11 (full audit pass — security gap closed + 3 findings flagged): David asked for a full audit. **🔴 Security gap caught and fixed:** every architectural mutation RPC had `anon=X` EXECUTE in `pg_proc.proacl`. Supabase grants anon EXECUTE on every public function by default, and `REVOKE FROM PUBLIC` does NOT undo that direct grant. Migration `session_136_revoke_anon_from_mutation_rpcs` explicit-revokes anon on all 13 mutation RPCs. Same migration also dropped the old 6-arg `reschedule_order_leg` (PostgreSQL kept it as an overload instead of replacing when pt 10 added `p_clear_route`). **3 pending findings flagged but not fixed today:** (1) 9 customers silently rescheduled by an Apr 15 mass UPDATE — David to decide per-customer outreach; (2) pre-existing credit ledger drift across 292 customers ($8.5K over + $0.4K under); (3) `cantCompleteStop` is the failure-path analog to RPC #3 — non-atomic route_stops + advance_order_status, worth closing for consistency. **Verifications passed:** Check 14 = 0, all 17 today's migrations applied, all 13 RPCs locked down, every remaining raw `db.from('orders').update(...)` matches the audit's "leave alone" list, git fully committed. The full session is in the entry below.*
+*Last updated: Apr 25, 2026 — Session 136 pt 12 (`customers.total_orders` denormalized counter fix): David noticed Itay Levy + E. King didn't show the "Ordered" ✓ checkmark on the New Customers report despite having real orders. Root cause: `total_orders` was incremented ONLY by customer-app's confirmOrder; admin/Claude/DB-direct paths silently skipped it. Drift sweep: 654 customers — 567 over-counted (Starchup legacy, preserved) + 87 under-counted (real bug, backfilled). Three-part fix: (1) extended `update_customer_last_order_at` trigger to also bump `total_orders` so every INSERT path maintains the counter automatically, (2) backfilled 85 undercount customers, (3) removed the now-redundant client-side increment in customer-app/confirmOrder. **Architectural lesson:** denormalized counters maintained only client-side WILL drift the moment any non-client path writes to the source table; if the counter matters, it needs a DB trigger. Commit `0f406c4`.*
+
+*Prior: Apr 25, 2026 — Session 136 pt 11 (full audit pass — security gap closed + 3 findings flagged): David asked for a full audit. **🔴 Security gap caught and fixed:** every architectural mutation RPC had `anon=X` EXECUTE in `pg_proc.proacl`. Supabase grants anon EXECUTE on every public function by default, and `REVOKE FROM PUBLIC` does NOT undo that direct grant. Migration `session_136_revoke_anon_from_mutation_rpcs` explicit-revokes anon on all 13 mutation RPCs. Same migration also dropped the old 6-arg `reschedule_order_leg` (PostgreSQL kept it as an overload instead of replacing when pt 10 added `p_clear_route`). **3 pending findings flagged but not fixed today:** (1) 9 customers silently rescheduled by an Apr 15 mass UPDATE — David to decide per-customer outreach; (2) pre-existing credit ledger drift across 292 customers ($8.5K over + $0.4K under); (3) `cantCompleteStop` is the failure-path analog to RPC #3 — non-atomic route_stops + advance_order_status, worth closing for consistency. **Verifications passed:** Check 14 = 0, all 17 today's migrations applied, all 13 RPCs locked down, every remaining raw `db.from('orders').update(...)` matches the audit's "leave alone" list, git fully committed. The full session is in the entry below.*
 
 *Prior: Apr 25, 2026 — Session 136 pt 10 (post-audit tech debt — **all RPC work closed**): Three tech-debt items from the audit doc shipped. (1) `p_clear_route` flag added to `reschedule_order_leg` so admin `_opShiftDeliveryWindow` can null out `delivery_run_id` via the RPC instead of a raw UPDATE — last bare orders-window write path closed. (2) `rollback_order_to_on_hold` RPC consolidates admin's status-dropdown rollback (`opSetOrderStatus` rollback branch) — DELETE route_stops + UPDATE orders + event log atomic, billing_status preserved by design. (3) `undo_stop_completion` RPC consolidates driver `triggerUndo` (still alive for the cantCompleteStop undo bar) — reverse of RPC #3, atomically reverts stop+order+route counter; 4-test verification suite passes. **Architectural state: every order/stop/route/credit mutation in the system now goes through a transactional RPC. Customer-app, admin-app, driver-app all RPC-only for mutation paths.** Commit `0c467d3`. Three migrations applied. The RPC refactor + post-audit cleanup is fully closed.*
 
@@ -716,6 +718,32 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 25, 2026 (session 136, pt 12) — `customers.total_orders` denormalized counter fix
+
+**Trigger event:** David spotted that admin/Claude-created orders weren't getting the "Ordered" ✓ checkmark on the New Customers report (Itay Levy + E. King — both had real orders, both showed `—`).
+
+**Root cause:** `customers.total_orders` is a denormalized counter incremented ONLY by the customer-app's `confirmOrder` (line 5019). Admin path + DB-direct creation + Claude (overseas-guest booking) silently skipped it. The DB had a `update_customer_last_order_at` AFTER INSERT trigger that maintained `last_order_at` but not `total_orders`.
+
+**Sweep across all customers:** 654 with drift between `customers.total_orders` and actual non-cancelled order count.
+- **567 over-counted (~29K phantom orders)** — almost certainly Starchup migration legacy data (the customer's lifetime count from Starchup was stamped into `total_orders` directly, no corresponding rows exist in `orders`). Intentional historical preservation; left untouched.
+- **87 under-counted (~328 missing orders)** — the real bug. Customers whose orders went through admin or DB-direct paths.
+
+**Three-part fix:**
+
+1. **Migration `session_136_customer_stats_trigger_total_orders`** — extends the existing `update_customer_last_order_at` trigger function to also bump `total_orders` on every order INSERT. Now every path (customer-app, admin, RPC, DB-direct, future feature) maintains the counter automatically. Cancelled orders are still counted to match prior client-side semantics. Snapshot saved as `update_customer_last_order_at__pre_total_orders` in `_archive._backup_function_defs`.
+
+2. **Backfilled 85 undercount customers** via a single UPDATE — bumped `total_orders` to actual non-cancelled count. Did NOT touch the 567 overcount customers (Starchup legacy preserved). Verified `undercount_remaining = 0` post-backfill.
+
+3. **Removed the now-redundant customer-app increment** in `confirmOrder` (would double-count with the trigger). Removed `total_orders` and `last_order_at` from the client-side update; kept `total_bags`, `preferences`, `default_tip` since those aren't trigger-correlated. Local cache update preserved so the in-session UI still bumps the displayed count immediately.
+
+**Verification:** Itay Levy and E. King now show `total_orders=1`. They (and any future admin/Claude-created customers) will display the ✓ checkmark.
+
+Commit: `0f406c4`. Migration applied: `session_136_customer_stats_trigger_total_orders`.
+
+**Architectural lesson:** denormalized counters maintained client-side WILL drift the moment any non-client path writes to the source table. If the counter matters, it needs a DB trigger. We had `last_order_at` covered with a trigger; `total_orders` should have been on the same trigger from the start.
+
+---
 
 ### Apr 25, 2026 (session 136, pt 11) — Full audit pass — **security gap closed + 3 findings flagged**
 
