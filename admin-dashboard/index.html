@@ -22721,6 +22721,27 @@ ${oneCopy}
     await logOrderEvent(orderId, 'status_change', `Moved back to ${label}`, null, targetStatus);
     const { error } = await db.from('orders').update(patch).eq('id', orderId);
     if (error) { showToast(error.message, 'error'); reloadColumns('intake','cleaning','folding','rack'); return; }
+
+    // Session 136: when moving back to Intake, reverse any prior credit_use applied
+    // to this order. Otherwise the second saveIntake recomputes total_amount from
+    // line items with creditApplied=0 (customer's balance is already drained), and
+    // the customer ends up paying the full bill AND losing their credit. The RPC
+    // restores the credit balance and logs a credit_refund transaction so the
+    // ledger and customers.credits stay in sync. Idempotent: returns refunded=0
+    // if there's nothing to refund.
+    if (targetStatus === 'picked_up') {
+      const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+      const { data: refRes, error: refErr } = await db.rpc('refund_order_credits', {
+        p_order_id:   orderId,
+        p_actor_name: actorName,
+      });
+      if (refErr) {
+        console.error('refund_order_credits failed in moveOrderBack:', refErr);
+      } else if (refRes && parseFloat(refRes.refunded || 0) > 0) {
+        showToast(`↩ Restored ${fmtMoney(parseFloat(refRes.refunded))} of credit (was applied at first intake)`, '');
+      }
+    }
+
     showToast(`Order moved back to ${label}`, 'success');
     // Only reload the two columns involved in this back-move
     const colMap = { picked_up: ['cleaning','intake'], processing: ['folding','cleaning'], folding: ['rack','folding'] };
@@ -22762,26 +22783,34 @@ ${oneCopy}
     // Only needed for browser transport; CloudPRNT and PassPRNT don't use popups.
     const printWin = _resolveTransport() === 'browser' ? window.open('', '_blank', 'width=420,height=750') : null;
 
-    // IMPORTANT: orders.total_amount is the pre-tip subtotal. charge-order v33
-    // adds the tip on top at charge time using orders.tip_amount/tip_type. Storing
-    // bd.total (which includes tip) here would cause double-tipping.
+    // IMPORTANT: orders.total_amount is the pre-tip, post-credit subtotal.
+    // charge-order v33 adds the tip on top at charge time using
+    // orders.tip_amount/tip_type. Storing bd.total here would double-tip.
     const savedTotal = (bd.preTipTotal !== undefined) ? bd.preTipTotal : bd.total;
 
-    // Log intake events BEFORE the update
-    await logOrderEvent(procActiveOrder.id, 'weight_updated', `Weight recorded: ${weight} lbs`, null, String(weight));
-    if (bd.bags) await logOrderEvent(procActiveOrder.id, 'bags_updated', `Bags: ${bd.bags}`, null, String(bd.bags));
-    if (savedTotal > 0) await logOrderEvent(procActiveOrder.id, 'total_changed', `Total calculated: ${fmtMoney(savedTotal)}`, null, String(savedTotal));
-    await logOrderEvent(procActiveOrder.id, 'status_change', 'Processing', procActiveOrder.status, 'processing');
-
-    const { error } = await db.from('orders').update({
-      status: 'processing', weight_lbs: weight, total_bags: bd.bags,
-      total_amount: savedTotal, line_items: lineItems,
-      is_same_day: procIsSameDay,
-      service_id: procSvc?.id || null,
-      discount_id: procCustomerDiscount?.id || null,
-      special_instructions: procNotes || null,
-      updated_at: new Date().toISOString()
-    }).eq('id', procActiveOrder.id);
+    // Session 136: single transactional RPC — record_order_intake. Replaces 4
+    // separate writes (4× logOrderEvent + 1× orders update + 1× apply_customer_credit_to_order).
+    // The RPC does its own attributed event logging, refunds any prior credit_use
+    // on this order before applying the new credit (the re-intake bug class behind
+    // Adriana #2034 / Sameer #2988 — first intake burns the credit, second intake
+    // recomputes total_amount from scratch with creditApplied=0, customer pays
+    // full bill AND loses the credit), then applies the new credit if requested.
+    // All atomic.
+    const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+    const { data: rpcRes, error } = await db.rpc('record_order_intake', {
+      p_order_id:       procActiveOrder.id,
+      p_weight_lbs:     weight,
+      p_bags:           bd.bags,
+      p_total_amount:   savedTotal,
+      p_line_items:     lineItems,
+      p_service_id:     procSvc?.id || null,
+      p_discount_id:    procCustomerDiscount?.id || null,
+      p_is_same_day:    procIsSameDay,
+      p_notes:          procNotes || null,
+      p_credit_applied: bd.creditApplied || 0,
+      p_customer_id:    procCustomerId || null,
+      p_actor_name:     actorName,
+    });
 
     if (error) {
       if (printWin) printWin.close();
@@ -22790,21 +22819,10 @@ ${oneCopy}
       btn.disabled = false; btn.textContent = '⚖️ Save & Start Processing';
       return;
     }
-    // Atomic credit deduction + ledger insert via apply_customer_credit_to_order RPC.
-    // Replaces the previous sequential update + insert pattern that could drift if the
-    // ledger insert failed mid-pair (the silent-drift class that session 128 backfilled).
-    if (bd.creditApplied > 0 && procCustomerId) {
-      const { error: creditErr } = await db.rpc('apply_customer_credit_to_order', {
-        p_customer_id:    procCustomerId,
-        p_amount:         bd.creditApplied,
-        p_description:    `Applied to order #${procActiveOrder.order_number} at Intake`,
-        p_order_id:       procActiveOrder.id,
-        p_payment_method: 'credit',
-      });
-      if (creditErr) {
-        showToast('Order saved but credit deduction failed — please adjust credits manually', 'error');
-        console.error('apply_customer_credit_to_order failed at Intake:', creditErr);
-      }
+
+    // Surface info from the RPC if a prior intake's credit was reversed automatically.
+    if (rpcRes && parseFloat(rpcRes.credit_refunded_from_prior_intake || 0) > 0) {
+      console.info(`record_order_intake refunded ${fmtMoney(parseFloat(rpcRes.credit_refunded_from_prior_intake))} of prior credit_use before applying new credit`);
     }
     const movedId  = procActiveOrder.id;
     const movedNum = procActiveOrder.order_number;
@@ -22813,7 +22831,10 @@ ${oneCopy}
     closeIntakePanel();
     document.getElementById('proc-card-' + movedId)?.remove();
     allProcOrders = allProcOrders.filter(o => o.id !== movedId);
-    showToast(`Order #${movedNum} → Processing!${bd.creditApplied > 0 ? ` (${fmtMoney(bd.creditApplied)} credit applied)` : ''}`, 'success');
+    // Use RPC's actual deducted amount — may be less than requested if customer's
+    // balance was lower than expected (e.g. credit was already used elsewhere).
+    const actualCredit = rpcRes ? parseFloat(rpcRes.credit_applied || 0) : (bd.creditApplied || 0);
+    showToast(`Order #${movedNum} → Processing!${actualCredit > 0 ? ` (${fmtMoney(actualCredit)} credit applied)` : ''}`, 'success');
     reloadColumns('intake', 'cleaning');
   }
 
