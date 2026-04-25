@@ -3060,20 +3060,25 @@ async function completeStop(stopId, stopType) {
   const updatePromises = [];
 
   // Order status update (includes adjusted bag count if changed)
+  // Session 135: advance_order_status RPC atomically stamps actual_*_at, logs attributed
+  // status_change event, and updates total_bags if driver adjusted the count at pickup.
   let newStatus = null;
   if (stop?.orders?.id) {
     newStatus = stopType === 'pickup' ? 'picked_up' : 'delivered';
-    const timeField = stopType === 'pickup' ? 'actual_pickup_at' : 'actual_delivery_at';
-    const orderUpdate = { status: newStatus, [timeField]: now };
     const actualBags = adjustedBagCount !== null ? adjustedBagCount : (stop.orders.total_bags || 1);
     if (actualBags !== stop.orders.total_bags) {
-      orderUpdate.total_bags = actualBags;
       // Update local cache too
       const si = allStops.findIndex(s => s.id === stopId);
       if (si >= 0 && allStops[si].orders) allStops[si].orders.total_bags = actualBags;
     }
+    const driverName = (currentProfile?.first_name || '') + (currentProfile?.last_name ? ' ' + currentProfile.last_name : '');
     updatePromises.push(
-      db.from('orders').update(orderUpdate).eq('id', stop.orders.id)
+      db.rpc('advance_order_status', {
+        p_order_id:      stop.orders.id,
+        p_new_status:    newStatus,
+        p_actor_name:    driverName.trim() || 'Driver',
+        p_adjusted_bags: (actualBags !== stop.orders.total_bags) ? actualBags : null,
+      })
     );
     stop.orders.status = newStatus;
   }
@@ -3178,11 +3183,15 @@ async function cantCompleteStop(stopId) {
       const failedStatus = isPickup ? 'pickup_failed' : 'delivery_failed';
       const failedEvent  = isPickup ? 'pickup_failed' : 'delivery_failed';
 
-      await db.from('orders').update({
-        status: failedStatus,
-        cancelled_by: 'driver',
-        driver_skip_reason: reason,
-      }).eq('id', stop.orders.id);
+      // Session 135: advance_order_status RPC enforces cancelled_by + driver_skip_reason for fail paths
+      const driverName = (currentProfile?.first_name || '') + (currentProfile?.last_name ? ' ' + currentProfile.last_name : '');
+      await db.rpc('advance_order_status', {
+        p_order_id:           stop.orders.id,
+        p_new_status:         failedStatus,
+        p_actor_name:         driverName.trim() || 'Driver',
+        p_cancelled_by:       'driver',
+        p_driver_skip_reason: reason,
+      });
       allStops[idx].orders.status = failedStatus;
 
       // Notify customer via SMS (matching template)

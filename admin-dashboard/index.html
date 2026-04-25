@@ -8115,8 +8115,15 @@
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
     if (!confirm('Skip this order? The next recurring order will be auto-created.')) return;
-    await logOrderEvent(opCurrentOrderId, 'status_change', 'Skipped', o.status, 'skipped');
-    const { error } = await db.from('orders').update({ status: 'skipped', cancelled_by: 'admin' }).eq('id', opCurrentOrderId);
+
+    // Session 135: advance_order_status RPC enforces cancelled_by for skip + logs attributed event
+    const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+    const { error } = await db.rpc('advance_order_status', {
+      p_order_id:     opCurrentOrderId,
+      p_new_status:   'skipped',
+      p_actor_name:   actorName,
+      p_cancelled_by: 'admin',
+    });
     if (error) { showToast('Failed to skip: ' + error.message, 'error'); return; }
     o.status = 'skipped'; o.cancelled_by = 'admin';
     document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(o.status);
@@ -8773,21 +8780,23 @@
       }
     }
 
-    const payload = { status: newStatus };
-    if (newStatus === 'picked_up') payload.actual_pickup_at = new Date().toISOString();
-    if (newStatus === 'delivered') payload.actual_delivery_at = new Date().toISOString();
-    if (newStatus === 'skipped') payload.cancelled_by = 'admin'; // admin-initiated skip from dashboard
-    else if (['cancelled','pickup_failed','delivery_failed'].includes(newStatus)) payload.cancelled_by = 'admin';
-    // Clear routing_error if advancing forward (order was fixed)
-    if (newIdx > oldIdx && o.routing_error) payload.routing_error = null;
-
-    // Log event BEFORE update so trigger dedup sees it
+    // Session 135: advance_order_status RPC handles status + timestamps + cancelled_by + routing_error clear atomically
     const statusLabel = _OP_STATUS_LABELS[newStatus] || newStatus.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-    await logOrderEvent(opCurrentOrderId, 'status_change', statusLabel, o.status, newStatus);
-
-    const { error } = await db.from('orders').update(payload).eq('id', opCurrentOrderId);
+    const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+    const cancelStatuses = new Set(['skipped','cancelled','pickup_failed','delivery_failed']);
+    const { error } = await db.rpc('advance_order_status', {
+      p_order_id:     opCurrentOrderId,
+      p_new_status:   newStatus,
+      p_actor_name:   actorName,
+      p_cancelled_by: cancelStatuses.has(newStatus) ? 'admin' : null,
+    });
     if (error) { showToast('Failed to update status: ' + error.message, 'error'); return; }
-    Object.assign(o, payload);
+    // Mirror the RPC's effects into the local cache
+    o.status = newStatus;
+    if (newStatus === 'picked_up' && !o.actual_pickup_at)   o.actual_pickup_at   = new Date().toISOString();
+    if (newStatus === 'delivered' && !o.actual_delivery_at) o.actual_delivery_at = new Date().toISOString();
+    if (cancelStatuses.has(newStatus)) o.cancelled_by = 'admin';
+    if (newIdx > oldIdx) o.routing_error = null;
     document.getElementById('op-status-dropdown').style.display = 'none';
     document.getElementById('op-status-badge').innerHTML = opStatusBadgeWithChevron(o.status);
     opRefreshAdvanceBtn(o);
@@ -10354,11 +10363,15 @@ ${oneCopy}
           } catch(e) { console.warn('Charge failed for', s.num, e); }
         }
       }
-      const payload = { status: newStatus };
-      if (newStatus === 'picked_up')   payload.actual_pickup_at   = now;
-      if (newStatus === 'delivered')   payload.actual_delivery_at = now;
-      await logOrderEvent(s.id, 'status_change', label, s.status, newStatus);
-      const { error } = await db.from('orders').update(payload).eq('id', s.id);
+      // Session 135: advance_order_status RPC handles timestamps, cancelled_by (for skip/cancel/fail), and events atomically
+      const _actor = currentUserDisplayName || currentUserFirstName || 'Admin';
+      const _cancel = ['skipped','cancelled','pickup_failed','delivery_failed'].includes(newStatus) ? 'admin' : null;
+      const { error } = await db.rpc('advance_order_status', {
+        p_order_id:     s.id,
+        p_new_status:   newStatus,
+        p_actor_name:   _actor,
+        p_cancelled_by: _cancel,
+      });
       if (!error) succeeded++;
     }
     const extra = chargeCount > 0 ? ` · ${chargeCount} charged` : '';
@@ -10427,12 +10440,13 @@ ${oneCopy}
           }
         }
       }
-      const payload = { status: nextStatus };
-      if (nextStatus === 'picked_up') payload.actual_pickup_at = now;
-      if (nextStatus === 'delivered') payload.actual_delivery_at = now;
-      const advLabel = STATUS_NEXT_LABEL[nextStatus] || nextStatus;
-      await logOrderEvent(s.id, 'status_change', advLabel, s.status, nextStatus);
-      const { error } = await db.from('orders').update(payload).eq('id', s.id);
+      // Session 135: advance_order_status RPC handles timestamps + routing_error + events atomically
+      const _actor = currentUserDisplayName || currentUserFirstName || 'Admin';
+      const { error } = await db.rpc('advance_order_status', {
+        p_order_id:   s.id,
+        p_new_status: nextStatus,
+        p_actor_name: _actor,
+      });
       if (!error) succeeded++;
     }
     const failPart = chargeFailedCount > 0 ? ` · ⚠️ ${chargeFailedCount} payment failed (see Issues)` : '';
@@ -10592,14 +10606,15 @@ ${oneCopy}
       showToast(`✓ Order #${orderNum} deleted`);
     } else {
       const label = ALL_STATUSES.find(s => s.value === newStatus)?.label || newStatus;
-      const now = new Date().toISOString();
-      const payload = { status: newStatus };
-      if (newStatus === 'picked_up')  payload.actual_pickup_at   = now;
-      if (newStatus === 'delivered')  payload.actual_delivery_at = now;
-      if (newStatus === 'skipped') payload.cancelled_by = 'admin'; // admin-initiated skip from dashboard
-      else if (['cancelled','pickup_failed','delivery_failed'].includes(newStatus)) payload.cancelled_by = 'admin';
-      await logOrderEvent(orderId, 'status_change', label, _singleStatusCurrentStatus, newStatus);
-      const { error } = await db.from('orders').update(payload).eq('id', orderId);
+      // Session 135: advance_order_status RPC handles timestamps + cancelled_by + events atomically
+      const _actor = currentUserDisplayName || currentUserFirstName || 'Admin';
+      const _cancel = ['skipped','cancelled','pickup_failed','delivery_failed'].includes(newStatus) ? 'admin' : null;
+      const { error } = await db.rpc('advance_order_status', {
+        p_order_id:     orderId,
+        p_new_status:   newStatus,
+        p_actor_name:   _actor,
+        p_cancelled_by: _cancel,
+      });
       if (error) { showToast('Error: ' + error.message, 'error'); return; }
       showToast(`✓ Order #${orderNum} → ${label}`);
     }
@@ -11402,13 +11417,13 @@ ${oneCopy}
         if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
         showToast(`💳 Order #${orderNum} charged — ${result.card || ''}`);
       }
-      // Log status change BEFORE update so trigger dedup sees it
-      await logOrderEvent(orderId, 'status_change', label, null, newStatus);
-      // Update the status in Supabase (auto-stamp actual times)
-      const statusPayload = { status: newStatus };
-      if (newStatus === 'picked_up')   statusPayload.actual_pickup_at   = new Date().toISOString();
-      if (newStatus === 'delivered')   statusPayload.actual_delivery_at = new Date().toISOString();
-      const { error } = await db.from('orders').update(statusPayload).eq('id', orderId);
+      // Session 135: advance_order_status RPC handles timestamps + routing_error + events atomically
+      const _actor = currentUserDisplayName || currentUserFirstName || 'Admin';
+      const { error } = await db.rpc('advance_order_status', {
+        p_order_id:   orderId,
+        p_new_status: newStatus,
+        p_actor_name: _actor,
+      });
       if (error) throw new Error(error.message);
       showToast(`Order #${orderNum} → ${label}`);
       // Fire SMS for customer-facing status milestones (best-effort)
