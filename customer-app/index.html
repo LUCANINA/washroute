@@ -6072,68 +6072,87 @@ async function saveEditOrder() {
   // instead of 17:00 UTC). Same bug class as C-H2 we fixed in computeSubWindows.
   const pw = es?.pickupWindow;
   const dw = es?.deliveryWindow || es?._origDelivWindow || pw; // customer choice > original delivery win > pickup win
-  const schedFields = {};
-  if (es) {
-    if (pw?.slotStart) schedFields.pickup_window_start = pw.slotStart;
-    if (pw?.slotEnd)   schedFields.pickup_window_end   = pw.slotEnd;
-    if (es.deliveryDate && dw) {
-      schedFields.delivery_window_start = dw.startMins !== undefined
-        ? pacificIsoFromMins(es.deliveryDate, dw.startMins) : dw.slotStart;
-      schedFields.delivery_window_end   = dw.endMins !== undefined
-        ? pacificIsoFromMins(es.deliveryDate, dw.endMins)   : dw.slotEnd;
-    }
-  }
+  const _pickupRpcNeeded = !!(pw?.slotStart && pw?.routeId && es?.pickupDate);
 
-  // Session 135: when a window changes, also update the matching pickup_run_id /
-  // delivery_run_id so the order moves to the correct route. Previously we wrote
-  // the new window time but left run_id pointing at the old route — so a customer
-  // could change pickup from PM to AM and the order would silently stay on the PM
-  // route, leading to "no driver showed up" complaints (Jeanbaptiste #3128 04/24).
-  // The session 135 DB trigger enforce_window_in_route_template() also blocks this
-  // at the DB layer; this code path makes the right thing happen instead.
-  // window objects from computeSubWindows carry `routeId` = template id.
-  if (pw?.slotStart && pw?.routeId && es?.pickupDate) {
+  // Session 135: pre-resolve route runs so we can fail early with a clear message
+  // before any DB write happens. window objects from computeSubWindows carry
+  // `routeId` = template id; we look up the matching routes.id for the run date.
+  let pickupRunId = null;
+  let deliveryRunId = null;
+  if (_pickupRpcNeeded) {
     const { data: pickupRun } = await db.from('routes')
-      .select('id')
-      .eq('template_id', pw.routeId)
-      .eq('run_date', es.pickupDate)
-      .maybeSingle();
+      .select('id').eq('template_id', pw.routeId).eq('run_date', es.pickupDate).maybeSingle();
     if (!pickupRun?.id) {
       if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
       toast('Could not save: no route generated for that pickup date yet. Please pick another window.');
       return;
     }
-    schedFields.pickup_run_id = pickupRun.id;
+    pickupRunId = pickupRun.id;
   }
   if (es?.deliveryDate && dw?.routeId) {
     const { data: deliveryRun } = await db.from('routes')
-      .select('id')
-      .eq('template_id', dw.routeId)
-      .eq('run_date', es.deliveryDate)
-      .maybeSingle();
+      .select('id').eq('template_id', dw.routeId).eq('run_date', es.deliveryDate).maybeSingle();
     if (!deliveryRun?.id) {
       if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
       toast('Could not save: no route generated for that delivery date yet. Please pick another window.');
       return;
     }
-    schedFields.delivery_run_id = deliveryRun.id;
+    deliveryRunId = deliveryRun.id;
   }
 
-  const { error } = await db.from('orders').update({
+  // 1) First write the non-schedule fields (bags, total, line items, addresses).
+  //    This UPDATE doesn't change windows, so the session 135 trigger doesn't fire.
+  const { error: ordErr } = await db.from('orders').update({
     total_bags:           bags,
     special_instructions: instructions,
     total_amount:         total,
     line_items:           lineItems,
     pickup_address_id:    window._editPickupAddressId   || null,
     delivery_address_id:  window._editDeliveryAddressId || window._editPickupAddressId || null,
-    ...schedFields,
     updated_at:           new Date().toISOString()
   }).eq('id', orderId);
-
-  if (error) {
+  if (ordErr) {
     if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
-    toast('Could not save: ' + error.message);
+    toast('Could not save: ' + ordErr.message);
     return;
+  }
+
+  // 2) Then route the schedule changes through reschedule_order_leg, one call per
+  //    leg that actually changed. The RPC atomically updates orders.run_id +
+  //    window + repoints route_stops + logs attributed events.
+  if (_pickupRpcNeeded) {
+    const { error: pErr } = await db.rpc('reschedule_order_leg', {
+      p_order_id:         orderId,
+      p_leg:              'pickup',
+      p_new_route_id:     pickupRunId,
+      p_new_window_start: pw.slotStart,
+      p_new_window_end:   pw.slotEnd,
+      p_actor_name:       'Customer',
+    });
+    if (pErr) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+      toast('Pickup time could not be saved: ' + pErr.message);
+      return;
+    }
+  }
+  if (es?.deliveryDate && dw?.routeId && deliveryRunId) {
+    const dStart = dw.startMins !== undefined
+      ? pacificIsoFromMins(es.deliveryDate, dw.startMins) : dw.slotStart;
+    const dEnd = dw.endMins !== undefined
+      ? pacificIsoFromMins(es.deliveryDate, dw.endMins) : dw.slotEnd;
+    const { error: dErr } = await db.rpc('reschedule_order_leg', {
+      p_order_id:         orderId,
+      p_leg:              'delivery',
+      p_new_route_id:     deliveryRunId,
+      p_new_window_start: dStart,
+      p_new_window_end:   dEnd,
+      p_actor_name:       'Customer',
+    });
+    if (dErr) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+      toast('Delivery time could not be saved: ' + dErr.message);
+      return;
+    }
   }
 
   document.getElementById('edit-order-modal')?.remove();

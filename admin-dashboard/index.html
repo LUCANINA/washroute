@@ -9106,103 +9106,59 @@
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
 
-    const update = {};
-    if (leg === 'pickup') {
-      update.pickup_run_id = routeId;
-      if (startIso) { update.pickup_window_start = startIso; update.pickup_window_end = endIso; }
-    } else {
-      // Validate: delivery must be after pickup
-      if (startIso && o.pickup_window_end && new Date(startIso) <= new Date(o.pickup_window_end)) {
-        showToast('Delivery must be after the pickup window. Choose a later time slot or date.', 'error');
-        document.querySelectorAll(`#op-${leg}-slots .sp-slot-btn`).forEach(b => b.classList.remove('saving'));
-        if (btn?.classList) btn.textContent = btn.dataset.label || btn.textContent.replace('Saving…','');
-        return;
-      }
-      update.delivery_run_id = routeId;
-      if (startIso) { update.delivery_window_start = startIso; update.delivery_window_end = endIso; }
+    // Client-side UX validation: delivery must be after pickup
+    if (leg === 'delivery' && startIso && o.pickup_window_end && new Date(startIso) <= new Date(o.pickup_window_end)) {
+      showToast('Delivery must be after the pickup window. Choose a later time slot or date.', 'error');
+      document.querySelectorAll(`#op-${leg}-slots .sp-slot-btn`).forEach(b => b.classList.remove('saving'));
+      if (btn?.classList) btn.textContent = btn.dataset.label || btn.textContent.replace('Saving…','');
+      return;
     }
 
-    // Clear routing_error when reassigning (order has been handled)
-    if (o.routing_error) update.routing_error = null;
-
-    // Reset status when rescheduling a failed or on-hold order
-    // delivery_failed → ready_for_delivery (laundry is already at facility, just needs redelivery)
-    // pickup_failed / on_hold → scheduled (full restart)
-    if (o.status === 'delivery_failed') {
-      update.status = 'ready_for_delivery';
-      update.cancelled_by = null;
-    } else if (['pickup_failed','on_hold'].includes(o.status)) {
-      update.status = 'scheduled';
-      update.cancelled_by = null;
-    }
-
-    // Log reschedule event BEFORE the update so trigger dedup sees it
-    const legLabel = leg === 'pickup' ? 'Pickup' : 'Delivery';
-    const newDate = startIso ? new Date(startIso).toLocaleDateString('en-US',{timeZone:BIZ_TZ}) : '';
-    const newTime = startIso ? new Date(startIso).toLocaleTimeString('en-US',{timeZone:BIZ_TZ,hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase() : '';
-    const routeName = _opRoutes.find(x => x.id === routeId)?.name || '';
-    await logOrderEvent(opCurrentOrderId, 'rescheduled', `${legLabel} rescheduled to ${newDate} ${newTime}${routeName ? ' · ' + routeName : ''}`, null, startIso);
-    // Also log the 'routed' event with the real actor ONLY if the route actually changed,
-    // so the log_order_change trigger's 3-second dedup suppresses its "System" twin
-    // (trigger matches on event_type='routed' + new_value=route_id). Skip when only the
-    // time slot changed (same route) — trigger won't fire either.
-    const prevRunId = leg === 'pickup' ? o.pickup_run_id : o.delivery_run_id;
-    if (routeId && routeId !== prevRunId) {
-      await logOrderEvent(opCurrentOrderId, 'routed', `${legLabel} route: ${routeName || 'route changed'}`, null, routeId);
-    }
-    if (update.status) {
-      const statusLabel = _OP_STATUS_LABELS[update.status] || update.status;
-      await logOrderEvent(opCurrentOrderId, 'status_change', `Status reset to ${statusLabel}`, o.status, update.status);
-    }
-
-    const { error } = await db.from('orders').update(update).eq('id', opCurrentOrderId);
+    // Session 135: single trusted entry point for reschedules. The reschedule_order_leg RPC
+    // atomically updates orders.run_id + window + status + routing_error AND repoints
+    // route_stops AND inserts attributed order_events (rescheduled / routed / status_change).
+    // Replaces ~80 lines of correlated-field bookkeeping that had drifted across this and
+    // 4 other admin paths. The RPC enforces the window-in-route-template invariant and
+    // auto-snaps the window to the new template's first sub-window when the route changes
+    // without an explicit window passed in.
+    const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+    const { data: rpcRes, error } = await db.rpc('reschedule_order_leg', {
+      p_order_id:         opCurrentOrderId,
+      p_leg:              leg,
+      p_new_route_id:     routeId || null,
+      p_new_window_start: startIso || null,
+      p_new_window_end:   endIso || null,
+      p_actor_name:       actorName,
+    });
     if (error) {
       showToast('Failed to save: ' + error.message, 'error');
       document.querySelectorAll(`#op-${leg}-slots .sp-slot-btn`).forEach(b => b.classList.remove('saving'));
       return;
     }
-    Object.assign(o, update);
 
-    // Keep local run object in sync
-    if (update.pickup_run_id) {
-      const r = _opRoutes.find(x => x.id === routeId);
-      o.pickup_run = { id: routeId, name: r?.name || '' };
-    }
-    if (update.delivery_run_id) {
-      const r = _opRoutes.find(x => x.id === routeId);
-      o.delivery_run = { id: routeId, name: r?.name || '' };
-    }
-
-    // Upsert route_stop for pickup leg
-    // Uses .limit(1) instead of .maybeSingle() — maybeSingle errors when duplicates exist,
-    // causing the else branch to create yet another duplicate (amplification bug)
+    // Sync local cache from RPC result (which reflects auto-snapped window if it happened)
     if (leg === 'pickup') {
-      const cust   = allCustomers.find(c => c.id === opCurrentCustId);
-      const addrs  = Array.isArray(cust?.addresses) ? cust.addresses : [];
-      const addrId = o.pickup_address_id || o.delivery_address_id || addrs.find(a => a.is_default)?.id || addrs[0]?.id || null;
-      const { data: existStops } = await db.from('route_stops').select('id').eq('order_id', opCurrentOrderId).eq('stop_type','pickup').not('status','in','(skipped,failed)').order('created_at',{ascending:true}).limit(1);
-      const existStop = existStops?.[0];
-      if (existStop) {
-        await db.from('route_stops').update({ route_id: routeId, driver_id: null }).eq('id', existStop.id);
-      } else {
-        // stop_number assigned atomically by trg_assign_stop_number
-        await db.from('route_stops').insert({ route_id: routeId, order_id: opCurrentOrderId, stop_type:'pickup', address_id: addrId, status:'pending' });
-      }
+      o.pickup_run_id = rpcRes.route_id;
+      o.pickup_window_start = rpcRes.window_start;
+      o.pickup_window_end   = rpcRes.window_end;
+    } else {
+      o.delivery_run_id = rpcRes.route_id;
+      o.delivery_window_start = rpcRes.window_start;
+      o.delivery_window_end   = rpcRes.window_end;
+    }
+    if (rpcRes.status_reset) o.status = rpcRes.status_reset;
+    o.routing_error = null;
+
+    // Keep local run object in sync for UI label rendering
+    const r = _opRoutes.find(x => x.id === rpcRes.route_id);
+    if (leg === 'pickup') {
+      o.pickup_run = { id: rpcRes.route_id, name: r?.name || rpcRes.route_name || '' };
+    } else {
+      o.delivery_run = { id: rpcRes.route_id, name: r?.name || rpcRes.route_name || '' };
     }
 
-    // Upsert route_stop for delivery leg
-    if (leg === 'delivery') {
-      const cust   = allCustomers.find(c => c.id === opCurrentCustId);
-      const addrs  = Array.isArray(cust?.addresses) ? cust.addresses : [];
-      const addrId = o.delivery_address_id || o.pickup_address_id || addrs.find(a => a.is_default)?.id || addrs[0]?.id || null;
-      const { data: existStops } = await db.from('route_stops').select('id').eq('order_id', opCurrentOrderId).eq('stop_type','delivery').not('status','in','(skipped,failed)').order('created_at',{ascending:true}).limit(1);
-      const existStop = existStops?.[0];
-      if (existStop) {
-        await db.from('route_stops').update({ route_id: routeId, driver_id: null }).eq('id', existStop.id);
-      } else {
-        // stop_number assigned atomically by trg_assign_stop_number
-        await db.from('route_stops').insert({ route_id: routeId, order_id: opCurrentOrderId, stop_type:'delivery', address_id: addrId, status:'pending' });
-      }
+    if (rpcRes.auto_snapped) {
+      showToast(`Window auto-snapped to ${rpcRes.route_name} default — adjust if needed`, '');
     }
 
     // Notify customer of schedule change if the time window was updated (best-effort)
@@ -10676,18 +10632,23 @@ ${oneCopy}
     const runId = document.getElementById('reassign-run-select').value;
     const errEl = document.getElementById('reassign-error');
     if (!runId) { errEl.textContent = 'Please select a route.'; errEl.style.display=''; return; }
-    const col = _rescheduleLeg === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
-    const legLabel = _rescheduleLeg === 'pickup' ? 'Pickup' : 'Delivery';
-    const selOpt = document.getElementById('reassign-run-select').selectedOptions[0];
-    const routeLabel = selOpt ? selOpt.textContent.trim() : '';
-    await logOrderEvent(_rescheduleOrderId, 'rescheduled', `${legLabel} moved to route: ${routeLabel}`, null, runId);
-    // Also log 'routed' with actor so the log_order_change trigger's 3-sec dedup
-    // (event_type='routed' + new_value=route_id) suppresses its "System" twin.
-    await logOrderEvent(_rescheduleOrderId, 'routed', `${legLabel} route: ${routeLabel || 'route changed'}`, null, runId);
-    const { error } = await db.from('orders').update({ [col]: runId }).eq('id', _rescheduleOrderId);
+
+    // Session 135: route-only reassign via reschedule_order_leg RPC. No explicit window
+    // — the RPC auto-snaps to the new template's first sub-window if the existing window
+    // doesn't fit. Also atomically repoints route_stops + logs attributed events.
+    // Previously this function just slammed the run_id and left the route_stops row
+    // pointing at the old route + window potentially mismatched with the new template.
+    const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+    const { data: rpcRes, error } = await db.rpc('reschedule_order_leg', {
+      p_order_id:     _rescheduleOrderId,
+      p_leg:          _rescheduleLeg,
+      p_new_route_id: runId,
+      p_actor_name:   actorName,
+    });
     if (error) { errEl.textContent = error.message; errEl.style.display=''; return; }
     closeReassignModal();
-    showToast(`✓ Order #${_rescheduleOrderNum} rescheduled`);
+    const snapNote = rpcRes?.auto_snapped ? ' (window auto-adjusted to new template)' : '';
+    showToast(`✓ Order #${_rescheduleOrderNum} rescheduled${snapNote}`);
     setTimeout(() => loadOrders(currentOrderFilter), 400);
   }
 
@@ -17132,21 +17093,14 @@ ${oneCopy}
     document.querySelectorAll('.sp-slot-btn').forEach(b => b.classList.add('saving'));
     btn.textContent = 'Saving…';
 
-    // Session 135: look up the matching route run (template + date) so pickup_run_id
-    // moves alongside the window. Without this, picking a slot from a different
-    // template (e.g. Berkeley AM when the order was on Berkeley PM) would silently
-    // leave the order on the old route — driver wouldn't show up, customer would
-    // be told the new time. Same bug shape as customer-app saveEditOrder. The DB
-    // trigger enforce_window_in_route_template() also blocks this at the DB layer;
-    // this code path makes the right thing happen instead.
+    // Session 135: look up the matching route run (template + date), then call the
+    // reschedule_order_leg RPC. The RPC atomically updates orders.run_id + window +
+    // route_stops + events, and validates the window fits the chosen template.
     const newDateIso = new Date(startIso).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
     let pickupRunId = null;
     if (_spSelectedTmpl?.id) {
       const { data: pickupRun } = await db.from('routes')
-        .select('id')
-        .eq('template_id', _spSelectedTmpl.id)
-        .eq('run_date', newDateIso)
-        .maybeSingle();
+        .select('id').eq('template_id', _spSelectedTmpl.id).eq('run_date', newDateIso).maybeSingle();
       pickupRunId = pickupRun?.id || null;
     }
     if (!pickupRunId) {
@@ -17155,14 +17109,15 @@ ${oneCopy}
       return;
     }
 
-    const newDate = new Date(startIso).toLocaleDateString('en-US',{timeZone:BIZ_TZ});
-    const newTime = new Date(startIso).toLocaleTimeString('en-US',{timeZone:BIZ_TZ,hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase();
-    await logOrderEvent(_spOrderId, 'rescheduled', `Pickup rescheduled to ${newDate} ${newTime}`, null, startIso);
-    const { error } = await db.from('orders').update({
-      pickup_window_start: startIso,
-      pickup_window_end: endIso,
-      pickup_run_id: pickupRunId,
-    }).eq('id', _spOrderId);
+    const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+    const { error } = await db.rpc('reschedule_order_leg', {
+      p_order_id:         _spOrderId,
+      p_leg:              'pickup',
+      p_new_route_id:     pickupRunId,
+      p_new_window_start: startIso,
+      p_new_window_end:   endIso,
+      p_actor_name:       actorName,
+    });
     if (error) {
       document.querySelectorAll('.sp-slot-btn').forEach(b => { b.classList.remove('saving'); });
       showToast('Failed to save: ' + error.message, 'error');
@@ -19130,32 +19085,37 @@ ${oneCopy}
 
     // Persist to Supabase
     try {
+      // Session 135: use reschedule_order_leg RPC for the route move. The RPC atomically
+      // updates orders.{pickup|delivery}_run_id, repoints the stop's route_id, clears
+      // driver_id (so destination route's default driver is inherited), logs an attributed
+      // 'routed' event, and auto-snaps the window if it doesn't fit the new template.
+      const orderId = stop.orders?.id || stopObj?.orders?.id;
+      if (orderId) {
+        const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+        const { error: rpcErr } = await db.rpc('reschedule_order_leg', {
+          p_order_id:     orderId,
+          p_leg:          stop.stop_type,
+          p_new_route_id: toRouteId,
+          p_actor_name:   actorName,
+        });
+        if (rpcErr) throw rpcErr;
+
+        // Local cache sync — RPC updated orders.run_id atomically
+        const runField = stop.stop_type === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
+        const localOrder = typeof allOrders !== 'undefined' && allOrders?.find(o => o.id === orderId);
+        if (localOrder) localOrder[runField] = toRouteId;
+      }
+
+      // Layered RCC-specific updates the RPC doesn't know about:
+      //   stop_number → max+1 in the destination route
+      //   moved_from_route_id → for the "moved from" badge, NULL if landing back on origin
       const { data: tgt } = await db.from('route_stops')
         .select('stop_number').eq('route_id', toRouteId).order('stop_number', {ascending:false}).limit(1);
       const nextNum = (tgt?.[0]?.stop_number || 0) + 1;
       await db.from('route_stops')
-        .update({ route_id: toRouteId, stop_number: nextNum, moved_from_route_id: newMovedFrom, driver_id: null })
+        .update({ stop_number: nextNum, moved_from_route_id: newMovedFrom })
         .eq('id', stopId);
-      // driver_id reset to NULL so the stop inherits the destination route's default driver.
-      // If a specific driver override is needed, use the Reassign Driver button after moving.
 
-      // Keep order's pickup_run_id / delivery_run_id in sync with the route_stop move.
-      // Without this, views that derive route names from the order (driver app, order panel)
-      // show stale route names after RCC drag-and-drop.
-      const orderId = stop.orders?.id || stopObj?.orders?.id;
-      if (orderId) {
-        const runField = stop.stop_type === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
-        // Log the move with the real admin actor BEFORE the orders update. The
-        // log_order_change trigger has a 3-second dedup on (event_type='routed', new_value)
-        // so our attributed row suppresses its "System" twin.
-        const legLabel = stop.stop_type === 'pickup' ? 'Pickup' : 'Delivery';
-        const toName = toData?.templateName || 'another route';
-        await logOrderEvent(orderId, 'routed', `${legLabel} route: ${toName}`, null, toRouteId);
-        await db.from('orders').update({ [runField]: toRouteId }).eq('id', orderId);
-        // Update local allOrders cache too so the order panel reflects the change immediately
-        const localOrder = typeof allOrders !== 'undefined' && allOrders?.find(o => o.id === orderId);
-        if (localOrder) localOrder[runField] = toRouteId;
-      }
       const [{ count: srcCnt }, { count: dstCnt }] = await Promise.all([
         db.from('route_stops').select('*, orders!inner(status)', {count:'exact',head:true}).eq('route_id', fromRouteId).not('orders.status', 'in', `(${DEAD_ORDER_STATUSES.join(',')})`),
         db.from('route_stops').select('*, orders!inner(status)', {count:'exact',head:true}).eq('route_id', toRouteId).not('orders.status', 'in', `(${DEAD_ORDER_STATUSES.join(',')})`),
@@ -19533,29 +19493,33 @@ ${oneCopy}
     const targetRouteId = document.getElementById('move-stop-target-route').value;
     document.getElementById('move-stop-modal').style.display = 'none';
     try {
-      // Fetch stop details so we can sync the order's run_id
+      // Fetch stop details so we can identify the order + leg
       const { data: stopData } = await db.from('route_stops')
         .select('order_id, stop_type').eq('id', routeStopMoving.stopId).single();
+      const sourceRouteId = routeLiveRouteId; // capture before any state change
+
+      // Session 135: route-only move via reschedule_order_leg RPC. Atomically
+      // updates orders.run_id, repoints the stop's route_id, clears driver_id,
+      // logs an attributed 'routed' event, and auto-snaps the window if it
+      // doesn't fit the new template. Replaces the previous non-atomic shape
+      // (route_stops update → orders update → events).
+      if (stopData) {
+        const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+        const { error: rpcErr } = await db.rpc('reschedule_order_leg', {
+          p_order_id:     stopData.order_id,
+          p_leg:          stopData.stop_type,
+          p_new_route_id: targetRouteId,
+          p_actor_name:   actorName,
+        });
+        if (rpcErr) throw rpcErr;
+      }
+
+      // Layered: stop_number for ordering on the destination route (RPC doesn't manage)
       const { data: tgt } = await db.from('route_stops')
         .select('stop_number').eq('route_id', targetRouteId).order('stop_number', {ascending:false}).limit(1);
       const nextNum = (tgt?.[0]?.stop_number || 0) + 1;
-      const sourceRouteId = routeLiveRouteId; // capture before any state change
-      // Clearing driver_id is critical: a stale per-stop override from the source
-      // route would make the driver app hide this stop from the destination route's
-      // driver. NULL = inherit from destination route's default driver.
-      await db.from('route_stops').update({ route_id: targetRouteId, stop_number: nextNum, driver_id: null }).eq('id', routeStopMoving.stopId);
-      // Keep order's run_id in sync with the stop's new route
-      if (stopData) {
-        const runCol = stopData.stop_type === 'pickup' ? 'pickup_run_id' : 'delivery_run_id';
-        // Log the move with the real admin actor BEFORE the orders update.
-        // The log_order_change trigger dedups on (event_type='routed', new_value)
-        // within 3 seconds, so our attributed row suppresses its "System" twin.
-        const legLabel = stopData.stop_type === 'pickup' ? 'Pickup' : 'Delivery';
-        const tgtBtn = document.querySelector('.run-toggle-btn[data-rid="'+targetRouteId+'"]');
-        const toName = (tgtBtn?.textContent || '').trim() || 'another route';
-        await logOrderEvent(stopData.order_id, 'routed', `${legLabel} route: ${toName}`, null, targetRouteId);
-        await db.from('orders').update({ [runCol]: targetRouteId }).eq('id', stopData.order_id);
-      }
+      await db.from('route_stops').update({ stop_number: nextNum }).eq('id', routeStopMoving.stopId);
+
       const [{ count: srcCnt }, { count: dstCnt }] = await Promise.all([
         db.from('route_stops').select('*, orders!inner(status)', {count:'exact',head:true}).eq('route_id', sourceRouteId).not('orders.status', 'in', `(${DEAD_ORDER_STATUSES.join(',')})`),
         db.from('route_stops').select('*, orders!inner(status)', {count:'exact',head:true}).eq('route_id', targetRouteId).not('orders.status', 'in', `(${DEAD_ORDER_STATUSES.join(',')})`),
