@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 25, 2026 — Session 136 pt 5 (RPC #5 `rack_order` shipped): Fifth architectural mutation RPC. Refactors admin-app `saveRacking` from 4 distinct billing branches (re-rack, already-charged, fully-credited variants, on-account, standard charge) plus always-runs racking writes (event logs + status/rack_id update) into a single transactional RPC. Branches the RPC handles server-side: fully_credited_no_tip (mark paid via credits), fully_credited_tip_from_credit (deduct tip via apply_customer_credit_to_order, mark paid). Branches that need Stripe (needs_card_charge, fully_credited_tip_needs_card) return `needs_card_charge=true` so the client makes the HTTP call — Stripe round-trips can't be held inside a Postgres transaction. **7-test verification suite** covers all branches + percentage-tip math. Driver-app refactor: -54 net lines. **Scoreboard:** RPCs #1–#5 shipped, 4 left (#6 mark_orders_paid, #7 recall_delivered_order, #8 adjust_customer_credits, #9 save_order_address). Commit `bc367f7`.*
+*Last updated: Apr 25, 2026 — Session 136 pt 6 (RPC #6 `mark_orders_paid` shipped): Sixth architectural mutation RPC. Refactors admin-app `confirmBilling` (Bill Orders batch billing) — replaces 3 nearly-identical branches (credit_card, credit, cash/check/venmo) with a single transactional RPC. Signature: `mark_orders_paid(p_order_ids uuid[], p_payment_method text, p_billing_notes text=NULL, p_actor_name text='Admin', p_apply_credit_amount numeric=0, p_customer_id uuid=NULL)`. Per-order billing events with computed total+tip (matches `_orderTipBreakdown` semantics) + batch UPDATE + atomic credit deduction (when method=credit) all in one transaction. Stripe HTTP for credit_card stays client-side as before. **5-test verification suite** covers cash batch with mixed tip math, credit batch with balance cap, credit_card batch, empty array rejection, missing-customer_id rejection. Admin refactor: -26 net lines. **Scoreboard:** RPCs #1-#6 shipped, 3 left (#7 recall_delivered_order, #8 adjust_customer_credits, #9 save_order_address). Commit `d1b346d`.*
+
+*Prior: Apr 25, 2026 — Session 136 pt 5 (RPC #5 `rack_order` shipped): Fifth architectural mutation RPC. Refactors admin-app `saveRacking` from 4 distinct billing branches (re-rack, already-charged, fully-credited variants, on-account, standard charge) plus always-runs racking writes (event logs + status/rack_id update) into a single transactional RPC. Branches the RPC handles server-side: fully_credited_no_tip (mark paid via credits), fully_credited_tip_from_credit (deduct tip via apply_customer_credit_to_order, mark paid). Branches that need Stripe (needs_card_charge, fully_credited_tip_needs_card) return `needs_card_charge=true` so the client makes the HTTP call — Stripe round-trips can't be held inside a Postgres transaction. **7-test verification suite** covers all branches + percentage-tip math. Driver-app refactor: -54 net lines. **Scoreboard:** RPCs #1–#5 shipped, 4 left (#6 mark_orders_paid, #7 recall_delivered_order, #8 adjust_customer_credits, #9 save_order_address). Commit `bc367f7`.*
 
 *Prior: Apr 25, 2026 — Session 136 pt 4 (credit-burn-on-re-intake bug fix + RPC #4 shipped): Ja'Naie Sinclair's receipt-vs-transactions investigation surfaced a bug class where the FIRST intake applies $X credit (drains balance to 0), admin clicks "Moved back to Intake," then SECOND saveIntake runs `calcProcTotal` with `procCustomerCredits=0`, computes `creditApplied=0`, stores `total_amount=full subtotal`, charge-order bills the full amount — **customer pays full bill AND loses the credit.** 60-day sweep with proper filtering (excluding session 128 backfill noise + duplicate charge rows) found 2 real overcharges: Adriana Tabibzadeh #2034 ($20) and Sameer Jain #2988 ($23 = $20 credit + $3 over-tip). **Both refunded to card** via `/functions/v1/refund-charge` (`re_3TPWVwGACgbvEugH121VLPpH`, `re_3TPotZGACgbvEugH1YSF85vU`). **Two RPCs shipped:** (1) `refund_order_credits(p_order_id, p_actor_name)` — sums net unrefunded credit_use for the order, restores customer balance, logs `credit_refund` transaction. Idempotent. Wired into `moveOrderBack` so any move-back-to-Intake automatically reverses prior credit. (2) `record_order_intake(...)` — RPC #4 from the architectural audit. Consolidates saveIntake's 4 writes into a single transaction; **Step 1 is `refund_order_credits`**, so every intake automatically reverses any prior credit_use before applying new credit (universal backstop — even paths that bypass `moveOrderBack` get correct credit handling). 4-test verification suite passes. New customer_transactions type `'credit_refund'`. Scoreboard: RPCs #1-#4 shipped, 5 left + extensions. Commit `673ee05`.*
 
@@ -706,6 +708,48 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 25, 2026 (session 136, pt 6) — RPC #6 `mark_orders_paid` shipped
+
+**Sixth architectural mutation RPC.** Refactors admin-app `confirmBilling` (the customer-panel "Bill Orders" batch billing flow). The function had 3 internal branches each with its own write cluster — `credit_card`, `credit`, and other-methods (cash/check/venmo). Each cluster did a per-order `logOrderEvent` loop + a batch UPDATE (and, in the credit case, also `apply_customer_credit_to_order`). Three nearly-identical patterns drifted slightly over time (different ordering of update vs. ledger insert, different comment strings, different partial-failure behavior).
+
+**Migration `session_136_mark_orders_paid_rpc`:**
+- Signature: `mark_orders_paid(p_order_ids uuid[], p_payment_method text, p_billing_notes text=NULL, p_actor_name text='Admin', p_apply_credit_amount numeric=0, p_customer_id uuid=NULL) RETURNS jsonb`
+- SECURITY DEFINER, REVOKE FROM PUBLIC + GRANT EXECUTE TO authenticated.
+- Step 1: loop over orders to log a per-order `billing` event. Description includes the computed total+tip (matches `_orderTipBreakdown` client-side semantics — `tip_type='pct'` interprets `tip_amount` as percent, otherwise dollars).
+- Step 2: single batch UPDATE on all order rows — `billing_status='paid'`, `billing_payment_method`, `billing_notes`, `billed_at`, `updated_at`.
+- Step 3: when `p_payment_method='credit'` AND `p_apply_credit_amount > 0`, calls `apply_customer_credit_to_order` (which caps at customer's actual balance via LEAST). Returns the new balance for client cache sync.
+- For non-credit methods, returns `new_credit_balance` if `p_customer_id` was passed, so the client can refresh its cache.
+- Stripe charge for the `credit_card` branch stays in the client because Stripe HTTP roundtrips can't be safely held inside a Postgres transaction. Client charges first, then calls this RPC with method='credit_card' and the array of successfully-charged order IDs.
+
+**Method-specific event description prefixes:** `'Charged via credit card'`, `'Paid via account credit'`, `'Marked paid via cash'/'check'/'Venmo'/'on_account'/<custom>`. Matches the prior client-side wording so audit log readers don't notice the cutover.
+
+**Verification — 5 tests, all in BEGIN/ROLLBACK transactions:**
+
+| # | Case | Result |
+|---|---|---|
+| 1 | Cash batch — 3 orders with mixed tip math (dollar + pct + 0) | paid_count=3, total_charged=$245, 3 events attributed ✅ |
+| 2 | Credit batch — apply $100 against $80 balance | credit_applied=$80 (capped), balance=0, both orders paid ✅ |
+| 3 | credit_card batch — RPC just marks paid (Stripe charge happened in client) | method=credit_card, notes preserved ✅ |
+| 4 | Empty order_ids array | raises `invalid_parameter_value` ✅ |
+| 5 | Credit method with `p_apply_credit_amount > 0` but no customer_id | raises `invalid_parameter_value` ✅ |
+
+**Admin refactor:** -26 net lines (38 insertions, 64 deletions). Three branches inside `confirmBilling` each become a single RPC call. Stripe charge call + per-failure error handling + receipt sending stay in the client (they're HTTP-bound and per-order rather than per-batch).
+
+**RPC refactor scoreboard (after pt 6):**
+- ✅ #1 `reschedule_order_leg`
+- ✅ #2 `advance_order_status`
+- ✅ #3 `complete_route_stop`
+- ✅ #4 `record_order_intake`
+- ✅ #5 `rack_order`
+- ✅ #6 `mark_orders_paid` ← *this entry*
+- ⏳ #7 `recall_delivered_order`
+- ⏳ #8 `adjust_customer_credits`
+- ⏳ #9 `save_order_address`
+
+Commits: `d1b346d`.
+
+---
 
 ### Apr 25, 2026 (session 136, pt 5) — RPC #5 `rack_order` shipped
 
