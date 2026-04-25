@@ -8215,82 +8215,39 @@
     errEl.style.display = 'none';
 
     try {
-      // 1) Pull the picked route's window so the order shows a sensible delivery window.
-      const { data: routeRow, error: routeErr } = await db.from('routes')
-        .select('id, name, run_date, window_start, window_end')
-        .eq('id', routeId)
-        .maybeSingle();
-      if (routeErr) throw routeErr;
+      // Session 136: single transactional RPC — recall_delivered_order. Replaces
+      // the two non-atomic writes (orders UPDATE + route_stops upsert) plus event
+      // logging that previously ran sequentially. A failure between writes used
+      // to leave the order back on a route with no stop — driver wouldn't see
+      // it, customer would wait forever. Now atomic. RPC also looks up the
+      // route's template window (the prior client code tried to read window_start
+      // from `routes` directly, which has no such columns; the window was never
+      // actually applied).
+      const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+      const { data: rpcRes, error: rpcErr } = await db.rpc('recall_delivered_order', {
+        p_order_id:          opCurrentOrderId,
+        p_delivery_route_id: routeId,
+        p_reason:            reason || null,
+        p_actor_name:        actorName,
+      });
+      if (rpcErr) throw rpcErr;
 
-      const update = {
-        status: newStatus,
-        actual_delivery_at: null,
-        delivery_run_id: routeId,
-        routing_error: null,
-      };
-      if (routeRow?.window_start) update.delivery_window_start = routeRow.window_start;
-      if (routeRow?.window_end)   update.delivery_window_end   = routeRow.window_end;
-
-      // Log the route change with the real admin actor BEFORE the orders update.
-      // The log_order_change trigger dedups on (event_type='routed', new_value) within 3 seconds,
-      // so this attributed row suppresses its "System" twin.
-      if (routeId && routeId !== o.delivery_run_id) {
-        await logOrderEvent(opCurrentOrderId, 'routed', `Delivery route: ${routeRow?.name || routeLabel}`, null, routeId);
-      }
-
-      // 2) Update the order row.
-      const { error: updErr } = await db.from('orders').update(update).eq('id', opCurrentOrderId);
-      if (updErr) throw updErr;
-
-      // 3) Re-open the delivery stop on the picked route. If the stop was deleted
-      //    (or the order was rolled back previously), create a fresh pending stop.
-      const cust   = allCustomers.find(c => c.id === opCurrentCustId);
-      const addrs  = Array.isArray(cust?.addresses) ? cust.addresses : [];
-      const addrId = o.delivery_address_id || o.pickup_address_id || addrs.find(a => a.is_default)?.id || addrs[0]?.id || null;
-
-      const { data: existStops } = await db.from('route_stops')
-        .select('id')
-        .eq('order_id', opCurrentOrderId)
-        .eq('stop_type','delivery')
-        .order('created_at', { ascending: false })
-        .limit(1);
-      const existStop = existStops?.[0];
-      if (existStop) {
-        await db.from('route_stops').update({
-          route_id: routeId,
-          driver_id: null,
-          status: 'pending',
-          completed_at: null,
-          proof_photo_url: null,
-        }).eq('id', existStop.id);
-      } else {
-        // stop_number assigned atomically by trg_assign_stop_number — no select-then-insert race.
-        await db.from('route_stops').insert({
-          route_id: routeId,
-          order_id: opCurrentOrderId,
-          stop_type: 'delivery',
-          address_id: addrId,
-          status: 'pending',
-        });
-      }
-
-      // 4) Audit trail — no SMS side-effects.
-      const desc = reason
-        ? `Recalled from Delivered → re-routed to ${routeLabel} (${reason})`
-        : `Recalled from Delivered → re-routed to ${routeLabel}`;
-      await logOrderEvent(opCurrentOrderId, 'recalled', desc, 'delivered', newStatus);
-
-      // 5) Sync local cache.
-      Object.assign(o, update);
+      // Sync local cache from RPC result.
+      o.status                = rpcRes?.new_status || newStatus;
+      o.actual_delivery_at    = null;
+      o.delivery_run_id       = routeId;
+      o.routing_error         = null;
+      if (rpcRes?.window_start) o.delivery_window_start = rpcRes.window_start;
+      if (rpcRes?.window_end)   o.delivery_window_end   = rpcRes.window_end;
       const rCached = _opRoutes.find(r => r.id === routeId);
-      o.delivery_run = { id: routeId, name: rCached?.name || routeRow?.name || '' };
+      o.delivery_run = { id: routeId, name: rCached?.name || rpcRes?.route_name || '' };
 
-      // 6) Background route optimization.
+      // Background route optimization.
       if (typeof autoOptimizeRoute === 'function') {
         try { autoOptimizeRoute(routeId); } catch(_) {}
       }
 
-      // 7) UI cleanup.
+      // UI cleanup.
       closeRecallModal();
       closeOrderPanel();
       updateOrderFilterCounts();
