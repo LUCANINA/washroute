@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 25, 2026 — Session 136 pt 4 (credit-burn-on-re-intake bug fix + RPC #4 shipped): Ja'Naie Sinclair's receipt-vs-transactions investigation surfaced a bug class where the FIRST intake applies $X credit (drains balance to 0), admin clicks "Moved back to Intake," then SECOND saveIntake runs `calcProcTotal` with `procCustomerCredits=0`, computes `creditApplied=0`, stores `total_amount=full subtotal`, charge-order bills the full amount — **customer pays full bill AND loses the credit.** 60-day sweep with proper filtering (excluding session 128 backfill noise + duplicate charge rows) found 2 real overcharges: Adriana Tabibzadeh #2034 ($20) and Sameer Jain #2988 ($23 = $20 credit + $3 over-tip). **Both refunded to card** via `/functions/v1/refund-charge` (`re_3TPWVwGACgbvEugH121VLPpH`, `re_3TPotZGACgbvEugH1YSF85vU`). **Two RPCs shipped:** (1) `refund_order_credits(p_order_id, p_actor_name)` — sums net unrefunded credit_use for the order, restores customer balance, logs `credit_refund` transaction. Idempotent. Wired into `moveOrderBack` so any move-back-to-Intake automatically reverses prior credit. (2) `record_order_intake(...)` — RPC #4 from the architectural audit. Consolidates saveIntake's 4 writes into a single transaction; **Step 1 is `refund_order_credits`**, so every intake automatically reverses any prior credit_use before applying new credit (universal backstop — even paths that bypass `moveOrderBack` get correct credit handling). 4-test verification suite passes. New customer_transactions type `'credit_refund'`. Scoreboard: RPCs #1-#4 shipped, 5 left + extensions. Commit `673ee05`.*
+*Last updated: Apr 25, 2026 — Session 136 pt 5 (RPC #5 `rack_order` shipped): Fifth architectural mutation RPC. Refactors admin-app `saveRacking` from 4 distinct billing branches (re-rack, already-charged, fully-credited variants, on-account, standard charge) plus always-runs racking writes (event logs + status/rack_id update) into a single transactional RPC. Branches the RPC handles server-side: fully_credited_no_tip (mark paid via credits), fully_credited_tip_from_credit (deduct tip via apply_customer_credit_to_order, mark paid). Branches that need Stripe (needs_card_charge, fully_credited_tip_needs_card) return `needs_card_charge=true` so the client makes the HTTP call — Stripe round-trips can't be held inside a Postgres transaction. **7-test verification suite** covers all branches + percentage-tip math. Driver-app refactor: -54 net lines. **Scoreboard:** RPCs #1–#5 shipped, 4 left (#6 mark_orders_paid, #7 recall_delivered_order, #8 adjust_customer_credits, #9 save_order_address). Commit `bc367f7`.*
+
+*Prior: Apr 25, 2026 — Session 136 pt 4 (credit-burn-on-re-intake bug fix + RPC #4 shipped): Ja'Naie Sinclair's receipt-vs-transactions investigation surfaced a bug class where the FIRST intake applies $X credit (drains balance to 0), admin clicks "Moved back to Intake," then SECOND saveIntake runs `calcProcTotal` with `procCustomerCredits=0`, computes `creditApplied=0`, stores `total_amount=full subtotal`, charge-order bills the full amount — **customer pays full bill AND loses the credit.** 60-day sweep with proper filtering (excluding session 128 backfill noise + duplicate charge rows) found 2 real overcharges: Adriana Tabibzadeh #2034 ($20) and Sameer Jain #2988 ($23 = $20 credit + $3 over-tip). **Both refunded to card** via `/functions/v1/refund-charge` (`re_3TPWVwGACgbvEugH121VLPpH`, `re_3TPotZGACgbvEugH1YSF85vU`). **Two RPCs shipped:** (1) `refund_order_credits(p_order_id, p_actor_name)` — sums net unrefunded credit_use for the order, restores customer balance, logs `credit_refund` transaction. Idempotent. Wired into `moveOrderBack` so any move-back-to-Intake automatically reverses prior credit. (2) `record_order_intake(...)` — RPC #4 from the architectural audit. Consolidates saveIntake's 4 writes into a single transaction; **Step 1 is `refund_order_credits`**, so every intake automatically reverses any prior credit_use before applying new credit (universal backstop — even paths that bypass `moveOrderBack` get correct credit handling). 4-test verification suite passes. New customer_transactions type `'credit_refund'`. Scoreboard: RPCs #1-#4 shipped, 5 left + extensions. Commit `673ee05`.*
 
 *Prior: Apr 25, 2026 — Session 136 pt 3 (RPC #3 `complete_route_stop` shipped): Third architectural mutation RPC. Refactors driver-app `completeStop()` — the **highest-volume daily mutation path** in the system — from 3 non-atomic writes (route_stops + advance_order_status + routes via Promise.all) to a single transactional RPC. Migration `session_136_complete_route_stop_rpc` is SECURITY DEFINER, takes `FOR UPDATE` row lock, has terminal-status idempotency guard, COALESCE on driver_notes + proof_photo_url so background photo uploads don't get clobbered, calls `advance_order_status` internally for order-side effects (consistent attribution with RPC #2), and recomputes route counter from DB. **Latent bug fixed:** old client logic only counted `status='complete'` stops when deciding `all_done` — any skipped/failed stop would leave the route stuck `in_progress` forever. New SQL uses "no pending or en_route remain" so mixed terminal states transition correctly. Driver-app refactor (`796f17e`): 41+/66- lines. **6 tests all pass in BEGIN/ROLLBACK transactions:** happy path with bag adjust, idempotency, null-order, missing stop, multi-stop in_progress, latent skipped-stop fix. **Scoreboard:** RPCs #1, #2, #3 shipped; #4–#9 + small extensions remain. **Earlier in session 136:** SMS coverage gap fix (pt 2) + sub-window alignment guardrails (pt 1). See entries below.*
 
@@ -704,6 +706,49 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 25, 2026 (session 136, pt 5) — RPC #5 `rack_order` shipped
+
+**Fifth architectural mutation RPC.** Refactors admin-app `saveRacking` from a long branched JS function (4 distinct billing paths each with its own write cluster) into a single transactional RPC. If any of the per-branch DB writes failed mid-flight, the order could be left half-racked or with mismatched billing fields.
+
+**Migration `session_136_rack_order_rpc`:**
+- Signature: `rack_order(p_order_id uuid, p_rack_id uuid, p_rack_name text='Rack', p_actor_name text='Admin') RETURNS jsonb`
+- SECURITY DEFINER, `FOR UPDATE` row lock on the order.
+- Computes the billing branch deterministically from order state (`rack_id`, `stripe_payment_intent_id`, `billing_status`, `total_amount`, `tip_amount`/`tip_type`, customer's `billing_type`, customer's `credits` balance).
+- Branches handled server-side: `fully_credited_no_tip` (mark paid via credits), `fully_credited_tip_from_credit` (deduct tip via `apply_customer_credit_to_order`, mark paid), plus the no-op states `re_rack` / `already_charged` / `on_account`.
+- Branches that need Stripe (`needs_card_charge`, `fully_credited_tip_needs_card`) signal the client via `needs_card_charge=true` in the return jsonb. Stripe HTTP stays in the client — holding a DB transaction open across a Stripe round-trip is risky.
+- Always-runs racking writes (event logs `racked` + `status_change → ready_for_delivery` + orders `status/rack_id/racked_at` UPDATE) run inside the same transaction as the billing branch.
+- Tip math: `tip_type='pct'` interprets `tip_amount` as percentage (15 → 15%), `'dollar'`/NULL as raw dollars. Matches `_orderTipBreakdown` semantics on the client.
+- `REVOKE FROM PUBLIC` + `GRANT EXECUTE TO authenticated`.
+
+**Verification — 7 tests, all in BEGIN/ROLLBACK transactions:**
+
+| # | Branch | Result |
+|---|---|---|
+| 1 | needs_card_charge ($50, no credit, automatic billing) | branch correct, status=ready_for_delivery, needs_card_charge=true ✅ |
+| 2 | fully_credited_no_tip ($0, no tip) | marked paid via credits, billing_payment_method='credit' ✅ |
+| 3 | fully_credited_tip_from_credit ($0, $5 tip, $20 balance) | tip deducted from credits, balance 20→15, paid ✅ |
+| 4 | fully_credited_tip_needs_card ($0, $50 tip, $0 balance) | branch correct, billing left for client to charge ✅ |
+| 5 | on_account ($80, billing_type='on_account') | no Stripe, status advanced, on-account flag set ✅ |
+| 6 | re_rack/already_charged on second call | does not re-charge ✅ |
+| 7 | percentage tip on $0 order | tip_dollars=$0 (15% of $0) → fully_credited_no_tip ✅ |
+
+**Driver-app refactor:** -54 net lines (62 insertions, 116 deletions). Most of the deleted lines were the per-branch billing logic now living server-side. The client retains: Stripe HTTP charge call (when RPC says needs_card_charge), email receipt, walk-in pickup SMS, instant column removal.
+
+**RPC refactor scoreboard (after pt 5):**
+- ✅ #1 `reschedule_order_leg`
+- ✅ #2 `advance_order_status`
+- ✅ #3 `complete_route_stop`
+- ✅ #4 `record_order_intake`
+- ✅ #5 `rack_order` ← *this entry*
+- ⏳ #6 `mark_orders_paid`
+- ⏳ #7 `recall_delivered_order`
+- ⏳ #8 `adjust_customer_credits`
+- ⏳ #9 `save_order_address`
+
+Commits: `bc367f7` (RPC + refactor).
+
+---
 
 ### Apr 25, 2026 (session 136, pt 4) — Credit-burn-on-re-intake bug fix + RPC #4 shipped
 
