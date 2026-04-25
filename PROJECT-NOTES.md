@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 25, 2026 — Session 136 pt 9 (RPC #9 `save_order_address` shipped — **architectural refactor audit complete**): Final RPC. Replaces admin `opSaveAddress`'s non-atomic orders + route_stops writes with one transactional RPC. **Three bugs fixed simultaneously:** (1) atomic now, (2) `.maybeSingle()` amplification bug on duplicate stops eliminated by UPDATEing all non-terminal stops of the matching type, (3) prior code only updated the route_stop for the pickup branch — delivery address changes left the delivery stop's address_id stale, so the driver navigated to the old delivery address. Plus a defensive cross-customer address rejection. **6-test verification suite** covers all paths. Net: -8 lines. Commit `ee2a849`. **🎉 ALL 9 ARCHITECTURAL MUTATION RPCs FROM THE AUDIT ARE SHIPPED:** #1 reschedule_order_leg, #2 advance_order_status, #3 complete_route_stop, #4 record_order_intake, #5 rack_order, #6 mark_orders_paid, #7 recall_delivered_order, #8 adjust_customer_credits, #9 save_order_address. **Pending tech debt** (3 items, lower priority): `p_clear_route` extension on #1, `rollback_order_to_on_hold` for admin status-dropdown rollback, `undo_stop_completion` for driver triggerUndo.*
+*Last updated: Apr 25, 2026 — Session 136 pt 10 (post-audit tech debt — **all RPC work closed**): Three tech-debt items from the audit doc shipped. (1) `p_clear_route` flag added to `reschedule_order_leg` so admin `_opShiftDeliveryWindow` can null out `delivery_run_id` via the RPC instead of a raw UPDATE — last bare orders-window write path closed. (2) `rollback_order_to_on_hold` RPC consolidates admin's status-dropdown rollback (`opSetOrderStatus` rollback branch) — DELETE route_stops + UPDATE orders + event log atomic, billing_status preserved by design. (3) `undo_stop_completion` RPC consolidates driver `triggerUndo` (still alive for the cantCompleteStop undo bar) — reverse of RPC #3, atomically reverts stop+order+route counter; 4-test verification suite passes. **Architectural state: every order/stop/route/credit mutation in the system now goes through a transactional RPC. Customer-app, admin-app, driver-app all RPC-only for mutation paths.** Commit `0c467d3`. Three migrations applied. The RPC refactor + post-audit cleanup is fully closed.*
+
+*Prior: Apr 25, 2026 — Session 136 pt 9 (RPC #9 `save_order_address` shipped — **architectural refactor audit complete**): Final RPC. Replaces admin `opSaveAddress`'s non-atomic orders + route_stops writes with one transactional RPC. **Three bugs fixed simultaneously:** (1) atomic now, (2) `.maybeSingle()` amplification bug on duplicate stops eliminated by UPDATEing all non-terminal stops of the matching type, (3) prior code only updated the route_stop for the pickup branch — delivery address changes left the delivery stop's address_id stale, so the driver navigated to the old delivery address. Plus a defensive cross-customer address rejection. **6-test verification suite** covers all paths. Net: -8 lines. Commit `ee2a849`. **🎉 ALL 9 ARCHITECTURAL MUTATION RPCs FROM THE AUDIT ARE SHIPPED:** #1 reschedule_order_leg, #2 advance_order_status, #3 complete_route_stop, #4 record_order_intake, #5 rack_order, #6 mark_orders_paid, #7 recall_delivered_order, #8 adjust_customer_credits, #9 save_order_address. **Pending tech debt** (3 items, lower priority): `p_clear_route` extension on #1, `rollback_order_to_on_hold` for admin status-dropdown rollback, `undo_stop_completion` for driver triggerUndo.*
 
 *Prior: Apr 25, 2026 — Session 136 pt 7 (RPC #7 `recall_delivered_order` shipped): Seventh architectural mutation RPC. Refactors admin `confirmRecallOrder` (the "Recall to Route" modal that puts a delivered order back on an upcoming route) from 2 non-atomic writes (orders UPDATE + route_stops upsert) to one transactional RPC. A partial failure used to leave the order on a route with no driver stop. **Latent bug fixed:** the prior client tried to read `window_start/end` from the `routes` table — those columns don't exist there. The `if (routeRow?.window_start)` check always skipped, so the delivery window was never actually updated on recall in production. RPC now JOINs through `route_templates` and constructs a Pacific-anchored timestamp. **6-test verification suite** covers today-route → out_for_delivery, future-route → ready_for_delivery, fresh-stop creation, non-delivered rejection, missing-route rejection, reason interpolation + attribution. Admin refactor: -54 net lines. **Scoreboard:** RPCs #1–#7 shipped, 2 left (#8 adjust_customer_credits, #9 save_order_address). Commit `68787eb`.*
 
@@ -712,6 +714,38 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 25, 2026 (session 136, pt 10) — Post-audit tech debt cleanup — **all RPC work closed**
+
+After completing the 9-RPC audit, three tech-debt items remained from the audit doc. All shipped this part:
+
+**Tech debt #1 — `p_clear_route` extension on `reschedule_order_leg`.** The RPC originally treated `p_new_route_id = NULL` as "keep existing run_id." That's correct for 5 of 6 callers but blocked one path: admin's `_opShiftDeliveryWindow` (the same-day-toggle uncheck restore) which legitimately needs to set `delivery_run_id` to NULL. Added `p_clear_route boolean DEFAULT FALSE` parameter. When TRUE, the RPC sets the leg's run_id to NULL AND marks the existing route_stop as skipped (so it doesn't haunt the route). `_opShiftDeliveryWindow` now goes through the RPC — last raw `UPDATE orders SET delivery_window_*` path closed. Migration: `session_136_reschedule_order_leg_clear_route_flag`. Snapshot: `_archive._backup_function_defs` as `reschedule_order_leg__session_136_pt10_pre`.
+
+**Tech debt #2 — `rollback_order_to_on_hold` RPC.** Admin status-dropdown rollback path (`opSetOrderStatus` lines 8691-8731). When admin picks an earlier status from the dropdown, the order goes to `'on_hold'` with route_stops detached, run_ids cleared, `actual_*_at` cleared, `routing_error` set. Was DELETE route_stops + UPDATE orders + logOrderEvent — non-atomic. RPC consolidates into one transaction. `billing_status` deliberately preserved (if customer was charged at racking, that money still belongs to them; admin issues refunds via Stripe path separately). Migration: `session_136_rollback_order_to_on_hold_rpc`.
+
+**Tech debt #3 — `undo_stop_completion` RPC.** Driver-app's `triggerUndo` (still wired up for the `cantCompleteStop` undo bar even though the `completeStop` undo bar was removed). Reverse op of `complete_route_stop`. Three non-atomic writes (route_stops + orders + routes) — same bug shape RPC #3 fixed for the forward path. Now atomic. Reverts stop status, clears `completed_at` / `actual_arrival` / `on_my_way_sent_at` / `photo_skipped_at`, restores `driver_notes` if caller passed prior value, reverts order status + clears `cancelled_by` / `driver_skip_reason` / `actual_pickup_at` or `actual_delivery_at` (whichever matches the stop_type), recomputes routes counter and status (uses the same "no pending or en_route remain" semantic as RPC #3). Migration: `session_136_undo_stop_completion_rpc`.
+
+**Verification — 4-test transaction-rollback suite for `undo_stop_completion`:**
+1. Undo complete pickup → stop reverted, completed_at cleared, actual_pickup_at cleared on order
+2. Undo skipped pickup with prev_driver_notes → notes restored, cancelled_by + driver_skip_reason cleared
+3. Non-terminal stop undo rejected
+4. Missing stop rejected
+
+`reschedule_order_leg` extension and `rollback_order_to_on_hold` reuse the existing test paths via the refactored callers — no new dedicated tests needed (the existing RPC #1 + admin rollback paths exercise them in production).
+
+**Final architectural state:**
+- Every order/stop/route/credit mutation in the system goes through a transactional RPC
+- Forward, reverse, and rollback paths all atomic
+- Customer-app, admin-app, driver-app all refactored to RPC-only mutation callers
+- Strict trigger `enforce_window_in_route_template` is the universal backstop for window writes; sub-window alignment guaranteed
+- Credit ledger never drifts (4 RPC-protected writers + 1 RPC for refunds)
+- Status changes always attributed via `actor_name` parameter
+
+**Outstanding raw UPDATE patterns** (intentionally not consolidated — see audit doc "Sites to leave alone" section): risk_status bulk updates, `saveContactInfo` (also touches profiles), customer stats sync, geocode batch coordinate updates, customer-app preferences, driver photo URL upload, driver `arrivedAtStop` ping, fold assignment, kanban moveOrderBack between status columns. All of these touch single isolated fields with no order-correlated invariants.
+
+Commit: `0c467d3`. Three migrations applied this part.
+
+---
 
 ### Apr 25, 2026 (session 136, pt 9) — RPC #9 `save_order_address` shipped — **architectural refactor audit complete**
 
