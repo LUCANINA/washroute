@@ -15716,23 +15716,31 @@ ${oneCopy}
     const amt  = parseFloat(document.getElementById('cpb-adjust-amount').value) || 0;
     const note = document.getElementById('cpb-adjust-note').value.trim();
     if (amt <= 0) { showToast('Enter an amount greater than 0', 'error'); return; }
-    const { data: cur } = await db.from('customers').select('credits').eq('id', panelCustomerId).single();
-    const current = parseFloat(cur?.credits || 0);
-    const newVal  = _cpCreditMode === 'add' ? current + amt : Math.max(0, current - amt);
-    const { error } = await db.from('customers').update({ credits: newVal, updated_at: new Date().toISOString() }).eq('id', panelCustomerId);
-    if (error) { showToast('Error: ' + error.message, 'error'); return; }
-    // Log to customer_transactions
-    await db.from('customer_transactions').insert({
-      customer_id:    panelCustomerId,
-      type:           _cpCreditMode === 'add' ? 'credit_add' : 'credit_remove',
-      amount:         amt,
-      description:    _cpCreditMode === 'add' ? 'Credit added' : 'Credit removed',
-      payment_method: 'credit',
-      note:           note || null,
+
+    // Session 136: atomic RPC — adjust_customer_credits replaces the prior
+    // sequential UPDATE customers.credits + INSERT customer_transactions, the
+    // last credit-ledger drift site (same bug class session 134 fixed in
+    // apply_customer_credit_to_order). Server-side LEAST(p_amount, current)
+    // also enforces the credits-never-go-negative invariant that was previously
+    // only client-side via Math.max(0, ...).
+    const { data: rpcRes, error } = await db.rpc('adjust_customer_credits', {
+      p_customer_id: panelCustomerId,
+      p_amount:      amt,
+      p_type:        _cpCreditMode === 'add' ? 'credit_add' : 'credit_remove',
+      p_note:        note || null,
+      p_actor_name:  currentUserDisplayName || currentUserFirstName || 'Admin',
     });
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+
+    const newVal  = parseFloat(rpcRes?.new_balance ?? 0);
+    const actual  = parseFloat(rpcRes?.actual ?? amt);
     document.getElementById('cpb-credits-display').textContent = fmtMoney(newVal);
     hideCreditAdjust();
-    showToast((_cpCreditMode === 'add' ? 'Added' : 'Removed') + ' ' + fmtMoney(amt) + ' credits ✓', 'success');
+    if (_cpCreditMode === 'remove' && actual < amt) {
+      showToast(`Removed ${fmtMoney(actual)} (capped at balance) ✓`, 'success');
+    } else {
+      showToast((_cpCreditMode === 'add' ? 'Added' : 'Removed') + ' ' + fmtMoney(actual) + ' credits ✓', 'success');
+    }
     loadCustomers();
   }
 
