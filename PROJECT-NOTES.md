@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 25, 2026 — Session 136 pt 6 (RPC #6 `mark_orders_paid` shipped): Sixth architectural mutation RPC. Refactors admin-app `confirmBilling` (Bill Orders batch billing) — replaces 3 nearly-identical branches (credit_card, credit, cash/check/venmo) with a single transactional RPC. Signature: `mark_orders_paid(p_order_ids uuid[], p_payment_method text, p_billing_notes text=NULL, p_actor_name text='Admin', p_apply_credit_amount numeric=0, p_customer_id uuid=NULL)`. Per-order billing events with computed total+tip (matches `_orderTipBreakdown` semantics) + batch UPDATE + atomic credit deduction (when method=credit) all in one transaction. Stripe HTTP for credit_card stays client-side as before. **5-test verification suite** covers cash batch with mixed tip math, credit batch with balance cap, credit_card batch, empty array rejection, missing-customer_id rejection. Admin refactor: -26 net lines. **Scoreboard:** RPCs #1-#6 shipped, 3 left (#7 recall_delivered_order, #8 adjust_customer_credits, #9 save_order_address). Commit `d1b346d`.*
+*Last updated: Apr 25, 2026 — Session 136 pt 7 (RPC #7 `recall_delivered_order` shipped): Seventh architectural mutation RPC. Refactors admin `confirmRecallOrder` (the "Recall to Route" modal that puts a delivered order back on an upcoming route) from 2 non-atomic writes (orders UPDATE + route_stops upsert) to one transactional RPC. A partial failure used to leave the order on a route with no driver stop. **Latent bug fixed:** the prior client tried to read `window_start/end` from the `routes` table — those columns don't exist there. The `if (routeRow?.window_start)` check always skipped, so the delivery window was never actually updated on recall in production. RPC now JOINs through `route_templates` and constructs a Pacific-anchored timestamp. **6-test verification suite** covers today-route → out_for_delivery, future-route → ready_for_delivery, fresh-stop creation, non-delivered rejection, missing-route rejection, reason interpolation + attribution. Admin refactor: -54 net lines. **Scoreboard:** RPCs #1–#7 shipped, 2 left (#8 adjust_customer_credits, #9 save_order_address). Commit `68787eb`.*
+
+*Prior: Apr 25, 2026 — Session 136 pt 6 (RPC #6 `mark_orders_paid` shipped): Sixth architectural mutation RPC. Refactors admin-app `confirmBilling` (Bill Orders batch billing) — replaces 3 nearly-identical branches (credit_card, credit, cash/check/venmo) with a single transactional RPC. Signature: `mark_orders_paid(p_order_ids uuid[], p_payment_method text, p_billing_notes text=NULL, p_actor_name text='Admin', p_apply_credit_amount numeric=0, p_customer_id uuid=NULL)`. Per-order billing events with computed total+tip (matches `_orderTipBreakdown` semantics) + batch UPDATE + atomic credit deduction (when method=credit) all in one transaction. Stripe HTTP for credit_card stays client-side as before. **5-test verification suite** covers cash batch with mixed tip math, credit batch with balance cap, credit_card batch, empty array rejection, missing-customer_id rejection. Admin refactor: -26 net lines. **Scoreboard:** RPCs #1-#6 shipped, 3 left (#7 recall_delivered_order, #8 adjust_customer_credits, #9 save_order_address). Commit `d1b346d`.*
 
 *Prior: Apr 25, 2026 — Session 136 pt 5 (RPC #5 `rack_order` shipped): Fifth architectural mutation RPC. Refactors admin-app `saveRacking` from 4 distinct billing branches (re-rack, already-charged, fully-credited variants, on-account, standard charge) plus always-runs racking writes (event logs + status/rack_id update) into a single transactional RPC. Branches the RPC handles server-side: fully_credited_no_tip (mark paid via credits), fully_credited_tip_from_credit (deduct tip via apply_customer_credit_to_order, mark paid). Branches that need Stripe (needs_card_charge, fully_credited_tip_needs_card) return `needs_card_charge=true` so the client makes the HTTP call — Stripe round-trips can't be held inside a Postgres transaction. **7-test verification suite** covers all branches + percentage-tip math. Driver-app refactor: -54 net lines. **Scoreboard:** RPCs #1–#5 shipped, 4 left (#6 mark_orders_paid, #7 recall_delivered_order, #8 adjust_customer_credits, #9 save_order_address). Commit `bc367f7`.*
 
@@ -708,6 +710,50 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 25, 2026 (session 136, pt 7) — RPC #7 `recall_delivered_order` shipped
+
+**Seventh architectural mutation RPC.** Refactors admin `confirmRecallOrder` (the "Recall to Route" modal that puts a delivered order back onto an upcoming route). The prior implementation had **two non-atomic writes** — orders UPDATE then route_stops upsert — that could leave the order back on a route with no driver stop if the second write failed. Driver wouldn't see it, customer would wait forever. Now atomic.
+
+**Migration `session_136_recall_delivered_order_rpc` (+ hotfix `session_136_recall_delivered_order_fix_window_lookup`):**
+- Signature: `recall_delivered_order(p_order_id uuid, p_delivery_route_id uuid, p_reason text=NULL, p_actor_name text='Admin') RETURNS jsonb`
+- SECURITY DEFINER, REVOKE FROM PUBLIC + GRANT EXECUTE TO authenticated.
+- Validates order is in `'delivered'` status, raises `invalid_parameter_value` otherwise.
+- Computes new status from route's `run_date` vs Pacific today: ≤ today → `'out_for_delivery'`, > today → `'ready_for_delivery'`.
+- Looks up window from `route_templates` via the route's `template_id` and constructs a Pacific-anchored timestamp (matches auto_route_order's pattern).
+- Step 1: log attributed `routed` event (when route changing). Step 2: orders UPDATE (status, `actual_delivery_at=NULL`, `delivery_run_id`, `delivery_window_start/end`, `routing_error=NULL`). Step 3: route_stops upsert — find latest delivery stop for this order; UPDATE it if exists (route_id, driver_id=NULL, status=pending, completed_at=NULL, proof_photo_url=NULL), INSERT fresh pending stop if none. Step 4: log `recalled` event with reason interpolated into description.
+- Address fallback chain: `orders.delivery_address_id` → `orders.pickup_address_id` → customer's default address.
+- **Deliberately does NOT send any SMS** — recall is an admin-internal correction.
+
+**Latent bug fixed:** the prior client code tried `db.from('routes').select('id, name, run_date, window_start, window_end')` — but `routes` has no `window_start`/`window_end` columns (those live on `route_templates`). PostgREST would have rejected the select, but the `.maybeSingle()` likely returned no row and the `if (routeRow?.window_start)` check just always skipped. **In production, the delivery window was never actually updated on recall.** The RPC's hotfix migration JOINs through `route_templates` to fix it properly.
+
+**Verification — 6 tests, all in BEGIN/ROLLBACK transactions:**
+
+| # | Case | Result |
+|---|---|---|
+| 1 | Recall to today's route — `out_for_delivery` + stop reset + photo + driver cleared | ✅ |
+| 2 | Recall to future route → `ready_for_delivery` | ✅ |
+| 3 | No existing stop → fresh pending stop created | ✅ |
+| 4 | Non-delivered order rejected with `invalid_parameter_value` | ✅ |
+| 5 | Missing route rejected with `no_data_found` | ✅ |
+| 6 | Reason trimmed + interpolated into event, attribution correct | ✅ |
+
+**Admin refactor:** −54 net lines (27 insertions, 70 deletions).
+
+**RPC refactor scoreboard (after pt 7):**
+- ✅ #1 `reschedule_order_leg`
+- ✅ #2 `advance_order_status`
+- ✅ #3 `complete_route_stop`
+- ✅ #4 `record_order_intake`
+- ✅ #5 `rack_order`
+- ✅ #6 `mark_orders_paid`
+- ✅ #7 `recall_delivered_order` ← *this entry*
+- ⏳ #8 `adjust_customer_credits`
+- ⏳ #9 `save_order_address`
+
+Commits: `68787eb`.
+
+---
 
 ### Apr 25, 2026 (session 136, pt 6) — RPC #6 `mark_orders_paid` shipped
 
