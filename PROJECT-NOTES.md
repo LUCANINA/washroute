@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 25, 2026 — Session 136 pt 3 (RPC #3 `complete_route_stop` shipped): Third architectural mutation RPC. Refactors driver-app `completeStop()` — the **highest-volume daily mutation path** in the system — from 3 non-atomic writes (route_stops + advance_order_status + routes via Promise.all) to a single transactional RPC. Migration `session_136_complete_route_stop_rpc` is SECURITY DEFINER, takes `FOR UPDATE` row lock, has terminal-status idempotency guard, COALESCE on driver_notes + proof_photo_url so background photo uploads don't get clobbered, calls `advance_order_status` internally for order-side effects (consistent attribution with RPC #2), and recomputes route counter from DB. **Latent bug fixed:** old client logic only counted `status='complete'` stops when deciding `all_done` — any skipped/failed stop would leave the route stuck `in_progress` forever. New SQL uses "no pending or en_route remain" so mixed terminal states transition correctly. Driver-app refactor (`796f17e`): 41+/66- lines. **6 tests all pass in BEGIN/ROLLBACK transactions:** happy path with bag adjust, idempotency, null-order, missing stop, multi-stop in_progress, latent skipped-stop fix. **Scoreboard:** RPCs #1, #2, #3 shipped; #4–#9 + small extensions remain. **Earlier in session 136:** SMS coverage gap fix (pt 2) + sub-window alignment guardrails (pt 1). See entries below.*
+*Last updated: Apr 25, 2026 — Session 136 pt 4 (credit-burn-on-re-intake bug fix + RPC #4 shipped): Ja'Naie Sinclair's receipt-vs-transactions investigation surfaced a bug class where the FIRST intake applies $X credit (drains balance to 0), admin clicks "Moved back to Intake," then SECOND saveIntake runs `calcProcTotal` with `procCustomerCredits=0`, computes `creditApplied=0`, stores `total_amount=full subtotal`, charge-order bills the full amount — **customer pays full bill AND loses the credit.** 60-day sweep with proper filtering (excluding session 128 backfill noise + duplicate charge rows) found 2 real overcharges: Adriana Tabibzadeh #2034 ($20) and Sameer Jain #2988 ($23 = $20 credit + $3 over-tip). **Both refunded to card** via `/functions/v1/refund-charge` (`re_3TPWVwGACgbvEugH121VLPpH`, `re_3TPotZGACgbvEugH1YSF85vU`). **Two RPCs shipped:** (1) `refund_order_credits(p_order_id, p_actor_name)` — sums net unrefunded credit_use for the order, restores customer balance, logs `credit_refund` transaction. Idempotent. Wired into `moveOrderBack` so any move-back-to-Intake automatically reverses prior credit. (2) `record_order_intake(...)` — RPC #4 from the architectural audit. Consolidates saveIntake's 4 writes into a single transaction; **Step 1 is `refund_order_credits`**, so every intake automatically reverses any prior credit_use before applying new credit (universal backstop — even paths that bypass `moveOrderBack` get correct credit handling). 4-test verification suite passes. New customer_transactions type `'credit_refund'`. Scoreboard: RPCs #1-#4 shipped, 5 left + extensions. Commit `673ee05`.*
+
+*Prior: Apr 25, 2026 — Session 136 pt 3 (RPC #3 `complete_route_stop` shipped): Third architectural mutation RPC. Refactors driver-app `completeStop()` — the **highest-volume daily mutation path** in the system — from 3 non-atomic writes (route_stops + advance_order_status + routes via Promise.all) to a single transactional RPC. Migration `session_136_complete_route_stop_rpc` is SECURITY DEFINER, takes `FOR UPDATE` row lock, has terminal-status idempotency guard, COALESCE on driver_notes + proof_photo_url so background photo uploads don't get clobbered, calls `advance_order_status` internally for order-side effects (consistent attribution with RPC #2), and recomputes route counter from DB. **Latent bug fixed:** old client logic only counted `status='complete'` stops when deciding `all_done` — any skipped/failed stop would leave the route stuck `in_progress` forever. New SQL uses "no pending or en_route remain" so mixed terminal states transition correctly. Driver-app refactor (`796f17e`): 41+/66- lines. **6 tests all pass in BEGIN/ROLLBACK transactions:** happy path with bag adjust, idempotency, null-order, missing stop, multi-stop in_progress, latent skipped-stop fix. **Scoreboard:** RPCs #1, #2, #3 shipped; #4–#9 + small extensions remain. **Earlier in session 136:** SMS coverage gap fix (pt 2) + sub-window alignment guardrails (pt 1). See entries below.*
 
 *Prior: Apr 25, 2026 — Session 136 pt 2 (reschedule SMS coverage gap, 5 silent paths fixed): customer Ja'Naie Sinclair (#3117) replied this morning saying her delivery should have arrived yesterday — investigation found her order was placed Apr 24 6:40 AM with same-day 6 PM delivery, then a 6:53 AM bag-count edit silently pushed delivery to next-day; the SMS that fired (`schedule_changed`) only mentioned pickup (which hadn't changed) so she had no way to notice. **Audit identified 5 reschedule paths with SMS gaps:** customer-app `saveEditOrder` (suppresses delivery_rescheduled when both legs move in one edit) + 4 admin paths that send no SMS at all (`selectSpSlot`, `confirmReassignRun`, `rccDrop`, `confirmMoveStop`) + `opSaveRouteAndSlot` only firing on explicit slot-picks not RPC auto-snaps. **Fixes:** customer-app now uses two independent flags so each leg fires its own SMS, both fire when both move; admin-dashboard now has a unified `_maybeNotifyReschedule(orderId, leg, oldStartIso, newStartIso)` helper that compares old vs new window and fires SMS only when the customer-visible time actually changed. Wired into all 5 admin paths. **7-day silent-shift sweep:** 10 customers found whose delivery moved by ≥4h without an SMS — David reaching out per-customer. **⚠️ Sandbox git lock** prevented commit at session end; both patched files are on disk but not committed. **Earlier in session 136:** Sub-window alignment guardrails (5 migrations) — see prior entry below for full context.*
 
@@ -702,6 +704,55 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 25, 2026 (session 136, pt 4) — Credit-burn-on-re-intake bug fix + RPC #4 shipped
+
+**Trigger event:** Ja'Naie Sinclair's receipt vs transactions investigation surfaced an inconsistency — receipt showed $257.95 paid in full but transactions panel showed `$267.95 charged + $50 refunded + $20 credit_use`. Math didn't add up.
+
+**Bug shape (now fully understood):** First intake correctly applies credit, deducting from `customers.credits` balance and reducing `total_amount`. Admin clicks "Moved back to Intake." Customer's credit balance is already drained to 0. Second `saveIntake` runs `calcProcTotal` which sees `procCustomerCredits=0`, computes `creditApplied=0`, and stores `total_amount = subtotal` (full pre-credit). `charge-order` then bills the full amount. **Customer pays full bill AND loses the previously-applied credit.**
+
+**Sweep — 60 days, last-time-it-could-have-bit:**
+- 2 confirmed real overcharges (filtered out 50+ false positives that were session 128 backfill ledger entries)
+- **Adriana Tabibzadeh #2034** — overcharged $20. Refunded $20 to card via `/functions/v1/refund-charge` (Stripe `re_3TPWVwGACgbvEugH121VLPpH`).
+- **Sameer Jain #2988** — overcharged $23 ($20 credit + $3 over-tip from 15% applied to full subtotal instead of post-credit). Refunded $23 (Stripe `re_3TPotZGACgbvEugH1YSF85vU`).
+- Ja'Naie #3117 was a third victim ($20 overcharge) but already received a $50 refund earlier today which more than covers — no double-refund.
+
+**Two fixes shipped:**
+
+1. **`moveOrderBack` patch** (admin-dashboard) — when `targetStatus='picked_up'` (back to Intake), call new `refund_order_credits` RPC to reverse any prior credit_use on the order. Restores customer balance, logs a `credit_refund` transaction so the ledger stays in sync. Idempotent (returns refunded=0 if nothing to refund). Surfaces a toast: *"↩ Restored $X of credit (was applied at first intake)"*.
+
+2. **RPC #4 `record_order_intake` shipped** — fourth architectural mutation RPC. Consolidates `saveIntake`'s 4 writes (4× `logOrderEvent` + 1× `orders` UPDATE + 1× `apply_customer_credit_to_order`) into a single transaction. **Step 1 of the RPC is `refund_order_credits`** — every intake automatically reverses any prior credit_use before applying new credit. This is the universal backstop: even if a future code path re-intakes an order without going through `moveOrderBack`, credit handling stays correct.
+
+**Two new RPCs:**
+
+- `refund_order_credits(p_order_id, p_actor_name) RETURNS jsonb` — sums net unrefunded credit_use for the order (using new type `'credit_refund'` for the offset), restores customer balance, logs ledger row. Idempotent. SECURITY DEFINER, granted to authenticated.
+
+- `record_order_intake(p_order_id, p_weight_lbs, p_bags, p_total_amount, p_line_items, p_service_id?, p_discount_id?, p_is_same_day?, p_notes?, p_credit_applied?, p_customer_id?, p_actor_name?) RETURNS jsonb` — atomic intake with built-in credit refund. SECURITY DEFINER, granted to authenticated. Returns jsonb with credit_applied + credit_refunded_from_prior_intake for client cache sync.
+
+**Verification — 4 tests in BEGIN/ROLLBACK transactions:**
+1. First intake: balance correctly drained, credit applied, total stored post-credit ✅
+2. `refund_order_credits` standalone: balance restored ✅
+3. Re-intake after moveOrderBack refund: clean credit application ✅
+4. Re-intake WITHOUT prior moveOrderBack: RPC's built-in refund step handles it correctly ✅
+
+**RPC refactor scoreboard (after pt 4):**
+- ✅ #1 `reschedule_order_leg` (session 135)
+- ✅ #2 `advance_order_status` (session 135)
+- ✅ #3 `complete_route_stop` (session 136 pt 3)
+- ✅ #4 `record_order_intake` (session 136 pt 4) ← *this entry*
+- ⏳ #5 `rack_order`
+- ⏳ #6 `mark_orders_paid`
+- ⏳ #7 `recall_delivered_order`
+- ⏳ #8 `adjust_customer_credits`
+- ⏳ #9 `save_order_address`
+- Plus a small extension on #1 (`p_clear_route` flag for `_opShiftDeliveryWindow`)
+- Plus `rollback_order_to_on_hold` and `undo_stop_completion` from the audit doc
+
+**New customer_transactions type:** `'credit_refund'` — used by `refund_order_credits` to offset prior `credit_use` rows. The Check 18 audit and any future credit-balance computation should `SUM(credit_use) - SUM(credit_refund)` to get net credit consumed per order.
+
+Commits: `673ee05` (RPC #4 + moveOrderBack patch). Two migrations applied: `session_136_refund_order_credits_rpc`, `session_136_record_order_intake_rpc`.
+
+---
 
 ### Apr 25, 2026 (session 136, pt 3) — RPC #3 `complete_route_stop` shipped
 
