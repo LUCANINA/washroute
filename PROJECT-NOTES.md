@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 25, 2026 — Session 136 pt 7 (RPC #7 `recall_delivered_order` shipped): Seventh architectural mutation RPC. Refactors admin `confirmRecallOrder` (the "Recall to Route" modal that puts a delivered order back on an upcoming route) from 2 non-atomic writes (orders UPDATE + route_stops upsert) to one transactional RPC. A partial failure used to leave the order on a route with no driver stop. **Latent bug fixed:** the prior client tried to read `window_start/end` from the `routes` table — those columns don't exist there. The `if (routeRow?.window_start)` check always skipped, so the delivery window was never actually updated on recall in production. RPC now JOINs through `route_templates` and constructs a Pacific-anchored timestamp. **6-test verification suite** covers today-route → out_for_delivery, future-route → ready_for_delivery, fresh-stop creation, non-delivered rejection, missing-route rejection, reason interpolation + attribution. Admin refactor: -54 net lines. **Scoreboard:** RPCs #1–#7 shipped, 2 left (#8 adjust_customer_credits, #9 save_order_address). Commit `68787eb`.*
+*Last updated: Apr 25, 2026 — Session 136 pt 9 (RPC #9 `save_order_address` shipped — **architectural refactor audit complete**): Final RPC. Replaces admin `opSaveAddress`'s non-atomic orders + route_stops writes with one transactional RPC. **Three bugs fixed simultaneously:** (1) atomic now, (2) `.maybeSingle()` amplification bug on duplicate stops eliminated by UPDATEing all non-terminal stops of the matching type, (3) prior code only updated the route_stop for the pickup branch — delivery address changes left the delivery stop's address_id stale, so the driver navigated to the old delivery address. Plus a defensive cross-customer address rejection. **6-test verification suite** covers all paths. Net: -8 lines. Commit `ee2a849`. **🎉 ALL 9 ARCHITECTURAL MUTATION RPCs FROM THE AUDIT ARE SHIPPED:** #1 reschedule_order_leg, #2 advance_order_status, #3 complete_route_stop, #4 record_order_intake, #5 rack_order, #6 mark_orders_paid, #7 recall_delivered_order, #8 adjust_customer_credits, #9 save_order_address. **Pending tech debt** (3 items, lower priority): `p_clear_route` extension on #1, `rollback_order_to_on_hold` for admin status-dropdown rollback, `undo_stop_completion` for driver triggerUndo.*
+
+*Prior: Apr 25, 2026 — Session 136 pt 7 (RPC #7 `recall_delivered_order` shipped): Seventh architectural mutation RPC. Refactors admin `confirmRecallOrder` (the "Recall to Route" modal that puts a delivered order back on an upcoming route) from 2 non-atomic writes (orders UPDATE + route_stops upsert) to one transactional RPC. A partial failure used to leave the order on a route with no driver stop. **Latent bug fixed:** the prior client tried to read `window_start/end` from the `routes` table — those columns don't exist there. The `if (routeRow?.window_start)` check always skipped, so the delivery window was never actually updated on recall in production. RPC now JOINs through `route_templates` and constructs a Pacific-anchored timestamp. **6-test verification suite** covers today-route → out_for_delivery, future-route → ready_for_delivery, fresh-stop creation, non-delivered rejection, missing-route rejection, reason interpolation + attribution. Admin refactor: -54 net lines. **Scoreboard:** RPCs #1–#7 shipped, 2 left (#8 adjust_customer_credits, #9 save_order_address). Commit `68787eb`.*
 
 *Prior: Apr 25, 2026 — Session 136 pt 6 (RPC #6 `mark_orders_paid` shipped): Sixth architectural mutation RPC. Refactors admin-app `confirmBilling` (Bill Orders batch billing) — replaces 3 nearly-identical branches (credit_card, credit, cash/check/venmo) with a single transactional RPC. Signature: `mark_orders_paid(p_order_ids uuid[], p_payment_method text, p_billing_notes text=NULL, p_actor_name text='Admin', p_apply_credit_amount numeric=0, p_customer_id uuid=NULL)`. Per-order billing events with computed total+tip (matches `_orderTipBreakdown` semantics) + batch UPDATE + atomic credit deduction (when method=credit) all in one transaction. Stripe HTTP for credit_card stays client-side as before. **5-test verification suite** covers cash batch with mixed tip math, credit batch with balance cap, credit_card batch, empty array rejection, missing-customer_id rejection. Admin refactor: -26 net lines. **Scoreboard:** RPCs #1-#6 shipped, 3 left (#7 recall_delivered_order, #8 adjust_customer_credits, #9 save_order_address). Commit `d1b346d`.*
 
@@ -710,6 +712,107 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 25, 2026 (session 136, pt 9) — RPC #9 `save_order_address` shipped — **architectural refactor audit complete**
+
+**Ninth and final architectural mutation RPC.** Replaces admin-app `opSaveAddress`'s non-atomic orders + route_stops writes with one transactional RPC.
+
+**Three bugs fixed simultaneously:**
+
+1. **Non-atomic** — prior orders UPDATE + route_stops UPDATE could partial-fail, leaving the order pointing at a new address while the driver still navigated to the old one.
+
+2. **`.maybeSingle()` amplification bug** — old code did `.from('route_stops').select('id').eq('order_id', X).eq('stop_type','pickup').maybeSingle()` which throws if the order has duplicate non-terminal stops (which can happen after re-routing). The RPC now updates **all** non-terminal stops of the matching type — no `.maybeSingle()` at all.
+
+3. **Delivery-side asymmetry** — the prior client only updated the route_stop for the pickup leg. Delivery address changes left the delivery stop's `address_id` stale, so the driver navigated to the old delivery address. RPC fixes both legs.
+
+**Plus a defensive check:** the new address must belong to the order's customer (prevents attaching another customer's address to an order via a buggy or malicious call).
+
+**Migration `session_136_save_order_address_rpc`:**
+- Signature: `save_order_address(p_order_id uuid, p_leg text, p_address_id uuid, p_actor_name text='Admin') RETURNS jsonb`
+- SECURITY DEFINER, REVOKE FROM PUBLIC + GRANT EXECUTE TO authenticated.
+- Logs attributed `rescheduled` event with the address label, then UPDATEs orders.{leg}_address_id, then UPDATEs all non-terminal route_stops of the matching type.
+
+**Verification — 6 tests, all in BEGIN/ROLLBACK transactions:**
+
+| # | Case | Result |
+|---|---|---|
+| 1 | Pickup atomic — orders + stop both updated | ✅ |
+| 2 | Delivery atomic — stop also updates (prior code didn't!) | ✅ |
+| 3 | Duplicate non-terminal pickup stops, both updated, no throw | ✅ |
+| 4 | Terminal stop (complete) preserved as historical record | ✅ |
+| 5 | Cross-customer address rejected with `invalid_parameter_value` | ✅ |
+| 6 | Bad leg name rejected | ✅ |
+
+Net diff: −8 lines (18 insertions, 14 deletions). Tiny refactor; the savings come from the pre-RPC sequential write pattern being collapsed.
+
+---
+
+## 🎉 RPC refactor audit complete — final scoreboard
+
+All 9 architectural mutation RPCs from the session 135 audit (`RPC-REFACTOR-AUDIT.md`) are shipped:
+
+| # | RPC | Session | Replaces |
+|---|---|---|---|
+| 1 | `reschedule_order_leg` | 135 | 6 raw window/route UPDATE sites |
+| 2 | `advance_order_status` | 135 | 8 raw status UPDATE sites |
+| 3 | `complete_route_stop` | 136 pt 3 | 3 non-atomic writes (route_stops + orders + routes) — highest daily-volume path |
+| 4 | `record_order_intake` | 136 pt 4 | 4 separate intake writes; built-in credit refund step closes the re-intake bug class |
+| 5 | `rack_order` | 136 pt 5 | 4 billing branches + always-runs racking writes |
+| 6 | `mark_orders_paid` | 136 pt 6 | 3 batch-billing branches |
+| 7 | `recall_delivered_order` | 136 pt 7 | 2 non-atomic writes; window lookup also fixed |
+| 8 | `adjust_customer_credits` | 136 pt 8 | last credit-ledger drift site |
+| 9 | `save_order_address` | 136 pt 9 | 2 non-atomic writes; `.maybeSingle()` bug + delivery-side asymmetry fixed |
+
+**Latent bugs caught and fixed during the refactor:**
+- Re-intake credit-burn (Adriana, Sameer, Ja'Naie) — refunded $43 to cards, root cause patched.
+- Recall window never actually applied (routes table has no window columns) — silently no-op'd in production until pt 7.
+- Skipped-stop routes never reached `'complete'` — fixed in pt 3.
+- Duplicate-stop `.maybeSingle()` throw — fixed in pt 9.
+- Delivery address change didn't update delivery stop — fixed in pt 9.
+- `cancelled_by` not stamped on batchSetStatus/batchAdvanceStatus skip/cancel/fail — fixed in pt 2 of session 135.
+
+**Pending tech debt (not in the audit but adjacent):**
+- `_opShiftDeliveryWindow` (admin line 8462) — needs `p_clear_route` extension on RPC #1 to handle the same-day toggle restore path. Currently uses raw UPDATE; fine because it restores previously-valid values.
+- `rollback_order_to_on_hold` — admin's status-dropdown rollback path (`opSetOrderStatus` lines 8721–8750). Touches route_stops cleanup that `advance_order_status` doesn't cover. Currently functional via raw UPDATE + DELETE.
+- `undo_stop_completion` — driver `triggerUndo` (driver-app line 2943). Reverse op of `complete_route_stop`. Could be its own narrow RPC.
+
+These three are noted but lower priority — they're either restoring known-good state (1) or covering rare correction paths (2 and 3).
+
+Commit: `ee2a849`.
+
+---
+
+### Apr 25, 2026 (session 136, pt 8) — RPC #8 `adjust_customer_credits` shipped
+
+**Eighth architectural mutation RPC.** Replaces admin-app `applyCreditAdjust` (manual credit add/remove on the customer panel billing tab) with a single transactional RPC. Same drift pattern session 134 fixed for `apply_customer_credit_to_order`: prior code did `customers.credits` UPDATE then `customer_transactions` INSERT — if the second call failed, balance and ledger drifted apart.
+
+**Migration `session_136_adjust_customer_credits_rpc`:**
+- Signature: `adjust_customer_credits(p_customer_id uuid, p_amount numeric, p_type text, p_note text=NULL, p_actor_name text='Admin') RETURNS jsonb`
+- `p_type` must be `'credit_add'` or `'credit_remove'`.
+- `FOR UPDATE` row lock on the customer for serialized concurrent admin adjustments.
+- **Server-side never-go-negative guard** — `LEAST(p_amount, current)` clamps overdraw inside the transaction. Previously the `Math.max(0, current - amt)` check was client-side only; a buggy or malicious caller could overdraw.
+- SECURITY DEFINER, REVOKE FROM PUBLIC + GRANT EXECUTE TO authenticated.
+
+**Verification — 8 tests, all in BEGIN/ROLLBACK transactions:**
+
+| # | Case | Result |
+|---|---|---|
+| 1 | Add $25 (50 → 75) | ✅ |
+| 2 | Remove $30 within balance (75 → 45) | ✅ |
+| 3 | Overdraw clamp — request $100, actual $45, balance 0 | ✅ |
+| 4 | 3 ledger entries (one per RPC call) | ✅ |
+| 5 | Bad type (`credit_destroy`) rejected | ✅ |
+| 6 | Zero amount rejected | ✅ |
+| 7 | Negative amount rejected | ✅ |
+| 8 | Missing customer raises `no_data_found` | ✅ |
+
+**Toast UX upgrade:** the client now surfaces the actual deducted amount when an overdraw is clamped — *"Removed $X (capped at balance)"*.
+
+Net diff: +8 lines (22 insertions, 14 deletions). Slightly more code because the new path surfaces the actual-vs-requested clamp difference in the toast. Worth it for clarity.
+
+Commit: `8dd4909`.
+
+---
 
 ### Apr 25, 2026 (session 136, pt 7) — RPC #7 `recall_delivered_order` shipped
 
