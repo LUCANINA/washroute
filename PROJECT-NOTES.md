@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 25, 2026 — Session 136 pt 2 (reschedule SMS coverage gap, 5 silent paths fixed): customer Ja'Naie Sinclair (#3117) replied this morning saying her delivery should have arrived yesterday — investigation found her order was placed Apr 24 6:40 AM with same-day 6 PM delivery, then a 6:53 AM bag-count edit silently pushed delivery to next-day; the SMS that fired (`schedule_changed`) only mentioned pickup (which hadn't changed) so she had no way to notice. **Audit identified 5 reschedule paths with SMS gaps:** customer-app `saveEditOrder` (suppresses delivery_rescheduled when both legs move in one edit) + 4 admin paths that send no SMS at all (`selectSpSlot`, `confirmReassignRun`, `rccDrop`, `confirmMoveStop`) + `opSaveRouteAndSlot` only firing on explicit slot-picks not RPC auto-snaps. **Fixes:** customer-app now uses two independent flags so each leg fires its own SMS, both fire when both move; admin-dashboard now has a unified `_maybeNotifyReschedule(orderId, leg, oldStartIso, newStartIso)` helper that compares old vs new window and fires SMS only when the customer-visible time actually changed. Wired into all 5 admin paths. **7-day silent-shift sweep:** 10 customers found whose delivery moved by ≥4h without an SMS — David reaching out per-customer. **⚠️ Sandbox git lock** prevented commit at session end; both patched files are on disk but not committed. **Earlier in session 136:** Sub-window alignment guardrails (5 migrations) — see prior entry below for full context.*
+*Last updated: Apr 25, 2026 — Session 136 pt 3 (RPC #3 `complete_route_stop` shipped): Third architectural mutation RPC. Refactors driver-app `completeStop()` — the **highest-volume daily mutation path** in the system — from 3 non-atomic writes (route_stops + advance_order_status + routes via Promise.all) to a single transactional RPC. Migration `session_136_complete_route_stop_rpc` is SECURITY DEFINER, takes `FOR UPDATE` row lock, has terminal-status idempotency guard, COALESCE on driver_notes + proof_photo_url so background photo uploads don't get clobbered, calls `advance_order_status` internally for order-side effects (consistent attribution with RPC #2), and recomputes route counter from DB. **Latent bug fixed:** old client logic only counted `status='complete'` stops when deciding `all_done` — any skipped/failed stop would leave the route stuck `in_progress` forever. New SQL uses "no pending or en_route remain" so mixed terminal states transition correctly. Driver-app refactor (`796f17e`): 41+/66- lines. **6 tests all pass in BEGIN/ROLLBACK transactions:** happy path with bag adjust, idempotency, null-order, missing stop, multi-stop in_progress, latent skipped-stop fix. **Scoreboard:** RPCs #1, #2, #3 shipped; #4–#9 + small extensions remain. **Earlier in session 136:** SMS coverage gap fix (pt 2) + sub-window alignment guardrails (pt 1). See entries below.*
+
+*Prior: Apr 25, 2026 — Session 136 pt 2 (reschedule SMS coverage gap, 5 silent paths fixed): customer Ja'Naie Sinclair (#3117) replied this morning saying her delivery should have arrived yesterday — investigation found her order was placed Apr 24 6:40 AM with same-day 6 PM delivery, then a 6:53 AM bag-count edit silently pushed delivery to next-day; the SMS that fired (`schedule_changed`) only mentioned pickup (which hadn't changed) so she had no way to notice. **Audit identified 5 reschedule paths with SMS gaps:** customer-app `saveEditOrder` (suppresses delivery_rescheduled when both legs move in one edit) + 4 admin paths that send no SMS at all (`selectSpSlot`, `confirmReassignRun`, `rccDrop`, `confirmMoveStop`) + `opSaveRouteAndSlot` only firing on explicit slot-picks not RPC auto-snaps. **Fixes:** customer-app now uses two independent flags so each leg fires its own SMS, both fire when both move; admin-dashboard now has a unified `_maybeNotifyReschedule(orderId, leg, oldStartIso, newStartIso)` helper that compares old vs new window and fires SMS only when the customer-visible time actually changed. Wired into all 5 admin paths. **7-day silent-shift sweep:** 10 customers found whose delivery moved by ≥4h without an SMS — David reaching out per-customer. **⚠️ Sandbox git lock** prevented commit at session end; both patched files are on disk but not committed. **Earlier in session 136:** Sub-window alignment guardrails (5 migrations) — see prior entry below for full context.*
 
 *Prior: Apr 25, 2026 — Session 136 (sub-window alignment guardrails — root-cause fix for window-vs-route bug class): Morning audit Check 14 surfaced order #2726 (Lauren Ripley) on Hayward AM with delivery window stored as 9–11 AM PT — but Hayward AM has a single 3-hour sub-window (7–10 AM only). Driver would have arrived 7–10 AM, customer was waiting 9–11 AM. Traced to John Roi T moving the delivery from Oakland AM (2h sub-windows) → Hayward AM (3h) at 9:44 PM PT the night before via the admin slot picker — the move kept the original 9–11 AM window even though it doesn't fit the new template's grid. **Three same-shape bugs found:** `reschedule_order_leg` only auto-snapped when fully outside template + never validated `window_end` + no sub-window alignment check. `enforce_window_in_route_template` trigger had the same blind spots PLUS early-returned when `run_id` was changing (the exact bad path). `auto_route_order` did separate UPDATEs for `run_id` vs. window, and only rewrote `window_end` when start happened to differ — leaving end at template_end (e.g. 18:00–22:00 on a 2h-sub PM route). **Five migrations shipped:** (1) `session_136_reschedule_order_leg_subwindow_snap` — RPC validates explicit windows are exactly one sub-window (start aligned, end = start + sub_h, both in template, on run_date); auto-snaps NULL windows to nearest sub-window at-or-before stored time. (2) `session_136_auto_route_order_combined_window_update` — single combined UPDATE for run_id + window_start + window_end; always recomputes end. (3) `session_136_enforce_window_subwindow_alignment` + (4) `session_136_widen_window_enforcement_trigger_bindings` + (5) `session_136_enforce_window_handle_run_id_change` — strict trigger now validates date+start+end+alignment+duration; widened binding to fire on `window_end` changes too (the original binding only watched `window_start`); also handles run_id-only-changes against populated windows. **Hotfix #2726** before the morning reminder cron fired. **Sweep (19 orders)** — all active misaligned windows snapped to nearest sub-window. **7-test verification suite** confirms all 5 bad-update categories are rejected and valid moves still succeed. **Architectural durability:** the trigger fires on every UPDATE touching `*_window_start`, `*_window_end`, or `*_run_id` regardless of caller. As long as the trigger logic is correct (verified), no code path — present or future — can leave the DB with a misaligned window. Snapshots in `_archive._backup_function_defs` as `*__session_136_pre` for all three replaced functions. No app code changed; admin, driver, customer apps all already call the RPC.*
 
@@ -700,6 +702,57 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 25, 2026 (session 136, pt 3) — RPC #3 `complete_route_stop` shipped
+
+**Third architectural mutation RPC.** Refactors driver-app's `completeStop()` — the highest-volume daily mutation path in the system — from 3 non-atomic writes (`route_stops` raw UPDATE → `advance_order_status` RPC → `routes` raw UPDATE in `Promise.all`) to a single transactional RPC. If any one of the three writes failed mid-flight, the stop could be marked complete while the order stayed scheduled, or the route counter drifted from reality. Now atomic.
+
+**Latent bug fixed:** the old client-side route-completion check counted only stops in `status='complete'` when deciding `all_done`. Any skipped or failed stop would leave the route stuck in `'in_progress'` forever. New SQL uses "no pending or en_route stops remain" so mixed terminal states (some complete, some skipped) correctly transition the route to `'complete'`.
+
+**Migration `session_136_complete_route_stop_rpc`:**
+- SECURITY DEFINER plpgsql function, signature `(p_stop_id uuid, p_actor_name text='Driver', p_notes text=NULL, p_photo_url text=NULL, p_photo_skipped bool=false, p_adjusted_bags int=NULL) RETURNS jsonb`
+- `FOR UPDATE` row lock on the stop for double-tap / network-retry safety
+- Terminal-status guard (`status IN ('complete','skipped','failed')`) raises `invalid_parameter_value` on re-completion
+- `stop_type` validation (only `'pickup'`/`'delivery'`)
+- `COALESCE` on `driver_notes` and `proof_photo_url` so a NULL caller arg never erases existing data — important because the driver-app uploads photos via background IndexedDB queue, so `proof_photo_url` may land AFTER the RPC completes
+- `photo_skipped_at` only stamped when caller explicitly skipped AND no photo exists (existing or just-now-passed)
+- Calls `advance_order_status` internally for the order-side effects (`actual_pickup_at` / `actual_delivery_at` stamping, `total_bags` update, attributed `status_change` event log) — keeps attribution + invariants consistent with RPC #2
+- Recomputes `routes.completed_stops` and `routes.status` from DB inside the same transaction (never trusts stale client cache)
+- Doesn't override `routes.status='cancelled'`
+- Returns jsonb with new state for client cache sync (route_completed_stops, route_pending_stops, route_status, all_done, completed_at)
+- `REVOKE FROM PUBLIC` + `GRANT EXECUTE TO authenticated` (matches session 134's `delete_address` RPC pattern; anon role NOT granted)
+
+**Driver-app refactor (`796f17e`):** 41 insertions, 66 deletions (−25 net lines). Replaces the entire 3-write block + Promise.all with one `db.rpc('complete_route_stop', {...})` call. Local cache sync now reads from `rpcRes` (route_completed_stops, route_status, all_done, completed_at) so UI matches DB without a re-fetch. Photo upload queue + SMS notification + reoptimizeRoute calls preserved exactly.
+
+**Verification — 6 tests, all in BEGIN/ROLLBACK transactions:**
+
+| # | Case | Result |
+|---|---|---|
+| 1 | Happy path: pickup with notes + photo_skipped + bag adjust 1→3 | stop+order+route all advance atomically ✅ |
+| 2 | Re-completion attempt | trigger raises `invalid_parameter_value` ✅ |
+| 3 | Stop with NULL order_id | completes via the `IF v_stop.order_id IS NOT NULL` branch, no order side-effects ✅ |
+| 4 | Stop ID that doesn't exist | raises `no_data_found` ✅ |
+| 5 | Multi-stop route (18 pending) — complete one stop | route stays `in_progress`, all_done=false ✅ |
+| 6 | Latent bug: route with one skipped + one pending → complete the pending | route correctly transitions to `'complete'` (would have stayed `'in_progress'` under old logic) ✅ |
+
+Production state untouched (verified post-rollback).
+
+**RPC refactor scoreboard (after pt 3):**
+- ✅ #1 `reschedule_order_leg` (session 135)
+- ✅ #2 `advance_order_status` (session 135)
+- ✅ #3 `complete_route_stop` (session 136 pt 3) ← *this entry*
+- ⏳ #4 `record_order_intake`
+- ⏳ #5 `rack_order`
+- ⏳ #6 `mark_orders_paid`
+- ⏳ #7 `recall_delivered_order`
+- ⏳ #8 `adjust_customer_credits`
+- ⏳ #9 `save_order_address`
+- Plus the small extension on #1 (`p_clear_route` flag for `_opShiftDeliveryWindow`)
+- Plus `rollback_order_to_on_hold` (admin rollback path) and `undo_stop_completion` (driver undo) noted in the audit doc
+
+Commits: migration applied via `apply_migration`; app code committed `796f17e`.
+
+---
 
 ### Apr 25, 2026 (session 136, pt 2) — Reschedule SMS coverage gap (5 silent paths) + 7-day silent-shift sweep
 
