@@ -1,5 +1,7 @@
 # WashRoute — Project Notes
-*Last updated: Apr 25, 2026 — Session 136 pt 14 (Square name override for Eve Piñon): David noticed Eve's hours weren't pulling on the Drivers report. Square has her as `Evelia Piñon` (legal/payroll); WashRoute has her as `Eve Piñon` (nickname). String-match lookup failed. Fix: added nullable `profiles.square_employee_name` column, set Eve's value, updated `loadAllDriversCache` + `renderDriverStats` to use `squareName || name` for the Square lookup. Display name stays "Eve" everywhere in the UI. Eve is the only mismatch in the active driver pool — verified by dumping Square's actual `driver_hours` keys. Same pattern could be applied to the Launderer report if a similar mismatch surfaces. Commit `23ecce8`.*
+*Last updated: Apr 25, 2026 — Session 136 (closed). 26 commits, 20 migrations, 13 transactional RPCs shipped (the full session 135 architectural audit + 3 tech-debt + 1 security migration). Operational fixes: Lauren #2726 misaligned delivery hotfix + 19-order sub-window sweep + $43 refunded to Adriana/Sameer for credit-burn-on-re-intake + 6 catch-up SMSes. Latent bugs caught en route: recall window never applied, skipped-stop routes never reaching 'complete', delivery-side asymmetry on save_order_address, credit-overdraw guard moved server-side, total_orders not maintained for admin/Claude orders, revenue report apparent-hang from slow Stripe call. **Architectural state at close:** every order/stop/route/credit mutation goes through a transactional RPC, strict trigger backstops every window UPDATE, anon revoked across all mutation RPCs, credit ledger never drifts, every state change attributed via `actor_name`. **Final QA + audit:** sub-window misalignment 0, status desync 0, cron failures 0, total_orders undercount 0. **Top priority for next session:** add ownership/role checks inside the 13 mutation RPCs (pre-existing HIGH gap; bounded by RLS + UUID guessability today). Plus 9 customers silently rescheduled by an Apr 15 mass UPDATE — David to outreach. Last commit `c5525df`. Prior entries below have the full part-by-part log.*
+
+*Prior: Apr 25, 2026 — Session 136 pt 14 (Square name override for Eve Piñon): David noticed Eve's hours weren't pulling on the Drivers report. Square has her as `Evelia Piñon` (legal/payroll); WashRoute has her as `Eve Piñon` (nickname). String-match lookup failed. Fix: added nullable `profiles.square_employee_name` column, set Eve's value, updated `loadAllDriversCache` + `renderDriverStats` to use `squareName || name` for the Square lookup. Display name stays "Eve" everywhere in the UI. Eve is the only mismatch in the active driver pool — verified by dumping Square's actual `driver_hours` keys. Same pattern could be applied to the Launderer report if a similar mismatch surfaces. Commit `23ecce8`.*
 
 *Prior: Apr 25, 2026 — Session 136 pt 13 (Daily Revenue report client timeout): David tried Apr 1-25 daily revenue, appeared to hang. Edge function logs showed `get-stripe-fees` legitimately took 54.8s — Stripe pagination over ~1300 BTs needs ~13 round-trips. Not hung, just slow. **Fix:** wrapped the fetch in an `AbortController` with a 12-second timeout; falls back to existing estimated-fees path (italic column + tooltip already communicate "estimated"). Report now renders within 15s for any range. Lesson logged: every external HTTP from a long client flow needs an explicit timeout. Commit `659afdc`.*
 
@@ -722,6 +724,81 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### Apr 25, 2026 (session 136, pt 15) — Final QA + security review
+
+David asked for a closing QA + security pass before wrapping the session.
+
+**Scope reviewed:** 26 commits, 20 migrations, 13 RPCs + 1 trigger refactor, 5 distinct app-code refactors across customer-app / admin-dashboard / driver-app, 1 audit skill update, 19 BEGIN/ROLLBACK test cases shipped during the session.
+
+**Final audit results — clean:**
+- Sub-window misalignment: 0 (was 19 this morning)
+- Stop/order status desync: 0
+- Cron failures 24h: 0
+- `total_orders` undercount remaining: 0 (was 87 before the trigger + backfill)
+- All 20 today's migrations applied without errors
+
+**Blast radius checks:**
+- Every raw `db.from('orders|route_stops|customers').update(...)` across 3 apps matches the audit's "leave alone" list (single isolated fields with no order-correlated invariants).
+- Customer-app's 6-arg `reschedule_order_leg` call still works after the 7-arg version replaced it (PostgreSQL default-parameter routing).
+- DB functions referencing `customers.total_orders`: only the new trigger writes it. No other consumer affected.
+
+**One HIGH severity finding — pre-existing, not introduced today:** No RPC validates customer ownership or admin role. Every mutation RPC trusts the caller. Combined with `GRANT TO authenticated`, any logged-in user could call any RPC on any order given the order's UUID. **Practical risk bounded by:** RLS prevents direct PostgREST reads of other customers' orders (UUIDs aren't trivially discoverable), anon revoke closed the wider hole. **Top priority for next session:** add `assertOwnership(req, customer_id)` to customer-callable RPCs and `requireAdmin()` to admin-only RPCs. Substantial post-hoc patch across 13 RPCs.
+
+**One LOW finding (already flagged earlier in the session):** `cantCompleteStop` in driver-app is non-atomic. Same shape RPC #3 fixed. Logged as future `skip_route_stop` RPC.
+
+**Suggestions for future sessions** (non-blocking):
+- `actor_name` could be auto-derived from `auth.uid()` lookup inside each RPC instead of being a caller parameter — kills both the spoofing concern AND most of the per-RPC auth-check work in one go.
+- `square_employee_name` column has no admin UI — surface in Edit Profile.
+- Apply `squareName || name` lookup proactively to the Launderer report before the next mismatch surfaces.
+- 4 small zone polygon overlaps remain (largest 0.87 sq km Hayward/Concord); session-133-style cleanup whenever convenient.
+
+**No High-severity issues were introduced today.** The pre-existing RPC-ownership gap is the only HIGH on the board, and it's bounded by RLS and UUID guessability. Safe to close out the session.
+
+---
+
+## ✅ Session 136 close-out summary
+
+**Headline:** Spent the day on architectural cleanup. Fixed Lauren Ripley's misaligned delivery + 19 silently-misaligned orders, refunded $43 to two customers (Adriana + Sameer) hit by a credit-burn-on-re-intake bug, then shipped all 9 architectural mutation RPCs from the session 135 audit doc + 3 tech-debt cleanups + 1 security gap close + several bug fixes that surfaced during the work.
+
+**Numbers:**
+- 26 git commits
+- 20 DB migrations
+- 13 transactional RPCs (9 audit + refund_order_credits + p_clear_route extension + rollback_order_to_on_hold + undo_stop_completion)
+- 1 strict trigger (universal sub-window backstop)
+- 1 customer_stats trigger (auto-maintain `total_orders`)
+- 5 customer-facing operational fixes (Lauren #2726, Adriana refund, Sameer refund, Ja'Naie outreach, 6 catch-up SMSes)
+- 1 audit skill update (Check 18 + reporting discipline callout)
+
+**Architectural state at end of session:**
+- Every order/stop/route/credit mutation in the system goes through a transactional RPC. No more raw `db.from(...).update(...)` for any correlated-field write.
+- Strict trigger backstops every window UPDATE — sub-window alignment is now structurally guaranteed.
+- Credit ledger never drifts (4 RPC-protected writers + 1 RPC for refunds).
+- Every state change is attributed via `actor_name`.
+- Anon role revoked from all mutation RPCs — only authenticated callers.
+- `customers.total_orders` denormalized counter maintained by DB trigger (was client-side-only and drifting).
+- Customer/driver/admin apps all RPC-only for mutations.
+
+**Latent bugs caught + fixed during the work:**
+- Re-intake credit-burn (3 customers, $43 refunded)
+- Recall window never actually applied in production
+- Skipped-stop routes never reaching `'complete'`
+- Delivery address change leaving delivery stop stale
+- `.maybeSingle()` throw on duplicate stops
+- Credit-overdraw guard moved server-side
+- Customer-facing batchSetStatus skip paths not stamping `cancelled_by`
+- `total_orders` not bumping on admin/Claude orders
+- Revenue report appearing to hang on long ranges (slow Stripe call, no client timeout)
+- Eve Piñon's Square hours not pulling (nickname vs payroll name mismatch)
+
+**3 findings flagged for next session:**
+1. **HIGH (pre-existing):** RPC ownership/role checks. Add `assertOwnership` + `requireAdmin` across the 13 mutation RPCs. Possibly fold actor derivation into the same pass.
+2. **MEDIUM:** 9 customers silently rescheduled by an Apr 15 mass UPDATE (152 total orders shifted). David to decide per-customer outreach.
+3. **LOW:** `cantCompleteStop` non-atomic — needs `skip_route_stop` RPC for parity with RPC #3.
+
+Plus pre-existing housekeeping: 19 duplicate addresses, 275 orphan customer profiles, 4 small zone overlaps, 567 customers with Starchup-legacy total_orders overcounts (intentional historical preservation).
+
+---
 
 ### Apr 25, 2026 (session 136, pt 14) — Square name override for nickname/payroll mismatches
 
