@@ -16543,23 +16543,20 @@ ${oneCopy}
 
       const successIds = ids.filter(id => !failedOrders.find(f => f.orderId === id));
 
-      // Log billing events for each successfully charged order — log totalWithTip,
-      // since charge-order edge fn always charges pretax + tip (matching what was
-      // actually billed on the customer's card).
-      for (const oid of successIds) {
-        const ord = cpAllOrders.find(x => x.id === oid);
-        const charged = ord ? _orderTipBreakdown(ord).totalWithTip : 0;
-        await logOrderEvent(oid, 'billing', `Charged ${fmtMoney(charged)} via credit card`, null, 'paid');
-      }
-
-      // Mark successfully charged orders as paid in DB
+      // Session 136: mark_orders_paid RPC handles event logging + batch UPDATE
+      // atomically. Each event is attributed to the admin doing the action.
       if (successIds.length > 0) {
-        await db.from('orders').update({
-          billing_status: 'paid',
-          billing_payment_method: 'credit_card',
-          billing_notes: notes || null,
-          billed_at: new Date().toISOString()
-        }).in('id', successIds);
+        const { error: paidErr } = await db.rpc('mark_orders_paid', {
+          p_order_ids:      successIds,
+          p_payment_method: 'credit_card',
+          p_billing_notes:  notes || null,
+          p_actor_name:     currentUserDisplayName || currentUserFirstName || 'Admin',
+          p_customer_id:    panelCustomerId,
+        });
+        if (paidErr) {
+          console.error('mark_orders_paid failed for credit_card batch:', paidErr);
+          showToast('Charged but mark-paid failed — please refresh & verify', 'error');
+        }
       }
 
       if (failedOrders.length > 0) {
@@ -16609,42 +16606,24 @@ ${oneCopy}
 
         btn.disabled = true; btn.textContent = 'Applying…';
 
-        // Step 1: Mark orders as paid FIRST (most important).
-        // billed_at is the single source of truth for "when was this order paid"
-        // (paid_at column was dropped session 134 — see PROJECT-NOTES).
-        const nowIso = new Date().toISOString();
-        const { error: ordErr } = await db.from('orders').update({
-          billing_status: 'paid',
-          billing_payment_method: 'credit',
-          billing_notes: notes || null,
-          billed_at: nowIso,
-        }).in('id', ids);
-        if (ordErr) { showToast('Failed to mark orders paid: ' + ordErr.message, 'error'); btn.disabled = false; btn.textContent = 'Confirm & Apply Credit'; return; }
-
-        // Step 2 + 3: Atomic credit deduction + ledger insert via RPC.
-        // Replaces the prior sequential update + insert which could drift if the ledger
-        // failed mid-pair. The RPC returns the new balance so we don't need to re-query.
-        const orderNums = ids.map(id => '#' + (cpAllOrders.find(x => x.id === id)?.order_number || '?')).join(', ');
-        const { data: creditResult, error: creditErr } = await db.rpc('apply_customer_credit_to_order', {
-          p_customer_id:    panelCustomerId,
-          p_amount:         applied,
-          p_description:    `Applied to ${ids.length} order${ids.length !== 1 ? 's' : ''}: ${orderNums}${notes ? ' — ' + notes : ''}`,
-          p_order_id:       null,  // batch — not tied to a single order
-          p_payment_method: 'credit',
+        // Session 136: single transactional RPC — mark_orders_paid handles
+        // event logging + batch UPDATE + credit deduction (via internal call to
+        // apply_customer_credit_to_order) in one atomic operation. Replaces the
+        // prior 4-step pattern that could drift if any one step failed.
+        const { data: rpcRes, error: rpcErr } = await db.rpc('mark_orders_paid', {
+          p_order_ids:           ids,
+          p_payment_method:      'credit',
+          p_billing_notes:       notes || null,
+          p_actor_name:          currentUserDisplayName || currentUserFirstName || 'Admin',
+          p_apply_credit_amount: applied,
+          p_customer_id:         panelCustomerId,
         });
-        if (creditErr) {
-          console.error('apply_customer_credit_to_order failed in Bill Orders:', creditErr);
-          showToast('Orders marked paid but credit deduction failed — please adjust manually', 'error');
+        if (rpcErr) {
+          showToast('Failed to apply credit batch: ' + rpcErr.message, 'error');
+          btn.disabled = false; btn.textContent = 'Confirm & Apply Credit';
+          return;
         }
-        const newBal = creditResult?.[0]?.new_balance ?? Math.round((creditBal - applied) * 100) / 100;
-
-        // Step 4: Log billing events (best-effort). Show the per-order amount that
-        // was covered (subtotal + tip) so the audit trail is accurate.
-        for (const oid of ids) {
-          const ord = cpAllOrders.find(x => x.id === oid);
-          const orderTotalWithTip = ord ? _orderTipBreakdown(ord).totalWithTip : 0;
-          await logOrderEvent(oid, 'billing', `Paid via account credit — ${fmtMoney(orderTotalWithTip)}`, null, 'paid');
-        }
+        const newBal = rpcRes?.new_credit_balance ?? Math.round((creditBal - applied) * 100) / 100;
 
         // Update in-memory credit balance
         _panelCustomerData.credits = newBal;
@@ -16664,22 +16643,17 @@ ${oneCopy}
       return;
     }
 
-    // ── ALL OTHER METHODS: just record payment ──
+    // ── ALL OTHER METHODS (cash/check/venmo/etc): mark paid via RPC ──
     btn.disabled = true; btn.textContent = 'Saving…';
-    const methodLabel = method === 'check' ? 'check' : method === 'cash' ? 'cash' : method === 'venmo' ? 'Venmo' : method;
-    for (const oid of ids) {
-      const ord = cpAllOrders.find(x => x.id === oid);
-      const collected = ord ? _orderTipBreakdown(ord).totalWithTip : 0;
-      await logOrderEvent(oid, 'billing', `Marked paid via ${methodLabel} — ${fmtMoney(collected)}`, null, 'paid');
-    }
-    const { error } = await db.from('orders').update({
-      billing_status: 'paid',
-      billing_payment_method: method,
-      billing_notes: notes || null,
-      billed_at: new Date().toISOString()
-    }).in('id', ids);
+    const { error } = await db.rpc('mark_orders_paid', {
+      p_order_ids:      ids,
+      p_payment_method: method,
+      p_billing_notes:  notes || null,
+      p_actor_name:     currentUserDisplayName || currentUserFirstName || 'Admin',
+      p_customer_id:    panelCustomerId,
+    });
     if (error) {
-      showToast('Failed to save billing', 'error');
+      showToast('Failed to save billing: ' + error.message, 'error');
       btn.disabled = false; btn.textContent = 'Confirm & Mark Paid';
       return;
     }
