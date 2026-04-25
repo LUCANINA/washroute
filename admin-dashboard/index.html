@@ -21707,144 +21707,90 @@ ${oneCopy}
     if (chargingEl) chargingEl.style.display = '';
     errEl.style.display = 'none';
 
-    // Re-fetch billing fields to avoid stale data (prevents double-charge race condition)
-    const { data: _freshBilling } = await db.from('orders')
-      .select('stripe_payment_intent_id, billing_status, rack_id')
-      .eq('id', rackActiveOrder.id).single();
-    if (_freshBilling) {
-      rackActiveOrder.stripe_payment_intent_id = _freshBilling.stripe_payment_intent_id;
-      rackActiveOrder.billing_status = _freshBilling.billing_status;
-      if (!rackActiveOrder.rack_id) rackActiveOrder.rack_id = _freshBilling.rack_id;
-    }
+    // Session 136: single transactional RPC — rack_order. Replaces 4 separate
+    // billing branches (re_rack, already_charged, fully_credited variants,
+    // on_account, needs_card_charge) plus the always-runs racking writes (event
+    // logs + orders status/rack_id/racked_at update) in one atomic call.
+    // The Stripe charge call (charge-order edge function) stays in the client
+    // because holding a DB transaction open across a Stripe round-trip is risky.
+    // The RPC returns needs_card_charge=true so we know when to make the call.
+    const _rackLabel  = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
+    const _rackActor  = currentUserDisplayName || currentUserFirstName || 'Admin';
+    const _orderId    = rackActiveOrder.id;
+    const _orderNum   = rackActiveOrder.order_number;
 
-    const isRerack = !!rackActiveOrder.rack_id; // re-racking = just moving racks, no charge
-    const alreadyCharged = !!rackActiveOrder.stripe_payment_intent_id || rackActiveOrder.billing_status === 'paid';
-    const hasAmount = Number(rackActiveOrder.total_amount) > 0;
-    const isOnAccount = rackActiveOrder.customers?.billing_type === 'on_account';
-
-    // ── Fully-credited subtotal ($0 after intake credit). Must still handle any tip
-    //    (tips can come out of credits, but they cannot silently disappear).
-    if (!isRerack && !alreadyCharged && !hasAmount) {
-      const tipDollars = _orderTipBreakdown(rackActiveOrder).dollars;
-      const custId = rackActiveOrder.customers?.id || rackActiveOrder.customer_id;
-      const nowIso = new Date().toISOString();
-
-      if (tipDollars > 0 && custId) {
-        // Try to pull the tip from remaining credit balance (fresh read).
-        const { data: freshCust } = await db.from('customers').select('credits').eq('id', custId).single();
-        const bal = parseFloat(freshCust?.credits || 0);
-
-        if (bal >= tipDollars) {
-          // Atomic credit deduction + ledger insert via RPC. Replaces the prior
-          // sequential pattern which could drift if either step failed.
-          const { error: tipCreditErr } = await db.rpc('apply_customer_credit_to_order', {
-            p_customer_id:    custId,
-            p_amount:         tipDollars,
-            p_description:    `Tip for order #${rackActiveOrder.order_number}`,
-            p_order_id:       rackActiveOrder.id,
-            p_payment_method: 'credit',
-          });
-          if (tipCreditErr) {
-            console.error('apply_customer_credit_to_order failed for rack tip:', tipCreditErr);
-            // Fall through — the order will still be marked paid below; tip will need manual adjustment
-          }
-          await db.from('orders').update({
-            stripe_payment_intent_id: 'credit_applied',
-            billing_status: 'paid',
-            billing_payment_method: 'credit',
-            billing_notes: `Fully covered by credits (incl. ${fmtMoney(tipDollars)} tip)`,
-            billed_at: nowIso,
-            updated_at: nowIso,
-          }).eq('id', rackActiveOrder.id);
-          rackActiveOrder.billing_status = 'paid';
-          showToast(`💰 Order #${rackActiveOrder.order_number} — fully covered by credits (incl. tip)`, 'success');
-        } else {
-          // Insufficient credits to cover the tip — route to charge-order so the tip hits the card.
-          try {
-            const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-              method: 'POST',
-              headers: { 'Content-Type':'application/json', 'apikey': SUPA_ANON_KEY },
-              body: JSON.stringify({ orderId: rackActiveOrder.id }),
-            });
-            const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-            if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
-            showToast(`💳 Order #${rackActiveOrder.order_number} — tip (${fmtMoney(tipDollars)}) charged to card`, 'success');
-          } catch (e) {
-            // No card or charge failure — flag for admin follow-up (tip will show in Issues).
-            await db.from('orders').update({
-              billing_status: 'failed',
-              charge_failed_at: nowIso,
-              billing_notes: `Subtotal covered by credits; tip (${fmtMoney(tipDollars)}) could not be charged`,
-            }).eq('id', rackActiveOrder.id);
-            rackActiveOrder.billing_status = 'failed';
-            showToast(`⚠️ Subtotal covered by credits, but tip (${fmtMoney(tipDollars)}) needs collecting — see Issues`, 'error');
-          }
-        }
-      } else {
-        // No tip — simple fully-credited case.
-        await db.from('orders').update({
-          stripe_payment_intent_id: 'credit_applied',
-          billing_status: 'paid',
-          billing_payment_method: 'credit',
-          billing_notes: 'Fully covered by credits',
-          billed_at: nowIso,
-          updated_at: nowIso,
-        }).eq('id', rackActiveOrder.id);
-        rackActiveOrder.billing_status = 'paid';
-        showToast(`💰 Order #${rackActiveOrder.order_number} — fully covered by credits`, 'success');
-      }
-    }
-
-    // ── On Account: skip Stripe charge, add to customer balance ──
-    if (!isRerack && !alreadyCharged && hasAmount && isOnAccount) {
-      const onAcctTotal = _orderTipBreakdown(rackActiveOrder).totalWithTip;
-      showToast(`📋 Order #${rackActiveOrder.order_number} — On Account · ${fmtMoney(onAcctTotal)} added to balance`, 'success');
-    }
-
-    // ── Charge the order (unless it's a re-rack, already charged, $0, or on-account) ──
-    if (!isRerack && !alreadyCharged && hasAmount && !isOnAccount) {
-      try {
-        const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
-          method: 'POST',
-          headers: { 'Content-Type':'application/json', 'apikey': SUPA_ANON_KEY },
-          body: JSON.stringify({ orderId: rackActiveOrder.id }),
-        });
-        const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
-        showToast(`💳 Order #${rackActiveOrder.order_number} charged — ${result.card || ''}`, 'success');
-      } catch (e) {
-        // If error says "already been charged", the order IS paid — don't overwrite to failed
-        if (e.message && e.message.includes('already been charged')) {
-          showToast(`💳 Order #${rackActiveOrder.order_number} was already charged — no duplicate charge`, 'info');
-          rackActiveOrder.billing_status = 'paid';
-        } else {
-          // Genuine payment failure — mark billing as failed.
-          // Order moves to ready_for_delivery and appears in Issues tab for admin to resolve.
-          showToast(`⚠️ Payment failed: ${e.message} — order racked, charge from Order Details`, 'error');
-          await db.from('orders').update({ billing_status: 'failed', charge_failed_at: new Date().toISOString() }).eq('id', rackActiveOrder.id);
-          rackActiveOrder.billing_status = 'failed';
-        }
-      }
-    }
-
-    // Log rack assignment + status change BEFORE update
-    const _rackLabel = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
-    await logOrderEvent(rackActiveOrder.id, 'racked', `Racked on ${_rackLabel}`, null, selectedRackId);
-    await logOrderEvent(rackActiveOrder.id, 'status_change', 'Ready for Delivery', rackActiveOrder.status || 'folding', 'ready_for_delivery');
-
-    const { error } = await db.from('orders').update({
-      status: 'ready_for_delivery', rack_id: selectedRackId,
-      racked_at: new Date().toISOString(), updated_at: new Date().toISOString()
-    }).eq('id', rackActiveOrder.id);
+    const { data: rpcRes, error } = await db.rpc('rack_order', {
+      p_order_id:   _orderId,
+      p_rack_id:    selectedRackId,
+      p_rack_name:  _rackLabel,
+      p_actor_name: _rackActor,
+    });
     if (error) {
       errEl.textContent = error.message;
       errEl.style.display = '';
       if (chargingEl) chargingEl.style.display = 'none';
       return;
     }
-    const rackName   = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
-    const movedId    = rackActiveOrder.id;
-    const orderNum   = rackActiveOrder.order_number; // capture before closeRackPanel() nulls rackActiveOrder
+
+    // Reflect server state locally so subsequent UI logic uses the right values.
+    const billingBranch = rpcRes?.billing_branch || '';
+    const tipDollars    = parseFloat(rpcRes?.tip_dollars || 0);
+    const isOnAccount   = !!rpcRes?.is_on_account;
+    const needsCardCharge = !!rpcRes?.needs_card_charge;
+
+    if (billingBranch === 'fully_credited_no_tip') {
+      rackActiveOrder.billing_status = 'paid';
+      showToast(`💰 Order #${_orderNum} — fully covered by credits`, 'success');
+    } else if (billingBranch === 'fully_credited_tip_from_credit') {
+      rackActiveOrder.billing_status = 'paid';
+      showToast(`💰 Order #${_orderNum} — fully covered by credits (incl. ${fmtMoney(tipDollars)} tip)`, 'success');
+    } else if (billingBranch === 'on_account') {
+      // Surface the running on-account balance the same way as before.
+      const onAcctTotal = _orderTipBreakdown(rackActiveOrder).totalWithTip;
+      showToast(`📋 Order #${_orderNum} — On Account · ${fmtMoney(onAcctTotal)} added to balance`, 'success');
+    } else if (billingBranch === 'already_charged' || billingBranch === 're_rack') {
+      // No-op for billing — the toast at the bottom announces racking.
+    }
+
+    // Charge the card if the RPC told us to (standard charge OR tip-needs-card).
+    if (needsCardCharge) {
+      try {
+        const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json', 'apikey': SUPA_ANON_KEY },
+          body: JSON.stringify({ orderId: _orderId }),
+        });
+        const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        if (!res.ok || result.error) throw new Error(result.error || `HTTP ${res.status}`);
+        if (billingBranch === 'fully_credited_tip_needs_card') {
+          showToast(`💳 Order #${_orderNum} — tip (${fmtMoney(tipDollars)}) charged to card`, 'success');
+        } else {
+          showToast(`💳 Order #${_orderNum} charged — ${result.card || ''}`, 'success');
+        }
+      } catch (e) {
+        // "already been charged" means it WAS paid; preserve that, don't mark failed.
+        if (e.message && e.message.includes('already been charged')) {
+          showToast(`💳 Order #${_orderNum} was already charged — no duplicate charge`, 'info');
+          rackActiveOrder.billing_status = 'paid';
+        } else {
+          showToast(`⚠️ Payment failed: ${e.message} — order racked, charge from Order Details`, 'error');
+          const failNote = billingBranch === 'fully_credited_tip_needs_card'
+            ? `Subtotal covered by credits; tip (${fmtMoney(tipDollars)}) could not be charged`
+            : null;
+          const failPatch = { billing_status: 'failed', charge_failed_at: new Date().toISOString() };
+          if (failNote) failPatch.billing_notes = failNote;
+          await db.from('orders').update(failPatch).eq('id', _orderId);
+          rackActiveOrder.billing_status = 'failed';
+        }
+      }
+    }
+
+    // Local state mirrors what the RPC just wrote.
+    rackActiveOrder.status   = 'ready_for_delivery';
+    rackActiveOrder.rack_id  = selectedRackId;
+    const rackName   = _rackLabel;
+    const movedId    = _orderId;
+    const orderNum   = _orderNum;
     const isWalkIn   = rackActiveOrder.source === 'walk_in';
     const custPhone  = rackActiveOrder.customers?.phone_cache || null;
     const custFirst  = rackActiveOrder.customers?.first_name_cache || 'there';
