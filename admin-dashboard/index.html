@@ -24387,23 +24387,38 @@ ${oneCopy}
       refundsByOrderId[t.order_id] = (refundsByOrderId[t.order_id] || 0) + Math.abs(parseFloat(t.amount || 0));
     });
 
-    // Fetch actual Stripe fees for the date window — fire-and-wait (blocks final render)
+    // Fetch actual Stripe fees for the date window — bounded by a client-side
+    // timeout so long ranges don't appear to hang. Stripe's balanceTransactions
+    // pagination iterates 100/page; for 25+ day ranges this can hit ~50s
+    // (observed in edge-function logs). Past 12s we abort and fall back to the
+    // 2.9% + $0.30 estimate, marking the column italic via feeEstimated=true.
     let feesByPI = {};
-    try {
-      const { data: { session } } = await db.auth.getSession();
-      const feeRes = await fetch(`${SUPA_URL}/functions/v1/get-stripe-fees`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || SUPA_ANON_KEY}` },
-        body: JSON.stringify({ from: selFrom, to: selTo })
-      });
-      if (feeRes.ok) {
-        const payload = await feeRes.json();
-        feesByPI = payload.feesByPI || {};
-      } else {
-        console.warn('[revenue] get-stripe-fees non-ok:', await feeRes.text());
+    {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      try {
+        const { data: { session } } = await db.auth.getSession();
+        const feeRes = await fetch(`${SUPA_URL}/functions/v1/get-stripe-fees`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || SUPA_ANON_KEY}` },
+          body: JSON.stringify({ from: selFrom, to: selTo }),
+          signal: controller.signal,
+        });
+        if (feeRes.ok) {
+          const payload = await feeRes.json();
+          feesByPI = payload.feesByPI || {};
+        } else {
+          console.warn('[revenue] get-stripe-fees non-ok:', await feeRes.text());
+        }
+      } catch (err) {
+        if (err?.name === 'AbortError') {
+          console.warn('[revenue] get-stripe-fees timed out >12s — falling back to estimated fees');
+        } else {
+          console.warn('[revenue] get-stripe-fees failed, falling back to estimate:', err?.message);
+        }
+      } finally {
+        clearTimeout(timeoutId);
       }
-    } catch (err) {
-      console.warn('[revenue] get-stripe-fees failed, falling back to estimate:', err?.message);
     }
 
     // Convert a tip (amount + type) to dollars.
