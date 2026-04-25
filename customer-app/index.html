@@ -5012,18 +5012,22 @@ async function placeOrder() {
   if (draft.specialInstructions) mergedPrefs._notes = draft.specialInstructions;
   else delete mergedPrefs._notes;
 
-  // Update customer stats, save preferences, and persist tip for future orders
+  // Update customer stats, save preferences, and persist tip for future orders.
+  // Session 136: total_orders + last_order_at are now maintained server-side by
+  // the update_customer_last_order_at AFTER INSERT trigger on orders. Keeping
+  // the client increment here would double-count. total_bags + preferences +
+  // default_tip stay client-side because they're not order-INSERT-correlated
+  // counters that admin/DB-direct paths also need to bump.
   const _tipAmt  = parseFloat(draft.tipAmount || 0);
   const _tipType = draft.tipType || '$';
   await db.from('customers').update({
-    total_orders:    (currentCustomer.total_orders||0)+1,
     total_bags:      (currentCustomer.total_bags||0)+bags,
-    last_order_at:   new Date().toISOString(),
     preferences:     mergedPrefs,
     default_tip:     _tipAmt,
     default_tip_type: _tipType
   }).eq('id', currentCustomer.id);
-  // Keep local copy in sync so next order in this session also pre-populates
+  // Keep local copy in sync so next order in this session also pre-populates.
+  // total_orders is bumped by the DB trigger; reflect that bump locally too.
   currentCustomer.preferences = mergedPrefs;
   currentCustomer.total_orders    = (currentCustomer.total_orders||0)+1;
   currentCustomer.total_bags      = (currentCustomer.total_bags||0)+bags;
