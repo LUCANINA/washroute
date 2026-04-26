@@ -16727,8 +16727,22 @@ ${oneCopy}
       ? [defaultAddr.line1, defaultAddr.line2, `${defaultAddr.city}, ${defaultAddr.state} ${defaultAddr.zip}`].filter(Boolean).map(l => esc(l))
       : [];
     const today    = new Date().toLocaleDateString('en-US', { weekday:'short', month:'numeric', day:'numeric', year:'2-digit' });
-    const totalAmount = orders.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
-    const totalPaid   = orders.filter(o => !!o.stripe_payment_intent_id || o.billing_status === 'paid').reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+    // Session 137: receipt grand-total = subtotal + computed tip dollars,
+    // mirroring charge-order's chargeAmount math so the admin PDF agrees with
+    // what Stripe actually billed (and with the customer's email receipt).
+    function _orderTipDollars(o) {
+      const sub = parseFloat(o.total_amount || 0);
+      const tip = parseFloat(o.tip_amount || 0);
+      if (!tip) return 0;
+      return o.tip_type === 'pct'
+        ? Math.round(sub * tip) / 100
+        : Math.round(tip * 100) / 100;
+    }
+    function _orderChargedTotal(o) {
+      return Math.round((parseFloat(o.total_amount || 0) + _orderTipDollars(o)) * 100) / 100;
+    }
+    const totalAmount = orders.reduce((s, o) => s + _orderChargedTotal(o), 0);
+    const totalPaid   = orders.filter(o => !!o.stripe_payment_intent_id || o.billing_status === 'paid').reduce((s, o) => s + _orderChargedTotal(o), 0);
     const totalDue    = totalAmount - totalPaid;
 
     function fmtInvMoney(n) { return '$' + parseFloat(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
@@ -16760,12 +16774,23 @@ ${oneCopy}
               <td style="padding:2px 0 2px 24px;font-size:12px;color:#059669">${li.label||'Credit applied'}</td>
               <td style="text-align:right;padding:2px 0;font-size:12px;color:#059669">−${fmtInvMoney(Math.abs(li.amount))}</td>
             </tr>`).join('');
-      // Payment status row
+      // Tip row (session 137) — only rendered when tip_amount > 0, surfaces
+      // the same Team Tip line the customer's email receipt shows, and folds
+      // into the grand total below.
+      const tipDol = _orderTipDollars(o);
+      const tipRow = tipDol > 0 ? `
+            <tr>
+              <td style="padding:2px 0 2px 24px;font-size:12px;color:#333">${o.tip_type === 'pct' ? `Team Tip (${parseFloat(o.tip_amount)}%)` : 'Team Tip'}</td>
+              <td style="text-align:right;padding:2px 0;font-size:12px">${fmtInvMoney(tipDol)}</td>
+            </tr>` : '';
+      const chargedTotal = _orderChargedTotal(o);
+      // Payment status row — uses charged total so the "PAID" amount matches
+      // what Stripe actually collected (subtotal + tip), not the pre-tip subtotal.
       const paidMethodLabel = o.billing_payment_method === 'credit' ? ' (Account Credit)' : o.billing_payment_method === 'check' ? ' (Check)' : o.billing_payment_method === 'cash' ? ' (Cash)' : o.stripe_payment_intent_id ? ' (Card)' : '';
       const paidRow = isPaid ? `
             <tr>
               <td style="padding:4px 0 0 24px;font-size:12px;font-weight:600;color:#059669">✓ PAID${paidMethodLabel}</td>
-              <td style="text-align:right;font-size:12px;font-weight:600;color:#059669;padding:4px 0 0">−${fmtInvMoney(o.total_amount)}</td>
+              <td style="text-align:right;font-size:12px;font-weight:600;color:#059669;padding:4px 0 0">−${fmtInvMoney(chargedTotal)}</td>
             </tr>
             <tr>
               <td style="padding:4px 0 0 24px;font-size:12px;font-weight:700">Balance</td>
@@ -16779,13 +16804,14 @@ ${oneCopy}
           <table style="width:100%;border-collapse:collapse">
             ${lineRows}
             ${creditRows}
+            ${tipRow}
             ${o.weight_lbs ? `<tr><td style="padding:2px 0 2px 24px;font-size:12px;color:#777">Weight</td><td style="text-align:right;padding:2px 0;font-size:12px;color:#777">${o.weight_lbs} lbs</td></tr>` : ''}
             <tr>
               <td colspan="2" style="padding:5px 0 0"><hr style="border:none;border-top:1px solid #eee;margin:0"></td>
             </tr>
             <tr>
               <td style="padding:4px 0 0 24px;font-size:12px;font-weight:600">Grand Total</td>
-              <td style="text-align:right;font-size:12px;font-weight:600;padding:4px 0 0">${fmtInvMoney(o.total_amount)}</td>
+              <td style="text-align:right;font-size:12px;font-weight:600;padding:4px 0 0">${fmtInvMoney(chargedTotal)}</td>
             </tr>
             ${paidRow}
           </table>
@@ -26116,7 +26142,7 @@ ${oneCopy}
     const dueDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
 
     // Build per-order detail sections
-    let grandSubtotal = 0, grandDeliveryFees = 0, grandTotal = 0;
+    let grandSubtotal = 0, grandDeliveryFees = 0, grandTips = 0, grandTotal = 0;
 
     const orderSections = orders.map((o, idx) => {
       const items = Array.isArray(o.line_items) ? o.line_items : [];
@@ -26131,10 +26157,19 @@ ${oneCopy}
       const serviceItems = items.filter(li => li.type !== 'delivery_fee');
       const deliveryFee = items.filter(li => li.type === 'delivery_fee').reduce((s, li) => s + Number(li.amount || 0), 0);
       const subtotal = serviceItems.reduce((s, li) => s + Number(li.amount || 0), 0);
-      const orderTotal = Number(o.total_amount || 0);
+      const preTipTotal = Number(o.total_amount || 0);
+      // Session 137: include tip dollars in the invoice grand total so the
+      // "PAID" amount the customer sees matches what was actually billed.
+      const _tipRaw = Number(o.tip_amount || 0);
+      const tipDollars = !_tipRaw ? 0
+        : (o.tip_type === 'pct'
+            ? Math.round(preTipTotal * _tipRaw) / 100
+            : Math.round(_tipRaw * 100) / 100);
+      const orderTotal = Math.round((preTipTotal + tipDollars) * 100) / 100;
 
       grandSubtotal += subtotal;
       grandDeliveryFees += deliveryFee;
+      grandTips += tipDollars;
       grandTotal += orderTotal;
 
       // Build line item rows
@@ -26167,6 +26202,10 @@ ${oneCopy}
           ${deliveryFee > 0 ? `<tr>
             <td style="padding:4px 12px;font-size:13px">Delivery Fee</td>
             <td style="padding:4px 12px;text-align:right;font-size:13px">$${deliveryFee.toFixed(2)}</td>
+          </tr>` : ''}
+          ${tipDollars > 0 ? `<tr>
+            <td style="padding:4px 12px;font-size:13px">${o.tip_type === 'pct' ? `Team Tip (${_tipRaw}%)` : 'Team Tip'}</td>
+            <td style="padding:4px 12px;text-align:right;font-size:13px">$${tipDollars.toFixed(2)}</td>
           </tr>` : ''}
           <tr style="border-top:1px solid #d1d5db">
             <td style="padding:6px 12px;font-size:14px;font-weight:700">Grand Total</td>
@@ -26232,6 +26271,10 @@ ${orderSections}
     <td style="padding:5px 0;font-size:12px">Delivery Fees</td>
     <td style="padding:5px 0;text-align:right;font-size:12px">$${grandDeliveryFees.toFixed(2)}</td>
   </tr>
+  ${grandTips > 0 ? `<tr>
+    <td style="padding:5px 0;font-size:12px">Team Tips</td>
+    <td style="padding:5px 0;text-align:right;font-size:12px">$${grandTips.toFixed(2)}</td>
+  </tr>` : ''}
   <tr style="border-top:1px solid #d1d5db">
     <td style="padding:7px 0;font-size:14px;font-weight:700">Total Due</td>
     <td style="padding:7px 0;text-align:right;font-size:14px;font-weight:700">$${grandTotal.toFixed(2)}</td>
@@ -26365,13 +26408,20 @@ ${orderSections}
     doc.setFontSize(12); doc.setFont('helvetica', 'bold');
     doc.text(title, ml, y);
 
-    // Compute grand totals
-    let grandSub = 0, grandDel = 0, grandTotal = 0;
+    // Compute grand totals — session 137: grandTotal sums charged totals
+    // (subtotal + tip) so the upper-right header amount and bottom Total Due
+    // both match what was/will be billed.
+    let grandSub = 0, grandDel = 0, grandTip = 0, grandTotal = 0;
     orders.forEach(o => {
       const items = Array.isArray(o.line_items) ? o.line_items : [];
       const delFee = items.filter(li => li.type === 'delivery_fee').reduce((s, li) => s + Number(li.amount||0), 0);
       const sub = items.filter(li => li.type !== 'delivery_fee').reduce((s, li) => s + Number(li.amount||0), 0);
-      grandSub += sub; grandDel += delFee; grandTotal += Number(o.total_amount||0);
+      const _preTip = Number(o.total_amount||0);
+      const _tipRaw = Number(o.tip_amount||0);
+      const _tipDol = !_tipRaw ? 0
+        : (o.tip_type === 'pct' ? Math.round(_preTip * _tipRaw)/100 : Math.round(_tipRaw*100)/100);
+      grandSub += sub; grandDel += delFee; grandTip += _tipDol;
+      grandTotal += Math.round((_preTip + _tipDol) * 100) / 100;
     });
     doc.setFontSize(14);
     rText('$' + grandTotal.toFixed(2), y);
@@ -26402,7 +26452,14 @@ ${orderSections}
       const serviceItems = items.filter(li => li.type !== 'delivery_fee');
       const delFee = items.filter(li => li.type === 'delivery_fee').reduce((s, li) => s + Number(li.amount||0), 0);
       const sub = serviceItems.reduce((s, li) => s + Number(li.amount||0), 0);
-      const orderTotal = Number(o.total_amount||0);
+      const preTipTotal = Number(o.total_amount||0);
+      // Session 137: include tip dollars (mirrors charge-order math).
+      const _tipRaw = Number(o.tip_amount||0);
+      const tipDollars = !_tipRaw ? 0
+        : (o.tip_type === 'pct'
+            ? Math.round(preTipTotal * _tipRaw) / 100
+            : Math.round(_tipRaw * 100) / 100);
+      const orderTotal = Math.round((preTipTotal + tipDollars) * 100) / 100;
 
       // Order header
       doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(17,17,17);
@@ -26434,6 +26491,12 @@ ${orderSections}
           doc.text('Delivery Fee', ml + 3, y);
           rText('$' + delFee.toFixed(2), y); y += 4.5;
         }
+        // Tip (session 137 — only when tip_amount > 0)
+        if (tipDollars > 0) {
+          doc.setFont('helvetica', 'normal');
+          doc.text(o.tip_type === 'pct' ? `Team Tip (${_tipRaw}%)` : 'Team Tip', ml + 3, y);
+          rText('$' + tipDollars.toFixed(2), y); y += 4.5;
+        }
         // Grand total
         hLine(y - 1, [209,213,219]); y += 2;
         doc.setFontSize(10); doc.setFont('helvetica', 'bold');
@@ -26456,6 +26519,7 @@ ${orderSections}
     doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(17,17,17);
     doc.text('Subtotal', ml, y); rText('$' + grandSub.toFixed(2), y); y += 4.5;
     doc.text('Delivery Fees', ml, y); rText('$' + grandDel.toFixed(2), y); y += 4.5;
+    if (grandTip > 0) { doc.text('Team Tips', ml, y); rText('$' + grandTip.toFixed(2), y); y += 4.5; }
     hLine(y - 1, [209,213,219]); y += 2;
     doc.setFontSize(11); doc.setFont('helvetica', 'bold');
     doc.text('Total Due', ml, y); rText('$' + grandTotal.toFixed(2), y); y += 10;
