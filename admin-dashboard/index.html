@@ -18786,7 +18786,7 @@ ${oneCopy}
       .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id, estimated_arrival, photo_skipped_at,
                orders(id, status, total_bags, customer_id, pickup_address_id, delivery_address_id,
                  pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end, overcap_booking,
-                 customers(first_name_cache, last_name_cache))`)
+                 customers(first_name_cache, last_name_cache, phone_cache, sms_marketing_opt_out_at))`)
       .eq('route_id', routeId)
       .order('stop_number');
 
@@ -19817,7 +19817,7 @@ ${oneCopy}
       .select(`id, route_id, stop_number, stop_type, status, driver_id, moved_from_route_id, address_id, estimated_arrival, photo_skipped_at,
                orders(id, status, total_bags, customer_id, pickup_address_id, delivery_address_id,
                  pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end, overcap_booking,
-                 customers(first_name_cache, last_name_cache))`)
+                 customers(first_name_cache, last_name_cache, phone_cache, sms_marketing_opt_out_at))`)
       .eq('route_id', routeId)
       .order('stop_number');
 
