@@ -1072,6 +1072,15 @@ const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
 const BIZ_TZ = 'America/Los_Angeles';
 const db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'wr-driver-auth', autoRefreshToken: true, persistSession: true } });
+// Session 137 security: returns the logged-in driver's JWT. Used when calling
+// edge functions (send-sms, etc.) that now require a real staff session
+// instead of the publicly embedded anon key.
+async function _staffJwt() {
+  try {
+    const { data: { session } = {} } = await db.auth.getSession();
+    return session?.access_token || SUPA_KEY;
+  } catch (_) { return SUPA_KEY; }
+}
 
 let currentUser = null, currentProfile = null, currentDriver = null;
 let todayRoutes = [], allStops = [], pendingOrders = [], upcomingRoutes = [];
@@ -3518,7 +3527,7 @@ async function sendMessageInThread() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${SUPA_KEY}`,
+          'Authorization': `Bearer ${await _staffJwt()}`,
         },
         body: JSON.stringify({
           to: custInfo.phone,

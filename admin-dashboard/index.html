@@ -4567,6 +4567,16 @@
 
   const SUPA_URL      = 'https://umjpbuxrdydwejqtensq.supabase.co';
   const SUPA_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
+  // Session 137 security: returns the logged-in admin's JWT (or anon as a
+  // fallback that hardened edge functions explicitly reject). Use this
+  // anywhere we fetch() an edge function that now enforces caller identity
+  // (send-sms, refund-charge, etc.) so the function can verify role='admin'.
+  async function _staffJwt() {
+    try {
+      const { data: { session } = {} } = await db.auth.getSession();
+      return session?.access_token || SUPA_ANON_KEY;
+    } catch (_) { return SUPA_ANON_KEY; }
+  }
   const STRIPE_PK     = 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B';
   const { createClient } = supabase;
   // NOTE: We previously cleared localStorage on fresh-tab visits (no sessionStorage key)
@@ -6687,7 +6697,7 @@
       const body = `Hi ${name}, this is ${sender} from Family Laundry. Can I help you place your first order with us? Have any questions?`;
       const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({ to: phone, body, customer_id: custId }),
       });
       if (!res.ok) throw new Error('SMS send failed');
@@ -10594,7 +10604,7 @@ ${oneCopy}
       try {
         const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
           body: JSON.stringify({ to, body, ...(_matchCust ? { customer_id: _matchCust.id } : {}) }),
         });
         const data = await res.json();
@@ -10617,7 +10627,7 @@ ${oneCopy}
       try {
         const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
           body: JSON.stringify({ to: o.phone, body, customer_id: o.customerId }),
         });
         if (res.ok) sent++; else failed++;
@@ -11437,7 +11447,7 @@ ${oneCopy}
         sends.push(
           fetch(`${SUPA_URL}/functions/v1/send-sms`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
             body: JSON.stringify({ to: phone, body: smsBody, customer_id: custId }),
           })
         );
@@ -12180,7 +12190,7 @@ ${oneCopy}
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({ to: currentConvPhone, body, customer_id: currentConvCustomerId }),
       });
       const data = await res.json();
@@ -16058,9 +16068,19 @@ ${oneCopy}
     btn.disabled = true; btn.textContent = 'Processing…';
 
     try {
+      // Session 137: refund-charge now requires the caller's user JWT so the
+      // edge function can verify admin role. Pass the current session token,
+      // falling back to the anon key only as a safety net (which the function
+      // explicitly rejects, surfacing a clear error).
+      const { data: { session } = {} } = await db.auth.getSession();
+      const userJwt = session?.access_token || SUPA_ANON_KEY;
       const res = await fetch(`${SUPA_URL}/functions/v1/refund-charge`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPA_ANON_KEY,
+          'Authorization': `Bearer ${userJwt}`,
+        },
         body: JSON.stringify({ transactionId: _refundTxnId, amount: amtRaw, reason: reason || undefined }),
       });
       const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -22301,7 +22321,7 @@ ${oneCopy}
       const smsBody = `Hi ${custFirst}! Your laundry is ready for pickup. See you soon! — Family Laundry`;
       fetch(`${SUPA_URL}/functions/v1/send-sms`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY, 'Authorization': `Bearer ${await _staffJwt()}` },
         body: JSON.stringify({ to: toE164, body: smsBody, customer_id: custId }),
       }).then(r => r.json()).then(res => {
         if (res.success) showToast(`📱 Pickup text sent to ${custFirst}`, 'success');
@@ -24791,7 +24811,7 @@ ${oneCopy}
       try {
         const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
           body: JSON.stringify({
             to,
             body: _launchSmsBody(c.first_name_cache || 'there'),
@@ -25787,7 +25807,7 @@ ${oneCopy}
         try {
           const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
             body: JSON.stringify({ to, body: _launchSmsBody(c.first_name_cache || 'there'), customer_id: c.id }),
           });
           if (res.ok) sentSms++; else failSms++;
