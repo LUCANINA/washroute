@@ -4683,6 +4683,19 @@
   const initials = (f,l) => ((f||'?')[0]+(l||'')[0]).toUpperCase();
   const colorFor = (_id) => 'transparent'; // monochrome avatars — color applied via CSS border
   const fmtMoney = (n) => '$'+Number(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  // Session 137: actual charged total for an order = subtotal + computed tip dollars,
+  // matching charge-order's chargeAmount math. Use everywhere a customer-facing
+  // amount needs to reflect what Stripe actually billed (receipts, lists, totals).
+  // Falls back to total_amount when tip fields are missing on the row.
+  function orderChargedTotal(o) {
+    const sub = Number(o?.total_amount || 0);
+    const tip = Number(o?.tip_amount || 0);
+    if (!tip) return Math.round(sub * 100) / 100;
+    const tipDol = (o.tip_type === 'pct')
+      ? Math.round(sub * tip) / 100
+      : Math.round(tip * 100) / 100;
+    return Math.round((sub + tipDol) * 100) / 100;
+  }
   // Date-only strings ('2026-02-26') are UTC midnight by default, which shows as the previous
   // day in Pacific time. Appending T00:00:00 forces local-midnight parsing instead.
   // Both fmtDate and fmtTime respect BIZ_TZ (loaded from settings table).
@@ -7860,7 +7873,7 @@
           <td style="white-space:nowrap;padding:6px 8px">${pickupCombinedCell(o)}</td>
           <td style="white-space:nowrap;padding:6px 8px">${deliveryCombinedCell(o)}</td>
           <td style="font-size:12px;text-align:center;padding:8px 4px;line-height:1.3">${bagsDisplay}</td>
-          <td style="font-weight:600;padding:8px 10px 8px 4px;white-space:nowrap"><div style="display:flex;align-items:center;justify-content:flex-end;gap:6px">${_payStatusIcon(o)}<span style="font-size:12.5px">${fmtMoney(o.total_amount)}</span></div></td>
+          <td style="font-weight:600;padding:8px 10px 8px 4px;white-space:nowrap"><div style="display:flex;align-items:center;justify-content:flex-end;gap:6px">${_payStatusIcon(o)}<span style="font-size:12.5px">${fmtMoney(orderChargedTotal(o))}</span></div></td>
           ${showAction ? `<td style="padding:8px 10px 8px 2px;white-space:nowrap" onclick="event.stopPropagation()">${actionCell}</td>` : ''}
         </tr>`;
       }).join('')}
@@ -16303,7 +16316,7 @@ ${oneCopy}
     const el = document.getElementById('cp-orders-list');
     el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
     const { data } = await db.from('orders')
-      .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, total_bags, tip_amount, line_items, billing_status, billing_payment_method, billed_at, pickup_window_start, pickup_window_end, created_at, archived_at, archived_reason, services:service_id(name), pickup_run:pickup_run_id(id, name)')
+      .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, total_bags, tip_amount, tip_type, line_items, billing_status, billing_payment_method, billed_at, pickup_window_start, pickup_window_end, created_at, archived_at, archived_reason, services:service_id(name), pickup_run:pickup_run_id(id, name)')
       .eq('customer_id', customerId).order('created_at', { ascending: false });
     cpAllOrders = data || [];
     if (!cpAllOrders.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>'; return; }
@@ -16390,7 +16403,9 @@ ${oneCopy}
       el.innerHTML = filtered.map(o=>{
         const isPaid = !!o.stripe_payment_intent_id || o.billing_status === 'paid';
         const checked = cpBillingSelection.has(o.id);
-        const amt = parseFloat(o.total_amount||0);
+        // Session 137: show charged total (subtotal + tip) so list rows agree
+        // with the receipt and Stripe.
+        const amt = orderChargedTotal(o);
         const dateStr = fmtDate(o.pickup_window_start || o.created_at);
         const methodLabel = !isPaid ? '' : o.billing_payment_method === 'credit' ? ' (credit)' : o.billing_payment_method === 'check' ? ' (check)' : o.billing_payment_method === 'cash' ? ' (cash)' : '';
         const paidBadge = isPaid
@@ -16426,7 +16441,7 @@ ${oneCopy}
           <div style="font-size:11.5px;color:var(--gray-400)">${cpOrderMeta(o)}</div>
         </div>
         ${statusBadge(o.status)}
-        <span class="cp-order-amt">${fmtMoney(o.total_amount)}</span>
+        <span class="cp-order-amt">${fmtMoney(orderChargedTotal(o))}</span>
         ${actionBtn}
       </div>`;
     }).join('');
@@ -16497,7 +16512,7 @@ ${oneCopy}
     if (method === 'credit') {
       const creditBal = parseFloat(_panelCustomerData?.credits || 0);
       const total = cpAllOrders.filter(o => cpBillingSelection.has(o.id) && !o.stripe_payment_intent_id)
-        .reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+        .reduce((s, o) => s + orderChargedTotal(o), 0);
       if (creditBal < total) {
         creditWarn.textContent = `Credit balance (${fmtMoney(creditBal)}) is less than total (${fmtMoney(total)}). ${fmtMoney(creditBal)} will be applied; remaining ${fmtMoney(total - creditBal)} stays outstanding.`;
         creditWarn.style.display = '';
