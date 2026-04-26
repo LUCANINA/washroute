@@ -781,6 +781,18 @@
     .rcc-window-divider { font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--gray-400);padding:5px 4px 3px;border-bottom:1px solid var(--gray-200);margin-bottom:2px;margin-top:4px;user-select:none; }
     .rcc-window-divider.rcc-first-div { margin-top:0; }
     .rcc-moved-badge { display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border-radius:4px;font-size:9.5px;font-weight:700;letter-spacing:.01em;flex-shrink:0;background:color-mix(in srgb,var(--badge-color) 10%,#fff);color:color-mix(in srgb,var(--badge-color) 85%,#000);border:1px solid color-mix(in srgb,var(--badge-color) 30%,#fff); }
+    /* ── RCC bulk-select mode (session 137) ── */
+    .rcc-select-btn { background:none;border:1px solid transparent;cursor:pointer;color:var(--gray-400);font-size:11px;font-weight:600;line-height:1;padding:3px 6px;flex-shrink:0;display:inline-flex;align-items:center;gap:3px;border-radius:5px;transition:background .12s,color .12s,border-color .12s;margin-right:2px; }
+    .rcc-select-btn:hover { background:var(--gray-100);color:var(--gray-700);border-color:var(--gray-200); }
+    .rcc-select-btn.active { background:var(--accent);color:#fff;border-color:var(--accent); }
+    .rcc-select-btn.active:hover { background:#5249f0;color:#fff;border-color:#5249f0; }
+    .rcc-col.rcc-in-select { box-shadow:0 0 0 2px var(--accent),0 6px 16px rgba(99,91,255,.18); }
+    .rcc-card.rcc-selectable { cursor:pointer; }
+    .rcc-card.rcc-selectable:hover { border-color:var(--accent);box-shadow:0 2px 6px rgba(99,91,255,.15);transform:none; }
+    .rcc-card.rcc-selected { border-color:var(--accent);background:#f5f4ff; }
+    .rcc-card.rcc-selected:hover { border-color:var(--accent);background:#f5f4ff; }
+    .rcc-stop-num.rcc-checkbox { background:#fff !important;border:1.5px solid var(--gray-300);color:transparent;transition:background .13s,border-color .13s,color .13s; }
+    .rcc-card.rcc-selected .rcc-stop-num.rcc-checkbox { background:var(--accent) !important;border-color:var(--accent);color:#fff;font-size:11px; }
     .pin-done { background: var(--green); }
     .pin-now  { background: var(--blue); animation: ppulse 1.4s infinite; }
     .pin-next { background: var(--gray-400); }
@@ -2900,6 +2912,51 @@
     Send Invoice
   </button>
   <button class="batch-bar-dismiss" onclick="clearOASelection()" title="Dismiss">&times;</button>
+</div>
+
+<!-- ── FLOATING RCC (Map page) BATCH BAR — session 137 ── -->
+<div class="batch-bar" id="rcc-batch-bar">
+  <span class="batch-bar-count" id="rcc-bb-count">0 selected</span>
+  <div class="batch-bar-sep"></div>
+  <button class="batch-bar-btn" onclick="rccBatchSendSms()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+    Send SMS
+  </button>
+  <button class="batch-bar-btn" id="rcc-bb-resched-btn" data-leg="" onclick="rccBatchReschedule()" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    <span id="rcc-bb-resched-label">Reschedule</span>
+  </button>
+  <button class="batch-bar-dismiss" onclick="rccClearSelection()" title="Cancel selection">×</button>
+</div>
+
+<!-- ── BULK RESCHEDULE MODAL — session 137 ── -->
+<div id="modal-rcc-reschedule" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1050;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:540px;width:92%">
+    <div class="modal-header">
+      <div class="modal-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="vertical-align:-2px;margin-right:6px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        Reschedule <span id="rcc-rs-count">N</span> <span id="rcc-rs-leg-noun">pickups</span>
+      </div>
+      <button class="modal-close" onclick="rccCloseRescheduleModal()"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;max-height:72vh;overflow-y:auto">
+      <div style="font-size:12.5px;color:var(--gray-600);line-height:1.5">
+        Pick a new <span id="rcc-rs-leg-word">pickup</span> date. Each stop stays on its current route template — just on the chosen date, in the same time-of-day window.
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">New date</div>
+        <div id="rcc-rs-days" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+      <div id="rcc-rs-preview" style="display:none">
+        <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Preview</div>
+        <div id="rcc-rs-preview-body" style="font-size:12.5px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:12px;line-height:1.55"></div>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="btn btn-ghost" onclick="rccCloseRescheduleModal()">Cancel</button>
+      <button class="btn btn-primary" id="rcc-rs-confirm" onclick="rccConfirmReschedule()" disabled>Confirm reschedule</button>
+    </div>
+  </div>
 </div>
 
 <!-- SMS Compose Modal -->
@@ -5849,6 +5906,7 @@
     // Also exit map-fullscreen — otherwise the topbar stays hidden on other pages.
     if (currentPage === 'orders' && id !== 'orders') {
       clearOrderSelection();
+      if (typeof rccClearSelection === 'function') rccClearSelection();
       if (document.body.classList.contains('map-fullscreen')) {
         document.body.classList.remove('map-fullscreen');
         const lbl = document.getElementById('btn-map-fullscreen-label');
@@ -11785,6 +11843,11 @@ ${oneCopy}
     ovtOrders.classList.remove('active');
     ovtSchedule.classList.remove('active');
     unsubscribeDriverLocations();
+    // Clear all bulk-select state on view change so neither floating bar
+    // bleeds across views and stale ids don't carry over (would also have
+    // double-stacked bars if List had a selection while Map was active).
+    if (typeof clearOrderSelection === 'function') clearOrderSelection();
+    if (typeof rccClearSelection === 'function') rccClearSelection();
 
     if (view === 'orders') {
       ordersList.style.display = '';
@@ -18468,6 +18531,12 @@ ${oneCopy}
   let _rccPolylines    = {};          // (unused — route lines removed for clarity)
   let _rccSlot         = null;        // 'AM' | 'PM' — chip strip toggle (auto-set on first render by time of day)
   let _rccReassigned   = {};          // stopId → { fromRouteName, fromColor } — cleared on date change
+  // Bulk-select state (session 137 — Map-page bulk SMS + reschedule)
+  let _rccSelMode      = new Set();   // routeIds currently in select mode
+  let _rccSelStops     = new Map();   // stop_id → { stopId, routeId, stopType, orderId, customerId, customerName, phone, templateId, currentWindowStart, currentWindowEnd }
+  let _rccRsLeg        = null;        // 'pickup' | 'delivery' — the leg being rescheduled in the modal
+  let _rccRsTargetDate = null;        // YYYY-MM-DD chosen in the reschedule modal
+  let _rccRsTargetRoutes = {};        // template_id → routes row { id, template_id, run_date }
 
   // ── ROUTE COMMAND CENTER — load date data + render chips ──
   async function loadDailyRuns() {
@@ -18478,6 +18547,11 @@ ${oneCopy}
     _rccActiveRoutes = new Set();
     _rccRouteData = {};
     _rccReassigned = {}; // legacy in-memory map — kept for safety but no longer the source of truth
+    // Clear bulk-select state on date change — stale selections from yesterday's view
+    // would point at stops that are no longer on screen.
+    _rccSelMode.clear();
+    _rccSelStops.clear();
+    rccUpdateBatchBar();
 
     // Clear columns panel
     const colsPanel = document.getElementById('rcc-cols-panel');
@@ -18895,7 +18969,8 @@ ${oneCopy}
         remaining.forEach(s => { s._displayNum = ++_displayIdx; cardsHtml += rccBuildCard(s, routeId, color); });
       }
 
-      html += `<div class="rcc-col" data-route-id="${routeId}"
+      const _selModeOn = _rccSelMode.has(routeId);
+      html += `<div class="rcc-col${_selModeOn ? ' rcc-in-select' : ''}" data-route-id="${routeId}"
         ondragover="rccDragOver(event)"
         ondragleave="rccDragLeave(event)"
         ondrop="rccDrop(event,'${routeId}')">
@@ -18906,6 +18981,9 @@ ${oneCopy}
               <div class="rcc-d-name">${templateName}</div>
               <div class="rcc-d-route">${driverName}</div>
             </div>
+            <button class="rcc-select-btn${_selModeOn ? ' active' : ''}"
+                    onclick="rccToggleSelectMode('${routeId}', event)"
+                    title="${_selModeOn ? 'Cancel selection on this route' : 'Select stops to message or reschedule'}">${_selModeOn ? '✓ Cancel' : '☐'}</button>
             <button onclick="rccToggleRoute('${routeId}')" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:16px;line-height:1;padding:0 2px;flex-shrink:0;" title="Close">×</button>
           </div>
           <div class="rcc-col-meta">
@@ -19004,13 +19082,35 @@ ${oneCopy}
 
     const custId = s.orders?.customer_id || '';
     const custClick = custId ? `event.stopPropagation();openCustomerPanel('${custId}')` : '';
-    return `<div class="rcc-card rcc-popin" draggable="true"
-      data-stop-id="${s.id}" data-route-id="${routeId}"
-      ondragstart="rccDragStart(event,'${s.id}','${routeId}')"
-      onclick="${flyClick}"
+
+    // Bulk-select mode: card click toggles selection instead of map-fly,
+    // dragging is disabled, and the numbered circle becomes a checkbox indicator.
+    const inSel = _rccSelMode.has(routeId);
+    const isSel = _rccSelStops.has(s.id);
+    const cardClasses = ['rcc-card','rcc-popin'];
+    if (inSel) cardClasses.push('rcc-selectable');
+    if (isSel) cardClasses.push('rcc-selected');
+    const draggable = inSel ? 'false' : 'true';
+    const cardOnclick = inSel
+      ? `rccToggleStopSelection('${s.id}','${routeId}',event)`
+      : flyClick;
+    const dragHandler = inSel ? '' : `ondragstart="rccDragStart(event,'${s.id}','${routeId}')"`;
+    const numClass = inSel ? 'rcc-stop-num rcc-checkbox' : 'rcc-stop-num';
+    const numStyle = inSel ? '' : `style="background:${color};"`;
+    const numContent = inSel ? (isSel ? '✓' : '') : (s._displayNum||s.stop_number||'?');
+    // In select mode, name click also toggles selection (don't open customer panel
+    // mid-bulk-select — feels wrong and breaks the rhythm).
+    const nameClickAttr = inSel
+      ? ''
+      : (custClick ? ` onclick="${custClick}" style="cursor:pointer;" title="Open customer account"` : '');
+
+    return `<div class="${cardClasses.join(' ')}" draggable="${draggable}"
+      data-stop-id="${s.id}" data-route-id="${routeId}" data-stop-type="${s.stop_type}"
+      ${dragHandler}
+      onclick="${cardOnclick}"
       ${hoverIn} ${hoverOut}>
-      <div class="rcc-stop-num" style="background:${color};">${s._displayNum||s.stop_number||'?'}</div>
-      <div class="rcc-card-name"${custClick ? ` onclick="${custClick}" style="cursor:pointer;" title="Open customer account"` : ''}>${name}${statusMark}</div>
+      <div class="${numClass}" ${numStyle}>${numContent}</div>
+      <div class="rcc-card-name"${nameClickAttr}>${name}${statusMark}</div>
       <div class="rcc-card-addr">${addr}</div>
       <div class="rcc-card-foot">
         <span style="font-size:9.5px;font-weight:600;padding:1px 5px;border-radius:4px;${typeBg}">${typeLabel}</span>
@@ -19026,6 +19126,10 @@ ${oneCopy}
 
   // ── RCC: Drag & Drop ──
   function rccDragStart(event, stopId, fromRouteId) {
+    // Bail when the source route is in bulk-select mode — clicks should toggle
+    // selection, not initiate drags. The card's draggable attribute is already
+    // false in that case but this is a defensive belt-and-suspenders.
+    if (_rccSelMode.has(fromRouteId)) { event.preventDefault(); return; }
     _rccDragStopId = stopId;
     event.dataTransfer.setData('text/plain', JSON.stringify({ stopId, fromRouteId }));
     event.dataTransfer.effectAllowed = 'move';
@@ -19145,6 +19249,339 @@ ${oneCopy}
       autoOptimizeRoute(toRouteId);
     } catch(e) {
       showToast('Could not reassign stop — please refresh', 'error');
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // RCC bulk-select — Map-page bulk SMS + reschedule (session 137)
+  // ──────────────────────────────────────────────────────────────────
+  // Click ☐ on a route header to enter selection mode for that route. Click
+  // stops to add them to the global selection set. The bottom batch bar shows
+  // total count and contextual actions: Send SMS is always available; the
+  // Reschedule button only appears when the selection is exclusively pickups
+  // OR exclusively deliveries (mixed selections hide it on purpose so the
+  // operator can't accidentally apply a pickup-shaped change to a delivery).
+
+  function rccToggleSelectMode(routeId, evt) {
+    if (evt) evt.stopPropagation();
+    if (_rccSelMode.has(routeId)) {
+      // Exiting select mode for this route — also drop its stops from the global selection.
+      _rccSelMode.delete(routeId);
+      [..._rccSelStops.keys()].forEach(stopId => {
+        if (_rccSelStops.get(stopId).routeId === routeId) _rccSelStops.delete(stopId);
+      });
+    } else {
+      _rccSelMode.add(routeId);
+    }
+    rccRenderColumns();
+    rccUpdateBatchBar();
+  }
+
+  function rccToggleStopSelection(stopId, routeId, evt) {
+    if (evt) { evt.stopPropagation(); evt.preventDefault(); }
+    if (!_rccSelMode.has(routeId)) return;
+    if (_rccSelStops.has(stopId)) {
+      _rccSelStops.delete(stopId);
+    } else {
+      const rd = _rccRouteData[routeId];
+      const stop = rd?.stops?.find(s => s.id === stopId);
+      if (!stop) return;
+      const o = stop.orders || {};
+      const c = o.customers || {};
+      _rccSelStops.set(stopId, {
+        stopId,
+        routeId,
+        stopType: stop.stop_type,
+        orderId: o.id || null,
+        customerId: o.customer_id || null,
+        customerName: `${c.first_name_cache||''} ${c.last_name_cache||''}`.trim() || 'Unknown',
+        phone: c.phone_cache || null,
+        smsOptOutAt: c.sms_marketing_opt_out_at || null,
+        templateId: rd?.route?.template_id || null,
+        currentWindowStart: stop.stop_type === 'delivery'
+          ? (o.delivery_window_start || o.pickup_window_start)
+          : (o.pickup_window_start || o.delivery_window_start),
+        currentWindowEnd: stop.stop_type === 'delivery'
+          ? (o.delivery_window_end || o.pickup_window_end)
+          : (o.pickup_window_end || o.delivery_window_end),
+      });
+    }
+    // Snappy visual update on the card without a full column re-render.
+    const card = document.querySelector(`.rcc-card[data-stop-id="${stopId}"]`);
+    if (card) {
+      const sel = _rccSelStops.has(stopId);
+      card.classList.toggle('rcc-selected', sel);
+      const num = card.querySelector('.rcc-stop-num');
+      if (num) num.textContent = sel ? '✓' : '';
+    }
+    rccUpdateBatchBar();
+  }
+
+  function rccUpdateBatchBar() {
+    const bar = document.getElementById('rcc-batch-bar');
+    if (!bar) return;
+    const n = _rccSelStops.size;
+    if (n === 0) {
+      bar.classList.remove('visible');
+      return;
+    }
+    bar.classList.add('visible');
+    const cnt = document.getElementById('rcc-bb-count');
+    if (cnt) cnt.textContent = `${n} selected`;
+
+    // Composition check — only show the Reschedule button when the selection
+    // is entirely one leg type. Mixed selection = hide reschedule.
+    const types = new Set([..._rccSelStops.values()].map(s => s.stopType));
+    const allPickup   = types.size === 1 && types.has('pickup');
+    const allDelivery = types.size === 1 && types.has('delivery');
+    const rsBtn   = document.getElementById('rcc-bb-resched-btn');
+    const rsLabel = document.getElementById('rcc-bb-resched-label');
+    if (allPickup) {
+      rsBtn.style.display = '';
+      rsBtn.dataset.leg = 'pickup';
+      rsLabel.textContent = 'Reschedule pickups';
+    } else if (allDelivery) {
+      rsBtn.style.display = '';
+      rsBtn.dataset.leg = 'delivery';
+      rsLabel.textContent = 'Reschedule deliveries';
+    } else {
+      rsBtn.style.display = 'none';
+      rsBtn.dataset.leg = '';
+    }
+  }
+
+  function rccClearSelection() {
+    _rccSelMode.clear();
+    _rccSelStops.clear();
+    rccRenderColumns();
+    rccUpdateBatchBar();
+  }
+
+  // Bulk SMS — bridge to the existing batchSendSMS modal flow used by
+  // Orders > List. We populate _smsBatchOrders in the shape that flow expects
+  // and fill the modal's recipient summary, then the existing sendBatchSMS()
+  // handles the per-recipient send loop, sms_messages logging, and toasts.
+  function rccBatchSendSms() {
+    const all = [..._rccSelStops.values()];
+    const sel = all.filter(s => s.phone && !s.smsOptOutAt);
+    if (!sel.length) {
+      showToast('None of the selected stops have a reachable phone (no number on file or opted out).', 'error');
+      return;
+    }
+    _smsBatchOrders = sel.map(s => ({
+      id: s.orderId,
+      custName: s.customerName,
+      phone: s.phone,
+      customerId: s.customerId,
+    }));
+    document.getElementById('sms-compose-to-row').style.display = 'none';
+    document.getElementById('sms-compose-recipients').style.display = 'block';
+    const names = sel.map(s => s.customerName).join(', ');
+    const skipped = all.length - sel.length;
+    const skippedNote = skipped
+      ? ` (${skipped} skipped — no phone or opted out)`
+      : '';
+    document.getElementById('sms-modal-recipients').textContent =
+      `${sel.length} customer${sel.length>1?'s':''}: ${names.length > 120 ? names.slice(0,120)+'…' : names}${skippedNote}`;
+    document.getElementById('sms-compose-body').value = '';
+    document.getElementById('sms-char-count').textContent = '0 / 160';
+    document.getElementById('modal-sms-compose').style.display = 'flex';
+    setTimeout(() => document.getElementById('sms-compose-body')?.focus(), 50);
+  }
+
+  // Bulk reschedule — opens a date-picker modal. Date click loads the run
+  // (routes row) per affected template + chosen date. Confirm loops through
+  // each selected stop and calls reschedule_order_leg with the new run id.
+  function rccBatchReschedule() {
+    const btn = document.getElementById('rcc-bb-resched-btn');
+    const leg = btn?.dataset.leg;
+    if (!leg || !_rccSelStops.size) return;
+    _rccRsLeg = leg;
+    _rccRsTargetDate = null;
+    _rccRsTargetRoutes = {};
+
+    const noun = leg === 'pickup' ? 'pickups' : 'deliveries';
+    const word = leg === 'pickup' ? 'pickup'  : 'delivery';
+    document.getElementById('rcc-rs-count').textContent = String(_rccSelStops.size);
+    document.getElementById('rcc-rs-leg-noun').textContent = noun;
+    document.getElementById('rcc-rs-leg-word').textContent = word;
+    document.getElementById('rcc-rs-preview').style.display = 'none';
+    const confirmBtn = document.getElementById('rcc-rs-confirm');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Confirm reschedule';
+
+    // Render next 14 days as date pills (skip today since "reschedule to today"
+    // is essentially a same-day change and almost always not what the operator wants).
+    const todayIso = today();
+    const daysHtml = [];
+    for (let i = 1; i <= 14; i++) {
+      const iso = addDaysPacific(todayIso, i);
+      const [y, m, d] = iso.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      const wkLabel = dt.toLocaleDateString('en-US', { weekday: 'short' });
+      const moLabel = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      daysHtml.push(`<button class="sp-slot-btn" data-iso="${iso}" onclick="rccPickRescheduleDate('${iso}')" style="min-width:84px;text-align:center;padding:8px 12px">
+        <div style="font-size:10px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em;">${wkLabel}</div>
+        <div style="font-size:13px;margin-top:2px">${moLabel}</div>
+      </button>`);
+    }
+    document.getElementById('rcc-rs-days').innerHTML = daysHtml.join('');
+    document.getElementById('modal-rcc-reschedule').style.display = 'flex';
+  }
+
+  async function rccPickRescheduleDate(iso) {
+    document.querySelectorAll('#rcc-rs-days .sp-slot-btn').forEach(b =>
+      b.classList.toggle('selected', b.dataset.iso === iso));
+    _rccRsTargetDate = iso;
+    _rccRsTargetRoutes = {};
+
+    // Group selected stops by their current route_template_id — each template
+    // group will land on its own template's run on the chosen date.
+    const byTemplate = {};
+    [..._rccSelStops.values()].forEach(s => {
+      const tid = s.templateId;
+      if (!tid) return;
+      if (!byTemplate[tid]) byTemplate[tid] = [];
+      byTemplate[tid].push(s);
+    });
+    const templateIds = Object.keys(byTemplate);
+
+    const previewBox = document.getElementById('rcc-rs-preview-body');
+    previewBox.innerHTML = '<span style="color:var(--gray-500)">Loading runs…</span>';
+    document.getElementById('rcc-rs-preview').style.display = '';
+
+    let runs = null, err = null;
+    if (templateIds.length) {
+      const res = await db.from('routes')
+        .select('id, template_id, run_date')
+        .in('template_id', templateIds)
+        .eq('run_date', iso);
+      runs = res.data; err = res.error;
+    }
+    if (err) {
+      previewBox.innerHTML = `<div style="color:#dc2626">Failed to load runs: ${err.message}</div>`;
+      document.getElementById('rcc-rs-confirm').disabled = true;
+      return;
+    }
+    (runs || []).forEach(r => { _rccRsTargetRoutes[r.template_id] = r; });
+
+    // Build per-template summary
+    let allValid = templateIds.length > 0;
+    const lines = [];
+    templateIds.forEach(tid => {
+      const stops = byTemplate[tid];
+      const tpl = _dsTemplates.find(t => t.id === tid);
+      const tplName = tpl?.name || 'Unknown route';
+      const run = _rccRsTargetRoutes[tid];
+      if (!run) {
+        allValid = false;
+        lines.push(`<div style="margin-bottom:6px"><strong>${tplName}</strong> · ${stops.length} stop${stops.length>1?'s':''} · <span style="color:#dc2626">⚠ no run on ${iso} — generate the run first or pick another date</span></div>`);
+      } else {
+        lines.push(`<div style="margin-bottom:6px"><strong>${tplName}</strong> · ${stops.length} stop${stops.length>1?'s':''} → run ready · <span style="color:#059669">✓</span></div>`);
+      }
+    });
+    if (!templateIds.length) {
+      lines.push('<div style="color:#dc2626">No template_id resolved on the selected stops — refresh the page and try again.</div>');
+      allValid = false;
+    }
+    previewBox.innerHTML = lines.join('');
+    document.getElementById('rcc-rs-confirm').disabled = !allValid;
+  }
+
+  function rccCloseRescheduleModal() {
+    const m = document.getElementById('modal-rcc-reschedule');
+    if (m) m.style.display = 'none';
+    _rccRsLeg = null;
+    _rccRsTargetDate = null;
+    _rccRsTargetRoutes = {};
+  }
+
+  async function rccConfirmReschedule() {
+    if (!_rccRsLeg || !_rccRsTargetDate) return;
+    const btn = document.getElementById('rcc-rs-confirm');
+    btn.disabled = true;
+    btn.textContent = 'Rescheduling…';
+
+    const stops = [..._rccSelStops.values()];
+    const actorName = (typeof currentUserDisplayName !== 'undefined' && currentUserDisplayName)
+      || (typeof currentUserFirstName !== 'undefined' && currentUserFirstName)
+      || 'Admin';
+
+    let succeeded = 0, failed = 0;
+    const failures = [];
+
+    // Helper: build a Pacific-anchored ISO at a given hour:minute on the target date.
+    // Mirrors the customer-app's pacificIsoFromMins helper but inlined so we don't
+    // depend on a customer-side global being present in admin.
+    const buildPtIso = (dateIso, hh, mm) => {
+      const off = pacificOffsetStr(dateIso);
+      return `${dateIso}T${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:00${off}`;
+    };
+    const ptHourMin = (utcIso) => {
+      const d = new Date(utcIso);
+      // Use Intl to extract Pacific HH:mm reliably (handles DST + non-Pacific browsers).
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: BIZ_TZ, hour: '2-digit', minute: '2-digit', hour12: false
+      }).formatToParts(d);
+      const hh = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
+      const mm = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
+      return { hh, mm };
+    };
+
+    for (const s of stops) {
+      const newRoute = _rccRsTargetRoutes[s.templateId];
+      if (!newRoute) { failed++; failures.push(`${s.customerName}: no run on target date`); continue; }
+      if (!s.orderId) { failed++; failures.push(`${s.customerName}: missing order id`); continue; }
+
+      // Carry the same time-of-day to the new date. If we can't compute one
+      // (window is missing), pass null and let reschedule_order_leg auto-snap
+      // to the template's first sub-window.
+      let newStart = null, newEnd = null;
+      if (s.currentWindowStart && s.currentWindowEnd) {
+        const start = ptHourMin(s.currentWindowStart);
+        const end   = ptHourMin(s.currentWindowEnd);
+        newStart = buildPtIso(_rccRsTargetDate, start.hh, start.mm);
+        newEnd   = buildPtIso(_rccRsTargetDate, end.hh,   end.mm);
+      }
+
+      const { error } = await db.rpc('reschedule_order_leg', {
+        p_order_id:         s.orderId,
+        p_leg:              _rccRsLeg,
+        p_new_route_id:     newRoute.id,
+        p_new_window_start: newStart,
+        p_new_window_end:   newEnd,
+        p_actor_name:       actorName,
+      });
+
+      if (error) {
+        failed++;
+        failures.push(`${s.customerName}: ${error.message}`);
+        continue;
+      }
+      succeeded++;
+
+      // Reuse the same notify helper every other admin reschedule path uses —
+      // it picks the right event name per leg (`schedule_changed` for pickup,
+      // `delivery_rescheduled` for delivery) and gates on actual window change
+      // so the customer doesn't get a no-op SMS when nothing visible moved.
+      _maybeNotifyReschedule(s.orderId, _rccRsLeg, s.currentWindowStart, newStart);
+    }
+
+    rccCloseRescheduleModal();
+    rccClearSelection();
+    // Pull a fresh view so the moved stops disappear from today and reappear on the new date.
+    if (typeof loadDailyRuns === 'function') await loadDailyRuns();
+
+    if (failed === 0) {
+      const noun = _rccRsLeg === 'pickup' ? 'pickup' : 'delivery';
+      const plural = succeeded > 1 ? (noun === 'pickup' ? 'pickups' : 'deliveries') : noun;
+      showToast(`✓ Rescheduled ${succeeded} ${plural} to ${_rccRsTargetDate}`, 'success');
+    } else if (succeeded === 0) {
+      showToast(`Reschedule failed — ${failures[0] || 'unknown error'}`, 'error');
+      console.warn('rccConfirmReschedule failures:', failures);
+    } else {
+      showToast(`Rescheduled ${succeeded} · ${failed} failed (see console)`, '');
+      console.warn('rccConfirmReschedule partial failures:', failures);
     }
   }
 
