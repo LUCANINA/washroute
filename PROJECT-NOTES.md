@@ -725,6 +725,126 @@ Running registry of every customer-record merge performed. Each row captures the
 
 ## Session Log
 
+### Apr 25, 2026 (session 137) — Big day: bulk SMS/reschedule on Map, receipt-tip sweep, recall fix, stat-card timestamp fix, security round 1
+
+**Headline:** 11 commits, 5 migrations, 4 edge function deploys. Touched all three apps + multiple edge functions. Closed the public anon-key exploit on 14 RPCs; hardened 2 unauthenticated edge functions (refund-charge, send-sms) and 1 webhook (twilio-webhook signature verification).
+
+---
+
+**Pt 1 — Bulk SMS + bulk reschedule on Routes Map page (commits `a9fdc5c`, `412429a`).** Added in-place selection on the RCC view: ☐ button on each route header enters select mode for that route; clicking stops adds/removes from selection; bottom batch bar (same component as Orders > List) appears with "Send SMS" + context-aware "Reschedule pickups/deliveries" (only when selection is 100% one leg). Reuses existing `batchSendSMS` modal + `reschedule_order_leg` RPC + `_maybeNotifyReschedule` helper — no DB or edge function changes. Customers without a phone or with sms_marketing_opt_out_at are auto-skipped and surfaced in the recipient summary. Stop cards in select mode use a checkbox visual on the numbered circle; drag-and-drop and customer-name click are both suppressed in select mode. State clears on date change, view switch, and page navigation.
+
+**Subsequent fix (`412429a`):** the route-stops fetch was only pulling `customers(first_name_cache, last_name_cache)` — phone + opt-out fields were missing, so my filter saw every customer as no-phone. Added `phone_cache, sms_marketing_opt_out_at` to both the initial open and the rccRefreshRoute fetches.
+
+---
+
+**Pt 2 — Phantom $5 tip on Laurel Calsoni's recurring orders (commits `2a9cf72`, `cbd1a99`, `ad1a37d`; migration `session_137_recurring_trigger_drop_tip_carryover` + `session_137_billing_event_description_includes_tip`).** Customer reported a recurring $5 "Team Tip" on her email receipts when her account had no default tip set.
+
+**Root cause #1:** the `trg_create_recurring_order_fn` trigger carried `tip_amount` forward from the previous order whenever it was > 0. So a one-time tip would propagate forever. Laurel's chain: #2022 ($0) → #2142 (somehow got $5) → #2626 ($5 carried) → #3093 ($5 carried). Migration replaces the carryover with a strict "always source from `customers.default_tip`" rule. Per-order tips are now one-off; if a customer wants a recurring tip they set it once in their profile.
+
+**Root cause #2 (deeper):** Laurel was actually charged $73.95, not $68.95 — but every admin-side surface (PDF receipt, customer SMS confirmation, `billing` event description in `order_events`) showed $68.95 (`total_amount` alone, pre-tip). The email receipt was the only correct number. Three render paths used `o.total_amount` directly without including tip dollars.
+
+**Fixes (full sweep):**
+- New top-level helper `orderChargedTotal(o)` in admin + customer-app (mirrors `charge-order`'s chargeAmount math).
+- Updated 11 admin display sites: customer panel HTML receipt, group invoice HTML, group invoice jsPDF, customer-panel orders list (billing + completed tabs), customer-panel balance row, customer-panel billing-bar selected-total, dashboard "Recent orders" + "Unpaid Delivered" widgets, Overview audit Check 3 summary, Orders > Stat Cards $ In Process + Revenue Today, Laundry History per-order + day total, Folding/processing kanban card, On-Account dashboard outstanding + invoiced/paid, main Orders > List total cell.
+- Updated 2 customer-app sites: Home active-order card and My Orders list `oi-total`.
+- Updated `log_order_change` trigger: `billing` event description now writes `'Charged $X'` from `total_amount + computed tip dollars` (mirrors charge-order). Adds `(incl. tip)` annotation when tip > 0. Migration `session_137_billing_event_description_includes_tip`.
+- Edge function `send-order-notification` v30: the `{{amount}}` template variable for `payment_received` SMS now binds to actual charged total, not subtotal.
+
+**Customer-side cleanup:** zeroed Laurel's #3093 tip; David issued the $5 partial Stripe refund manually via the Transactions tab Refund button (which I'd already verified calls `refund-charge`).
+
+**Blast radius:** 1 distinct customer affected by the recurring-trigger bug (Laurel); 2 historical delivered orders with phantom tips, total $10. The receipt-display bug affected every order with tip > 0 system-wide on the admin side, but customers' email receipts were always correct.
+
+**Intentionally not touched:** Revenue Report / Pricelist Report — those already break out tips into a dedicated column structure; modifying their `total` columns would cascade into per-customer breakdowns and historical reconciliation numbers. Flag for a separate financial-reporting pass if needed. Print receipts (`_openReceiptWindow`) already render Subtotal + Tip + Grand Total as separate lines correctly. `log_order_change`'s `total_changed` event semantically tracks subtotal, not charged total — left alone.
+
+---
+
+**Pt 3 — Stat cards "Picked Up Today: 1, Delivered Today: 0" (migration `session_137_sync_order_status_stamp_timestamps`).** David noticed today's stats looked impossibly low. Investigation: 98 picked-up orders + 98 delivered orders had NULL `actual_pickup_at` / `actual_delivery_at` despite being in correct status. The stat cards correctly read 0 because the data was actually NULL.
+
+**Root cause:** the `sync_order_status_from_stops` AFTER UPDATE trigger on `route_stops` fires when a stop is marked complete. It auto-advances `orders.status` (scheduled → picked_up, ready_for_delivery → delivered) but **didn't stamp** `actual_pickup_at` / `actual_delivery_at`. Meanwhile `complete_route_stop` RPC's call to `advance_order_status` (which DOES stamp) ran AFTER the trigger had already moved the order to target status — and `advance_order_status`'s same-status no-op check caused it to return early without stamping. The trigger raced and won.
+
+**Fix:** trigger now stamps timestamps via `actual_*_at = COALESCE(actual_*_at, NOW())` whenever it auto-advances. COALESCE preserves any value previously set by `advance_order_status` so the canonical RPC path still wins on attribution; this trigger just fills in timestamps when its stamp got pre-empted. Plus a one-time backfill from `route_stops.completed_at` for the 98 historical delivered + ~70 historical pickup rows.
+
+**Verification:** Picked Up Today: 1 → 16. Delivered Today: 0 → 67. Saturday's 16 pickups vs 67 deliveries makes sense — most customers schedule pickups on weekdays.
+
+**Remaining:** 28 orders still have NULL `actual_pickup_at` because they never had a corresponding `route_stops.completed_at` (walk-ins, admin-pushed status changes, pre-route-system legacy). They're not actually picked up today so they don't affect today's count.
+
+---
+
+**Pt 4 — Recall delivered order silent bail (commit `bc46032`).** David reported clicking "Recall to Route" did nothing. DB confirmed zero `recalled` events in `order_events` ever — the RPC had never been called successfully. Two silent return paths in `confirmRecallOrder`: `!opCurrentOrderId` and `!o (allOrders.find)`. Likely culprit: the delivered order was opened from a context where `allOrders` cache didn't hold it (deep link, customer panel, tab switch while modal open), so the find returned nothing, function returned, modal stayed open with no toast.
+
+**Fix:** both bail paths now show in-modal errors. The `o` lookup is no longer required for the call — the local cache sync was the only thing using it; post-RPC reload corrects the UI either way. Console logs added for debugging future failures.
+
+**Same commit also fixed live driver tracking on the route map.** Postgres logs were flooded with `column drivers.first_name does not exist` from `loadLiveDriverLocations` and the realtime subscription handler. `first_name` lives on `profiles`, joined via `drivers.profile_id`. Both queries now select `profile_id, profiles(first_name, last_name)` and read from `driver.profiles?.first_name`. Driver pins on the map will now render actual names instead of all showing "Driver".
+
+---
+
+**Pt 5 — RCC stop card click → open order panel (commit `fb6967d`).** David's request: clicking a stop on the Map should open the order detail panel (same as Orders > List rows), not zoom the map. Hover already pans/highlights the stop, so click is now an action. Customer name click still goes to customer panel (with stopPropagation). Selection mode wins. Drag-and-drop unchanged. Removed the now-unused `flyClick` variable.
+
+---
+
+**Pt 6 — Inbox: clickable customer name in thread header (commit `294c5b2`).** "Katherine Wethington" header in the Inbox now links to `openCustomerPanel(customerId)`. Hover shows accent-color underline. Falls back to plain text when conversation is from an unknown sender (no matched customer).
+
+---
+
+**Pt 7 — Driver Andres has no GPS (diagnosis only, no fix).** David asked why Andres wasn't on the live map. DB query confirmed: Andres is an active driver completing 51 stops in last 7 days, but he has zero rows in `driver_locations` ever. His phone has never sent a GPS ping. The map filters to last 30 minutes of pings, so he doesn't show. Same issue with Angel (last ping 22h ago). Likely cause: location services denied for the driver app in the browser. Action item flagged for David to ask Andres to enable Location Services + grant the geolocation prompt.
+
+**No code change** — this is an end-user/device issue, not a bug. Optional future improvement: surface a "Drivers without GPS today" admin alert.
+
+---
+
+**Pt 8 — Morning rounds + Sara Whitman orphan auth.** Daily audit found one orphan auth user (`sara@pantrypigeons.com`) shadowing Sara Whitman's real (phone-auth) customer record with 10 orders. She'd been locked out of her account. Deleted the orphan auth row; next time she taps "send magic link," `send-magic-link` v17 will attach the email to her real account cleanly. Also noted but not actioned: 9 silent-reschedule candidates from the Apr 15 mass-UPDATE, 4 small zone-polygon overlaps, 1 driverless route on Concord AM Mon Apr 27.
+
+---
+
+**Pt 9 — Round 1 security fixes (commit `4e2ab4b`; migration `session_137_revoke_public_from_destructive_and_admin_rpcs`; edge function deploys: `refund-charge` v15, `send-sms` v22, `twilio-webhook` v31).** Triggered by a deep multi-agent QA pass that surfaced multiple exploitable security gaps reachable with the publicly-embedded anon key alone (or in some cases by anyone, no auth at all).
+
+Fixes shipped this round:
+- **DB migration** revokes `EXECUTE` from `PUBLIC` on 14 destructive / cron-only RPCs: `delete_orders`, `delete_address`, `delete_preference`, `delete_service_zone`, `upsert_preference`, `upsert_service_zone`, `update_preference_sort_order`, `update_service_sort_order`, `cleanup_orphan_email_auth_users`, `generate_route_runs`, `reoptimize_active_routes`, `snapshot_staff_counts`, `auto_fail_expired_orders`, `flag_delivery_orphaned_orders`. **Important PG quirk:** Postgres grants `EXECUTE` to `PUBLIC` by default on every new function; a `REVOKE FROM anon` is a no-op because anon inherits via PUBLIC. The correct sequence is `REVOKE EXECUTE … FROM PUBLIC` (and the explicit `GRANT TO authenticated` already in proacl persists). Verified: `SET LOCAL ROLE anon; SELECT delete_orders(...)` now returns `ERROR 42501 permission denied`.
+- **`refund-charge` v15**: gated behind `admin` OR `manager` role (financial caution — drivers/attendants/laundry_techs can't refund). Returns 401 (no JWT or anon JWT) / 403 (wrong role).
+- **`send-sms` v22**: gated behind staff roles `admin | manager | driver | attendant`. Service-role JWT also accepted for internal edge-fn-to-edge-fn calls (twilio-webhook auto-replies, send-order-notification, refund-charge SMS). **Initial deploy missed `manager` role** — John Roi (manager) hit "staff role required to send SMS" — fixed in v22 with a single `STAFF_SMS_ROLES` constant covering all 4 ops roles.
+- **`twilio-webhook` v31**: verifies HMAC-SHA1 signature on every inbound POST per Twilio's documented algorithm (sort params alphabetically, concat key+value to URL, HMAC-SHA1 with auth token, base64 compare to `X-Twilio-Signature` header, constant-time). Without this, anyone could forge inbound SMS — `Body=STOP` mass-unsubscribes, `Body=PICKUP` creates free orders, `Body=SKIP` cancels victims' orders.
+- **Client-side `_staffJwt()` helper** added to admin-dashboard and driver-app. Pulls the current Supabase session token via `db.auth.getSession()`, falling back to anon if no session (which the hardened functions then reject with a clear error). Updated 9 send-sms call sites + 1 refund-charge call site to use it.
+
+**The role allowlists now match the real ops set:**
+- `customer` (1222) — never staff-side
+- `attendant` (9) — POS, can send SMS
+- `driver` (9) — can send SMS
+- `manager` (3) — can send SMS, can refund
+- `admin` (2) — can send SMS, can refund
+- `pos_device` (1) — kiosk device, no SMS / no refund
+- `laundry_tech` (1) — back of house, no SMS / no refund
+
+---
+
+### 🚨 Critical: Twilio webhook needs real-world verification
+
+The HMAC signature check is the highest-risk change of the day. If my implementation has a subtle bug, real Twilio messages will be silently rejected with 403 — customers can't text STOP/SKIP/PICKUP and auto-replies won't fire. **First thing tomorrow: text HELP to +15105884102 and confirm a reply.** If silent, check `get_logs service=edge-function` for `twilio-webhook: rejected unsigned/invalid request` lines and revert to `verify_jwt: false` with no signature check while debugging.
+
+### 🟡 Still on the security punchlist (round 2)
+
+In priority order:
+1. **`charge-order`** — needs admin/driver auth check (currently unauthenticated; anyone can force-charge any order id).
+2. **`remove-card` / `save-payment-method`** — need customer ownership checks (account hijack risk: attacker attaches their card as victim's default).
+3. **`prepare-phone-otp`** — rate limit + verify only matches existing email-auth users.
+4. **Per-customer ownership checks on customer-callable RPCs** — every mutation RPC trusts the caller's claimed `p_customer_id` / `p_order_id`. Any logged-in customer/driver could call any RPC against any record.
+5. **POS raw status writes** at `pos/index.html:3329` bypass `advance_order_status` — same shape as today's stat-card bug.
+6. **Customer-app `cancelOrder` / `skipPickup`** at `customer-app/index.html:6215, 6230` use raw UPDATE.
+
+### 🟡 Other findings from the QA pass (not yet addressed)
+
+- **12 inline tip-math sites** still divergent (`admin-dashboard` lines 9850, 10050, 10233, 16781, 22891, 22966, 24956, 25195, 26221, 26478, 26515 + `customer-app` 5279-5280). Same recurring-tip bug class waiting to recur. Mechanical search/replace once the helper is consolidated.
+- **6 realtime subscriptions never unsubscribed** in admin-dashboard: `_newOrderSub`, `_payMethodSub`, `_routeStopSub`, `_smsSub`, `adminMsgSub`, `_driverMsgBadgeSub`. Long admin sessions accumulate channels; UPDATE events fire N times into stale closures.
+- **No optimistic locking** on any `orders` / `customers` UPDATE — two admins editing the same record = last write wins, no detection.
+- **Batch advance silently drops per-order RPC errors** at `admin-dashboard:10537-10542`.
+- **No synthetic edge-function watchdog** — would have caught the storage-RLS outage in 30 minutes instead of 18 hours.
+- **No visible build-version banner** in any of the 3 apps.
+- **`send-order-notification` source not in repo** — only deployed; can't be code-reviewed.
+- **`stop-photos` storage bucket is public** with full home addresses in path — consider signed URLs.
+- **Cleanup-orphan-email-auth-users cron failing** on a `pos_device` profile (5/8 recent runs).
+- **15 stale `charge_failed_at` orders, oldest 33 days** — no active alerting; relies on Issues tab eyeballing.
+
+---
+
 ### Apr 25, 2026 (session 136, pt 16) — Driver photo uploads silently broken — root-cause + fix + audit gap closure
 
 **Trigger:** David noticed the morning after rolling out the Skip Photo feature (session 134 pt 2 / commit `ed593eb`, deployed Apr 24 ~12 PM PT) that recent stops on the admin dashboard were missing proof photos. He asked Claude to rule out a bug before reaching out to drivers.
