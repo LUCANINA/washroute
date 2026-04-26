@@ -8260,19 +8260,29 @@
   }
 
   async function confirmRecallOrder() {
-    if (!opCurrentOrderId) return;
-    const o = allOrders.find(x => x.id === opCurrentOrderId);
-    if (!o) return;
+    const sel    = document.getElementById('recall-route-select');
+    const errEl  = document.getElementById('recall-error');
+    const btn    = document.getElementById('recall-confirm-btn');
+    const showErr = msg => { if (errEl) { errEl.textContent = msg; errEl.style.display = ''; } };
 
-    const sel = document.getElementById('recall-route-select');
-    const errEl = document.getElementById('recall-error');
-    const btn = document.getElementById('recall-confirm-btn');
-    const routeId = sel.value;
-    if (!routeId) {
-      errEl.textContent = 'Please select a route.';
-      errEl.style.display = '';
+    // Bail conditions now surface a visible error instead of returning silently.
+    // Previous version returned early on missing opCurrentOrderId or a missing
+    // entry in the allOrders cache — making the modal feel unresponsive when
+    // the delivered order had been opened from a context (search, deep-link,
+    // freshly-status-updated tab) where allOrders no longer held it.
+    if (!opCurrentOrderId) {
+      console.warn('[recall] aborted: opCurrentOrderId is null');
+      showErr('No order is open. Close this modal, reopen the order, and try again.');
       return;
     }
+    if (!sel) { console.warn('[recall] aborted: route-select element missing'); return; }
+    const routeId = sel.value;
+    if (!routeId) { showErr('Please select a route.'); return; }
+
+    // The local in-memory copy is only used for cache-sync after the RPC
+    // succeeds — it is NOT required to make the call. Fall back gracefully
+    // if it isn't in the cache; the post-RPC reload still corrects the UI.
+    const o = allOrders.find(x => x.id === opCurrentOrderId) || null;
 
     const opt = sel.selectedOptions[0];
     const runDate = opt?.dataset?.runDate || '';
@@ -8286,7 +8296,7 @@
 
     btn.disabled = true;
     btn.textContent = 'Recalling…';
-    errEl.style.display = 'none';
+    if (errEl) errEl.style.display = 'none';
 
     try {
       // Session 136: single transactional RPC — recall_delivered_order. Replaces
@@ -8297,7 +8307,10 @@
       // route's template window (the prior client code tried to read window_start
       // from `routes` directly, which has no such columns; the window was never
       // actually applied).
-      const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
+      const actorName = (typeof currentUserDisplayName !== 'undefined' && currentUserDisplayName)
+        || (typeof currentUserFirstName !== 'undefined' && currentUserFirstName)
+        || 'Admin';
+      console.log('[recall] calling RPC', { orderId: opCurrentOrderId, routeId, actorName });
       const { data: rpcRes, error: rpcErr } = await db.rpc('recall_delivered_order', {
         p_order_id:          opCurrentOrderId,
         p_delivery_route_id: routeId,
@@ -8305,16 +8318,21 @@
         p_actor_name:        actorName,
       });
       if (rpcErr) throw rpcErr;
+      console.log('[recall] RPC result', rpcRes);
 
-      // Sync local cache from RPC result.
-      o.status                = rpcRes?.new_status || newStatus;
-      o.actual_delivery_at    = null;
-      o.delivery_run_id       = routeId;
-      o.routing_error         = null;
-      if (rpcRes?.window_start) o.delivery_window_start = rpcRes.window_start;
-      if (rpcRes?.window_end)   o.delivery_window_end   = rpcRes.window_end;
-      const rCached = _opRoutes.find(r => r.id === routeId);
-      o.delivery_run = { id: routeId, name: rCached?.name || rpcRes?.route_name || '' };
+      // Sync local cache from RPC result if we have a cached order. Without
+      // this the next render still picks up the fresh state from the DB, so
+      // skipping is fine when allOrders doesn't hold the row.
+      if (o) {
+        o.status                = rpcRes?.new_status || newStatus;
+        o.actual_delivery_at    = null;
+        o.delivery_run_id       = routeId;
+        o.routing_error         = null;
+        if (rpcRes?.window_start) o.delivery_window_start = rpcRes.window_start;
+        if (rpcRes?.window_end)   o.delivery_window_end   = rpcRes.window_end;
+        const rCached = _opRoutes.find(r => r.id === routeId);
+        o.delivery_run = { id: routeId, name: rCached?.name || rpcRes?.route_name || '' };
+      }
 
       // Background route optimization.
       if (typeof autoOptimizeRoute === 'function') {
@@ -8326,11 +8344,11 @@
       closeOrderPanel();
       updateOrderFilterCounts();
       renderOrders(getFilteredOrders());
-      showToast(`✓ Order #${o.order_number} recalled to ${routeLabel}`, 'success');
+      const orderNumLabel = o?.order_number || (rpcRes?.order_number ?? '');
+      showToast(`✓ Order #${orderNumLabel} recalled to ${routeLabel}`, 'success');
     } catch (err) {
       console.error('[recall] failed', err);
-      errEl.textContent = err.message || 'Recall failed';
-      errEl.style.display = '';
+      showErr(err?.message || err?.hint || 'Recall failed — see console for details.');
     } finally {
       btn.disabled = false;
       btn.textContent = 'Recall to Route';
@@ -17310,7 +17328,9 @@ ${oneCopy}
     if (!routeLiveMap) return;
     // Fetch current positions + driver names
     const { data, error } = await db.from('driver_locations')
-      .select('driver_id, lat, lng, heading, speed, updated_at, drivers(first_name, last_name)')
+      // drivers.first_name doesn't exist — driver names live on profiles, joined
+      // via drivers.profile_id. Was throwing 400s + flooding postgres logs.
+      .select('driver_id, lat, lng, heading, speed, updated_at, drivers(profile_id, profiles(first_name, last_name))')
       .gte('updated_at', new Date(Date.now() - 30 * 60 * 1000).toISOString()); // last 30 mins
     if (error || !data) return;
 
@@ -17336,7 +17356,8 @@ ${oneCopy}
 
     data.forEach(loc => {
       const driver = loc.drivers || {};
-      const name = `${driver.first_name || ''} ${driver.last_name || ''}`.trim() || 'Driver';
+      const profile = driver.profiles || {};
+      const name = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'Driver';
       const route = driverRouteMap[loc.driver_id] || '';
       const updatedAt = new Date(loc.updated_at).toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
       const speedMph = loc.speed ? Math.round(loc.speed * 2.237) : null; // m/s → mph
@@ -17364,10 +17385,11 @@ ${oneCopy}
         if (_driverMarkers[loc.driver_id]) {
           _driverMarkers[loc.driver_id].setLatLng([loc.lat, loc.lng]);
         } else {
-          // Need driver name — fetch it
-          db.from('drivers').select('first_name, last_name').eq('id', loc.driver_id).single()
+          // Need driver name — drivers.first_name doesn't exist, so join through profiles
+          db.from('drivers').select('profile_id, profiles(first_name, last_name)').eq('id', loc.driver_id).single()
             .then(({ data: driver }) => {
-              const name = driver ? `${driver.first_name||''} ${driver.last_name||''}`.trim() : 'Driver';
+              const profile = driver?.profiles || {};
+              const name = `${profile.first_name||''} ${profile.last_name||''}`.trim() || 'Driver';
               const updatedAt = new Date().toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
               const popup = `<div style="font-family:inherit;min-width:120px">
                 <div style="font-weight:700;font-size:13px;margin-bottom:2px">${name}</div>
