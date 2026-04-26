@@ -587,6 +587,7 @@
     .inbox-thread-header { padding: 14px 20px; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; }
     .inbox-thread-header-top { display: flex; align-items: center; justify-content: space-between; }
     .inbox-thread-name { font-weight: 700; font-size: 15px; color: var(--gray-900); }
+    .inbox-thread-name[onclick]:hover { color: var(--accent); text-decoration: underline; }
     .inbox-thread-meta { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
     .inbox-thread-btns { display: flex; gap: 8px; flex-shrink: 0; }
     .btn-resolve { background: #d1fae5; color: #065f46; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 6px 12px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all .12s; }
@@ -11972,11 +11973,18 @@ ${oneCopy}
     const resolveLabel = isResolved ? '↩ Reopen' : '✓ Archive';
     const resolveClass = isResolved ? 'resolved' : '';
 
+    // The header name is clickable → opens the customer panel (same as
+    // the customer-name links in Orders > List). Falls back to plain text
+    // when the conversation isn't tied to a known customer (unknown sender).
+    const nameHtml = customerId
+      ? `<div class="inbox-thread-name" onclick="openCustomerPanel('${customerId}')" style="cursor:pointer" title="Open customer profile">${name}</div>`
+      : `<div class="inbox-thread-name">${name}</div>`;
+
     document.getElementById('inbox-thread').innerHTML = `
       <div class="inbox-thread-header">
         <div class="inbox-thread-header-top">
           <div>
-            <div class="inbox-thread-name">${name}</div>
+            ${nameHtml}
             <div class="inbox-thread-meta">${phone} · <span class="ch-badge ch-sms">SMS</span>${convMeta.cust && !convMeta.cust.sms_consent_at ? ' <span style="color:var(--red);font-weight:600;font-size:12px">⚠ Opted out of SMS — texts won\'t be delivered</span>' : ''}</div>
           </div>
           <div class="inbox-thread-btns">
