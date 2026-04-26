@@ -725,6 +725,41 @@ Running registry of every customer-record merge performed. Each row captures the
 
 ## Session Log
 
+### Apr 25, 2026 (session 136, pt 16) — Driver photo uploads silently broken — root-cause + fix + audit gap closure
+
+**Trigger:** David noticed the morning after rolling out the Skip Photo feature (session 134 pt 2 / commit `ed593eb`, deployed Apr 24 ~12 PM PT) that recent stops on the admin dashboard were missing proof photos. He asked Claude to rule out a bug before reaching out to drivers.
+
+**Investigation found a cliff, not a slope.** Photo capture rate by period:
+
+| Period | Stops | With photo | % |
+|---|---|---|---|
+| Mar 21 → Apr 17 (baseline) | 2,782 | 2,677 | **96.2%** |
+| Apr 17 → Apr 24 ~3 PM (week before) | 731 | 717 | **98.1%** |
+| Apr 24 ~3 PM → Apr 25 morning (since the cliff) | 113 | 6 | **5.3%** |
+
+Hour-by-hour: 100% capture through Apr 24 14:00 PT, 0% from 15:00 PT onward across every active driver. Only **1** of 113 missing-photo stops had `photo_skipped_at` set — drivers were not the problem.
+
+**Root cause:** the `stop-photos` storage bucket only had **INSERT policies** (created Feb 26 in migration `stop_photos_storage_policies`). Sometime around Apr 24 ~14:30 PT the Supabase Storage server changed its upload SQL from a plain INSERT to `INSERT ... ON CONFLICT DO UPDATE`. Postgres validates BOTH branches of that statement at planning time — even when no conflict will actually occur — so the absence of an UPDATE policy caused the whole INSERT to be rejected with a misleading `new row violates row-level security policy for table "objects"` error. Storage HTTP returned 400; the driver app's IndexedDB queue retried 20 times, then dropped the photo permanently. ~110 photos lost — bytes never made it off driver phones, no recovery possible.
+
+**Reproduced live:** running `INSERT INTO storage.objects (bucket_id, name) VALUES ('stop-photos', '...')` as `authenticated` failed with the exact RLS error; same INSERT as `service_role` succeeded.
+
+**Fix — migration `session_136_stop_photos_full_rls_policies` (applied):** dropped the two INSERT-only policies and replaced them with **FOR ALL** policies (same simple `bucket_id = 'stop-photos'` guard) for both anon and authenticated roles. The `protect_objects_delete` trigger continues to block raw SQL DELETEs from non-internal callers, so opening DELETE in the policy doesn't widen real attack surface; storage API DELETE continues to work as before. Verified live — David confirmed photos are coming through.
+
+**Audit gap closure — `washroute-audit.skill` updated (commit `d748adf`):** added **Check 19 — Photo Capture Rate Anomaly (P0)**. Compares last-24h proof-photo capture rate against the prior 7d baseline; flags any >20pp drop. Distinguishes legitimate driver Skip Photo usage (small, explicit) from upload pipeline failure (large, no skip flag). Includes diagnostic SQL recipe so the next session hitting this can resolve in minutes. Also renamed `## The 10 Checks` to `## The Checks` (we now have 19).
+
+**Lessons (David's question: "what could have been done before launching?"):**
+
+1. **Synthetic monitoring is the biggest gap.** All 19 audit checks examine *historical data state*; we have *zero* checks that exercise *critical flows end-to-end*. A 5-min cron that uploads a 1KB test image to `stop-photos` every 30 min and alerts on failure would have caught this within 30 min instead of 18 hours. Same pattern would catch future regressions of the same shape (Stripe webhook breakage, edge function deploy failures, SMS send failures).
+2. **Storage RLS posture: default to FOR ALL when guarded by simple bucket-id checks.** The narrow INSERT-only posture wasn't actually protecting anything but it was fragile. The "minimum permission" instinct created an illusion of safety that broke under a silent platform upgrade.
+3. **End-to-end smoke test after every deploy that touches a critical path.** 30 seconds — log in as a test driver, take a photo, verify `proof_photo_url` lands in `route_stops`. Sets a habit.
+4. **Surface IndexedDB queue health.** The driver app currently logs `Photo upload failed permanently` to console only — invisible. Should write an `admin_alerts` row when MAX_PHOTO_ATTEMPTS hits, so admin sees aggregate failures next morning at the latest.
+
+**Customer damage angle:** ~110 stops completed with no proof photo during the cliff. David elected not to do per-customer outreach or pre-flag the affected stops — accepting the dispute exposure for any "didn't pick up my laundry" / "wrong address" claims that may surface from that window.
+
+**Tech debt added to pending queue:** synthetic monitoring infrastructure (#1 above); driver-app permanent-drop alerts to admin (#4 above).
+
+---
+
 ### Apr 25, 2026 (session 136, pt 15) — Final QA + security review
 
 David asked for a closing QA + security pass before wrapping the session.
