@@ -1798,6 +1798,19 @@ function showToast(msg, type = '') {
 }
 
 function $m(n) { return '$' + (+(n || 0)).toFixed(2); }
+// Session 137: charged total = subtotal + tip dollars (matches charge-order math).
+// Use everywhere a customer sees an order amount so the My Orders cards agree
+// with what was actually billed. Falls back to total_amount when tip fields are
+// missing on the row.
+function orderChargedTotal(o) {
+  const sub = Number(o?.total_amount || 0);
+  const tip = Number(o?.tip_amount || 0);
+  if (!tip) return Math.round(sub * 100) / 100;
+  const tipDol = (o.tip_type === 'pct')
+    ? Math.round(sub * tip) / 100
+    : Math.round(tip * 100) / 100;
+  return Math.round((sub + tipDol) * 100) / 100;
+}
 function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ }) : '—'; }
 function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:BIZ_TZ}).toLowerCase() : ''; }
 function fmtSlot(start, end) {
@@ -3003,7 +3016,7 @@ function buildActiveCard(o) {
     </div>
     <div class="aoc-footer">
       <div class="aoc-hint">${bags} bag${bags !== 1 ? 's' : ''} · Tap for details →</div>
-      <div class="aoc-total">${$m(o.total_amount)}</div>
+      <div class="aoc-total">${$m(orderChargedTotal(o))}</div>
     </div>
   </div>`;
 }
@@ -5167,7 +5180,7 @@ function renderOrdersList(orders) {
       <div class="oi-top"><span class="oi-num">#${o.order_number || '—'}</span><span class="oi-date">${o.pickup_window_start ? fmtDate(o.pickup_window_start) : fmtDate(o.created_at)}</span></div>
       <div class="oi-svc">${o.services?.name || '—'} · ${o.total_bags || 1} bag${(o.total_bags || 1) !== 1 ? 's' : ''}</div>
       ${o.recurring_interval ? `<div class="oi-recur">${RLABELS[o.recurring_interval] || ''}</div>` : ''}
-      <div class="oi-bottom">${buildStatusBadge(o.status)}<div class="oi-total">${o.total_amount ? $m(o.total_amount) : 'TBD'}</div></div>
+      <div class="oi-bottom">${buildStatusBadge(o.status)}<div class="oi-total">${o.total_amount ? $m(orderChargedTotal(o)) : 'TBD'}</div></div>
     </div>`).join('');
 }
 

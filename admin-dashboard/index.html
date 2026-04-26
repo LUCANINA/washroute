@@ -6370,8 +6370,9 @@
         db.from('route_stops').select('id, stop_type, status, route_id, order_id, orders!inner(order_number, pickup_window_start, delivery_window_start, customers(first_name_cache, last_name_cache)), routes!inner(run_date)')
           .in('status', ['pending', 'en_route']),
 
-        // 3. Unpaid delivered orders (P0)
-        db.from('orders').select('id, order_number, status, total_amount, billing_status, stripe_payment_intent_id, customers(first_name_cache, last_name_cache)')
+        // 3. Unpaid delivered orders (P0) — pull tip fields too so the
+        // "$X across N orders" summary reflects what was actually billed.
+        db.from('orders').select('id, order_number, status, total_amount, tip_amount, tip_type, billing_status, stripe_payment_intent_id, customers(first_name_cache, last_name_cache)')
           .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery'])
           .gt('total_amount', 0),
 
@@ -6437,7 +6438,7 @@
       // ── Process Check 3: Unpaid Delivered ──
       const unpaid = (c3.data || []).filter(o => !o.stripe_payment_intent_id || o.billing_status !== 'paid');
       if (unpaid.length > 0) {
-        const total = unpaid.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+        const total = unpaid.reduce((s, o) => s + orderChargedTotal(o), 0);
         results.push({ severity: 'P0', icon: '🔴', label: 'Unpaid delivered orders', count: unpaid.length,
           details: `$${total.toLocaleString('en-US', { minimumFractionDigits: 2 })} across ${unpaid.length} orders` });
       } else {
@@ -6647,7 +6648,7 @@
 
   async function loadRecentOrders() {
     const { data } = await db.from('orders')
-      .select(`id, order_number, status, total_amount, created_at, customers(id, first_name_cache, last_name_cache)`)
+      .select(`id, order_number, status, total_amount, tip_amount, tip_type, created_at, customers(id, first_name_cache, last_name_cache)`)
       .order('created_at', { ascending: false })
       .limit(10);
 
@@ -6668,7 +6669,7 @@
           <td class="td-mono">#${o.order_number}</td>
           <td class="td-name">${(fn+' '+ln).trim() || 'Unknown'}</td>
           <td>${statusBadge(o.status)}</td>
-          <td style="text-align:right">${fmtMoney(o.total_amount)}</td>
+          <td style="text-align:right">${fmtMoney(orderChargedTotal(o))}</td>
           <td style="text-align:right;color:var(--gray-400);font-size:12px;white-space:nowrap">${created}</td>
         </tr>`;
       }).join('')}
@@ -6824,7 +6825,7 @@
     if (!el) return;
 
     const { data: rawData, error } = await db.from('orders')
-      .select('id, order_number, status, billing_status, charge_failed_at, total_amount, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, billing_type)')
+      .select('id, order_number, status, billing_status, charge_failed_at, total_amount, tip_amount, tip_type, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, billing_type)')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery'])
       // NULL-safe "not paid/refunded" — PostgREST .not('col','in',...) drops NULL rows
       // (SQL NULL NOT IN (...) is NULL, not TRUE), so we need an explicit null branch.
@@ -6872,7 +6873,7 @@
       });
     }
 
-    const totalOwed = data.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0);
+    const totalOwed = data.reduce((s, o) => s + orderChargedTotal(o), 0);
     const failedCount = data.filter(o => o.billing_status === 'failed').length;
     const parts = [`${data.length} order${data.length !== 1 ? 's' : ''}`, fmtMoney(totalOwed) + ' outstanding'];
     if (failedCount) parts.push(`${failedCount} failed`);
@@ -6894,7 +6895,7 @@
           <td class="td-name">${esc(name)}</td>
           <td>${statusBadge(o.status)}</td>
           <td>${billingBadge}</td>
-          <td style="text-align:right;font-weight:600">${fmtMoney(o.total_amount)}</td>
+          <td style="text-align:right;font-weight:600">${fmtMoney(orderChargedTotal(o))}</td>
           <td style="text-align:right">${action}</td>
         </tr>`;
       }).join('')}
@@ -7638,12 +7639,14 @@
     const readyCount = allOrders.filter(o => o.status === 'ready_for_delivery').length;
     // Delivered Today: orders delivered today (Pacific time)
     const deliveredToday = allOrders.filter(o => o.status === 'delivered' && toLocalDate(o.actual_delivery_at) === todayStr).length;
-    // $ In Process: total amount of orders being processed but not yet charged
+    // $ In Process: projected revenue from in-flight orders (subtotal + tip).
+    // charge-order will bill the tip-inclusive amount at rack time.
     const inProcessRevenue = allOrders.filter(o => ['picked_up','processing','folding'].includes(o.status) && o.billing_status !== 'paid')
-      .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
-    // Revenue Today: only orders successfully charged via Stripe (Pacific time)
+      .reduce((sum, o) => sum + orderChargedTotal(o), 0);
+    // Revenue Today: only orders successfully charged via Stripe (Pacific time).
+    // Use chargedTotal so the figure matches what actually hit Stripe today.
     const revenueToday = allOrders.filter(o => o.billing_status === 'paid' && toLocalDate(o.billed_at) === todayStr)
-      .reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
+      .reduce((sum, o) => sum + orderChargedTotal(o), 0);
     const _s = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
     _s('ostat-pickups', pickedUpToday);
     _s('ostat-processing', processing);
@@ -15509,11 +15512,11 @@ ${oneCopy}
     // appear in the balance. Use .or() to include them explicitly.
     const { data: balOrders } = await db
       .from('orders')
-      .select('total_amount, billing_status')
+      .select('total_amount, tip_amount, tip_type, billing_status')
       .eq('customer_id', customerId)
       .in('status', ['ready_for_delivery', 'out_for_delivery', 'delivered'])
       .or('billing_status.is.null,billing_status.not.in.(paid,refunded)');
-    const balance = (balOrders || []).reduce((s, o) => s + (Number(o.total_amount) || 0), 0);
+    const balance = (balOrders || []).reduce((s, o) => s + orderChargedTotal(o), 0);
     const balDisplay = document.getElementById('cpb-balance-display');
     const balDetail  = document.getElementById('cpb-balance-detail');
     balDisplay.textContent = fmtMoney(balance);
@@ -16474,7 +16477,7 @@ ${oneCopy}
     const selectedAll = cpAllOrders.filter(o => cpBillingSelection.has(o.id));
     const selectedUnpaid = selectedAll.filter(o => !o.stripe_payment_intent_id && o.billing_status !== 'paid');
     const selectedPaid   = selectedAll.filter(o => !!o.stripe_payment_intent_id || o.billing_status === 'paid');
-    const total = selectedAll.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0);
+    const total = selectedAll.reduce((sum, o) => sum + orderChargedTotal(o), 0);
     document.getElementById('billing-bar-count').textContent = selectedAll.length;
     document.getElementById('billing-bar-plural').textContent = selectedAll.length === 1 ? '' : 's';
     document.getElementById('billing-bar-total').textContent = fmtMoney(total);
@@ -21266,7 +21269,7 @@ ${oneCopy}
     const end   = new Date(new Date(dateVal + 'T23:59:59.999').getTime() + _ptOff * 60000).toISOString();
 
     const { data: orders, error } = await db.from('orders')
-      .select(`id, order_number, status, total_bags, weight_lbs, total_amount, folded_at,
+      .select(`id, order_number, status, total_bags, weight_lbs, total_amount, tip_amount, tip_type, folded_at,
                customers(first_name_cache, last_name_cache)`)
       .eq('folded_by_id', launHistLaunId)
       .gte('folded_at', start)
@@ -21296,7 +21299,7 @@ ${oneCopy}
 
     const totalBags    = orders.reduce((s,o) => s+(o.total_bags||0), 0);
     const totalLbs     = orders.reduce((s,o) => s+(parseFloat(o.weight_lbs)||0), 0);
-    const totalRevenue = orders.reduce((s,o) => s+(parseFloat(o.total_amount)||0), 0);
+    const totalRevenue = orders.reduce((s,o) => s + orderChargedTotal(o), 0);
     document.getElementById('laun-hist-count').textContent   = orders.length;
     document.getElementById('laun-hist-bags').textContent    = totalBags;
     document.getElementById('laun-hist-lbs').textContent     = totalLbs > 0 ? totalLbs.toFixed(1) : '—';
@@ -21313,7 +21316,7 @@ ${oneCopy}
         <div class="laun-hist-order-num">#${o.order_number}</div>
         <div class="laun-hist-order-cust">${name}</div>
         <div class="laun-hist-order-meta">
-          <div class="laun-hist-order-amount">${fmtMoney(o.total_amount)}</div>
+          <div class="laun-hist-order-amount">${fmtMoney(orderChargedTotal(o))}</div>
           <div class="laun-hist-order-bags">${o.total_bags||0} bag${(o.total_bags||0)!==1?'s':''}${o.weight_lbs ? ` · ${Number(o.weight_lbs).toFixed(1)} lbs` : ''}</div>
           <div class="laun-hist-order-time">${time}</div>
         </div>
@@ -21709,7 +21712,7 @@ ${oneCopy}
           <span>📦 ${bags} bag${bags!==1?'s':''}</span>
           <span>⚖️ ${lbs}</span>
           <span>${o.services?.name||'Walk-in'}</span>
-          ${Number(o.total_amount)>0 ? `<span style="font-weight:600;color:var(--gray-700)">${fmtMoney(o.total_amount)}</span>` : ''}
+          ${Number(o.total_amount)>0 ? `<span style="font-weight:600;color:var(--gray-700)">${fmtMoney(orderChargedTotal(o))}</span>` : ''}
         </div>
         ${splitAsgn.length > 1
           ? `<div style="font-size:12px;color:var(--gray-500)">👥 Split: <strong style="color:var(--gray-700)">${splitAsgn.map(a => allLaunCache.find(l=>l.id===a.launderer_id)?.name?.split(' ')[0]||'?').join(', ')}</strong> <span style="color:var(--gray-400)">(${splitAsgn[0]?.bags} bags · ${splitAsgn[0]?.weight_lbs||'—'} lbs each)</span></div>`
@@ -25783,7 +25786,7 @@ ${oneCopy}
     // Build query — fetch all delivered/ready orders for on_account customers
     // Filter by pickup_window_start (actual service date) not created_at (import date)
     let query = db.from('orders')
-      .select('id, order_number, total_amount, status, billing_status, billed_at, actual_delivery_at, created_at, pickup_window_start, customer_id, line_items, total_bags, weight_lbs, customers!inner(id, first_name_cache, last_name_cache, billing_type, billing_group_id)')
+      .select('id, order_number, total_amount, tip_amount, tip_type, status, billing_status, billed_at, actual_delivery_at, created_at, pickup_window_start, customer_id, line_items, total_bags, weight_lbs, customers!inner(id, first_name_cache, last_name_cache, billing_type, billing_group_id)')
       .eq('customers.billing_type', 'on_account')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery', 'picked_up', 'processing', 'folding', 'scheduled'])
       .order('pickup_window_start', { ascending: false });
@@ -25804,7 +25807,8 @@ ${oneCopy}
       const ageDays = Math.floor((now - deliveredDate) / 86400000);
       const isPaid = o.billing_status === 'paid';
       const isRefunded = o.billing_status === 'refunded';
-      const outstanding = (!isPaid && !isRefunded) ? Number(o.total_amount || 0) : 0;
+      // Session 137: outstanding = charged total (subtotal + tip) so AR matches the invoice.
+      const outstanding = (!isPaid && !isRefunded) ? orderChargedTotal(o) : 0;
       return { ...o, ageDays, outstanding, isPaid, isRefunded };
     });
 
@@ -25837,7 +25841,8 @@ ${oneCopy}
         };
       }
       const rec = byCustomer[cid];
-      const amt = Number(o.total_amount || 0);
+      // Session 137: AR amounts use charged total (subtotal + tip) so dashboard matches invoices.
+      const amt = orderChargedTotal(o);
       rec.orders++;
       rec.invoiced += amt;
       if (o.isPaid) rec.paid += amt;
