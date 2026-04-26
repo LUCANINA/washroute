@@ -19076,7 +19076,9 @@ ${oneCopy}
     const typeLabel = isDelivery ? 'D' : 'P';
     const typeBg = isDelivery ? 'background:var(--gray-100);color:var(--gray-500);' : 'background:#e0e7ff;color:#4338ca;';
     const lat = a?.lat || 0, lng = a?.lng || 0;
-    const flyClick = lat ? `routeLiveMap&&routeLiveMap.flyTo([${lat},${lng}],16,{duration:.5});` : '';
+    // Hover pans/highlights the stop on the map; click opens the order panel
+    // (see cardOnclick below). Map-fly-on-click was removed Apr 25 in favor of
+    // the same row-click → detail behavior used on Orders > List.
     const hoverIn = lat ? `onmouseenter="highlightStopPin(${lat},${lng})"` : '';
     const hoverOut = lat ? `onmouseleave="unhighlightStopPin()"` : '';
     const statusMark = s.status === 'complete'
@@ -19126,9 +19128,13 @@ ${oneCopy}
 
     const custId = s.orders?.customer_id || '';
     const custClick = custId ? `event.stopPropagation();openCustomerPanel('${custId}')` : '';
+    const orderId = s.orders?.id || '';
 
-    // Bulk-select mode: card click toggles selection instead of map-fly,
-    // dragging is disabled, and the numbered circle becomes a checkbox indicator.
+    // Bulk-select mode: card click toggles selection instead of opening the order.
+    // Otherwise: card click opens the order detail panel (mirrors Orders > List).
+    // Hover still pans the map via highlightStopPin (hoverIn/hoverOut below).
+    // The map-fly behavior was removed in favor of opening the order — David Apr 25
+    // ("hover already moves the map, so click can be a real action").
     const inSel = _rccSelMode.has(routeId);
     const isSel = _rccSelStops.has(s.id);
     const cardClasses = ['rcc-card','rcc-popin'];
@@ -19137,7 +19143,7 @@ ${oneCopy}
     const draggable = inSel ? 'false' : 'true';
     const cardOnclick = inSel
       ? `rccToggleStopSelection('${s.id}','${routeId}',event)`
-      : flyClick;
+      : (orderId ? `openOrderPanel('${orderId}')` : '');
     const dragHandler = inSel ? '' : `ondragstart="rccDragStart(event,'${s.id}','${routeId}')"`;
     const numClass = inSel ? 'rcc-stop-num rcc-checkbox' : 'rcc-stop-num';
     const numStyle = inSel ? '' : `style="background:${color};"`;
