@@ -2350,6 +2350,19 @@
   let activeAddonIds = new Set(); // add-ons selected inside the weight modal
   let phoneDigits = '';
   const TAX_RATE = 0.0925;
+  // Half-up cent rounding for currency math. Use _roundCents anywhere a
+  // dollar amount needs cent precision; use _taxOn to compute sales tax on
+  // a subtotal so all display sites + Stripe charge agree.
+  //
+  // Why _taxOn does the rounding at INTEGER scale (subtotal × 100 first):
+  // 0.0925 isn't exactly representable in IEEE-754 doubles, so
+  // `6 * 0.0925` returns 0.5549999999999999 (a hair under 0.555). A naive
+  // _roundCents on that value rounds DOWN to 0.55 — the opposite of the
+  // CA half-up convention. By promoting subtotal to cents first
+  // (Math.round(subtotal * 100) === 600), the multiplication produces 55.5
+  // exactly, which Math.round correctly takes to 56 cents = $0.56.
+  const _roundCents = x => Math.round(x * 100) / 100;
+  const _taxOn = subtotal => Math.round(Math.round(subtotal * 100) * TAX_RATE) / 100;
 
   // Tip state (session 132): customer-facing tip prompt for laundry drop-offs.
   // _currentTip is the dollar amount the customer selected (0 = no tip, null = not yet prompted).
@@ -2520,7 +2533,7 @@
 
   function updateTotals() {
     const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
-    const tax = subtotal * TAX_RATE;
+    const tax = _taxOn(subtotal);
     const grand = subtotal + tax;
     document.getElementById('subtotal').textContent = '$' + subtotal.toFixed(2);
     document.getElementById('tax').textContent = '$' + tax.toFixed(2);
@@ -3315,21 +3328,33 @@
   }
 
   // Advance a walk-in order's status (processing → ready, ready → delivered).
+  //
+  // Goes through `advance_order_status` RPC (session 135's canonical entry
+  // for every status change) instead of a raw UPDATE. Reasons:
+  //   1. RLS: there is no UPDATE policy on `orders` for the POS attendant
+  //      role — a raw UPDATE silently filters to 0 rows. The RPC is
+  //      SECURITY DEFINER and bypasses RLS uniformly.
+  //   2. Attribution: the RPC writes an attributed `status_change` event
+  //      with the cashier's name, matching how the admin / driver paths log.
+  //   3. Side effects: the RPC stamps `actual_delivery_at` automatically on
+  //      a `delivered` transition and clears `routing_error` on forward
+  //      advance — same invariants as everywhere else.
   async function advanceQueueOrder(orderId, newStatus) {
     // Optimistic: disable the button
     const btn = event?.target;
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
-    const updates = { status: newStatus };
-    // When marking delivered, stamp actual_delivery_at.
-    if (newStatus === 'delivered') {
-      updates.actual_delivery_at = new Date().toISOString();
-    }
-
-    const { error } = await db.from('orders').update(updates).eq('id', orderId);
+    const actorName = [shift?.cashier_first_name, shift?.cashier_last_name]
+      .filter(Boolean).join(' ').trim() || 'POS Attendant';
+    const { error } = await db.rpc('advance_order_status', {
+      p_order_id:   orderId,
+      p_new_status: newStatus,
+      p_actor_name: actorName,
+    });
     if (error) {
       console.error('[POS] advanceQueueOrder error:', error);
       if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
+      showToast('Failed to update order: ' + error.message, 'error');
       return;
     }
 
@@ -3395,8 +3420,8 @@
     document.getElementById('payError').style.display = 'none';
     // Update displayed total to include tip if any (session 132)
     const subtotal = _cartSubtotal();
-    const tax = subtotal * TAX_RATE;
-    const grandWithTip = Math.round((subtotal + tax + (_currentTip || 0)) * 100) / 100;
+    const tax = _taxOn(subtotal);
+    const grandWithTip = subtotal + tax + (_currentTip || 0);
     document.getElementById('payTotal').textContent = '$' + grandWithTip.toFixed(2);
     const tipRow = document.getElementById('payTipRow');
     if (_currentTip > 0) {
@@ -3416,8 +3441,8 @@
   function payWithCash() {
     // Calculate the total due right now (includes tip from session 132 flow)
     const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
-    const tax = subtotal * TAX_RATE;
-    cashDueTotal = Math.round((subtotal + tax + (_currentTip || 0)) * 100) / 100;
+    const tax = _taxOn(subtotal);
+    cashDueTotal = subtotal + tax + (_currentTip || 0);
 
     // Reset numpad
     cashStr = '';
@@ -3515,7 +3540,7 @@
 
     // Show terminal modal with amount (includes tip from session 132 flow)
     const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
-    const tax = subtotal * TAX_RATE;
+    const tax = _taxOn(subtotal);
     const grand = subtotal + tax + (_currentTip || 0);
     const amountCents = Math.round(grand * 100);
 
@@ -4200,7 +4225,7 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
 
     // --- Build totals from the current cart ---
     const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
-    const tax      = subtotal * TAX_RATE;
+    const tax      = _taxOn(subtotal);
     const total    = subtotal + tax;
 
     // --- Shape line_items for storage ---
