@@ -22056,7 +22056,7 @@ ${oneCopy}
       allRacksCache = data || [];
     }
     const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, rack_id, folded_by_id, source, special_instructions,
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, billing_status, rack_id, folded_by_id, source, special_instructions,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, addresses(id,label,line1,city)),
