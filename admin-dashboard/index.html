@@ -22085,7 +22085,10 @@ ${oneCopy}
       const name = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.trim() || '—';
       const rack = allRacksCache.find(r => r.id === o.rack_id);
       const rackLabel = rack ? rack.name : '—';
-      const paid = !!o.stripe_payment_intent_id;
+      // billing_status = 'paid' covers both Stripe online charges AND POS cash
+      // sales. Earlier `!!o.stripe_payment_intent_id` mislabeled every cash sale
+      // as ❌ Unpaid because cash never produces a payment intent.
+      const paid = o.billing_status === 'paid';
       const noBill = !o.total_amount || Number(o.total_amount) <= 0;
       const isOnAcct = o.customers?.billing_type === 'on_account';
       const payBadge = paid
