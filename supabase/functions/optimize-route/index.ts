@@ -291,18 +291,13 @@ Deno.serve(async (req: Request) => {
     // from other routes — they need to be interleaved geographically with existing
     // stops, not isolated in separate window groups.
     const GOOGLE_MAX_WAYPOINTS = 23; // +origin +dest = 25 total
-    const useSinglePass = pendingWithAddr.length <= GOOGLE_MAX_WAYPOINTS;
-
-    if (useSinglePass && windowKeys.length > 1) {
-      // Merge all window groups into one, sorted by window start for initial ordering
-      const merged: any[] = [];
-      for (const wk of windowKeys) merged.push(...windowGroups[wk]);
-      const singleKey = windowKeys[0];
-      windowGroups[singleKey] = merged;
-      // Remove other keys
-      for (let i = 1; i < windowKeys.length; i++) delete windowGroups[windowKeys[i]];
-      windowKeys.length = 1;
-      console.log(`[optimize-route] Single-pass mode: merged ${merged.length} stops into 1 group for best geographic efficiency`);
+    // Single-pass optimization is only safe when all stops share one booked window.
+    // When multiple windows are present (e.g. a PM route covering both 6-8 PM and
+    // 8-10 PM slots), merging them would let Google reorder purely by geography
+    // and hand 8 PM customers an ETA of 6:08 PM. Optimize each window separately.
+    const useSinglePass = pendingWithAddr.length <= GOOGLE_MAX_WAYPOINTS && windowKeys.length === 1;
+    if (useSinglePass) {
+      console.log(`[optimize-route] Single-pass mode: ${pendingWithAddr.length} stops in 1 window`);
     }
 
     // ── 6. Determine starting position ──
@@ -350,22 +345,30 @@ Deno.serve(async (req: Request) => {
     let clock = now.getTime(); // milliseconds
     const atRisk: any[] = [];
 
-    // If no driver GPS, start the clock at route window start (today's date + window_start)
-    if (!driver_lat || !driver_lng) {
-      // Build today's window start as a Pacific time timestamp
-      const runDate = route.run_date || now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
-      const startHour = Math.floor(tmplStartM / 60);
-      const startMin = tmplStartM % 60;
-      // Create date in Pacific time
-      const pacificDateStr = `${runDate}T${String(startHour).padStart(2,'0')}:${String(startMin).padStart(2,'0')}:00`;
-      // Parse as Pacific time — compute correct UTC offset dynamically (handles PST/PDT)
+    // Helper: convert minutes-from-midnight PT on run_date to a UTC timestamp (ms).
+    // Used for both the initial clock (no driver GPS) and the per-stop window floor.
+    const runDate = route.run_date || now.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+    const winStartMsCache = new Map<number, number>();
+    const ptMinsToUtcMs = (mins: number): number => {
+      const cached = winStartMsCache.get(mins);
+      if (cached !== undefined) return cached;
+      const hour = Math.floor(mins / 60);
+      const min = mins % 60;
+      const pacificDateStr = `${runDate}T${String(hour).padStart(2,'0')}:${String(min).padStart(2,'0')}:00`;
       const tempDate = new Date(pacificDateStr + 'Z'); // treat as UTC temporarily
       const utcStr = tempDate.toLocaleString('en-US', { timeZone: 'UTC' });
       const ptStr = tempDate.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
       const offsetMs = new Date(utcStr).getTime() - new Date(ptStr).getTime();
-      const refDate = new Date(tempDate.getTime() + offsetMs);
-      if (refDate.getTime() > now.getTime()) {
-        clock = refDate.getTime();
+      const ms = tempDate.getTime() + offsetMs;
+      winStartMsCache.set(mins, ms);
+      return ms;
+    };
+
+    // If no driver GPS, start the clock at route window start (today's date + window_start)
+    if (!driver_lat || !driver_lng) {
+      const refMs = ptMinsToUtcMs(tmplStartM);
+      if (refMs > now.getTime()) {
+        clock = refMs;
       }
     }
 
@@ -374,11 +377,17 @@ Deno.serve(async (req: Request) => {
       const driveSec = stop._legDurSec || 0;
       clock += driveSec * 1000;
 
+      // Clock floor: a stop's ETA can never be earlier than its booked window's start.
+      // Without this, a driver running ahead of schedule would be told to arrive at
+      // an 8-10 PM customer at 6:08 PM. If we arrive early, the clock waits.
+      const winStart = getStopWindowStart(stop, tmplStartM, tmplEndM, slotDurM);
+      const winStartMs = ptMinsToUtcMs(winStart);
+      if (clock < winStartMs) clock = winStartMs;
+
       const eta = new Date(clock);
       stop._eta = eta;
 
       // Check if at-risk (ETA past this stop's window deadline)
-      const winStart = getStopWindowStart(stop, tmplStartM, tmplEndM, slotDurM);
       const winEnd = winStart + slotDurM; // e.g., 1080 + 120 = 1200 (8 PM)
       const etaPacific = eta.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false });
       const etaTimePart = etaPacific.split(', ')[1] || '00:00:00';
