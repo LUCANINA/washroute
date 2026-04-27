@@ -725,6 +725,41 @@ Running registry of every customer-record merge performed. Each row captures the
 
 ## Session Log
 
+### Apr 27, 2026 (session 138, pt 2) — Apr 23 driver_id patch trigger retired (superseded by session 134 pt 8)
+
+After the session 138 reset cleared the stale `130c566` commit, audited what was actually still live from the Apr 23 work. Findings:
+
+1. **PROJECT-NOTES session 134 entry** I drafted on Apr 23 — already superseded by origin's 11-part session 134 wrap (pt 2 → pt 11). Nothing to restore.
+2. **Skill files (washroute-migration-review Step 1.5 + washroute-qa bullet)** I drafted on Apr 23 with a "patch vs. real fix" example — the *principle* is right, but my *case study* (cited "drop `route_stops.driver_id`") was rejected by session 134 pt 8's architectural decision (which kept the column and made it the source of truth). Skipped re-applying — the same principle is already captured at line 126 ("⚠️ ALWAYS CHOOSE THE CLEANEST ARCHITECTURAL PATH") with a correct example (`reoptimize_active_routes`).
+3. **DB patch trigger `trg_sync_stops_on_route_driver_change`** I added on Apr 23 — was still live and had nulled `driver_id` on 50+ active stops across 18 future routes (Hayward PM 5/1: 8/9 stops null, Oakland PM 5/2: 9/18, etc.). This **conflicts** with session 134 pt 8's design where `reoptimize_active_routes` joins *through* `route_stops.driver_id` and would skip routes where it's NULL. Dropped the trigger + function, backfilled the orphaned NULLs from `route.pickup_driver_id` (for pickup stops) / `route.delivery_driver_id` (for delivery stops) / `route.driver_id` (legacy fallback) — matching the architecture session 134 chose. Migration `drop_sync_stops_on_route_driver_change_patch`. Verification: 0 active stops with NULL driver_id remain in next 14 days where the route has a driver assigned.
+4. **Tasks:** #37 (Apr 23 patch) is now retired — description updated to reflect the cleanup. #38 ("Drop `route_stops.driver_id` column" — the architectural follow-up I'd queued for Sunday) is **deleted** as the project's actual decision was the opposite (keep the column, treat it as truth).
+
+**Lesson reinforced:** my Apr 23 advice ("drop the denormalized column, derive via join") would have been one valid architectural choice, but the project chose the other valid path (single trigger-maintained source of truth column with proper indexing). Both are clean architectures — the harm came from leaving a partial patch in place that worked against whichever path was eventually picked. Next time I propose a structural change, ship it or abandon it — don't leave a half-migration trigger in the database while the decision is still pending. **No commit needed** — DB-only changes.
+
+### Apr 27, 2026 (session 138) — Laptop catch-up + optimize-route ETA fixes landed in git
+
+**Context:** David swapped to his laptop after a couple weeks of working from his desktop. The laptop was 73 commits behind origin (sessions 134→137 all done remotely), had one stale unpushed commit (`130c566`, "session 134 — driver_id drift patch + standing principle" — a docs/skill-files draft superseded by origin's full session 134 wrap), and 5 in-flight files from a partially-finished bug-hunt the laptop had open from Apr 22 (`BUG-HUNT-PLAN.md`, `FINDINGS.md`, plus working edits to `optimize-route/index.ts` + `washroute-audit.skill` + `washroute.skill`). `git pull` failed with divergent-branches; `git pull --rebase` failed because of unstaged changes.
+
+**Resolution:** stashed the working edits (`-u` so untracked files came along), confirmed via diff that 130c566 was content-stale relative to origin (skill files already evolved on origin via `e807206 skill: washroute base — synced from installed version (session 136 close)`; PROJECT-NOTES.md changed by 31 commits since the divergence point), then `git reset --hard origin/main` to drop the stale commit and `git stash drop` to clear the stash. Backup of every file in the stash + commit saved in `.laptop-backup-2026-04-27/` (untracked, repo root) before resetting. Restored `BUG-HUNT-PLAN.md` and `FINDINGS.md` to the repo root as untracked working notes. Discarded the laptop's edits to `washroute-audit.skill` and `washroute.skill` since origin's versions were newer.
+
+**The one piece of unfinished laptop work that mattered** — two ETA bug fixes in `supabase/functions/optimize-route/index.ts`. Origin still had the buggy code (the 73 commits never touched this file in this region). Patch applied cleanly. Commit `221461e` ("fix(optimize-route): prevent multi-window single-pass merge + per-stop ETA window-start floor"):
+
+1. **Single-pass mode now requires `windowKeys.length === 1`.** Before: when a route had ≤23 stops across multiple windows (e.g. a PM route with both 6-8 PM and 8-10 PM slots), all stops were merged into one group so Google could reorder by pure geography for "best clustering" — handing 8 PM customers an ETA of 6:08 PM. Now multi-window routes optimize each window separately; single-pass only fires when there's one window to begin with.
+
+2. **Per-stop clock floor.** Added a `ptMinsToUtcMs(mins)` helper (with a per-mins cache) that converts minutes-from-midnight PT on `run_date` to a UTC ms timestamp. Inside the ETA loop, every stop's clock is floored at `ptMinsToUtcMs(getStopWindowStart(stop, …))` — so a driver running ahead of schedule never gets told to arrive at an 8-10 PM customer at 6:08 PM. The clock waits at the next window's start. The "no driver GPS" branch was also refactored to use the same helper instead of duplicating the timezone-offset math.
+
+**Production impact: zero.** Edge function `optimize-route` v25 already had both fixes running in production — David must have deployed it from the laptop's dirty working copy at some earlier point, before the git divergence got out of hand. So the source-of-truth change is the meaningful work today; behavior was already correct. Redeployed as **v26** with `verify_jwt: false` (matching v25) to keep deploy lineage tied to the now-committed source.
+
+**Hygiene flags for next session:**
+- The remote URL on the laptop is still `https://github.com/dmacquart/washroute.git`; GitHub auto-redirected the push to the new location `https://github.com/LUCANINA/washroute.git` and emitted a "This repository moved" notice. The redirect won't last forever — should run `git remote set-url origin https://github.com/LUCANINA/washroute.git` at some point.
+- `optimize-route` has `verify_jwt: false` and uses `SERVICE_ROLE_KEY` internally; route_id is a UUID input from the caller. Same shape as the functions hardened in session 137's "security round 1" (`4e2ab4b`). Worth a follow-up to JWT-gate this if the only legitimate caller is the admin dashboard.
+- `BUG-HUNT-PLAN.md` and `FINDINGS.md` are sitting untracked in the repo root from the Apr 22 bug-hunt that never finished. David's call whether to commit, gitignore, or delete.
+- `.laptop-backup-2026-04-27/` (untracked) holds copies of every file that was on the laptop pre-reset, including the unique `washroute-migration-review.skill` from the dropped commit (3984 bytes — note: this skill is already installed system-wide, the file in the dropped commit was a development-tracked copy, not the live skill).
+
+Last commit `221461e`. No DB or migration changes today.
+
+---
+
 ### Apr 25, 2026 (session 137) — Big day: bulk SMS/reschedule on Map, receipt-tip sweep, recall fix, stat-card timestamp fix, security round 1
 
 **Headline:** 11 commits, 5 migrations, 4 edge function deploys. Touched all three apps + multiple edge functions. Closed the public anon-key exploit on 14 RPCs; hardened 2 unauthenticated edge functions (refund-charge, send-sms) and 1 webhook (twilio-webhook signature verification).
