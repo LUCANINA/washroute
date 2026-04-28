@@ -1072,6 +1072,26 @@ const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
 const BIZ_TZ = 'America/Los_Angeles';
 const db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'wr-driver-auth', autoRefreshToken: true, persistSession: true } });
+
+/* Strip auth-flow URL params after Supabase init — see customer-app for
+   full rationale (Emily Wong "thrown out" Apr 28, 2026). Drivers don't
+   normally use email magic links, but PWA reload + a stale token in the
+   URL would produce the same SIGNED_OUT symptom. Defensive parity with
+   customer-app. Idempotent. */
+(function _stripAuthUrlParams() {
+  try {
+    const u = new URL(window.location.href);
+    const authParams = ['token_hash', 'type', 'code', 'error', 'error_code', 'error_description', 'access_token', 'refresh_token', 'expires_in', 'expires_at', 'token_type'];
+    let touched = false;
+    for (const p of authParams) {
+      if (u.searchParams.has(p)) { u.searchParams.delete(p); touched = true; }
+    }
+    if (u.hash && /access_token|refresh_token|token_hash|type=|error/i.test(u.hash)) {
+      u.hash = ''; touched = true;
+    }
+    if (touched) history.replaceState({}, '', u.pathname + (u.search || '') + u.hash);
+  } catch (e) { console.warn('_stripAuthUrlParams non-fatal:', e?.message); }
+})();
 // Session 137 security: returns the logged-in driver's JWT. Used when calling
 // edge functions (send-sms, etc.) that now require a real staff session
 // instead of the publicly embedded anon key.

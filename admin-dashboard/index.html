@@ -4593,6 +4593,24 @@
   const _noopLock = (name, acquireTimeout, fn) => fn();
   const db = createClient(SUPA_URL, SUPA_ANON_KEY, { auth: { storageKey: 'wr-admin-auth', autoRefreshToken: true, persistSession: true, lock: _noopLock } });
 
+  /* Strip auth-flow URL params after Supabase init — see customer-app for
+     full rationale (Emily Wong "thrown out" Apr 28, 2026). Defensive parity
+     across all three apps. Idempotent. */
+  (function _stripAuthUrlParams() {
+    try {
+      const u = new URL(window.location.href);
+      const authParams = ['token_hash', 'type', 'code', 'error', 'error_code', 'error_description', 'access_token', 'refresh_token', 'expires_in', 'expires_at', 'token_type'];
+      let touched = false;
+      for (const p of authParams) {
+        if (u.searchParams.has(p)) { u.searchParams.delete(p); touched = true; }
+      }
+      if (u.hash && /access_token|refresh_token|token_hash|type=|error/i.test(u.hash)) {
+        u.hash = ''; touched = true;
+      }
+      if (touched) history.replaceState({}, '', u.pathname + (u.search || '') + u.hash);
+    } catch (e) { console.warn('_stripAuthUrlParams non-fatal:', e?.message); }
+  })();
+
   // Batched-IN helper. PostgREST encodes .in() in the URL; with too many UUIDs
   // the URL exceeds the server's max length and the query silently returns no
   // rows. Use this whenever the IN list could grow beyond ~150 IDs.

@@ -1680,6 +1680,45 @@ try {
   throw initErr;
 }
 
+/* ── Strip auth-flow params from the URL after Supabase init ──────────
+   Supabase JS reads the URL synchronously during createClient() above
+   and queues a single /verify call for any token it finds. Once that
+   has been queued we want the token OUT of the URL — otherwise a tab
+   refresh, background reactivation, or PWA reload re-runs createClient,
+   re-finds the same token, and re-attempts /verify. The second attempt
+   returns 403 "One-time token not found" (single-use), which Supabase
+   surfaces as SIGNED_OUT and the customer-app's auth handler kicks
+   the user back to the login screen — the "thrown out" symptom Emily
+   Wong reported on Apr 28, 2026.
+
+   Strip every auth-related param. After this runs, any subsequent
+   re-init of supabase-js sees a clean URL and doesn't even attempt
+   redemption. Idempotent: if no auth params are present, this is a
+   no-op. We deliberately strip on every boot — there is no legitimate
+   reason for a customer to ever land on the customer-app with these
+   params still in the URL after the first instant of page load. */
+(function _stripAuthUrlParams() {
+  try {
+    const u = new URL(window.location.href);
+    const authParams = ['token_hash', 'type', 'code', 'error', 'error_code', 'error_description', 'access_token', 'refresh_token', 'expires_in', 'expires_at', 'token_type'];
+    let touched = false;
+    for (const p of authParams) {
+      if (u.searchParams.has(p)) { u.searchParams.delete(p); touched = true; }
+    }
+    // Hash fragments (some Supabase flows put tokens here)
+    if (u.hash && /access_token|refresh_token|token_hash|type=|error/i.test(u.hash)) {
+      u.hash = '';
+      touched = true;
+    }
+    if (touched) {
+      history.replaceState({}, '', u.pathname + (u.search || '') + u.hash);
+    }
+  } catch (e) {
+    // Best-effort; never block app boot on this
+    console.warn('_stripAuthUrlParams non-fatal:', e?.message);
+  }
+})();
+
 /* ── STATE ── */
 let currentUser     = null;
 let currentProfile  = null;
