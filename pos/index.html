@@ -364,6 +364,102 @@
   .queue-card-btn.pickup:hover { background: var(--accent-light); }
   .queue-card-btn:disabled { opacity: 0.5; cursor: default; }
 
+  /* Launderer assignment chip on queue cards */
+  .laun-warn {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    background: #fef9c3;
+    border: 1.5px solid #f59e0b;
+    border-radius: 8px;
+    color: #92400e;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    transition: background 0.12s;
+  }
+  .laun-warn:hover { background: #fef3c7; }
+  .laun-assigned {
+    margin-bottom: 8px;
+    padding: 7px 10px;
+    background: var(--gray-50);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--gray-700);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .laun-assigned-name { flex: 1; font-weight: 600; }
+  .laun-reassign {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0;
+    font-family: inherit;
+  }
+  .laun-reassign:hover { text-decoration: underline; }
+
+  /* Launderer picker modal slots */
+  .laun-picker-row {
+    margin-bottom: 12px;
+  }
+  .laun-picker-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray-600);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .laun-picker-select {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1.5px solid var(--gray-200);
+    border-radius: 8px;
+    font-size: 15px;
+    font-family: inherit;
+    background: white;
+    cursor: pointer;
+  }
+  .laun-picker-select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .laun-split-toggle {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .laun-split-tab {
+    flex: 1;
+    padding: 9px 0;
+    border: 1.5px solid var(--gray-200);
+    border-radius: 8px;
+    background: white;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    color: var(--gray-600);
+    font-family: inherit;
+  }
+  .laun-split-tab.active {
+    border-color: var(--accent);
+    background: #f5f4ff;
+    color: var(--accent);
+  }
+  .laun-split-info {
+    font-size: 12px;
+    color: var(--gray-500);
+    text-align: center;
+    margin-bottom: 14px;
+  }
+
   .queue-empty {
     text-align: center;
     padding: 40px 20px;
@@ -1986,6 +2082,32 @@
         </div>
       </div>
 
+      <!-- ─── Launderer assignment modal ───────────────────── -->
+      <div class="modal-overlay" id="laundererModal">
+        <div class="modal" style="max-width: 460px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Assign launderer</div>
+              <div class="modal-sub" id="laundererModalSub">Order #—</div>
+            </div>
+            <button class="modal-close" onclick="closeAll()">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="laun-split-toggle">
+              <button class="laun-split-tab active" id="laun-tab-1" onclick="setLaundererSplitCount(1)">1 person</button>
+              <button class="laun-split-tab" id="laun-tab-2" onclick="setLaundererSplitCount(2)">Split 2 ways</button>
+              <button class="laun-split-tab" id="laun-tab-3" onclick="setLaundererSplitCount(3)">Split 3 ways</button>
+            </div>
+            <div class="laun-split-info" id="laun-split-info" style="display:none"></div>
+            <div id="laun-picker-slots"><!-- populated by renderLaundererPicker() --></div>
+            <div class="modal-actions" style="margin-top: 18px; display:flex; gap:8px;">
+              <button class="btn" style="flex:1; background:var(--gray-100); border:none; color:var(--gray-700); padding:12px; border-radius:8px; font-weight:600; cursor:pointer;" onclick="closeAll()">Cancel</button>
+              <button class="btn btn-primary" id="laun-save-btn" style="flex:1; padding:12px; border-radius:8px; font-weight:700; cursor:pointer;" onclick="confirmLaundererAssignment()">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ─── Refund modal ──────────────────────────────────── -->
       <div class="modal-overlay" id="refundModal">
         <div class="modal" style="max-width: 480px;">
@@ -3135,6 +3257,13 @@
   let _queueTimer = null;     // auto-refresh interval
   const BIZ_TZ = 'America/Los_Angeles';
 
+  // Active launderers cached for the session — refreshed on each loadWalkInQueue
+  // call so newly added/disabled launderers show up promptly.
+  let _activeLaunderers = [];
+  // Map of order_id → array of fold assignment rows (split records).
+  // Empty array = single-launderer (use orders.folded_by_id instead).
+  let _foldAssignmentsByOrder = {};
+
   function toggleQueue() {
     queueOpen = !queueOpen;
     const panel = document.getElementById('queuePanel');
@@ -3167,8 +3296,13 @@
       return;
     }
     try {
+      // Refresh the active-launderer cache in parallel with the order fetch.
+      // The RPC bypasses the admin-only RLS on `launderers` so POS attendants
+      // can read names without admin policy changes.
+      const launPromise = db.rpc('get_active_launderers');
+
       let query = db.from('orders')
-        .select('id, order_number, status, customer_id, total_amount, weight_lbs, line_items, created_at, updated_at')
+        .select('id, order_number, status, customer_id, total_amount, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at')
         .eq('source', 'walk_in')
         .in('status', ['processing', 'ready_for_delivery']);
 
@@ -3219,6 +3353,32 @@
           _customerPhone: c ? c.phone : '',
         };
       });
+
+      // Resolve the launderer cache (started at the top of this function)
+      try {
+        const { data: launData } = await launPromise;
+        _activeLaunderers = launData || [];
+      } catch (e) {
+        console.warn('[POS] get_active_launderers failed (non-fatal):', e);
+      }
+
+      // Pull fold-assignment splits for any orders currently in the queue.
+      // Most orders won't have rows here (single-launderer case relies on
+      // orders.folded_by_id); only splits insert here. Single batched query
+      // keeps us at one round-trip regardless of queue length.
+      _foldAssignmentsByOrder = {};
+      const queueIds = queueOrders.map(o => o.id);
+      if (queueIds.length) {
+        const { data: foldRows, error: foldErr } = await db
+          .from('order_folding_assignments')
+          .select('order_id, launderer_id, bags, weight_lbs')
+          .in('order_id', queueIds);
+        if (!foldErr && foldRows) {
+          for (const r of foldRows) {
+            (_foldAssignmentsByOrder[r.order_id] = _foldAssignmentsByOrder[r.order_id] || []).push(r);
+          }
+        }
+      }
 
       renderQueue(queueOrders);
     } catch (e) {
@@ -3294,10 +3454,47 @@
     const created = new Date(order.created_at);
     const timeAgo = relativeTime(created);
 
-    // Action button
+    // Launderer state — only relevant while the order is in 'processing'.
+    // Once it's been advanced to ready_for_delivery, the assignment is locked
+    // and we just display it for context.
+    const splitRows = _foldAssignmentsByOrder[order.id] || [];
+    const hasAssignment = splitRows.length > 0 || !!order.folded_by_id;
+    let launHtml = '';
+    if (hasAssignment) {
+      let assignedNames;
+      if (splitRows.length > 1) {
+        assignedNames = splitRows
+          .map(r => _activeLaunderers.find(l => l.id === r.launderer_id)?.name || '?')
+          .join(' + ');
+      } else {
+        assignedNames = _activeLaunderers.find(l => l.id === order.folded_by_id)?.name || 'Launderer';
+      }
+      const reassignBtn = (status === 'processing')
+        ? `<button class="laun-reassign" onclick="event.stopPropagation();openLaundererPicker('${order.id}')">Reassign</button>`
+        : '';
+      launHtml = `
+        <div class="laun-assigned">
+          <span>👤</span>
+          <span class="laun-assigned-name">${assignedNames}</span>
+          ${reassignBtn}
+        </div>`;
+    } else if (status === 'processing') {
+      launHtml = `
+        <div class="laun-warn" onclick="openLaundererPicker('${order.id}')">
+          <span>⚠️</span>
+          <span style="flex:1">Assign launderer to continue</span>
+          <span style="font-size:10px;opacity:0.7">TAP →</span>
+        </div>`;
+    }
+
+    // Action button. Mark Ready is only enabled once a launderer is assigned —
+    // launderer-pounds tracking depends on it. Belt-and-suspenders: the
+    // advanceQueueOrder() guard re-checks before calling the RPC.
     let btnHtml = '';
     if (status === 'processing') {
-      btnHtml = `<button class="queue-card-btn ready" onclick="advanceQueueOrder('${order.id}', 'ready_for_delivery')">✅ Mark Ready</button>`;
+      if (hasAssignment) {
+        btnHtml = `<button class="queue-card-btn ready" onclick="advanceQueueOrder('${order.id}', 'ready_for_delivery')">✅ Mark Ready</button>`;
+      }
     } else if (status === 'ready_for_delivery') {
       btnHtml = `<button class="queue-card-btn pickup" onclick="advanceQueueOrder('${order.id}', 'delivered')">📦 Mark Picked Up</button>`;
     }
@@ -3311,9 +3508,163 @@
         </div>
         <div class="queue-card-detail">${detail || 'No items'}</div>
         <div class="queue-card-time">${status === 'processing' ? 'Dropped off' : 'Ready'} ${timeAgo}</div>
+        ${launHtml}
         ${btnHtml}
       </div>
     `;
+  }
+
+  /* ─── Launderer picker (POS) ───────────────────────────────────
+     Required step between Intake and Mark Ready. Single launderer by
+     default; supports 2- or 3-way splits with even bag/lb division
+     (mirrors admin's foldSplit feature). Calls assign_order_launderers
+     RPC which is the only door for this mutation — POS attendants
+     don't have direct write access to order_folding_assignments or
+     orders.folded_by_id (admin-only RLS).
+     ──────────────────────────────────────────────────────────── */
+  let _launActiveOrderId  = null;
+  let _launSplitCount     = 1;
+  let _launSlotSelections = [null, null, null];
+
+  function openLaundererPicker(orderId) {
+    const order = (queueOrders || []).find(o => o.id === orderId);
+    if (!order) return;
+
+    if (!_activeLaunderers.length) {
+      showToast('No active launderers configured. Add one in the admin dashboard first.', 'error');
+      return;
+    }
+
+    _launActiveOrderId  = orderId;
+    _launSlotSelections = [null, null, null];
+
+    // Pre-populate from existing assignment so "Reassign" shows current state
+    const splitRows = _foldAssignmentsByOrder[orderId] || [];
+    if (splitRows.length > 1) {
+      _launSplitCount = Math.min(splitRows.length, 3);
+      splitRows.slice(0, 3).forEach((r, i) => { _launSlotSelections[i] = r.launderer_id; });
+    } else {
+      _launSplitCount = 1;
+      _launSlotSelections[0] = order.folded_by_id || null;
+    }
+
+    document.getElementById('laundererModalSub').textContent = `Order #${order.order_number}`;
+    setLaundererSplitCount(_launSplitCount, /*skipRender=*/false);
+    showModal('laundererModal');
+  }
+
+  function setLaundererSplitCount(n, skipRender) {
+    _launSplitCount = n;
+    // Clear slots beyond the new count
+    for (let i = n; i < 3; i++) _launSlotSelections[i] = null;
+    // Update tab visuals
+    [1, 2, 3].forEach(k => {
+      const t = document.getElementById('laun-tab-' + k);
+      if (t) t.classList.toggle('active', k === n);
+    });
+    if (!skipRender) renderLaundererPicker();
+  }
+
+  function renderLaundererPicker() {
+    const order = (queueOrders || []).find(o => o.id === _launActiveOrderId);
+    if (!order) return;
+
+    // Per-slot bag + weight (shown for split mode)
+    const totalBags = Number(order.total_bags) || 0;
+    const totalLbs  = Number(order.weight_lbs) || 0;
+    const infoEl = document.getElementById('laun-split-info');
+    if (_launSplitCount > 1 && (totalBags || totalLbs)) {
+      const perBags = totalBags ? (totalBags / _launSplitCount).toFixed(1) : null;
+      const perLbs  = totalLbs  ? (totalLbs  / _launSplitCount).toFixed(1) : null;
+      const parts = [];
+      if (perBags) parts.push(`${perBags} bag${perBags === '1.0' ? '' : 's'}`);
+      if (perLbs)  parts.push(`${perLbs} lb`);
+      infoEl.textContent = `Each person gets ${parts.join(' / ')}`;
+      infoEl.style.display = '';
+    } else {
+      infoEl.style.display = 'none';
+    }
+
+    // Render slot dropdowns. Each slot excludes launderers already picked
+    // in the other slots so a duplicate is impossible from the UI.
+    const slotsEl = document.getElementById('laun-picker-slots');
+    const slots = [];
+    for (let i = 0; i < _launSplitCount; i++) {
+      const usedByOthers = _launSlotSelections.filter((id, j) => j !== i && id);
+      const opts = _activeLaunderers
+        .filter(l => !usedByOthers.includes(l.id))
+        .map(l => `<option value="${l.id}"${_launSlotSelections[i] === l.id ? ' selected' : ''}>👤 ${l.name}</option>`)
+        .join('');
+      const label = _launSplitCount === 1 ? 'Launderer' : `Person ${i + 1}`;
+      slots.push(`
+        <div class="laun-picker-row">
+          <div class="laun-picker-label">${label}</div>
+          <select class="laun-picker-select" data-slot="${i}" onchange="pickLaundererForSlot(${i}, this.value)">
+            <option value="">— Choose someone —</option>
+            ${opts}
+          </select>
+        </div>`);
+    }
+    slotsEl.innerHTML = slots.join('');
+
+    // Save button enabled only when every slot has a (different) selection
+    const allFilled = _launSlotSelections.slice(0, _launSplitCount).every(Boolean);
+    const saveBtn = document.getElementById('laun-save-btn');
+    saveBtn.disabled = !allFilled;
+    saveBtn.style.opacity = allFilled ? '1' : '0.5';
+  }
+
+  function pickLaundererForSlot(slot, launId) {
+    _launSlotSelections[slot] = launId || null;
+    renderLaundererPicker();
+  }
+
+  async function confirmLaundererAssignment() {
+    const order = (queueOrders || []).find(o => o.id === _launActiveOrderId);
+    if (!order) return;
+    const selected = _launSlotSelections.slice(0, _launSplitCount);
+    if (!selected.every(Boolean)) {
+      showToast('Pick a launderer for each slot', 'error');
+      return;
+    }
+    if (new Set(selected).size < _launSplitCount) {
+      showToast('Each person must be different', 'error');
+      return;
+    }
+
+    const btn = document.getElementById('laun-save-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+
+    const totalBags = Number(order.total_bags) || 0;
+    const totalLbs  = Number(order.weight_lbs) || 0;
+    const perBags = totalBags ? totalBags / _launSplitCount : null;
+    const perLbs  = totalLbs  ? totalLbs  / _launSplitCount : null;
+    const assignments = selected.map(launId => ({
+      launderer_id: launId,
+      bags:         perBags !== null ? Math.round(perBags * 100) / 100 : null,
+      weight_lbs:   perLbs  !== null ? Math.round(perLbs  * 100) / 100 : null,
+    }));
+
+    const actorName = [shift?.cashier_first_name, shift?.cashier_last_name]
+      .filter(Boolean).join(' ').trim() || 'POS Attendant';
+
+    const { data, error } = await db.rpc('assign_order_launderers', {
+      p_order_id:    order.id,
+      p_assignments: assignments,
+      p_actor_name:  actorName,
+    });
+
+    btn.disabled = false; btn.textContent = 'Save';
+
+    if (error) {
+      console.error('[POS] assign_order_launderers error:', error);
+      showToast('Failed to assign: ' + error.message, 'error');
+      return;
+    }
+
+    closeAll();
+    showToast(`✓ ${data?.names || 'Launderer assigned'}`, 'success');
+    await loadWalkInQueue();
   }
 
   // Simple relative-time helper: "3m ago", "1h ago", "2d ago"
@@ -3340,6 +3691,20 @@
   //      a `delivered` transition and clears `routing_error` on forward
   //      advance — same invariants as everywhere else.
   async function advanceQueueOrder(orderId, newStatus) {
+    // Belt-and-suspenders launderer guard: the queue card hides Mark Ready
+    // when no launderer is assigned, but a stale render could still surface
+    // the button. Enforce the invariant in code too.
+    if (newStatus === 'ready_for_delivery') {
+      const order = (queueOrders || []).find(o => o.id === orderId);
+      const splitRows = _foldAssignmentsByOrder[orderId] || [];
+      const hasAssignment = splitRows.length > 0 || !!(order && order.folded_by_id);
+      if (!hasAssignment) {
+        showToast('Assign a launderer before marking ready', 'error');
+        openLaundererPicker(orderId);
+        return;
+      }
+    }
+
     // Optimistic: disable the button
     const btn = event?.target;
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
