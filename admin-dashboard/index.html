@@ -9776,10 +9776,13 @@
     const data = await res.json();
     if (!res.ok) { showToast(data.error || 'Charge failed', 'error'); return; }
     // charge-order v33 charges subtotal + tip; log the actual amount so history matches Stripe.
+    // charge-order itself sets billing_status='paid', billed_at, and stripe_payment_intent_id —
+    // do NOT touch those columns here. (Until session 137 this site explicitly cleared
+    // billing_status to NULL right after the charge, silently overwriting the just-written
+    // 'paid' value. Caused Dana Ross #3045 + Craig Griffin #3260 to look unpaid in the system
+    // even though Stripe collected. Fixed by removing the post-charge UPDATE.)
     const chargedAmt = _orderTipBreakdown(o).totalWithTip;
-    await logOrderEvent(o.id, 'billing', `Charged ${fmtMoney(chargedAmt)}`, null, 'charged');
-    // Clear failed billing status and refresh
-    await db.from('orders').update({ billing_status: null }).eq('id', o.id);
+    await logOrderEvent(o.id, 'billing', `Charged ${fmtMoney(chargedAmt)}`, null, 'paid');
     showToast('Payment charged ✓', 'success');
     opPopulateBilling(o);
     // Send receipt email now that charge succeeded
