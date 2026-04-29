@@ -12,6 +12,15 @@
     --accent:       #635bff;
     --accent-dark:  #4f46e5;
     --accent-light: #ede9fe;
+    /* Session 137: brand navy matches the dark fill in logo_dark.png so the
+       brand-square + white wordmark feels native to the brand identity. */
+    --brand-navy:   #1c2540;
+    /* Session 137: admin-dashboard blue palette, used for the cashier pill
+       so it visually links to admin staff identity (vs the purple accent
+       which is the POS sale/checkout identity). */
+    --info-blue:        #3b82f6;
+    --info-blue-dark:   #1d4ed8;
+    --info-blue-light:  #dbeafe;
     --green:        #059669;
     --green-light:  #d1fae5;
     --red:          #ef4444;
@@ -118,21 +127,30 @@
     flex-shrink: 0;
   }
 
-  /* Brand wordmark — uses the Family Laundry logo from /assets/.
-     Height-locked so it never grows the topbar; width auto so the
-     wordmark proportions stay correct. */
+  /* Brand mark — rounded navy square that contains the white Family
+     Laundry wordmark. Square shape matches the prior topbar's icon
+     wrapper (David's note: 'I like the shape of the previous square').
+     The wordmark itself replaces the generic washing-machine SVG so
+     the brand identity comes through. Padding inside the square so
+     the wordmark has breathing room and doesn't touch the edges. */
   .brand {
     display: flex;
     align-items: center;
-    height: 40px;
+    justify-content: center;
     flex-shrink: 0;
+    width: 56px;
+    height: 44px;
+    background: var(--brand-navy);
+    border-radius: 11px;
+    padding: 6px 8px;
     cursor: default;
     user-select: none;
   }
   .brand img {
-    height: 40px;
-    width: auto;
+    max-width: 100%;
+    max-height: 100%;
     display: block;
+    object-fit: contain;
   }
 
   /* Single source of truth for every topbar pill height + base style.
@@ -181,39 +199,43 @@
   }
 
   /* Cashier pill — replaces the standalone "Switch" button. Click it
-     to end shift / change cashier. Uses accent-light by default to
-     signal "active session" and to anchor the user. */
+     to end shift / change cashier. Uses the admin-dashboard blue palette
+     (var(--info-blue) family) per David's session 137 ask: this pill
+     represents staff identity, which matches admin's primary blue.
+     Purple accent is reserved for sale/checkout actions further down
+     the row (customer chip, queue, refund), so the two color identities
+     stay visually distinct. */
   .cashier-pill {
     height: 40px;
     display: inline-flex;
     align-items: center;
     gap: 8px;
     padding: 0 14px 0 4px;
-    border: 1px solid var(--accent-light);
-    background: var(--accent-light);
+    border: 1px solid var(--info-blue-light);
+    background: var(--info-blue-light);
     border-radius: 999px;
     font-size: 13px;
     font-weight: 600;
-    color: var(--accent-dark);
+    color: var(--info-blue-dark);
     cursor: pointer;
     transition: all 0.15s;
     font-family: inherit;
     flex-shrink: 0;
   }
   .cashier-pill:hover {
-    background: var(--accent);
-    border-color: var(--accent);
+    background: var(--info-blue);
+    border-color: var(--info-blue);
     color: white;
   }
   .cashier-pill:hover .cashier-avatar {
     background: white;
-    color: var(--accent);
+    color: var(--info-blue);
   }
   .cashier-avatar {
     width: 32px;
     height: 32px;
     border-radius: 50%;
-    background: var(--accent);
+    background: var(--info-blue);
     color: white;
     display: flex;
     align-items: center;
@@ -1709,7 +1731,7 @@
       ────────────────────────────────────────────────────────── -->
       <div class="topbar">
         <div class="brand" title="Family Laundry">
-          <img src="../assets/logo_white_bg.png" alt="Family Laundry">
+          <img src="../assets/logo_white.png" alt="Family Laundry">
         </div>
 
         <button class="cashier-pill" onclick="endShiftAndPrompt()" title="End shift and switch cashier">
