@@ -1230,11 +1230,16 @@
   }
   .btn-primary:hover { background: var(--accent-dark); }
   .btn-primary:disabled { background: var(--gray-200); color: var(--gray-400); cursor: not-allowed; }
+  /* .btn-success migrated session 137 from --green to --accent for
+     consistency with the rest of the no-purple/no-green-action palette.
+     Used by the cash-payment modal's "Complete sale" button (line 2169);
+     functionally the cash-flow sibling of .charge-btn. Kept the class
+     name for backward compat — the visual is now blue. */
   .btn-success {
-    background: var(--green);
+    background: var(--accent);
     color: white;
   }
-  .btn-success:hover { background: #047857; }
+  .btn-success:hover { background: var(--accent-dark); }
 
   /* ── Customer lookup modal ──────────────────────────────────── */
   .phone-input {
