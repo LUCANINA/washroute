@@ -11978,7 +11978,7 @@ ${oneCopy}
       return `<div class="message-bubble message-${m.direction} voicemail-bubble">
         <div class="voicemail-header">${esc(header)}</div>
         ${middle ? `<div class="voicemail-transcript">${esc(middle)}</div>` : ''}
-        <audio controls preload="none" src="${esc(url)}" class="voicemail-audio"></audio>
+        <audio controls preload="metadata" src="${esc(url)}" class="voicemail-audio"></audio>
       </div>`;
     }
     return `<div class="message-bubble message-${m.direction}">${esc(body)}</div>`;
