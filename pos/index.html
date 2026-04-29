@@ -99,142 +99,226 @@
   }
 
   /* ═════════════════════════════════════════════════════════════
-     TOP BAR — customer chip + store info + clock
+     TOP BAR (session 137 redesign)
+     - Family Laundry wordmark on the far left (was dark-purple Square-style square)
+     - All chrome elements are 40px tall pills, sharing a single .pill base
+     - "Switch cashier" merged into the cashier pill (one click on the pill itself)
+     - Verbose reader status collapsed into a single .reader-pill
+     - Clock removed — duplicates the OS clock and adds visual noise
+     - Purple-forward: hover tints all pills accent, primary states fill solid accent
      ═════════════════════════════════════════════════════════════ */
   .topbar {
-    height: 68px;
+    height: 64px;
     background: white;
     border-bottom: 1px solid var(--gray-200);
     display: flex;
     align-items: center;
     padding: 0 20px;
-    gap: 16px;
-    flex-shrink: 0;
-  }
-  .logo {
-    width: 42px;
-    height: 42px;
-    background: var(--accent);
-    border-radius: 11px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-  .logo svg { width: 24px; height: 24px; }
-  .store-info {
-    display: flex;
-    flex-direction: column;
-  }
-  .store-name { font-size: 15px; font-weight: 700; color: var(--gray-900); line-height: 1.2; }
-  .store-emp  { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
-
-  /* Customer chip */
-  .customer-chip {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
     gap: 10px;
-    background: var(--gray-100);
-    border-radius: 999px;
-    padding: 8px 18px 8px 10px;
-    cursor: pointer;
-    border: none;
-    transition: background .15s;
-  }
-  .customer-chip:hover,
-  .customer-chip:active { background: var(--gray-200); }
-  .customer-chip.attached {
-    background: var(--accent-light);
-    color: var(--accent-dark);
-  }
-  .customer-avatar {
-    width: 32px; height: 32px; border-radius: 50%;
-    background: var(--gray-300);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 14px; font-weight: 700; color: var(--gray-600);
     flex-shrink: 0;
   }
-  .customer-chip.attached .customer-avatar {
+
+  /* Brand wordmark — uses the Family Laundry logo from /assets/.
+     Height-locked so it never grows the topbar; width auto so the
+     wordmark proportions stay correct. */
+  .brand {
+    display: flex;
+    align-items: center;
+    height: 40px;
+    flex-shrink: 0;
+    cursor: default;
+    user-select: none;
+  }
+  .brand img {
+    height: 40px;
+    width: auto;
+    display: block;
+  }
+
+  /* Single source of truth for every topbar pill height + base style.
+     Anything in the topbar that isn't the brand wordmark or the
+     customer chip uses .pill so the row stays pixel-aligned. */
+  .pill {
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    border: 1px solid var(--gray-200);
+    background: white;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-700);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    font-family: inherit;
+    position: relative;
+  }
+  .pill:hover {
+    border-color: var(--accent);
+    color: var(--accent-dark);
+    background: var(--accent-light);
+  }
+  .pill.active {
     background: var(--accent);
+    border-color: var(--accent);
     color: white;
   }
-  .customer-chip-text {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    line-height: 1.15;
-  }
-  .customer-chip-name { font-size: 14px; font-weight: 700; }
-  .customer-chip-sub  { font-size: 11px; color: var(--gray-500); margin-top: 1px; }
-  .customer-chip.attached .customer-chip-sub { color: var(--accent-dark); opacity: 0.7; }
-
-  .admin-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 12px;
-    border: 1px solid var(--gray-200);
-    background: white;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--gray-700);
-    cursor: pointer;
-    transition: all 0.15s;
-    margin-left: 4px;
-  }
-  .admin-pill:hover { border-color: var(--accent); color: var(--accent-dark); }
-  .admin-pill.signed-in { background: var(--green-light); border-color: var(--green); color: var(--green); }
-
-  .queue-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 7px 10px;
-    border: 1px solid var(--gray-200);
-    background: white;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--gray-700);
-    cursor: pointer;
-    transition: all 0.15s;
-    margin-left: 4px;
-    position: relative;
-  }
-  .queue-badge:hover { border-color: var(--accent); color: var(--accent-dark); }
-  .queue-badge.has-items { background: var(--amber-light); border-color: var(--amber); color: var(--amber); }
-  .queue-badge.active { background: var(--gray-900); border-color: var(--gray-900); color: white; }
-  .queue-badge-icon { font-size: 13px; }
-  .queue-badge-count { min-width: 12px; text-align: center; }
-
-  /* session 111: Site badge — shows current site with dropdown on click */
-  .site-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 12px;
-    border: 1px solid var(--gray-200);
-    background: white;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--gray-700);
-    cursor: pointer;
-    transition: all 0.15s;
-    margin-left: 4px;
-    position: relative;
-  }
-  .site-badge:hover { border-color: var(--accent); color: var(--accent-dark); }
-  .site-badge-dot {
+  .pill-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    background: var(--accent);
     display: inline-block;
     flex-shrink: 0;
   }
+  .pill-arrow {
+    font-size: 10px;
+    opacity: 0.55;
+    margin-left: 1px;
+  }
+
+  /* Cashier pill — replaces the standalone "Switch" button. Click it
+     to end shift / change cashier. Uses accent-light by default to
+     signal "active session" and to anchor the user. */
+  .cashier-pill {
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 14px 0 4px;
+    border: 1px solid var(--accent-light);
+    background: var(--accent-light);
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-dark);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit;
+    flex-shrink: 0;
+  }
+  .cashier-pill:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+  .cashier-pill:hover .cashier-avatar {
+    background: white;
+    color: var(--accent);
+  }
+  .cashier-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+
+  /* Customer chip — primary CTA for attaching a customer to the sale.
+     40px to match every other pill. When attached, fills solid accent
+     so it stands out against the rest of the row. */
+  .customer-chip {
+    margin-left: auto;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 16px 0 4px;
+    background: var(--gray-100);
+    border: 1px solid var(--gray-150);
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-700);
+    transition: all 0.15s;
+    font-family: inherit;
+  }
+  .customer-chip:hover,
+  .customer-chip:active {
+    background: var(--accent-light);
+    border-color: var(--accent-light);
+    color: var(--accent-dark);
+  }
+  .customer-chip.attached {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+  .customer-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--gray-300);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--gray-600);
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  .customer-chip:hover .customer-avatar {
+    background: var(--accent);
+    color: white;
+  }
+  .customer-chip.attached .customer-avatar {
+    background: white;
+    color: var(--accent);
+  }
+  .customer-chip-name { font-size: 13px; font-weight: 700; line-height: 1; }
+
+  /* Queue badge — inherits .pill, with state-driven accent colours */
+  .queue-badge.has-items {
+    background: var(--accent-light);
+    border-color: var(--accent);
+    color: var(--accent-dark);
+  }
+  .queue-badge.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+  .queue-badge-icon { font-size: 13px; }
+  .queue-badge-count { min-width: 12px; text-align: center; }
+
+  /* Site badge inherits .pill — see toggleSiteDropdown() */
+  .site-badge { /* layout via .pill */ }
   .site-badge-text { white-space: nowrap; }
+
+  /* Reader status pill — collapsed from the prior 2-element verbose
+     "○ Not connected   Connect reader" block. Single pill, dot color
+     reflects state, single click discovers/reconnects when needed. */
+  .reader-pill { /* layout via .pill */ }
+  .reader-pill.connected {
+    background: var(--green-light);
+    border-color: var(--green);
+    color: var(--green);
+    cursor: default;
+  }
+  .reader-pill.connected:hover {
+    background: var(--green-light);
+    border-color: var(--green);
+    color: var(--green);
+  }
+  .reader-pill .pill-dot { background: var(--gray-400); }
+  .reader-pill.connected .pill-dot { background: var(--green); }
+
+  /* Legacy aliases — keep for any modal/sheet still referencing
+     .admin-pill outside the topbar. */
+  .admin-pill { /* layout via .pill */ }
+  .admin-pill.signed-in { background: var(--green-light); border-color: var(--green); color: var(--green); }
 
   /* session 111: Site selector dropdown — appears on badge click */
   .site-selector-dropdown {
@@ -1610,45 +1694,59 @@
   <div class="device">
     <div class="device-screen">
 
-      <!-- ─── Topbar ─────────────────────────────────────────── -->
+      <!-- ─── Topbar (session 137 redesign) ─────────────────────
+           Layout, left → right:
+             1. Family Laundry wordmark (brand, far left)
+             2. Cashier pill (avatar + name + ▾) — click to end shift / switch cashier
+                  (replaces the standalone "Switch" button)
+             3. Customer chip (margin-left:auto pushes everything below to the right)
+             4. Site selector dropdown (visible only when multiple sites)
+             5. Refund pill
+             6. Queue badge (with count + walk-in panel toggle)
+             7. Reader-status pill (single element, replaces the prior verbose
+                  "○ Not connected · Connect reader" two-element block)
+             — Clock removed (OS already shows time on the device chrome)
+      ────────────────────────────────────────────────────────── -->
       <div class="topbar">
-        <div class="logo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="13" r="6"/>
-            <circle cx="12" cy="13" r="2.5"/>
-            <path d="M8 3h8v3H8z"/>
-          </svg>
+        <div class="brand" title="Family Laundry">
+          <img src="../assets/logo_white_bg.png" alt="Family Laundry">
         </div>
-        <div class="store-info">
-          <div class="store-name">Family Laundry · Oakland</div>
-          <div class="store-emp" id="empName">Employee: Maria</div>
-        </div>
-        <button onclick="endShiftAndPrompt()" title="End shift and switch cashier"
-                style="font-size:12px;padding:6px 10px;border:1.5px solid var(--gray-200);background:white;border-radius:8px;color:var(--gray-600);cursor:pointer;">Switch</button>
+
+        <button class="cashier-pill" onclick="endShiftAndPrompt()" title="End shift and switch cashier">
+          <div class="cashier-avatar" id="cashierAvatar">M</div>
+          <span id="empName">Maria</span>
+          <span class="pill-arrow">▾</span>
+        </button>
+
         <button class="customer-chip" id="customerChip" onclick="openLookup()">
           <div class="customer-avatar" id="custAvatar">+</div>
-          <div class="customer-chip-text">
-            <div class="customer-chip-name" id="custName">Walk-in</div>
-            <div class="customer-chip-sub" id="custSub">Tap to find customer</div>
-          </div>
+          <div class="customer-chip-name" id="custName">Walk-in</div>
         </button>
-        <!-- session 111: Site badge with dropdown selector -->
-        <div class="site-badge" id="siteBadge" onclick="toggleSiteDropdown()" style="display:none;" title="Click to switch site">
-          <div class="site-badge-dot" id="siteBadgeDot"></div>
-          <div class="site-badge-text" id="siteBadgeText">—</div>
+
+        <!-- session 111: site selector — now matches all other pills -->
+        <button class="pill site-badge" id="siteBadge" onclick="toggleSiteDropdown()" style="display:none;" title="Switch site">
+          <span class="pill-dot" id="siteBadgeDot"></span>
+          <span class="site-badge-text" id="siteBadgeText">—</span>
+          <span class="pill-arrow">▾</span>
           <div class="site-selector-dropdown" id="siteDropdown" style="display:none;">
             <!-- Populated by toggleSiteDropdown() -->
           </div>
-        </div>
-        <button class="queue-badge" id="refundBtn" onclick="openRefundModal()" title="Refund a recent sale" style="background:var(--gray-100);">
-          <span class="queue-badge-icon">↩</span>
         </button>
-        <button class="queue-badge" id="queueBadge" onclick="toggleQueue()" title="Walk-in orders in process">
+
+        <button class="pill" id="refundBtn" onclick="openRefundModal()" title="Refund a recent sale">
+          <span style="font-size:14px;line-height:1">↩</span>
+          <span>Refund</span>
+        </button>
+
+        <button class="pill queue-badge" id="queueBadge" onclick="toggleQueue()" title="Walk-in orders in process">
           <span class="queue-badge-icon">📦</span>
           <span class="queue-badge-count" id="queueCount">0</span>
         </button>
-        <div id="readerStatus" style="font-size:13px;display:flex;align-items:center;gap:4px;padding:0 8px;white-space:nowrap;"><span style="color:var(--gray-400);">○ Not connected</span> <button onclick="discoverAndConnect()" style="font-size:12px;color:var(--accent);background:none;border:none;cursor:pointer;text-decoration:underline;padding:0 4px;">Connect reader</button></div>
-        <div class="clock" id="clock">Wed · 2:47 PM</div>
+
+        <button class="pill reader-pill" id="readerStatus" onclick="discoverAndConnect()" title="Card reader status">
+          <span class="pill-dot"></span>
+          <span id="readerStatusText">Connect reader</span>
+        </button>
       </div>
 
       <!-- ─── Main grid ──────────────────────────────────────── -->
@@ -2298,17 +2396,18 @@
     showPinGate();
   }
 
-  // Reflect who's on shift in the topbar
+  // Reflect who's on shift in the topbar.
+  // Session 137 redesign: the cashier pill now shows a one-letter avatar +
+  // first name (no "Employee:" prefix). The store name was folded into the
+  // brand wordmark and site selector — there's no .store-name element to
+  // update anymore.
   function updateCashierBadge() {
-    const empEl = document.getElementById('empName');
-    if (empEl && shift) {
+    const empEl    = document.getElementById('empName');
+    const avatarEl = document.getElementById('cashierAvatar');
+    if (shift) {
       const first = shift.cashier_first_name || 'Staff';
-      empEl.textContent = 'Employee: ' + first;
-    }
-    const store = document.querySelector('.store-name');
-    if (store && device) {
-      const loc = device.location || device.name || 'Register';
-      store.textContent = 'Family Laundry · ' + loc;
+      if (empEl)    empEl.textContent    = first;
+      if (avatarEl) avatarEl.textContent = (first.charAt(0) || 'S').toUpperCase();
     }
   }
 
@@ -2448,16 +2547,26 @@
     }
   }
 
+  // Session 137 redesign: reader status is now a single 40px .reader-pill
+  // with a colored .pill-dot and a label. Toggle a .connected class on the
+  // pill itself instead of rewriting innerHTML so the layout stays stable
+  // and CSS handles all colour transitions.
   function updateReaderStatus(status) {
-    const el = document.getElementById('readerStatus');
-    if (!el) return;
-    const label = device?.name || 'Card Reader';
-    if (status === 'connected' || readerOnline) {
-      el.innerHTML = '<span style="color:var(--green);font-weight:600;">● Ready</span> <span style="color:var(--gray-500);font-size:12px;">' + label + '</span>';
+    const el     = document.getElementById('readerStatus');
+    const txtEl  = document.getElementById('readerStatusText');
+    if (!el || !txtEl) return;
+    const label  = device?.name || 'Card Reader';
+    const isConnected = (status === 'connected') || readerOnline;
+    el.classList.toggle('connected', isConnected);
+    if (isConnected) {
+      txtEl.textContent = label;
+      el.title = 'Card reader connected — ' + label;
     } else if (status === 'searching') {
-      el.innerHTML = '<span style="color:var(--amber);font-weight:600;">◌ Checking…</span>';
+      txtEl.textContent = 'Checking…';
+      el.title = 'Discovering card reader…';
     } else {
-      el.innerHTML = '<span style="color:var(--gray-400);">○ No reader configured</span>';
+      txtEl.textContent = 'Connect reader';
+      el.title = 'Tap to connect a card reader';
     }
   }
 
@@ -3223,10 +3332,13 @@
     const initials = name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
     document.getElementById('custAvatar').textContent = initials;
     document.getElementById('custName').textContent = name;
-    const sub = orderCount === 0
+    // Session 137 redesign: the customer chip is now a single-line 40px pill —
+    // the prior "X orders · tap to change" sub-line was dropped to keep all
+    // topbar elements at a unified height. Surface the order count via a
+    // tooltip so the info is still discoverable without UI noise.
+    chip.title = orderCount === 0
       ? 'New customer · tap to change'
-      : `${orderCount} orders · tap to change`;
-    document.getElementById('custSub').textContent = sub;
+      : orderCount + ' orders · tap to change';
     closeAll();
     // session 114: re-run the button state now that a customer is attached
     updateTotals();
@@ -3238,7 +3350,7 @@
     chip.classList.remove('attached');
     document.getElementById('custAvatar').textContent = '+';
     document.getElementById('custName').textContent = 'Walk-in';
-    document.getElementById('custSub').textContent = 'Tap to find customer';
+    chip.title = 'Tap to find customer';
     // session 114: re-gate the charge button when the customer is cleared
     updateTotals();
   }
@@ -4847,15 +4959,22 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
   /* ─── Init ─────────────────────────────────────────────────── */
   (async () => { await boot(); })();
 
-  // Live clock
+  // Live clock — session 137 redesign removed the in-topbar clock element
+  // (the OS chrome on iPad/tablet already shows wall-clock time, so the
+  // duplicate added visual noise without value). The function and interval
+  // remain as a null-safe no-op so any future re-introduction can plug
+  // back in without re-discovering this. If you re-add a #clock element,
+  // this will start updating it again automatically.
   function updateClock() {
+    const el = document.getElementById('clock');
+    if (!el) return;
     const d = new Date();
     const day = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
     let h = d.getHours();
     const m = d.getMinutes().toString().padStart(2, '0');
     const ampm = h >= 12 ? 'PM' : 'AM';
     h = h % 12 || 12;
-    document.getElementById('clock').textContent = `${day} · ${h}:${m} ${ampm}`;
+    el.textContent = `${day} · ${h}:${m} ${ampm}`;
   }
   updateClock();
   setInterval(updateClock, 30000);
