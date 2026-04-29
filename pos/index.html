@@ -3036,12 +3036,17 @@
     showToast(`Switched to ${getSiteById(siteId)?.name || 'site'}`, 'success');
   }
 
-  // session 111: Update the site badge in topbar
+  // session 111: Update the site badge in topbar.
+  // Session 137 refinement: hide the badge entirely whenever there's only
+  // one active site — clicking it does nothing in that case (the dropdown
+  // early-returns), so showing it just adds visual noise. Auto-reappears
+  // once a second site is activated, no code change needed.
   function updateSiteBadge() {
     const badge = document.getElementById('siteBadge');
     const dot = document.getElementById('siteBadgeDot');
     const text = document.getElementById('siteBadgeText');
-    if (currentSiteId && allSites.length > 0) {
+    const activeCount = allSites.filter(s => s.is_active).length;
+    if (currentSiteId && activeCount > 1) {
       const site = getSiteById(currentSiteId);
       if (site) {
         badge.style.display = 'inline-flex';
