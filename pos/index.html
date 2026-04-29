@@ -12,9 +12,12 @@
     --accent:       #635bff;
     --accent-dark:  #4f46e5;
     --accent-light: #ede9fe;
-    /* Session 137: brand navy matches the dark fill in logo_dark.png so the
-       brand-square + white wordmark feels native to the brand identity. */
-    --brand-navy:   #1c2540;
+    /* Session 137: brand navy aligned with admin-dashboard's --sidebar-bg
+       (#0f2744) so the POS's primary dark surfaces (active tab, charge
+       button, payment-total bar, flow-step indicators) read as part of
+       the same WashRoute design system as the admin app. Replaces the
+       prior near-black --gray-900 backgrounds. */
+    --brand-navy:   #0f2744;
     /* Session 137: admin-dashboard blue palette, used for the cashier pill
        so it visually links to admin staff identity (vs the purple accent
        which is the POS sale/checkout identity). */
@@ -629,8 +632,8 @@
   }
   .tab:hover { background: var(--gray-100); }
   .tab.active {
-    background: var(--gray-900);
-    border-color: var(--gray-900);
+    background: var(--brand-navy);
+    border-color: var(--brand-navy);
     color: white;
   }
   .tab-icon { display:inline-flex; vertical-align:middle; margin-right:4px; }
@@ -1287,7 +1290,7 @@
   .walk-in-btn {
     width: 100%;
     padding: 18px;
-    background: var(--gray-900);
+    background: var(--brand-navy);
     color: white;
     border: none;
     border-radius: 14px;
@@ -1419,7 +1422,7 @@
 
   /* ── Payment modal ──────────────────────────────────────────── */
   .pay-total {
-    background: var(--gray-900);
+    background: var(--brand-navy);
     color: white;
     border-radius: 16px;
     padding: 24px;
@@ -1616,8 +1619,8 @@
     transition: all .12s;
   }
   .flow-btn.active {
-    background: var(--gray-900);
-    border-color: var(--gray-900);
+    background: var(--brand-navy);
+    border-color: var(--brand-navy);
     color: white;
   }
   .flow-btn:hover:not(.active) { background: var(--gray-100); border-color: var(--gray-300); }
