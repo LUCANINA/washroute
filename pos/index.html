@@ -9,21 +9,24 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --accent:       #635bff;
-    --accent-dark:  #4f46e5;
-    --accent-light: #ede9fe;
-    /* Session 137: brand navy aligned with admin-dashboard's --sidebar-bg
-       (#0f2744) so the POS's primary dark surfaces (active tab, charge
-       button, payment-total bar, flow-step indicators) read as part of
-       the same WashRoute design system as the admin app. Replaces the
-       prior near-black --gray-900 backgrounds. */
+    /* Session 137: --accent migrated from purple (#635bff) to admin
+       dashboard's blue (#3b82f6 family) — David's call: no purple
+       anywhere in the POS. Every existing --accent reference (hovers,
+       active states, attached customer chip, has-items badges, etc.)
+       auto-converts. Single accent identity across the app now. */
+    --accent:       #3b82f6;
+    --accent-dark:  #1d4ed8;
+    --accent-light: #dbeafe;
+    /* Brand navy: admin --sidebar-bg, used for active-tab + payment-total
+       + walk-in CTA + flow-button surfaces. */
     --brand-navy:   #0f2744;
-    /* Session 137: admin-dashboard blue palette, used for the cashier pill
-       so it visually links to admin staff identity (vs the purple accent
-       which is the POS sale/checkout identity). */
-    --info-blue:        #3b82f6;
-    --info-blue-dark:   #1d4ed8;
-    --info-blue-light:  #dbeafe;
+    /* Legacy aliases — anything that was specifically pinned to the
+       blue palette (cashier pill, etc.) keeps working without edits.
+       These map to the same hex as --accent now and can be deleted
+       once all references migrate. */
+    --info-blue:        var(--accent);
+    --info-blue-dark:   var(--accent-dark);
+    --info-blue-light:  var(--accent-light);
     --green:        #059669;
     --green-light:  #d1fae5;
     --red:          #ef4444;
