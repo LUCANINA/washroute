@@ -317,17 +317,21 @@
 
   /* Reader status pill — collapsed from the prior 2-element verbose
      "○ Not connected   Connect reader" block. Single pill, dot color
-     reflects state, single click discovers/reconnects when needed. */
+     reflects state, single click discovers/reconnects when needed.
+     Connected state is intentionally chromeless (transparent bg + border)
+     per David's session 137 ask: just a green dot + name, no pill
+     decoration. The 40px height is preserved for row alignment. */
   .reader-pill { /* layout via .pill */ }
   .reader-pill.connected {
-    background: var(--green-light);
-    border-color: var(--green);
+    background: transparent;
+    border-color: transparent;
     color: var(--green);
     cursor: default;
+    padding: 0 8px;
   }
   .reader-pill.connected:hover {
-    background: var(--green-light);
-    border-color: var(--green);
+    background: transparent;
+    border-color: transparent;
     color: var(--green);
   }
   .reader-pill .pill-dot { background: var(--gray-400); }
