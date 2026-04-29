@@ -1745,7 +1745,7 @@
 
         <button class="customer-chip" id="customerChip" onclick="openLookup()">
           <div class="customer-avatar" id="custAvatar">+</div>
-          <div class="customer-chip-name" id="custName">Walk-in</div>
+          <div class="customer-chip-name" id="custName">Customer</div>
         </button>
 
         <!-- session 111: site selector — now matches all other pills -->
@@ -3379,7 +3379,7 @@
     const chip = document.getElementById('customerChip');
     chip.classList.remove('attached');
     document.getElementById('custAvatar').textContent = '+';
-    document.getElementById('custName').textContent = 'Walk-in';
+    document.getElementById('custName').textContent = 'Customer';
     chip.title = 'Tap to find customer';
     // session 114: re-gate the charge button when the customer is cleared
     updateTotals();
