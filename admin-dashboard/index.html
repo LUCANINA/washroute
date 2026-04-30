@@ -16411,8 +16411,11 @@ ${oneCopy}
   async function loadPanelOrders(customerId) {
     const el = document.getElementById('cp-orders-list');
     el.innerHTML = '<div style="color:var(--gray-400);font-size:13px">Loading…</div>';
+    // `source` lets _serviceLabelForOrder distinguish retail (POS) orders
+    // from delivery orders so the service column reads "Retail - Wash & Fold"
+    // instead of '—' for POS rows (which have no service_id join target).
     const { data } = await db.from('orders')
-      .select('id, order_number, status, total_amount, stripe_payment_intent_id, weight_lbs, total_bags, tip_amount, tip_type, line_items, billing_status, billing_payment_method, billed_at, pickup_window_start, pickup_window_end, created_at, archived_at, archived_reason, services:service_id(name), pickup_run:pickup_run_id(id, name)')
+      .select('id, order_number, status, source, total_amount, stripe_payment_intent_id, weight_lbs, total_bags, tip_amount, tip_type, line_items, billing_status, billing_payment_method, billed_at, pickup_window_start, pickup_window_end, created_at, archived_at, archived_reason, services:service_id(name), pickup_run:pickup_run_id(id, name)')
       .eq('customer_id', customerId).order('created_at', { ascending: false });
     cpAllOrders = data || [];
     if (!cpAllOrders.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:20px 0">No orders yet.</div>'; return; }
@@ -16511,7 +16514,7 @@ ${oneCopy}
           <input type="checkbox" class="bill-cb" id="bcb-${o.id}" ${checked?'checked':''} onclick="event.stopPropagation();toggleBillingOrder('${o.id}')">
           <span class="cp-order-num">#${o.order_number}</span>
           <div class="cp-order-svc">
-            <div style="font-weight:500">${o.services?.name||'—'}</div>
+            <div style="font-weight:500">${_serviceLabelForOrder(o)}</div>
             <div style="font-size:11.5px;color:var(--gray-400)">${dateStr}${o.weight_lbs?' · '+o.weight_lbs+' lbs':''}</div>
           </div>
           ${paidBadge}
@@ -16533,7 +16536,7 @@ ${oneCopy}
       return `<div class="cp-order-row" style="cursor:pointer" onclick="cpOpenOrder('${o.id}')">
         <span class="cp-order-num">#${o.order_number}</span>
         <div class="cp-order-svc">
-          <div style="font-weight:500">${o.services?.name||'—'}</div>
+          <div style="font-weight:500">${_serviceLabelForOrder(o)}</div>
           <div style="font-size:11.5px;color:var(--gray-400)">${cpOrderMeta(o)}</div>
         </div>
         ${statusBadge(o.status)}
@@ -21804,7 +21807,7 @@ ${oneCopy}
             <div class="proc-card-order">#${o.order_number||'—'}</div>
             <div class="proc-card-name">${name}</div>
           </div>
-          ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Walk-in</span>`:''}
+          ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:var(--accent-light);color:var(--blue);padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Retail</span>`:''}
           ${alreadyPaid?`<span style="font-size:10px;font-weight:700;color:#059669">✅ Paid</span>`:''}
         </div>
         ${zoneName ? `<div style="display:inline-flex;align-items:center;gap:5px;margin-top:4px;padding:3px 9px;border-radius:6px;background:${zoneColor}15;border:1.5px solid ${zoneColor}40">
@@ -21814,7 +21817,7 @@ ${oneCopy}
         <div class="proc-card-meta">
           <span>📦 ${bags} bag${bags!==1?'s':''}</span>
           <span>⚖️ ${lbs}</span>
-          <span>${o.services?.name||'Walk-in'}</span>
+          <span>${_serviceLabelForOrder(o)}</span>
           ${Number(o.total_amount)>0 ? `<span style="font-weight:600;color:var(--gray-700)">${fmtMoney(orderChargedTotal(o))}</span>` : ''}
         </div>
         ${splitAsgn.length > 1
@@ -21861,7 +21864,7 @@ ${oneCopy}
     const ln = order.customers?.last_name_cache  || '';
     document.getElementById('fold-title').textContent    = `${fn} ${ln}`.trim() || 'Order';
     const foldIsOnAcct = order.customers?.billing_type === 'on_account';
-    document.getElementById('fold-subtitle').innerHTML = `Order #${order.order_number||'—'} · ${order.services?.name||''}${foldIsOnAcct ? ' <span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px">ON ACCOUNT</span>' : ''}`;
+    document.getElementById('fold-subtitle').innerHTML = `Order #${order.order_number||'—'} · ${_serviceLabelForOrder(order)}${foldIsOnAcct ? ' <span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px">ON ACCOUNT</span>' : ''}`;
     document.getElementById('fold-error').style.display = 'none';
     // Show "move back" button at top of panel
     document.getElementById('fold-back-btn').style.display = '';
@@ -21915,7 +21918,7 @@ ${oneCopy}
         <div class="fold-order-summary">
           <div class="fold-order-row"><span>Customer</span><strong>${`${fn} ${ln}`.trim()||'—'}</strong></div>
           <div class="fold-order-row"><span>Order</span><strong>#${o.order_number||'—'}</strong></div>
-          <div class="fold-order-row"><span>Service</span><strong>${o.services?.name||'—'}</strong></div>
+          <div class="fold-order-row"><span>Service</span><strong>${_serviceLabelForOrder(o)}</strong></div>
           <div class="fold-order-row"><span>Bags</span><strong>${bags} bag${bags!==1?'s':''}</strong></div>
           <div class="fold-order-row"><span>Weight</span><strong>${lbs}</strong></div>
           ${processedByHTML}
@@ -22176,7 +22179,7 @@ ${oneCopy}
     document.getElementById('rack-title').textContent    = `${fn} ${ln}`.trim() || 'Order';
     const subtitleEl = document.getElementById('rack-subtitle');
     const isOnAcct = order.customers?.billing_type === 'on_account';
-    subtitleEl.innerHTML = `Order #${order.order_number||'—'} · ${order.services?.name||''}${isOnAcct ? ' <span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px">ON ACCOUNT</span>' : ''}`;
+    subtitleEl.innerHTML = `Order #${order.order_number||'—'} · ${_serviceLabelForOrder(order)}${isOnAcct ? ' <span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px">ON ACCOUNT</span>' : ''}`;
     document.getElementById('rack-error').style.display  = 'none';
     // Show "move back" button at top of panel
     document.getElementById('rack-back-btn').style.display = '';
@@ -22224,7 +22227,7 @@ ${oneCopy}
         <div class="fold-order-summary">
           <div class="fold-order-row"><span>Customer</span><strong>${`${fn} ${ln}`.trim()||'—'}</strong></div>
           <div class="fold-order-row"><span>Order</span><strong>#${o.order_number||'—'}</strong></div>
-          <div class="fold-order-row"><span>Service</span><strong>${o.services?.name||'—'}</strong></div>
+          <div class="fold-order-row"><span>Service</span><strong>${_serviceLabelForOrder(o)}</strong></div>
           <div class="fold-order-row"><span>Bags</span><strong>${bags} bag${bags!==1?'s':''}</strong></div>
           <div class="fold-order-row"><span>Weight</span><strong>${lbs}</strong></div>
           ${folderName ? `<div class="fold-order-row"><span>Processed by</span><strong>👤 ${folderName}</strong></div>` : ''}
@@ -22549,12 +22552,12 @@ ${oneCopy}
             <div class="proc-card-name">${name}</div>
           </div>
           ${alreadyPaid?`<span style="font-size:10px;font-weight:700;color:#059669">✅ Paid</span>`:''}
-          ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Walk-in</span>`:''}
+          ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:var(--accent-light);color:var(--blue);padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Retail</span>`:''}
         </div>
         <div class="proc-card-meta">
           <span>📦 ${bags} bag${bags!==1?'s':''}</span>
           <span>⚖️ ${lbs}</span>
-          <span>${o.services?.name||'Walk-in'}</span>
+          <span>${_serviceLabelForOrder(o)}</span>
         </div>
         ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${n}"</div>` : ''; })()}
       </div>`;
@@ -24882,6 +24885,39 @@ ${oneCopy}
 
   // ── DAILY REVENUE REPORT ──
   let _revReportData = []; // last rendered rows, used for CSV export
+
+  // Service-name display for an order row.
+  // Delivery orders: read services.name from the joined services row.
+  // Retail (POS, source='walk_in'): derive from line_items, prefixed with
+  // "Retail - ", because POS orders don't set service_id (they store the
+  // service in the line_items JSON instead). Falls back to "Retail -
+  // Merchandise" for pure-merch sales (a Bolsa plástico, etc.) and just
+  // "Retail" if nothing recognisable. Used by customer panel Orders tab,
+  // folding queue, processing rack panel — anywhere an order's service
+  // shows in a list. Reports query line_items separately and don't go
+  // through this helper.
+  function _serviceLabelForOrder(o) {
+    if (!o) return '—';
+    if (o.source !== 'walk_in') {
+      return o.services?.name || '—';
+    }
+    // Retail order. Pull the first service line from line_items.
+    if (Array.isArray(o.line_items)) {
+      const svc = o.line_items.find(li => li && (li.kind === 'service' || li.type === 'base' || li.type === 'service'));
+      if (svc && (svc.name || svc.label)) {
+        // Prefer a clean service name; fall back to label (which can include
+        // weight, e.g. "Wash & Fold (1.0 lb @ $2.00/lb)"). Strip the
+        // parenthetical pricing detail so the label stays compact.
+        const raw = svc.name || svc.label;
+        const clean = raw.replace(/\s*\([^)]*@[^)]*\)\s*/g, '').trim();
+        return 'Retail - ' + (clean || raw);
+      }
+      // No service line — check for merchandise.
+      const merch = o.line_items.find(li => li && (li.kind === 'merchandise' || li.type === 'merchandise'));
+      if (merch) return 'Retail - Merchandise';
+    }
+    return 'Retail';
+  }
 
   // Parse a line_items JSONB array into revenue buckets.
   // Handles both old (kind:'service') and new (type:'base') formats.

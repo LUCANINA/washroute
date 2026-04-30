@@ -1801,7 +1801,7 @@
           <span>Refund</span>
         </button>
 
-        <button class="pill queue-badge" id="queueBadge" onclick="toggleQueue()" title="Walk-in orders in process">
+        <button class="pill queue-badge" id="queueBadge" onclick="toggleQueue()" title="Retail orders in process">
           <span class="queue-badge-icon">📦</span>
           <span class="queue-badge-count" id="queueCount">0</span>
         </button>
@@ -1831,7 +1831,7 @@
           <!-- Queue panel (hidden by default, slides over cart) -->
           <div class="queue-panel" id="queuePanel">
             <div class="cart-header">
-              <div class="cart-header-title">📦 Walk-in Queue</div>
+              <div class="cart-header-title">📦 Retail Queue</div>
               <button class="cart-clear" onclick="toggleQueue()">← Back to cart</button>
             </div>
             <div class="queue-list" id="queueList">
@@ -1944,7 +1944,7 @@
           <div class="modal-header">
             <div>
               <div class="modal-title">Find customer</div>
-              <div class="modal-sub">Enter phone number or start a walk-in sale</div>
+              <div class="modal-sub">Enter phone number or start a retail sale</div>
             </div>
             <button class="modal-close" onclick="closeAll()">×</button>
           </div>
@@ -1968,7 +1968,7 @@
               <button class="numkey back" onclick="phoneKey('back')">⌫</button>
             </div>
             <button class="walk-in-btn" onclick="continueAsWalkIn()">
-              <span>👋</span> Continue as walk-in
+              <span>👋</span> Continue as retail
             </button>
           </div>
         </div>
@@ -3580,7 +3580,7 @@
         const c = o.customer_id ? custMap[o.customer_id] : null;
         return {
           ...o,
-          _customerName:  c ? c.name  : (o.customer_id ? 'Customer' : 'Walk-in'),
+          _customerName:  c ? c.name  : (o.customer_id ? 'Customer' : 'Retail'),
           _customerPhone: c ? c.phone : '',
         };
       });
@@ -3706,7 +3706,7 @@
     // (loadWalkInQueue selects a narrow column set). Pull them from the row
     // we have, but fall back to a fresh fetch in the modal so the refund
     // preview is always accurate.
-    const customerName = order._customerName || 'Walk-in';
+    const customerName = order._customerName || 'Retail';
 
     document.getElementById('deleteOrderSub').textContent =
       'Order #' + order.order_number;
@@ -3814,8 +3814,8 @@
   }
 
   function renderQueueCard(order, status) {
-    const name = order._customerName || 'Walk-in';
-    const initials = name === 'Walk-in' ? 'WI' :
+    const name = order._customerName || 'Retail';
+    const initials = name === 'Retail' ? 'RE' :
       name.split(' ').map(n => (n[0] || '')).join('').slice(0, 2).toUpperCase();
 
     // Build a short service summary from line_items
@@ -3899,7 +3899,7 @@
     return `
       <div class="${cardClass}" onclick="togglePosCardSelected('${order.id}')">
         <div class="queue-card-top">
-          <div class="queue-card-avatar" style="${name !== 'Walk-in' ? 'background:var(--accent);' : ''}">${initials}</div>
+          <div class="queue-card-avatar" style="${name !== 'Retail' ? 'background:var(--accent);' : ''}">${initials}</div>
           <div class="queue-card-name">${name}</div>
           <div class="queue-card-order">#${order.order_number}</div>
         </div>
@@ -4484,7 +4484,7 @@
 
         const customerLine = s.customer_name
           ? s.customer_name
-          : '<span style="color:var(--gray-400);">Walk-in</span>';
+          : '<span style="color:var(--gray-400);">Retail</span>';
 
         const orderNum = '#' + s.order_number;
         const desc = s.description || 'POS sale';
@@ -4548,7 +4548,7 @@
 
       const customerLine = _refundTarget.customer_name
         ? '<strong>' + _refundTarget.customer_name + '</strong><br>'
-        : '<strong>Walk-in</strong><br>';
+        : '<strong>Retail</strong><br>';
       const alreadyLine = _refundTarget.already_refunded > 0
         ? `<span style="color:var(--amber);">$${_refundTarget.already_refunded.toFixed(2)} already refunded · $${max} remaining.</span><br>`
         : `<span>Up to $${max} refundable.</span><br>`;
@@ -5033,7 +5033,7 @@
   // Build Star Markup receipt for CloudPRNT printing
   function buildPosReceiptMarkup(order) {
     const now = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
-    const custName = currentCustomer?.name || 'Walk-in';
+    const custName = currentCustomer?.name || 'Retail';
     const orderNum = order.order_number ? `#${order.order_number}` : order.id.slice(-5).toUpperCase();
     const preTipTotal = Number(order.total_amount || 0);
     const tipAmt = Number(order.tip_amount || 0);
@@ -5089,7 +5089,7 @@ ${lineItemsXml}
   // Fallback browser receipt
   function buildPosReceiptHtml(order) {
     const now = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
-    const custName = currentCustomer?.name || 'Walk-in';
+    const custName = currentCustomer?.name || 'Retail';
     const orderNum = order.order_number ? `#${order.order_number}` : order.id.slice(-5).toUpperCase();
     const preTipTotal = Number(order.total_amount || 0);
     const tipAmt = Number(order.tip_amount || 0);
