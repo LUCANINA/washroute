@@ -1815,7 +1815,7 @@
 
         <button class="customer-chip" id="customerChip" onclick="openLookup()">
           <div class="customer-avatar" id="custAvatar">+</div>
-          <div class="customer-chip-name" id="custName">Customer</div>
+          <div class="customer-chip-name" id="custName" data-i18n>Customer</div>
         </button>
 
         <!-- session 111: site selector — now matches all other pills -->
@@ -2658,6 +2658,9 @@
     'Add note': 'Agregar nota',
     'Add notes': 'Agregar notas',
     'Bags': 'Bolsas',
+    'Drinks': 'Bebidas',
+    'Snacks': 'Botanas',
+    'Supplies': 'Suministros',
     'bag': 'bolsa',
     'bags': 'bolsas',
     'Service': 'Servicio',
@@ -5836,7 +5839,15 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
         const btn = document.createElement('button');
         btn.className = 'tab merch-tab';
         btn.onclick = function() { switchTab(catKey, this); };
-        btn.innerHTML = `${label}`;
+        // Stash the canonical English label so applyTranslations() can
+        // re-translate on language toggle without losing the original key.
+        // The data-i18n attribute makes the button visible to applyTranslations'
+        // querySelectorAll. Translation keys for the standard categories
+        // (Bags / Drinks / Snacks / Supplies) live in TRANSLATIONS_ES;
+        // any DB-only category falls through to its own name.
+        btn.setAttribute('data-i18n', '');
+        btn.dataset.i18nOriginal = label;
+        btn.textContent = t(label);
         tabBar.appendChild(btn);
       }
 
