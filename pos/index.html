@@ -2777,6 +2777,20 @@
     return TRANSLATIONS_ES[en] || en;
   }
 
+  // HTML-escape helper for any user-provided string interpolated into
+  // innerHTML. Use this on anything that originates from the DB (customer
+  // name, email, description, etc.) when it's stitched into an innerHTML
+  // template literal. textContent assignments don't need this — only
+  // innerHTML does. Mirrors admin-dashboard's esc().
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function togglePosLang() {
     _lang = (_lang === 'es') ? 'en' : 'es';
     localStorage.setItem('wr-pos-lang', _lang);
@@ -4168,9 +4182,12 @@
     document.getElementById('deleteOrderSub').textContent =
       t('Order #') + order.order_number;
 
+    // esc() the DB-sourced customer name + line-item description before
+    // stitching into innerHTML — prevents HTML injection from a malicious
+    // customer record or item label.
     const detailsHtml = `
-      <div style="font-weight:700;color:var(--gray-900);margin-bottom:4px;">${customerName}</div>
-      <div style="color:var(--gray-600);">${detail || t('No items')}</div>
+      <div style="font-weight:700;color:var(--gray-900);margin-bottom:4px;">${esc(customerName)}</div>
+      <div style="color:var(--gray-600);">${detail ? esc(detail) : t('No items')}</div>
       <div style="margin-top:6px;font-size:13px;color:var(--gray-500);">${t('Total charged: $')}${(total + tip).toFixed(2)}${tip > 0 ? ' (' + t('incl. $') + tip.toFixed(2) + t(' tip') + ')' : ''}</div>
     `;
     document.getElementById('deleteOrderDetails').innerHTML = detailsHtml;
@@ -4356,11 +4373,11 @@
     return `
       <div class="${cardClass}" onclick="togglePosCardSelected('${order.id}')">
         <div class="queue-card-top">
-          <div class="queue-card-avatar" style="${name !== 'Retail' ? 'background:var(--accent);' : ''}">${initials}</div>
-          <div class="queue-card-name">${name}</div>
+          <div class="queue-card-avatar" style="${name !== 'Retail' ? 'background:var(--accent);' : ''}">${esc(initials)}</div>
+          <div class="queue-card-name">${esc(name)}</div>
           <div class="queue-card-order">#${order.order_number}</div>
         </div>
-        <div class="queue-card-detail">${detail || t('No items')}</div>
+        <div class="queue-card-detail">${detail ? esc(detail) : t('No items')}</div>
         <div class="queue-card-time">${status === 'processing' ? t('Dropped off') : t('Ready')} ${timeAgo}</div>
         ${launHtml}
         ${btnHtml}
@@ -4940,11 +4957,11 @@
           : `<span style="font-size:11px;font-weight:600;background:var(--green-light);color:var(--green);padding:2px 6px;border-radius:6px;">${t('CASH')}</span>`;
 
         const customerLine = s.customer_name
-          ? s.customer_name
+          ? esc(s.customer_name)
           : `<span style="color:var(--gray-400);">${t('Retail')}</span>`;
 
         const orderNum = '#' + s.order_number;
-        const desc = s.description || t('POS sale');
+        const desc = esc(s.description || t('POS sale'));
 
         // Build a partial-refund-aware label
         const amountLine = refunded
@@ -5003,16 +5020,19 @@
       document.getElementById('refundConfirmSub').textContent =
         'Refund order #' + _refundTarget.order_number + '?';
 
+      // esc() any DB-sourced string before stitching into innerHTML to
+      // prevent HTML injection from a malicious customer name / order
+      // description (e.g. a customer record could otherwise inject script).
       const customerLine = _refundTarget.customer_name
-        ? '<strong>' + _refundTarget.customer_name + '</strong><br>'
-        : '<strong>Retail</strong><br>';
+        ? '<strong>' + esc(_refundTarget.customer_name) + '</strong><br>'
+        : '<strong>' + t('Retail') + '</strong><br>';
       const alreadyLine = _refundTarget.already_refunded > 0
         ? `<span style="color:var(--amber);">$${_refundTarget.already_refunded.toFixed(2)} already refunded · $${max} remaining.</span><br>`
         : `<span>Up to $${max} refundable.</span><br>`;
 
       document.getElementById('refundConfirmDetails').innerHTML =
         customerLine +
-        _refundTarget.description + '<br>' +
+        esc(_refundTarget.description || '') + '<br>' +
         alreadyLine +
         '<span style="font-size:12px;color:var(--gray-400);">' + methodLabel + '. This cannot be undone.</span>';
 
