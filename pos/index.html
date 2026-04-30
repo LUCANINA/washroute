@@ -503,14 +503,17 @@
   .queue-card-btn.pickup:hover { background: var(--accent-light); }
   .queue-card-btn:disabled { opacity: 0.5; cursor: default; }
 
-  /* Launderer assignment chip on queue cards */
+  /* Launderer assignment chip on queue cards.
+     Toned down from the original amber "warning" treatment — it's a
+     prompt, not an alarm. Light-blue background + accent border keeps
+     it visible without reading as an error. */
   .laun-warn {
     margin-bottom: 8px;
     padding: 8px 10px;
-    background: #fef9c3;
-    border: 1.5px solid #f59e0b;
+    background: var(--accent-light);
+    border: 1.5px solid var(--accent);
     border-radius: 8px;
-    color: #92400e;
+    color: var(--accent-dark);
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
@@ -519,7 +522,7 @@
     gap: 7px;
     transition: background 0.12s;
   }
-  .laun-warn:hover { background: #fef3c7; }
+  .laun-warn:hover { background: #c7dafd; }
   .laun-assigned {
     margin-bottom: 8px;
     padding: 7px 10px;
@@ -3861,11 +3864,10 @@
           ${reassignBtn}
         </div>`;
     } else if (status === 'processing') {
-      // stopPropagation so tapping the warn area doesn't ALSO toggle card selection.
+      // stopPropagation so tapping the chip doesn't ALSO toggle card selection.
       launHtml = `
         <div class="laun-warn" onclick="event.stopPropagation();openLaundererPicker('${order.id}')">
-          <span>⚠️</span>
-          <span style="flex:1">Assign launderer to continue</span>
+          <span style="flex:1">Assign Launderer</span>
           <span style="font-size:10px;opacity:0.7">TAP →</span>
         </div>`;
     }
