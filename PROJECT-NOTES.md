@@ -741,6 +741,35 @@ Running registry of every customer-record merge performed. Each row captures the
 
 ## Session Log
 
+### Apr 30, 2026 (session 139, pt 3) — POS queue order delete (3-step UX with auto-refund)
+
+**Trigger:** David asked for a way to delete laundry orders from the POS queue when a customer changes their mind, the cashier rang up the wrong customer, etc. Specified a 3-step UX to reduce accidental deletes: select → click delete → confirm.
+
+**Decisions:** Auto-refund on delete (no separate "refund first" step required) + hard delete (row removed from DB, matches admin's existing "cancel = hard delete" pattern).
+
+**Edge function — `stripe-terminal` v9** (`verify_jwt: false`):
+- New action `delete_pos_order` — takes `pos_shift_id`, `order_id`. Validates the shift is open and the order is `source='walk_in'` with `status IN ('processing','ready_for_delivery')` (in-queue only — delivered/historical orders aren't deletable from the POS).
+- For card sales with remaining balance: `stripe.refunds.create()` for the remaining amount, then proceed to delete. For cash: skip Stripe (cashier hands cash from till), proceed to delete. For unpaid or already-fully-refunded: just delete.
+- For customer-attached orders: inserts a `customer_transactions` refund row + decrements `customers.lifetime_value` BEFORE the delete (the FK is `ON DELETE SET NULL`, so the row stays but its `order_id` link is nulled — description retains context: "Refund (deleted): Order #X").
+- Hard `DELETE FROM orders WHERE id = ?`. FK cascades automatically clean up: `order_events`, `order_folding_assignments`, `order_items`, `notifications`, `route_stops` (CASCADE). `customer_transactions`, `print_jobs`, `subscription_usage_log` (SET NULL — records preserved). `cs_issues` is NO ACTION but POS orders never have those.
+- Returns `{success, order_number, refunded_amount, payment_method, stripe_refund_id}`.
+
+**POS UI — `pos/index.html`:**
+- `.queue-card.selected` CSS: blue border (2px), accent-light background, soft shadow. Card padding adjusted from 12px → 11px on selection so the thicker border doesn't shift layout. Cards now have `cursor:pointer` + hover border-color change so the click affordance is visible.
+- `_selectedQueueOrderId` module-level state, single-select. `togglePosCardSelected(orderId)` flips selection and re-renders from cached `queueOrders`.
+- `renderQueueCard` now applies the selected class + card-level `onclick`. The Delete button is rendered conditionally (`.queue-card-delete-btn`, red, full width). All existing inner controls — Reassign button, Mark Ready / Mark Picked Up, the launderer warn area — got `event.stopPropagation()` so they don't accidentally trigger select.
+- `openDeletePosOrderModal(orderId)` renders the confirm modal with: customer name, item summary (mirrors the queue-card detail string), total charged + tip line, refund preview ("$X will be refunded — card refunds via Stripe / cash from till"), and a red "This cannot be undone" warning block.
+- `executeDeletePosOrder` posts to `delete_pos_order`, clears `_selectedQueueOrderId`, closes the modal, refreshes the queue via `loadWalkInQueue`, and shows a contextual toast: "Order #X deleted — $Y refunded to card" or "Order #X deleted — hand back $Y from till".
+
+**Edge cases handled:**
+- If the cached queue row is stale (order no longer exists / status changed), the edge function returns 404 / status-mismatch error; the modal surfaces it inline without closing.
+- Selection persists across queue auto-refreshes (selection is module-level state, not DOM state). If the selected order is removed by another cashier, the next render simply doesn't show its card; the selection becomes invisible-stale until the cashier taps something else. Acceptable.
+- Cancel in the modal leaves the card still selected — cashier can tap the card again to deselect, or pick another card.
+
+**Status:** edge function v9 deployed and ACTIVE. POS UI changes on disk, syntax-clean. Commit blocked again by stale `.git/*.lock` files (same issue as earlier in session). David needs to clear the locks from his terminal.
+
+---
+
 ### Apr 30, 2026 (session 139, pt 2) — POS refund flow shipped (card + cash, full + partial)
 
 **Trigger:** the topbar refund button on the POS was showing a placeholder toast — "Refunds: use the Stripe dashboard for now." The dead-code path beneath that toast had been written in session 122 but called `stripe-terminal` actions (`list_recent_payments`, `refund_payment`) that no longer exist on the deployed function (somewhere between v5 and v7 they got dropped). David asked to ship a real refund flow.

@@ -349,6 +349,142 @@ Deno.serve(async (req) => {
       })
     }
 
+    /* ── 9. Delete a POS order from the queue ───────────────────
+       Auto-refunds any remaining balance, then hard-deletes the order.
+       Used by the queue's 3-step delete UX (select → delete → confirm).
+       Restricted to walk-in orders still in the queue (processing or
+       ready_for_delivery) — once an order is delivered it's a historical
+       record and shouldn't be deletable from the POS. Use admin tools
+       for those.
+
+       FK cascades handled by the schema:
+         order_events, order_folding_assignments, order_items,
+         notifications, route_stops          → ON DELETE CASCADE
+         customer_transactions, print_jobs,
+         subscription_usage_log              → ON DELETE SET NULL
+
+       The customer_transactions refund row (when applicable) is inserted
+       BEFORE the delete so the customer's billing history retains a
+       record of what happened (its order_id link gets nulled by cascade,
+       but the description preserves context).
+
+       Auth: pos_shift_id required (open shift).
+       ────────────────────────────────────────────────────────── */
+    if (action === 'delete_pos_order') {
+      const { pos_shift_id, order_id } = body
+      const shift = await validateOpenShift(pos_shift_id)
+
+      if (!order_id) return json({ error: 'order_id is required' }, 400)
+
+      const db = createClient(supabaseUrl, supabaseSrv)
+
+      const { data: order, error: orderErr } = await db
+        .from('orders')
+        .select('id, order_number, source, status, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, stripe_payment_intent_id, customer_id')
+        .eq('id', order_id)
+        .single()
+      if (orderErr || !order) return json({ error: 'Order not found' }, 404)
+
+      if (order.source !== 'walk_in') {
+        return json({ error: 'POS delete only works on walk-in orders.' }, 400)
+      }
+      if (order.status !== 'processing' && order.status !== 'ready_for_delivery') {
+        return json({ error: `Cannot delete an order in status '${order.status}'. Only orders still in the queue can be deleted.` }, 400)
+      }
+
+      const total = Number(order.total_amount || 0)
+      const tip = Number(order.tip_amount || 0)
+      const alreadyRefunded = Number(order.amount_refunded || 0)
+      const chargeable = +(total + tip).toFixed(2)
+      const remaining = +(chargeable - alreadyRefunded).toFixed(2)
+
+      const isCard = order.billing_payment_method === 'card' || order.billing_payment_method === 'credit_card'
+      const isCash = order.billing_payment_method === 'cash'
+      const wasPaid = order.billing_status === 'paid' || order.billing_status === 'refunded'
+      const needsRefund = wasPaid && remaining > 0.005
+
+      let stripeRefundId: string | null = null
+      let cardBrand: string | null = null
+      let cardLast4: string | null = null
+
+      // 1) Refund the remaining balance (card only). Cash is bookkeeping
+      //    only — the cashier hands cash back from the till.
+      if (needsRefund && isCard) {
+        if (!order.stripe_payment_intent_id) {
+          return json({ error: 'Card sale has no Stripe PaymentIntent on file — cannot auto-refund. Refund manually in Stripe dashboard, then delete from admin.' }, 400)
+        }
+        const refund = await stripe.refunds.create({
+          payment_intent: order.stripe_payment_intent_id,
+          amount: Math.round(remaining * 100),
+          metadata: {
+            source: 'pos_delete',
+            order_id: order.id,
+            order_number: String(order.order_number),
+            cashier_profile_id: shift.cashier_profile_id,
+          },
+        })
+        if (refund.status !== 'succeeded' && refund.status !== 'pending') {
+          return json({ error: `Stripe refund status: ${refund.status}` }, 502)
+        }
+        stripeRefundId = refund.id
+
+        try {
+          const pi: any = await stripe.paymentIntents.retrieve(order.stripe_payment_intent_id, { expand: ['latest_charge'] })
+          const card = pi?.latest_charge?.payment_method_details?.card
+          if (card) { cardBrand = card.brand || null; cardLast4 = card.last4 || null }
+        } catch (e: any) {
+          console.warn('[stripe-terminal] Could not fetch card details for delete-refund record:', e?.message)
+        }
+      }
+
+      // 2) For customer-attached orders that had a real refund, preserve
+      //    the billing-history record (order_id link gets nulled by cascade,
+      //    but the description carries context).
+      if (needsRefund && order.customer_id) {
+        const { error: txErr } = await db.from('customer_transactions').insert({
+          customer_id: order.customer_id,
+          type: 'refund',
+          amount: remaining,
+          description: `Refund (deleted): Order #${order.order_number}`,
+          order_id: order.id,
+          stripe_payment_intent_id: order.stripe_payment_intent_id || null,
+          card_brand: cardBrand,
+          card_last4: cardLast4,
+          note: isCash ? 'POS cash refund (order deleted)' : 'POS card refund (order deleted)',
+        })
+        if (txErr) {
+          console.warn('[stripe-terminal] customer_transactions insert failed (non-fatal):', txErr.message)
+        }
+
+        const { data: cust } = await db.from('customers').select('lifetime_value').eq('id', order.customer_id).single()
+        if (cust) {
+          const newLtv = Math.max(0, Number(cust.lifetime_value || 0) - remaining)
+          await db.from('customers').update({ lifetime_value: newLtv }).eq('id', order.customer_id)
+        }
+      }
+
+      // 3) Hard delete the order. FK cascades clean up events/items/etc.
+      const { error: delErr } = await db.from('orders').delete().eq('id', order.id)
+      if (delErr) {
+        console.error('[stripe-terminal] Order delete failed AFTER refund:', delErr.message)
+        return json({
+          error: 'Refund processed but order delete failed: ' + delErr.message + '. Contact admin to clean up.',
+          stripe_refund_id: stripeRefundId,
+          refunded_amount: needsRefund ? remaining : 0,
+        }, 500)
+      }
+
+      console.log(`[stripe-terminal] Deleted order #${order.order_number} (${isCard ? 'card' : isCash ? 'cash' : 'unpaid'}, refunded $${needsRefund ? remaining.toFixed(2) : '0.00'}, by shift ${pos_shift_id})`)
+
+      return json({
+        success: true,
+        order_number: order.order_number,
+        refunded_amount: needsRefund ? remaining : 0,
+        payment_method: isCard ? 'card' : isCash ? 'cash' : null,
+        stripe_refund_id: stripeRefundId,
+      })
+    }
+
     return json({ error: `Unknown action: ${action}` }, 400)
 
   } catch (err: any) {

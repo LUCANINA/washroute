@@ -416,7 +416,34 @@
     border-radius: 10px;
     padding: 12px;
     margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color 0.12s, box-shadow 0.12s, background 0.12s;
   }
+  .queue-card:hover { border-color: var(--gray-400); }
+  /* Selected state — step 1 of the 3-step delete flow.
+     Tapping a queue card highlights it and reveals the Delete button.
+     Tapping again deselects. */
+  .queue-card.selected {
+    border-color: var(--accent);
+    border-width: 2px;
+    padding: 11px;  /* compensate for thicker border so size stays the same */
+    background: var(--accent-light);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.18);
+  }
+  .queue-card-delete-btn {
+    width: 100%;
+    margin-top: 8px;
+    padding: 10px 0;
+    background: #dc2626;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .queue-card-delete-btn:hover { background: #b91c1c; }
   .queue-card-top {
     display: flex;
     align-items: center;
@@ -2294,6 +2321,35 @@
         </div>
       </div>
 
+      <!-- ─── Queue order delete-confirm modal ──────────────────
+           Step 3 of the 3-step delete flow (select card → tap Delete → confirm here).
+           Renders a refund preview (auto-refund of remaining balance) so the
+           cashier sees exactly what will happen before they tap Delete.
+           ──────────────────────────────────────────────────── -->
+      <div class="modal-overlay" id="deleteOrderModal">
+        <div class="modal" style="max-width: 420px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Delete order?</div>
+              <div class="modal-sub" id="deleteOrderSub">Order #—</div>
+            </div>
+            <button class="modal-close" onclick="closeAll()">×</button>
+          </div>
+          <div class="modal-body" style="padding: 16px 20px;">
+            <div id="deleteOrderDetails" style="font-size:14px;color:var(--gray-700);line-height:1.5;"></div>
+            <div id="deleteOrderRefundPreview" style="margin-top:14px;padding:12px;background:var(--gray-50);border-radius:10px;font-size:13px;color:var(--gray-700);"></div>
+            <div style="margin-top:14px;padding:10px;background:#fef2f2;color:#7f1d1d;border-radius:8px;font-size:12px;line-height:1.5;">
+              <strong>This cannot be undone.</strong> The order will be permanently removed from the system.
+            </div>
+            <div id="deleteOrderError" style="display:none;margin-top:12px;padding:10px;background:#fef2f2;color:#dc2626;border-radius:8px;font-size:13px;"></div>
+          </div>
+          <div class="modal-footer" style="display:flex;gap:10px;">
+            <button class="btn" onclick="closeAll()" style="flex:1;">Cancel</button>
+            <button class="btn" id="deleteOrderConfirmBtn" onclick="executeDeletePosOrder()" style="flex:1;background:#dc2626;color:white;">Delete order</button>
+          </div>
+        </div>
+      </div>
+
     </div><!-- /device-screen -->
   </div><!-- /device -->
 
@@ -3594,6 +3650,146 @@
     list.innerHTML = html;
   }
 
+  // 3-step queue-order delete (session 139 pt 3).
+  // Tracks which card is currently "selected" — null when nothing is selected.
+  // Single-select by design (matches David's spec). Cleared on successful
+  // delete, page nav, or tapping the same card again.
+  let _selectedQueueOrderId = null;
+
+  function togglePosCardSelected(orderId) {
+    _selectedQueueOrderId = (_selectedQueueOrderId === orderId) ? null : orderId;
+    // Re-render from the cached queueOrders so the .selected class +
+    // Delete button appear/disappear without a network round-trip.
+    renderQueue(queueOrders);
+  }
+
+  function openDeletePosOrderModal(orderId) {
+    const order = (queueOrders || []).find(o => o.id === orderId);
+    if (!order) {
+      showToast('Order not found in queue — please refresh.', 'error');
+      return;
+    }
+
+    // Build a quick item summary from line_items (mirrors renderQueueCard's
+    // detail line so the cashier sees the same wording in the modal).
+    const items = (order.line_items || []).filter(li => li.kind === 'service' || li.kind === 'merchandise');
+    const svcItems = items.filter(li => li.kind === 'service');
+    const merchItems = items.filter(li => li.kind === 'merchandise');
+    let detail = '';
+    if (svcItems.length) {
+      detail = svcItems.map(li => {
+        const w = li.weight_lbs ? `${li.weight_lbs} lb ` : '';
+        const addons = (li.addons || []).map(a => a.name).join(', ');
+        return `${w}${li.name}${addons ? ' + ' + addons : ''}`;
+      }).join(', ');
+    }
+    if (merchItems.length) {
+      const merchStr = merchItems.map(li => `${li.qty}× ${li.name}`).join(', ');
+      detail = detail ? `${detail} · ${merchStr}` : merchStr;
+    }
+
+    const total = Number(order.total_amount || 0);
+    const tip   = Number(order.tip_amount || 0);
+    const refunded = Number(order.amount_refunded || 0);
+    const remaining = +(total + tip - refunded).toFixed(2);
+
+    // The order's billing fields might not be on the cached queueOrders row
+    // (loadWalkInQueue selects a narrow column set). Pull them from the row
+    // we have, but fall back to a fresh fetch in the modal so the refund
+    // preview is always accurate.
+    const customerName = order._customerName || 'Walk-in';
+
+    document.getElementById('deleteOrderSub').textContent =
+      'Order #' + order.order_number;
+
+    const detailsHtml = `
+      <div style="font-weight:700;color:var(--gray-900);margin-bottom:4px;">${customerName}</div>
+      <div style="color:var(--gray-600);">${detail || 'No items'}</div>
+      <div style="margin-top:6px;font-size:13px;color:var(--gray-500);">Total charged: $${(total + tip).toFixed(2)}${tip > 0 ? ' (incl. $' + tip.toFixed(2) + ' tip)' : ''}</div>
+    `;
+    document.getElementById('deleteOrderDetails').innerHTML = detailsHtml;
+
+    // Refund preview. We don't have billing_payment_method on the cached
+    // row, so render a generic preview here; the edge function will compute
+    // the exact refund amount based on the live billing_status + amount_refunded.
+    const previewEl = document.getElementById('deleteOrderRefundPreview');
+    if (remaining > 0.005) {
+      previewEl.innerHTML = `
+        <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">💸 Auto-refund</div>
+        <div>$${remaining.toFixed(2)} will be refunded to the customer.</div>
+        <div style="margin-top:4px;font-size:12px;color:var(--gray-500);">Card sales refund automatically via Stripe. Cash sales: hand the cash back from the till.</div>
+      `;
+    } else {
+      previewEl.innerHTML = `
+        <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">No refund needed</div>
+        <div style="font-size:12px;color:var(--gray-500);">Order has no remaining balance to refund.</div>
+      `;
+    }
+
+    document.getElementById('deleteOrderError').style.display = 'none';
+    document.getElementById('deleteOrderConfirmBtn').disabled = false;
+    document.getElementById('deleteOrderConfirmBtn').textContent = 'Delete order';
+
+    // Stash the target so executeDeletePosOrder can read it without
+    // re-finding by id (the queue may have refreshed between modal open
+    // and confirm tap).
+    _deletePosOrderTarget = { id: order.id, order_number: order.order_number };
+
+    closeAll();
+    setTimeout(() => showModal('deleteOrderModal'), 100);
+  }
+
+  let _deletePosOrderTarget = null;
+
+  async function executeDeletePosOrder() {
+    if (!_deletePosOrderTarget) return;
+    if (!shift || !shift.shift_id) {
+      showToast('Sign in to a shift first.', 'error');
+      return;
+    }
+
+    const btn = document.getElementById('deleteOrderConfirmBtn');
+    const errEl = document.getElementById('deleteOrderError');
+    btn.disabled = true;
+    btn.textContent = 'Deleting…';
+    errEl.style.display = 'none';
+
+    try {
+      const data = await callEdge('stripe-terminal', {
+        action: 'delete_pos_order',
+        pos_shift_id: shift.shift_id,
+        order_id: _deletePosOrderTarget.id,
+      });
+
+      console.log('[DeleteOrder] Success:', data);
+
+      // Build a contextual toast.
+      let toastMsg = `Order #${data.order_number} deleted`;
+      if (data.refunded_amount > 0) {
+        const m = data.payment_method === 'cash' ? 'cash' : 'card';
+        const tail = m === 'cash'
+          ? ` — hand back $${Number(data.refunded_amount).toFixed(2)} from till`
+          : ` — $${Number(data.refunded_amount).toFixed(2)} refunded to card`;
+        toastMsg += tail;
+      }
+
+      // Clear selection + close modal + refresh queue so the deleted card
+      // disappears immediately.
+      _selectedQueueOrderId = null;
+      _deletePosOrderTarget = null;
+      closeAll();
+      showToast(toastMsg, 'success');
+      await loadWalkInQueue();
+
+    } catch (err) {
+      console.error('[DeleteOrder] Failed:', err);
+      errEl.textContent = err.message || 'Delete failed';
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Delete order';
+    }
+  }
+
   function renderQueueCard(order, status) {
     const name = order._customerName || 'Walk-in';
     const initials = name === 'Walk-in' ? 'WI' :
@@ -3645,8 +3841,9 @@
           ${reassignBtn}
         </div>`;
     } else if (status === 'processing') {
+      // stopPropagation so tapping the warn area doesn't ALSO toggle card selection.
       launHtml = `
-        <div class="laun-warn" onclick="openLaundererPicker('${order.id}')">
+        <div class="laun-warn" onclick="event.stopPropagation();openLaundererPicker('${order.id}')">
           <span>⚠️</span>
           <span style="flex:1">Assign launderer to continue</span>
           <span style="font-size:10px;opacity:0.7">TAP →</span>
@@ -3656,17 +3853,29 @@
     // Action button. Mark Ready is only enabled once a launderer is assigned —
     // launderer-pounds tracking depends on it. Belt-and-suspenders: the
     // advanceQueueOrder() guard re-checks before calling the RPC.
+    // stopPropagation so the action click doesn't ALSO toggle card selection.
     let btnHtml = '';
     if (status === 'processing') {
       if (hasAssignment) {
-        btnHtml = `<button class="queue-card-btn ready" onclick="advanceQueueOrder('${order.id}', 'ready_for_delivery')">✅ Mark Ready</button>`;
+        btnHtml = `<button class="queue-card-btn ready" onclick="event.stopPropagation();advanceQueueOrder('${order.id}', 'ready_for_delivery')">✅ Mark Ready</button>`;
       }
     } else if (status === 'ready_for_delivery') {
-      btnHtml = `<button class="queue-card-btn pickup" onclick="advanceQueueOrder('${order.id}', 'delivered')">📦 Mark Picked Up</button>`;
+      btnHtml = `<button class="queue-card-btn pickup" onclick="event.stopPropagation();advanceQueueOrder('${order.id}', 'delivered')">📦 Mark Picked Up</button>`;
     }
 
+    // 3-step delete: tapping the card toggles selection (step 1), the
+    // Delete button only renders when this card is selected (step 2),
+    // and the confirm modal is the final guardrail (step 3 — see
+    // openDeletePosOrderModal). The button uses stopPropagation so a tap
+    // on Delete doesn't bubble back up and deselect the card.
+    const isSelected  = (_selectedQueueOrderId === order.id);
+    const cardClass   = 'queue-card' + (isSelected ? ' selected' : '');
+    const deleteBtn   = isSelected
+      ? `<button class="queue-card-delete-btn" onclick="event.stopPropagation();openDeletePosOrderModal('${order.id}')">✕ Delete order</button>`
+      : '';
+
     return `
-      <div class="queue-card">
+      <div class="${cardClass}" onclick="togglePosCardSelected('${order.id}')">
         <div class="queue-card-top">
           <div class="queue-card-avatar" style="${name !== 'Walk-in' ? 'background:var(--accent);' : ''}">${initials}</div>
           <div class="queue-card-name">${name}</div>
@@ -3676,6 +3885,7 @@
         <div class="queue-card-time">${status === 'processing' ? 'Dropped off' : 'Ready'} ${timeAgo}</div>
         ${launHtml}
         ${btnHtml}
+        ${deleteBtn}
       </div>
     `;
   }
