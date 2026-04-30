@@ -3523,8 +3523,14 @@
       // can read names without admin policy changes.
       const launPromise = db.rpc('get_active_launderers');
 
+      // Pulls billing fields (tip_amount, amount_refunded, billing_status,
+      // billing_payment_method) so the queue-card delete confirm modal can
+      // render an accurate refund preview for already-refunded orders.
+      // Without these, the preview would say "$X will be refunded" even
+      // when the order has already been fully refunded — the edge function
+      // gets it right server-side regardless, but the UI text was wrong.
       let query = db.from('orders')
-        .select('id, order_number, status, customer_id, total_amount, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at')
+        .select('id, order_number, status, customer_id, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at')
         .eq('source', 'walk_in')
         .in('status', ['processing', 'ready_for_delivery']);
 
@@ -3709,20 +3715,34 @@
     `;
     document.getElementById('deleteOrderDetails').innerHTML = detailsHtml;
 
-    // Refund preview. We don't have billing_payment_method on the cached
-    // row, so render a generic preview here; the edge function will compute
-    // the exact refund amount based on the live billing_status + amount_refunded.
+    // Refund preview. The cached queue row now includes amount_refunded +
+    // tip_amount (loadWalkInQueue select), so we can show the right state
+    // for three scenarios: fully refundable, partial-already-refunded with
+    // remaining balance, and already-fully-refunded.
     const previewEl = document.getElementById('deleteOrderRefundPreview');
     if (remaining > 0.005) {
+      // There's still money to refund.
+      const partialNote = refunded > 0.005
+        ? `<div style="margin-top:2px;font-size:12px;color:var(--gray-500);">$${refunded.toFixed(2)} was already refunded earlier; only the remaining balance will refund now.</div>`
+        : '';
       previewEl.innerHTML = `
         <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">💸 Auto-refund</div>
         <div>$${remaining.toFixed(2)} will be refunded to the customer.</div>
+        ${partialNote}
         <div style="margin-top:4px;font-size:12px;color:var(--gray-500);">Card sales refund automatically via Stripe. Cash sales: hand the cash back from the till.</div>
       `;
+    } else if (refunded > 0.005) {
+      // Already fully refunded against. Order will still be deleted, but
+      // no second Stripe call (the edge function's needsRefund guard catches this).
+      previewEl.innerHTML = `
+        <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">Already refunded</div>
+        <div style="font-size:13px;color:var(--gray-600);">$${refunded.toFixed(2)} has already been refunded against this order. Deleting will not refund again.</div>
+      `;
     } else {
+      // Was never paid (e.g. billing_status null or 'failed').
       previewEl.innerHTML = `
         <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">No refund needed</div>
-        <div style="font-size:12px;color:var(--gray-500);">Order has no remaining balance to refund.</div>
+        <div style="font-size:12px;color:var(--gray-500);">Order has no payment to refund.</div>
       `;
     }
 
