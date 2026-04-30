@@ -741,6 +741,72 @@ Running registry of every customer-record merge performed. Each row captures the
 
 ## Session Log
 
+### Apr 30, 2026 (session 139, pt 2) — POS refund flow shipped (card + cash, full + partial)
+
+**Trigger:** the topbar refund button on the POS was showing a placeholder toast — "Refunds: use the Stripe dashboard for now." The dead-code path beneath that toast had been written in session 122 but called `stripe-terminal` actions (`list_recent_payments`, `refund_payment`) that no longer exist on the deployed function (somewhere between v5 and v7 they got dropped). David asked to ship a real refund flow.
+
+**Workflow agreed before building:** any cashier signed into the POS can refund (no manager-PIN override). Both card and cash sales are refundable. Partial refunds are supported.
+
+**Schema change — migration `session_139_orders_amount_refunded_accumulator`:**
+- Added `orders.amount_refunded NUMERIC(8,2) NOT NULL DEFAULT 0`. Used to compute remaining refundable as `total_amount + tip_amount - amount_refunded`. Independent of `customer_transactions` (which only covers customer-attached orders) so walk-in refunds finally have a per-order accumulator.
+- Backfilled from `customer_transactions` where `type='refund'` (56 historical rows hydrated, 2,990 orders default to 0).
+- Verified: zero existing rows have refund sums exceeding `total + tip`.
+- Comment on column documents the contract for future readers.
+
+**Edge function — `stripe-terminal` v8** (`verify_jwt: false`, matches project pattern):
+- New action `list_recent_pos_sales` — returns the last ~30 walk-in (POS) orders with `remaining_refundable > 0`. Includes both card and cash. Joins `customers(first_name_cache, last_name_cache)` so the UI can show a name or "Walk-in".
+- New action `refund_pos_payment` — takes `order_id`, `amount`, `pos_shift_id`, optional `note`. Validates the shift is open (`ended_at IS NULL`), order is `source='walk_in'`, amount fits within remaining. For card: `stripe.refunds.create({payment_intent, amount: cents, metadata: {source: 'pos', order_id, order_number, cashier_profile_id}})`. For cash: skip Stripe (cashier hands cash from the till). Always: bump `orders.amount_refunded`, flip `billing_status='refunded'` if fully refunded. If `customer_id` is present: insert `customer_transactions` row + decrement `customers.lifetime_value` (mirrors admin's `refund-charge` pattern so customer panel + reporting stay consistent).
+- Pulls `card_brand` + `card_last4` from the original PaymentIntent's latest charge for the `customer_transactions` row (best-effort — refund still succeeds if the lookup fails).
+- Auth model: open shift = authorization. No JWT required. Anyone with the anon key + an open shift_id can refund (matches today's "any cashier can refund" decision). When tightening security in a future round, this is one of the surfaces to revisit.
+
+**POS UI — `pos/index.html`:**
+- Removed the placeholder toast in `openRefundModal`. Refund modal subtitle now reads "Recent POS sales · card & cash" (was "Recent card payments — last 48 hours").
+- Refund list rewritten to render the new payload shape: each row shows a CARD/CASH badge (blue/green respectively), order #, full/remaining amount, customer name (or "Walk-in"), timestamp, and first non-tax line item description. Already-partially-refunded rows show "$X.XX left" in amber.
+- New partial-refund amount input on the confirm modal (`#refundAmountInput`): pre-fills with the full remaining amount, allows cashier to edit down. Live-validated as positive numeric ≤ remaining; hint text updates between "Full refund of $X.XX" / "Partial refund of $X.XX" / "Exceeds max refundable" with appropriate colours. "Reset to full" link snaps it back. `inputmode="decimal"` so iPad shows the numeric keyboard.
+- `executeRefund` posts the entered amount to `refund_pos_payment` and shows a contextual toast — for card "$X.XX back to card", for cash "hand back $X.XX from till".
+- Switched all refund-flow fetches to use the existing `callEdge('stripe-terminal', ...)` helper (was raw `fetch(TERMINAL_FN, ...)` from session 122) for consistent error handling + bearer-token attachment.
+
+**Architectural notes:**
+- Mirrors admin's `refund-charge` lifetime_value bookkeeping so a customer-attached POS refund shows up in the customer panel exactly like an admin refund would. Walk-in refunds (no `customer_id`) update only the order — no `customer_transactions` row, no LTV adjustment, since there's no customer to attribute to.
+- For partial refunds, `billing_status` is left at `'paid'` and only flips to `'refunded'` when the cumulative amount equals the chargeable total. The `amount_refunded` column is the source of truth for "how much has been refunded so far"; admin UI consumers should use it, not infer from `billing_status`.
+- The new edge function source is **not yet in the repo** (matches the existing pattern flagged on session 136 pt 11's audit — `send-order-notification` and `stripe-terminal` are deploy-only). Future cleanup pass should mirror the source into `supabase/functions/stripe-terminal/index.ts` for code review + git history.
+
+**Status before commit:**
+- DB migration applied + verified. Edge function v8 deployed + ACTIVE.
+- POS UI changes are on disk, JS syntax-clean (3 script blocks, 0 errors).
+- Commit blocked on stale `.git/HEAD.lock` + `.git/index.lock` from session 139 pt 1's filesystem-permission warnings — sandbox can't remove them. David needs to `rm -f .git/HEAD.lock .git/index.lock` from his terminal before pushing.
+
+**To verify on the iPad once deployed:**
+1. Ring up a small card sale (e.g. $5 of Wash & Fold). Refund the full amount → confirm Stripe dashboard shows the refund and order shows `billing_status='refunded'` in admin.
+2. Ring up another card sale, do a partial refund (e.g. $2 of $5) → confirm `billing_status` stays 'paid' but `amount_refunded=2.00` and re-opening the refund modal shows "$3.00 left" in amber.
+3. Ring up a cash sale, refund full → confirm no Stripe charge created, success toast says "hand back $X from till".
+4. Walk-in customer (no customer attached) refund → confirm no `customer_transactions` row inserted (no customer to attribute), order `amount_refunded` still updated.
+5. Customer-attached refund → confirm `customer_transactions` row appears in customer panel with correct card brand/last4.
+
+---
+
+### Apr 30, 2026 (session 139) — POS double-submit duplicate-order fix
+
+**Trigger:** David reported that during a payment he had been able to create two identical orders by tapping "Complete sale" twice on the cash modal. Easy reproduction; classic double-submit.
+
+**Root cause.** `chargeAndFinish` had a button-disable guard at `pos/index.html:4305` (pre-fix line numbers), but its selector was scoped to `#payModal .pay-method, #terminalModal .btn` — it did **not** include `#cashModal #cashCompleteBtn`. So a fast double-tap on the cash modal's Complete-sale button fired `cashCompleteSale → chargeAndFinish` twice in parallel before the first `await createPosOrder()` returned, producing two identical orders. Card path was already covered (terminal modal buttons disabled + Stripe idempotency key), but cash had no protection.
+
+**Fix (commit `958c506`):**
+1. Added a module-level `let _chargeInFlight = false` boolean lock next to `_posIdempotencyKey` (line 3940).
+2. At the top of `chargeAndFinish` (after the empty-cart check): if `_chargeInFlight`, console.warn and return; otherwise set `_chargeInFlight = true`.
+3. Released in the existing `finally` block alongside the button re-enable.
+4. Broadened the visual button-disable selector to `#payModal .pay-method, #terminalModal .btn, #cashModal #cashCompleteBtn` so the cashier sees feedback on the cash modal too.
+
+**Defense-in-depth.** The boolean lock is the real defense — bulletproof regardless of which UI surface fires. The button-disable is purely visual feedback. Verified `createPosOrder()` is called from exactly one site in the file (line 4332, inside `chargeAndFinish`), and all three entry paths (`cashCompleteSale`, `payWithCard`, `simulateCardSuccess`) funnel through `chargeAndFinish`. No bypass paths exist.
+
+**Verification:** `node` syntax-check on all 3 `<script>` blocks in `pos/index.html` clean. To real-world test on the iPad: open POS → add laundry item → Pay → Cash → enter cash → mash Complete sale twice. Confirm only one order in admin Orders > List. Console will log `[POS] chargeAndFinish ignored — previous sale still in flight` on the suppressed second tap.
+
+**Lesson for future POS work.** Per-modal button selectors are a fragile defense — every new modal needs to be added to every guard selector or it gets bypassed. Function-level re-entrancy locks at the single funnel point (`chargeAndFinish` here, future `createPosOrder` callers in general) are the right shape: one place to guard, every entry path covered automatically. Same principle to follow when we eventually refactor the POS raw-status writes (security punchlist round 2 #5 — `pos/index.html:3329` bypassing `advance_order_status`).
+
+**Push status:** commit `958c506` is local. Cowork sandbox can't authenticate to GitHub, so David needs to `git push` from his own Terminal to land on Vercel.
+
+---
+
 ### Apr 27, 2026 (session 138, pt 2) — Apr 23 driver_id patch trigger retired (superseded by session 134 pt 8)
 
 After the session 138 reset cleared the stale `130c566` commit, audited what was actually still live from the Apr 23 work. Findings:
