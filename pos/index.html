@@ -248,6 +248,34 @@
     transition: all 0.15s;
   }
 
+  /* Language toggle — circular ES/EN button next to the cashier badge.
+     Shows the OTHER language (i.e. tap to switch). Light-blue identity
+     so it visually pairs with the cashier-pill rather than the
+     accent-blue action buttons. */
+  .lang-toggle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--info-blue-light);
+    background: var(--info-blue-light);
+    color: var(--info-blue-dark);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .lang-toggle:hover {
+    background: var(--info-blue);
+    border-color: var(--info-blue);
+    color: white;
+  }
+
   /* Customer chip — primary CTA for attaching a customer to the sale.
      40px to match every other pill. When attached, fills solid accent
      so it stands out against the rest of the row. */
@@ -1695,31 +1723,31 @@
         <circle cx="12" cy="12" r="9"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="3"/>
       </svg>
     </div>
-    <div style="font-size:22px;font-weight:700;text-align:center;margin-bottom:6px;">Family Laundry POS</div>
-    <div style="font-size:14px;color:var(--gray-500);text-align:center;margin-bottom:28px;">Sign in with this register's account.</div>
+    <div style="font-size:22px;font-weight:700;text-align:center;margin-bottom:6px;" data-i18n>Family Laundry POS</div>
+    <div style="font-size:14px;color:var(--gray-500);text-align:center;margin-bottom:28px;" data-i18n>Sign in with this register's account.</div>
     <div style="margin-bottom:16px;">
-      <label style="display:block;font-size:13px;font-weight:600;color:var(--gray-500);margin-bottom:8px;">Register email</label>
-      <input id="login-email" type="email" autocomplete="username" placeholder="pos-foothill@familylaundry.com"
+      <label style="display:block;font-size:13px;font-weight:600;color:var(--gray-500);margin-bottom:8px;" data-i18n>Register email</label>
+      <input id="login-email" type="email" autocomplete="username" placeholder="pos-foothill@familylaundry.com" data-i18n-placeholder="pos-foothill@familylaundry.com"
              style="width:100%;padding:14px 16px;border-radius:12px;border:1.5px solid var(--gray-200);font-size:16px;outline:none;" />
     </div>
     <div style="margin-bottom:20px;">
-      <label style="display:block;font-size:13px;font-weight:600;color:var(--gray-500);margin-bottom:8px;">Password</label>
+      <label style="display:block;font-size:13px;font-weight:600;color:var(--gray-500);margin-bottom:8px;" data-i18n>Password</label>
       <input id="login-password" type="password" autocomplete="current-password" placeholder="••••••••"
              onkeydown="if(event.key==='Enter') doLogin()"
              style="width:100%;padding:14px 16px;border-radius:12px;border:1.5px solid var(--gray-200);font-size:16px;outline:none;" />
     </div>
     <button id="login-btn" onclick="doLogin()"
-            style="width:100%;padding:16px;border-radius:14px;border:none;background:var(--accent);color:white;font-size:16px;font-weight:700;cursor:pointer;">
+            style="width:100%;padding:16px;border-radius:14px;border:none;background:var(--accent);color:white;font-size:16px;font-weight:700;cursor:pointer;" data-i18n>
       Sign in
     </button>
-    <div style="text-align:center;font-size:13px;color:var(--gray-400);margin-top:20px;">Need help? Ask the manager.</div>
+    <div style="text-align:center;font-size:13px;color:var(--gray-400);margin-top:20px;" data-i18n>Need help? Ask the manager.</div>
   </div>
 </div>
 
 <!-- PIN GATE -->
 <div id="screen-pin" style="display:none;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px;background:var(--gray-50);">
   <div style="width:100%;max-width:380px;background:white;border-radius:16px;padding:40px 32px;box-shadow:0 4px 20px rgba(0,0,0,.08);">
-    <div style="font-size:20px;font-weight:700;text-align:center;margin-bottom:6px;">Enter your PIN</div>
+    <div style="font-size:20px;font-weight:700;text-align:center;margin-bottom:6px;" data-i18n>Enter your PIN</div>
     <div id="pin-sub" style="font-size:14px;color:var(--gray-500);text-align:center;margin-bottom:24px;">Register</div>
     <div id="pin-dots" style="display:flex;gap:14px;justify-content:center;margin-bottom:32px;">
       <div class="pin-dot" style="width:16px;height:16px;border-radius:50%;border:2px solid var(--gray-300);"></div>
@@ -1743,7 +1771,7 @@
     </div>
     <div style="text-align:center;margin-top:24px;font-size:13px;color:var(--gray-500);">
       <span id="pin-device-name">—</span> &nbsp;·&nbsp;
-      <a href="#" onclick="doLogout(); return false;" style="color:var(--accent);">Sign out register</a>
+      <a href="#" onclick="doLogout(); return false;" style="color:var(--accent);" data-i18n>Sign out register</a>
     </div>
   </div>
 </div>
@@ -1775,11 +1803,15 @@
           <img src="../assets/logo_white_bg.png" alt="Family Laundry">
         </div>
 
-        <button class="cashier-pill" onclick="endShiftAndPrompt()" title="End shift and switch cashier">
+        <button class="cashier-pill" onclick="endShiftAndPrompt()" title="End shift and switch cashier" data-i18n-title="End shift and switch cashier">
           <div class="cashier-avatar" id="cashierAvatar">M</div>
           <span id="empName">Maria</span>
           <span class="pill-arrow">▾</span>
         </button>
+
+        <!-- Language toggle. Shows the OTHER language (tap to switch).
+             Initial label set by applyTranslations() based on _lang state. -->
+        <button class="lang-toggle" id="langToggle" onclick="togglePosLang()" title="Switch language / Cambiar idioma" data-i18n-title="Switch language / Cambiar idioma" aria-label="Switch language">ES</button>
 
         <button class="customer-chip" id="customerChip" onclick="openLookup()">
           <div class="customer-avatar" id="custAvatar">+</div>
@@ -1787,7 +1819,7 @@
         </button>
 
         <!-- session 111: site selector — now matches all other pills -->
-        <button class="pill site-badge" id="siteBadge" onclick="toggleSiteDropdown()" style="display:none;" title="Switch site">
+        <button class="pill site-badge" id="siteBadge" onclick="toggleSiteDropdown()" style="display:none;" title="Switch site" data-i18n-title="Switch site">
           <span class="pill-dot" id="siteBadgeDot"></span>
           <span class="site-badge-text" id="siteBadgeText">—</span>
           <span class="pill-arrow">▾</span>
@@ -1796,17 +1828,17 @@
           </div>
         </button>
 
-        <button class="pill" id="refundBtn" onclick="openRefundModal()" title="Refund a recent sale">
+        <button class="pill" id="refundBtn" onclick="openRefundModal()" title="Refund a recent sale" data-i18n-title="Refund a recent sale">
           <span style="font-size:14px;line-height:1">↩</span>
-          <span>Refund</span>
+          <span data-i18n>Refund</span>
         </button>
 
-        <button class="pill queue-badge" id="queueBadge" onclick="toggleQueue()" title="Retail orders in process">
+        <button class="pill queue-badge" id="queueBadge" onclick="toggleQueue()" title="Retail orders in process" data-i18n-title="Retail orders in process">
           <span class="queue-badge-icon">📦</span>
           <span class="queue-badge-count" id="queueCount">0</span>
         </button>
 
-        <button class="pill reader-pill" id="readerStatus" onclick="discoverAndConnect()" title="Card reader status">
+        <button class="pill reader-pill" id="readerStatus" onclick="discoverAndConnect()" title="Card reader status" data-i18n-title="Card reader status">
           <span class="pill-dot"></span>
           <span id="readerStatusText">Connect reader</span>
         </button>
@@ -1818,7 +1850,7 @@
         <!-- ─── LEFT: products ────────────────────────────── -->
         <div class="products">
           <div class="tabs" id="posTabs">
-            <button class="tab active" onclick="switchTab('services', this)"><span class="tab-icon"><i data-lucide="shirt"></i></span> Laundry Services</button>
+            <button class="tab active" onclick="switchTab('services', this)"><span class="tab-icon"><i data-lucide="shirt"></i></span> <span data-i18n>Laundry Services</span></button>
             <!-- Merchandise tabs built dynamically from DB -->
           </div>
           <div class="tile-grid" id="tileGrid">
@@ -1831,11 +1863,11 @@
           <!-- Queue panel (hidden by default, slides over cart) -->
           <div class="queue-panel" id="queuePanel">
             <div class="cart-header">
-              <div class="cart-header-title">📦 Retail Queue</div>
-              <button class="cart-clear" onclick="toggleQueue()">← Back to cart</button>
+              <div class="cart-header-title">📦 <span data-i18n>Retail Queue</span></div>
+              <button class="cart-clear" onclick="toggleQueue()" data-i18n>← Back to cart</button>
             </div>
             <div class="queue-list" id="queueList">
-              <div style="text-align:center; padding:40px 20px; color:var(--gray-400); font-size:13px;">
+              <div style="text-align:center; padding:40px 20px; color:var(--gray-400); font-size:13px;" data-i18n>
                 Loading…
               </div>
             </div>
@@ -1844,19 +1876,19 @@
           <!-- Normal cart view -->
           <div class="cart-view" id="cartView">
           <div class="cart-header">
-            <div class="cart-header-title">Cart</div>
-            <button class="cart-clear" id="clearBtn" onclick="clearCart()">Clear all</button>
+            <div class="cart-header-title" data-i18n>Cart</div>
+            <button class="cart-clear" id="clearBtn" onclick="clearCart()" data-i18n>Clear all</button>
           </div>
           <div class="cart-items" id="cartItems">
             <div class="cart-empty" id="cartEmpty">
               <span class="cart-empty-icon"><i data-lucide="shopping-cart"></i></span>
-              Tap products to add to cart
+              <span data-i18n>Tap products to add to cart</span>
             </div>
           </div>
           <div class="cart-totals">
-            <div class="total-row"><span>Subtotal</span><span id="subtotal">$0.00</span></div>
-            <div class="total-row"><span>Tax (9.25%)</span><span id="tax">$0.00</span></div>
-            <div class="total-row grand"><span>Total</span><span id="grand">$0.00</span></div>
+            <div class="total-row"><span data-i18n>Subtotal</span><span id="subtotal">$0.00</span></div>
+            <div class="total-row"><span data-i18n>Tax (9.25%)</span><span id="tax">$0.00</span></div>
+            <div class="total-row grand"><span data-i18n>Total</span><span id="grand">$0.00</span></div>
             <button class="charge-btn" id="chargeBtn" disabled onclick="chargeBtnTap()">
               <span id="chargeLabel">Charge</span>
               <span id="chargeAmt"></span>
@@ -1874,14 +1906,14 @@
           <div class="modal-header">
             <div>
               <div class="modal-title" id="weightTitle">Wash &amp; Fold — enter weight</div>
-              <div class="modal-sub">Read the weight from the scale display</div>
+              <div class="modal-sub" data-i18n>Read the weight from the scale display</div>
             </div>
             <button class="modal-close" onclick="closeAll()">×</button>
           </div>
           <div class="modal-body">
             <div class="numpad-display">
-              <div class="numpad-display-label">Weight</div>
-              <div class="numpad-display-value"><span id="wDisplay">0.0</span><span class="numpad-display-unit">lbs</span></div>
+              <div class="numpad-display-label" data-i18n>Weight</div>
+              <div class="numpad-display-value"><span id="wDisplay">0.0</span><span class="numpad-display-unit" data-i18n>lbs</span></div>
               <div class="numpad-display-calc" id="wCalc">$0.00 at $2.50 / lb</div>
             </div>
             <div class="numpad">
@@ -1900,8 +1932,8 @@
             </div>
             <div class="addon-section">
               <div class="addon-section-label">
-                <span>Add-ons</span>
-                <span class="addon-section-hint">Tap to include</span>
+                <span data-i18n>Add-ons</span>
+                <span class="addon-section-hint" data-i18n>Tap to include</span>
               </div>
               <div class="addon-chips" id="addonChips">
                 <!-- populated by renderWeightAddons() -->
@@ -1911,8 +1943,8 @@
           <!-- Pinned footer — always visible regardless of scroll -->
           <div class="modal-footer">
             <div class="modal-actions">
-              <button class="btn btn-ghost" onclick="closeAll()">Cancel</button>
-              <button class="btn btn-primary" id="addWeightBtn" onclick="addWeightToCart()">Add to cart</button>
+              <button class="btn btn-ghost" onclick="closeAll()" data-i18n>Cancel</button>
+              <button class="btn btn-primary" id="addWeightBtn" onclick="addWeightToCart()" data-i18n>Add to cart</button>
             </div>
           </div>
         </div>
@@ -1926,8 +1958,8 @@
         <div class="modal" style="max-width: 440px;">
           <div class="modal-header">
             <div>
-              <div class="modal-title">Select processing site</div>
-              <div class="modal-sub">Where are you processing today?</div>
+              <div class="modal-title" data-i18n>Select processing site</div>
+              <div class="modal-sub" data-i18n>Where are you processing today?</div>
             </div>
           </div>
           <div class="modal-body" id="siteSelectorBody">
@@ -1943,8 +1975,8 @@
         <div class="modal" style="max-width: 440px;">
           <div class="modal-header">
             <div>
-              <div class="modal-title">Find customer</div>
-              <div class="modal-sub">Enter phone number or start a retail sale</div>
+              <div class="modal-title" data-i18n>Find customer</div>
+              <div class="modal-sub" data-i18n>Enter phone number or start a retail sale</div>
             </div>
             <button class="modal-close" onclick="closeAll()">×</button>
           </div>
@@ -1968,7 +2000,7 @@
               <button class="numkey back" onclick="phoneKey('back')">⌫</button>
             </div>
             <button class="walk-in-btn" onclick="continueAsWalkIn()">
-              <span>👋</span> Continue as retail
+              <span>👋</span> <span data-i18n>Continue as retail</span>
             </button>
           </div>
         </div>
@@ -1981,38 +2013,38 @@
         <div class="modal" style="max-width: 440px;">
           <div class="modal-header">
             <div>
-              <div class="modal-title">New customer</div>
-              <div class="modal-sub">Under 10 seconds — attach to this sale</div>
+              <div class="modal-title" data-i18n>New customer</div>
+              <div class="modal-sub" data-i18n>Under 10 seconds — attach to this sale</div>
             </div>
             <button class="modal-close" onclick="closeAll()">×</button>
           </div>
           <div class="modal-body">
             <div class="form-row-2">
               <div class="form-field">
-                <label class="form-label">First name<span class="req">*</span></label>
-                <input class="form-input" id="newFirstName" type="text" placeholder="Sarah" autocomplete="off">
+                <label class="form-label"><span data-i18n>First name</span><span class="req">*</span></label>
+                <input class="form-input" id="newFirstName" type="text" placeholder="Sarah" data-i18n-placeholder="Sarah" autocomplete="off">
               </div>
               <div class="form-field">
-                <label class="form-label">Last name<span class="req">*</span></label>
-                <input class="form-input" id="newLastName" type="text" placeholder="Chen" autocomplete="off">
+                <label class="form-label"><span data-i18n>Last name</span><span class="req">*</span></label>
+                <input class="form-input" id="newLastName" type="text" placeholder="Chen" data-i18n-placeholder="Chen" autocomplete="off">
               </div>
             </div>
             <div class="form-field">
-              <label class="form-label">Phone</label>
+              <label class="form-label" data-i18n>Phone</label>
               <input class="form-input phone-locked" id="newPhone" type="tel" value="" readonly>
               <div class="sms-disclosure" style="margin-top:8px;margin-bottom:0;">
                 <span class="sms-disclosure-icon">💬</span>
-                <span>We'll text this number when the order is ready for pickup. Standard message rates apply.</span>
+                <span data-i18n>We'll text this number when the order is ready for pickup. Standard message rates apply.</span>
               </div>
             </div>
             <div class="form-field">
-              <label class="form-label">Email<span class="opt">optional</span></label>
-              <input class="form-input" id="newEmail" type="email" placeholder="sarah@example.com" autocomplete="off">
-              <div class="email-invite-hint">📱 If provided, we'll send a link to download the Family Laundry app for delivery service.</div>
+              <label class="form-label"><span data-i18n>Email</span><span class="opt" data-i18n>optional</span></label>
+              <input class="form-input" id="newEmail" type="email" placeholder="sarah@example.com" data-i18n-placeholder="sarah@example.com" autocomplete="off">
+              <div class="email-invite-hint" data-i18n>📱 If provided, we'll send a link to download the Family Laundry app for delivery service.</div>
             </div>
             <div class="modal-actions">
-              <button class="btn btn-ghost" onclick="backToLookup()">← Back</button>
-              <button class="btn btn-primary" id="saveCustomerBtn" onclick="saveNewCustomer()">Save &amp; attach</button>
+              <button class="btn btn-ghost" onclick="backToLookup()" data-i18n>← Back</button>
+              <button class="btn btn-primary" id="saveCustomerBtn" onclick="saveNewCustomer()" data-i18n>Save &amp; attach</button>
             </div>
           </div>
         </div>
@@ -2025,30 +2057,30 @@
         <div class="modal" style="max-width: 440px;">
           <div class="modal-header">
             <div>
-              <div class="modal-title">Take payment</div>
-              <div class="modal-sub">Choose how the customer is paying</div>
+              <div class="modal-title" data-i18n>Take payment</div>
+              <div class="modal-sub" data-i18n>Choose how the customer is paying</div>
             </div>
             <button class="modal-close" onclick="closeAll()">×</button>
           </div>
           <div class="modal-body">
             <div class="pay-total">
-              <div class="pay-total-label">Total due</div>
+              <div class="pay-total-label" data-i18n>Total due</div>
               <div class="pay-total-value" id="payTotal">$0.00</div>
               <div id="payTipRow" style="display:none;font-size:13px;color:var(--gray-500);margin-top:6px;">
-                Includes <span id="payTipAmt">$0.00</span> tip
-                · <a href="#" onclick="event.preventDefault();reopenTipFromPay()" style="color:var(--accent);font-weight:600;text-decoration:none">change</a>
+                <span data-i18n>Includes</span> <span id="payTipAmt">$0.00</span> <span data-i18n>tip</span>
+                · <a href="#" onclick="event.preventDefault();reopenTipFromPay()" style="color:var(--accent);font-weight:600;text-decoration:none" data-i18n>change</a>
               </div>
             </div>
             <div class="pay-methods">
               <button class="pay-method" onclick="payWithCard()">
                 <div class="pay-method-icon">💳</div>
-                <div class="pay-method-name">Card</div>
-                <div class="pay-method-sub">Stripe Terminal</div>
+                <div class="pay-method-name" data-i18n>Card</div>
+                <div class="pay-method-sub" data-i18n>Stripe Terminal</div>
               </button>
               <button class="pay-method" onclick="payWithCash()">
                 <div class="pay-method-icon">💵</div>
-                <div class="pay-method-name">Cash</div>
-                <div class="pay-method-sub">Tap to charge</div>
+                <div class="pay-method-name" data-i18n>Cash</div>
+                <div class="pay-method-sub" data-i18n>Tap to charge</div>
               </button>
             </div>
             <div id="payError" style="display:none; margin-top:14px; padding:10px 12px; background:var(--red-light); color:var(--red); border-radius:8px; font-size:13px; font-weight:600;"></div>
@@ -2065,24 +2097,24 @@
         <div class="modal" style="max-width: 560px;">
           <div class="modal-header">
             <div style="flex:1">
-              <div class="modal-title" style="font-size:24px;">Add a tip?</div>
-              <div class="modal-sub" style="font-size:14px;">100% of tips go to our laundry team</div>
+              <div class="modal-title" style="font-size:24px;" data-i18n>Add a tip?</div>
+              <div class="modal-sub" style="font-size:14px;" data-i18n>100% of tips go to our laundry team</div>
             </div>
             <button class="modal-close" onclick="closeAll()" aria-label="Close">×</button>
           </div>
           <div class="modal-body" style="padding: 6px 24px 24px;">
             <div class="pay-total" style="margin-bottom:14px;">
-              <div class="pay-total-label">Subtotal</div>
+              <div class="pay-total-label" data-i18n>Subtotal</div>
               <div class="pay-total-value" id="tipSubtotalAmt" style="font-size:28px;">$0.00</div>
             </div>
             <div id="tipPresets" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;">
               <!-- filled by renderTipPresets() -->
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-              <button class="tip-btn tip-btn-secondary" onclick="openTipCustom()" style="padding:18px;border:2px solid var(--gray-200);background:white;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;color:var(--gray-800);">
+              <button class="tip-btn tip-btn-secondary" onclick="openTipCustom()" style="padding:18px;border:2px solid var(--gray-200);background:white;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;color:var(--gray-800);" data-i18n>
                 Custom amount
               </button>
-              <button class="tip-btn tip-btn-skip" onclick="setTipAndContinue(0)" style="padding:18px;border:2px solid var(--gray-200);background:white;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;color:var(--gray-600);">
+              <button class="tip-btn tip-btn-skip" onclick="setTipAndContinue(0)" style="padding:18px;border:2px solid var(--gray-200);background:white;border-radius:12px;cursor:pointer;font-size:16px;font-weight:600;color:var(--gray-600);" data-i18n>
                 No tip
               </button>
             </div>
@@ -2097,14 +2129,14 @@
         <div class="modal" style="max-width: 380px;">
           <div class="modal-header">
             <div>
-              <div class="modal-title">Custom tip</div>
-              <div class="modal-sub">Enter amount</div>
+              <div class="modal-title" data-i18n>Custom tip</div>
+              <div class="modal-sub" data-i18n>Enter amount</div>
             </div>
             <button class="modal-close" onclick="backToTipModal()" aria-label="Back">×</button>
           </div>
           <div class="modal-body" style="padding: 10px 20px 18px;">
             <div class="cash-tendered-display" style="margin-bottom:14px;">
-              <div class="cash-tendered-label">Tip amount</div>
+              <div class="cash-tendered-label" data-i18n>Tip amount</div>
               <div class="cash-tendered-value" id="tipCustomValue">$0.00</div>
             </div>
             <div class="numpad" style="margin-bottom: 8px;">
@@ -2121,8 +2153,8 @@
               <button class="numkey back" onclick="tipCustomKey('back')">⌫</button>
             </div>
             <div class="modal-actions" style="margin-top:6px;">
-              <button class="btn btn-ghost" onclick="backToTipModal()">Back</button>
-              <button class="btn btn-primary" id="tipCustomConfirmBtn" onclick="confirmTipCustom()" disabled>Add tip</button>
+              <button class="btn btn-ghost" onclick="backToTipModal()" data-i18n>Back</button>
+              <button class="btn btn-primary" id="tipCustomConfirmBtn" onclick="confirmTipCustom()" disabled data-i18n>Add tip</button>
             </div>
           </div>
         </div>
@@ -2136,7 +2168,7 @@
           <div class="modal-header">
             <div>
               <div class="modal-title" id="terminalTitle">Waiting for card</div>
-              <div class="modal-sub">Customer: tap, insert, or swipe on the reader</div>
+              <div class="modal-sub" data-i18n>Customer: tap, insert, or swipe on the reader</div>
             </div>
             <button class="modal-close" onclick="cancelTerminalPayment()">×</button>
           </div>
@@ -2148,8 +2180,8 @@
             </div>
             <div id="terminalError" style="display:none; margin:10px 0; padding:10px 12px; background:var(--red-light); color:var(--red); border-radius:8px; font-size:13px; font-weight:600; text-align:center;"></div>
             <div class="modal-actions">
-              <button class="btn btn-ghost" id="terminalCancelBtn" onclick="cancelTerminalPayment()">Cancel</button>
-              <button class="btn btn-primary" id="terminalRetryBtn" onclick="payWithCard()" style="display:none;">Try again</button>
+              <button class="btn btn-ghost" id="terminalCancelBtn" onclick="cancelTerminalPayment()" data-i18n>Cancel</button>
+              <button class="btn btn-primary" id="terminalRetryBtn" onclick="payWithCard()" style="display:none;" data-i18n>Try again</button>
             </div>
           </div>
         </div>
@@ -2162,18 +2194,18 @@
         <div class="modal" style="max-width: 380px;">
           <div class="modal-header">
             <div>
-              <div class="modal-title">Cash payment</div>
-              <div class="modal-sub">Enter amount tendered</div>
+              <div class="modal-title" data-i18n>Cash payment</div>
+              <div class="modal-sub" data-i18n>Enter amount tendered</div>
             </div>
             <button class="modal-close" onclick="closeCashModal()">×</button>
           </div>
           <div class="modal-body" style="padding: 10px 20px 6px;">
             <div class="cash-due-row">
-              <span class="cash-due-label">Total due</span>
+              <span class="cash-due-label" data-i18n>Total due</span>
               <span class="cash-due-value" id="cashDueAmt">$0.00</span>
             </div>
             <div class="cash-tendered-display" id="cashTenderedBox">
-              <div class="cash-tendered-label">Amount tendered</div>
+              <div class="cash-tendered-label" data-i18n>Amount tendered</div>
               <div class="cash-tendered-value" id="cashTenderedValue">$0.00</div>
             </div>
             <div class="cash-change-row" id="cashChangeRow"></div>
@@ -2183,7 +2215,7 @@
               <button class="cash-quick-btn" onclick="cashQuickAmount(2000)">$20</button>
               <button class="cash-quick-btn" onclick="cashQuickAmount(5000)">$50</button>
               <button class="cash-quick-btn" onclick="cashQuickAmount(10000)">$100</button>
-              <button class="cash-quick-btn exact" onclick="cashExact()">Exact</button>
+              <button class="cash-quick-btn exact" onclick="cashExact()" data-i18n>Exact</button>
             </div>
             <div class="numpad" style="margin-bottom: 6px;">
               <button class="numkey" onclick="cashKey('1')">1</button>
@@ -2200,8 +2232,8 @@
             </div>
           </div>
           <div class="modal-footer" style="display:flex; gap:10px;">
-            <button class="btn btn-ghost" style="flex:1;" onclick="closeCashModal()">Cancel</button>
-            <button class="btn btn-success" style="flex:2;" id="cashCompleteBtn" disabled onclick="cashCompleteSale()">Complete sale</button>
+            <button class="btn btn-ghost" style="flex:1;" onclick="closeCashModal()" data-i18n>Cancel</button>
+            <button class="btn btn-success" style="flex:2;" id="cashCompleteBtn" disabled onclick="cashCompleteSale()" data-i18n>Complete sale</button>
           </div>
         </div>
       </div>
@@ -2213,7 +2245,7 @@
         <div class="modal" style="max-width: 420px;">
           <div class="modal-body" style="padding: 28px 28px 24px;">
             <div class="success-anim">✓</div>
-            <div class="success-title">Payment accepted</div>
+            <div class="success-title" data-i18n>Payment accepted</div>
             <div class="success-amount" id="successAmt">$0.00</div>
             <div class="success-sub" id="successSub">Paid in full · Thank you!</div>
             <div id="successTipLine" style="display:none; margin-top:2px; font-size:13px; font-weight:600; color:var(--gray-500);"></div>
@@ -2222,22 +2254,22 @@
             <div class="receipt-options">
               <button class="receipt-btn" id="rcptBtnPrint" onclick="handleReceiptPrint()">
                 <div class="receipt-btn-icon">🖨</div>
-                <div>Print</div>
+                <div data-i18n>Print</div>
               </button>
               <button class="receipt-btn" id="rcptBtnEmail" onclick="handleReceiptEmail()">
                 <div class="receipt-btn-icon">✉️</div>
-                <div>Email</div>
+                <div data-i18n>Email</div>
               </button>
               <button class="receipt-btn" id="rcptBtnText" onclick="handleReceiptText()">
                 <div class="receipt-btn-icon">💬</div>
-                <div>Text</div>
+                <div data-i18n>Text</div>
               </button>
             </div>
             <div class="modal-actions" style="margin-top: 20px;">
-              <button class="btn btn-primary" id="newSaleBtn" onclick="newSale()">Start new sale</button>
+              <button class="btn btn-primary" id="newSaleBtn" onclick="newSale()" data-i18n>Start new sale</button>
             </div>
             <div id="autoAdvanceNote" style="margin-top:10px;font-size:12px;color:var(--gray-500);display:none;">
-              Auto-starts new sale in <span id="autoAdvanceCount">5</span>s
+              <span data-i18n>Auto-starts new sale in</span> <span id="autoAdvanceCount">5</span>s
             </div>
           </div>
         </div>
@@ -2248,22 +2280,22 @@
         <div class="modal" style="max-width: 460px;">
           <div class="modal-header">
             <div>
-              <div class="modal-title">Assign launderer</div>
+              <div class="modal-title" data-i18n>Assign launderer</div>
               <div class="modal-sub" id="laundererModalSub">Order #—</div>
             </div>
             <button class="modal-close" onclick="closeAll()">×</button>
           </div>
           <div class="modal-body">
             <div class="laun-split-toggle">
-              <button class="laun-split-tab active" id="laun-tab-1" onclick="setLaundererSplitCount(1)">1 person</button>
-              <button class="laun-split-tab" id="laun-tab-2" onclick="setLaundererSplitCount(2)">Split 2 ways</button>
-              <button class="laun-split-tab" id="laun-tab-3" onclick="setLaundererSplitCount(3)">Split 3 ways</button>
+              <button class="laun-split-tab active" id="laun-tab-1" onclick="setLaundererSplitCount(1)" data-i18n>1 person</button>
+              <button class="laun-split-tab" id="laun-tab-2" onclick="setLaundererSplitCount(2)" data-i18n>Split 2 ways</button>
+              <button class="laun-split-tab" id="laun-tab-3" onclick="setLaundererSplitCount(3)" data-i18n>Split 3 ways</button>
             </div>
             <div class="laun-split-info" id="laun-split-info" style="display:none"></div>
             <div id="laun-picker-slots"><!-- populated by renderLaundererPicker() --></div>
             <div class="modal-actions" style="margin-top: 18px; display:flex; gap:8px;">
-              <button class="btn" style="flex:1; background:var(--gray-100); border:none; color:var(--gray-700); padding:12px; border-radius:8px; font-weight:600; cursor:pointer;" onclick="closeAll()">Cancel</button>
-              <button class="btn btn-primary" id="laun-save-btn" style="flex:1; padding:12px; border-radius:8px; font-weight:700; cursor:pointer;" onclick="confirmLaundererAssignment()">Save</button>
+              <button class="btn" style="flex:1; background:var(--gray-100); border:none; color:var(--gray-700); padding:12px; border-radius:8px; font-weight:600; cursor:pointer;" onclick="closeAll()" data-i18n>Cancel</button>
+              <button class="btn btn-primary" id="laun-save-btn" style="flex:1; padding:12px; border-radius:8px; font-weight:700; cursor:pointer;" onclick="confirmLaundererAssignment()" data-i18n>Save</button>
             </div>
           </div>
         </div>
@@ -2274,14 +2306,14 @@
         <div class="modal" style="max-width: 480px;">
           <div class="modal-header">
             <div>
-              <div class="modal-title">Refund a sale</div>
-              <div class="modal-sub">Recent POS sales · card &amp; cash</div>
+              <div class="modal-title" data-i18n>Refund a sale</div>
+              <div class="modal-sub" data-i18n>Recent POS sales · card &amp; cash</div>
             </div>
             <button class="modal-close" onclick="closeAll()">×</button>
           </div>
           <div class="modal-body" style="padding: 0; max-height: 400px; overflow-y: auto;">
             <div id="refundList" style="padding: 12px 20px;">
-              <div style="text-align:center;padding:30px;color:var(--gray-400);">Loading recent sales…</div>
+              <div style="text-align:center;padding:30px;color:var(--gray-400);" data-i18n>Loading recent sales…</div>
             </div>
           </div>
         </div>
@@ -2292,7 +2324,7 @@
         <div class="modal" style="max-width: 400px;">
           <div class="modal-header">
             <div>
-              <div class="modal-title">Confirm refund</div>
+              <div class="modal-title" data-i18n>Confirm refund</div>
               <div class="modal-sub" id="refundConfirmSub">Refund $0.00 back to card?</div>
             </div>
             <button class="modal-close" onclick="closeAll()">×</button>
@@ -2303,7 +2335,7 @@
                  amount; cashier can edit down to a partial. Max-bound by JS to
                  the order's remaining_refundable. -->
             <div style="margin-top:14px;padding:12px;background:var(--gray-50);border-radius:10px;">
-              <label for="refundAmountInput" style="display:block;font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em;">Refund amount</label>
+              <label for="refundAmountInput" style="display:block;font-size:12px;font-weight:600;color:var(--gray-600);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em;" data-i18n>Refund amount</label>
               <div style="display:flex;align-items:center;gap:6px;">
                 <span style="font-size:24px;font-weight:700;color:var(--gray-900);">$</span>
                 <input id="refundAmountInput" type="text" inputmode="decimal" pattern="[0-9.]*"
@@ -2312,14 +2344,14 @@
               </div>
               <div id="refundAmountHint" style="margin-top:8px;font-size:12px;color:var(--gray-500);display:flex;justify-content:space-between;align-items:center;">
                 <span id="refundAmountHintText">Full refund</span>
-                <button type="button" onclick="resetRefundAmountToFull()" style="background:none;border:none;color:var(--gray-900);font-size:12px;font-weight:600;cursor:pointer;padding:0;">Reset to full</button>
+                <button type="button" onclick="resetRefundAmountToFull()" style="background:none;border:none;color:var(--gray-900);font-size:12px;font-weight:600;cursor:pointer;padding:0;" data-i18n>Reset to full</button>
               </div>
             </div>
             <div id="refundConfirmError" style="display:none;margin-top:12px;padding:10px;background:#fef2f2;color:#dc2626;border-radius:8px;font-size:13px;"></div>
           </div>
           <div class="modal-footer" style="display:flex;gap:10px;">
-            <button class="btn" onclick="closeAll()" style="flex:1;">Cancel</button>
-            <button class="btn" id="refundConfirmBtn" onclick="executeRefund()" style="flex:1;background:var(--accent);color:white;">Refund</button>
+            <button class="btn" onclick="closeAll()" style="flex:1;" data-i18n>Cancel</button>
+            <button class="btn" id="refundConfirmBtn" onclick="executeRefund()" style="flex:1;background:var(--accent);color:white;" data-i18n>Refund</button>
           </div>
         </div>
       </div>
@@ -2333,7 +2365,7 @@
         <div class="modal" style="max-width: 420px;">
           <div class="modal-header">
             <div>
-              <div class="modal-title">Delete order?</div>
+              <div class="modal-title" data-i18n>Delete order?</div>
               <div class="modal-sub" id="deleteOrderSub">Order #—</div>
             </div>
             <button class="modal-close" onclick="closeAll()">×</button>
@@ -2342,13 +2374,13 @@
             <div id="deleteOrderDetails" style="font-size:14px;color:var(--gray-700);line-height:1.5;"></div>
             <div id="deleteOrderRefundPreview" style="margin-top:14px;padding:12px;background:var(--gray-50);border-radius:10px;font-size:13px;color:var(--gray-700);"></div>
             <div style="margin-top:14px;padding:10px;background:#fef2f2;color:#7f1d1d;border-radius:8px;font-size:12px;line-height:1.5;">
-              <strong>This cannot be undone.</strong> The order will be permanently removed from the system.
+              <strong data-i18n>This cannot be undone.</strong> <span data-i18n>The order will be permanently removed from the system.</span>
             </div>
             <div id="deleteOrderError" style="display:none;margin-top:12px;padding:10px;background:#fef2f2;color:#dc2626;border-radius:8px;font-size:13px;"></div>
           </div>
           <div class="modal-footer" style="display:flex;gap:10px;">
-            <button class="btn" onclick="closeAll()" style="flex:1;">Cancel</button>
-            <button class="btn" id="deleteOrderConfirmBtn" onclick="executeDeletePosOrder()" style="flex:1;background:#dc2626;color:white;">Delete order</button>
+            <button class="btn" onclick="closeAll()" style="flex:1;" data-i18n>Cancel</button>
+            <button class="btn" id="deleteOrderConfirmBtn" onclick="executeDeletePosOrder()" style="flex:1;background:#dc2626;color:white;" data-i18n>Delete order</button>
           </div>
         </div>
       </div>
@@ -2370,6 +2402,428 @@
     auth: { persistSession: true, storage: localStorage, storageKey: 'flpos_auth' }
   });
   const FN_BASE = SUPABASE_URL + '/functions/v1';
+
+  // ═══════════════════════════════════════════════════════════════
+  // i18n — English ↔ Spanish toggle (per-device, localStorage-backed)
+  // ═══════════════════════════════════════════════════════════════
+  // English is the source of truth. Every translatable string is written
+  // in English in markup/JS. t(en) looks up the Spanish translation when
+  // _lang === 'es', else returns the English unchanged. Strings without
+  // a Spanish entry fall through to English (safe default — no missing
+  // text). DB-sourced names (services.name, merchandise.name) intentionally
+  // stay as stored — those are pricelist content, not UI chrome.
+  let _lang = (localStorage.getItem('wr-pos-lang') === 'es') ? 'es' : 'en';
+
+  const TRANSLATIONS_ES = {
+    // Topbar / navigation
+    'Customer': 'Cliente',
+    'Connect reader': 'Conectar lector',
+    'Reader connected': 'Lector conectado',
+    'Reader offline': 'Lector desconectado',
+    'Refund': 'Reembolso',
+    'Switch language / Cambiar idioma': 'Switch language / Cambiar idioma',
+    'End shift and switch cashier': 'Cerrar turno y cambiar cajero',
+    'Switch site': 'Cambiar sucursal',
+    'Retail orders in process': 'Órdenes minoristas en proceso',
+    'Card reader status': 'Estado del lector de tarjeta',
+
+    // Service tabs / categories
+    'Services': 'Servicios',
+    'Merchandise': 'Mercancía',
+    'Add-ons': 'Adicionales',
+    'Retail': 'Minorista',
+    'Wash & Fold': 'Wash & Fold',     // service brand-name; left as-is
+    'Wash & Dry': 'Wash & Dry',
+    'No services configured': 'No hay servicios configurados',
+    'Loading…': 'Cargando…',
+
+    // Cart panel
+    'Cart': 'Carrito',
+    'Empty cart': 'Vaciar carrito',
+    'No items yet': 'No hay artículos aún',
+    'Tap a service or merchandise item to start': 'Toca un servicio o mercancía para empezar',
+    'Subtotal': 'Subtotal',
+    'Tax': 'Impuesto',
+    'Sales tax': 'Impuesto sobre ventas',
+    'Tip': 'Propina',
+    'Add tip': 'Agregar propina',
+    'No tip': 'Sin propina',
+    'Custom tip': 'Propina personalizada',
+    'Total': 'Total',
+    'Charge': 'Cobrar',
+    'Charge $': 'Cobrar $',
+    'Weight': 'Peso',
+    'Enter weight': 'Ingresar peso',
+    'Quantity': 'Cantidad',
+    'lb': 'lb',
+    'lbs': 'lbs',
+    'each': 'c/u',
+    'Remove': 'Quitar',
+    'Edit': 'Editar',
+    'Done': 'Listo',
+    'Cancel': 'Cancelar',
+    'Save': 'Guardar',
+    'Continue': 'Continuar',
+    'Back': 'Atrás',
+    'Close': 'Cerrar',
+    'Confirm': 'Confirmar',
+    'OK': 'OK',
+    'Yes': 'Sí',
+    'No': 'No',
+
+    // Customer attach modal
+    'Attach customer': 'Vincular cliente',
+    'Enter phone number or start a retail sale': 'Ingrese teléfono o comience venta minorista',
+    'Phone number': 'Número de teléfono',
+    'Search': 'Buscar',
+    'No customer found': 'Cliente no encontrado',
+    'Create new customer': 'Crear cliente nuevo',
+    'First name': 'Nombre',
+    'Last name': 'Apellido',
+    'Email (optional)': 'Correo (opcional)',
+    'Email': 'Correo',
+    'Continue as retail': 'Continuar sin cliente',
+    'Detach customer': 'Quitar cliente',
+    'Customer attached': 'Cliente vinculado',
+    'Attach a customer before charging laundry.': 'Vincule un cliente antes de cobrar lavandería.',
+
+    // Payment modal (pay method picker)
+    'How would you like to pay?': '¿Cómo le gustaría pagar?',
+    'Card': 'Tarjeta',
+    'Cash': 'Efectivo',
+    'Tap, insert, or swipe': 'Toque, inserte o deslice',
+    'Hand cash to cashier': 'Entregue efectivo al cajero',
+
+    // Cash modal
+    'Cash payment': 'Pago en efectivo',
+    'Tendered': 'Recibido',
+    'Change due': 'Cambio',
+    'Complete sale': 'Completar venta',
+    'Amount due': 'Monto a pagar',
+
+    // Card / Terminal modal
+    'Sending to reader…': 'Enviando al lector…',
+    'Setting up payment': 'Preparando el pago',
+    'Waiting for card': 'Esperando tarjeta',
+    'Present card on reader': 'Presente la tarjeta en el lector',
+    'Could not reach card reader': 'No se pudo conectar con el lector',
+    'Check that the S700 is powered on and connected to WiFi': 'Verifique que el S700 esté encendido y conectado al WiFi',
+    'Try again': 'Intentar de nuevo',
+    'Payment failed': 'Pago fallido',
+
+    // Tip flow
+    'Add a tip?': '¿Agregar una propina?',
+    'Add a tip for the team': 'Agregar propina para el equipo',
+    'No tip, thanks': 'Sin propina, gracias',
+    'Other amount': 'Otra cantidad',
+    'Custom amount': 'Cantidad personalizada',
+    'Skip tip': 'Omitir propina',
+
+    // Success modal
+    'Payment accepted': 'Pago aceptado',
+    'Paid in full · Thank you!': 'Pagado · ¡Gracias!',
+    'Paid in cash · Thank you!': 'Pagado en efectivo · ¡Gracias!',
+    'Paid by card · Thank you!': 'Pagado con tarjeta · ¡Gracias!',
+    'Print receipt': 'Imprimir recibo',
+    'Email receipt': 'Enviar recibo por correo',
+    'Text receipt': 'Enviar recibo por SMS',
+    'New sale': 'Nueva venta',
+    'Includes $': 'Incluye $',
+    ' tip': ' de propina',
+    '💵 Change due: $': '💵 Cambio: $',
+
+    // Receipt actions
+    'Print': 'Imprimir',
+    'Sent!': '¡Enviado!',
+    'Sending…': 'Enviando…',
+    'Printed!': '¡Impreso!',
+    'Printing…': 'Imprimiendo…',
+    'Failed to send': 'Falló el envío',
+    'Failed to print': 'Falló la impresión',
+
+    // Queue panel
+    'Retail Queue': 'Fila Minorista',
+    '🧼 Washing': '🧼 Lavando',
+    '✅ Ready for Pickup': '✅ Listo para recoger',
+    'No orders in the queue': 'No hay órdenes en la fila',
+    'Select a site to view orders': 'Seleccione una sucursal para ver órdenes',
+    '✅ Mark Ready': '✅ Marcar listo',
+    '📦 Mark Picked Up': '📦 Marcar entregado',
+    'Dropped off': 'Entregado',
+    'Ready': 'Listo',
+    'No items': 'Sin artículos',
+    'Assign Launderer': 'Asignar lavandero',
+    'TAP →': 'TOCA →',
+    'Reassign': 'Reasignar',
+    'Folded by': 'Doblado por',
+    '✕ Delete order': '✕ Eliminar orden',
+    'just now': 'ahora',
+    ' ago': '',
+    'min': 'min',
+    'mins': 'min',
+    'h': 'h',
+    'd': 'd',
+
+    // Launderer picker
+    'Assign launderer': 'Asignar lavandero',
+    'Single': 'Único',
+    'Split 2': 'Dividir 2',
+    'Split 3': 'Dividir 3',
+    'No active launderers configured. Add one in the admin dashboard first.': 'No hay lavanderos activos configurados. Agregue uno en el panel de administración primero.',
+    'Pick a launderer': 'Elija un lavandero',
+
+    // Refund modals
+    'Refund a sale': 'Reembolsar venta',
+    'Recent POS sales · card & cash': 'Ventas recientes · tarjeta y efectivo',
+    'Loading recent sales…': 'Cargando ventas recientes…',
+    'No recent POS sales available to refund': 'No hay ventas recientes para reembolsar',
+    'Failed to load sales: ': 'No se pudieron cargar las ventas: ',
+    'Confirm refund': 'Confirmar reembolso',
+    'Refund order #': 'Reembolsar orden #',
+    'Up to $': 'Hasta $',
+    ' refundable.': ' reembolsable.',
+    ' already refunded': ' ya reembolsado',
+    ' remaining.': ' restante.',
+    "Returned to the customer's card": 'Devuelto a la tarjeta del cliente',
+    'Hand back from the till': 'Entregar del cajón',
+    '. This cannot be undone.': '. Esto no se puede deshacer.',
+    'Refund amount': 'Monto del reembolso',
+    'Full refund': 'Reembolso total',
+    'Full refund of $': 'Reembolso total de $',
+    'Partial refund of $': 'Reembolso parcial de $',
+    'Reset to full': 'Restablecer al total',
+    'Enter an amount': 'Ingrese un monto',
+    'Exceeds max refundable ($': 'Excede el máximo reembolsable ($',
+    'Sign in to a shift first.': 'Inicie un turno primero.',
+    'Processing…': 'Procesando…',
+    'Refund failed': 'Reembolso fallido',
+    'Order not found': 'Orden no encontrada',
+    ' deleted': ' eliminada',
+    'Full refund processed (cash)': 'Reembolso total procesado (efectivo)',
+    'Full refund processed (card)': 'Reembolso total procesado (tarjeta)',
+    'Partial refund processed (cash)': 'Reembolso parcial procesado (efectivo)',
+    'Partial refund processed (card)': 'Reembolso parcial procesado (tarjeta)',
+    ' — hand back $': ' — entregar $',
+    ' from till': ' del cajón',
+    ' back to card': ' a la tarjeta',
+    ' refunded to card': ' reembolsado a la tarjeta',
+
+    // Delete order modal
+    'Delete order?': '¿Eliminar orden?',
+    'Order #—': 'Orden #—',
+    '💸 Auto-refund': '💸 Reembolso automático',
+    ' will be refunded to the customer.': ' será reembolsado al cliente.',
+    ' was already refunded earlier; only the remaining balance will refund now.': ' ya se reembolsó antes; solo el saldo restante se reembolsará ahora.',
+    'Card sales refund automatically via Stripe. Cash sales: hand the cash back from the till.': 'Las ventas con tarjeta se reembolsan automáticamente vía Stripe. En efectivo: entregue el dinero del cajón.',
+    'Already refunded': 'Ya reembolsado',
+    ' has already been refunded against this order. Deleting will not refund again.': ' ya se reembolsó por esta orden. Eliminar no reembolsará otra vez.',
+    'No refund needed': 'No se necesita reembolso',
+    'Order has no remaining balance to refund.': 'La orden no tiene saldo pendiente.',
+    'Order has no payment to refund.': 'La orden no tiene pago para reembolsar.',
+    'This cannot be undone.': 'Esto no se puede deshacer.',
+    ' The order will be permanently removed from the system.': ' La orden se eliminará permanentemente del sistema.',
+    'Delete order': 'Eliminar orden',
+    'Deleting…': 'Eliminando…',
+    'Delete failed': 'Eliminación fallida',
+    'Order #': 'Orden #',
+    'Order not found in queue — please refresh.': 'Orden no encontrada en la fila — actualice.',
+    'Total charged: $': 'Total cobrado: $',
+
+    // Errors / toasts (general)
+    'Could not save the order. Please try again.': 'No se pudo guardar la orden. Intente de nuevo.',
+    'No active POS shift — please sign in with your PIN again.': 'No hay turno activo — inicie sesión con su PIN.',
+    'No card reader configured on this device': 'No hay lector configurado en este dispositivo',
+    'Please select a processing site first.': 'Seleccione una sucursal primero.',
+
+    // Auth screens (PIN, sign-in)
+    'Enter your PIN': 'Ingrese su PIN',
+    'Sign in': 'Iniciar sesión',
+    'Sign out': 'Cerrar sesión',
+    'Welcome': 'Bienvenido',
+    'PIN': 'PIN',
+    'Wrong PIN': 'PIN incorrecto',
+    'Try again.': 'Intente de nuevo.',
+    'End shift': 'Cerrar turno',
+    'Are you sure?': '¿Está seguro?',
+    'End shift and sign out?': '¿Cerrar turno y salir?',
+
+    // Site selector
+    'Select a site': 'Seleccionar sucursal',
+    'Main': 'Principal',
+    'Processing site': 'Sucursal de procesamiento',
+
+    // Misc
+    'Notes': 'Notas',
+    'Special instructions': 'Instrucciones especiales',
+    'Add note': 'Agregar nota',
+    'Add notes': 'Agregar notas',
+    'Bags': 'Bolsas',
+    'bag': 'bolsa',
+    'bags': 'bolsas',
+    'Service': 'Servicio',
+    'Order': 'Orden',
+    'Pay': 'Pagar',
+
+    // Login + auth + register screens
+    'Family Laundry POS': 'Family Laundry POS',                  // brand — keep as-is
+    "Sign in with this register's account.": 'Inicie sesión con la cuenta de esta caja.',
+    'Register email': 'Correo de la caja',
+    'Password': 'Contraseña',
+    'pos-foothill@familylaundry.com': 'pos-foothill@familylaundry.com',  // real email
+    'Need help? Ask the manager.': '¿Necesita ayuda? Pregunte al gerente.',
+    'Sign out register': 'Cerrar sesión de caja',
+    'Stripe Terminal': 'Stripe Terminal',                        // brand — keep as-is
+
+    // Topbar + tabs (additions found by sweep)
+    'Refund a recent sale': 'Reembolsar una venta reciente',
+    'Laundry Services': 'Servicios de lavandería',
+    'Tap products to add to cart': 'Toca productos para agregar al carrito',
+    'Clear all': 'Vaciar todo',
+    'Tax (9.25%)': 'Impuesto (9.25%)',
+    'Tap to charge': 'Toca para cobrar',
+
+    // Weight modal additions
+    'Read the weight from the scale display': 'Lea el peso de la pantalla de la báscula',
+    'Tap to include': 'Toca para incluir',
+    'Add to cart': 'Agregar al carrito',
+
+    // Site selector
+    'Select processing site': 'Seleccionar sucursal de procesamiento',
+    'Where are you processing today?': '¿Dónde está procesando hoy?',
+
+    // Customer lookup / create modal
+    'Find customer': 'Buscar cliente',
+    'Phone': 'Teléfono',
+    'New customer': 'Cliente nuevo',
+    '1 person': '1 persona',
+    'Sarah': 'Maria',                                            // example placeholder
+    'Chen': 'Garcia',                                            // example placeholder
+    'sarah@example.com': 'maria@ejemplo.com',                    // example placeholder
+    'optional': 'opcional',
+    "We'll text this number when the order is ready for pickup. Standard message rates apply.": 'Enviaremos un SMS a este número cuando la orden esté lista. Aplican tarifas de mensajes.',
+    'Save & attach': 'Guardar y vincular',
+    'Under 10 seconds — attach to this sale': 'Menos de 10 segundos — vincular a esta venta',
+    '← Back': '← Atrás',
+    '← Back to cart': '← Volver al carrito',
+
+    // Payment modal additions
+    'Take payment': 'Cobrar',
+    'Choose how the customer is paying': 'Elija cómo paga el cliente',
+    'Total due': 'Total a pagar',
+
+    // Tip modal additions
+    'Tip amount': 'Monto de propina',
+    'Enter amount': 'Ingrese monto',
+    '100% of tips go to our laundry team': 'El 100% de las propinas va al equipo de lavandería',
+    'Includes': 'Incluye',
+    'tip': 'propina',
+    'change': 'cambio',
+
+    // Cash modal additions
+    'Amount tendered': 'Monto recibido',
+    'Enter amount tendered': 'Ingrese monto recibido',
+    'Exact': 'Exacto',
+
+    // Card / Terminal modal additions
+    'Customer: tap, insert, or swipe on the reader': 'Cliente: toque, inserte o deslice en el lector',
+
+    // Success modal additions
+    'Start new sale': 'Nueva venta',
+    'Auto-starts new sale in': 'Nueva venta en',
+    'Text': 'SMS',
+
+    // Launderer modal additions
+    'Split 2 ways': 'Dividir en 2',
+    'Split 3 ways': 'Dividir en 3',
+
+    // Delete order modal additions
+    'The order will be permanently removed from the system.': 'La orden se eliminará permanentemente del sistema.',
+
+    // Language toggle label — the toggle button text is set programmatically
+    // ('ES' / 'EN') and never goes through t(), but include the key here for
+    // completeness so any string-search audits don't flag it.
+    'ES': 'ES',
+
+    // Receipt + dynamic-render strings (added in JS-sweep pass)
+    'No order attached to this sale': 'No hay orden vinculada a esta venta',
+    'Could not print receipt': 'No se pudo imprimir el recibo',
+    'No email on file for this customer': 'No hay correo registrado para este cliente',
+    'Could not send email': 'No se pudo enviar el correo',
+    'No phone on file for this customer': 'No hay teléfono registrado para este cliente',
+    'Could not send text': 'No se pudo enviar el SMS',
+    'Printed': 'Impreso',
+    'Emailed': 'Enviado',
+    'Sent': 'Enviado',
+    'Refund $': 'Reembolso $',
+    ' exceeds the $': ' excede los $',
+    ' remaining refundable.': ' reembolsables restantes.',
+    'Enter a refund amount greater than $0.': 'Ingrese un monto mayor a $0.',
+    'POS sale': 'Venta minorista',
+    'CARD': 'TARJETA',
+    'CASH': 'EFECTIVO',
+    'left': 'restante',
+    'Failed to load sales: ': 'No se pudieron cargar las ventas: ',
+    'Unknown error': 'Error desconocido',
+    'processed': 'procesado',
+    'Launderer': 'Lavandero',
+    'incl. $': 'incl. $',
+  };
+
+  function t(en) {
+    if (_lang !== 'es' || !en) return en;
+    return TRANSLATIONS_ES[en] || en;
+  }
+
+  function togglePosLang() {
+    _lang = (_lang === 'es') ? 'en' : 'es';
+    localStorage.setItem('wr-pos-lang', _lang);
+    applyTranslations();
+  }
+
+  // Apply current language across the page. Called on initial load and on
+  // every toggle. Walks every element with [data-i18n] (text), [data-i18n-placeholder]
+  // (input placeholders), and [data-i18n-title] (tooltips). Captures the
+  // original English text on first run so flipping back to English is
+  // lossless. Re-renders dynamic views (cart, queue) so their template
+  // literals pick up the new t() values.
+  function applyTranslations() {
+    // Toggle button label always shows the OTHER language (tap to switch).
+    const btn = document.getElementById('langToggle');
+    if (btn) btn.textContent = (_lang === 'es') ? 'EN' : 'ES';
+
+    // <html lang="..."> for accessibility / browser hints.
+    document.documentElement.setAttribute('lang', _lang === 'es' ? 'es' : 'en');
+
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      if (!el.dataset.i18nOriginal) {
+        el.dataset.i18nOriginal = (el.textContent || '').trim();
+      }
+      const key = el.dataset.i18nOriginal;
+      if (key) el.textContent = t(key);
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+      if (!el.dataset.i18nOriginalPh) {
+        el.dataset.i18nOriginalPh = el.placeholder || el.getAttribute('data-i18n-placeholder') || '';
+      }
+      el.placeholder = t(el.dataset.i18nOriginalPh);
+    });
+    document.querySelectorAll('[data-i18n-title]').forEach(el => {
+      if (!el.dataset.i18nOriginalTitle) {
+        el.dataset.i18nOriginalTitle = el.title || el.getAttribute('data-i18n-title') || '';
+      }
+      el.title = t(el.dataset.i18nOriginalTitle);
+    });
+
+    // Re-render dynamic views so their template-literal output picks up
+    // the new t() values. Each guarded so we can call this before those
+    // pieces of state exist.
+    try { if (typeof renderCart === 'function') renderCart(); } catch(_){}
+    try { if (typeof renderQueue === 'function' && typeof queueOrders !== 'undefined') renderQueue(queueOrders); } catch(_){}
+    try { if (typeof updateCashierBadge === 'function') updateCashierBadge(); } catch(_){}
+  }
+
+  // Apply translations on initial load too.
+  document.addEventListener('DOMContentLoaded', applyTranslations);
 
   // ═══════════════════════════════════════════════════════════════
   // AUTH STATE — device + shift
@@ -2404,7 +2858,7 @@
 
   async function loadDevice() {
     const { data: { user } } = await db.auth.getUser();
-    if (!user) { showToast('Session expired. Please sign in again.', 'error'); setTimeout(()=>showAuthScreen('screen-login'),400); return false; }
+    if (!user) { showToast(t('Session expired. Please sign in again.'), 'error'); setTimeout(()=>showAuthScreen('screen-login'),400); return false; }
     // pos_devices has no site_id column (yet). Register-to-site mapping is
     // done by localStorage → default site → first-active fallback inside
     // enterRegister().
@@ -2413,7 +2867,7 @@
       .eq('is_active', true).eq('auth_user_id', user.id).limit(1).maybeSingle();
     if (error || !data) {
       console.error('[POS] loadDevice error:', error);
-      showToast('No device linked to this login. Contact admin.', 'error');
+      showToast(t('No device linked to this login. Contact admin.'), 'error');
       await db.auth.signOut();
       setTimeout(()=>showAuthScreen('screen-login'),400);
       return false;
@@ -2434,9 +2888,9 @@
     const pwEl    = document.getElementById('login-password');
     const email = emailEl.value.trim();
     const password = pwEl.value;
-    if (!email || !password) { showToast('Enter email and password', 'error'); return; }
+    if (!email || !password) { showToast(t('Enter email and password'), 'error'); return; }
     const btn = document.getElementById('login-btn');
-    btn.disabled = true; const origText = btn.textContent; btn.textContent = 'Signing in…';
+    btn.disabled = true; const origText = btn.textContent; btn.textContent = t('Signing in…');
     const { error } = await db.auth.signInWithPassword({ email, password });
     btn.disabled = false; btn.textContent = origText;
     if (error) { showToast(error.message, 'error'); return; }
@@ -2450,7 +2904,7 @@
   async function doLogout() {
     if (shift) {
       const { error } = await db.rpc('end_pos_shift', { p_shift_id: shift.shift_id });
-      if (error) showToast('Could not end shift cleanly — admin may need to force-close it.', 'error');
+      if (error) showToast(t('Could not end shift cleanly — admin may need to force-close it.'), 'error');
     }
     shift = null;
     device = null;
@@ -2488,13 +2942,13 @@
   async function submitPin() {
     const { data, error } = await db.rpc('start_pos_shift', { p_device_id: device.id, p_pin: pinBuffer });
     if (error || !data) {
-      renderPinDots(true); showToast('Invalid PIN — try again', 'error');
+      renderPinDots(true); showToast(t('Invalid PIN — try again'), 'error');
       setTimeout(()=>{ pinBuffer=''; renderPinDots(false); }, 450);
       return;
     }
     const active = await checkActiveShift();
     if (active) { shift = active; await enterRegister(); }
-    else showToast('Could not start shift', 'error');
+    else showToast(t('Could not start shift'), 'error');
   }
 
   async function endShiftAndPrompt() {
@@ -2668,13 +3122,13 @@
     el.classList.toggle('connected', isConnected);
     if (isConnected) {
       txtEl.textContent = label;
-      el.title = 'Card reader connected — ' + label;
+      el.title = t('Card reader connected — ') + label;
     } else if (status === 'searching') {
-      txtEl.textContent = 'Checking…';
-      el.title = 'Discovering card reader…';
+      txtEl.textContent = t('Checking…');
+      el.title = t('Discovering card reader…');
     } else {
-      txtEl.textContent = 'Connect reader';
-      el.title = 'Tap to connect a card reader';
+      txtEl.textContent = t('Connect reader');
+      el.title = t('Tap to connect a card reader');
     }
   }
 
@@ -2804,20 +3258,20 @@
     const wrap = document.getElementById('cartItems');
     const empty = document.getElementById('cartEmpty');
     if (!cart.length) {
-      wrap.innerHTML = '<div class="cart-empty"><span class="cart-empty-icon">' + lucideIcon('shopping-cart', 36) + '</span>Tap products to add to cart</div>';
+      wrap.innerHTML = '<div class="cart-empty"><span class="cart-empty-icon">' + lucideIcon('shopping-cart', 36) + '</span>' + t('Tap products to add to cart') + '</div>';
     } else {
       wrap.innerHTML = cart.map((line, i) => {
         const sub = line.type === 'per_lb'
           ? `${line.weight.toFixed(1)} lb × $${line.price.toFixed(2)}/lb`
           : `$${line.price.toFixed(2)} each`;
         const qtyControl = line.type === 'per_lb'
-          ? `<button class="qty-remove" onclick="removeFromCart(${i})">Remove</button>`
+          ? `<button class="qty-remove" onclick="removeFromCart(${i})">${t('Remove')}</button>`
           : `
             <div class="cart-item-qty">
               <button class="qty-btn" onclick="bumpQty(${i}, -1)">−</button>
               <div class="qty-num">${line.qty}</div>
               <button class="qty-btn" onclick="bumpQty(${i}, 1)">+</button>
-              <button class="qty-remove" onclick="removeFromCart(${i})">Remove</button>
+              <button class="qty-remove" onclick="removeFromCart(${i})">${t('Remove')}</button>
             </div>
           `;
         const addonPills = (line.addons && line.addons.length)
@@ -2890,17 +3344,17 @@
     const amt = document.getElementById('chargeAmt');
     if (cart.length === 0) {
       btn.disabled = true;
-      label.textContent = 'Charge';
+      label.textContent = t('Charge');
       amt.textContent = '';
       btn.dataset.state = 'empty';
     } else if (cartHasLaundry() && !hasAttachedCustomer()) {
       btn.disabled = false; // tappable — opens customer lookup
-      label.textContent = 'Attach customer';
+      label.textContent = t('Attach customer');
       amt.textContent = `· $${grand.toFixed(2)}`;
       btn.dataset.state = 'needs-customer';
     } else {
       btn.disabled = false;
-      label.textContent = 'Charge';
+      label.textContent = t('Charge');
       amt.textContent = `· $${grand.toFixed(2)}`;
       btn.dataset.state = 'ready';
     }
@@ -2912,7 +3366,7 @@
   function chargeBtnTap() {
     const btn = document.getElementById('chargeBtn');
     if (btn.dataset.state === 'needs-customer') {
-      showToast('Attach a customer first — we need their phone number to text when the order is ready.', 'info');
+      showToast(t('Attach a customer first — we need their phone number to text when the order is ready.'), 'info');
       openLookup();
       return;
     }
@@ -3007,7 +3461,7 @@
     activeWeightService = service;
     weightStr = '';
     activeAddonIds = new Set();
-    document.getElementById('weightTitle').textContent = `${service.name} — enter weight`;
+    document.getElementById('weightTitle').textContent = `${service.name} — ${t('Enter weight')}`;
     renderWeightAddons();
     renderWeightDisplay();
     showModal('weightModal');
@@ -3060,13 +3514,13 @@
     const calcEl = document.getElementById('wCalc');
     if (addonTotal > 0) {
       calcEl.innerHTML =
-        `$${base.toFixed(2)} at $${price.toFixed(2)} / lb` +
+        `$${base.toFixed(2)} ${t('at')} $${price.toFixed(2)} / ${t('lb')}` +
         ` <span style="color:var(--gray-400);font-weight:600">+</span> ` +
-        `$${addonTotal.toFixed(2)} add-ons` +
+        `$${addonTotal.toFixed(2)} ${t('add-ons')}` +
         ` <span style="color:var(--gray-400);font-weight:600">=</span> ` +
         `<span style="color:var(--gray-900);font-weight:800">$${lineTotalVal.toFixed(2)}</span>`;
     } else {
-      calcEl.textContent = `$${base.toFixed(2)} at $${price.toFixed(2)} / lb`;
+      calcEl.textContent = `$${base.toFixed(2)} ${t('at')} $${price.toFixed(2)} / ${t('lb')}`;
     }
     document.getElementById('addWeightBtn').disabled = val <= 0;
   }
@@ -3084,7 +3538,7 @@
     const activeSites = allSites.filter(s => s.is_active);
     const body = document.getElementById('siteSelectorBody');
     if (!activeSites.length) {
-      body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-500);">No sites available</div>';
+      body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-500);">' + t('No sites available') + '</div>';
       showModal('siteSelectorModal');
       return;
     }
@@ -3119,7 +3573,7 @@
     updateSiteBadge();
     closeAll();
     await loadWalkInQueue();
-    showToast(`Switched to ${getSiteById(siteId)?.name || 'site'}`, 'success');
+    showToast(`${t('Switched to')} ${getSiteById(siteId)?.name || t('site')}`, 'success');
   }
 
   // session 111: Update the site badge in topbar.
@@ -3174,7 +3628,7 @@
     updateSiteBadge();
     document.getElementById('siteDropdown').style.display = 'none';
     await loadWalkInQueue();
-    showToast(`Switched to ${getSiteById(siteId)?.name || 'site'}`, 'success');
+    showToast(`${t('Switched to')} ${getSiteById(siteId)?.name || t('site')}`, 'success');
   }
 
   /* ─── Customer lookup ──────────────────────────────────────── */
@@ -3189,7 +3643,7 @@
   // when the order's ready. Show a toast in that case instead of closing.
   function continueAsWalkIn() {
     if (cartHasLaundry()) {
-      showToast('Laundry needs a customer — we text them when the order is ready.', 'error');
+      showToast(t('Laundry needs a customer — we text them when the order is ready.'), 'error');
       return;
     }
     setWalkIn();
@@ -3222,7 +3676,7 @@
 
     const results = document.getElementById('custResults');
     if (phoneDigits.length >= 10) {
-      results.innerHTML = `<div style="text-align:center;font-size:12px;color:var(--gray-400);padding:14px;">Searching…</div>`;
+      results.innerHTML = `<div style="text-align:center;font-size:12px;color:var(--gray-400);padding:14px;">${t('Searching…')}</div>`;
       const search = phoneDigits;
       // Fire-and-forget; the most recent search wins via _lookupSeq.
       _lookupSeq++;
@@ -3232,7 +3686,7 @@
         renderLookupResults(matches, formatted);
       });
     } else if (phoneDigits.length >= 7) {
-      results.innerHTML = `<div style="text-align:center;font-size:12px;color:var(--gray-400);padding:10px;">Keep typing…</div>`;
+      results.innerHTML = `<div style="text-align:center;font-size:12px;color:var(--gray-400);padding:10px;">${t('Keep typing…')}</div>`;
     } else {
       results.innerHTML = '';
     }
@@ -3273,10 +3727,10 @@
       results.innerHTML = `
         <div class="no-match">
           <div class="no-match-icon">🔍</div>
-          <div class="no-match-title">No customer found</div>
-          <div class="no-match-sub">${formatted} isn't in our system yet</div>
+          <div class="no-match-title">${t('No customer found')}</div>
+          <div class="no-match-sub">${formatted} ${t("isn't in our system yet")}</div>
           <button class="create-customer-btn" onclick="openCreateCustomer()">
-            <span>+</span> Create new customer
+            <span>+</span> ${t('Create new customer')}
           </button>
         </div>
       `;
@@ -3285,10 +3739,10 @@
     results.innerHTML = matches.map(c => {
       const first = (c.first_name_cache || '').trim();
       const last  = (c.last_name_cache || '').trim();
-      const name  = `${first} ${last}`.trim() || 'Unnamed customer';
+      const name  = `${first} ${last}`.trim() || t('Unnamed customer');
       const initials = (first[0] || '?') + (last[0] || '');
       const orderCount = c.total_orders || 0;
-      const badge = c._demo ? 'Demo' : (orderCount >= 10 ? 'Regular' : (orderCount > 0 ? 'Customer' : 'New'));
+      const badge = c._demo ? t('Demo') : (orderCount >= 10 ? t('Regular') : (orderCount > 0 ? t('Customer') : t('New')));
       // Stash the matched row in a global keyed by id so the click handler
       // doesn't have to encode the full object through an inline onclick
       // (email addresses can contain + and quotes that break escaping).
@@ -3298,7 +3752,7 @@
           <div class="customer-avatar" style="background:var(--accent);color:white;">${initials.toUpperCase()}</div>
           <div>
             <div class="customer-result-name">${name}</div>
-            <div class="customer-result-phone">${c.phone_cache || formatted} · ${orderCount} orders</div>
+            <div class="customer-result-phone">${c.phone_cache || formatted} · ${orderCount} ${t('orders')}</div>
           </div>
           <div class="customer-result-badge">${badge}</div>
         </div>
@@ -3315,7 +3769,7 @@
     if (!c) return;
     const first = (c.first_name_cache || '').trim();
     const last  = (c.last_name_cache || '').trim();
-    const name  = `${first} ${last}`.trim() || 'Unnamed customer';
+    const name  = `${first} ${last}`.trim() || t('Unnamed customer');
     attachCustomer(name, c.phone_cache || '', c.total_orders || 0, { id: c.id, email: c.email_cache || '' });
   }
 
@@ -3331,7 +3785,7 @@
     // session 114: always reset the Save button when the modal opens,
     // in case a previous save left it in a "Saving…" disabled state.
     const saveBtn = document.getElementById('saveCustomerBtn');
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save & attach'; }
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = t('Save & attach'); }
     showModal('createCustomerModal');
     // Focus first name on open
     setTimeout(() => document.getElementById('newFirstName').focus(), 250);
@@ -3349,19 +3803,19 @@
     const phoneRaw = document.getElementById('newPhone').value.trim();
     const email = document.getElementById('newEmail').value.trim();
     if (!first || !last) {
-      showToast('First and last name are required.', 'error');
+      showToast(t('First and last name are required.'), 'error');
       return;
     }
     // Normalize phone to just digits so it matches the phone_cache format
     // used by lookupCustomerByPhone and the rest of the system.
     const phoneDigitsOnly = phoneRaw.replace(/\D/g, '');
     if (phoneDigitsOnly.length !== 10) {
-      showToast('Phone number is required (10 digits).', 'error');
+      showToast(t('Phone number is required (10 digits).'), 'error');
       return;
     }
 
     // Lock the save button so a double-tap can't create duplicate rows.
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    if (btn) { btn.disabled = true; btn.textContent = t('Saving…'); }
 
     // session 114: ALL exit paths must reset the Save button state.
     // We can't rely on closeAll() because the modal can be reopened from
@@ -3376,7 +3830,7 @@
         const f = (c.first_name_cache || '').trim();
         const l = (c.last_name_cache  || '').trim();
         const existingName = `${f} ${l}`.trim() || `${first} ${last}`;
-        showToast(`Found existing customer ${existingName} — attaching instead.`, 'info');
+        showToast(`${t('Found existing customer')} ${existingName} ${t('— attaching instead.')}`, 'info');
         attachCustomer(existingName, c.phone_cache || phoneDigitsOnly,
                        c.total_orders || 0,
                        { id: c.id, email: c.email_cache || '' });
@@ -3401,7 +3855,7 @@
         .single();
       if (error) {
         console.error('[POS] saveNewCustomer insert error:', error);
-        showToast('Could not create customer: ' + (error.message || 'unknown error'), 'error');
+        showToast(t('Could not create customer: ') + (error.message || t('unknown error')), 'error');
         return;
       }
       // Defensive: if the SELECT-after-INSERT returned null (RLS could
@@ -3411,20 +3865,20 @@
         console.warn('[POS] saveNewCustomer: insert OK but SELECT returned no row; attaching from payload');
         const fallbackId = (data && data.id) || null;
         if (!fallbackId) {
-          showToast('Customer saved but could not be attached — try the phone lookup again.', 'error');
+          showToast(t('Customer saved but could not be attached — try the phone lookup again.'), 'error');
           return;
         }
       }
       const name = `${first} ${last}`;
       attachCustomer(name, data.phone_cache || phoneDigitsOnly, 0,
                      { id: data.id, email: data.email_cache || '' });
-      showToast('New customer created', 'success');
+      showToast(t('New customer created'), 'success');
     } catch (e) {
       console.error('[POS] saveNewCustomer fatal:', e);
-      showToast('Could not create customer — please try again.', 'error');
+      showToast(t('Could not create customer — please try again.'), 'error');
     } finally {
       // Always restore the button so the modal is usable next open.
-      if (btn) { btn.disabled = false; btn.textContent = 'Save & attach'; }
+      if (btn) { btn.disabled = false; btn.textContent = t('Save & attach'); }
     }
   }
 
@@ -3450,8 +3904,8 @@
     // topbar elements at a unified height. Surface the order count via a
     // tooltip so the info is still discoverable without UI noise.
     chip.title = orderCount === 0
-      ? 'New customer · tap to change'
-      : orderCount + ' orders · tap to change';
+      ? t('New customer · tap to change')
+      : orderCount + ' ' + t('orders · tap to change');
     closeAll();
     // session 114: re-run the button state now that a customer is attached
     updateTotals();
@@ -3462,8 +3916,8 @@
     const chip = document.getElementById('customerChip');
     chip.classList.remove('attached');
     document.getElementById('custAvatar').textContent = '+';
-    document.getElementById('custName').textContent = 'Customer';
-    chip.title = 'Tap to find customer';
+    document.getElementById('custName').textContent = t('Customer');
+    chip.title = t('Tap to find customer');
     // session 114: re-gate the charge button when the customer is cleared
     updateTotals();
   }
@@ -3514,7 +3968,7 @@
         list.innerHTML = `
           <div class="queue-empty">
             <div class="queue-empty-icon">🏪</div>
-            Select a site to view orders
+            ${t('Select a site to view orders')}
           </div>
         `;
       }
@@ -3567,7 +4021,7 @@
           .select('id, first_name_cache, last_name_cache, phone_cache')
           .in('id', custIds);
         for (const c of (custs || [])) {
-          const fullName = `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || 'Customer';
+          const fullName = `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || t('Customer');
           custMap[c.id] = {
             name:  fullName,
             phone: c.phone_cache || '',
@@ -3580,7 +4034,7 @@
         const c = o.customer_id ? custMap[o.customer_id] : null;
         return {
           ...o,
-          _customerName:  c ? c.name  : (o.customer_id ? 'Customer' : 'Retail'),
+          _customerName:  c ? c.name  : (o.customer_id ? t('Customer') : t('Retail')),
           _customerPhone: c ? c.phone : '',
         };
       });
@@ -3638,7 +4092,7 @@
       list.innerHTML = `
         <div class="queue-empty">
           <div class="queue-empty-icon">✨</div>
-          No orders in the queue
+          ${t('No orders in the queue')}
         </div>
       `;
       return;
@@ -3649,11 +4103,11 @@
 
     let html = '';
     if (processing.length) {
-      html += `<div class="queue-section-label">🧼 Washing (${processing.length})</div>`;
+      html += `<div class="queue-section-label">${t('🧼 Washing')} (${processing.length})</div>`;
       html += processing.map(o => renderQueueCard(o, 'processing')).join('');
     }
     if (ready.length) {
-      html += `<div class="queue-section-label">✅ Ready for Pickup (${ready.length})</div>`;
+      html += `<div class="queue-section-label">${t('✅ Ready for Pickup')} (${ready.length})</div>`;
       html += ready.map(o => renderQueueCard(o, 'ready_for_delivery')).join('');
     }
     list.innerHTML = html;
@@ -3675,7 +4129,7 @@
   function openDeletePosOrderModal(orderId) {
     const order = (queueOrders || []).find(o => o.id === orderId);
     if (!order) {
-      showToast('Order not found in queue — please refresh.', 'error');
+      showToast(t('Order not found in queue — please refresh.'), 'error');
       return;
     }
 
@@ -3706,15 +4160,15 @@
     // (loadWalkInQueue selects a narrow column set). Pull them from the row
     // we have, but fall back to a fresh fetch in the modal so the refund
     // preview is always accurate.
-    const customerName = order._customerName || 'Retail';
+    const customerName = order._customerName || t('Retail');
 
     document.getElementById('deleteOrderSub').textContent =
-      'Order #' + order.order_number;
+      t('Order #') + order.order_number;
 
     const detailsHtml = `
       <div style="font-weight:700;color:var(--gray-900);margin-bottom:4px;">${customerName}</div>
-      <div style="color:var(--gray-600);">${detail || 'No items'}</div>
-      <div style="margin-top:6px;font-size:13px;color:var(--gray-500);">Total charged: $${(total + tip).toFixed(2)}${tip > 0 ? ' (incl. $' + tip.toFixed(2) + ' tip)' : ''}</div>
+      <div style="color:var(--gray-600);">${detail || t('No items')}</div>
+      <div style="margin-top:6px;font-size:13px;color:var(--gray-500);">${t('Total charged: $')}${(total + tip).toFixed(2)}${tip > 0 ? ' (' + t('incl. $') + tip.toFixed(2) + t(' tip') + ')' : ''}</div>
     `;
     document.getElementById('deleteOrderDetails').innerHTML = detailsHtml;
 
@@ -3726,32 +4180,32 @@
     if (remaining > 0.005) {
       // There's still money to refund.
       const partialNote = refunded > 0.005
-        ? `<div style="margin-top:2px;font-size:12px;color:var(--gray-500);">$${refunded.toFixed(2)} was already refunded earlier; only the remaining balance will refund now.</div>`
+        ? `<div style="margin-top:2px;font-size:12px;color:var(--gray-500);">$${refunded.toFixed(2)}${t(' was already refunded earlier; only the remaining balance will refund now.')}</div>`
         : '';
       previewEl.innerHTML = `
-        <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">💸 Auto-refund</div>
-        <div>$${remaining.toFixed(2)} will be refunded to the customer.</div>
+        <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">${t('💸 Auto-refund')}</div>
+        <div>$${remaining.toFixed(2)}${t(' will be refunded to the customer.')}</div>
         ${partialNote}
-        <div style="margin-top:4px;font-size:12px;color:var(--gray-500);">Card sales refund automatically via Stripe. Cash sales: hand the cash back from the till.</div>
+        <div style="margin-top:4px;font-size:12px;color:var(--gray-500);">${t('Card sales refund automatically via Stripe. Cash sales: hand the cash back from the till.')}</div>
       `;
     } else if (refunded > 0.005) {
       // Already fully refunded against. Order will still be deleted, but
       // no second Stripe call (the edge function's needsRefund guard catches this).
       previewEl.innerHTML = `
-        <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">Already refunded</div>
-        <div style="font-size:13px;color:var(--gray-600);">$${refunded.toFixed(2)} has already been refunded against this order. Deleting will not refund again.</div>
+        <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">${t('Already refunded')}</div>
+        <div style="font-size:13px;color:var(--gray-600);">$${refunded.toFixed(2)}${t(' has already been refunded against this order. Deleting will not refund again.')}</div>
       `;
     } else {
       // Was never paid (e.g. billing_status null or 'failed').
       previewEl.innerHTML = `
-        <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">No refund needed</div>
-        <div style="font-size:12px;color:var(--gray-500);">Order has no payment to refund.</div>
+        <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">${t('No refund needed')}</div>
+        <div style="font-size:12px;color:var(--gray-500);">${t('Order has no payment to refund.')}</div>
       `;
     }
 
     document.getElementById('deleteOrderError').style.display = 'none';
     document.getElementById('deleteOrderConfirmBtn').disabled = false;
-    document.getElementById('deleteOrderConfirmBtn').textContent = 'Delete order';
+    document.getElementById('deleteOrderConfirmBtn').textContent = t('Delete order');
 
     // Stash the target so executeDeletePosOrder can read it without
     // re-finding by id (the queue may have refreshed between modal open
@@ -3767,14 +4221,14 @@
   async function executeDeletePosOrder() {
     if (!_deletePosOrderTarget) return;
     if (!shift || !shift.shift_id) {
-      showToast('Sign in to a shift first.', 'error');
+      showToast(t('Sign in to a shift first.'), 'error');
       return;
     }
 
     const btn = document.getElementById('deleteOrderConfirmBtn');
     const errEl = document.getElementById('deleteOrderError');
     btn.disabled = true;
-    btn.textContent = 'Deleting…';
+    btn.textContent = t('Deleting…');
     errEl.style.display = 'none';
 
     try {
@@ -3787,12 +4241,12 @@
       console.log('[DeleteOrder] Success:', data);
 
       // Build a contextual toast.
-      let toastMsg = `Order #${data.order_number} deleted`;
+      let toastMsg = `${t('Order #')}${data.order_number}${t(' deleted')}`;
       if (data.refunded_amount > 0) {
         const m = data.payment_method === 'cash' ? 'cash' : 'card';
         const tail = m === 'cash'
-          ? ` — hand back $${Number(data.refunded_amount).toFixed(2)} from till`
-          : ` — $${Number(data.refunded_amount).toFixed(2)} refunded to card`;
+          ? `${t(' — hand back $')}${Number(data.refunded_amount).toFixed(2)}${t(' from till')}`
+          : ` — $${Number(data.refunded_amount).toFixed(2)}${t(' refunded to card')}`;
         toastMsg += tail;
       }
 
@@ -3806,16 +4260,16 @@
 
     } catch (err) {
       console.error('[DeleteOrder] Failed:', err);
-      errEl.textContent = err.message || 'Delete failed';
+      errEl.textContent = err.message || t('Delete failed');
       errEl.style.display = 'block';
       btn.disabled = false;
-      btn.textContent = 'Delete order';
+      btn.textContent = t('Delete order');
     }
   }
 
   function renderQueueCard(order, status) {
-    const name = order._customerName || 'Retail';
-    const initials = name === 'Retail' ? 'RE' :
+    const name = order._customerName || t('Retail');
+    const initials = name === t('Retail') || name === 'Retail' ? 'RE' :
       name.split(' ').map(n => (n[0] || '')).join('').slice(0, 2).toUpperCase();
 
     // Build a short service summary from line_items
@@ -3852,10 +4306,10 @@
           .map(r => _activeLaunderers.find(l => l.id === r.launderer_id)?.name || '?')
           .join(' + ');
       } else {
-        assignedNames = _activeLaunderers.find(l => l.id === order.folded_by_id)?.name || 'Launderer';
+        assignedNames = _activeLaunderers.find(l => l.id === order.folded_by_id)?.name || t('Launderer');
       }
       const reassignBtn = (status === 'processing')
-        ? `<button class="laun-reassign" onclick="event.stopPropagation();openLaundererPicker('${order.id}')">Reassign</button>`
+        ? `<button class="laun-reassign" onclick="event.stopPropagation();openLaundererPicker('${order.id}')">${t('Reassign')}</button>`
         : '';
       launHtml = `
         <div class="laun-assigned">
@@ -3867,8 +4321,8 @@
       // stopPropagation so tapping the chip doesn't ALSO toggle card selection.
       launHtml = `
         <div class="laun-warn" onclick="event.stopPropagation();openLaundererPicker('${order.id}')">
-          <span style="flex:1">Assign Launderer</span>
-          <span style="font-size:10px;opacity:0.7">TAP →</span>
+          <span style="flex:1">${t('Assign Launderer')}</span>
+          <span style="font-size:10px;opacity:0.7">${t('TAP →')}</span>
         </div>`;
     }
 
@@ -3879,10 +4333,10 @@
     let btnHtml = '';
     if (status === 'processing') {
       if (hasAssignment) {
-        btnHtml = `<button class="queue-card-btn ready" onclick="event.stopPropagation();advanceQueueOrder('${order.id}', 'ready_for_delivery')">✅ Mark Ready</button>`;
+        btnHtml = `<button class="queue-card-btn ready" onclick="event.stopPropagation();advanceQueueOrder('${order.id}', 'ready_for_delivery')">${t('✅ Mark Ready')}</button>`;
       }
     } else if (status === 'ready_for_delivery') {
-      btnHtml = `<button class="queue-card-btn pickup" onclick="event.stopPropagation();advanceQueueOrder('${order.id}', 'delivered')">📦 Mark Picked Up</button>`;
+      btnHtml = `<button class="queue-card-btn pickup" onclick="event.stopPropagation();advanceQueueOrder('${order.id}', 'delivered')">${t('📦 Mark Picked Up')}</button>`;
     }
 
     // 3-step delete: tapping the card toggles selection (step 1), the
@@ -3893,7 +4347,7 @@
     const isSelected  = (_selectedQueueOrderId === order.id);
     const cardClass   = 'queue-card' + (isSelected ? ' selected' : '');
     const deleteBtn   = isSelected
-      ? `<button class="queue-card-delete-btn" onclick="event.stopPropagation();openDeletePosOrderModal('${order.id}')">✕ Delete order</button>`
+      ? `<button class="queue-card-delete-btn" onclick="event.stopPropagation();openDeletePosOrderModal('${order.id}')">${t('✕ Delete order')}</button>`
       : '';
 
     return `
@@ -3903,8 +4357,8 @@
           <div class="queue-card-name">${name}</div>
           <div class="queue-card-order">#${order.order_number}</div>
         </div>
-        <div class="queue-card-detail">${detail || 'No items'}</div>
-        <div class="queue-card-time">${status === 'processing' ? 'Dropped off' : 'Ready'} ${timeAgo}</div>
+        <div class="queue-card-detail">${detail || t('No items')}</div>
+        <div class="queue-card-time">${status === 'processing' ? t('Dropped off') : t('Ready')} ${timeAgo}</div>
         ${launHtml}
         ${btnHtml}
         ${deleteBtn}
@@ -3929,7 +4383,7 @@
     if (!order) return;
 
     if (!_activeLaunderers.length) {
-      showToast('No active launderers configured. Add one in the admin dashboard first.', 'error');
+      showToast(t('No active launderers configured. Add one in the admin dashboard first.'), 'error');
       return;
     }
 
@@ -3946,7 +4400,7 @@
       _launSlotSelections[0] = order.folded_by_id || null;
     }
 
-    document.getElementById('laundererModalSub').textContent = `Order #${order.order_number}`;
+    document.getElementById('laundererModalSub').textContent = `${t('Order #')}${order.order_number}`;
     setLaundererSplitCount(_launSplitCount, /*skipRender=*/false);
     showModal('laundererModal');
   }
@@ -3975,9 +4429,9 @@
       const perBags = totalBags ? (totalBags / _launSplitCount).toFixed(1) : null;
       const perLbs  = totalLbs  ? (totalLbs  / _launSplitCount).toFixed(1) : null;
       const parts = [];
-      if (perBags) parts.push(`${perBags} bag${perBags === '1.0' ? '' : 's'}`);
-      if (perLbs)  parts.push(`${perLbs} lb`);
-      infoEl.textContent = `Each person gets ${parts.join(' / ')}`;
+      if (perBags) parts.push(`${perBags} ${perBags === '1.0' ? t('bag') : t('bags')}`);
+      if (perLbs)  parts.push(`${perLbs} ${t('lb')}`);
+      infoEl.textContent = `${t('Each person gets')} ${parts.join(' / ')}`;
       infoEl.style.display = '';
     } else {
       infoEl.style.display = 'none';
@@ -3993,12 +4447,12 @@
         .filter(l => !usedByOthers.includes(l.id))
         .map(l => `<option value="${l.id}"${_launSlotSelections[i] === l.id ? ' selected' : ''}>👤 ${l.name}</option>`)
         .join('');
-      const label = _launSplitCount === 1 ? 'Launderer' : `Person ${i + 1}`;
+      const label = _launSplitCount === 1 ? t('Launderer') : `${t('Person')} ${i + 1}`;
       slots.push(`
         <div class="laun-picker-row">
           <div class="laun-picker-label">${label}</div>
           <select class="laun-picker-select" data-slot="${i}" onchange="pickLaundererForSlot(${i}, this.value)">
-            <option value="">— Choose someone —</option>
+            <option value="">${t('— Choose someone —')}</option>
             ${opts}
           </select>
         </div>`);
@@ -4022,16 +4476,16 @@
     if (!order) return;
     const selected = _launSlotSelections.slice(0, _launSplitCount);
     if (!selected.every(Boolean)) {
-      showToast('Pick a launderer for each slot', 'error');
+      showToast(t('Pick a launderer for each slot'), 'error');
       return;
     }
     if (new Set(selected).size < _launSplitCount) {
-      showToast('Each person must be different', 'error');
+      showToast(t('Each person must be different'), 'error');
       return;
     }
 
     const btn = document.getElementById('laun-save-btn');
-    btn.disabled = true; btn.textContent = 'Saving…';
+    btn.disabled = true; btn.textContent = t('Saving…');
 
     const totalBags = Number(order.total_bags) || 0;
     const totalLbs  = Number(order.weight_lbs) || 0;
@@ -4052,16 +4506,16 @@
       p_actor_name:  actorName,
     });
 
-    btn.disabled = false; btn.textContent = 'Save';
+    btn.disabled = false; btn.textContent = t('Save');
 
     if (error) {
       console.error('[POS] assign_order_launderers error:', error);
-      showToast('Failed to assign: ' + error.message, 'error');
+      showToast(t('Failed to assign: ') + error.message, 'error');
       return;
     }
 
     closeAll();
-    showToast(`✓ ${data?.names || 'Launderer assigned'}`, 'success');
+    showToast(`✓ ${data?.names || t('Launderer assigned')}`, 'success');
     await loadWalkInQueue();
   }
 
@@ -4069,11 +4523,11 @@
   function relativeTime(date) {
     const diff = Date.now() - date.getTime();
     const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
+    if (mins < 1) return t('just now');
+    if (mins < 60) return `${mins}${t('m')}${t(' ago')}`;
     const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${Math.floor(hrs / 24)}d ago`;
+    if (hrs < 24) return `${hrs}${t('h')}${t(' ago')}`;
+    return `${Math.floor(hrs / 24)}${t('d')}${t(' ago')}`;
   }
 
   // Advance a walk-in order's status (processing → ready, ready → delivered).
@@ -4097,7 +4551,7 @@
       const splitRows = _foldAssignmentsByOrder[orderId] || [];
       const hasAssignment = splitRows.length > 0 || !!(order && order.folded_by_id);
       if (!hasAssignment) {
-        showToast('Assign a launderer before marking ready', 'error');
+        showToast(t('Assign a launderer before marking ready'), 'error');
         openLaundererPicker(orderId);
         return;
       }
@@ -4105,7 +4559,7 @@
 
     // Optimistic: disable the button
     const btn = event?.target;
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    if (btn) { btn.disabled = true; btn.textContent = t('Saving…'); }
 
     const actorName = [shift?.cashier_first_name, shift?.cashier_last_name]
       .filter(Boolean).join(' ').trim() || 'POS Attendant';
@@ -4116,8 +4570,8 @@
     });
     if (error) {
       console.error('[POS] advanceQueueOrder error:', error);
-      if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
-      showToast('Failed to update order: ' + error.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = t('Retry'); }
+      showToast(t('Failed to update order: ') + error.message, 'error');
       return;
     }
 
@@ -4266,10 +4720,10 @@
       changeRow.textContent = '';
       changeRow.className = 'cash-change-row';
     } else if (change >= 0) {
-      changeRow.textContent = change === 0 ? 'Exact amount' : `Change due: $${change.toFixed(2)}`;
+      changeRow.textContent = change === 0 ? t('Exact amount') : `${t('Change due: $')}${change.toFixed(2)}`;
       changeRow.className = 'cash-change-row positive';
     } else {
-      changeRow.textContent = `Short $${Math.abs(change).toFixed(2)}`;
+      changeRow.textContent = `${t('Short $')}${Math.abs(change).toFixed(2)}`;
       changeRow.className = 'cash-change-row negative';
     }
 
@@ -4300,9 +4754,9 @@
     // Check reader is online
     if (!readerOnline) {
       setTimeout(() => showModal('terminalModal'), 100);
-      document.getElementById('terminalTitle').textContent = 'Reader offline';
-      document.getElementById('terminalWaitTitle').textContent = 'Could not reach card reader';
-      document.getElementById('terminalAmt').textContent = 'Check that the S700 is powered on and connected to WiFi';
+      document.getElementById('terminalTitle').textContent = t('Reader offline');
+      document.getElementById('terminalWaitTitle').textContent = t('Could not reach card reader');
+      document.getElementById('terminalAmt').textContent = t('Check that the S700 is powered on and connected to WiFi');
       document.getElementById('terminalCancelBtn').style.display = 'inline-flex';
       document.getElementById('terminalRetryBtn').style.display = 'inline-flex';
       document.getElementById('terminalError').style.display = 'none';
@@ -4316,8 +4770,8 @@
     const amountCents = Math.round(grand * 100);
 
     setTimeout(() => showModal('terminalModal'), 100);
-    document.getElementById('terminalTitle').textContent = 'Sending to reader…';
-    document.getElementById('terminalWaitTitle').textContent = 'Setting up payment';
+    document.getElementById('terminalTitle').textContent = t('Sending to reader…');
+    document.getElementById('terminalWaitTitle').textContent = t('Setting up payment');
     document.getElementById('terminalAmt').textContent = '$' + grand.toFixed(2);
     document.getElementById('terminalCancelBtn').style.display = 'inline-flex';
     document.getElementById('terminalRetryBtn').style.display = 'none';
@@ -4325,10 +4779,10 @@
 
     try {
       if (!device?.stripe_reader_id) {
-        throw new Error('No card reader configured on this device');
+        throw new Error(t('No card reader configured on this device'));
       }
       // Single-action: create PI + push to reader in one edge-function call.
-      document.getElementById('terminalTitle').textContent = 'Sending to reader…';
+      document.getElementById('terminalTitle').textContent = t('Sending to reader…');
       const r1 = await callEdge('stripe-terminal', {
         action: 'charge_reader',
         amount_cents: amountCents,
@@ -4340,8 +4794,8 @@
       pendingPaymentIntentId = r1.payment_intent_id;
       console.log('[Terminal] charge_reader pushed:', pendingPaymentIntentId);
 
-      document.getElementById('terminalTitle').textContent = 'Waiting for card';
-      document.getElementById('terminalWaitTitle').textContent = 'Present card on reader';
+      document.getElementById('terminalTitle').textContent = t('Waiting for card');
+      document.getElementById('terminalWaitTitle').textContent = t('Present card on reader');
 
       // Poll PaymentIntent status until succeeded or failed
       const result = await pollPaymentStatus(pendingPaymentIntentId);
@@ -4350,15 +4804,15 @@
         pendingPaymentIntentId = null;
         await chargeAndFinish('card', result.id || result.payment_intent_id);
       } else {
-        throw new Error('Payment did not succeed (status: ' + result.status + ')');
+        throw new Error(t('Payment did not succeed (status: ') + result.status + ')');
       }
 
     } catch (err) {
       console.error('[Terminal] Payment error:', err);
       const errEl = document.getElementById('terminalError');
-      errEl.textContent = err.message || 'Payment failed';
+      errEl.textContent = err.message || t('Payment failed');
       errEl.style.display = 'block';
-      document.getElementById('terminalWaitTitle').textContent = 'Payment failed';
+      document.getElementById('terminalWaitTitle').textContent = t('Payment failed');
       document.getElementById('terminalRetryBtn').style.display = 'inline-flex';
 
       if (pendingPaymentIntentId) {
@@ -4387,16 +4841,16 @@
           if (data.status === 'succeeded' || data.status === 'requires_capture') {
             clearInterval(_pollTimer);
             _pollTimer = null;
-            document.getElementById('terminalWaitTitle').textContent = 'Processing…';
+            document.getElementById('terminalWaitTitle').textContent = t('Processing…');
             resolve(data);
           } else if (data.status === 'canceled') {
             clearInterval(_pollTimer);
             _pollTimer = null;
-            reject(new Error('Payment was canceled'));
+            reject(new Error(t('Payment was canceled')));
           } else if (elapsed >= maxWait) {
             clearInterval(_pollTimer);
             _pollTimer = null;
-            reject(new Error('Timed out waiting for card — try again'));
+            reject(new Error(t('Timed out waiting for card — try again')));
           }
         } catch (err) {
           // Network blip — keep polling
@@ -4404,7 +4858,7 @@
           if (elapsed >= maxWait) {
             clearInterval(_pollTimer);
             _pollTimer = null;
-            reject(new Error('Timed out waiting for card — try again'));
+            reject(new Error(t('Timed out waiting for card — try again')));
           }
         }
       }, interval);
@@ -4444,14 +4898,14 @@
 
   async function openRefundModal() {
     if (!shift || !shift.shift_id) {
-      showToast('Sign in to a shift first.', 'error');
+      showToast(t('Sign in to a shift first.'), 'error');
       return;
     }
 
     closeAll();
     setTimeout(() => showModal('refundModal'), 100);
     document.getElementById('refundList').innerHTML =
-      '<div style="text-align:center;padding:30px;color:var(--gray-400);">Loading recent sales…</div>';
+      '<div style="text-align:center;padding:30px;color:var(--gray-400);">' + t('Loading recent sales…') + '</div>';
 
     try {
       const data = await callEdge('stripe-terminal', {
@@ -4463,7 +4917,7 @@
       const sales = data.sales || [];
       if (sales.length === 0) {
         document.getElementById('refundList').innerHTML =
-          '<div style="text-align:center;padding:30px;color:var(--gray-400);">No recent POS sales available to refund</div>';
+          '<div style="text-align:center;padding:30px;color:var(--gray-400);">' + t('No recent POS sales available to refund') + '</div>';
         return;
       }
 
@@ -4479,19 +4933,19 @@
         // Payment method badge
         const isCard = s.payment_method === 'card' || s.payment_method === 'credit_card';
         const methodBadge = isCard
-          ? '<span style="font-size:11px;font-weight:600;background:var(--accent-light);color:var(--accent-dark);padding:2px 6px;border-radius:6px;">CARD</span>'
-          : '<span style="font-size:11px;font-weight:600;background:var(--green-light);color:var(--green);padding:2px 6px;border-radius:6px;">CASH</span>';
+          ? `<span style="font-size:11px;font-weight:600;background:var(--accent-light);color:var(--accent-dark);padding:2px 6px;border-radius:6px;">${t('CARD')}</span>`
+          : `<span style="font-size:11px;font-weight:600;background:var(--green-light);color:var(--green);padding:2px 6px;border-radius:6px;">${t('CASH')}</span>`;
 
         const customerLine = s.customer_name
           ? s.customer_name
-          : '<span style="color:var(--gray-400);">Retail</span>';
+          : `<span style="color:var(--gray-400);">${t('Retail')}</span>`;
 
         const orderNum = '#' + s.order_number;
-        const desc = s.description || 'POS sale';
+        const desc = s.description || t('POS sale');
 
         // Build a partial-refund-aware label
         const amountLine = refunded
-          ? `<span style="font-weight:600;">${chargeable}</span> <span style="font-size:12px;color:var(--amber);">· ${remaining} left</span>`
+          ? `<span style="font-weight:600;">${chargeable}</span> <span style="font-size:12px;color:var(--amber);">· ${remaining} ${t('left')}</span>`
           : `<span style="font-weight:600;">${chargeable}</span>`;
 
         // Encode the sale for the onclick handler. The attribute uses single
@@ -4510,14 +4964,14 @@
               <div style="font-size:12px;color:var(--gray-500);margin-top:3px;">${customerLine} · ${timeStr}</div>
               <div style="font-size:11px;color:var(--gray-400);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${desc}</div>
             </div>
-            <div style="color:var(--accent);font-size:13px;font-weight:600;margin-left:8px;">Refund →</div>
+            <div style="color:var(--accent);font-size:13px;font-weight:600;margin-left:8px;">${t('Refund')} →</div>
           </div>`;
       }).join('');
 
     } catch (err) {
       console.error('[Refund] Failed to load sales:', err);
       document.getElementById('refundList').innerHTML =
-        '<div style="text-align:center;padding:30px;color:#dc2626;">Failed to load sales: ' + (err.message || 'Unknown error') + '</div>';
+        `<div style="text-align:center;padding:30px;color:#dc2626;">${t('Failed to load sales: ')}${err.message || t('Unknown error')}</div>`;
     }
   }
 
@@ -4597,20 +5051,20 @@
     const hint = document.getElementById('refundAmountHintText');
     if (!hint || !_refundTarget) return;
     if (_refundAmountIsFull) {
-      hint.textContent = 'Full refund of $' + _refundTarget.max_refundable.toFixed(2);
+      hint.textContent = t('Full refund of $') + _refundTarget.max_refundable.toFixed(2);
       hint.style.color = 'var(--gray-500)';
     } else {
       const v = Number(document.getElementById('refundAmountInput').value || 0);
       if (v > _refundTarget.max_refundable + 0.005) {
-        hint.textContent = 'Exceeds max refundable ($' + _refundTarget.max_refundable.toFixed(2) + ')';
+        hint.textContent = t('Exceeds max refundable ($') + _refundTarget.max_refundable.toFixed(2) + ')';
         hint.style.color = '#dc2626';
       } else if (v > 0) {
-        hint.textContent = 'Partial refund of $' + v.toFixed(2);
+        hint.textContent = t('Partial refund of $') + v.toFixed(2);
         // Light blue — same family as --accent but a notch lighter so it
         // reads as informational rather than a primary action.
         hint.style.color = '#60a5fa';
       } else {
-        hint.textContent = 'Enter an amount';
+        hint.textContent = t('Enter an amount');
         hint.style.color = 'var(--gray-500)';
       }
     }
@@ -4632,13 +5086,13 @@
     errEl.style.display = 'none';
 
     if (!isFinite(amount) || amount <= 0) {
-      errEl.textContent = 'Enter a refund amount greater than $0.';
+      errEl.textContent = t('Enter a refund amount greater than $0.');
       errEl.style.display = 'block';
       input.focus();
       return;
     }
     if (amount > _refundTarget.max_refundable + 0.005) {
-      errEl.textContent = 'Refund $' + amount.toFixed(2) + ' exceeds the $' + _refundTarget.max_refundable.toFixed(2) + ' remaining refundable.';
+      errEl.textContent = t('Refund $') + amount.toFixed(2) + t(' exceeds the $') + _refundTarget.max_refundable.toFixed(2) + t(' remaining refundable.');
       errEl.style.display = 'block';
       input.focus();
       return;
@@ -4646,7 +5100,7 @@
 
     const btn = document.getElementById('refundConfirmBtn');
     btn.disabled = true;
-    btn.textContent = 'Processing…';
+    btn.textContent = t('Processing…');
 
     try {
       const data = await callEdge('stripe-terminal', {
@@ -4659,22 +5113,22 @@
       console.log('[Refund] Success:', data);
 
       const isFull = !!data.is_full_refund;
-      const label  = isFull ? 'Full refund' : 'Partial refund';
-      const methodWord = (data.payment_method === 'cash') ? 'cash' : 'card';
+      const label  = isFull ? t('Full refund') : t('Partial refund');
+      const methodWord = (data.payment_method === 'cash') ? t('cash') : t('card');
       const tail = data.payment_method === 'cash'
-        ? ' — hand back $' + Number(data.amount_refunded).toFixed(2) + ' from till'
-        : ' — $' + Number(data.amount_refunded).toFixed(2) + ' back to card';
+        ? t(' — hand back $') + Number(data.amount_refunded).toFixed(2) + t(' from till')
+        : ' — $' + Number(data.amount_refunded).toFixed(2) + t(' back to card');
 
       closeAll();
-      showToast(label + ' processed (' + methodWord + ')' + tail, 'success');
+      showToast(label + ' ' + t('processed') + ' (' + methodWord + ')' + tail, 'success');
       _refundTarget = null;
 
     } catch (err) {
       console.error('[Refund] Failed:', err);
-      errEl.textContent = err.message || 'Refund failed';
+      errEl.textContent = err.message || t('Refund failed');
       errEl.style.display = 'block';
       btn.disabled = false;
-      btn.textContent = 'Refund';
+      btn.textContent = t('Refund');
     }
   }
 
@@ -4719,9 +5173,9 @@
         // Update success screen copy with real order number
         const sub = document.getElementById('successSub');
         const num = document.getElementById('successOrderNum');
-        sub.textContent = method === 'cash' ? 'Paid in cash · Thank you!' : 'Paid by card · Thank you!';
+        sub.textContent = method === 'cash' ? t('Paid in cash · Thank you!') : t('Paid by card · Thank you!');
         if (order?.order_number) {
-          num.textContent = `Order #${order.order_number}`;
+          num.textContent = `${t('Order #')}${order.order_number}`;
           num.style.display = 'block';
         } else {
           num.style.display = 'none';
@@ -4733,7 +5187,7 @@
         document.getElementById('successAmt').textContent = '$' + paidTotal.toFixed(2);
         const tipLineEl = document.getElementById('successTipLine');
         if (_currentTip > 0) {
-          tipLineEl.textContent = `Includes $${_currentTip.toFixed(2)} tip`;
+          tipLineEl.textContent = `${t('Includes')} $${_currentTip.toFixed(2)} ${t('tip')}`;
           tipLineEl.style.display = 'block';
         } else {
           tipLineEl.style.display = 'none';
@@ -4741,7 +5195,7 @@
         // Show change due on success screen for cash payments
         const changeEl = document.getElementById('successChange');
         if (method === 'cash' && lastCashChange > 0.004) {
-          changeEl.textContent = `💵 Change due: $${lastCashChange.toFixed(2)}`;
+          changeEl.textContent = `${t('💵 Change due: $')}${lastCashChange.toFixed(2)}`;
           changeEl.style.display = 'block';
         } else {
           changeEl.style.display = 'none';
@@ -4764,7 +5218,7 @@
     } catch (e) {
       console.error('[POS] chargeAndFinish error:', e);
       const errEl = document.getElementById('payError');
-      errEl.textContent = e.message || 'Could not save the order. Please try again.';
+      errEl.textContent = e.message || t('Could not save the order. Please try again.');
       errEl.style.display = 'block';
       // Make sure the pay modal is visible
       if (!document.getElementById('payModal').classList.contains('show')) {
@@ -4794,7 +5248,7 @@
     // Reset success screen to default state for next time
     const sub = document.getElementById('successSub');
     const num = document.getElementById('successOrderNum');
-    if (sub) sub.textContent = 'Paid in full · Thank you!';
+    if (sub) sub.textContent = t('Paid in full · Thank you!');
     if (num) { num.style.display = 'none'; num.textContent = ''; }
     const chg = document.getElementById('successChange');
     if (chg) chg.style.display = 'none';
@@ -4851,14 +5305,14 @@
   async function handleReceiptPrint() {
     stopSuccessAutoAdvance();
     const btn = document.getElementById('rcptBtnPrint');
-    if (!lastPosOrder) { showToast('No order attached to this sale', 'error'); return; }
+    if (!lastPosOrder) { showToast(t('No order attached to this sale'), 'error'); return; }
     try {
       if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
       await queuePosPrintJob(lastPosOrder);
-      if (btn) btn.innerHTML = '<div class="receipt-btn-icon">✓</div><div>Printed</div>';
+      if (btn) btn.innerHTML = `<div class="receipt-btn-icon">✓</div><div>${t('Printed')}</div>`;
     } catch (e) {
       console.error('[POS] print receipt error:', e);
-      showToast(e.message || 'Could not print receipt', 'error');
+      showToast(e.message || t('Could not print receipt'), 'error');
       if (btn) { btn.disabled = false; btn.style.opacity = ''; }
     }
   }
@@ -4866,9 +5320,9 @@
   async function handleReceiptEmail() {
     stopSuccessAutoAdvance();
     const btn = document.getElementById('rcptBtnEmail');
-    if (!lastPosOrder) { showToast('No order attached to this sale', 'error'); return; }
+    if (!lastPosOrder) { showToast(t('No order attached to this sale'), 'error'); return; }
     if (!currentCustomer || !currentCustomer.email) {
-      showToast('No email on file for this customer', 'error'); return;
+      showToast(t('No email on file for this customer'), 'error'); return;
     }
     try {
       if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
@@ -4881,10 +5335,10 @@
         const body = await res.text();
         throw new Error(`send-receipt failed: ${body || res.status}`);
       }
-      if (btn) btn.innerHTML = '<div class="receipt-btn-icon">✓</div><div>Emailed</div>';
+      if (btn) btn.innerHTML = `<div class="receipt-btn-icon">✓</div><div>${t('Emailed')}</div>`;
     } catch (e) {
       console.error('[POS] email receipt error:', e);
-      showToast(e.message || 'Could not send email', 'error');
+      showToast(e.message || t('Could not send email'), 'error');
       if (btn) { btn.disabled = false; btn.style.opacity = ''; }
     }
   }
@@ -4965,9 +5419,9 @@
   async function handleReceiptText() {
     stopSuccessAutoAdvance();
     const btn = document.getElementById('rcptBtnText');
-    if (!lastPosOrder) { showToast('No order attached to this sale', 'error'); return; }
+    if (!lastPosOrder) { showToast(t('No order attached to this sale'), 'error'); return; }
     if (!currentCustomer || !currentCustomer.phone) {
-      showToast('No phone on file for this customer', 'error'); return;
+      showToast(t('No phone on file for this customer'), 'error'); return;
     }
     const preTip = Number(lastPosOrder.total_amount || 0);
     const tipAmt = Number(lastPosOrder.tip_amount || 0);
@@ -4989,10 +5443,10 @@
         const body = await res.text();
         throw new Error(`send-sms failed: ${body || res.status}`);
       }
-      if (btn) btn.innerHTML = '<div class="receipt-btn-icon">✓</div><div>Sent</div>';
+      if (btn) btn.innerHTML = `<div class="receipt-btn-icon">✓</div><div>${t('Sent')}</div>`;
     } catch (e) {
       console.error('[POS] text receipt error:', e);
-      showToast(e.message || 'Could not send text', 'error');
+      showToast(e.message || t('Could not send text'), 'error');
       if (btn) { btn.disabled = false; btn.style.opacity = ''; }
     }
   }
