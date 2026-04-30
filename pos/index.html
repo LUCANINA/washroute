@@ -3930,6 +3930,14 @@
   // request returns the SAME PaymentIntent. Cleared on newSale() and on
   // hard payment failure so the next attempt gets a fresh intent.
   let _posIdempotencyKey = null;
+  // Module-level re-entrancy lock for chargeAndFinish. Bug from session 138+:
+  // the previous defense was a per-modal button-disable selector that didn't
+  // include #cashCompleteBtn, so a fast double-tap on Complete sale in the
+  // cash modal could call chargeAndFinish twice in parallel and create
+  // duplicate orders. This boolean is the single source of truth — it
+  // protects every entry path (cash, card, simulated card, future methods)
+  // regardless of which UI surface fires the call.
+  let _chargeInFlight = false;
 
   function openPay() {
     document.getElementById('payError').style.display = 'none';
@@ -4301,8 +4309,23 @@
   async function chargeAndFinish(method, stripePaymentIntentId) {
     if (cart.length === 0) return;
 
-    // Lock the buttons so double-tap can't create two orders.
-    const methodButtons = document.querySelectorAll('#payModal .pay-method, #terminalModal .btn');
+    // Re-entrancy guard. If a previous chargeAndFinish is still awaiting
+    // createPosOrder() (or its post-create work), a second tap on any
+    // payment surface — cash Complete sale, card Tap, simulate, future —
+    // would otherwise create a duplicate order. Bail before any DB write.
+    if (_chargeInFlight) {
+      console.warn('[POS] chargeAndFinish ignored — previous sale still in flight');
+      return;
+    }
+    _chargeInFlight = true;
+
+    // Visual: disable every payment-trigger button across the relevant
+    // modals so the cashier sees feedback. The lock above is the real
+    // defense; this just keeps the UI honest. #cashCompleteBtn is the
+    // cash modal's Complete-sale button (was missing pre-fix).
+    const methodButtons = document.querySelectorAll(
+      '#payModal .pay-method, #terminalModal .btn, #cashModal #cashCompleteBtn'
+    );
     methodButtons.forEach(b => b.disabled = true);
 
     try {
@@ -4376,6 +4399,7 @@
       }
     } finally {
       methodButtons.forEach(b => b.disabled = false);
+      _chargeInFlight = false;
     }
   }
 
