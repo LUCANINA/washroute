@@ -7740,8 +7740,13 @@ async function openPricingPanel() {
   body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--gray-400)">Loading…</div>';
 
   try {
+  // session 140 pt 3: filter services to ONLY this customer's pricelist
+  // so a Commercial customer doesn't see Delivery-priced rows alongside
+  // their own (and vice versa). Defaults to 'Delivery' if pricelist isn't
+  // set (matches the rest of the customer-app's fallback).
+  const _custPricelist = currentCustomer?.pricelist || 'Delivery';
   const [svcRes, feeRes] = await Promise.all([
-    db.from('services').select('id,name,base_price,pricing_type,is_addon,show_in_app').eq('show_in_app', true).order('sort_order'),
+    db.from('services').select('id,name,base_price,pricing_type,is_addon,show_in_app,pricelist').eq('show_in_app', true).eq('pricelist', _custPricelist).order('sort_order'),
     db.from('service_fees').select('id,name,amount,fee_type,unit_label,category,show_in_app').eq('show_in_app', true).order('sort_order')
   ]);
 
