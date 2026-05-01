@@ -252,13 +252,26 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
+  // session 140: every print_job has a printer_token; each polling printer
+  // identifies itself via ?mac=XX:XX:XX:XX:XX:XX. Filter by MAC so jobs are
+  // routed to the correct printer when more than one printer is on the system.
+  // Match is case-insensitive (DB tokens are uppercase, printers usually send
+  // lowercase in the query string). If `mac` is missing (legacy callers,
+  // browser tests), fall back to "any pending job" to preserve old behaviour.
+  const mac = (url.searchParams.get('mac') || '').trim();
+  const applyMacFilter = (q: any) => mac ? q.ilike('printer_token', mac) : q;
+
   // ── Job completion (DELETE or GET with ?delete) ──
   if (req.method === 'DELETE' || (req.method === 'GET' && url.searchParams.has('delete'))) {
-    const { data: job } = await db.from('print_jobs').select('id')
-      .eq('status', 'claimed').order('claimed_at', { ascending: true }).limit(1).maybeSingle();
+    const { data: job } = await applyMacFilter(
+      db.from('print_jobs').select('id')
+        .eq('status', 'claimed')
+        .order('claimed_at', { ascending: true })
+        .limit(1)
+    ).maybeSingle();
     if (job) {
       await db.from('print_jobs').update({ status: 'done', completed_at: new Date().toISOString() }).eq('id', job.id);
-      console.log(`[CP] Done: ${job.id}`);
+      console.log(`[CP] Done: ${job.id} (mac=${mac})`);
     }
     return new Response('', { status: 200 });
   }
@@ -268,8 +281,12 @@ Deno.serve(async (req: Request) => {
     const mediaType = url.searchParams.get('type') || url.searchParams.get('mediaType') || '';
 
     if (!mediaType) {
-      const { data: job } = await db.from('print_jobs').select('id')
-        .eq('status', 'pending').order('created_at', { ascending: true }).limit(1).maybeSingle();
+      const { data: job } = await applyMacFilter(
+        db.from('print_jobs').select('id')
+          .eq('status', 'pending')
+          .order('created_at', { ascending: true })
+          .limit(1)
+      ).maybeSingle();
       return new Response(
         JSON.stringify(job ? { jobReady: true, mediaTypes: MEDIA_TYPES } : { jobReady: false }),
         { headers: { 'Content-Type': 'application/json' } }
@@ -277,14 +294,18 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Serve the job content as Star Line Mode binary ──
-    const { data: job } = await db.from('print_jobs').select('id, content')
-      .eq('status', 'pending').order('created_at', { ascending: true }).limit(1).maybeSingle();
+    const { data: job } = await applyMacFilter(
+      db.from('print_jobs').select('id, content')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true })
+        .limit(1)
+    ).maybeSingle();
     if (!job) return new Response('', { status: 404 });
 
     await db.from('print_jobs').update({ status: 'claimed', claimed_at: new Date().toISOString() }).eq('id', job.id);
 
     const starBytes = markupToStarLineMode(job.content);
-    console.log(`[CP] Serving job ${job.id} — ${starBytes.length} bytes Star Line Mode`);
+    console.log(`[CP] Serving job ${job.id} to mac=${mac} — ${starBytes.length} bytes Star Line Mode`);
 
     return new Response(starBytes, {
       headers: { 'Content-Type': CONTENT_TYPE }
@@ -293,8 +314,12 @@ Deno.serve(async (req: Request) => {
 
   // ── POST: some printers poll via POST ──
   if (req.method === 'POST') {
-    const { data: job } = await db.from('print_jobs').select('id')
-      .eq('status', 'pending').order('created_at', { ascending: true }).limit(1).maybeSingle();
+    const { data: job } = await applyMacFilter(
+      db.from('print_jobs').select('id')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true })
+        .limit(1)
+    ).maybeSingle();
     return new Response(
       JSON.stringify(job ? { jobReady: true, mediaTypes: MEDIA_TYPES } : { jobReady: false }),
       { headers: { 'Content-Type': 'application/json' } }
