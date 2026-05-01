@@ -4653,6 +4653,7 @@
   let BIZ_PRINTER_TOKEN   = '';                     // loaded from settings table at startup
   let BIZ_PRINT_TRANSPORT = 'browser';              // 'browser' | 'cloudprnt' | 'passprnt'
   let BIZ_REVIEW_LINK     = '';                     // loaded from settings table at startup
+  let BIZ_TAX_RATE        = 0.1075;                 // session 140: loaded from settings.sales_tax_rate
   let BIZ_INVOICE = {                              // loaded from settings.invoice_config at startup
     logo_url:      'https://admin.familylaundry.com/assets/logo_white.png',
     company_name:  'Family Laundry',
@@ -6047,11 +6048,14 @@
 
   // ── SETTINGS ──
   async function loadSettings() {
-    const { data } = await db.from('settings').select('timezone, printer_token, print_transport, review_link, invoice_config').eq('id', 1).single();
+    const { data } = await db.from('settings').select('timezone, printer_token, print_transport, review_link, invoice_config, sales_tax_rate').eq('id', 1).single();
     if (data?.timezone)        BIZ_TZ              = data.timezone;
     if (data?.printer_token)   BIZ_PRINTER_TOKEN   = data.printer_token;
     if (data?.print_transport) BIZ_PRINT_TRANSPORT = data.print_transport;
     if (data?.review_link !== undefined) BIZ_REVIEW_LINK = data.review_link || '';
+    // session 140: cached so reports + invoice rendering can read without
+    // re-querying. Stored as a decimal (0.1075 = 10.75%).
+    if (data?.sales_tax_rate != null) BIZ_TAX_RATE = Number(data.sales_tax_rate);
     if (data?.invoice_config && typeof data.invoice_config === 'object') {
       BIZ_INVOICE = { ...BIZ_INVOICE, ...data.invoice_config };
       // Re-preload logo if URL changed
@@ -13393,12 +13397,15 @@ ${oneCopy}
   function renderFees() {
     const body = document.getElementById('fees-body');
     if (!body) return;
+    // session 140: tax-rate row pinned at the top of the Fees tab. Lives
+    // above the fee groups because it applies globally rather than per-fee.
+    const taxRow = renderTaxRateRow();
     if (!allFees.length) {
-      body.innerHTML = '<div style="padding:40px;text-align:center;color:var(--gray-400);font-size:13.5px">No fees yet. Add one below.</div>';
+      body.innerHTML = taxRow + '<div style="padding:40px;text-align:center;color:var(--gray-400);font-size:13.5px">No fees yet. Add one below.</div>';
       return;
     }
     const groups = FEE_CATEGORY_ORDER.filter(cat => allFees.some(f => f.category === cat));
-    body.innerHTML = groups.map(cat => {
+    body.innerHTML = taxRow + groups.map(cat => {
       const rows = allFees.filter(f => f.category === cat);
       return `
         <div class="fee-group-header">
@@ -13406,6 +13413,55 @@ ${oneCopy}
         </div>
         ${rows.map(f => feeRow(f)).join('')}`;
     }).join('');
+  }
+
+  // session 140: Sales Tax Rate input. Layout mirrors a single fee-row so
+  // it visually belongs in the Fees list, but the right-hand controls are
+  // simpler — just a percent input + auto-save.
+  function renderTaxRateRow() {
+    const pct = (BIZ_TAX_RATE * 100).toFixed(2);
+    return `
+      <div class="fee-group-header">Sales Tax</div>
+      <div class="fee-row" id="tax-rate-row" style="grid-template-columns: 56px 1fr 130px 60px 28px;">
+        <div></div>
+        <div>
+          <div style="font-weight:600;color:var(--gray-900);font-size:14px;">Sales Tax Rate</div>
+          <div style="font-size:11.5px;color:var(--gray-500);margin-top:2px;line-height:1.4">
+            Applied to merchandise sales in the POS only.<br>Laundry services are not taxed.
+          </div>
+        </div>
+        <div class="fee-amount-wrap">
+          <span class="fee-symbol">%</span>
+          <input class="fee-amount-input" id="tax-rate-input" type="number" step="0.001" min="0" max="50"
+                 value="${pct}" oninput="markTaxRateDirty()" />
+        </div>
+        <div></div>
+        <div id="tax-rate-save" style="display:none;font-size:11px;font-weight:700;color:var(--accent)">●</div>
+      </div>`;
+  }
+
+  let _taxRateSaveTimer = null;
+  function markTaxRateDirty() {
+    const dot = document.getElementById('tax-rate-save');
+    if (dot) dot.style.display = '';
+    clearTimeout(_taxRateSaveTimer);
+    _taxRateSaveTimer = setTimeout(saveTaxRate, 1500);
+  }
+  async function saveTaxRate() {
+    const input = document.getElementById('tax-rate-input');
+    if (!input) return;
+    const pct = parseFloat(input.value);
+    if (isNaN(pct) || pct < 0 || pct > 50) {
+      showToast('Tax rate must be between 0 and 50%', 'error');
+      input.value = (BIZ_TAX_RATE * 100).toFixed(2);
+      return;
+    }
+    const decimal = Number((pct / 100).toFixed(4));
+    const { error } = await db.from('settings').update({ sales_tax_rate: decimal }).eq('id', 1);
+    if (error) { showToast('Failed: ' + error.message, 'error'); return; }
+    BIZ_TAX_RATE = decimal;
+    const dot = document.getElementById('tax-rate-save');
+    if (dot) { dot.style.color = '#22c55e'; setTimeout(() => { dot.style.display='none'; dot.style.color='var(--accent)'; }, 1200); }
   }
 
   function feeRow(f) {
@@ -24995,7 +25051,7 @@ ${oneCopy}
         // actual_delivery_at-with-null-racked_at to cover the 15 pre-racked_at legacy orders.
         // Since PostgREST OR filters are awkward, we do two queries and merge client-side.
         const { data, error: e } = await db.from('orders')
-          .select('id, order_number, status, billing_status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, line_items, racked_at, actual_delivery_at, delivery_window_start, discount_id, is_subscription_order, customer_id, customers(id, first_name_cache, last_name_cache)')
+          .select('id, order_number, status, billing_status, total_amount, tax_amount, tip_amount, tip_type, stripe_payment_intent_id, line_items, racked_at, actual_delivery_at, delivery_window_start, discount_id, is_subscription_order, customer_id, customers(id, first_name_cache, last_name_cache)')
           .not('status', 'in', '(cancelled,skipped,pickup_failed)')
           .gt('total_amount', 0)
           .not('racked_at', 'is', null)
@@ -25091,7 +25147,7 @@ ${oneCopy}
     const rows = [];
     Object.keys(byDate).sort().filter(d => d >= selFrom && d <= selTo).forEach(date => {
       const dayOrders = byDate[date];
-      let service = 0, addons = 0, overages = 0, fees = 0, tips = 0, credits = 0, discounts = 0, refunds = 0, total = 0, count = 0, procFees = 0, feeEstimated = false;
+      let service = 0, addons = 0, overages = 0, fees = 0, tips = 0, credits = 0, discounts = 0, refunds = 0, total = 0, count = 0, procFees = 0, feeEstimated = false, tax = 0;
       dayOrders.forEach(o => {
         const li = _parseLineItems(o.line_items);
         service   += li.service;
@@ -25102,6 +25158,9 @@ ${oneCopy}
         discounts += li.discounts;
         const tipDollars = _tipToDollars(o);
         tips      += tipDollars;
+        // session 140: tax collected on this order (POS only — delivery
+        // laundry orders are 0). Tracked separately for tax-filing reports.
+        tax       += parseFloat(o.tax_amount || 0);
         total     += parseFloat(o.total_amount || 0);
         // Partial-refund-aware: sum actual refund amounts from customer_transactions,
         // not the order's whole total_amount. billing_status is a boolean that can't
@@ -25126,7 +25185,7 @@ ${oneCopy}
       const net   = total - refunds - procFees;
       // Attach the raw orders for this day + fee/refund lookups so the
       // expandable per-customer breakdown can render on click without refetching.
-      rows.push({ date, service, addons, overages, fees, tips, gross, credits, discounts, refunds, total, procFees, feeEstimated, net, count, dayOrders });
+      rows.push({ date, service, addons, overages, fees, tips, gross, credits, discounts, refunds, total, procFees, feeEstimated, net, count, tax, dayOrders });
     });
 
     _revReportData = rows;
@@ -25147,8 +25206,9 @@ ${oneCopy}
       acc.total     += r.total;
       acc.net       += r.net;
       acc.count     += r.count;
+      acc.tax       += r.tax;
       return acc;
-    }, { service:0, addons:0, overages:0, fees:0, tips:0, gross:0, credits:0, discounts:0, refunds:0, total:0, procFees:0, feeEstimated:false, net:0, count:0 });
+    }, { service:0, addons:0, overages:0, fees:0, tips:0, gross:0, credits:0, discounts:0, refunds:0, total:0, procFees:0, feeEstimated:false, net:0, count:0, tax:0 });
 
     const $fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const $f  = n => n > 0 ? `$${$fmt(n)}` : `<span class="rev-zero">—</span>`;
@@ -25194,7 +25254,17 @@ ${oneCopy}
         </td>
       </tr>`).join('');
 
-    body.innerHTML = `
+    // session 140: tax-collected pill above the table — quick reference
+    // for sales-tax filing. Hidden when nothing was collected (e.g.
+    // delivery-only date range).
+    const taxBanner = tot.tax > 0 ? `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;margin:0 0 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:13px;">
+        <span style="font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:.05em;font-size:11px;">Sales Tax Collected</span>
+        <span style="font-weight:700;color:#166534;font-size:15px;">$${$fmt(tot.tax)}</span>
+        <span style="color:#15803d;font-size:11.5px;">POS merchandise · ${(BIZ_TAX_RATE * 100).toFixed(2)}% rate</span>
+      </div>` : '';
+
+    body.innerHTML = `${taxBanner}
       <table class="rev-tbl">
         <thead>
           <tr>
@@ -25240,7 +25310,8 @@ ${oneCopy}
 
   function exportRevenueCSV() {
     if (!_revReportData.length) return;
-    const headers = ['Date','Services','Add-ons','Overages','Delivery Fees','Tips','Gross Revenue','Credits Applied','Discounts Applied','Orders','Charged','Card Refunds','Processing Fees','Processing Fees Estimated?','Net Revenue'];
+    // session 140: include Sales Tax column for tax-filing reconciliation.
+    const headers = ['Date','Services','Add-ons','Overages','Delivery Fees','Tips','Gross Revenue','Credits Applied','Discounts Applied','Orders','Charged','Card Refunds','Processing Fees','Processing Fees Estimated?','Net Revenue','Sales Tax Collected'];
     const rows = _revReportData.map(r => [
       r.date,
       r.service.toFixed(2),
@@ -25256,7 +25327,8 @@ ${oneCopy}
       (-r.refunds).toFixed(2),
       (-r.procFees).toFixed(2),
       r.feeEstimated ? 'yes' : 'no',
-      r.net.toFixed(2)
+      r.net.toFixed(2),
+      (r.tax || 0).toFixed(2)
     ]);
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });

@@ -3034,7 +3034,9 @@
       try { localStorage.setItem('wr-pos-site-id', currentSiteId); } catch (_) {}
     }
     updateSiteBadge();
-    await loadRetailServices();
+    // session 140: pull the live sales-tax rate alongside the catalog so
+    // the very first cart paint uses the admin-set rate (not the default).
+    await Promise.all([loadRetailServices(), loadTaxRate()]);
     renderTiles();
     renderCart();
     if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
@@ -3165,20 +3167,50 @@
   let weightStr = '';
   let activeAddonIds = new Set(); // add-ons selected inside the weight modal
   let phoneDigits = '';
-  const TAX_RATE = 0.0925;
+  // session 140: tax rate is loaded from settings.sales_tax_rate at app
+  // boot (loadTaxRate). Defaults to Oakland CA 10.75% until the load
+  // completes, so first paint is correct even before the network round-trip.
+  // Editable in admin: Services & Pricing → Fees → Sales Tax Rate.
+  let TAX_RATE = 0.1075;
+
   // Half-up cent rounding for currency math. Use _roundCents anywhere a
   // dollar amount needs cent precision; use _taxOn to compute sales tax on
   // a subtotal so all display sites + Stripe charge agree.
   //
   // Why _taxOn does the rounding at INTEGER scale (subtotal × 100 first):
-  // 0.0925 isn't exactly representable in IEEE-754 doubles, so
-  // `6 * 0.0925` returns 0.5549999999999999 (a hair under 0.555). A naive
-  // _roundCents on that value rounds DOWN to 0.55 — the opposite of the
-  // CA half-up convention. By promoting subtotal to cents first
-  // (Math.round(subtotal * 100) === 600), the multiplication produces 55.5
-  // exactly, which Math.round correctly takes to 56 cents = $0.56.
+  // tax rates like 0.1075 aren't exactly representable in IEEE-754 doubles.
+  // Multiplying first and rounding once at the end can drift a cent below
+  // the CA half-up convention. By promoting subtotal to cents first
+  // (Math.round(subtotal * 100) === e.g. 600), the multiplication produces
+  // a clean half-cent value that Math.round takes the right way.
   const _roundCents = x => Math.round(x * 100) / 100;
   const _taxOn = subtotal => Math.round(Math.round(subtotal * 100) * TAX_RATE) / 100;
+
+  // session 140: type-level tax rule (CA — services exempt, merchandise
+  // taxable). Cart lines carry `type` and `service`, set by dbRowToTile().
+  //   - type='per_lb'         → laundry weight service, NOT taxed
+  //   - service===true        → Retail tab service tile, NOT taxed
+  //   - everything else       → merchandise, taxed
+  function isLineTaxable(line) {
+    const isService = line.type === 'per_lb' || line.service === true;
+    return !isService;
+  }
+  // Sum the taxable portion of the current cart in dollars.
+  function cartTaxableSubtotal() {
+    return cart.reduce((a, l) => a + (isLineTaxable(l) ? lineTotal(l) : 0), 0);
+  }
+
+  // Load the live tax rate from settings. Best-effort — failures fall back
+  // to the default constant above. Called once at boot from enterRegister.
+  async function loadTaxRate() {
+    try {
+      const { data, error } = await db.from('settings')
+        .select('sales_tax_rate').eq('id', 1).single();
+      if (!error && data && data.sales_tax_rate != null) {
+        TAX_RATE = Number(data.sales_tax_rate);
+      }
+    } catch (_) { /* keep default */ }
+  }
 
   // Tip state (session 132): customer-facing tip prompt for laundry drop-offs.
   // _currentTip is the dollar amount the customer selected (0 = no tip, null = not yet prompted).
@@ -3348,9 +3380,12 @@
   }
 
   function updateTotals() {
-    const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
-    const tax = _taxOn(subtotal);
-    const grand = subtotal + tax;
+    // session 140: tax only the merchandise portion of the cart. Laundry
+    // services (per_lb + Retail service tiles) are exempt under CA rules.
+    const subtotal   = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const taxableSub = cartTaxableSubtotal();
+    const tax        = _taxOn(taxableSub);
+    const grand      = subtotal + tax;
     document.getElementById('subtotal').textContent = '$' + subtotal.toFixed(2);
     document.getElementById('tax').textContent = '$' + tax.toFixed(2);
     document.getElementById('grand').textContent = '$' + grand.toFixed(2);
@@ -4670,8 +4705,10 @@
   function openPay() {
     document.getElementById('payError').style.display = 'none';
     // Update displayed total to include tip if any (session 132)
-    const subtotal = _cartSubtotal();
-    const tax = _taxOn(subtotal);
+    // session 140: tax only the merchandise portion (services exempt).
+    const subtotal     = _cartSubtotal();
+    const taxableSub   = cartTaxableSubtotal();
+    const tax          = _taxOn(taxableSub);
     const grandWithTip = subtotal + tax + (_currentTip || 0);
     document.getElementById('payTotal').textContent = '$' + grandWithTip.toFixed(2);
     const tipRow = document.getElementById('payTipRow');
@@ -4691,8 +4728,10 @@
 
   function payWithCash() {
     // Calculate the total due right now (includes tip from session 132 flow)
-    const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
-    const tax = _taxOn(subtotal);
+    // session 140: tax only the merchandise portion (services exempt).
+    const subtotal   = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const taxableSub = cartTaxableSubtotal();
+    const tax        = _taxOn(taxableSub);
     cashDueTotal = subtotal + tax + (_currentTip || 0);
 
     // Reset numpad
@@ -4790,9 +4829,11 @@
     }
 
     // Show terminal modal with amount (includes tip from session 132 flow)
-    const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
-    const tax = _taxOn(subtotal);
-    const grand = subtotal + tax + (_currentTip || 0);
+    // session 140: tax applies only to merchandise — services are exempt.
+    const subtotal   = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const taxableSub = cartTaxableSubtotal();
+    const tax        = _taxOn(taxableSub);
+    const grand      = subtotal + tax + (_currentTip || 0);
     const amountCents = Math.round(grand * 100);
 
     setTimeout(() => showModal('terminalModal'), 100);
@@ -5518,26 +5559,34 @@
     const now = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
     const custName = currentCustomer?.name || 'Retail';
     const orderNum = order.order_number ? `#${order.order_number}` : order.id.slice(-5).toUpperCase();
+    // session 140: total_amount includes tax (subtotal + tax, pre-tip).
+    // tax_amount is the new column; for orders created before session 140
+    // it falls back to a legacy `type='tax'` line_item.
     const preTipTotal = Number(order.total_amount || 0);
-    const tipAmt = Number(order.tip_amount || 0);
-    const grandTotal = (preTipTotal + tipAmt).toFixed(2);
+    const tipAmt      = Number(order.tip_amount || 0);
+    const taxFromCol  = Number(order.tax_amount || 0);
+    const taxLegacy   = (order.line_items || []).find(li => li.type === 'tax');
+    const taxAmt      = taxFromCol > 0 ? taxFromCol : Number(taxLegacy?.amount || 0);
+    const subtotal    = Math.max(0, preTipTotal - taxAmt);
+    const grandTotal  = (preTipTotal + tipAmt).toFixed(2);
+    // Render line items (excluding the synthetic tax row, which we now
+    // surface explicitly below).
     const lineItemsXml = (order.line_items || [])
-      .filter(li => (li.type !== 'price_mod') && Number(li.amount || 0) !== 0)
+      .filter(li => li.type !== 'price_mod' && li.type !== 'tax' && Number(li.amount || 0) !== 0)
       .map(li => {
         const lbl = String(li.label || '').replace(/[<>&]/g, '').slice(0, 28).padEnd(28, ' ');
         const amt = ('$' + Number(li.amount || 0).toFixed(2)).padStart(10, ' ');
         return `    <text-line>${lbl}${amt}</text-line>`;
       }).join('\n');
 
-    // session 132: Show tip as a separate line + a grand total when present.
-    const tipXml = tipAmt > 0
-      ? `
+    // session 140 + 132: subtotal/tax/tip block. Show whichever rows are
+    // non-zero; always show TOTAL.
+    const showSummary = taxAmt > 0 || tipAmt > 0;
+    const summaryXml = !showSummary ? '' : `
   <align mode="left">
-    <text-line>${'Subtotal'.padEnd(28, ' ')}${('$' + preTipTotal.toFixed(2)).padStart(10, ' ')}</text-line>
-    <text-line>${'Tip'.padEnd(28, ' ')}${('$' + tipAmt.toFixed(2)).padStart(10, ' ')}</text-line>
-  </align>
-  <ruled-line/>`
-      : '';
+    <text-line>${'Subtotal'.padEnd(28, ' ')}${('$' + subtotal.toFixed(2)).padStart(10, ' ')}</text-line>
+${taxAmt > 0 ? `    <text-line>${('Tax (' + (TAX_RATE * 100).toFixed(2) + '%)').padEnd(28, ' ')}${('$' + taxAmt.toFixed(2)).padStart(10, ' ')}</text-line>\n` : ''}${tipAmt > 0 ? `    <text-line>${'Tip'.padEnd(28, ' ')}${('$' + tipAmt.toFixed(2)).padStart(10, ' ')}</text-line>\n` : ''}  </align>
+  <ruled-line/>`;
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <document>
@@ -5555,7 +5604,7 @@
   <align mode="left">
 ${lineItemsXml}
   </align>
-  <ruled-line/>${tipXml}
+  <ruled-line/>${summaryXml}
   <align mode="right">
     <text-line size="1:2"><bold>TOTAL: $${grandTotal}</bold></text-line>
   </align>
@@ -5574,18 +5623,25 @@ ${lineItemsXml}
     const now = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
     const custName = currentCustomer?.name || 'Retail';
     const orderNum = order.order_number ? `#${order.order_number}` : order.id.slice(-5).toUpperCase();
+    // session 140: same tax-fallback logic as the Markup builder above —
+    // prefer the new tax_amount column, fall back to legacy tax line_item.
     const preTipTotal = Number(order.total_amount || 0);
-    const tipAmt = Number(order.tip_amount || 0);
-    const grandTotal = (preTipTotal + tipAmt).toFixed(2);
+    const tipAmt      = Number(order.tip_amount || 0);
+    const taxFromCol  = Number(order.tax_amount || 0);
+    const taxLegacy   = (order.line_items || []).find(li => li.type === 'tax');
+    const taxAmt      = taxFromCol > 0 ? taxFromCol : Number(taxLegacy?.amount || 0);
+    const subtotal    = Math.max(0, preTipTotal - taxAmt);
+    const grandTotal  = (preTipTotal + tipAmt).toFixed(2);
     const rows = (order.line_items || [])
-      .filter(li => (li.type !== 'price_mod') && Number(li.amount || 0) !== 0)
+      .filter(li => li.type !== 'price_mod' && li.type !== 'tax' && Number(li.amount || 0) !== 0)
       .map(li => `<tr><td>${String(li.label || '').replace(/[<>&]/g, '')}</td><td style="text-align:right">$${Number(li.amount || 0).toFixed(2)}</td></tr>`)
       .join('');
-    // session 132: Break out subtotal + tip when a tip is present.
-    const tipRows = tipAmt > 0
-      ? `<tr><td><strong>Subtotal</strong></td><td style="text-align:right"><strong>$${preTipTotal.toFixed(2)}</strong></td></tr>
-         <tr><td>Tip</td><td style="text-align:right">$${tipAmt.toFixed(2)}</td></tr>`
-      : '';
+    // session 140 + 132: subtotal/tax/tip block when any of them are non-zero.
+    const showSummary = taxAmt > 0 || tipAmt > 0;
+    const tipRows = !showSummary ? '' : `
+      <tr><td><strong>Subtotal</strong></td><td style="text-align:right"><strong>$${subtotal.toFixed(2)}</strong></td></tr>
+      ${taxAmt > 0 ? `<tr><td>Tax (${(TAX_RATE * 100).toFixed(2)}%)</td><td style="text-align:right">$${taxAmt.toFixed(2)}</td></tr>` : ''}
+      ${tipAmt > 0 ? `<tr><td>Tip</td><td style="text-align:right">$${tipAmt.toFixed(2)}</td></tr>` : ''}`;
     return `<!doctype html><html><head><title>Receipt ${orderNum}</title>
 <style>body{font-family:ui-monospace,Menlo,monospace;font-size:13px;padding:18px;width:280px;}
 h1{font-size:16px;margin:0 0 6px;text-align:center}
@@ -5620,15 +5676,21 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
     }
 
     // --- Build totals from the current cart ---
-    const subtotal = cart.reduce((a, l) => a + lineTotal(l), 0);
-    const tax      = _taxOn(subtotal);
-    const total    = subtotal + tax;
+    // session 140: tax applies only to merchandise (CA: services exempt).
+    const subtotal   = cart.reduce((a, l) => a + lineTotal(l), 0);
+    const taxableSub = cartTaxableSubtotal();
+    const tax        = _taxOn(taxableSub);
+    const total      = subtotal + tax;
 
     // --- Shape line_items for storage ---
     // Each cart line becomes one entry; weight-based services carry
-    // their weight and any attached add-ons. Merchandise items carry
-    // qty. A final 'tax' row makes receipts reproducible without
-    // needing to re-derive TAX_RATE.
+    // their weight and any attached add-ons. Merchandise items carry qty.
+    //
+    // session 140: tax is NO LONGER stored as a synthetic line_item — it
+    // lives on orders.tax_amount. Each line carries a `taxable: bool`
+    // snapshot so historical orders survive any future rule change (e.g.
+    // if CA ever taxes services, old orders still print correctly).
+    //
     // Each line carries BOTH the admin-canonical fields (type/label/amount
     // — read by admin-dashboard/opRenderDetailsReadonly) AND the queue-card
     // fields (kind/name/subtotal/etc. — read by renderQueueCard).
@@ -5636,6 +5698,7 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
     cart.forEach(line => {
       const isService = line.type === 'per_lb' || (line.service === true);
       const isRealService = typeof line.id === 'string' && line.id.length === 36 && line.id.includes('-');
+      const lineTaxable = isLineTaxable(line);
       if (line.type === 'per_lb') {
         const addons = (line.addons || []).map(a => ({
           service_id: a.id, name: a.name, icon: a.icon, price: a.price
@@ -5646,6 +5709,7 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
           type:          'service',
           label:         weightLabel,
           amount:        Number((line.price * (line.weight || 0)).toFixed(2)),
+          taxable:       false, // per_lb services exempt under CA rules
           // queue-card + future reporting
           kind:          'service',
           service_id:    line.id,
@@ -5665,6 +5729,7 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
             type:   'service',
             label:  '  + ' + a.name,
             amount: Number(a.price.toFixed(2)),
+            taxable: false,
             kind:   'addon',
             service_id: a.service_id,
             name:   a.name,
@@ -5679,6 +5744,7 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
           type:          isRealService && isService ? 'service' : 'merchandise',
           label:         line.qty > 1 ? `${line.qty}× ${line.name}` : line.name,
           amount:        Number(lineTotal(line).toFixed(2)),
+          taxable:       lineTaxable,
           kind:          isRealService && isService ? 'service' : 'merchandise',
           service_id:    isRealService ? line.id : null,
           merch_id:      isRealService ? null : line.id,
@@ -5690,13 +5756,6 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
           subtotal:      lineTotal(line)
         });
       }
-    });
-    lineItems.push({
-      type:   'tax',
-      label:  'Sales tax (' + (TAX_RATE * 100).toFixed(2) + '%)',
-      amount: Number(tax.toFixed(2)),
-      kind:   'tax',
-      rate:   TAX_RATE,
     });
 
     // --- Derive order-level aggregates ---
@@ -5736,7 +5795,13 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
       status:                status,
       total_bags:            totalBags,
       weight_lbs:            weightLbs,
+      // total_amount = subtotal + tax (post-tax bill, pre-tip). Preserves
+      // the existing semantic so orderChargedTotal (= total_amount + tip_amount)
+      // continues to match what Stripe charges.
       total_amount:          Number(total.toFixed(2)),
+      // session 140: separate tax column for tax-filing reports + receipt
+      // rendering. 0 when the cart is services-only.
+      tax_amount:            Number(tax.toFixed(2)),
       // session 132: Tip stored as flat dollars (tip_type=null). Admin
       // revenue reporting already handles this case via _tipToDollars().
       tip_amount:            Number((_currentTip || 0).toFixed(2)),
@@ -5765,7 +5830,7 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
     const { data, error } = await db
       .from('orders')
       .insert(payload)
-      .select('id, order_number, status, total_amount, tip_amount, line_items')
+      .select('id, order_number, status, total_amount, tax_amount, tip_amount, line_items')
       .single();
 
     if (error) {

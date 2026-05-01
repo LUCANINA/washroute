@@ -84,6 +84,20 @@ function buildEmailHtml(order: any, customer: any): string {
   const tipLabel = tipAmt > 0
     ? (order.tip_type === 'pct' ? `Team Tip (${tipAmt}%)` : 'Team Tip')
     : '';
+
+  // ── Sales tax (session 140) ──
+  // Prefer the new orders.tax_amount column; fall back to a legacy
+  // `type:'tax'` line_item for POS orders created before session 140.
+  // Delivery laundry orders are always 0 (services exempt under CA rules).
+  // taxRatePct is only known for legacy line-item orders (the rate isn't
+  // stored on the new column). Column-only orders fall back to a dollar-only
+  // "Sales tax" label without the percentage.
+  const taxFromCol  = parseFloat(order.tax_amount || 0);
+  const taxLegacy   = (rawItems.find((i: any) => i?.type === 'tax')?.amount) || 0;
+  const taxAmt      = taxFromCol > 0 ? taxFromCol : Number(taxLegacy);
+  const taxRatePct  = (rawItems.find((i: any) => i?.type === 'tax')?.rate) || null;
+  const taxLabel    = taxRatePct ? `Sales tax (${(taxRatePct * 100).toFixed(2)}%)` : 'Sales tax';
+
   const grandTotal = total + tipDollars;
 
   // Schedule rows
@@ -147,13 +161,20 @@ function buildEmailHtml(order: any, customer: any): string {
           <td style="padding:5px 0;font-size:13px;font-weight:600;text-align:right;color:#059669;">+${fmt(tipDollars)}</td>
         </tr>` : '';
 
+  // session 140: Sales tax row — appears between subtotal and tip when present.
+  const taxHtml = taxAmt > 0 ? `
+        <tr>
+          <td style="padding:5px 0;font-size:13px;color:#6b7280;">${taxLabel}</td>
+          <td style="padding:5px 0;font-size:13px;color:#111827;font-weight:500;text-align:right;">${fmt(taxAmt)}</td>
+        </tr>` : '';
+
   // Compact order summary (bags + weight)
   const orderSummary = bags != null
     ? `${bags} bag${bags !== 1 ? 's' : ''}${weightLbs != null ? ` &middot; ${weightLbs.toFixed(1)} lbs` : ''}`
     : '';
 
-  // Show subtotal row only when it differs from total (i.e. credits exist, multi-line, or tip)
-  const showSubtotal = displayItems.length > 1 || creditItems.length > 0 || tipDollars > 0;
+  // Show subtotal row only when it differs from total (i.e. credits exist, multi-line, tax, or tip)
+  const showSubtotal = displayItems.length > 1 || creditItems.length > 0 || tipDollars > 0 || taxAmt > 0;
 
   return `
 <!DOCTYPE html>
@@ -205,6 +226,7 @@ function buildEmailHtml(order: any, customer: any): string {
                 <td align="right" style="font-size:13px;color:#111827;font-weight:500;">${fmt(subtotal)}</td>
               </tr>` : ''}
               ${creditItemsHtml}
+              ${taxHtml}
               ${tipHtml}
             </table>
 
@@ -252,7 +274,7 @@ Deno.serve(async (req: Request) => {
         pickup_window_start, pickup_window_end,
         delivery_window_start, delivery_window_end,
         actual_pickup_at, actual_delivery_at,
-        tip_amount, tip_type,
+        tip_amount, tip_type, tax_amount,
         pickup_address:pickup_address_id ( line1, city, state, zip ),
         customers ( first_name_cache, last_name_cache, email_cache )
       `)
