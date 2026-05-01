@@ -12928,6 +12928,9 @@ ${oneCopy}
     const addRow = document.querySelector('#svctab-services .svc-add-row');
     if (addRow) addRow.style.display = svcEditMode ? '' : 'none';
     filterServices();
+    // session 140 pt 3: also re-render App Display so its toggles enable
+    // / disable in step with the lock/unlock state.
+    if (typeof renderPrices === 'function') renderPrices();
   }
 
   function filterServices() {
@@ -13371,13 +13374,17 @@ ${oneCopy}
       return f.fee_type === 'percent' ? `${val.toFixed(0)}%` : `$${val.toFixed(2)}`;
     }
 
+    // session 140 pt 3: gate toggle interactivity on the lock/edit state
+    // (svcEditMode). Locked = read-only view of what the customer app
+    // currently shows; unlocked = toggles are interactive.
+    const locked = !svcEditMode;
     function priceRow(name, priceHtml, toggleFn, id, showInApp, isActive) {
       return `
         <div class="prices-row${showInApp === false || isActive === false ? ' prices-off' : ''}" id="prices-row-${id}">
           <div class="prices-name">${svcEsc(name)}</div>
           <div class="prices-amount">${priceHtml}</div>
-          <label class="toggle-switch" style="transform:scale(.85);transform-origin:right center">
-            <input type="checkbox" ${showInApp !== false ? 'checked' : ''} onchange="${toggleFn}('${id}',this.checked)" />
+          <label class="toggle-switch" style="transform:scale(.85);transform-origin:right center;${locked ? 'opacity:.55;cursor:not-allowed' : ''}">
+            <input type="checkbox" ${showInApp !== false ? 'checked' : ''}${locked ? ' disabled' : ''} onchange="${toggleFn}('${id}',this.checked)" />
             <span class="toggle-slider"></span>
           </label>
         </div>`;
