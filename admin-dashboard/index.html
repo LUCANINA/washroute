@@ -1937,7 +1937,7 @@
               </div>
               <div style="display:flex;gap:8px;align-items:center" id="svc-header-controls">
                 <span style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;">Price List</span>
-                <select class="form-select" id="svc-cat-filter" onchange="filterServices()" style="font-size:13px;padding:6px 10px;width:190px"></select>
+                <select class="form-select" id="svc-cat-filter" onchange="onPricelistFilterChange()" style="font-size:13px;padding:6px 10px;width:190px"></select>
                 <button class="btn btn-ghost" id="svc-edit-toggle" onclick="toggleSvcEditMode()" style="font-size:13px;padding:6px 10px;display:inline-flex;align-items:center;gap:4px;color:var(--gray-400);border:1px solid var(--gray-200);border-radius:6px;transition:all .15s;margin-left:4px;" title="Edit services"><i data-lucide="lock" style="width:14px;height:14px;"></i> Edit</button>
               </div>
             </div>
@@ -12904,7 +12904,10 @@ ${oneCopy}
       if (b) b.classList.toggle('active', n===name);
     });
     const controls = document.getElementById('svc-header-controls');
-    if (controls) controls.style.display = name==='services' ? '' : 'none';
+    // session 140 pt 3: PRICE LIST dropdown drives both Services + App
+    // Display tabs, so keep it visible on both. Other tabs (Fees,
+    // Preferences, Price Lists, POS) hide it.
+    if (controls) controls.style.display = (name==='services' || name==='display') ? '' : 'none';
     if (name==='preferences') loadGlobalPrefs();
     if (name==='categories')  renderCategoryManager();
     if (name==='fees')        renderFees();
@@ -12931,6 +12934,17 @@ ${oneCopy}
     const cat = document.getElementById('svc-cat-filter')?.value || '';
     const filtered = cat ? allServices.filter(s => (s.category||'') === cat) : allServices;
     renderServices(filtered);
+  }
+
+  // session 140 pt 3: shared dropdown drives both Services tab and App Display.
+  // Re-render whichever is active so picking 'Delivery' / 'Commercial' filters
+  // both lists consistently.
+  function onPricelistFilterChange() {
+    filterServices();
+    // App Display reads the same dropdown via renderPrices(). Always re-render
+    // — cheap, and avoids stale state when the user switches tabs after
+    // changing the dropdown.
+    if (typeof renderPrices === 'function') renderPrices();
   }
 
   function renderServices(data) {
@@ -13365,22 +13379,28 @@ ${oneCopy}
         </div>`;
     }
 
-    function section(title, items, rowFn) {
+    function section(title, items, rowFn, badge) {
       return `
         <div class="prices-section">
-          <div class="prices-section-header">${title}</div>
+          <div class="prices-section-header">${title}${badge ? ` <span style="font-weight:500;color:var(--gray-400);font-size:11px;letter-spacing:0;text-transform:none;margin-left:4px">${badge}</span>` : ''}</div>
           ${items.length ? items.map(rowFn).join('') : '<div class="prices-empty">None configured yet.</div>'}
         </div>`;
     }
 
-    const main    = allServices.filter(s => !s.is_addon);
-    const addons  = allServices.filter(s =>  s.is_addon);
+    // session 140 pt 3: filter by the same Pricelist dropdown the Services
+    // tab uses, so 'Delivery' / 'Commercial' / 'Hotel' etc. only ever show
+    // their own row variants. Fees + rewards are global — always shown.
+    const cat = document.getElementById('svc-cat-filter')?.value || '';
+    const inCat = s => !cat || (s.category || '') === cat;
+    const main    = allServices.filter(s => !s.is_addon && inCat(s));
+    const addons  = allServices.filter(s =>  s.is_addon && inCat(s));
     const fees    = allFees.filter(f => f.category !== 'Reward');
     const rewards = allFees.filter(f => f.category === 'Reward');
+    const badge   = cat ? cat : '';
 
     body.innerHTML =
-      section('Main Services',    main,    s => priceRow(s.name, svcPriceStr(s),  'toggleServiceShowInApp', s.id, s.show_in_app, s.is_active)) +
-      section('Add-ons',          addons,  s => priceRow(s.name, svcPriceStr(s),  'toggleServiceShowInApp', s.id, s.show_in_app, s.is_active)) +
+      section('Main Services',    main,    s => priceRow(s.name, svcPriceStr(s),  'toggleServiceShowInApp', s.id, s.show_in_app, s.is_active), badge) +
+      section('Add-ons',          addons,  s => priceRow(s.name, svcPriceStr(s),  'toggleServiceShowInApp', s.id, s.show_in_app, s.is_active), badge) +
       section('Fees & Surcharges',fees,    f => priceRow(f.name, feePriceStr(f),  'toggleFeeShowInApp',     f.id, f.show_in_app, f.is_active)) +
       section('Rewards',          rewards, f => priceRow(f.name, feePriceStr(f),  'toggleFeeShowInApp',     f.id, f.show_in_app, f.is_active));
   }
