@@ -4423,6 +4423,12 @@ function toggleSameDay(checked) {
 function buildConfirmSummary() {
   const svc         = getCustomerService();
   const bags           = draft.bags;
+  // Honor the service's pricing_type — Commercial customers are on per_lb pricing,
+  // not per_bag. Mirrors the math in updateEstimate() / placeOrder() / saveEditOrder().
+  const basePrice      = parseFloat(svc?.base_price || 0);
+  const isPerLb        = svc?.pricing_type === 'per_lb';
+  const estLbs         = isPerLb ? bags * (parseFloat(svc?.lbs_per_bag) || 25) : 0;
+  const baseTotal      = isPerLb ? (estLbs * basePrice) : (bags * basePrice);
   const addonsTotal    = Object.entries(draft.prefs).reduce((s,[gid,p])=>{
     if(!p.priceMod) return s;
     const grp=globalPrefs.find(g=>g.id===gid);
@@ -4431,7 +4437,7 @@ function buildConfirmSummary() {
   const sameDayFee     = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
   const routeFees      = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const routeFeeTotal  = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
-  const total          = Math.round(((svc?.base_price||0)*bags + addonsTotal + routeFeeTotal + sameDayFee)*100)/100;
+  const total          = Math.round((baseTotal + addonsTotal + routeFeeTotal + sameDayFee)*100)/100;
 
   const pickup = new Date(draft.pickupDate + 'T12:00:00');
   const fmt    = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', timeZone: BIZ_TZ });
@@ -4532,8 +4538,8 @@ function buildConfirmSummary() {
     <div class="d-section-title" style="margin-top:20px">Pricing</div>
     <div class="confirm-card">
       <div class="d-row">
-        <span class="d-key">${svc?.name||'Service'} × ${bags} bag${bags!==1?'s':''}</span>
-        <span class="d-val">${$m((svc?.base_price||0)*bags)}</span>
+        <span class="d-key">${svc?.name||'Service'} ${isPerLb ? `· Est. ${estLbs} lbs × ${$m(basePrice)}/lb` : `× ${bags} bag${bags!==1?'s':''}`}</span>
+        <span class="d-val">${$m(baseTotal)}</span>
       </div>
       ${addonRows}
       ${routeFees.map(f => `<div class="d-row"><span class="d-key">${escHtml(f.name)}</span><span class="d-val">+${$m(parseFloat(f.amount||0))}</span></div>`).join('')}

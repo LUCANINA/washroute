@@ -15194,9 +15194,18 @@ ${oneCopy}
     if (!_noPickupStart){ err.textContent='Please select a pickup slot.';  err.style.display='block'; return; }
 
     // Calculate total from service base price × bags + delivery fee + same-day surcharge
+    // Honor pricing_type — Commercial (per_lb) services bill per estimated pound,
+    // not per bag. Mirrors the math in customer-app updateEstimate / placeOrder
+    // and admin opSaveDetails / opUpdateCostBreakdown.
     const svc = allServices.find(s => s.id === serviceId);
     const basePrice = svc ? parseFloat(svc.base_price || 0) : 0;
-    const subtotal  = basePrice * bags;
+    const isPerLb   = svc?.pricing_type === 'per_lb';
+    const lbsPerBag = svc ? parseFloat(svc.lbs_per_bag || 25) : 25;
+    const estLbs    = isPerLb ? bags * lbsPerBag : 0;
+    const subtotal  = isPerLb ? (estLbs * basePrice) : (bags * basePrice);
+    const baseLabel = isPerLb
+      ? `Est. ${estLbs} lbs × ${fmtMoney(basePrice)}/lb`
+      : `${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`;
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     const sameDaySurcharge = _noIsSameDay ? (_noSameDaySurcharge || 0) : 0;
@@ -15252,7 +15261,7 @@ ${oneCopy}
       discount_id:           discountId,
       is_same_day:           _noIsSameDay || false,
       line_items:            [
-        { type: 'base', label: `${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`, amount: subtotal },
+        { type: 'base', label: baseLabel, amount: subtotal },
         ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : []),
         ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge }] : [])
       ],
