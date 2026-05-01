@@ -1936,7 +1936,7 @@
                 <div class="card-sub" id="svc-count-label">Loading…</div>
               </div>
               <div style="display:flex;gap:8px;align-items:center" id="svc-header-controls">
-                <span style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;">Price List</span>
+                <span id="svc-pricelist-label" style="font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;">Price List</span>
                 <select class="form-select" id="svc-cat-filter" onchange="onPricelistFilterChange()" style="font-size:13px;padding:6px 10px;width:190px"></select>
                 <button class="btn btn-ghost" id="svc-edit-toggle" onclick="toggleSvcEditMode()" style="font-size:13px;padding:6px 10px;display:inline-flex;align-items:center;gap:4px;color:var(--gray-400);border:1px solid var(--gray-200);border-radius:6px;transition:all .15s;margin-left:4px;" title="Edit services"><i data-lucide="lock" style="width:14px;height:14px;"></i> Edit</button>
               </div>
@@ -12904,10 +12904,21 @@ ${oneCopy}
       if (b) b.classList.toggle('active', n===name);
     });
     const controls = document.getElementById('svc-header-controls');
-    // session 140 pt 3: PRICE LIST dropdown drives both Services + App
-    // Display tabs, so keep it visible on both. Other tabs (Fees,
-    // Preferences, Price Lists, POS) hide it.
-    if (controls) controls.style.display = (name==='services' || name==='display') ? '' : 'none';
+    const dropdownLbl  = document.getElementById('svc-pricelist-label');
+    const dropdownSel  = document.getElementById('svc-cat-filter');
+    const editBtn      = document.getElementById('svc-edit-toggle');
+    // session 140 pt 3:
+    //   - PRICE LIST dropdown drives Services + App Display only.
+    //   - Edit/lock button now drives Services + App Display + Fees + POS
+    //     (consistent lock pattern across editable tabs).
+    //   - Categories + Preferences keep their own UIs and hide both.
+    const showControls = ['services','display','fees','pos'].includes(name);
+    const showDropdown = ['services','display'].includes(name);
+    const showEdit     = ['services','display','fees','pos'].includes(name);
+    if (controls)    controls.style.display     = showControls ? '' : 'none';
+    if (dropdownLbl) dropdownLbl.style.display  = showDropdown ? '' : 'none';
+    if (dropdownSel) dropdownSel.style.display  = showDropdown ? '' : 'none';
+    if (editBtn)     editBtn.style.display      = showEdit     ? '' : 'none';
     if (name==='preferences') loadGlobalPrefs();
     if (name==='categories')  renderCategoryManager();
     if (name==='fees')        renderFees();
@@ -12917,6 +12928,9 @@ ${oneCopy}
 
   function toggleSvcEditMode() {
     svcEditMode = !svcEditMode;
+    // session 140 pt 3: keep merchEditMode (POS sub-tabs) in sync with the
+    // global lock so Fees + POS gate identically to Services + App Display.
+    merchEditMode = svcEditMode;
     const btn = document.getElementById('svc-edit-toggle');
     if (btn) {
       btn.innerHTML = `<i data-lucide="${svcEditMode ? 'lock-open' : 'lock'}" style="width:14px;height:14px;"></i> ${svcEditMode ? 'Done' : 'Edit'}`;
@@ -12927,10 +12941,16 @@ ${oneCopy}
     // Show/hide the add-new-service row
     const addRow = document.querySelector('#svctab-services .svc-add-row');
     if (addRow) addRow.style.display = svcEditMode ? '' : 'none';
+    // Show/hide the add-new-fee row
+    const feeAddRow = document.querySelector('#svctab-fees .fee-add-row');
+    if (feeAddRow) feeAddRow.style.display = svcEditMode ? '' : 'none';
+    // Re-render every editable tab so locked state propagates everywhere.
     filterServices();
-    // session 140 pt 3: also re-render App Display so its toggles enable
-    // / disable in step with the lock/unlock state.
     if (typeof renderPrices === 'function') renderPrices();
+    if (typeof renderFees === 'function') renderFees();
+    if (typeof rebuildMerchCategories === 'function') rebuildMerchCategories();
+    if (typeof renderRetailServices === 'function') renderRetailServices();
+    if (typeof renderMerchandise === 'function') renderMerchandise();
   }
 
   function filterServices() {
@@ -13462,14 +13482,34 @@ ${oneCopy}
       return;
     }
     const groups = FEE_CATEGORY_ORDER.filter(cat => allFees.some(f => f.category === cat));
+    const rowFn = svcEditMode ? feeRow : feeRowLocked;
     body.innerHTML = taxRow + groups.map(cat => {
       const rows = allFees.filter(f => f.category === cat);
       return `
         <div class="fee-group-header">
           ${cat}
         </div>
-        ${rows.map(f => feeRow(f)).join('')}`;
+        ${rows.map(rowFn).join('')}`;
     }).join('');
+    // Hide the add-new-fee row when locked (also handled in toggleSvcEditMode
+    // but covers the initial render and tab-switch cases).
+    const feeAddRow = document.querySelector('#svctab-fees .fee-add-row');
+    if (feeAddRow) feeAddRow.style.display = svcEditMode ? '' : 'none';
+  }
+
+  // session 140 pt 3: locked / read-only fee row — clean display, no inputs
+  // or toggles. Mirrors the svcRowLocked pattern from the main Services tab.
+  function feeRowLocked(f) {
+    const isPercent = f.fee_type === 'percent';
+    const valStr = isPercent
+      ? `${parseFloat(f.amount||0).toFixed(0)}%`
+      : `$${parseFloat(f.amount||0).toFixed(2)}`;
+    const active = f.is_active !== false;
+    return `
+      <div style="display:grid;grid-template-columns:1fr 130px;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid var(--gray-100);${active ? '' : 'opacity:.5;'}">
+        <div style="font-size:14px;font-weight:500;color:var(--gray-800);">${svcEsc(f.name)}</div>
+        <div style="font-size:14px;font-weight:600;color:var(--gray-700);text-align:right;">${valStr}</div>
+      </div>`;
   }
 
   // session 140: Sales Tax Rate input. Layout mirrors a single fee-row so
@@ -13489,7 +13529,7 @@ ${oneCopy}
         <div class="fee-amount-wrap">
           <span class="fee-symbol">%</span>
           <input class="fee-amount-input" id="tax-rate-input" type="number" step="0.001" min="0" max="50"
-                 value="${pct}" oninput="markTaxRateDirty()" />
+                 value="${pct}" oninput="markTaxRateDirty()"${svcEditMode ? '' : ' disabled style="background:transparent;cursor:not-allowed;color:var(--gray-700)"'} />
         </div>
         <div></div>
         <div></div>
@@ -13817,12 +13857,11 @@ ${oneCopy}
   // ── Merchandise (sub-tab 2) — dynamic categories ──
 
   function toggleMerchEditMode() {
-    merchEditMode = !merchEditMode;
-    rebuildMerchCategories();
-    // session 140 pt 3: gating the rows themselves (locked vs editable) so
-    // POS sub-tabs match the Services tab pattern.
-    renderRetailServices();
-    renderMerchandise();
+    // session 140 pt 3: delegate to the global lock so the inner POS Edit
+    // button and the page-header Edit button always agree on state.
+    // toggleSvcEditMode keeps merchEditMode in sync and re-renders every
+    // editable tab (Services, App Display, Fees, POS sub-tabs).
+    toggleSvcEditMode();
   }
 
   function rebuildMerchCategories() {
