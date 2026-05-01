@@ -377,7 +377,7 @@
     /* Fees tab */
     .fee-group-header { display: flex; align-items: center; gap: 8px; padding: 10px 20px 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); border-top: 1px solid var(--gray-100); }
     .fee-group-header:first-child { border-top: none; }
-    .fee-row { display: grid; grid-template-columns: 40px 1fr 130px 110px 50px 28px 36px; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--gray-100); transition: background .1s; }
+    .fee-row { display: grid; grid-template-columns: 40px 1fr 130px 110px 52px 52px 36px; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--gray-100); transition: background .1s; }
     .fee-row:hover { background: var(--gray-50); }
     .fee-row.inactive { opacity: .5; }
     .fee-name-input { border: none; background: transparent; font-size: 14px; font-weight: 500; color: var(--gray-800); font-family: inherit; width: 100%; outline: none; padding: 3px 6px; border-radius: 5px; }
@@ -13002,12 +13002,11 @@ ${oneCopy}
           <span class="toggle-slider"></span>
         </label>
       </div>
-      <div title="Taxable — applies sales tax to this service" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:2px">
-        <label class="toggle-switch" style="transform:scale(.85)">
+      <div title="Taxable — applies sales tax to this service" style="display:flex;align-items:center;justify-content:center;">
+        <label class="toggle-switch">
           <input type="checkbox" ${s.taxable?'checked':''} onchange="toggleServiceTaxable('${s.id}',this.checked)" />
           <span class="toggle-slider"></span>
         </label>
-        <span style="font-size:9.5px;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Tax</span>
       </div>
       <div class="svc-actions-cell">
         <button class="svc-save-btn" id="svc-save-${s.id}" onclick="saveServiceEdit('${s.id}')">Save</button>
@@ -13502,12 +13501,11 @@ ${oneCopy}
           <option value="flat"    ${f.fee_type==='flat'    ?'selected':''}>$ Flat</option>
           <option value="percent" ${f.fee_type==='percent' ?'selected':''}>% Percent</option>
         </select>
-        <div title="Taxable" style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+        <div title="Taxable" style="display:flex;align-items:center;justify-content:center;">
           <label class="toggle-switch" style="transform:scale(.85);transform-origin:center">
             <input type="checkbox" ${f.taxable ? 'checked' : ''} onchange="toggleFeeTaxable('${f.id}',this.checked)" />
             <span class="toggle-slider"></span>
           </label>
-          <span style="font-size:9.5px;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Tax</span>
         </div>
         <div id="fee-save-${f.id}" style="display:none;font-size:11px;font-weight:700;color:var(--accent)">●</div>
         <button class="fee-del-btn" onclick="confirmDeleteFee('${f.id}','${svcEsc(f.name)}')" title="Delete fee">
@@ -13674,12 +13672,11 @@ ${oneCopy}
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </label>
           </div>
-          <div title="Taxable" style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+          <div title="Taxable" style="display:flex;align-items:center;justify-content:center;">
             <label class="toggle" style="--h:22px;--w:40px;">
               <input type="checkbox" ${s.taxable ? 'checked' : ''} onchange="updateRetailSvc('${s.id}','taxable',this.checked)" />
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </label>
-            <span style="font-size:9.5px;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Tax</span>
           </div>
           <div style="text-align:center;">
             <button onclick="deleteRetailSvc('${s.id}','${svcEsc(s.name)}')" style="background:none;border:none;cursor:pointer;opacity:.4;padding:4px;color:var(--gray-500);" title="Delete">${lucideIcon('trash-2', 16)}</button>
@@ -13877,12 +13874,11 @@ ${oneCopy}
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </label>
           </div>
-          <div title="Taxable" style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+          <div title="Taxable" style="display:flex;align-items:center;justify-content:center;">
             <label class="toggle" style="--h:22px;--w:40px;">
               <input type="checkbox" ${m.taxable ? 'checked' : ''} onchange="updateMerch('${m.id}','taxable',this.checked)" />
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </label>
-            <span style="font-size:9.5px;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Tax</span>
           </div>
           <div style="text-align:center;">
             <button onclick="deleteMerch('${m.id}','${svcEsc(m.name)}')" style="background:none;border:none;cursor:pointer;opacity:.4;padding:4px;color:var(--gray-500);" title="Delete">${lucideIcon('trash-2', 16)}</button>
