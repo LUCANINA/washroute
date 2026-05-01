@@ -3186,18 +3186,36 @@
   const _roundCents = x => Math.round(x * 100) / 100;
   const _taxOn = subtotal => Math.round(Math.round(subtotal * 100) * TAX_RATE) / 100;
 
-  // session 140: type-level tax rule (CA — services exempt, merchandise
-  // taxable). Cart lines carry `type` and `service`, set by dbRowToTile().
-  //   - type='per_lb'         → laundry weight service, NOT taxed
-  //   - service===true        → Retail tab service tile, NOT taxed
-  //   - everything else       → merchandise, taxed
+  // session 140 pt 3: per-row taxable flag. Each cart line carries a
+  // `taxable: bool` that was snapshotted from the source DB row at
+  // catalog-load time (services.taxable / merchandise.taxable). The
+  // earlier type-level heuristic ("services exempt, merchandise taxed")
+  // was replaced with explicit per-row admin control.
   function isLineTaxable(line) {
-    const isService = line.type === 'per_lb' || line.service === true;
-    return !isService;
+    return line.taxable === true;
   }
-  // Sum the taxable portion of the current cart in dollars.
+  // Sum the taxable portion of the current cart in dollars. session 140
+  // pt 3: addons can have their own taxable flag independent of the
+  // parent line, so we walk parent + addons and decide each independently.
   function cartTaxableSubtotal() {
-    return cart.reduce((a, l) => a + (isLineTaxable(l) ? lineTotal(l) : 0), 0);
+    return cart.reduce((sum, line) => {
+      let lineTaxable = 0;
+      // Parent contribution: lineTotal includes addons, so when the
+      // parent is taxable we start from lineTotal and back out any
+      // non-taxable addon amounts.
+      if (isLineTaxable(line)) {
+        lineTaxable += lineTotal(line);
+        (line.addons || []).forEach(a => {
+          if (a.taxable !== true) lineTaxable -= Number(a.price || 0);
+        });
+      } else {
+        // Parent not taxable, but individual addons may still be taxable.
+        (line.addons || []).forEach(a => {
+          if (a.taxable === true) lineTaxable += Number(a.price || 0);
+        });
+      }
+      return sum + lineTaxable;
+    }, 0);
   }
 
   // Load the live tax rate from settings. Best-effort — failures fall back
@@ -5700,8 +5718,12 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
       const isRealService = typeof line.id === 'string' && line.id.length === 36 && line.id.includes('-');
       const lineTaxable = isLineTaxable(line);
       if (line.type === 'per_lb') {
+        // session 140 pt 3: addons keep their per-row taxable flag from the
+        // source service row so each addon is taxed independently of the
+        // parent weight service.
         const addons = (line.addons || []).map(a => ({
-          service_id: a.id, name: a.name, icon: a.icon, price: a.price
+          service_id: a.id, name: a.name, icon: a.icon, price: a.price,
+          taxable: a.taxable === true
         }));
         const weightLabel = `${line.name} (${Number(line.weight || 0).toFixed(1)} lb @ $${Number(line.price).toFixed(2)}/lb)`;
         lineItems.push({
@@ -5709,7 +5731,7 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
           type:          'service',
           label:         weightLabel,
           amount:        Number((line.price * (line.weight || 0)).toFixed(2)),
-          taxable:       false, // per_lb services exempt under CA rules
+          taxable:       lineTaxable, // session 140 pt 3: per-row admin control
           // queue-card + future reporting
           kind:          'service',
           service_id:    line.id,
@@ -5729,7 +5751,7 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
             type:   'service',
             label:  '  + ' + a.name,
             amount: Number(a.price.toFixed(2)),
-            taxable: false,
+            taxable: a.taxable === true, // session 140 pt 3
             kind:   'addon',
             service_id: a.service_id,
             name:   a.name,
@@ -5867,7 +5889,10 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
       price:   Number(row.base_price),
       unit:    row.pricing_type === 'per_lb' ? 'lb' : 'ea',
       type:    row.pricing_type,            // 'per_lb' or 'per_item'
-      service: !row.is_addon                // services tab tiles get the gradient style
+      service: !row.is_addon,               // services tab tiles get the gradient style
+      // session 140 pt 3: per-row taxable flag, snapshotted into the cart
+      // line so receipts and tax math always read the row's own state.
+      taxable: row.taxable === true
     };
   }
 
@@ -5879,13 +5904,13 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
       // Load services + merchandise in parallel
       const [svcRes, merchRes] = await Promise.all([
         db.from('services')
-          .select('id, name, icon, base_price, pricing_type, is_addon, is_active, sort_order')
+          .select('id, name, icon, base_price, pricing_type, is_addon, is_active, sort_order, taxable')
           .eq('pricelist', 'Retail')
           .eq('is_active', true)
           .order('is_addon', { ascending: true })
           .order('sort_order', { ascending: true }),
         db.from('merchandise')
-          .select('id, name, icon, category, price, is_active')
+          .select('id, name, icon, category, price, is_active, taxable')
           .eq('is_active', true)
           .order('sort_order', { ascending: true })
       ]);
@@ -5910,7 +5935,9 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
       for (const m of (merchRes.data || [])) {
         const tile = {
           id: m.id, icon: m.icon || 'package', name: m.name,
-          price: Number(m.price), unit: 'ea', type: 'per_item'
+          price: Number(m.price), unit: 'ea', type: 'per_item',
+          // session 140 pt 3: per-row taxable flag carried into cart lines.
+          taxable: m.taxable === true
         };
         const catKey = (m.category || 'Other').toLowerCase().replace(/[^a-z0-9]/g, '_');
         if (!merchByCategory[catKey]) merchByCategory[catKey] = { label: m.category, items: [] };

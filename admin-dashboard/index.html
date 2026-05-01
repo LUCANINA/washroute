@@ -289,7 +289,7 @@
     /* ── SERVICES PAGE ── */
     .svc-category-group { margin-bottom: 0; }
     .svc-cat-header { padding: 6px 20px 5px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--gray-400); background: var(--gray-50); border-top: 1px solid var(--gray-100); border-bottom: 1px solid var(--gray-100); }
-    .svc-row { display: grid; grid-template-columns: 1fr 112px 116px 52px 136px; gap: 10px; padding: 9px 20px; align-items: center; border-bottom: 1px solid var(--gray-100); transition: background .1s; cursor: default; }
+    .svc-row { display: grid; grid-template-columns: 1fr 112px 116px 52px 56px 136px; gap: 10px; padding: 9px 20px; align-items: center; border-bottom: 1px solid var(--gray-100); transition: background .1s; cursor: default; }
     .svc-row:hover { background: var(--gray-50); }
     .svc-row:last-child { border-bottom: none; }
     .svc-move-btn { padding: 3px 5px; background: none; border: none; cursor: pointer; color: var(--gray-300); border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all .12s; line-height: 1; }
@@ -348,7 +348,7 @@
     .svc-addon-toggle { font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; border:none; cursor:pointer; transition:all .15s; margin-left:auto; }
     /* POS / Merchandise tab */
     .pos-merch-filter.active { background:var(--accent-light);color:var(--accent);font-weight:600; }
-    .merch-row { display:grid; grid-template-columns:36px 1fr 90px 90px 52px 36px; align-items:center; gap:10px; padding:10px 20px; border-bottom:1px solid var(--gray-100); transition:background .1s; }
+    .merch-row { display:grid; grid-template-columns:36px 1fr 90px 90px 52px 50px 36px; align-items:center; gap:10px; padding:10px 20px; border-bottom:1px solid var(--gray-100); transition:background .1s; }
     .merch-row:hover { background:var(--gray-50); }
     .merch-icon { text-align:center; color:var(--gray-500); }
     .merch-icon svg { width:20px; height:20px; }
@@ -358,7 +358,7 @@
     .merch-cat { font-size:12px; color:var(--gray-400); font-weight:500; }
     .merch-price input { font-size:13px; font-weight:600; color:var(--gray-600); border:1px solid var(--gray-200); border-radius:6px; padding:4px 8px; width:72px; text-align:right; font-family:inherit; }
     .merch-price input:focus { outline:none; border-color:var(--accent); }
-    .pos-retail-row { display:grid; grid-template-columns:36px 1fr 90px 90px 52px 36px; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--gray-100); }
+    .pos-retail-row { display:grid; grid-template-columns:36px 1fr 90px 90px 52px 50px 36px; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--gray-100); }
     .pos-retail-row:last-child { border-bottom:none; }
     .pos-retail-row .merch-name input { font-size:14px; font-weight:500; color:var(--gray-800); border:none; background:transparent; width:100%; padding:0; font-family:inherit; }
     .pos-retail-row .merch-name input:focus { outline:none; background:var(--gray-50); border-radius:4px; padding:2px 4px; }
@@ -377,7 +377,7 @@
     /* Fees tab */
     .fee-group-header { display: flex; align-items: center; gap: 8px; padding: 10px 20px 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); border-top: 1px solid var(--gray-100); }
     .fee-group-header:first-child { border-top: none; }
-    .fee-row { display: grid; grid-template-columns: 40px 1fr 130px 110px 52px 36px; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--gray-100); transition: background .1s; }
+    .fee-row { display: grid; grid-template-columns: 40px 1fr 130px 110px 50px 28px 36px; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--gray-100); transition: background .1s; }
     .fee-row:hover { background: var(--gray-50); }
     .fee-row.inactive { opacity: .5; }
     .fee-name-input { border: none; background: transparent; font-size: 14px; font-weight: 500; color: var(--gray-800); font-family: inherit; width: 100%; outline: none; padding: 3px 6px; border-radius: 5px; }
@@ -13002,6 +13002,13 @@ ${oneCopy}
           <span class="toggle-slider"></span>
         </label>
       </div>
+      <div title="Taxable — applies sales tax to this service" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:2px">
+        <label class="toggle-switch" style="transform:scale(.85)">
+          <input type="checkbox" ${s.taxable?'checked':''} onchange="toggleServiceTaxable('${s.id}',this.checked)" />
+          <span class="toggle-slider"></span>
+        </label>
+        <span style="font-size:9.5px;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Tax</span>
+      </div>
       <div class="svc-actions-cell">
         <button class="svc-save-btn" id="svc-save-${s.id}" onclick="saveServiceEdit('${s.id}')">Save</button>
         <button class="svc-section-btn" onclick="toggleIsAddon('${s.id}',${!s.is_addon})" title="Move to ${s.is_addon ? 'Main Services' : 'Add-ons'}" style="min-width:52px">${sectionLabel}</button>
@@ -13107,6 +13114,14 @@ ${oneCopy}
     if (error) { showToast(error.message,'error'); return; }
     allServices = allServices.map(s => s.id===id ? {...s, is_active: isActive} : s);
     showToast(isActive ? 'Service activated' : 'Service deactivated');
+  }
+
+  // session 140 pt 3: per-row taxable flag.
+  async function toggleServiceTaxable(id, taxable) {
+    const { error } = await db.from('services').update({ taxable }).eq('id', id);
+    if (error) { showToast(error.message,'error'); return; }
+    allServices = allServices.map(s => s.id===id ? {...s, taxable} : s);
+    showToast(taxable ? 'Tax: on' : 'Tax: off');
   }
 
   async function toggleWeightOverage(id, enabled) {
@@ -13487,6 +13502,13 @@ ${oneCopy}
           <option value="flat"    ${f.fee_type==='flat'    ?'selected':''}>$ Flat</option>
           <option value="percent" ${f.fee_type==='percent' ?'selected':''}>% Percent</option>
         </select>
+        <div title="Taxable" style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+          <label class="toggle-switch" style="transform:scale(.85);transform-origin:center">
+            <input type="checkbox" ${f.taxable ? 'checked' : ''} onchange="toggleFeeTaxable('${f.id}',this.checked)" />
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:9.5px;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Tax</span>
+        </div>
         <div id="fee-save-${f.id}" style="display:none;font-size:11px;font-weight:700;color:var(--accent)">●</div>
         <button class="fee-del-btn" onclick="confirmDeleteFee('${f.id}','${svcEsc(f.name)}')" title="Delete fee">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
@@ -13525,6 +13547,14 @@ ${oneCopy}
     allFees = allFees.map(f => f.id===id ? {...f, is_active: isActive} : f);
     const row = document.getElementById('fee-row-'+id);
     if (row) row.classList.toggle('inactive', !isActive);
+  }
+
+  // session 140 pt 3: per-row taxable flag for fees (e.g. delivery fee).
+  async function toggleFeeTaxable(id, taxable) {
+    const { error } = await db.from('service_fees').update({ taxable }).eq('id', id);
+    if (error) { showToast(error.message,'error'); return; }
+    allFees = allFees.map(f => f.id===id ? {...f, taxable} : f);
+    showToast(taxable ? 'Tax: on' : 'Tax: off');
   }
 
   async function saveNewFee() {
@@ -13586,7 +13616,7 @@ ${oneCopy}
   async function loadPosTab() {
     try {
       const [svcRes, merchRes] = await Promise.all([
-        db.from('services').select('id,name,icon,base_price,pricing_type,is_addon,is_active,sort_order').eq('pricelist','Retail').order('is_addon').order('sort_order'),
+        db.from('services').select('id,name,icon,base_price,pricing_type,is_addon,is_active,sort_order,taxable').eq('pricelist','Retail').order('is_addon').order('sort_order'),
         db.from('merchandise').select('*').order('category').order('sort_order').order('name')
       ]);
       if (svcRes.error) { console.error('POS services query error:', svcRes.error); showToast('Failed to load retail services: ' + svcRes.error.message, 'error'); }
@@ -13644,6 +13674,13 @@ ${oneCopy}
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </label>
           </div>
+          <div title="Taxable" style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+            <label class="toggle" style="--h:22px;--w:40px;">
+              <input type="checkbox" ${s.taxable ? 'checked' : ''} onchange="updateRetailSvc('${s.id}','taxable',this.checked)" />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+            <span style="font-size:9.5px;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Tax</span>
+          </div>
           <div style="text-align:center;">
             <button onclick="deleteRetailSvc('${s.id}','${svcEsc(s.name)}')" style="background:none;border:none;cursor:pointer;opacity:.4;padding:4px;color:var(--gray-500);" title="Delete">${lucideIcon('trash-2', 16)}</button>
           </div>
@@ -13667,6 +13704,9 @@ ${oneCopy}
       update.base_price = num;
     } else if (field === 'is_active') {
       update.is_active = !!value;
+    } else if (field === 'taxable') {
+      // session 140 pt 3: per-row taxable flag.
+      update.taxable = !!value;
     } else if (field === 'name') {
       if (!value.trim()) { showToast('Name cannot be empty', 'error'); renderRetailServices(); return; }
       update.name = value.trim();
@@ -13675,7 +13715,7 @@ ${oneCopy}
     if (error) { showToast(error.message, 'error'); return; }
     allRetailSvcs = allRetailSvcs.map(s => s.id === id ? { ...s, ...update } : s);
     if (field === 'is_active') renderRetailServices();
-    showToast('Updated');
+    showToast(field === 'taxable' ? (value ? 'Tax: on' : 'Tax: off') : 'Updated');
   }
 
   async function saveNewRetailSvc() {
@@ -13837,6 +13877,13 @@ ${oneCopy}
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </label>
           </div>
+          <div title="Taxable" style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+            <label class="toggle" style="--h:22px;--w:40px;">
+              <input type="checkbox" ${m.taxable ? 'checked' : ''} onchange="updateMerch('${m.id}','taxable',this.checked)" />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+            <span style="font-size:9.5px;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em;font-weight:600">Tax</span>
+          </div>
           <div style="text-align:center;">
             <button onclick="deleteMerch('${m.id}','${svcEsc(m.name)}')" style="background:none;border:none;cursor:pointer;opacity:.4;padding:4px;color:var(--gray-500);" title="Delete">${lucideIcon('trash-2', 16)}</button>
           </div>
@@ -13854,6 +13901,9 @@ ${oneCopy}
       update.price = num;
     } else if (field === 'is_active') {
       update.is_active = !!value;
+    } else if (field === 'taxable') {
+      // session 140 pt 3: per-row taxable flag.
+      update.taxable = !!value;
     } else if (field === 'name') {
       if (!value.trim()) { showToast('Name cannot be empty', 'error'); renderMerchandise(); return; }
       update.name = value.trim();
@@ -13862,7 +13912,7 @@ ${oneCopy}
     if (error) { showToast(error.message, 'error'); return; }
     allMerchandise = allMerchandise.map(m => m.id === id ? { ...m, ...update } : m);
     if (field === 'is_active') renderMerchandise();
-    showToast('Updated');
+    showToast(field === 'taxable' ? (value ? 'Tax: on' : 'Tax: off') : 'Updated');
   }
 
   async function saveNewMerch() {
@@ -15265,6 +15315,7 @@ ${oneCopy}
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     const sameDaySurcharge = _noIsSameDay ? (_noSameDaySurcharge || 0) : 0;
+    const sameDayFeeObj    = allFees.find(f => /same.*day/i.test(f.name || '') && f.is_active);
     // Apply discount if selected
     let discountAmt = 0;
     if (discountId) {
@@ -15272,7 +15323,20 @@ ${oneCopy}
       const discOpt = couponSel?.querySelector(`option[value="${discountId}"]`);
       // We'll keep total_amount as the base estimate — billing adjustments happen later
     }
-    const totalAmount = subtotal + deliveryFee + sameDaySurcharge + tipRaw;
+    // session 140 pt 3: per-row taxable flags stamped on each line_item.
+    // Source of truth is services.taxable / service_fees.taxable.
+    const _baseTaxable = svc?.taxable === true;
+    const _delivFeeTaxable = deliveryFeeObj?.taxable === true;
+    const _sameDayTaxable  = sameDayFeeObj?.taxable === true;
+    const _taxableSubtotal = (_baseTaxable ? subtotal : 0)
+                           + (_delivFeeTaxable && deliveryFee > 0 ? deliveryFee : 0)
+                           + (_sameDayTaxable && sameDaySurcharge > 0 ? sameDaySurcharge : 0);
+    const taxAmount = Math.round(Math.round(_taxableSubtotal * 100) * BIZ_TAX_RATE) / 100;
+    // Pre-existing semantic on this admin path: total_amount lumps tip in
+    // (different from customer-app + POS, where tip is separate). Worth
+    // reconciling in a future session — out of scope here. We do add tax
+    // so the customer is correctly charged when taxable items are present.
+    const totalAmount = subtotal + deliveryFee + sameDaySurcharge + taxAmount + tipRaw;
 
     const btn = document.querySelector('#modal-add-order .btn-primary');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -15302,6 +15366,7 @@ ${oneCopy}
       service_id:            serviceId,
       total_bags:            bags,
       total_amount:          totalAmount,
+      tax_amount:            taxAmount, // session 140 pt 3
       zone_id:               _noSelectedTmpl?.zone_id || null,
       pickup_address_id:     addressId,
       delivery_address_id:   addressId,     // same address by default
@@ -15317,9 +15382,9 @@ ${oneCopy}
       discount_id:           discountId,
       is_same_day:           _noIsSameDay || false,
       line_items:            [
-        { type: 'base', label: baseLabel, amount: subtotal },
-        ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee }] : []),
-        ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge }] : [])
+        { type: 'base', label: baseLabel, amount: subtotal, taxable: _baseTaxable },
+        ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee, taxable: _delivFeeTaxable }] : []),
+        ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge, taxable: _sameDayTaxable }] : [])
       ],
       source:                'scheduled',
     }).select('id, order_number').single();

@@ -1672,6 +1672,10 @@
 const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
 const BIZ_TZ = 'America/Los_Angeles';
+// session 140 pt 3: cached sales tax rate (decimal). Loaded from
+// settings.sales_tax_rate inside loadServices(); defaults to Oakland CA
+// 10.75% so first paint is correct even before the network round-trip.
+let BIZ_TAX_RATE = 0.1075;
 let db;
 try {
   db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { flowType: 'implicit', storageKey: 'wr-customer-auth', autoRefreshToken: true, persistSession: true } });
@@ -2836,16 +2840,19 @@ function _buildGlobalPrefs(svcs, prefs) {
 }
 
 async function loadServices() {
-  // Fetch services, preferences, and service fees in parallel
-  const [{ data: svcs }, { data: prefs }, { data: fees }] = await Promise.all([
+  // Fetch services, preferences, service fees, AND the global tax rate in parallel
+  const [{ data: svcs }, { data: prefs }, { data: fees }, { data: settings }] = await Promise.all([
     db.from('services').select('*').eq('is_active', true).eq('show_in_app', true).order('sort_order'),
     db.from('preferences').select('*').order('sort_order'),
-    db.from('service_fees').select('id,name,amount,fee_type,category').eq('show_in_app', true).order('sort_order')
+    db.from('service_fees').select('id,name,amount,fee_type,category,taxable').eq('show_in_app', true).order('sort_order'),
+    // session 140 pt 3: settings is a singleton (id=1).
+    db.from('settings').select('sales_tax_rate').eq('id', 1).maybeSingle()
   ]);
   allServices    = svcs  || [];
   defaultService = allServices.find(s => !s.is_addon) || null;
   globalPrefs    = _buildGlobalPrefs(svcs, prefs);
   allServiceFees = fees  || [];
+  if (settings?.sales_tax_rate != null) BIZ_TAX_RATE = Number(settings.sales_tax_rate);
   // Fetch Commercial pricelist service (not show_in_app, so not in allServices).
   // Must be awaited so commercial customers always get the correct pricing.
   if (!_commercialService) {
@@ -4872,7 +4879,7 @@ async function placeOrder() {
   const sameDayFee    = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
   const routeFees     = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const routeFeeTotal = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
-  const total         = Math.round((baseTotal + addonsTotal + routeFeeTotal + sameDayFee)*100)/100;
+  const subtotal      = Math.round((baseTotal + addonsTotal + routeFeeTotal + sameDayFee)*100)/100;
 
   const pickupDate   = draft.pickupDate;
   // Same-day: delivery is same day. Otherwise use chosen date or fallback calculation.
@@ -4881,23 +4888,48 @@ async function placeOrder() {
     : (draft.deliveryDate || await getNextDeliveryDay(pickupDate, draft.zoneId));
 
   // Build line_items from prefs
+  // session 140 pt 3: each line_item carries a per-row taxable: bool snapshot
+  // so historical orders + receipts always reflect the rule that was in
+  // effect at order time. Source of truth: services.taxable / service_fees.taxable.
   const baseLabel = isPerLb
     ? `Est. ${estLbs} lbs × ${$m(basePrice)}/lb`
     : `${bags} bag${bags!==1?'s':''} × ${$m(basePrice)}`;
+  const _baseSvc = (typeof getCustomerService === 'function') ? getCustomerService() : null;
+  const _baseTaxable = _baseSvc?.taxable === true;
   const lineItems = [
-    { type:'base', label:baseLabel, amount:baseTotal },
+    { type:'base', label:baseLabel, amount:baseTotal, taxable: _baseTaxable },
     ...Object.entries(draft.prefs).filter(([,p])=>p.priceMod).map(([groupId,p])=>{
       const grp=globalPrefs.find(g=>g.id===groupId);
       const isPerItem=grp?.pricing_type==='per_item';
-      return { type:'addon', label:(grp?.name||p.label)+(isPerItem?' (per item · billed at processing)':''), amount:isPerItem?0:p.priceMod*bags };
+      // Preferences (Vinegar/Oxi/etc.) live on the `preferences` table
+      // which has no taxable column; treat as not taxable for now.
+      return { type:'addon', label:(grp?.name||p.label)+(isPerItem?' (per item · billed at processing)':''), amount:isPerItem?0:p.priceMod*bags, taxable: false };
     })
   ];
   if (routeFeeTotal > 0) {
-    lineItems.push({ type: 'delivery_fee', label: 'Delivery fee', amount: routeFeeTotal });
+    // Roll-up rule: tax the delivery_fee line only when EVERY underlying
+    // routeFee is flagged taxable. Mixed configurations are rare; if it
+    // becomes a real case we can split per-row.
+    const _routeFeesTaxable = routeFees.length > 0 && routeFees.every(f => f.taxable === true);
+    lineItems.push({ type: 'delivery_fee', label: 'Delivery fee', amount: routeFeeTotal, taxable: _routeFeesTaxable });
   }
   if (sameDayFee > 0) {
-    lineItems.push({ type: 'same_day_surcharge', label: 'Same-day surcharge', amount: sameDayFee });
+    // Find the same-day surcharge row in allServiceFees to read its taxable flag.
+    const _sdRow = (allServiceFees || []).find(f => /same.*day/i.test(f.name || ''));
+    const _sdTaxable = _sdRow?.taxable === true;
+    lineItems.push({ type: 'same_day_surcharge', label: 'Same-day surcharge', amount: sameDayFee, taxable: _sdTaxable });
   }
+
+  // session 140 pt 3: compute tax_amount up front so it can be persisted
+  // on the orders row alongside total_amount. BIZ_TAX_RATE is loaded from
+  // settings in this app's loadSettings (or defaulted to Oakland 10.75%).
+  const _taxRate = (typeof BIZ_TAX_RATE === 'number' && BIZ_TAX_RATE >= 0) ? BIZ_TAX_RATE : 0.1075;
+  const _taxableSubtotal = lineItems.reduce((s, li) => s + (li.taxable === true ? Number(li.amount || 0) : 0), 0);
+  const taxAmount = Math.round(Math.round(_taxableSubtotal * 100) * _taxRate) / 100;
+  // total_amount = subtotal + tax (post-tax, pre-tip). Matches POS
+  // semantic so charge-order keeps charging total_amount + tip_amount and
+  // the math stays correct end-to-end.
+  const total = Math.round((subtotal + taxAmount) * 100) / 100;
 
   const pw = draft.pickupWindow;
 
@@ -5013,6 +5045,7 @@ async function placeOrder() {
     status:               'scheduled',
     total_bags:           bags,
     total_amount:         total,
+    tax_amount:           taxAmount, // session 140 pt 3
     pickup_window_start:  pw?.slotStart || null,
     pickup_window_end:    pw?.slotEnd   || null,
     delivery_window_start: (() => {
