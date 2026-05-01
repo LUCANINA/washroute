@@ -13353,11 +13353,15 @@ ${oneCopy}
     function svcUnitLabel(s) {
       if (s.pricing_type === 'per_item') return 'item';
       if (s.pricing_type === 'per_bag')  return 'bag';
+      if (s.pricing_type === 'per_lb')   return 'lb';
       return '';
     }
 
     function svcPriceStr(s) {
-      const base = `$${parseFloat(s.base_price||0).toFixed(0)}`;
+      // Keep cents when fractional (1.75 → "$1.75"), drop them when whole
+      // (59 → "$59"). Prior .toFixed(0) was rounding 1.75 to 2.
+      const raw = parseFloat(s.base_price || 0);
+      const base = `$${Number.isInteger(raw) ? raw.toFixed(0) : raw.toFixed(2)}`;
       const unit = svcUnitLabel(s);
       return unit ? `${base}/<span style="font-size:11px;color:var(--gray-400)">${unit}</span>` : base;
     }
