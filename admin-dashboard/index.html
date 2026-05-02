@@ -3182,10 +3182,8 @@
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Price List</label>
-          <select class="form-select" id="c-pricelist">
-            <option value="Delivery">Delivery (residential)</option>
-            <option value="Commercial">Commercial (per-lb)</option>
-          </select>
+          <!-- Options populated from allCategories at modal-open time (session 141 pt 7) -->
+          <select class="form-select" id="c-pricelist"></select>
         </div>
         <div class="form-group">
           <label class="form-label">Billing Type</label>
@@ -3866,10 +3864,8 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
         <div class="cp-field">
           <div class="cp-field-label">Price List</div>
-          <select class="cp-input" id="cpe-type">
-            <option value="Delivery">Delivery</option>
-            <option value="Commercial">Commercial</option>
-          </select>
+          <!-- Options populated from allCategories at panel-open time (session 141 pt 7) -->
+          <select class="cp-input" id="cpe-type"></select>
         </div>
         <div class="cp-field">
           <div class="cp-field-label">How They Found Us</div>
@@ -12518,8 +12514,16 @@ ${oneCopy}
     document.getElementById('c-source').value = '';
     document.getElementById('c-ambassador-row').style.display = 'none';
     document.getElementById('c-error').style.display = 'none';
-    // Default pricing & billing to the most common case (residential card-on-file)
-    document.getElementById('c-pricelist').value = 'Delivery';
+    // Default pricing & billing to the most common case (residential card-on-file).
+    // Session 141 pt 7: populate price list dropdown from service_categories so
+    // admin-created lists appear here (Retail filtered out — POS-only).
+    if (!allCategories.length) await loadCategories();
+    const cPricelistEl = document.getElementById('c-pricelist');
+    const cPricelistCats = (allCategories || []).filter(cat => cat.name !== 'Retail');
+    cPricelistEl.innerHTML = cPricelistCats
+      .map(cat => `<option value="${esc(cat.name)}">${esc(cat.name)}</option>`).join('');
+    cPricelistEl.value = cPricelistCats.some(cat => cat.name === 'Delivery') ? 'Delivery'
+      : (cPricelistCats[0]?.name || '');
     document.getElementById('c-billing-type').value = 'automatic';
     document.getElementById('c-onaccount-note').style.display = 'none';
     // Load subscription plans
@@ -15818,10 +15822,23 @@ ${oneCopy}
       }
     }
 
-    // Price list dropdown is hardcoded to the two valid price lists (Delivery, Commercial).
-    // Pre-select the customer's current pricelist, defaulting to Delivery.
+    // Price list dropdown — populated from service_categories so admin-created
+    // price lists appear here (session 141 pt 7). 'Retail' is filtered out the
+    // same way it is on the Services tab; retail orders are POS walk-ins
+    // (customer_id NULL by CHECK constraint) and never attach to a customer.
+    if (!allCategories.length) await loadCategories();
     const typeEl = document.getElementById('cpe-type');
-    typeEl.value = (c.pricelist === 'Commercial') ? 'Commercial' : 'Delivery';
+    const cpeCats = (allCategories || []).filter(cat => cat.name !== 'Retail');
+    let cpeOpts = cpeCats.map(cat => `<option value="${esc(cat.name)}">${esc(cat.name)}</option>`).join('');
+    // If the customer's current pricelist isn't in the active categories
+    // (legacy value or renamed/deleted category), keep it as a sticky option
+    // so we don't silently overwrite their data.
+    const currentPL = c.pricelist || 'Delivery';
+    if (currentPL && !cpeCats.some(cat => cat.name === currentPL)) {
+      cpeOpts += `<option value="${esc(currentPL)}">${esc(currentPL)} (legacy)</option>`;
+    }
+    typeEl.innerHTML = cpeOpts;
+    typeEl.value = currentPL;
     document.getElementById('cpe-source').value = c.referral_source || '';
 
     // Route override dropdown — populate from route_templates
