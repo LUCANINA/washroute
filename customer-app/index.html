@@ -2881,21 +2881,31 @@ async function loadServices() {
   globalPrefs    = _buildGlobalPrefs(svcs, prefs);
   allServiceFees = fees  || [];
   if (settings?.sales_tax_rate != null) BIZ_TAX_RATE = Number(settings.sales_tax_rate);
-  // Fetch Commercial pricelist service (not show_in_app, so not in allServices).
-  // Must be awaited so commercial customers always get the correct pricing.
-  if (!_commercialService) {
-    const { data: commSvc } = await db.from('services').select('*').eq('pricelist', 'Commercial').eq('is_active', true).eq('is_addon', false).limit(1).single();
-    if (commSvc) _commercialService = commSvc;
+  // Session 141 pt 8: load every non-Delivery base service (Commercial, HCEB,
+  // any future admin-created pricelist) into a map keyed by pricelist name.
+  // These services are typically not show_in_app — they're for admin-priced
+  // accounts — so they're not in allServices. getCustomerService() picks the
+  // right one based on currentCustomer.pricelist. Was previously a single
+  // _commercialService global — generalised so HCEB customers get HCEB pricing.
+  if (Object.keys(_pricelistServices).length === 0) {
+    const { data: priced } = await db.from('services').select('*')
+      .eq('is_active', true).eq('is_addon', false).neq('pricelist', 'Delivery');
+    (priced || []).forEach(s => {
+      if (s.pricelist) _pricelistServices[s.pricelist] = s;
+    });
   }
 }
 
+// Map of pricelist-name → base service for non-Delivery price lists.
+// Populated lazily by loadServices().
+let _pricelistServices = {};
+
 // Pick the correct base service for this customer's price list.
 // Price list is assigned manually by admin — it is NOT derived from customer self-selection.
-// A customer on the Commercial price list gets Commercial pricing in the app.
-let _commercialService = null;
 function getCustomerService() {
-  if (currentCustomer?.pricelist === 'Commercial' && _commercialService) {
-    return _commercialService;
+  const pl = currentCustomer?.pricelist;
+  if (pl && pl !== 'Delivery' && _pricelistServices[pl]) {
+    return _pricelistServices[pl];
   }
   return defaultService;
 }
@@ -4928,10 +4938,13 @@ async function placeOrder() {
   // session 140 pt 3: each line_item carries a per-row taxable: bool snapshot
   // so historical orders + receipts always reflect the rule that was in
   // effect at order time. Source of truth: services.taxable / service_fees.taxable.
-  const baseLabel = isPerLb
-    ? `Est. ${estLbs} lbs × ${$m(basePrice)}/lb`
-    : `${bags} bag${bags!==1?'s':''} × ${$m(basePrice)}`;
+  // Session 141 pt 9: enriched base label includes service name + bag count
   const _baseSvc = (typeof getCustomerService === 'function') ? getCustomerService() : null;
+  const _svcPrefix = _baseSvc?.name ? `${_baseSvc.name} · ` : '';
+  const _bagsPart  = bags > 0 ? `${bags} bag${bags!==1?'s':''} · ` : '';
+  const baseLabel = isPerLb
+    ? `${_svcPrefix}${_bagsPart}Est. ${estLbs} lbs × ${$m(basePrice)}/lb`
+    : `${_svcPrefix}${bags} bag${bags!==1?'s':''} × ${$m(basePrice)}`;
   const _baseTaxable = _baseSvc?.taxable === true;
   const lineItems = [
     { type:'base', label:baseLabel, amount:baseTotal, taxable: _baseTaxable },
@@ -7102,12 +7115,12 @@ async function saveCustomerTip() {
                                 this customer (drives the history list)
 */
 let currentCustomerDiscount = null;
-let currentRedemptions = [];
+// (currentRedemptions cache was removed in pt 12 — Billing History reads
+//  customer_transactions directly; nothing else consumes the redemptions list.)
 
 async function loadPromoCodeData() {
   if (!currentCustomer?.id) {
     currentCustomerDiscount = null;
-    currentRedemptions = [];
     return;
   }
   // Fetch active % discount details (only when a discount_id is set)
@@ -7120,13 +7133,6 @@ async function loadPromoCodeData() {
   } else {
     currentCustomerDiscount = null;
   }
-  // Redemption history (latest 20)
-  const { data: hist } = await db.from('discount_redemptions')
-    .select('id, discount_name_snapshot, discount_type_snapshot, discount_value_snapshot, redeemed_at, redeemed_by, order_id')
-    .eq('customer_id', currentCustomer.id)
-    .order('redeemed_at', { ascending: false })
-    .limit(20);
-  currentRedemptions = hist || [];
 }
 
 // Shared apply helper. opts.orderId is optional (passed from booking flow).
@@ -7432,6 +7438,31 @@ async function loadAccount() {
       cardPart = `•••• ${dc.card_last4} + ${currentCards.length - 1} more`;
     }
     cardEl.textContent = credits > 0 ? `${$m(credits)} credits · ${cardPart}` : cardPart;
+  }
+
+  // Session 141 pt 12: populate Billing History sub-label with a transaction
+  // count + most-recent activity date (cheap HEAD-count + lookup of first row).
+  const billingEl = document.getElementById('acct-menu-billing-info');
+  if (billingEl && currentCustomer?.id) {
+    try {
+      const { count } = await db.from('customer_transactions')
+        .select('id', { count: 'exact', head: true })
+        .eq('customer_id', currentCustomer.id);
+      if (!count) {
+        billingEl.textContent = 'No activity yet';
+      } else {
+        const { data: latest } = await db.from('customer_transactions')
+          .select('created_at')
+          .eq('customer_id', currentCustomer.id)
+          .order('created_at', { ascending: false })
+          .limit(1).maybeSingle();
+        const dateStr = latest?.created_at
+          ? ' · last ' + new Date(latest.created_at).toLocaleDateString('en-US',
+              { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })
+          : '';
+        billingEl.textContent = `${count} transaction${count === 1 ? '' : 's'}${dateStr}`;
+      }
+    } catch { /* network blip — leave empty */ }
   }
 
   renderAccountPrefs();
