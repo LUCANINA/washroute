@@ -1395,6 +1395,17 @@
           </div>
           <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
         </div>
+        <!-- Billing History (session 141) -->
+        <div class="menu-item" onclick="openBillingHistory()">
+          <div class="mi-left">
+            <div class="mi-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
+            <div>
+              <div class="mi-label">Billing History</div>
+              <div class="mi-value" id="acct-menu-billing-info"></div>
+            </div>
+          </div>
+          <div class="mi-chev"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
         <!-- Laundry Preferences -->
         <div class="menu-item" onclick="openPrefsSubPanel()">
           <div class="mi-left">
@@ -1447,6 +1458,20 @@
     </div>
     <div class="sub-panel-body">
       <div id="payment-method-section"></div>
+    </div>
+  </div>
+
+  <!-- Billing History (session 141) — single chronological view of every
+       customer_transactions row: payments, credits, refunds, coupon redemptions -->
+  <div class="sub-panel" id="sub-billing-history">
+    <div class="sub-panel-header">
+      <button class="sub-back-btn" onclick="closeSubPanel('sub-billing-history')"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="sub-panel-title">Billing History</div>
+    </div>
+    <div class="sub-panel-body">
+      <div id="billing-history-container">
+        <div style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0">Loading…</div>
+      </div>
     </div>
   </div>
 
@@ -6960,26 +6985,6 @@ function renderPaymentSection() {
        </div>`
     : '';
 
-  const historyRows = currentRedemptions.length === 0
-    ? `<div style="font-size:12px;color:var(--gray-400);padding:10px 0">No codes used yet.</div>`
-    : currentRedemptions.map(r => {
-        const date = new Date(r.redeemed_at).toLocaleDateString('en-US',
-          { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' });
-        const valLabel = r.discount_type_snapshot === 'fixed'
-          ? `$${parseFloat(r.discount_value_snapshot).toFixed(0)} credit`
-          : `${parseFloat(r.discount_value_snapshot)}% off`;
-        const actor = (r.redeemed_by && r.redeemed_by.startsWith('admin:'))
-          ? ` · applied by ${escHtml(r.redeemed_by.replace('admin:',''))}`
-          : '';
-        return `<div style="padding:8px 0;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;gap:8px">
-          <div>
-            <div style="font-weight:600;font-size:13px;color:var(--navy)">${escHtml(r.discount_name_snapshot)}</div>
-            <div style="font-size:11px;color:var(--gray-400)">${date}${actor}</div>
-          </div>
-          <div style="font-size:13px;color:var(--gray-600);font-weight:600;white-space:nowrap">${valLabel}</div>
-        </div>`;
-      }).join('');
-
   const promoHtml = `
     <div class="pm-section">
       <div class="pref-title">Promo Codes</div>
@@ -6992,9 +6997,8 @@ function renderPaymentSection() {
         <button id="promo-code-apply" onclick="applyPromoFromSettings()"
           style="padding:10px 18px;background:var(--navy);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Apply</button>
       </div>
-      <div style="margin-top:14px">
-        <div style="font-size:11px;color:var(--gray-500);font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px">History</div>
-        ${historyRows}
+      <div style="font-size:12px;color:var(--gray-400);margin-top:8px">
+        Past codes appear in <a href="#" onclick="closeSubPanel('sub-payment');setTimeout(openBillingHistory,200);return false" style="color:var(--accent);text-decoration:none;font-weight:600">Billing History</a>.
       </div>
     </div>`;
 
@@ -7188,6 +7192,101 @@ async function applyPromoFromConfirm() {
     buildConfirmSummary();          // re-render summary with new credit/discount
     renderConfirmPromoSection();    // refresh banner + input area
   }
+}
+
+/* ── BILLING HISTORY (session 141) ─────────────────────────────────────────
+   Single chronological view of every customer_transactions row for this
+   customer: charges, credit additions (incl. coupon redemptions), credit
+   uses, removals, refunds. RLS policy `ct_customer_read_own` already
+   restricts to caller's own rows.
+*/
+let _billingHistory = [];
+
+async function openBillingHistory() {
+  openSubPanel('sub-billing-history');
+  await loadBillingHistory();
+  renderBillingHistory();
+}
+
+async function loadBillingHistory() {
+  if (!currentCustomer?.id) {
+    _billingHistory = [];
+    return;
+  }
+  const { data, error } = await db.from('customer_transactions')
+    .select('id, type, amount, description, order_id, payment_method, card_brand, card_last4, note, created_at')
+    .eq('customer_id', currentCustomer.id)
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) {
+    console.warn('[billing-history] load error', error);
+    _billingHistory = [];
+    return;
+  }
+  _billingHistory = data || [];
+  // Side-fetch order numbers for any rows that have an order_id (so we can
+  // render "Order #1234" instead of a UUID). Single batched query.
+  const orderIds = [...new Set(_billingHistory.map(r => r.order_id).filter(Boolean))];
+  if (orderIds.length) {
+    const { data: orders } = await db.from('orders')
+      .select('id, order_number').in('id', orderIds);
+    const map = {};
+    (orders || []).forEach(o => { map[o.id] = o.order_number; });
+    _billingHistory.forEach(r => { r._order_number = r.order_id ? map[r.order_id] : null; });
+  }
+}
+
+// Map transaction type → display config
+function _txMeta(t) {
+  switch (t.type) {
+    case 'charge':         return { icon: '💳', label: 'Order payment',     sign: '−', color: 'var(--gray-700)' };
+    case 'credit_add':     return { icon: '＋', label: 'Credit added',      sign: '+', color: 'var(--green)' };
+    case 'credit_use':     return { icon: '↳', label: 'Credit applied',    sign: '−', color: 'var(--gray-500)' };
+    case 'credit_remove':  return { icon: '−', label: 'Credit adjustment', sign: '−', color: 'var(--gray-500)' };
+    case 'credit_refund':  return { icon: '↩', label: 'Credit returned',   sign: '+', color: 'var(--green)' };
+    case 'refund':         return { icon: '↩', label: 'Refund',            sign: '+', color: 'var(--green)' };
+    default:               return { icon: '•', label: t.type,               sign: '',  color: 'var(--gray-500)' };
+  }
+}
+
+function renderBillingHistory() {
+  const el = document.getElementById('billing-history-container');
+  if (!el) return;
+  if (_billingHistory.length === 0) {
+    el.innerHTML = `<div style="color:var(--gray-400);font-size:14px;text-align:center;padding:30px 0">
+      No billing activity yet.<br>Your payments, credits, and refunds will appear here.
+    </div>`;
+    return;
+  }
+  // Group by year-month for visual grouping
+  let lastMonth = '';
+  const rows = _billingHistory.map(t => {
+    const meta   = _txMeta(t);
+    const date   = new Date(t.created_at);
+    const month  = date.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'America/Los_Angeles' });
+    const dayStr = date.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' });
+    const amt    = parseFloat(t.amount || 0);
+    const orderRef = t._order_number ? ` · Order #${t._order_number}` : '';
+    const desc   = t.description ? ` · ${escHtml(t.description)}` : '';
+    const cardSfx = (t.card_brand && t.card_last4)
+      ? ` · ${escHtml(t.card_brand.toUpperCase())} ••${escHtml(t.card_last4)}`
+      : '';
+    let header = '';
+    if (month !== lastMonth) {
+      header = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);padding:14px 0 6px">${month}</div>`;
+      lastMonth = month;
+    }
+    return header + `
+      <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--gray-100)">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--gray-100);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">${meta.icon}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:14px;color:var(--navy)">${meta.label}</div>
+          <div style="font-size:12px;color:var(--gray-400);margin-top:2px;word-break:break-word">${dayStr}${orderRef}${desc}${cardSfx}</div>
+        </div>
+        <div style="font-weight:700;font-size:14px;color:${meta.color};white-space:nowrap;flex-shrink:0">${meta.sign}${$m(amt)}</div>
+      </div>`;
+  }).join('');
+  el.innerHTML = `<div style="padding-bottom:20px">${rows}</div>`;
 }
 
 // Renders the Promo Code section inside the Confirm step.
