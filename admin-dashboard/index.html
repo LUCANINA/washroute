@@ -3989,6 +3989,21 @@
       </div>
     </div>
 
+    <!-- Apply Promo Code (session 141) — admin-applied $ codes -->
+    <div class="cp-section-head"><span>Apply Promo Code</span></div>
+    <div class="cp-card">
+      <div style="display:flex;gap:8px;align-items:stretch">
+        <select class="cp-input" id="cpb-promo-code" style="flex:1">
+          <option value="">— Choose a code —</option>
+        </select>
+        <button class="btn btn-primary" onclick="applyPromoToCustomer()" id="cpb-promo-apply"
+                style="padding:8px 16px;font-size:13px;white-space:nowrap">Apply</button>
+      </div>
+      <div style="font-size:12px;color:var(--gray-400);margin-top:6px">
+        Adds the $ value to this customer's credit. Only unredeemed fixed-amount codes are listed; once applied, the code is burned.
+      </div>
+    </div>
+
     <!-- Payment on File -->
     <div class="cp-section-head"><span>Payment on File</span></div>
     <div class="cp-card">
@@ -15843,11 +15858,16 @@ ${oneCopy}
     const tipType = c.default_tip_type || '$';
     document.getElementById('cpb-tip-dollar').classList.toggle('active', tipType === '$');
     document.getElementById('cpb-tip-pct').classList.toggle('active',   tipType === '%');
-    // Populate discount dropdown from allDiscounts
+    // Populate discount dropdown from allDiscounts.
+    // Session 141: only %-type discounts here. $ codes go through the new
+    // "Apply Promo Code" section below (one-shot redemption → credit).
     const discEl = document.getElementById('cpb-discount');
+    const pctDiscounts = (allDiscounts || []).filter(d => d.type === 'percent' && d.active);
     discEl.innerHTML = '<option value="">— None —</option>'
-      + (allDiscounts || []).map(d => `<option value="${d.id}">${esc(d.name)} (${d.type === 'percent' ? d.value + '%' : fmtMoney(d.value)} off)</option>`).join('');
+      + pctDiscounts.map(d => `<option value="${d.id}">${esc(d.name)} (${d.value}% off)</option>`).join('');
     discEl.value = c.discount_id || '';
+    // Promo code dropdown — only unredeemed $ codes (session 141)
+    populateAdminPromoDropdown();
     // Reset credit adjust form
     hideCreditAdjust();
 
@@ -16211,6 +16231,67 @@ ${oneCopy}
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     showToast('Billing settings saved', 'success');
     loadCustomers();
+  }
+
+  // ── APPLY PROMO CODE (session 141) ────────────────────────────────
+  // Admin can apply a fixed-amount $ code on behalf of a customer (e.g. an
+  // elderly customer who can't enter it themselves). Goes through the same
+  // redeem_discount_code RPC as customer self-service, with the actor name
+  // recorded as 'admin:<DisplayName>' on the redemption row.
+  async function populateAdminPromoDropdown() {
+    const sel = document.getElementById('cpb-promo-code');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Loading…</option>';
+    const [discRes, redRes] = await Promise.all([
+      db.from('discounts')
+        .select('id, name, value')
+        .eq('type', 'fixed').eq('active', true).is('deleted_at', null)
+        .order('name'),
+      db.from('discount_redemptions')
+        .select('discount_id')
+        .eq('discount_type_snapshot', 'fixed')
+    ]);
+    const redeemed = new Set((redRes.data || []).map(r => r.discount_id));
+    const available = (discRes.data || []).filter(d => !redeemed.has(d.id));
+    if (available.length === 0) {
+      sel.innerHTML = '<option value="">— No unredeemed codes available —</option>';
+      sel.disabled = true;
+      const btn = document.getElementById('cpb-promo-apply');
+      if (btn) btn.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    const btn = document.getElementById('cpb-promo-apply');
+    if (btn) btn.disabled = false;
+    sel.innerHTML = '<option value="">— Choose a code —</option>'
+      + available.map(d =>
+          `<option value="${esc(d.name)}" data-value="${d.value}">${esc(d.name)} — ${fmtMoney(d.value)}</option>`
+        ).join('');
+  }
+
+  async function applyPromoToCustomer() {
+    if (!panelCustomerId) return;
+    const sel = document.getElementById('cpb-promo-code');
+    const btn = document.getElementById('cpb-promo-apply');
+    if (!sel?.value) { showToast('Pick a code first.', 'error'); return; }
+    const codeName  = sel.value;
+    const codeValue = parseFloat(sel.options[sel.selectedIndex]?.dataset?.value || 0);
+    if (!confirm(`Apply ${codeName} (${fmtMoney(codeValue)}) to this customer?\n\nIt will add ${fmtMoney(codeValue)} to their credit balance and burn the code so nobody else can use it.`)) return;
+    btn.disabled = true; btn.textContent = 'Applying…';
+    const actor = currentUserDisplayName || currentUserFirstName || 'Admin';
+    const { data, error } = await db.rpc('redeem_discount_code', {
+      p_code:        codeName,
+      p_customer_id: panelCustomerId,
+      p_order_id:    null,
+      p_actor_name:  actor
+    });
+    btn.disabled = false; btn.textContent = 'Apply';
+    if (error) { showToast('Apply failed: ' + error.message, 'error'); return; }
+    if (!data || data.ok !== true) { showToast(data?.message || 'Apply failed.', 'error'); return; }
+    showToast(`${codeName} applied — ${data.message}`, 'success');
+    // Refresh the panel: credits balance, dropdown (this code now hidden),
+    // and the Transactions tab will pick up the new credit_add row on next load.
+    openCustomerPanel(panelCustomerId, 'billing');
   }
 
   // ── TRANSACTIONS TAB ─────────────────────────────────────────────

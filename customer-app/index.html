@@ -1234,6 +1234,9 @@
       <div class="step-content" id="o-step-4" style="display:none">
         <div id="confirm-summary"></div>
 
+        <!-- Session 141: Promo Code entry; populated by renderConfirmPromoSection() -->
+        <div id="confirm-promo-section" style="display:none"></div>
+
         <!-- Shown only when not logged in -->
         <div id="confirm-auth-section" style="display:none">
           <div class="confirm-auth-section">
@@ -4567,6 +4570,15 @@ function buildConfirmSummary() {
         })())}</span>
       </div>
     </div>`;
+
+  // Session 141: render the promo code section in its sibling div.
+  // It lives outside #confirm-summary so input state survives summary rerenders.
+  // Also fire a one-shot async refresh of promo data the first time we land
+  // here without having visited the Account page (loadPromoCodeData is fast).
+  renderConfirmPromoSection();
+  if (currentCustomer?.id) {
+    loadPromoCodeData().then(() => renderConfirmPromoSection()).catch(() => {});
+  }
 }
 
 /* ── TIP PICKER ── */
@@ -6937,6 +6949,55 @@ function renderPaymentSection() {
       </div>
     </div>`;
 
+  // ── Promo Codes (session 141) ──
+  const activeDiscountBanner = currentCustomerDiscount
+    ? `<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:10px 12px;margin-bottom:10px;display:flex;align-items:center;gap:10px">
+         <div style="font-size:18px">🎟️</div>
+         <div>
+           <div style="font-weight:600;font-size:14px;color:var(--navy)">${escHtml(currentCustomerDiscount.name)}</div>
+           <div style="font-size:12px;color:var(--gray-500)">${currentCustomerDiscount.value}% off every order</div>
+         </div>
+       </div>`
+    : '';
+
+  const historyRows = currentRedemptions.length === 0
+    ? `<div style="font-size:12px;color:var(--gray-400);padding:10px 0">No codes used yet.</div>`
+    : currentRedemptions.map(r => {
+        const date = new Date(r.redeemed_at).toLocaleDateString('en-US',
+          { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Los_Angeles' });
+        const valLabel = r.discount_type_snapshot === 'fixed'
+          ? `$${parseFloat(r.discount_value_snapshot).toFixed(0)} credit`
+          : `${parseFloat(r.discount_value_snapshot)}% off`;
+        const actor = (r.redeemed_by && r.redeemed_by.startsWith('admin:'))
+          ? ` · applied by ${escHtml(r.redeemed_by.replace('admin:',''))}`
+          : '';
+        return `<div style="padding:8px 0;border-bottom:1px solid var(--gray-100);display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <div>
+            <div style="font-weight:600;font-size:13px;color:var(--navy)">${escHtml(r.discount_name_snapshot)}</div>
+            <div style="font-size:11px;color:var(--gray-400)">${date}${actor}</div>
+          </div>
+          <div style="font-size:13px;color:var(--gray-600);font-weight:600;white-space:nowrap">${valLabel}</div>
+        </div>`;
+      }).join('');
+
+  const promoHtml = `
+    <div class="pm-section">
+      <div class="pref-title">Promo Codes</div>
+      ${activeDiscountBanner}
+      <div class="pm-row" style="gap:8px;align-items:stretch">
+        <input id="promo-code-input" type="text" placeholder="Enter code"
+          autocapitalize="characters" autocorrect="off" spellcheck="false"
+          style="flex:1;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;outline:none;font-family:inherit;text-transform:uppercase"
+          onkeypress="if(event.key==='Enter') applyPromoFromSettings()">
+        <button id="promo-code-apply" onclick="applyPromoFromSettings()"
+          style="padding:10px 18px;background:var(--navy);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Apply</button>
+      </div>
+      <div style="margin-top:14px">
+        <div style="font-size:11px;color:var(--gray-500);font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px">History</div>
+        ${historyRows}
+      </div>
+    </div>`;
+
   // ── Default Tip ──
   const tipVal  = parseFloat(c?.default_tip || 0);
   const tipType = c?.default_tip_type || '$';
@@ -6995,7 +7056,7 @@ function renderPaymentSection() {
       <button class="card-add-btn" onclick="startCardSetup()">+ Add Card</button>
     </div>`;
 
-  el.innerHTML = creditsHtml + tipHtml + cardHtml;
+  el.innerHTML = creditsHtml + promoHtml + tipHtml + cardHtml;
 }
 
 let _custTipType = currentCustomer?.default_tip_type || '$';
@@ -7023,6 +7084,152 @@ async function saveCustomerTip() {
   currentCustomer.default_tip = val;
   currentCustomer.default_tip_type = _custTipType;
   toast(val > 0 ? `Default tip saved: ${_custTipType === '%' ? val + '%' : $m(val)}` : 'Default tip removed');
+}
+
+/* ── PROMO CODES (session 141) ──────────────────────────────────────────────
+   Single trusted door for coupon redemption: customer self-service from the
+   Payment Settings panel and the booking Confirm screen both call
+   applyPromoCode(), which calls the redeem_discount_code RPC.
+
+   State:
+     currentCustomerDiscount  → { id, name, type, value } if customer has an
+                                active % discount; null otherwise
+     currentRedemptions       → up to 20 most recent discount_redemptions for
+                                this customer (drives the history list)
+*/
+let currentCustomerDiscount = null;
+let currentRedemptions = [];
+
+async function loadPromoCodeData() {
+  if (!currentCustomer?.id) {
+    currentCustomerDiscount = null;
+    currentRedemptions = [];
+    return;
+  }
+  // Fetch active % discount details (only when a discount_id is set)
+  if (currentCustomer.discount_id) {
+    const { data: d } = await db.from('discounts')
+      .select('id, name, type, value, active')
+      .eq('id', currentCustomer.discount_id)
+      .maybeSingle();
+    currentCustomerDiscount = (d && d.active && d.type === 'percent') ? d : null;
+  } else {
+    currentCustomerDiscount = null;
+  }
+  // Redemption history (latest 20)
+  const { data: hist } = await db.from('discount_redemptions')
+    .select('id, discount_name_snapshot, discount_type_snapshot, discount_value_snapshot, redeemed_at, redeemed_by, order_id')
+    .eq('customer_id', currentCustomer.id)
+    .order('redeemed_at', { ascending: false })
+    .limit(20);
+  currentRedemptions = hist || [];
+}
+
+// Shared apply helper. opts.orderId is optional (passed from booking flow).
+async function applyPromoCode(code, opts = {}) {
+  const trimmed = (code || '').trim();
+  if (!trimmed) {
+    showToast('Please enter a code.', 'error');
+    return { ok: false };
+  }
+  if (!currentCustomer?.id) {
+    showToast('Please sign in first.', 'error');
+    return { ok: false };
+  }
+  const { data, error } = await db.rpc('redeem_discount_code', {
+    p_code:        trimmed,
+    p_customer_id: currentCustomer.id,
+    p_order_id:    opts.orderId || null,
+    p_actor_name:  null
+  });
+  if (error) {
+    showToast('Could not apply code: ' + error.message, 'error');
+    return { ok: false };
+  }
+  if (!data || data.ok !== true) {
+    showToast(data?.message || "That code didn't work.", 'error');
+    return { ok: false, response: data };
+  }
+  // Refresh customer + promo state so credits/discount reflect everywhere
+  const { data: fresh } = await db.from('customers')
+    .select('*').eq('id', currentCustomer.id).maybeSingle();
+  if (fresh) currentCustomer = fresh;
+  await loadPromoCodeData();
+  showToast(data.message, 'success');
+  return { ok: true, response: data };
+}
+
+// Wrapper for the Payment Settings entry
+async function applyPromoFromSettings() {
+  const inp = document.getElementById('promo-code-input');
+  const btn = document.getElementById('promo-code-apply');
+  if (!inp) return;
+  const code = inp.value;
+  inp.disabled = true; if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+  const result = await applyPromoCode(code);
+  inp.disabled = false; if (btn) { btn.disabled = false; btn.textContent = 'Apply'; }
+  if (result.ok) {
+    inp.value = '';
+    renderPaymentSection();  // refresh Credits, active discount, and history
+  }
+}
+
+// Wrapper for the booking Confirm screen entry
+async function applyPromoFromConfirm() {
+  const inp = document.getElementById('confirm-promo-input');
+  const btn = document.getElementById('confirm-promo-apply');
+  if (!inp) return;
+  const code = inp.value;
+  inp.disabled = true; if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+  const result = await applyPromoCode(code);
+  inp.disabled = false; if (btn) { btn.disabled = false; btn.textContent = 'Apply'; }
+  if (result.ok) {
+    inp.value = '';
+    buildConfirmSummary();          // re-render summary with new credit/discount
+    renderConfirmPromoSection();    // refresh banner + input area
+  }
+}
+
+// Renders the Promo Code section inside the Confirm step.
+// Lives in a sibling <div id="confirm-promo-section"> so buildConfirmSummary
+// rerenders don't clobber the input the user is typing in.
+function renderConfirmPromoSection() {
+  const sec = document.getElementById('confirm-promo-section');
+  if (!sec) return;
+  // Hide for not-logged-in users (they'll see the auth section first)
+  if (!currentCustomer?.id) { sec.style.display = 'none'; sec.innerHTML = ''; return; }
+  sec.style.display = '';
+
+  // Preserve any value the user has already typed across rerenders
+  const prevVal = sec.querySelector('#confirm-promo-input')?.value || '';
+
+  const credits = parseFloat(currentCustomer?.credits || 0);
+  const activePctRow = currentCustomerDiscount
+    ? `<div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--green);font-weight:600;margin-bottom:8px">
+         ✓ ${escHtml(currentCustomerDiscount.name)} (${currentCustomerDiscount.value}% off) is active on your account
+       </div>`
+    : '';
+  const creditRow = credits > 0
+    ? `<div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--green);font-weight:600;margin-bottom:8px">
+         💰 ${$m(credits)} account credit will apply at billing
+       </div>`
+    : '';
+
+  sec.innerHTML = `
+    <div class="d-section-title" style="margin-top:20px">Promo Code</div>
+    <div class="confirm-card">
+      ${activePctRow}
+      ${creditRow}
+      <div style="display:flex;gap:8px;align-items:stretch">
+        <input id="confirm-promo-input" type="text" placeholder="Have a code?"
+          value="${escHtml(prevVal)}"
+          autocapitalize="characters" autocorrect="off" spellcheck="false"
+          style="flex:1;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;outline:none;font-family:inherit;text-transform:uppercase"
+          onkeypress="if(event.key==='Enter') applyPromoFromConfirm()">
+        <button id="confirm-promo-apply" onclick="applyPromoFromConfirm()"
+          style="padding:10px 18px;background:var(--gray-100);color:var(--navy);border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Apply</button>
+      </div>
+    </div>`;
 }
 
 /* ── ACCOUNT ── */
@@ -7059,6 +7266,8 @@ async function loadAccount() {
   if (freshCust) currentCustomer = freshCust;
   // Re-sync prices from services so account panel always reflects latest admin pricing
   globalPrefs = _buildGlobalPrefs(allServices, gp);
+  // Session 141: load promo state (active % discount + redemption history)
+  await loadPromoCodeData();
 
   // Load all saved cards for this customer (default first)
   if (currentCustomer?.id) {
