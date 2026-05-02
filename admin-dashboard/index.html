@@ -9657,9 +9657,12 @@
     let total = 0;
 
     if (baseTotal > 0) {
+      // Session 141 pt 9: enriched base label = ServiceName · N bags · weight × rate
+      const _svcPrefix = svc?.name ? `${svc.name} · ` : '';
+      const _bagsPart  = bags > 0 ? `${bags} bag${bags!==1?'s':''} · ` : '';
       const baseLabel = isPerLb
-        ? `${weight} lbs × ${fmtMoney(basePrice)}/lb`
-        : `${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}`;
+        ? `${_svcPrefix}${_bagsPart}${weight} lbs × ${fmtMoney(basePrice)}/lb`
+        : `${_svcPrefix}${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`;
       html += `<div style="display:flex;justify-content:space-between"><span>${baseLabel}</span><span>${fmtMoney(baseTotal)}</span></div>`;
       total += baseTotal;
     }
@@ -9730,9 +9733,12 @@
     const newLineItems = [];
     let addonTotal = 0;
 
+    // Session 141 pt 9: enriched base label = ServiceName · N bags · weight × rate
+    const _svcPrefix2 = svc?.name ? `${svc.name} · ` : '';
+    const _bagsPart2  = bags > 0 ? `${bags} bag${bags!==1?'s':''} · ` : '';
     const baseLabel = isPerLb
-      ? `${weight} lbs × ${fmtMoney(basePrice)}/lb`
-      : `${bags} bag${bags>1?'s':''} × ${fmtMoney(basePrice)}`;
+      ? `${_svcPrefix2}${_bagsPart2}${weight} lbs × ${fmtMoney(basePrice)}/lb`
+      : `${_svcPrefix2}${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`;
     if (baseTotal > 0) newLineItems.push({ type: 'base', label: baseLabel, amount: baseTotal });
     if (overageAmt > 0) newLineItems.push({ type: 'overage', label: `${overageLbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb`, amount: overageAmt });
     if (deliveryFee > 0) newLineItems.push({ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee });
@@ -14806,15 +14812,18 @@ ${oneCopy}
       _noAddressCity = '';
     }
 
-    // Auto-select service based on customer type — Commercial customers use the
-    // Commercial pricelist service (per lb), everyone else gets the Delivery service (per bag).
+    // Auto-select service based on the customer's pricelist. Session 141 pt 8:
+    // was hardcoded to Commercial-or-Delivery; now picks the service that
+    // matches the customer's pricelist (Commercial, HCEB, or any future
+    // admin-created list), with Delivery as fallback.
     const cust = allCustomers.find(c => c.id === customerId);
     _noRouteOverrideId = cust?.route_template_override_id || null;
     if (cust) {
-      const isCommercial = cust.pricelist === 'Commercial';
-      const correctSvc = isCommercial
-        ? allServices.find(s => !s.is_addon && s.pricelist === 'Commercial')
-        : allServices.find(s => !s.is_addon && s.category === 'Delivery') || allServices.find(s => !s.is_addon);
+      const cpl = cust.pricelist || 'Delivery';
+      const correctSvc =
+        allServices.find(s => !s.is_addon && s.pricelist === cpl)
+        || allServices.find(s => !s.is_addon && s.pricelist === 'Delivery')
+        || allServices.find(s => !s.is_addon);
       if (correctSvc) document.getElementById('o-service').value = correctSvc.id;
     }
 
@@ -15460,9 +15469,12 @@ ${oneCopy}
     const lbsPerBag = svc ? parseFloat(svc.lbs_per_bag || 25) : 25;
     const estLbs    = isPerLb ? bags * lbsPerBag : 0;
     const subtotal  = isPerLb ? (estLbs * basePrice) : (bags * basePrice);
+    // Session 141 pt 9: enriched base label includes service name + bag count
+    const _svcPrefix3 = svc?.name ? `${svc.name} · ` : '';
+    const _bagsPart3  = bags > 0 ? `${bags} bag${bags!==1?'s':''} · ` : '';
     const baseLabel = isPerLb
-      ? `Est. ${estLbs} lbs × ${fmtMoney(basePrice)}/lb`
-      : `${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`;
+      ? `${_svcPrefix3}${_bagsPart3}Est. ${estLbs} lbs × ${fmtMoney(basePrice)}/lb`
+      : `${_svcPrefix3}${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`;
     const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     const sameDaySurcharge = _noIsSameDay ? (_noSameDaySurcharge || 0) : 0;
@@ -23100,18 +23112,22 @@ ${oneCopy}
       ? new Date(order.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;
     procIsSameDay = !!(_puLocal && _dlLocal && _puLocal === _dlLocal);
 
-    // Resolve the customer's price list — defaults to Delivery
-    const pricelist = (customerPricelist === 'Commercial') ? 'Commercial' : 'Delivery';
+    // Resolve the customer's price list — defaults to Delivery if blank.
+    // Session 141 pt 8: was hardcoded to Commercial-or-Delivery; now generalised
+    // so any admin-created pricelist (HCEB, etc.) resolves to its own service.
+    const pricelist = customerPricelist || 'Delivery';
 
-    // BUG FIX: orders are always created with the Delivery service regardless of customer type
-    // (saveOrder default picks category === 'Delivery'). For Commercial customers, override
-    // procSvc to the Commercial pricelist service so weight-based pricing is calculated correctly.
-    if (pricelist === 'Commercial') {
-      const commercialSvc = allAddonServicesCache.find(s => !s.is_addon && s.pricelist === 'Commercial');
-      if (commercialSvc) {
-        procSvc = commercialSvc;
+    // Orders are always created with the default Delivery service (saveOrder
+    // picks pricelist === 'Delivery'). For any non-Delivery pricelist, look up
+    // the matching service in the cache and override so weight-based pricing
+    // is correct. Falls back to the default if no service exists on that
+    // pricelist (transitional state — admin created the list but no service yet).
+    if (pricelist !== 'Delivery') {
+      const altSvc = allAddonServicesCache.find(s => !s.is_addon && s.pricelist === pricelist);
+      if (altSvc) {
+        procSvc = altSvc;
         document.getElementById('intake-subtitle').textContent =
-          `Order #${order.order_number||'—'} · ${commercialSvc.name}`;
+          `Order #${order.order_number||'—'} · ${altSvc.name}`;
       }
     }
 
@@ -23547,9 +23563,12 @@ ${oneCopy}
   // ── Build line_items array from current panel state ──
   function _buildIntakeLineItems(bd, pricePerBag, ovgRate) {
     const isPerLb = procSvc?.pricing_type === 'per_lb';
+    // Session 141 pt 9: enriched base label includes service name + bag count
+    const _svcPrefix4 = procSvc?.name ? `${procSvc.name} · ` : '';
+    const _bagsPart4  = bd.bags > 0 ? `${bd.bags} bag${bd.bags!==1?'s':''} · ` : '';
     const baseLabel = isPerLb
-      ? `${bd.weight} lbs × ${fmtMoney(pricePerBag)}/lb`
-      : `${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}`;
+      ? `${_svcPrefix4}${_bagsPart4}${bd.weight} lbs × ${fmtMoney(pricePerBag)}/lb`
+      : `${_svcPrefix4}${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}`;
     const lineItems = [
       { type:'base', label: baseLabel, amount: bd.base }
     ];
@@ -26662,7 +26681,7 @@ ${oneCopy}
     showToast('Opened invoice — use Print to save as PDF');
   }
 
-  function openStandaloneInvoiceModal(customerId) {
+  async function openStandaloneInvoiceModal(customerId) {
     _invoiceGroupId = null;
     _invoiceCustomerId = customerId;
     const custOrders = oaData.filter(o => o.customer_id === customerId);
@@ -26671,11 +26690,21 @@ ${oneCopy}
     const name = c ? ((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() : 'Unknown';
     const period = document.getElementById('oa-period-label').textContent || '';
 
+    // Session 141 pt 11: pull persisted invoice template from customers.
+    // The oaData rows don't include the new columns, so fetch fresh.
+    const { data: tpl } = await db.from('customers')
+      .select('invoice_to_email, invoice_cc_emails, invoice_subject_template, invoice_body_template, email_cache')
+      .eq('id', customerId).maybeSingle();
+
+    const defaultSubject = 'Family Laundry Invoice — {{period}}';
+    const defaultBody    = 'Hi,\n\nPlease find attached your invoice for {{period}}.\n\nLet me know if you have any questions.\n\nBest,\nDavid';
+    const expand = s => (s || '').replace(/\{\{period\}\}/g, period);
+
     document.getElementById('inv-group-label').textContent = name + ' — Individual Invoice';
-    document.getElementById('inv-to').value = '';
-    document.getElementById('inv-cc').value = '';
-    document.getElementById('inv-subject').value = 'Family Laundry Invoice — ' + period;
-    document.getElementById('inv-body').value = '';
+    document.getElementById('inv-to').value      = (tpl?.invoice_to_email || tpl?.email_cache || '');
+    document.getElementById('inv-cc').value      = (tpl?.invoice_cc_emails || '');
+    document.getElementById('inv-subject').value = expand(tpl?.invoice_subject_template || defaultSubject);
+    document.getElementById('inv-body').value    = expand(tpl?.invoice_body_template || defaultBody);
     document.getElementById('inv-attachment-list').innerHTML = `<div>📄 ${name} — Invoice.pdf</div>`;
     document.getElementById('modal-send-invoice').style.display = 'flex';
   }
@@ -27250,6 +27279,57 @@ ${orderSections}
 
       const result = await res.json();
       if (!result.ok) throw new Error(result.error || 'Send failed');
+
+      // Session 141 pt 10/11: persist edits back so next open prefills with these
+      // values. Auto-unwrap the period string back to {{period}} so templates stay
+      // portable month-to-month.
+      const _period = document.getElementById('oa-period-label').textContent || '';
+      const _unwrap = s => (_period && s) ? s.split(_period).join('{{period}}') : s;
+
+      // Standalone (individual customer) path — save to customers.invoice_*
+      if (_invoiceCustomerId && !_invoiceGroupId) {
+        try {
+          const { error: persistErr } = await db.from('customers').update({
+            invoice_to_email:         toStr || null,
+            invoice_cc_emails:        ccStr || null,
+            invoice_subject_template: _unwrap(subject) || null,
+            invoice_body_template:    _unwrap(bodyText) || null,
+            updated_at:               new Date().toISOString(),
+          }).eq('id', _invoiceCustomerId);
+          if (persistErr) console.warn('[invoice] customer template save failed:', persistErr.message);
+        } catch (e) { console.warn('[invoice] customer template save exception:', e?.message || e); }
+      }
+
+      // Group path: save back into billing_groups
+      if (_invoiceGroupId) {
+        try {
+          const newContacts = [
+            ...to.map(c => ({ email: c.email, role: 'primary' })),
+            ...cc.map(c => ({ email: c.email, role: 'cc' })),
+          ];
+          const patch = {
+            contacts:               newContacts,
+            email_subject_template: _unwrap(subject),
+            email_body_template:    _unwrap(bodyText),
+            updated_at:             new Date().toISOString(),
+          };
+          const { error: persistErr } = await db.from('billing_groups')
+            .update(patch).eq('id', _invoiceGroupId);
+          if (persistErr) {
+            console.warn('[invoice] saved+sent but template save failed:', persistErr.message);
+          } else {
+            // Refresh local cache so the next openInvoiceModal sees the new values immediately
+            const idx = _oaBillingGroups.findIndex(bg => bg.id === _invoiceGroupId);
+            if (idx >= 0) {
+              _oaBillingGroups[idx].contacts               = newContacts;
+              _oaBillingGroups[idx].email_subject_template = patch.email_subject_template;
+              _oaBillingGroups[idx].email_body_template    = patch.email_body_template;
+            }
+          }
+        } catch (persistEx) {
+          console.warn('[invoice] template-save exception:', persistEx?.message || persistEx);
+        }
+      }
 
       showToast('Invoice sent to ' + toStr, 'success');
       closeInvoiceModal();
