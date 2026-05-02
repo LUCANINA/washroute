@@ -16659,26 +16659,71 @@ ${oneCopy}
   let archivedDiscounts = [];
 
   async function loadDiscounts() {
-    const { data } = await db.from('discounts').select('*').order('name');
-    allDiscounts      = (data || []).filter(d => d.active && !d.deleted_at);
-    archivedDiscounts = (data || []).filter(d => !d.active || d.deleted_at);
+    // Session 141: also fetch redemptions so the list can show
+    // "Redeemed ($)" + "Redeemed (date)" columns alongside each code.
+    const [discRes, redRes] = await Promise.all([
+      db.from('discounts').select('*').order('name'),
+      db.from('discount_redemptions')
+        .select('discount_id, discount_type_snapshot, discount_value_snapshot, redeemed_at')
+        .order('redeemed_at', { ascending: false })
+    ]);
+    const data = discRes.data || [];
+    const redsByDisc = {};
+    (redRes.data || []).forEach(r => {
+      (redsByDisc[r.discount_id] ||= []).push(r);
+    });
+    data.forEach(d => { d._redemptions = redsByDisc[d.id] || []; });
+    allDiscounts      = data.filter(d => d.active && !d.deleted_at);
+    archivedDiscounts = data.filter(d => !d.active || d.deleted_at);
     renderDiscounts();
+  }
+
+  // Build the two redemption columns for one discount row.
+  // - $ codes: one redemption max → show its value + date, or "—"
+  // - % codes: many redemptions → show count + most-recent date, or "—"
+  function _redemptionCells(d, opts) {
+    const muted = opts?.muted ? 'var(--gray-400)' : 'var(--gray-700)';
+    const reds = d._redemptions || [];
+    let amountTxt, dateTxt;
+    if (reds.length === 0) {
+      amountTxt = '—';
+      dateTxt   = '—';
+    } else if (d.type === 'fixed') {
+      amountTxt = fmtMoney(reds[0].discount_value_snapshot);
+      dateTxt   = fmtDate(reds[0].redeemed_at);
+    } else {
+      amountTxt = `${reds.length} customer${reds.length === 1 ? '' : 's'}`;
+      dateTxt   = fmtDate(reds[0].redeemed_at); // already DESC-ordered
+    }
+    return `
+      <div style="width:120px;text-align:right;font-size:12.5px;color:${muted}">${amountTxt}</div>
+      <div style="width:110px;text-align:right;font-size:12.5px;color:${muted}">${dateTxt}</div>`;
   }
 
   function renderDiscounts() {
     const el = document.getElementById('discounts-list');
     if (!el) return;
 
+    // Header row labelling the redemption columns
+    const headerHtml = (allDiscounts.length || archivedDiscounts.length) ? `
+      <div style="display:flex;align-items:center;padding:8px 16px;gap:12px;background:var(--gray-50);border-top:1px solid var(--gray-100)">
+        <div style="flex:1;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Code</div>
+        <div style="width:120px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Redeemed</div>
+        <div style="width:110px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Date</div>
+        <div style="width:72px"></div>
+      </div>` : '';
+
     const activeHtml = allDiscounts.length
       ? allDiscounts.map(d => `
           <div style="display:flex;align-items:center;padding:12px 16px;border-top:1px solid var(--gray-100);gap:12px">
-            <div style="flex:1">
+            <div style="flex:1;min-width:0">
               <div style="font-weight:600;font-size:13.5px;color:var(--gray-900)">${esc(d.name)}</div>
               <div style="font-size:12px;color:var(--gray-500);margin-top:2px">
                 ${d.type === 'percent' ? d.value + '% off' : fmtMoney(d.value) + ' off'} · ${d.type === 'percent' ? 'Percentage' : 'Fixed amount'}
               </div>
             </div>
-            <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;color:var(--red)" onclick="archiveDiscount('${d.id}')">Archive</button>
+            ${_redemptionCells(d)}
+            <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;color:var(--red);width:72px" onclick="archiveDiscount('${d.id}')">Archive</button>
           </div>`).join('')
       : '<div style="color:var(--gray-400);font-size:13px;padding:16px">No discounts yet. Create one above.</div>';
 
@@ -16687,19 +16732,20 @@ ${oneCopy}
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:4px">Archived</div>
           ${archivedDiscounts.map(d => `
             <div style="display:flex;align-items:center;padding:10px 0;border-top:1px solid var(--gray-100);gap:12px;opacity:.65">
-              <div style="flex:1">
+              <div style="flex:1;min-width:0">
                 <div style="font-weight:600;font-size:13px;color:var(--gray-700)">${esc(d.name)}</div>
                 <div style="font-size:12px;color:var(--gray-400);margin-top:2px">
                   ${d.type === 'percent' ? d.value + '% off' : fmtMoney(d.value) + ' off'}
                   ${d.deleted_at ? ' · Archived ' + fmtDate(d.deleted_at) : ''}
                 </div>
               </div>
-              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px" onclick="restoreDiscount('${d.id}')">Restore</button>
+              ${_redemptionCells(d, { muted: true })}
+              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;width:72px" onclick="restoreDiscount('${d.id}')">Restore</button>
             </div>`).join('')}
         </div>`
       : '';
 
-    el.innerHTML = activeHtml + archivedHtml;
+    el.innerHTML = headerHtml + activeHtml + archivedHtml;
   }
 
   function showAddDiscountForm() {
