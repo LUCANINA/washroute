@@ -1867,7 +1867,7 @@
           </div>
           <div class="cart-totals">
             <div class="total-row"><span data-i18n>Subtotal</span><span id="subtotal">$0.00</span></div>
-            <div class="total-row"><span data-i18n>Tax (9.25%)</span><span id="tax">$0.00</span></div>
+            <div class="total-row"><span id="taxLabel">Tax</span><span id="tax">$0.00</span></div>
             <div class="total-row grand"><span data-i18n>Total</span><span id="grand">$0.00</span></div>
             <button class="charge-btn" id="chargeBtn" disabled onclick="chargeBtnTap()">
               <span id="chargeLabel">Charge</span>
@@ -2662,7 +2662,7 @@
     'Laundry Services': 'Servicios de lavandería',
     'Tap products to add to cart': 'Toca productos para agregar al carrito',
     'Clear all': 'Vaciar todo',
-    'Tax (9.25%)': 'Impuesto (9.25%)',
+    'Tax': 'Impuesto',
     'Tap to charge': 'Toca para cobrar',
 
     // Weight modal additions
@@ -2817,6 +2817,7 @@
     try { if (typeof renderCart === 'function') renderCart(); } catch(_){}
     try { if (typeof renderQueue === 'function' && typeof queueOrders !== 'undefined') renderQueue(queueOrders); } catch(_){}
     try { if (typeof updateCashierBadge === 'function') updateCashierBadge(); } catch(_){}
+    try { if (typeof refreshTaxLabel === 'function') refreshTaxLabel(); } catch(_){}
   }
 
   // Apply translations on initial load too.
@@ -3202,6 +3203,16 @@
         TAX_RATE = Number(data.sales_tax_rate);
       }
     } catch (_) { /* keep default */ }
+    refreshTaxLabel();
+  }
+
+  // Render the cart's tax label as "Tax (X.XX%)" using the current rate
+  // and current language. Called after loadTaxRate() and on every language
+  // toggle so the rate stays in sync with the value used by _taxOn().
+  function refreshTaxLabel() {
+    const el = document.getElementById('taxLabel');
+    if (!el) return;
+    el.textContent = `${t('Tax')} (${(TAX_RATE * 100).toFixed(2)}%)`;
   }
 
   // Tip state (session 132): customer-facing tip prompt for laundry drop-offs.
