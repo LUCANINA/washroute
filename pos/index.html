@@ -439,18 +439,33 @@
     background: var(--accent-light);
     box-shadow: 0 4px 12px rgba(59, 130, 246, 0.18);
   }
+  /* Selected-card action row — Reprint + Delete sit side-by-side */
+  .queue-card-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .queue-card-reprint-btn,
   .queue-card-delete-btn {
     width: 100%;
-    margin-top: 8px;
     padding: 10px 0;
-    background: #dc2626;
-    color: white;
     border: none;
     border-radius: 8px;
     font-size: 13px;
     font-weight: 700;
     cursor: pointer;
     transition: background 0.12s;
+  }
+  .queue-card-reprint-btn {
+    background: var(--gray-100);
+    color: var(--gray-800);
+  }
+  .queue-card-reprint-btn:hover { background: var(--gray-200); }
+  .queue-card-reprint-btn:disabled { opacity: .55; cursor: default; }
+  .queue-card-delete-btn {
+    background: #dc2626;
+    color: white;
   }
   .queue-card-delete-btn:hover { background: #b91c1c; }
   .queue-card-top {
@@ -2730,6 +2745,8 @@
     // Receipt + dynamic-render strings (added in JS-sweep pass)
     'No order attached to this sale': 'No hay orden vinculada a esta venta',
     'Could not print receipt': 'No se pudo imprimir el recibo',
+    '🖨 Reprint receipt': '🖨 Reimprimir recibo',
+    'Receipt sent to printer': 'Recibo enviado a la impresora',
     'No email on file for this customer': 'No hay correo registrado para este cliente',
     'Could not send email': 'No se pudo enviar el correo',
     'No phone on file for this customer': 'No hay teléfono registrado para este cliente',
@@ -4187,6 +4204,27 @@
     renderQueue(queueOrders);
   }
 
+  // Reprint a single receipt for an order already in the retail queue.
+  // Used by the laundering team when a bag tag is lost / damaged / a
+  // second copy is needed mid-process. Always queues exactly 1 copy
+  // (the auto 2-copy default only applies to the initial sale). The
+  // builder reads order._customerName off the queue row so this works
+  // without touching the active-cart globals.
+  async function reprintQueueOrder(orderId) {
+    const order = (queueOrders || []).find(o => o.id === orderId);
+    if (!order) {
+      showToast(t('Order not found in queue — please refresh.'), 'error');
+      return;
+    }
+    try {
+      await queuePosPrintJob(order, 1);
+      showToast(t('Receipt sent to printer'), 'success');
+    } catch (e) {
+      console.error('[POS] reprint error:', e);
+      showToast(e.message || t('Could not print receipt'), 'error');
+    }
+  }
+
   function openDeletePosOrderModal(orderId) {
     const order = (queueOrders || []).find(o => o.id === orderId);
     if (!order) {
@@ -4410,9 +4448,16 @@
     // on Delete doesn't bubble back up and deselect the card.
     const isSelected  = (_selectedQueueOrderId === order.id);
     const cardClass   = 'queue-card' + (isSelected ? ' selected' : '');
-    const deleteBtn   = isSelected
-      ? `<button class="queue-card-delete-btn" onclick="event.stopPropagation();openDeletePosOrderModal('${order.id}')">${t('✕ Delete order')}</button>`
-      : '';
+    // When the card is selected, surface two card-level actions side by
+    // side: Reprint (for the laundering team to grab another bag tag)
+    // and Delete (existing 3-step destructive flow). Both stop bubbling
+    // so they don't deselect the card.
+    const cardActions = isSelected ? `
+      <div class="queue-card-actions">
+        <button class="queue-card-reprint-btn" onclick="event.stopPropagation();reprintQueueOrder('${order.id}')">${t('🖨 Reprint receipt')}</button>
+        <button class="queue-card-delete-btn" onclick="event.stopPropagation();openDeletePosOrderModal('${order.id}')">${t('✕ Delete order')}</button>
+      </div>
+    ` : '';
 
     return `
       <div class="${cardClass}" onclick="togglePosCardSelected('${order.id}')">
@@ -4425,7 +4470,7 @@
         <div class="queue-card-time">${status === 'processing' ? t('Dropped off') : t('Ready')} ${timeAgo}</div>
         ${launHtml}
         ${btnHtml}
-        ${deleteBtn}
+        ${cardActions}
       </div>
     `;
   }
@@ -5531,7 +5576,11 @@
      printer polls. Falls back to a browser print popup if no
      printer token is configured.
      ───────────────────────────────────────────────────────────── */
-  async function queuePosPrintJob(order) {
+  async function queuePosPrintJob(order, copies) {
+    // copies defaults to 2: the laundering team uses one as a bag tag,
+    // the customer keeps one. Reprints from the queue pass copies=1.
+    const n = Math.max(1, Math.min(5, Number(copies) || 2));
+
     // Each POS device has its own printer_token on pos_devices (one printer
     // per register). Falls back to the browser print popup if unset.
     const printerToken = device?.printer_token || '';
@@ -5539,20 +5588,33 @@
     const markup = buildPosReceiptMarkup(order);
 
     if (printerToken) {
-      const { error } = await db.from('print_jobs').insert({
+      // Insert N identical pending rows; CloudPRNT picks them up in order
+      // and prints + cuts each independently. Simpler than concatenating
+      // the markup, and lets the printer cleanly cut between copies.
+      const rows = Array.from({ length: n }, () => ({
         printer_token: printerToken,
         order_id: order.id,
         content: markup,
         status: 'pending',
-      });
+      }));
+      const { error } = await db.from('print_jobs').insert(rows);
       if (error) throw new Error(error.message);
       return;
     }
     // No printer configured — open a browser print popup with a
-    // simplified text receipt as a fallback.
+    // simplified text receipt as a fallback. Repeat the body N times
+    // separated by page breaks so the browser print dialog produces
+    // matching multi-copy output.
+    const body = buildPosReceiptHtml(order);
+    // Strip wrapping <body>…</body> and concatenate copies with page breaks.
+    const inner = body.replace(/^[\s\S]*?<body>/, '').replace(/<\/body>[\s\S]*$/, '');
+    const head  = body.match(/^[\s\S]*?<body>/)[0];
+    const tail  = '</body></html>';
+    const sep   = '<div style="page-break-before:always"></div>';
+    const composed = head + Array(n).fill(inner).join(sep) + tail;
     const win = window.open('', '_blank', 'width=380,height=640');
     if (!win) { throw new Error('Pop-up blocked — allow pop-ups to print receipts'); }
-    win.document.write(buildPosReceiptHtml(order));
+    win.document.write(composed);
     win.document.close();
     setTimeout(() => { try { win.print(); } catch (e) {} }, 300);
   }
@@ -5560,7 +5622,10 @@
   // Build Star Markup receipt for CloudPRNT printing
   function buildPosReceiptMarkup(order) {
     const now = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
-    const custName = currentCustomer?.name || 'Retail';
+    // Prefer the name embedded on the order row (set by loadWalkInQueue
+    // for cards in the queue) so reprints don't need to swap the global
+    // currentCustomer. Falls through to the active cart's customer.
+    const custName = order?._customerName || currentCustomer?.name || 'Retail';
     const orderNum = order.order_number ? `#${order.order_number}` : order.id.slice(-5).toUpperCase();
     // session 140: total_amount includes tax (subtotal + tax, pre-tip).
     // tax_amount is the new column; for orders created before session 140
@@ -5591,17 +5656,19 @@
 ${taxAmt > 0 ? `    <text-line>${('Tax (' + (TAX_RATE * 100).toFixed(2) + '%)').padEnd(28, ' ')}${('$' + taxAmt.toFixed(2)).padStart(10, ' ')}</text-line>\n` : ''}${tipAmt > 0 ? `    <text-line>${'Tip'.padEnd(28, ' ')}${('$' + tipAmt.toFixed(2)).padStart(10, ' ')}</text-line>\n` : ''}  </align>
   <ruled-line/>`;
 
+    // Layout reworked so the customer name dominates the top of the
+    // ticket — the laundering team uses the printed copy as a bag tag
+    // and needs to identify whose order it is at a glance from a stack.
+    // Customer name is centered, double-height + double-width + bold.
+    // Order number is the secondary line. Store header is demoted to
+    // the footer area where it's still legible but doesn't compete.
+    const escMarkup = s => String(s == null ? '' : s).replace(/[<>&]/g, '');
     return `<?xml version="1.0" encoding="UTF-8"?>
 <document>
   <align mode="center">
-    <text-line size="1:2"><bold>FAMILY LAUNDRY</bold></text-line>
-    <text-line>www.familylaundry.com</text-line>
+    <text-line size="2:2"><bold>${escMarkup(custName).toUpperCase()}</bold></text-line>
+    <text-line size="1:2"><bold>Order ${orderNum}</bold></text-line>
     <text-line>${now}</text-line>
-  </align>
-  <ruled-line/>
-  <align mode="left">
-    <text-line>Order ${orderNum}</text-line>
-    <text-line>Customer: ${custName}</text-line>
   </align>
   <ruled-line/>
   <align mode="left">
@@ -5613,6 +5680,8 @@ ${lineItemsXml}
   </align>
   <feed unit="mm" quantity="4"/>
   <align mode="center">
+    <text-line><bold>FAMILY LAUNDRY</bold></text-line>
+    <text-line>www.familylaundry.com</text-line>
     <text-line>Thank you!</text-line>
     <text-line>Questions? info@familylaundry.com</text-line>
   </align>
@@ -5624,7 +5693,9 @@ ${lineItemsXml}
   // Fallback browser receipt
   function buildPosReceiptHtml(order) {
     const now = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
-    const custName = currentCustomer?.name || 'Retail';
+    // Same name-resolution as the Markup builder above — prefer the
+    // name on the order row so reprints work without the global swap.
+    const custName = order?._customerName || currentCustomer?.name || 'Retail';
     const orderNum = order.order_number ? `#${order.order_number}` : order.id.slice(-5).toUpperCase();
     // session 140: same tax-fallback logic as the Markup builder above —
     // prefer the new tax_amount column, fall back to legacy tax line_item.
@@ -5647,17 +5718,21 @@ ${lineItemsXml}
       ${tipAmt > 0 ? `<tr><td>Tip</td><td style="text-align:right">$${tipAmt.toFixed(2)}</td></tr>` : ''}`;
     return `<!doctype html><html><head><title>Receipt ${orderNum}</title>
 <style>body{font-family:ui-monospace,Menlo,monospace;font-size:13px;padding:18px;width:280px;}
-h1{font-size:16px;margin:0 0 6px;text-align:center}
+.cust{font-size:22px;font-weight:800;text-align:center;letter-spacing:.02em;text-transform:uppercase;margin:0 0 4px}
+.ord{font-size:15px;font-weight:700;text-align:center;margin:0 0 4px}
 .meta{text-align:center;font-size:11px;color:#555;margin-bottom:10px}
 table{width:100%;border-collapse:collapse;margin:8px 0}
 td{padding:3px 0;border-bottom:1px dotted #ccc}
 .total{font-size:15px;font-weight:700;text-align:right;margin-top:8px}
-.foot{text-align:center;margin-top:14px;font-size:11px;color:#555}</style></head>
-<body><h1>FAMILY LAUNDRY</h1>
-<div class="meta">www.familylaundry.com<br>${now}</div>
-<div><strong>Order ${orderNum}</strong><br>Customer: ${custName}</div>
+.brand{text-align:center;margin-top:14px;font-size:11px;color:#555}
+.foot{text-align:center;margin-top:6px;font-size:11px;color:#555}</style></head>
+<body>
+<div class="cust">${esc(custName)}</div>
+<div class="ord">Order ${orderNum}</div>
+<div class="meta">${now}</div>
 <table>${rows}${tipRows}</table>
 <div class="total">TOTAL: $${grandTotal}</div>
+<div class="brand"><strong>FAMILY LAUNDRY</strong><br>www.familylaundry.com</div>
 <div class="foot">Thank you!<br>Questions? info@familylaundry.com</div>
 </body></html>`;
   }
