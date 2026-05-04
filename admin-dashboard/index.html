@@ -16733,12 +16733,13 @@ ${oneCopy}
     const el = document.getElementById('discounts-list');
     if (!el) return;
 
-    // Header row labelling the redemption columns
+    // Header row labelling the discount columns
     const headerHtml = (allDiscounts.length || archivedDiscounts.length) ? `
       <div style="display:flex;align-items:center;padding:8px 16px;gap:12px;background:var(--gray-50);border-top:1px solid var(--gray-100)">
         <div style="flex:1;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Code</div>
+        <div style="width:110px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Created</div>
         <div style="width:120px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Redeemed</div>
-        <div style="width:110px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Date</div>
+        <div style="width:110px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500)">Last&nbsp;Use</div>
         <div style="width:72px"></div>
       </div>` : '';
 
@@ -16751,6 +16752,7 @@ ${oneCopy}
                 ${d.type === 'percent' ? d.value + '% off' : fmtMoney(d.value) + ' off'} · ${d.type === 'percent' ? 'Percentage' : 'Fixed amount'}
               </div>
             </div>
+            <div style="width:110px;text-align:right;font-size:12.5px;color:var(--gray-700)">${d.created_at ? fmtDate(d.created_at) : '—'}</div>
             ${_redemptionCells(d)}
             <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;color:var(--red);width:72px" onclick="archiveDiscount('${d.id}')">Archive</button>
           </div>`).join('')
@@ -16768,6 +16770,7 @@ ${oneCopy}
                   ${d.deleted_at ? ' · Archived ' + fmtDate(d.deleted_at) : ''}
                 </div>
               </div>
+              <div style="width:110px;text-align:right;font-size:12.5px;color:var(--gray-400)">${d.created_at ? fmtDate(d.created_at) : '—'}</div>
               ${_redemptionCells(d, { muted: true })}
               <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;width:72px" onclick="restoreDiscount('${d.id}')">Restore</button>
             </div>`).join('')}
