@@ -25,7 +25,9 @@ Extended to also treat `email_cache ILIKE '%+app.starchup.com@%'` as a placehold
 - Audit skill could grow a Check 21 — "customers where email_cache differs from auth.users.email AND auth has signed in" — to surface this class proactively in morning rounds. Skipped today; flag for next session.
 - One-off edge function `sync-stripe-customer-email` (now 410-Gone stub) sits in the function list. Cleanest cleanup is via Supabase dashboard delete — the MCP has no `delete_edge_function`. Low priority; the stub is harmless.
 
-**No commits this session** — only DB writes (data fixes + migration `session_143_claim_existing_customer_starchup_placeholder`), Stripe API writes, edge function deploys (`sync-stripe-customer-email` v1→v2→v3, the v3 being the 410-Gone stub). All HTML / JS app code unchanged.*
+**6. Follow-up — admin Customers tab default filter changed from "7 days" to "All".** Even after the DB fix, David still couldn't find Cindy in admin. Root cause: the Customers tab's "Active within" filter defaulted to `7d`, and Cindy is flagged `churned` (no actual WashRoute orders — her 7 orders + $28.95 LTV are legacy Starchup totals on the record, not orders in `orders`). The 7-day filter silently hid her along with every other no-recent-order customer. Two-line fix in `admin-dashboard/index.html`: `let custStatusFilter = '7d'` → `'all'` (line 7299) plus moving the `active` CSS class on the filter tab buttons from "7 days" to "All" so the visible state matches the JS default. Commit `9bb5f6e`.
+
+**Commits this session:** `d0bf4b1` (PROJECT-NOTES session 143 entry), `9bb5f6e` (Customers tab default-filter fix). DB writes: data fixes + migration `session_143_claim_existing_customer_starchup_placeholder`. Stripe API writes for Cindy + Ereene. Edge function deploys: `sync-stripe-customer-email` v1→v2→v3 (v3 = 410-Gone stub).*
 
 ---
 
