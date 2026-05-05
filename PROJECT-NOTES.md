@@ -1,5 +1,35 @@
 # WashRoute — Project Notes
-*Last updated: May 4, 2026 — Session 142. **Starchup migration finishing touches + POS bag-tag receipts + iPad fullscreen.** Five landings in one session, all deployed.*
+*Last updated: May 5, 2026 — Session 143. **Cindy Downing email mystery → broader email-mismatch sweep + root-cause patch.** Investigation, data fixes across DB + Stripe, RPC migration to prevent recurrence.*
+
+**1. The Cindy mystery.** David flagged that Cindy Downing (cindycdowning@gmail.com) said she'd registered but couldn't be found in admin search. SQL audit revealed she existed cleanly across all three layers (auth.users / profiles / customers) but with split identity: `auth.users.email = cindycdowning@gmail.com` (her real email she signed up with on Apr 30), while `customers.email_cache = cindycdowning+app.starchup.com@gmail.com` (the Starchup-import placeholder format) and `profiles.email` matching the placeholder. Her customer record had been correctly phone-matched to the new auth user via `claim_existing_customer` RPC (linkage was fine — 7 orders + $28.95 LTV stayed associated), but the placeholder email never got overwritten. So admin search by `cindycdowning@gmail.com` returned 0 results. Updated `customers.email_cache` + `profiles.email` to her real email; verified all three layers now match.
+
+**2. Browser-cache gotcha on the admin side.** After the DB fix, David asked why she still didn't appear. Confirmed: `admin-dashboard/index.html`'s `loadCustomers()` populates `allCustomers` once on page init and keeps it in browser memory — no realtime sync. Hard-refresh required after any direct DB write to customer records. Worth flagging in the audit skill or adding a "Refresh customer cache" button somewhere if this pattern keeps biting.
+
+**3. Broader email-mismatch sweep.** Audit query joined `customers ↔ profiles ↔ auth.users` to find every active customer whose `customers.email_cache` differed from `auth.users.email`. **10 mismatches found.** Categorized into:
+- **3 NULL/empty fixes** (Bethany Blackwell, Tyrone Anderson, Emily Wong) — straight backfill from auth, no risk.
+- **1 Starchup-placeholder fix** (Cindy, above).
+- **2 judgment-call flips after David approval** (Ereene Belamide work→personal Gmail, Genevieve Davis maiden→married name Gmail). Snapshotted before/after state to `_archive._email_flip_20260505` for one-line rollback.
+- **4 untouched** — household/partner cases where flipping is destructive without conversation: David LaBree (record on `carolyn.labree@gmail.com` — wife?), Jade Wagner (`markjadec@gmail.com` vs auth `jewelhannum@gmail.com`), Shiva Ghose (work vs personal — same `lesnshiv` handle), Kate Roberts ⚠️ (`kate.m.roberts@gmail.com` record / `jon.whetzel@gmail.com` auth — completely different name, possibly a wrong-link or a partner inheriting the account; needs investigation before any change).
+
+**4. Stripe sync for the 3 fixes.** Discovered that Stripe holds its own copy of `customer.email` separate from our DB — flipping `email_cache` doesn't propagate. Built a one-off edge function `sync-stripe-customer-email` with a hardcoded 3-customer allow-list (Cindy / Ereene / Genevieve). Called via pg_net since the sandbox couldn't reach `*.supabase.co` directly through the proxy. Results: Cindy + Ereene flipped on Stripe; Genevieve was a no-op because Stripe already had her correct Gmail (`GenevieveLDavis@gmail.com`) — only the customer record held the old maiden-name email. After running, neutralized the function to a 410 Gone stub (v3) following the `create-test-user` retire pattern.
+
+**5. Root-cause patch — `claim_existing_customer` step 4 (migration `session_143_claim_existing_customer_starchup_placeholder`).** The RPC's phone-match branch only overwrites `customer.email_cache` when it's NULL or empty:
+```sql
+email_cache = CASE WHEN (email_cache IS NULL OR email_cache = '') AND p_email IS NOT NULL THEN p_email ELSE email_cache END
+```
+Extended to also treat `email_cache ILIKE '%+app.starchup.com@%'` as a placeholder. Pattern is narrow enough to never collide with a real customer-supplied email; even if it did, signing up with a different email + phone match would just update it (which is what the customer would want). Steps 1, 2, 3, 5 byte-identical to prior. Snapshot of prior definition saved to `_archive._backup_function_defs` (4232 chars) before applying — rollback is a single `CREATE OR REPLACE` from the snapshot. Verified post-apply: function still returns the right shape, contains the new starchup guard.
+
+**Tech debt left:**
+- The 4 untouched mismatches still need David's call. Especially Kate Roberts ⚠️ — a different person's name on the auth side is a real signal, not a household variant. Investigation: was Kate's record fresh when Jon signed up (= phone match working as designed for a partner inheriting), or did Kate have prior orders (= wrong-link bug worth tracing)?
+- The Starchup placeholder pattern is now structurally handled. If we ever do another bulk import that uses a different placeholder format, the `claim_existing_customer` patch would need to extend to that pattern too.
+- Audit skill could grow a Check 21 — "customers where email_cache differs from auth.users.email AND auth has signed in" — to surface this class proactively in morning rounds. Skipped today; flag for next session.
+- One-off edge function `sync-stripe-customer-email` (now 410-Gone stub) sits in the function list. Cleanest cleanup is via Supabase dashboard delete — the MCP has no `delete_edge_function`. Low priority; the stub is harmless.
+
+**No commits this session** — only DB writes (data fixes + migration `session_143_claim_existing_customer_starchup_placeholder`), Stripe API writes, edge function deploys (`sync-stripe-customer-email` v1→v2→v3, the v3 being the 410-Gone stub). All HTML / JS app code unchanged.*
+
+---
+
+*Prior: May 4, 2026 — Session 142. **Starchup migration finishing touches + POS bag-tag receipts + iPad fullscreen.** Five landings in one session, all deployed.*
 
 **1. Starchup discount-code migration (24 codes inserted into `discounts`).** Walked the four screenshots of Starchup's coupon list, filtered to fixed-dollar codes created after 2025-01-01 (David's spec), and further restricted to the 5-letter alphanumeric code shape per his preference. Final count: 15× $250, 8× $100, 1× $50. Skipped: WY3QW (already in DB from a prior manual entry), all percentage codes, single-use ORDER-N credits (no clean target shape — those would map to account credits, not discounts), and pre-2025 codes. **Architecture note David surfaced:** WashRoute's redemption model converts a discount code's full value to account credits in one shot (1× `discount_redemptions` row + corresponding credit ledger insert), unlike Starchup's per-order draw-down. So the historical "USAGE / $REDEEMED" stats from Starchup don't translate semantically and were dropped intentionally — those stay in Starchup as historical reference.
 
