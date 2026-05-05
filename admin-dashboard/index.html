@@ -1436,8 +1436,8 @@
               </div>
               <span style="font-size:12px;color:var(--gray-400);white-space:nowrap">Active within:</span>
               <div class="filter-tabs" id="cust-filter-tabs">
-                <button class="filter-tab" onclick="filterCustomers('all',this)">All</button>
-                <button class="filter-tab active" onclick="filterCustomers('7d',this)">7 days</button>
+                <button class="filter-tab active" onclick="filterCustomers('all',this)">All</button>
+                <button class="filter-tab" onclick="filterCustomers('7d',this)">7 days</button>
                 <button class="filter-tab" onclick="filterCustomers('30d',this)">30 days</button>
                 <button class="filter-tab" onclick="filterCustomers('90d',this)">90 days</button>
               </div>
@@ -7296,7 +7296,7 @@
   }
 
   // active status filter (persists across search)
-  let custStatusFilter = '7d';
+  let custStatusFilter = 'all';
   // map-only filters
   let custZoneFilter = 'all';
   // client-side pagination
