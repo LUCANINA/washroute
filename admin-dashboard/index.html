@@ -9151,7 +9151,7 @@
       route = existing;
     } else {
       const { data: created, error } = await db.from('routes')
-        .insert({ name: templateName, date: dateStr, run_date: dateStr, status: 'scheduled', template_id: templateId, color: tmpl.color || '#3b82f6', driver_id: schedDriverId })
+        .insert({ name: templateName, run_date: dateStr, status: 'scheduled', template_id: templateId, color: tmpl.color || '#3b82f6', driver_id: schedDriverId })
         .select('id, name, run_date, status')
         .single();
       if (error) { rowEl.style.opacity = ''; rowEl.style.pointerEvents = ''; showToast('Failed to create route: ' + error.message, 'error'); return; }
