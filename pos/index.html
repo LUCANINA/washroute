@@ -4897,9 +4897,12 @@
         throw new Error(t('No card reader configured on this device'));
       }
       // Single-action: create PI + push to reader in one edge-function call.
+      // session 144: include pos_shift_id so the edge function's
+      // validateOpenShift gate accepts the call (P0-5 lockdown).
       document.getElementById('terminalTitle').textContent = t('Sending to reader…');
       const r1 = await callEdge('stripe-terminal', {
         action: 'charge_reader',
+        pos_shift_id: shift?.shift_id,
         amount_cents: amountCents,
         reader_id: device.stripe_reader_id,
         description: 'WashRoute POS sale' + (currentCustomer ? ' — ' + (currentCustomer.name || currentCustomer.phone_cache) : ''),
@@ -4932,7 +4935,8 @@
 
       if (pendingPaymentIntentId) {
         try {
-          await callEdge('stripe-terminal', { action: 'cancel_payment', payment_intent_id: pendingPaymentIntentId });
+          // session 144: include pos_shift_id (P0-5 lockdown).
+          await callEdge('stripe-terminal', { action: 'cancel_payment', pos_shift_id: shift?.shift_id, payment_intent_id: pendingPaymentIntentId });
         } catch (_) { /* best effort */ }
         pendingPaymentIntentId = null;
       }
@@ -4950,7 +4954,8 @@
       _pollTimer = setInterval(async () => {
         elapsed += interval;
         try {
-          const data = await callEdge('stripe-terminal', { action: 'get_payment', payment_intent_id: piId });
+          // session 144: include pos_shift_id (P0-5 lockdown).
+          const data = await callEdge('stripe-terminal', { action: 'get_payment', pos_shift_id: shift?.shift_id, payment_intent_id: piId });
           console.log('[Terminal] Poll:', data.status);
 
           if (data.status === 'succeeded' || data.status === 'requires_capture') {
@@ -4983,11 +4988,12 @@
   async function cancelTerminalPayment() {
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     // First dismiss the prompt on the reader, then cancel the PaymentIntent.
+    // session 144: include pos_shift_id on every stripe-terminal call (P0-5 lockdown).
     if (device?.stripe_reader_id) {
-      try { await callEdge('stripe-terminal', { action: 'cancel_reader_action', reader_id: device.stripe_reader_id }); } catch (_) {}
+      try { await callEdge('stripe-terminal', { action: 'cancel_reader_action', pos_shift_id: shift?.shift_id, reader_id: device.stripe_reader_id }); } catch (_) {}
     }
     if (pendingPaymentIntentId) {
-      try { await callEdge('stripe-terminal', { action: 'cancel_payment', payment_intent_id: pendingPaymentIntentId }); } catch (_) {}
+      try { await callEdge('stripe-terminal', { action: 'cancel_payment', pos_shift_id: shift?.shift_id, payment_intent_id: pendingPaymentIntentId }); } catch (_) {}
       pendingPaymentIntentId = null;
     }
     closeAll();
