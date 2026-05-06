@@ -1,5 +1,51 @@
 # WashRoute — Project Notes
-*Last updated: May 6, 2026 — Session 144. **Aimee Eng tip-balance mystery → rack_order self-heal patch + Bentley merge + audit Check 12 false-positive fix.** Two carryover items from session 143's morning rounds tech debt closed cleanly; one customer-reported "$5 balance" investigation surfaced + root-caused + structurally fixed.*
+*Last updated: May 6, 2026 — Session 144. **System-wide QA + security audit + P0 sweep.** Started with two carryover bugs (Bentley merge + Aimee Eng's $5 ghost tip), grew into a full audit of all 4 apps + edge functions + DB + repo hygiene, concluded with 7 of 10 P0 fixes shipped today and 3 documented for next session.*
+
+## Session 144 P0 status
+
+**Done today (7):**
+- ✅ **P0-1** — 7 admin-only SECURITY DEFINER RPCs gated with `is_admin()` check (delete_orders, delete_address, delete_preference, delete_service_zone, update_preference_sort_order, update_service_sort_order, upsert_preference, upsert_service_zone). Were previously callable by any signed-in user.
+- ✅ **P0-2** — RLS enabled on `sms_optout_restore_log` (2,927 rows of opt-out audit data with phone references).
+- ✅ **P0-3** — verified the 3 subscription edge functions (cancel-subscription / pause-subscription / resume-subscription) already have `assertOwnership` in production (added session 134). The QA agent's "no source in repo = unauth" assumption was wrong. Source pulled into repo for git audit trail.
+- ✅ **P0-5** — `stripe-terminal` v14 deployed: `validateOpenShift` now applied to all 9 actions (was: only refund/delete/list). connection_token, create_payment, cancel_payment, charge_reader, get_payment, cancel_reader_action all gated. Paired POS client change in `pos/index.html` adds `pos_shift_id` to all 4 stripe-terminal callEdge sites. iPad needs hard refresh after Vercel auto-deploy.
+- ✅ **P0-6** — voicemails table policies tightened to `is_admin()` only (was: any authenticated user could read every voicemail row + transcript). Storage bucket "Public can read voicemails" policy deferred to P1 — needs paired admin signed-URL flow.
+- ✅ **P0-9** — 5 deployed-but-not-in-repo edge functions pulled (`send-sms`, `send-email`, `send-order-notification`, `twilio-webhook`, `get-stripe-fees`). Audit verdicts: send-sms ✓ has staff-role auth, twilio-webhook ✓ verifies HMAC signature, get-stripe-fees ✓ has requireAdmin. send-email and send-order-notification have NO auth — flagged but auth-add deferred to next session because callers (DB triggers via pg_net + admin client + sibling edge functions) need to be mapped together to avoid breaking customer notifications mid-deploy.
+- ✅ **P0-10** — credit ledger reconciled. 82 customers had `customers.credits > 0` with zero `customer_transactions` rows, totaling $3,645.65 of phantom credit balance. Inserted matching `credit_add` rows with description "Reconciliation backfill — historical credit balance pre-session-128 ledger" and `payment_method='reconciliation'` (queryable flag). Snapshot in `_archive._phantom_credit_backfill_20260506`. Invariant trigger to prevent recurrence deferred — needs careful SECURITY DEFINER design.
+
+**Deferred — clear next-session plan in `QA-SECURITY-REPORT-2026-05-06.md`:**
+- ❌ **P0-4** — `charge-order` v40: confirmed unauth (just accepts `{ orderId }`). Needs `requireAdmin` gate paired with caller updates: admin client (`rack_order` success path) needs to send admin JWT; `stripe-webhook` needs to send service_role bearer. Risky because it's the money path — careful caller audit + staged deploy needed.
+- ❌ **P0-7** — `cloudprnt` v22: confirmed no auth (only `mac` query param routing, no shared secret). Needs paired schema change to add hashed `printer_token` column on `printers` table + `X-Printer-Token` header validation. Each printer needs to be reconfigured with a token. Coordinate with the iPads.
+- ❌ **P0-8** — `send-receipt` v29: confirmed no auth (just accepts `{ order_id }`, fires SendGrid receipt). Quick fix (mirror the `requireAdmin` pattern from get-stripe-fees) but didn't get to it this session. Admin client + `rack_order` success path are the only callers; both have admin JWT available.
+
+**Other session 144 work:**
+1. **Bentley Upper School duplicate merge** (carryover from session 143). Older record (Joanne Ludwig, 7 orders, on_account, profile linked) preserved; newer empty record (created May 4, 0 orders, duplicate address) deleted. Snapshot in `_archive._merge_backup_bentley_20260506_*`. Migration `session_144_merge_bentley_duplicate`.
+2. **Audit Check 12 customer-role filter** (carryover from session 143). `washroute-audit.skill` updated: Check 12 now joins profiles with `p.role = 'customer'` filter, dropping false positives for drivers/admins/pos_device. Surfaces 1 real candidate (cmshure@gmail.com) previously buried.
+3. **Aimee Eng order #3801** ($5 ghost tip). Manual heal: $5 tip applied from credits via apply_customer_credit_to_order, billing closed. Credits dropped $69.05 → $64.05. Migration `session_144_heal_aimee_eng_3801_tip` + snapshot in `_archive._heal_aimee_eng_3801_20260506`.
+4. **`rack_order` RPC self-heal patch** (root cause for #3). Tightened `v_already_charged` to exclude the `'credit_applied'` sentinel string. Old logic short-circuited to `already_charged` if the sentinel was set without `billing_status='paid'`, silently dropping tip-from-credit deductions. New logic: already-charged iff `billing_status='paid'` OR spi is a real (non-sentinel) Stripe PI. Self-healing for any future order in the same half-state. Migration `session_144_rack_order_strict_already_charged`.
+5. **Routes-`date` column drop fallout** (Jess Adamiak reschedule failure). Patched `admin-dashboard/index.html` line 9154 — `opCreateRouteAndSelect` was still inserting both `date` and `run_date`; removed the dropped `date:` field. Commit `eadf263`.
+6. **`washroute-migration-review` skill update** — added mandatory client-side column-grep audit (Audit 2) alongside the existing pg_proc audit (Audit 1). Lesson from #5: column-drop migrations need to grep all 4 apps + edge functions for the column name in `db.from(table).insert({ column: ... })` patterns, not just function bodies.
+7. **Comprehensive system audit** — 7 parallel agents (RLS+advisors, edge functions, admin QA, customer QA, driver+POS QA, data integrity sweep, secret leakage). 10 P0, 14 P1, 15 P2, 6 P3 findings. Full ranked report at `QA-SECURITY-REPORT-2026-05-06.md` with file:line + remediation per finding. Independent spot-checking on highest-severity items.
+
+**Tech debt added by this session:**
+- Storage bucket `voicemails` "Public can read" policy still active. Admin clients use direct URLs today — need to switch to signed URLs before tightening that policy.
+- Storage bucket `stop-photos` has overly broad anon ALL policy (P2-1). Anon DELETE on every photo means anyone can wipe proof-of-delivery; tighten to anon INSERT+SELECT only.
+- `is_admin()` includes `manager` and `laundry_tech` (P2-1). Decide whether laundry techs should have admin-RPC access; if not, split into `is_admin()` and `is_staff()`.
+- 4 P1 RLS scope-too-wide policies left (`routes`, `route_stops`, `drivers`, `order_events` insert with arbitrary actor_name).
+- 286 phone-format mismatches between `profiles.phone` and `auth.users.phone` (same number, different normalization).
+- 50 customers with `stripe_customer_id` set but no card on file.
+- 76 in-progress routes with stop/route driver mismatch (driver app may attribute to wrong person).
+- GPS location data retention is indefinite; need a daily cron to delete `driver_locations` rows > 7 days.
+- Recurring chain auto-generation skipping 5.6% of expected weekly orders for B2B accounts (Kidango × 10 sites, Kasa Hotels, etc.). Inspect `trg_create_recurring_order_fn`.
+- `prepare-phone-otp` does destructive `auth.admin.updateUserById` based on phone-only match (P1-4 in report). Move to post-OTP verification.
+- `claim_existing_customer` accepts arbitrary `p_profile_id` without `auth.uid()` check (P1-3). Add the guard.
+- Order #3556 ghost (NULL customer_id, status=delivered). Delete + add NOT NULL constraint on `orders.customer_id`.
+- Credit ledger invariant trigger not yet added — backfill closed today's gap, but a future code path could reintroduce it.
+
+**Commits this session:** `f54e0ba` (audit + Aimee + Bentley + Check 12), `eadf263` (Jess Adamiak routes-`date` fix), `f0b40ec` (migration-review skill update), `0b83ef2` (QA security report), `b65c41d` (P0 sweep phase 1: DB locks + POS shift validation), `[next]` (this notes update). DB migrations: 6 (`session_144_merge_bentley_duplicate`, `session_144_heal_aimee_eng_3801_tip`, `session_144_rack_order_strict_already_charged`, `session_144_p0_admin_rpc_gates`, `session_144_p0_enable_rls_sms_optout_log`, `session_144_p0_lock_voicemails_to_admin`, `session_144_p0_10_credit_ledger_backfill`). Edge function deploys: stripe-terminal v14.
+
+---
+
+*Prior: May 6, 2026 — Session 144 (early). **Aimee Eng tip-balance mystery → rack_order self-heal patch + Bentley merge + audit Check 12 false-positive fix.** Two carryover items from session 143's morning rounds tech debt closed cleanly; one customer-reported "$5 balance" investigation surfaced + root-caused + structurally fixed.*
 
 **1. Morning rounds.** All 21 audit checks run; 1 P0 (11 unpaid delivered orders, same outreach class as session 83 — flagged for later this session, not addressed today) + several P1 carryovers from session 143's tech debt list. Photo capture rate +2.2pp (97.5% vs 95.3% baseline). No silent reschedules, no cron failures, no zone polygon regressions, no orphaned route stops. Audit Check 12 surfaced 3 "orphan auth users" — all 3 false positives (Jose driver, David admin, Nathie driver). Carryover items resolved this session: ⚠️ #2 (Bentley dup) + 📋 #6 (Check 12 false positives). Carryover items NOT addressed today: 🔴 11 unpaid delivered orders ($1,636 total, no card on file — needs `outreach-sms.js`/`outreach-email.js` sweep), ⚠️ Jennifer Lamphere #3078 desync, ⚠️ Carol Stevenson #3399+#3750 dual May 7 orders, ⚠️ Order #3556 walk-in launderer attribution gap, ⚠️ Nit Pixies #3899+#3909 dual May 11 orders (NEW), 📋 4 zone-overlap pairs.
 
