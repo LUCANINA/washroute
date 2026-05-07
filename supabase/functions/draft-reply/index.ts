@@ -42,16 +42,31 @@ const CORS = {
 };
 
 // ── Intent detection ──
+// session 144 accuracy pass 2: order tightened so new_order is checked
+// BEFORE reschedule_request — reschedule patterns kept overshooting onto
+// new-pickup requests like "I'd like a pickup tomorrow" (the loose
+// `pickup.*day` triggered on "pickup for tomorrow... Monday"). Reschedule
+// regex tightened to require an explicit "move/reschedule/change" verb on
+// an existing order; ambiguous terms like bare "earlier"/"later" or
+// "can you pick up" removed.
 function detectIntent(msg: string): string {
   const m = msg.toLowerCase();
   if (/price|cost|how much|rate|per bag|per pound|fee|charge|pricing|breakdown/.test(m))  return 'pricing_inquiry';
-  if (/reschedule|move my|change.*time|change.*date|different day|different time|postpone|earlier|later|can you pick up|pickup.*day|move.*pickup|move.*delivery/.test(m)) return 'reschedule_request';
   if (/where is|where.*order|status|update|eta|when.*arriv|how long|still coming|on the way|pick.*up.*yet|picked up|delivered|my order|my laundry|tracking/.test(m)) return 'status_check';
   if (/pay|payment|card|charge|bill|invoice|refund|credit|billing|transaction/.test(m))   return 'payment_issue';
   if (/problem|issue|wrong|missing|lost|damage|complain|never|didn.t|not happy|upset|frustrated|mistake|error/.test(m)) return 'complaint';
   if (/cancel|stop service|don.t need|no longer|end my/.test(m))                           return 'cancellation';
   if (/skip|no laundry this|not this week|don.t have laundry|no pickup this|away|out of town|traveling|vacation|pause/.test(m)) return 'skip_request';
-  if (/new order|book|schedule.*pickup|want.*pickup|need.*pickup|sign.*up|add.*address/.test(m)) return 'new_order';
+
+  // new_order: any phrase that signals a fresh booking. Checked BEFORE
+  // reschedule so polite request phrasings ("I'd like to place a pickup")
+  // route correctly even when the body also mentions specific days that
+  // would otherwise trip the reschedule regex.
+  if (/\bnew order\b|\bbook\b|schedule.*pickup|want.*pickup|need.*pickup|sign.*up|add.*address|place.*pickup|like.*pickup|like.*to.*schedule|can you (do|come)|set up.*pickup/.test(m)) return 'new_order';
+
+  // reschedule_request: explicit move/change verb required.
+  if (/reschedule|postpone|move (my|the).*(pickup|delivery|order)|change (my|the).*(pickup|delivery|order|time|date|day)|different (day|time) for (my|the)|push (my|the).*(pickup|delivery)/.test(m)) return 'reschedule_request';
+
   return 'general';
 }
 
