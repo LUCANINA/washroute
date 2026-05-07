@@ -3,3 +3,21 @@
 node_modules
 *.log
 washroute.skill
+
+# session 144 — repo hygiene tightening (per QA-SECURITY-REPORT P1-14)
+# Secrets — must never be committed
+.env
+.env.*
+*.key
+*.pem
+*.p12
+
+# IDE / editor configs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temp/scratch files (skill snapshot artifacts, browser zip downloads, etc.)
+zi[A-Za-z0-9]*
+*.tmp
