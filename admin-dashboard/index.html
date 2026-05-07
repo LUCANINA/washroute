@@ -12358,7 +12358,11 @@ ${oneCopy}
   let _pendingInboxAction = null;
 
   // ── renderInboxActionCard — show/hide the action suggestion card above the composer ──
-  // action = null clears the card. action = { type, label, ... } renders it.
+  // action = null clears the card. action = { type, label, rationale?, ... } renders it.
+  // session 144: extended for two new action types — place_pickup_order + reschedule_order
+  // proposed by Claude tool-calling. Cards now also surface a one-line rationale when
+  // the AI provides one, so the admin can see what in the conversation drove the
+  // proposal before clicking Confirm.
   function renderInboxActionCard(action) {
     const slot = document.getElementById('inbox-action-card-slot');
     if (!slot) return;
@@ -12367,15 +12371,25 @@ ${oneCopy}
 
     if (!action) { slot.innerHTML = ''; return; }
 
-    const ICONS = { skip: '⏭', reschedule: '📅' };
-    const icon  = ICONS[action.type] || '⚡';
+    const ICONS = {
+      skip: '⏭',
+      reschedule_order: '📅',
+      place_pickup_order: '📦',
+    };
+    const icon = ICONS[action.type] || '⚡';
+
+    // Subtitle: AI-supplied rationale (one sentence) when present, otherwise the
+    // generic "Admin confirms" hint.
+    const subtitle = action.rationale && action.rationale.trim().length > 0
+      ? esc(action.rationale.trim())
+      : 'Admin confirms — reply pre-filled, you send';
 
     slot.innerHTML = `
       <div class="inbox-action-card">
         <span class="action-icon">${icon}</span>
         <span class="action-label">
           ${esc(action.label)}
-          <small>Admin confirms — reply pre-filled, you send</small>
+          <small>${subtitle}</small>
         </span>
         <button class="btn-action-confirm" onclick="confirmInboxAction()">✓ Confirm</button>
         <button class="btn-action-dismiss" onclick="renderInboxActionCard(null)" title="Dismiss">×</button>
@@ -12390,6 +12404,8 @@ ${oneCopy}
     const slot = document.getElementById('inbox-action-card-slot');
     const confirmBtn = slot?.querySelector('.btn-action-confirm');
     if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = '…'; }
+
+    const actorName = currentUserDisplayName || currentUserFirstName || 'Admin';
 
     try {
       if (action.type === 'skip') {
@@ -12415,8 +12431,45 @@ ${oneCopy}
         }
 
         showToast(`Order #${action.order_number} skipped ✓`, 'success');
+
+      } else if (action.type === 'place_pickup_order') {
+        // session 144 agent phase 1: route through place_pickup_order_for_customer RPC.
+        // Server-side admin gate (is_admin()) + auto_route_order trigger handle routing.
+        const { data: rpcRes, error } = await db.rpc('place_pickup_order_for_customer', {
+          p_customer_id:        action.customer_id,
+          p_pickup_date:        action.pickup_date,
+          p_pickup_window:      action.pickup_window,
+          p_bags:               action.bags,
+          p_same_day_delivery:  !!action.same_day_delivery,
+          p_notes:              action.notes || null,
+          p_actor_name:         actorName,
+        });
+        if (error) throw new Error(error.message);
+
+        showToast(`Order #${rpcRes?.order_number || ''} created ✓`, 'success');
+
+        // Refresh orders cache + UI in the background so the new order shows up
+        // immediately if the admin switches tabs.
+        if (typeof loadOrders === 'function') { try { loadOrders(); } catch(_) {} }
+
+      } else if (action.type === 'reschedule_order') {
+        // session 144 agent phase 1: route through reschedule_order_to_window RPC,
+        // which delegates to reschedule_order_leg (session 135) after resolving the
+        // template + sub-window from the AM/PM/evening label.
+        const { data: rpcRes, error } = await db.rpc('reschedule_order_to_window', {
+          p_order_id:    action.order_id,
+          p_leg:         action.leg,
+          p_new_date:    action.new_date,
+          p_new_window:  action.new_window,
+          p_actor_name:  actorName,
+        });
+        if (error) throw new Error(error.message);
+
+        showToast(`Order #${action.order_number} ${action.leg} moved ✓`, 'success');
+
+        if (typeof loadOrders === 'function') { try { loadOrders(); } catch(_) {} }
+
       } else {
-        // Unknown action type — should never happen in phase 1
         throw new Error('Unknown action type: ' + action.type);
       }
 
