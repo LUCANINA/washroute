@@ -200,8 +200,10 @@ async function fetchZoneAvailability(customerId: string): Promise<{ summary: str
     }
 
     // 3. Format as a list the model can reason over.
-    // Postgres EXTRACT(DOW): 0=Sun, 1=Mon, ... 6=Sat. WashRoute schedule_days uses same.
-    const DOW_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    // schedule_days convention in WashRoute: 0=Mon, 1=Tue, ... 6=Sun.
+    // (Matches ISODOW-1 used by auto_route_order, generate_route_runs, etc.)
+    // NOT Postgres EXTRACT(DOW) which is 0=Sun..6=Sat.
+    const DOW_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
     const labelOf = (start: string) => {
       const h = parseInt((start || '').slice(0, 2), 10);
       if (h < 12) return 'AM';
@@ -268,38 +270,46 @@ async function resolveAgentAction(
   const lastOrder = (orderContextRaw || [])[0];
   const defaultBags = (lastOrder && Number(lastOrder.total_bags) > 0) ? Number(lastOrder.total_bags) : null;
 
+  // session 144 v18: removed confirmation_draft from the tool schemas. Claude
+  // generates the action params + a rationale + an optional delivery_preference
+  // (raw text of what the customer asked for, if anything). The server then
+  // builds the confirmation_draft AFTER dry-run from a deterministic template
+  // using the ACTUAL resolved sub-window times. Eliminates the bug where the
+  // AI wrote the template's full window (e.g. "7-11 AM") while the routing
+  // engine books only the first sub-window (e.g. "7-9 AM"), and where the AI
+  // hallucinated phrases like "the next service day" instead of the actual
+  // delivery date.
   const tools = [
     {
       name: 'place_pickup_order',
-      description: 'Propose booking a NEW pickup for the customer. Use this when the customer is asking to schedule a fresh pickup (not modify an existing one). Defaults are filled from the customer profile (primary address, last service used). The proposal will be reviewed by the admin before it executes.',
+      description: 'Propose booking a NEW pickup for the customer. Defaults from customer profile. Reviewed by admin before execution.',
       input_schema: {
         type: 'object',
         properties: {
-          pickup_date:       { type: 'string', description: 'Pickup date in YYYY-MM-DD format, Pacific time. Must be today or in the future.' },
-          pickup_window:     { type: 'string', enum: ['AM','PM','evening'], description: 'AM = morning (before noon). PM = afternoon (12-5pm). evening = after 5pm.' },
-          bags:              { type: 'integer', minimum: 1, maximum: 30, description: 'Estimated number of bags. Use the customer\'s last order bag count if they did not specify.' },
-          same_day_delivery: { type: 'boolean', description: 'True only if customer explicitly asked for same-day. Default false.' },
-          notes:             { type: 'string', description: 'Special instructions if customer mentioned any (e.g. "leave at side door"). Empty string if none.' },
-          rationale:         { type: 'string', description: 'One sentence quoting or paraphrasing the part of the conversation that supports this proposal.' },
-          confirmation_draft:{ type: 'string', description: 'A short SMS reply (1-2 sentences) confirming the booking with specific date and window. Subdued and professional voice. No exclamation points.' }
+          pickup_date:        { type: 'string', description: 'YYYY-MM-DD, Pacific time. Must match a day in the available windows list.' },
+          pickup_window:      { type: 'string', enum: ['AM','PM','evening'] },
+          bags:               { type: 'integer', minimum: 1, maximum: 30 },
+          same_day_delivery:  { type: 'boolean' },
+          notes:              { type: 'string' },
+          rationale:          { type: 'string', description: 'One sentence explaining what in the conversation supports this proposal.' },
+          delivery_preference:{ type: 'string', description: 'If the customer asked for a specific delivery date or window the tool cannot directly book (e.g. "Monday evening"), record their preference here as a short phrase. The server uses it to write the confirmation message. Empty string if none.' }
         },
-        required: ['pickup_date','pickup_window','bags','rationale','confirmation_draft']
+        required: ['pickup_date','pickup_window','bags','rationale']
       }
     },
     {
       name: 'reschedule_order',
-      description: 'Propose MOVING an existing pickup or delivery to a different date and time window. Use this when the customer wants to change something already scheduled, not book something new.',
+      description: 'Propose MOVING an existing pickup or delivery. Must reference an order_id from the active_orders list.',
       input_schema: {
         type: 'object',
         properties: {
-          order_id:          { type: 'string', description: 'UUID from the active_orders list. Pick the order the customer is most likely referring to.' },
-          leg:               { type: 'string', enum: ['pickup','delivery'], description: 'Which leg to move. "pickup" if they want to change when laundry is collected, "delivery" if when it is returned.' },
-          new_date:          { type: 'string', description: 'New date in YYYY-MM-DD format, Pacific time.' },
-          new_window:        { type: 'string', enum: ['AM','PM','evening'] },
-          rationale:         { type: 'string', description: 'One sentence on what in the conversation supports this proposal.' },
-          confirmation_draft:{ type: 'string', description: 'Short SMS reply (1-2 sentences) confirming the reschedule with specific new date and window. Subdued and professional voice. No exclamation points.' }
+          order_id:    { type: 'string' },
+          leg:         { type: 'string', enum: ['pickup','delivery'] },
+          new_date:    { type: 'string' },
+          new_window:  { type: 'string', enum: ['AM','PM','evening'] },
+          rationale:   { type: 'string' }
         },
-        required: ['order_id','leg','new_date','new_window','rationale','confirmation_draft']
+        required: ['order_id','leg','new_date','new_window','rationale']
       }
     }
   ];
@@ -356,43 +366,40 @@ The user message lists the customer's zone's available pickup windows. You MUST 
 - delivery leg can be moved through 'ready_for_delivery'.
 - If two or more active orders match the customer's reference equally well, decline.
 
-## Confirmation draft style — END WITH A SOFT INVITE
+## You do NOT write the confirmation message
 
-- 1–3 sentences. Plain SMS text. No emojis, no markdown.
-- Use the customer's first name at the start.
-- COMMIT to the specific date and time window first.
-- If the customer mentioned a preference your proposal doesn't honor (e.g., they asked for Monday delivery but the auto-computed delivery is Saturday), briefly note what the system will do AND that they can ask for a change.
-- End with a soft invite to adjust, e.g., "Let us know if a different time works better." or "Reply if you'd like to change anything."
-- Subdued and professional. No exclamation points.
-- Do not sign off as "Family Laundry" or "the team".
+The confirmation SMS sent back to the customer is generated by the server AFTER your tool call, using the actual resolved pickup and delivery sub-window times from the routing engine. You only need to:
+
+1. Call the right tool with correct parameters.
+2. Provide a one-sentence rationale.
+3. For place_pickup_order: if the customer mentioned a delivery preference the tool can't directly book (e.g. "Monday evening", "delivered same day"), capture that as a short phrase in the delivery_preference field. The server will incorporate it into the confirmation. If the customer didn't mention any delivery preference, leave delivery_preference empty.
 
 ## Worked examples
 
-Example A — clear new pickup, no bags specified:
+Example A — clear new pickup with delivery preference:
   Available: Sun-Fri 07:00–11:00 (AM, Berkeley AM, turnaround 1d)
              Sun-Fri 18:00–22:00 (evening, Berkeley PM, turnaround 1d)
   Today: 2026-05-07 (Wed). default_bags from history: 1.
   Customer: "I'd like to place a pickup tomorrow morning, returning Monday evening."
   → Tool: place_pickup_order {
       pickup_date: "2026-05-08", pickup_window: "AM", bags: 1, same_day_delivery: false,
-      rationale: "Customer asked for tomorrow morning. Last order was 1 bag. Delivery on Monday is a customer preference; auto-computed delivery is Saturday — admin can adjust.",
-      confirmation_draft: "Hi David, pickup is set for Friday May 8 between 7-9 AM. Delivery will follow on the next service day; let us know if you'd prefer a specific delivery day and we'll adjust."
+      delivery_preference: "Monday evening",
+      rationale: "Customer asked for tomorrow morning pickup; last order was 1 bag. Customer also requested Monday evening delivery — captured for the server to mention in the confirmation."
     }
-  Note: even though the customer asked for "Monday evening" delivery and the tool can't directly book that, we still propose the pickup. The confirmation_draft acknowledges their delivery preference and invites adjustment.
+  Server will build a confirmation message using the resolved 7–9 AM sub-window and the actual auto-computed delivery date+time, plus a "you mentioned Monday evening — let us know if you'd like us to adjust" line.
 
 Example B — reschedule with single clear target:
-  Active orders: one scheduled pickup #3850 Wed AM. default_bags from history: 2.
+  Active orders: one scheduled pickup #3850 Wed AM.
   Customer: "Need to push my pickup to Friday morning"
   → Tool: reschedule_order {
       order_id: "<#3850 uuid>", leg: "pickup", new_date: "<Friday>", new_window: "AM",
-      rationale: "Move scheduled Wed AM pickup to Fri AM as requested.",
-      confirmation_draft: "Hi [name], your pickup is moved to Fri May 10, 7–9 AM. Reply if you'd like a different time."
+      rationale: "Move scheduled Wed AM pickup to Fri AM as requested."
     }
 
 Example C — ambiguous, decline:
   Active orders: 2 (one pickup #3801, one delivery #3850).
   Customer: "Can we change the time?"
-  → Do NOT call a tool. Two orders, no signal which one. Admin should ask.
+  → Do NOT call a tool. Two orders, no signal which one.
 
 Example D — day not available in zone:
   Available: Mon/Wed/Fri only.
@@ -404,9 +411,9 @@ Example E — vague timing:
   → Do NOT call a tool. No specific day to commit to.
 
 Example F — bag count missing AND no default:
-  default_bags from history: null.
+  default_bags: null.
   Customer: "Pickup tomorrow morning"
-  → Tool: place_pickup_order { ..., bags: 1, ... } with rationale noting "no order history; defaulting to 1 bag" and confirmation_draft mentioning "if you have more bags, let us know".
+  → Tool: place_pickup_order { pickup_date, pickup_window, bags: 1, delivery_preference: "" } with rationale "no order history; defaulting to 1 bag".
 
 Example G — hour-tweak that can't be expressed:
   Customer: "Can you come an hour earlier than usual?"
@@ -464,15 +471,16 @@ Propose at most one action by calling a tool, applying defaults where appropriat
       if (!/^\d{4}-\d{2}-\d{2}$/.test(args.pickup_date)) return null;
       if (args.pickup_date < todayPT()) return null;
       proposed = {
-        type:               'place_pickup_order',
-        customer_id:        customerId,
-        pickup_date:        args.pickup_date,
-        pickup_window:      args.pickup_window,
-        bags:               args.bags,
-        same_day_delivery:  !!args.same_day_delivery,
-        notes:              args.notes || null,
-        rationale:          args.rationale || '',
-        confirmation_draft: args.confirmation_draft || '',
+        type:                'place_pickup_order',
+        customer_id:         customerId,
+        pickup_date:         args.pickup_date,
+        pickup_window:       args.pickup_window,
+        bags:                args.bags,
+        same_day_delivery:   !!args.same_day_delivery,
+        notes:               args.notes || null,
+        rationale:           args.rationale || '',
+        delivery_preference: (args.delivery_preference || '').trim(),
+        // confirmation_draft built by server after dry-run, see below.
       };
     } else if (toolUse.name === 'reschedule_order') {
       if (!args.order_id || !args.new_date || !args.new_window || !args.leg) return null;
@@ -481,14 +489,14 @@ Propose at most one action by calling a tool, applying defaults where appropriat
       const target = activeOrders.find((o: any) => o.order_id === args.order_id);
       if (!target) return null;
       proposed = {
-        type:               'reschedule_order',
-        order_id:           target.order_id,
-        order_number:       target.order_number,
-        leg:                args.leg,
-        new_date:           args.new_date,
-        new_window:         args.new_window,
-        rationale:          args.rationale || '',
-        confirmation_draft: args.confirmation_draft || '',
+        type:         'reschedule_order',
+        order_id:     target.order_id,
+        order_number: target.order_number,
+        leg:          args.leg,
+        new_date:     args.new_date,
+        new_window:   args.new_window,
+        rationale:    args.rationale || '',
+        // confirmation_draft built by server after dry-run, see below.
       };
     } else {
       return null;
@@ -534,22 +542,53 @@ Propose at most one action by calling a tool, applying defaults where appropriat
   }
 
   // Embed resolved values into the action so the card shows what will actually
-  // be booked, not just what Claude proposed loosely.
+  // be booked, not just what Claude proposed loosely. ALSO build the
+  // confirmation_draft server-side from a deterministic template using the
+  // dry-run's actual resolved sub-window times — Claude no longer writes
+  // this string, so it can't hallucinate "the next service day" or use the
+  // template's full window when only a sub-window is booked.
   const r = dryRun.data || {};
+  const fname = customerFirstName || 'there';
+
   if (proposed.type === 'place_pickup_order') {
-    const startStr = fmtTimeShort(r.pickup_window_start);
-    const endStr   = fmtTimeShort(r.pickup_window_end);
-    const dateLabel = new Date(proposed.pickup_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ });
-    proposed.resolved_window     = `${startStr}–${endStr}`;
+    const pStart = fmtTimeShort(r.pickup_window_start);
+    const pEnd   = fmtTimeShort(r.pickup_window_end);
+    const pickupDateLabel = new Date(proposed.pickup_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ });
+    const pickupDayLong   = new Date(proposed.pickup_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: BIZ_TZ });
+
+    const dStart = fmtTimeShort(r.delivery_window_start);
+    const dEnd   = fmtTimeShort(r.delivery_window_end);
+    const deliveryDateLong = r.delivery_window_start
+      ? new Date(r.delivery_window_start).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: BIZ_TZ })
+      : '';
+
+    proposed.resolved_window     = `${pStart}–${pEnd}`;
     proposed.resolved_template   = r.template_name || '';
-    proposed.label               = `New pickup — ${dateLabel}, ${startStr}–${endStr}, ${proposed.bags} bag${proposed.bags !== 1 ? 's' : ''}${proposed.same_day_delivery ? ' (same-day)' : ''}${r.template_name ? ` · ${r.template_name}` : ''}`;
+    proposed.label               = `New pickup — ${pickupDateLabel}, ${pStart}–${pEnd}, ${proposed.bags} bag${proposed.bags !== 1 ? 's' : ''}${proposed.same_day_delivery ? ' (same-day)' : ''}${r.template_name ? ` · ${r.template_name}` : ''}`;
+
+    // Build confirmation_draft from template using ACTUAL resolved values
+    let msg = `Hi ${fname}, pickup is set for ${pickupDayLong}, ${pStart}–${pEnd}.`;
+    if (deliveryDateLong) {
+      msg += ` Delivery is scheduled for ${deliveryDateLong}, ${dStart}–${dEnd}.`;
+    }
+    const pref = (proposed.delivery_preference || '').trim();
+    if (pref) {
+      msg += ` You mentioned ${pref} for delivery — let us know if you'd like us to adjust.`;
+    } else {
+      msg += ` Reply if you'd like to change anything.`;
+    }
+    proposed.confirmation_draft = msg;
   } else {
     const startStr = fmtTimeShort(r.new_window_start);
     const endStr   = fmtTimeShort(r.new_window_end);
     const dateLabel = new Date(proposed.new_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ });
+    const dateLong  = new Date(proposed.new_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: BIZ_TZ });
+
     proposed.resolved_window     = `${startStr}–${endStr}`;
     proposed.resolved_template   = r.new_route_name || '';
     proposed.label               = `Move ${proposed.leg} of #${proposed.order_number} → ${dateLabel}, ${startStr}–${endStr}${r.new_route_name ? ` · ${r.new_route_name}` : ''}`;
+
+    proposed.confirmation_draft = `Hi ${fname}, your ${proposed.leg} is moved to ${dateLong}, ${startStr}–${endStr}. Reply if you'd like a different time.`;
   }
 
   return proposed;
