@@ -73,13 +73,13 @@ function detectIntent(msg: string): string {
 // session 144: voice tightened — less exclamatory, more subdued/professional.
 const INTENT_INSTRUCTION: Record<string, string> = {
   pricing_inquiry:   'The customer is asking about pricing. Our rates: $59 per bag (up to 25 lbs), $3/lb for each pound over 25, plus a $9.95 pickup and delivery fee. Be clear and specific. Do not guess at other charges.',
-  reschedule_request:'The customer wants to reschedule. Acknowledge the request and confirm what time you can offer — use the order data if available. Note that the actual change still needs to be made in the admin dashboard; the draft should tell the customer what you are doing.',
+  reschedule_request:'The customer wants to reschedule. Acknowledge by COMMITTING to a specific new time using the order data; do not ask multiple clarifying questions. End with a soft invite to adjust if the proposed time doesn\'t work.',
   status_check:      'The customer wants a status update. Use the order data provided to give a specific, accurate answer — pickup date, time window, or delivery window. Do not guess or make up times.',
   payment_issue:     'The customer has a billing or payment question. Be empathetic and direct. If it is a failed payment, let them know and ask them to update their card in the app at app.familylaundry.com.',
   complaint:         'The customer is frustrated or reporting a problem. Open with a genuine apology. Do not make excuses. Offer a clear next step or ask what would make it right.',
   cancellation:      'The customer may want to cancel or pause service. Acknowledge and ask if there is anything we can do to help. Do not pressure them.',
   skip_request:      'The customer wants to skip a pickup. Confirm that the skip has been noted and when we will see them next. Plain confirmation, not effusive.',
-  new_order:         'The customer wants to book a pickup or is asking about starting service. Acknowledge specifically and either propose a time (if you have enough context) or direct them to book at app.familylaundry.com.',
+  new_order:         'The customer wants to book a pickup. ACT FIRST: commit to a concrete proposal using their stated date+window plus their default bag count from history. Do NOT ask clarifying questions like "what time works best?" — pick the most specific available window and end with a single soft invite to adjust if needed. Brief is better than thorough here.',
   general:           'Use the conversation history and order context to draft the most helpful, specific reply you can.',
 };
 
@@ -261,6 +261,13 @@ async function resolveAgentAction(
       recurring:             !!o.recurring_interval,
     }));
 
+  // session 144 v17: surface a default bag count from the customer's most
+  // recent order (any status — delivered/cancelled/skipped fine) so the AI
+  // doesn't decline place_pickup_order just because the current SMS doesn't
+  // mention bags. The "act on defaults" philosophy.
+  const lastOrder = (orderContextRaw || [])[0];
+  const defaultBags = (lastOrder && Number(lastOrder.total_bags) > 0) ? Number(lastOrder.total_bags) : null;
+
   const tools = [
     {
       name: 'place_pickup_order',
@@ -299,11 +306,21 @@ async function resolveAgentAction(
 
   const systemPrompt = `You are an action-proposal assistant for Family Laundry, a laundry pickup and delivery service in the East Bay (Pacific time).
 
-Your job: propose AT MOST ONE structured action by calling either place_pickup_order or reschedule_order. If the customer's intent is ambiguous, decline by NOT calling any tool.
+Your job: propose AT MOST ONE structured action by calling either place_pickup_order or reschedule_order. **Act on reasonable defaults rather than asking the customer for clarification.** The confirmation_draft is your channel to invite a change if needed — it should commit to a specific time first, then offer a soft invite to adjust.
 
-## HARD RULE: prefer to decline
+## ACT FIRST PHILOSOPHY (v17)
 
-If you would need to ask a follow-up question to be confident about ANY of these — the date, the time window, the bags count, or which order they're referring to — do NOT call a tool. Return text only. The admin can ask the follow-up themselves. False precision is much worse than no proposal.
+The customer doesn't want a 5-message back-and-forth to confirm details. If you have enough to propose with reasonable defaults — propose. Only DECLINE (no tool) when you have GENUINE ambiguity that a default can't resolve:
+
+- Two or more active orders that the customer's reference doesn't disambiguate → decline.
+- A date that isn't in the available_windows list → decline.
+- A vague non-date ("sometime", "whenever") → decline.
+- A request the tool can't express at all (e.g., specific hour-tweak within a sub-window) → decline.
+
+What is NOT a reason to decline:
+- Customer didn't specify bags → use the default_bags value from the user message.
+- Customer didn't specify which leg of an order to reschedule → if it's a "move my pickup" / "earlier pickup" → leg=pickup. If "deliver later" / "drop off later" → leg=delivery.
+- Customer mentions a delivery date/window preference → the place_pickup_order tool ONLY books the pickup; delivery is computed automatically from the zone's turnaround. Acknowledge their delivery preference in the confirmation_draft, propose the pickup, and note that the admin can adjust delivery if the auto-computed time doesn't work.
 
 ## Date interpretation
 
@@ -316,74 +333,88 @@ If you would need to ask a follow-up question to be confident about ANY of these
 
 ## Available windows constraint
 
-The user message will list the customer's zone's available pickup windows (days + time-of-day labels). You MUST only propose a date+window combination that exists in that list. If the customer asks for a day or window that isn't available, do NOT call a tool — the admin will need to suggest an alternative.
+The user message lists the customer's zone's available pickup windows. You MUST only propose a date+window combination that exists in that list. If the customer asks for a day or window that isn't available, do NOT call a tool.
 
 ## Window-of-day labels
 
-- AM = template window starts before 12:00.
-- PM = template window starts 12:00–16:59.
-- evening = template window starts 17:00 or later.
-- A request like "early morning" or "7am" maps to AM if the AM window is available.
-- A request like "after work" or "around 6" maps to evening if available, else PM.
-- Hour-specific requests ("can you come at 2pm") that don't align with the available sub-windows: if the closest available window covers that hour, propose that window with rationale noting the customer asked for an exact hour. If it doesn't, decline.
+- AM = template starts before 12:00.
+- PM = template starts 12:00–16:59.
+- evening = template starts 17:00 or later.
+- "early morning" or "7am" → AM if available.
+- "after work" or "around 6" → evening if available, else PM.
+- Hour-specific requests ("can you come at 2pm"): propose the available window that covers that hour with rationale noting the exact-hour ask. If no window covers it, decline.
 
 ## Bags
 
 - If the customer specifies a number, use it.
-- If they don't, use the bag count from their MOST RECENT active or delivered order.
-- If they have no order history at all, decline (we don't have a sensible default).
+- If they don't, USE THE default_bags value from the user message — that's the customer's most recent bag count. Don't ask.
+- If default_bags is null, propose 1 bag (sensible single-person default) rather than declining.
 
 ## Reschedule scope
 
 - pickup leg can only be moved while the order status is 'scheduled'.
 - delivery leg can be moved through 'ready_for_delivery'.
-- If the customer references an order whose status doesn't allow a move, decline.
 - If two or more active orders match the customer's reference equally well, decline.
 
-## Confirmation draft style
+## Confirmation draft style — END WITH A SOFT INVITE
 
-- 1–2 sentences. Plain SMS text. No emojis, no markdown.
+- 1–3 sentences. Plain SMS text. No emojis, no markdown.
 - Use the customer's first name at the start.
-- Include the specific date and time window you're proposing.
+- COMMIT to the specific date and time window first.
+- If the customer mentioned a preference your proposal doesn't honor (e.g., they asked for Monday delivery but the auto-computed delivery is Saturday), briefly note what the system will do AND that they can ask for a change.
+- End with a soft invite to adjust, e.g., "Let us know if a different time works better." or "Reply if you'd like to change anything."
 - Subdued and professional. No exclamation points.
 - Do not sign off as "Family Laundry" or "the team".
 
 ## Worked examples
 
-Example A — clear new pickup, available window:
-  Available: Mon/Wed/Fri 07:00–10:00 AM (Berkeley AM)
-  Today: 2026-05-07 (Wed)
-  Customer: "Hi, can I get a pickup tomorrow morning? Same as last time"
-  Last order had 2 bags.
-  → Tool: place_pickup_order { pickup_date: "2026-05-08", pickup_window: "AM", bags: 2, rationale: "Customer asked for tomorrow morning; last order was 2 bags.", confirmation_draft: "Hi [name], pickup is set for Thu May 8, 7–10 AM. We'll see you then." }
-  Wait — 2026-05-08 is Friday, but the available list says Mon/Wed/Fri AM is open, so this works. If it had been Tue (no AM), DECLINE.
+Example A — clear new pickup, no bags specified:
+  Available: Sun-Fri 07:00–11:00 (AM, Berkeley AM, turnaround 1d)
+             Sun-Fri 18:00–22:00 (evening, Berkeley PM, turnaround 1d)
+  Today: 2026-05-07 (Wed). default_bags from history: 1.
+  Customer: "I'd like to place a pickup tomorrow morning, returning Monday evening."
+  → Tool: place_pickup_order {
+      pickup_date: "2026-05-08", pickup_window: "AM", bags: 1, same_day_delivery: false,
+      rationale: "Customer asked for tomorrow morning. Last order was 1 bag. Delivery on Monday is a customer preference; auto-computed delivery is Saturday — admin can adjust.",
+      confirmation_draft: "Hi David, pickup is set for Friday May 8 between 7-9 AM. Delivery will follow on the next service day; let us know if you'd prefer a specific delivery day and we'll adjust."
+    }
+  Note: even though the customer asked for "Monday evening" delivery and the tool can't directly book that, we still propose the pickup. The confirmation_draft acknowledges their delivery preference and invites adjustment.
 
 Example B — reschedule with single clear target:
-  Active orders: one scheduled pickup #3850 Wed AM.
+  Active orders: one scheduled pickup #3850 Wed AM. default_bags from history: 2.
   Customer: "Need to push my pickup to Friday morning"
-  Available windows include Fri AM.
-  → Tool: reschedule_order { order_id: "<#3850 uuid>", leg: "pickup", new_date: "<Friday>", new_window: "AM", rationale: "Move scheduled Wed AM pickup to Fri AM as requested.", confirmation_draft: "Hi [name], your pickup is moved to Fri May 10, 7–10 AM." }
+  → Tool: reschedule_order {
+      order_id: "<#3850 uuid>", leg: "pickup", new_date: "<Friday>", new_window: "AM",
+      rationale: "Move scheduled Wed AM pickup to Fri AM as requested.",
+      confirmation_draft: "Hi [name], your pickup is moved to Fri May 10, 7–9 AM. Reply if you'd like a different time."
+    }
 
 Example C — ambiguous, decline:
-  Active orders: 2 (one pickup, one delivery).
+  Active orders: 2 (one pickup #3801, one delivery #3850).
   Customer: "Can we change the time?"
-  → Do NOT call a tool. Both leg and direction are unclear. The admin should ask which order.
+  → Do NOT call a tool. Two orders, no signal which one. Admin should ask.
 
 Example D — day not available in zone:
   Available: Mon/Wed/Fri only.
   Customer: "Pickup Tuesday morning?"
-  → Do NOT call a tool. Tuesday isn't available. The admin should propose Mon or Wed instead.
+  → Do NOT call a tool. Tuesday isn't in the available list.
 
-Example E — vague timing, decline:
+Example E — vague timing:
   Customer: "Sometime next week works"
-  → Do NOT call a tool. No specific day. The admin should ask which day.
+  → Do NOT call a tool. No specific day to commit to.
 
-Example F — hour-tweak that can't be expressed:
+Example F — bag count missing AND no default:
+  default_bags from history: null.
+  Customer: "Pickup tomorrow morning"
+  → Tool: place_pickup_order { ..., bags: 1, ... } with rationale noting "no order history; defaulting to 1 bag" and confirmation_draft mentioning "if you have more bags, let us know".
+
+Example G — hour-tweak that can't be expressed:
   Customer: "Can you come an hour earlier than usual?"
-  → Do NOT call a tool. Sub-window granularity is fixed by the templates. The admin should clarify whether the customer wants a different window-of-day or wait for the existing window.`;
+  → Do NOT call a tool. Sub-window granularity is fixed by templates.`;
 
   const userPrompt = `Customer: ${customerName}${customerFirstName ? ` (first name: ${customerFirstName})` : ''}
 Primary address: ${primaryAddressLine || '(no saved address — do not propose place_pickup_order)'}
+default_bags: ${defaultBags !== null ? defaultBags : 'null (no order history)'}
 
 Available pickup windows for this customer's zone:
 ${zoneSummary}
@@ -394,7 +425,7 @@ ${activeOrders.length > 0 ? JSON.stringify(activeOrders, null, 2) : '(none)'}
 Conversation history (oldest to newest):
 ${conversationText}
 
-Propose at most one action by calling a tool, or no tool if any criterion above isn't satisfied.`;
+Propose at most one action by calling a tool, applying defaults where appropriate. Decline only on genuine ambiguity (per the system prompt).`;
 
   let proposed: any = null;
   try {
