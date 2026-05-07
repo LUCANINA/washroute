@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL') ?? '';
 const SVC_KEY       = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+const ANON_KEY      = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 const ANTHROPIC_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? '';
 const BIZ_TZ        = 'America/Los_Angeles';
 
@@ -14,6 +15,24 @@ const dbHeaders: Record<string, string> = {
 async function dbGet(path: string) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: dbHeaders });
   return r.json();
+}
+
+// Call an RPC as the admin user (passes their JWT through). Required so the
+// RPC's is_admin() guard succeeds. service_role bypasses RLS but auth.uid()
+// is NULL under it, so is_admin() returns false.
+async function callRpcAsAdmin(adminJwt: string, fnName: string, params: any): Promise<{ ok: boolean; data: any; status: number }> {
+  if (!adminJwt) return { ok: false, data: { error: 'no admin jwt' }, status: 401 };
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fnName}`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${adminJwt}`,
+      'apikey':        ANON_KEY,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify(params),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, data, status: res.status };
 }
 
 const CORS = {
@@ -60,6 +79,13 @@ function fmtWindow(s: string, e: string): string {
   try {
     const fmt = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ }).replace(':00', '').toLowerCase();
     return `${fmt(new Date(s))}–${fmt(new Date(e))}`;
+  } catch { return ''; }
+}
+
+function fmtTimeShort(iso: string): string {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: BIZ_TZ }).replace(':00', '').toLowerCase();
   } catch { return ''; }
 }
 
@@ -138,10 +164,58 @@ async function resolveSkipAction(customerId: string, customerFirstName: string):
   }
 }
 
+// ── Pull customer's zone + active templates for prompt grounding ──
+// The AI needs to know what windows actually exist for the customer's zone so
+// it doesn't propose dates+windows that have no matching route template.
+async function fetchZoneAvailability(customerId: string): Promise<{ summary: string; zoneFound: boolean }> {
+  try {
+    // 1. Most recent zone_id from this customer's orders
+    const rows = await dbGet(
+      `orders?customer_id=eq.${customerId}&zone_id=not.is.null&order=created_at.desc&limit=1&select=zone_id`
+    );
+    const zoneId = Array.isArray(rows) && rows[0]?.zone_id;
+    if (!zoneId) return { summary: '(zone not yet established — do not call place_pickup_order until zone is confirmed)', zoneFound: false };
+
+    // 2. Active templates for the zone
+    const tmpls = await dbGet(
+      `route_templates?zone_id=eq.${zoneId}&is_active=eq.true&order=window_start&select=name,window_start,window_end,arrival_window_hours,schedule_days,turnaround_days,turnaround_hours`
+    );
+    if (!Array.isArray(tmpls) || tmpls.length === 0) {
+      return { summary: '(no active templates for this customer\'s zone — do not call place_pickup_order or reschedule_order)', zoneFound: true };
+    }
+
+    // 3. Format as a list the model can reason over.
+    // Postgres EXTRACT(DOW): 0=Sun, 1=Mon, ... 6=Sat. WashRoute schedule_days uses same.
+    const DOW_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const labelOf = (start: string) => {
+      const h = parseInt((start || '').slice(0, 2), 10);
+      if (h < 12) return 'AM';
+      if (h < 17) return 'PM';
+      return 'evening';
+    };
+    const lines = tmpls.map((t: any) => {
+      const days = (t.schedule_days || []).map((d: number) => DOW_NAMES[d]).join('/');
+      const sub = t.arrival_window_hours || 3;
+      return `- ${days}, ${t.window_start.slice(0,5)}–${t.window_end.slice(0,5)} (sub-window ${sub}h, label "${labelOf(t.window_start)}", route "${t.name}", turnaround ${t.turnaround_days || 1}d${t.turnaround_hours ? ` or ${t.turnaround_hours}h same-day` : ''})`;
+    });
+    return { summary: lines.join('\n'), zoneFound: true };
+  } catch (e) {
+    console.warn('[draft-reply] fetchZoneAvailability failed:', e);
+    return { summary: '(zone lookup failed)', zoneFound: false };
+  }
+}
+
 // ── Tool-using resolver: place_pickup_order or reschedule_order ──
 // Phase 1 of the agent system. When intent is new_order or reschedule_request,
 // fire a tool-calling Claude request with structured schemas. The model picks
 // place_pickup_order, reschedule_order, or no tool (fall back to text-only draft).
+//
+// session 144 accuracy pass: the user prompt now lists the customer's zone's
+// available windows so the AI can't propose unreachable date/window combos.
+// Every proposal is dry-run server-side via the corresponding RPC's p_dry_run
+// mode before the action is returned, so the admin never sees a card that
+// would fail at click-time. The card label is rewritten to reflect the
+// SERVER-RESOLVED sub-window (not the AI's loose AM/PM/evening label).
 async function resolveAgentAction(
   customerId: string,
   customerName: string,
@@ -149,6 +223,8 @@ async function resolveAgentAction(
   conversationText: string,
   orderContextRaw: any[],
   primaryAddressLine: string,
+  zoneSummary: string,
+  adminJwt: string,
 ): Promise<any | null> {
   if (!ANTHROPIC_KEY) return null;
 
@@ -208,25 +284,94 @@ async function resolveAgentAction(
 
   const systemPrompt = `You are an action-proposal assistant for Family Laundry, a laundry pickup and delivery service in the East Bay (Pacific time).
 
-Your job: based on the conversation and customer context, propose at most ONE structured action by calling either the place_pickup_order or reschedule_order tool. If neither action clearly fits the customer's request, do not call any tool — just return text saying so. Do not call BOTH tools.
+Your job: propose AT MOST ONE structured action by calling either place_pickup_order or reschedule_order. If the customer's intent is ambiguous, decline by NOT calling any tool.
 
-Guidance for proposing a date:
+## HARD RULE: prefer to decline
+
+If you would need to ask a follow-up question to be confident about ANY of these — the date, the time window, the bags count, or which order they're referring to — do NOT call a tool. Return text only. The admin can ask the follow-up themselves. False precision is much worse than no proposal.
+
+## Date interpretation
+
 - Today's date in Pacific time is ${todayPT()}.
-- If the customer says "tomorrow", calculate from today.
-- If they say "next week" without a specific day, propose Monday of next week.
-- If they don't specify a date at all, do NOT call a tool — there's not enough info.
+- "tomorrow" → today + 1 day.
+- "next [weekday]" → the soonest occurrence of that weekday at least 3 days out.
+- "this [weekday]" → the soonest occurrence of that weekday in the next 6 days.
+- Bare day name like "Thursday" with no "this"/"next" → the soonest occurrence in the next 6 days.
+- Vague phrases ("sometime next week", "soon", "whenever you can") → do NOT call a tool.
 
-Guidance for the confirmation_draft:
-- Subdued and professional. No exclamation points unless there's a genuine moment of warmth (rare).
-- 1-2 sentences max. Plain SMS text, no emojis, no markdown.
+## Available windows constraint
+
+The user message will list the customer's zone's available pickup windows (days + time-of-day labels). You MUST only propose a date+window combination that exists in that list. If the customer asks for a day or window that isn't available, do NOT call a tool — the admin will need to suggest an alternative.
+
+## Window-of-day labels
+
+- AM = template window starts before 12:00.
+- PM = template window starts 12:00–16:59.
+- evening = template window starts 17:00 or later.
+- A request like "early morning" or "7am" maps to AM if the AM window is available.
+- A request like "after work" or "around 6" maps to evening if available, else PM.
+- Hour-specific requests ("can you come at 2pm") that don't align with the available sub-windows: if the closest available window covers that hour, propose that window with rationale noting the customer asked for an exact hour. If it doesn't, decline.
+
+## Bags
+
+- If the customer specifies a number, use it.
+- If they don't, use the bag count from their MOST RECENT active or delivered order.
+- If they have no order history at all, decline (we don't have a sensible default).
+
+## Reschedule scope
+
+- pickup leg can only be moved while the order status is 'scheduled'.
+- delivery leg can be moved through 'ready_for_delivery'.
+- If the customer references an order whose status doesn't allow a move, decline.
+- If two or more active orders match the customer's reference equally well, decline.
+
+## Confirmation draft style
+
+- 1–2 sentences. Plain SMS text. No emojis, no markdown.
 - Use the customer's first name at the start.
-- Include the specific date and window you're proposing.
+- Include the specific date and time window you're proposing.
+- Subdued and professional. No exclamation points.
 - Do not sign off as "Family Laundry" or "the team".
 
-Rule of thumb: if you're not confident enough to commit a number to it (date, window, bags), do not call a tool. The admin can fill in the gaps if you don't.`;
+## Worked examples
+
+Example A — clear new pickup, available window:
+  Available: Mon/Wed/Fri 07:00–10:00 AM (Berkeley AM)
+  Today: 2026-05-07 (Wed)
+  Customer: "Hi, can I get a pickup tomorrow morning? Same as last time"
+  Last order had 2 bags.
+  → Tool: place_pickup_order { pickup_date: "2026-05-08", pickup_window: "AM", bags: 2, rationale: "Customer asked for tomorrow morning; last order was 2 bags.", confirmation_draft: "Hi [name], pickup is set for Thu May 8, 7–10 AM. We'll see you then." }
+  Wait — 2026-05-08 is Friday, but the available list says Mon/Wed/Fri AM is open, so this works. If it had been Tue (no AM), DECLINE.
+
+Example B — reschedule with single clear target:
+  Active orders: one scheduled pickup #3850 Wed AM.
+  Customer: "Need to push my pickup to Friday morning"
+  Available windows include Fri AM.
+  → Tool: reschedule_order { order_id: "<#3850 uuid>", leg: "pickup", new_date: "<Friday>", new_window: "AM", rationale: "Move scheduled Wed AM pickup to Fri AM as requested.", confirmation_draft: "Hi [name], your pickup is moved to Fri May 10, 7–10 AM." }
+
+Example C — ambiguous, decline:
+  Active orders: 2 (one pickup, one delivery).
+  Customer: "Can we change the time?"
+  → Do NOT call a tool. Both leg and direction are unclear. The admin should ask which order.
+
+Example D — day not available in zone:
+  Available: Mon/Wed/Fri only.
+  Customer: "Pickup Tuesday morning?"
+  → Do NOT call a tool. Tuesday isn't available. The admin should propose Mon or Wed instead.
+
+Example E — vague timing, decline:
+  Customer: "Sometime next week works"
+  → Do NOT call a tool. No specific day. The admin should ask which day.
+
+Example F — hour-tweak that can't be expressed:
+  Customer: "Can you come an hour earlier than usual?"
+  → Do NOT call a tool. Sub-window granularity is fixed by the templates. The admin should clarify whether the customer wants a different window-of-day or wait for the existing window.`;
 
   const userPrompt = `Customer: ${customerName}${customerFirstName ? ` (first name: ${customerFirstName})` : ''}
 Primary address: ${primaryAddressLine || '(no saved address — do not propose place_pickup_order)'}
+
+Available pickup windows for this customer's zone:
+${zoneSummary}
 
 Active orders (eligible for reschedule):
 ${activeOrders.length > 0 ? JSON.stringify(activeOrders, null, 2) : '(none)'}
@@ -234,8 +379,9 @@ ${activeOrders.length > 0 ? JSON.stringify(activeOrders, null, 2) : '(none)'}
 Conversation history (oldest to newest):
 ${conversationText}
 
-Propose at most one action by calling a tool, or no tool if neither fits.`;
+Propose at most one action by calling a tool, or no tool if any criterion above isn't satisfied.`;
 
+  let proposed: any = null;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -268,14 +414,10 @@ Propose at most one action by calling a tool, or no tool if neither fits.`;
 
     const args = toolUse.input || {};
     if (toolUse.name === 'place_pickup_order') {
-      // Validate the args minimally; reject if anything is obviously wrong.
       if (!args.pickup_date || !args.pickup_window || !args.bags) return null;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(args.pickup_date)) return null;
       if (args.pickup_date < todayPT()) return null;
-
-      const _w = args.pickup_window === 'AM' ? 'morning' : args.pickup_window === 'PM' ? 'afternoon' : 'evening';
-      const _dateLabel = new Date(args.pickup_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ });
-      return {
+      proposed = {
         type:               'place_pickup_order',
         customer_id:        customerId,
         pickup_date:        args.pickup_date,
@@ -284,22 +426,15 @@ Propose at most one action by calling a tool, or no tool if neither fits.`;
         same_day_delivery:  !!args.same_day_delivery,
         notes:              args.notes || null,
         rationale:          args.rationale || '',
-        label:              `New pickup — ${_dateLabel} ${_w}, ${args.bags} bag${args.bags !== 1 ? 's' : ''}${args.same_day_delivery ? ' (same-day)' : ''}`,
         confirmation_draft: args.confirmation_draft || '',
       };
-    }
-
-    if (toolUse.name === 'reschedule_order') {
+    } else if (toolUse.name === 'reschedule_order') {
       if (!args.order_id || !args.new_date || !args.new_window || !args.leg) return null;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(args.new_date)) return null;
       if (args.new_date < todayPT()) return null;
-      // Make sure order_id is one we offered
       const target = activeOrders.find((o: any) => o.order_id === args.order_id);
       if (!target) return null;
-
-      const _w = args.new_window === 'AM' ? 'morning' : args.new_window === 'PM' ? 'afternoon' : 'evening';
-      const _dateLabel = new Date(args.new_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ });
-      return {
+      proposed = {
         type:               'reschedule_order',
         order_id:           target.order_id,
         order_number:       target.order_number,
@@ -307,16 +442,71 @@ Propose at most one action by calling a tool, or no tool if neither fits.`;
         new_date:           args.new_date,
         new_window:         args.new_window,
         rationale:          args.rationale || '',
-        label:              `Move ${args.leg} of #${target.order_number} → ${_dateLabel} ${_w}`,
         confirmation_draft: args.confirmation_draft || '',
       };
+    } else {
+      return null;
     }
-
-    return null;
   } catch (e) {
     console.warn('[draft-reply] resolveAgentAction failed:', e);
     return null;
   }
+
+  if (!proposed) return null;
+
+  // ── Server-side dry-run validation ──
+  // Calls the same RPC the admin will invoke on Confirm, with p_dry_run=true.
+  // If validation fails (no template, address has no coords, status not
+  // reschedulable, etc.) we drop the proposal so the admin doesn't see a card
+  // that will fail at click-time.
+  let dryRun;
+  if (proposed.type === 'place_pickup_order') {
+    dryRun = await callRpcAsAdmin(adminJwt, 'place_pickup_order_for_customer', {
+      p_customer_id:        proposed.customer_id,
+      p_pickup_date:        proposed.pickup_date,
+      p_pickup_window:      proposed.pickup_window,
+      p_bags:               proposed.bags,
+      p_same_day_delivery:  proposed.same_day_delivery,
+      p_notes:              proposed.notes,
+      p_actor_name:         'Agent (dry-run)',
+      p_dry_run:            true,
+    });
+  } else {
+    dryRun = await callRpcAsAdmin(adminJwt, 'reschedule_order_to_window', {
+      p_order_id:    proposed.order_id,
+      p_leg:         proposed.leg,
+      p_new_date:    proposed.new_date,
+      p_new_window:  proposed.new_window,
+      p_actor_name:  'Agent (dry-run)',
+      p_dry_run:     true,
+    });
+  }
+
+  if (!dryRun.ok) {
+    console.warn(`[draft-reply] dry-run failed for ${proposed.type}:`, JSON.stringify(dryRun.data));
+    return null;
+  }
+
+  // Embed resolved values into the action so the card shows what will actually
+  // be booked, not just what Claude proposed loosely.
+  const r = dryRun.data || {};
+  if (proposed.type === 'place_pickup_order') {
+    const startStr = fmtTimeShort(r.pickup_window_start);
+    const endStr   = fmtTimeShort(r.pickup_window_end);
+    const dateLabel = new Date(proposed.pickup_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ });
+    proposed.resolved_window     = `${startStr}–${endStr}`;
+    proposed.resolved_template   = r.template_name || '';
+    proposed.label               = `New pickup — ${dateLabel}, ${startStr}–${endStr}, ${proposed.bags} bag${proposed.bags !== 1 ? 's' : ''}${proposed.same_day_delivery ? ' (same-day)' : ''}${r.template_name ? ` · ${r.template_name}` : ''}`;
+  } else {
+    const startStr = fmtTimeShort(r.new_window_start);
+    const endStr   = fmtTimeShort(r.new_window_end);
+    const dateLabel = new Date(proposed.new_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BIZ_TZ });
+    proposed.resolved_window     = `${startStr}–${endStr}`;
+    proposed.resolved_template   = r.new_route_name || '';
+    proposed.label               = `Move ${proposed.leg} of #${proposed.order_number} → ${dateLabel}, ${startStr}–${endStr}${r.new_route_name ? ` · ${r.new_route_name}` : ''}`;
+  }
+
+  return proposed;
 }
 
 Deno.serve(async (req: Request) => {
@@ -327,6 +517,8 @@ Deno.serve(async (req: Request) => {
       console.error('[draft-reply] ANTHROPIC_API_KEY secret not set');
       return new Response(JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured' }), { status: 500, headers: CORS });
     }
+
+    const adminJwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
 
     const { customer_id, phone, current_draft, admin_profile_id } = await req.json();
     if (!customer_id && !phone) {
@@ -404,9 +596,11 @@ Deno.serve(async (req: Request) => {
       if (intent === 'skip_request') {
         action = await resolveSkipAction(customer_id, customerFirstName);
       } else if (intent === 'new_order' || intent === 'reschedule_request') {
+        const { summary: zoneSummary } = await fetchZoneAvailability(customer_id);
         action = await resolveAgentAction(
           customer_id, customerName, customerFirstName,
-          conversationText, orderRows, primaryAddressLine
+          conversationText, orderRows, primaryAddressLine,
+          zoneSummary, adminJwt
         );
       }
       if (action) console.log(`[draft-reply] action=${action.type}`);
