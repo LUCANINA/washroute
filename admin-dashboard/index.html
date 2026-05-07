@@ -18529,26 +18529,32 @@ ${oneCopy}
 
     // Build a driver chip for a given template + day + date
     const makeChip = (t, day, date) => {
-      const runs = (t.schedule_days||[]).includes(day);
-      if (!runs) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
-
       // date is anchored at Pacific noon (see getWeekDates) — pull the Pacific
       // calendar date so dateStr matches what today() returns for comparisons.
-      const dateStr = date.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      const dateStr   = date.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      const recKey    = `${t.id}-${dateStr}`;
+      const hasRecord = recKey in routeRecordMap;
+
+      // Template doesn't run this day AND no one-off route exists → blank dash.
+      // (One-off routes off the regular schedule — e.g. a Kidango Monday created
+      // because the customer's office was closed Friday — should still render so
+      // the assigned driver shows up and the cell stays clickable.)
+      const runs = (t.schedule_days||[]).includes(day);
+      if (!runs && !hasRecord) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
+
       const todayDateStr = today();
       const isPast   = dateStr < todayDateStr;
       const isToday  = dateStr === todayDateStr;
 
-      // Past/today: show the actual driver from the route record so that editing the
-      // recurring schedule doesn't retroactively change historical display.
-      // Past days with no route record show null — we don't know who drove.
-      const recKey   = `${t.id}-${dateStr}`;
-      const hasRecord = recKey in routeRecordMap;
-      const drvId    = isPast
-        ? (hasRecord ? routeRecordMap[recKey] : null)
-        : isToday && hasRecord
-          ? routeRecordMap[recKey]
-          : (overMap[`${t.id}-${day}-pickup`] || null);
+      // Driver source-of-truth precedence:
+      //   1. Actual route record (when one exists for this date) — covers past/today
+      //      and any one-off future runs whose driver was set directly on the route.
+      //   2. route_driver_schedule recurring default (overMap) — for future
+      //      regularly-scheduled days that haven't materialised into a route yet.
+      //   3. null — past days with no route record, or future days with no defaults.
+      const drvId = hasRecord
+        ? routeRecordMap[recKey]
+        : (isPast ? null : (overMap[`${t.id}-${day}-pickup`] || null));
       const drvName  = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
       const bg = drvId ? (t.color || '#3b82f6') : '#e5e7eb';
@@ -18746,26 +18752,32 @@ ${oneCopy}
     }
 
     const makeChip = (t, day, date) => {
-      const runs = (t.schedule_days||[]).includes(day);
-      if (!runs) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
-
       // date is anchored at Pacific noon (see getWeekDates) — pull the Pacific
       // calendar date so dateStr matches what today() returns for comparisons.
-      const dateStr = date.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      const dateStr   = date.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      const recKey    = `${t.id}-${dateStr}`;
+      const hasRecord = recKey in routeRecordMap;
+
+      // Template doesn't run this day AND no one-off route exists → blank dash.
+      // (One-off routes off the regular schedule — e.g. a Kidango Monday created
+      // because the customer's office was closed Friday — should still render so
+      // the assigned driver shows up and the cell stays clickable.)
+      const runs = (t.schedule_days||[]).includes(day);
+      if (!runs && !hasRecord) return `<span style="color:var(--gray-200);font-size:13px;">—</span>`;
+
       const todayDateStr = today();
       const isPast   = dateStr < todayDateStr;
       const isToday  = dateStr === todayDateStr;
 
-      // Past/today: show the actual driver from the route record so that editing the
-      // recurring schedule doesn't retroactively change historical display.
-      // Past days with no route record show null — we don't know who drove.
-      const recKey   = `${t.id}-${dateStr}`;
-      const hasRecord = recKey in routeRecordMap;
-      const drvId    = isPast
-        ? (hasRecord ? routeRecordMap[recKey] : null)
-        : isToday && hasRecord
-          ? routeRecordMap[recKey]
-          : (overMap[`${t.id}-${day}-pickup`] || null);
+      // Driver source-of-truth precedence:
+      //   1. Actual route record (when one exists for this date) — covers past/today
+      //      and any one-off future runs whose driver was set directly on the route.
+      //   2. route_driver_schedule recurring default (overMap) — for future
+      //      regularly-scheduled days that haven't materialised into a route yet.
+      //   3. null — past days with no route record, or future days with no defaults.
+      const drvId = hasRecord
+        ? routeRecordMap[recKey]
+        : (isPast ? null : (overMap[`${t.id}-${day}-pickup`] || null));
       const drvName  = drvId ? (driverMap[drvId] || 'Driver') : 'Unassigned';
       const drvFirst = drvName.split(' ')[0];
       const bg = drvId ? (t.color || '#3b82f6') : '#e5e7eb';
