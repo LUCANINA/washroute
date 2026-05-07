@@ -9919,8 +9919,15 @@
       ? `  <text-line><bold>ADD-ONS: </bold>${_escXml(addonTags.map(t => t.toUpperCase()).join('  /  '))}</text-line>`
       : `  <text-line>No add-ons</text-line>`;
 
-    // Customer name truncated for double-size (max 12 chars at 2:2 = 48 dots wide)
-    const custNameXml = _escXml((custName || '').substring(0, 12).toUpperCase());
+    // Customer name — leads the receipt as a bag tag, so it must stay LARGE and FULL.
+    // 80mm thermal at size="2:2" fits ~18 chars per line before clipping, so longer
+    // names step down to size="2:1" (single-width, double-height) which fits ~38 chars
+    // and is still big and bold. Truncation is a last resort for absurdly long names.
+    // Pre-fix this line cut to 12 chars and printed "GABRIELA SOL" for "Gabriela Solorzano".
+    const _fullName  = (custName || '').toUpperCase();
+    const _nameSize  = _fullName.length <= 18 ? '2:2' : '2:1';
+    const _nameClamp = _fullName.substring(0, 38);
+    const custNameXml = _escXml(_nameClamp);
 
     // Order num + weight + bags on one line
     const orderStr    = '#' + String(orderNum || '');
@@ -9948,7 +9955,7 @@
     <text-line>${_escXml(ts)}    FL</text-line>
   </align>
   <ruled-line/>
-  <text-line size="2:2"><bold>${custNameXml}</bold></text-line>
+  <text-line size="${_nameSize}"><bold>${custNameXml}</bold></text-line>
 ${custPhone ? `  <text-line>${_escXml(custPhone)}</text-line>\n` : ''}  <text-line>${_escXml(custAddr || '')}</text-line>
   <ruled-line/>
   <text-line><bold>${orderLine}</bold></text-line>
