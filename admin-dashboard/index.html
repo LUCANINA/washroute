@@ -12358,11 +12358,11 @@ ${oneCopy}
   let _pendingInboxAction = null;
 
   // ── renderInboxActionCard — show/hide the action suggestion card above the composer ──
-  // action = null clears the card. action = { type, label, rationale?, ... } renders it.
-  // session 144: extended for two new action types — place_pickup_order + reschedule_order
-  // proposed by Claude tool-calling. Cards now also surface a one-line rationale when
-  // the AI provides one, so the admin can see what in the conversation drove the
-  // proposal before clicking Confirm.
+  // action = null clears the card. action = { type, label, rationale?, pickup_summary?, delivery_summary?, ... } renders it.
+  // session 144 v20: place_pickup_order cards now show pickup + delivery on separate
+  // lines (using action.pickup_summary + action.delivery_summary) so the admin can
+  // verify both legs before clicking Confirm. Other action types fall back to the
+  // single-line action.label.
   function renderInboxActionCard(action) {
     const slot = document.getElementById('inbox-action-card-slot');
     if (!slot) return;
@@ -12384,11 +12384,22 @@ ${oneCopy}
       ? esc(action.rationale.trim())
       : 'Admin confirms — reply pre-filled, you send';
 
+    // Body: for place_pickup_order, render pickup + delivery on separate lines.
+    // For everything else, fall back to single-line action.label.
+    let bodyHtml;
+    if (action.type === 'place_pickup_order' && (action.pickup_summary || action.delivery_summary)) {
+      const pickupLine   = action.pickup_summary   ? `<div>${esc(action.pickup_summary)}</div>` : '';
+      const deliveryLine = action.delivery_summary ? `<div>${esc(action.delivery_summary)}</div>` : '';
+      bodyHtml = pickupLine + deliveryLine;
+    } else {
+      bodyHtml = esc(action.label || '');
+    }
+
     slot.innerHTML = `
       <div class="inbox-action-card">
         <span class="action-icon">${icon}</span>
         <span class="action-label">
-          ${esc(action.label)}
+          ${bodyHtml}
           <small>${subtitle}</small>
         </span>
         <button class="btn-action-confirm" onclick="confirmInboxAction()">✓ Confirm</button>
@@ -12435,6 +12446,8 @@ ${oneCopy}
       } else if (action.type === 'place_pickup_order') {
         // session 144 agent phase 1: route through place_pickup_order_for_customer RPC.
         // Server-side admin gate (is_admin()) + auto_route_order trigger handle routing.
+        // session 144 v20: pass explicit p_delivery_date + p_delivery_window when the
+        // AI captured the customer's delivery preference as structured fields.
         const { data: rpcRes, error } = await db.rpc('place_pickup_order_for_customer', {
           p_customer_id:        action.customer_id,
           p_pickup_date:        action.pickup_date,
@@ -12443,6 +12456,8 @@ ${oneCopy}
           p_same_day_delivery:  !!action.same_day_delivery,
           p_notes:              action.notes || null,
           p_actor_name:         actorName,
+          p_delivery_date:      action.delivery_date || null,
+          p_delivery_window:    action.delivery_window || null,
         });
         if (error) throw new Error(error.message);
 
