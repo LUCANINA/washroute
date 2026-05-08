@@ -622,6 +622,17 @@
     .voicemail-header { font-weight: 600; font-size: 12.5px; opacity: 0.75; }
     .voicemail-transcript { font-style: italic; }
     .voicemail-audio { width: 100%; max-width: 320px; height: 32px; margin-top: 4px; }
+    /* MMS attachments — image/video/file thumbs that flow above body text */
+    .message-bubble.has-media { display: flex; flex-direction: column; gap: 8px; padding: 8px 8px 10px 8px; }
+    .message-bubble.has-media .msg-body-text { padding: 0 6px; }
+    .msg-media-thumb { display: block; line-height: 0; border-radius: 8px; overflow: hidden; cursor: zoom-in; }
+    .msg-media-thumb img { display: block; max-width: 260px; max-height: 320px; width: auto; height: auto; border-radius: 8px; }
+    .msg-media-video { max-width: 260px; max-height: 320px; border-radius: 8px; }
+    .msg-media-link { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 8px;
+                     background: rgba(0,0,0,0.06); color: inherit; text-decoration: none; font-size: 13px; }
+    .msg-media-link:hover { background: rgba(0,0,0,0.1); }
+    .message-outbound .msg-media-link { background: rgba(255,255,255,0.18); color: white; }
+    .message-outbound .msg-media-link:hover { background: rgba(255,255,255,0.28); }
     .message-inbound { background: var(--gray-100); color: var(--gray-800); align-self: flex-start; border-bottom-left-radius: 3px; }
     .message-outbound { background: var(--accent); color: white; align-self: flex-end; border-bottom-right-radius: 3px; }
     .msg-ts { font-size: 11px; color: var(--gray-400); margin-top: 3px; }
@@ -11746,7 +11757,7 @@ ${oneCopy}
 
     // Load SMS messages only (email view removed for now)
     const { data: msgs, error } = await db.from('sms_messages')
-      .select('id, customer_id, direction, body, from_number, to_number, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, email_cache, sms_consent_at)')
+      .select('id, customer_id, direction, body, media_urls, from_number, to_number, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, email_cache, sms_consent_at)')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -11892,7 +11903,21 @@ ${oneCopy}
       ? `${c.cust.first_name_cache||''} ${c.cust.last_name_cache||''}`.trim() || identifier
       : identifier;
     const arrow = c.latest.direction === 'inbound' ? '↓ ' : '↑ ';
-    const preview = c.latest.body || '';
+    // MMS-only messages (no body, just attachments) get a labeled placeholder
+    // so the list preview isn't a blank line. The label uses the first attachment's
+    // content_type to choose a sensible icon + word.
+    const _mediaList = Array.isArray(c.latest.media_urls) ? c.latest.media_urls : [];
+    const _firstCt = (_mediaList[0]?.content_type || '').toLowerCase();
+    let _mediaLabel = '';
+    if (_mediaList.length) {
+      const _icon = _firstCt.startsWith('video/') ? '🎥' : _firstCt.includes('pdf') ? '📎' : '📷';
+      const _word = _firstCt.startsWith('video/') ? 'Video' : _firstCt.includes('pdf') ? 'Attachment' : 'Photo';
+      const _suffix = _mediaList.length > 1 ? ` ×${_mediaList.length}` : '';
+      _mediaLabel = `${_icon} ${_word}${_suffix}`;
+    }
+    const preview = (c.latest.body && c.latest.body.trim())
+      ? c.latest.body
+      : (_mediaLabel || '');
     const isActive = currentConv && currentConv.key === c.key;
     const unreadDot = c.unread > 0 ? `<span class="unread-dot"></span>` : '';
     const safeKey = c.key.replace(/'/g, "\\'");
@@ -11996,10 +12021,13 @@ ${oneCopy}
   }
 
   // ── openSMSConversation ──
-    // --- renderMessageBubble: voicemail-aware bubble renderer ---
+    // --- renderMessageBubble: voicemail- + MMS-aware bubble renderer ---
   // Voicemails are stored in sms_messages with body starting '🎙️ Voicemail'
   // and a Storage URL on the last line. Render those with an inline audio
-  // player. All other messages render exactly as before.
+  // player. MMS messages have a non-empty media_urls JSONB array of
+  // {url, content_type} objects (populated by twilio-webhook proxying media
+  // into the sms-media bucket). Render images inline as clickable thumbs;
+  // non-image media (PDFs, video) render as a labeled link.
   function renderMessageBubble(m) {
     const body = m.body || '';
     const isVoicemail = body.startsWith('🎙️ Voicemail');
@@ -12015,7 +12043,32 @@ ${oneCopy}
         <audio controls preload="metadata" src="${esc(url)}" class="voicemail-audio"></audio>
       </div>`;
     }
-    return `<div class="message-bubble message-${m.direction}">${esc(body)}</div>`;
+
+    const media = Array.isArray(m.media_urls) ? m.media_urls : [];
+    let mediaHtml = '';
+    if (media.length) {
+      mediaHtml = media.map(item => {
+        const url = item?.url || '';
+        const ct  = (item?.content_type || '').toLowerCase();
+        if (!url) return '';
+        if (ct.startsWith('image/')) {
+          // Click to open full-size in a new tab. The bucket is public so
+          // direct links work without signed URLs.
+          return `<a href="${esc(url)}" target="_blank" rel="noopener" class="msg-media-thumb">
+            <img src="${esc(url)}" alt="MMS attachment" loading="lazy" />
+          </a>`;
+        }
+        if (ct.startsWith('video/')) {
+          return `<video controls preload="metadata" src="${esc(url)}" class="msg-media-video"></video>`;
+        }
+        const label = ct.includes('pdf') ? 'PDF attachment' : 'Attachment';
+        return `<a href="${esc(url)}" target="_blank" rel="noopener" class="msg-media-link">📎 ${esc(label)}</a>`;
+      }).join('');
+    }
+
+    // Body may be empty for media-only MMS — only emit the text node when there's text.
+    const bodyHtml = body ? `<div class="msg-body-text">${esc(body)}</div>` : '';
+    return `<div class="message-bubble message-${m.direction}${media.length ? ' has-media' : ''}">${mediaHtml}${bodyHtml}</div>`;
   }
 
   async function openSMSConversation(customerId, phone, itemEl, silent = false) {

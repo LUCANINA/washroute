@@ -1,10 +1,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-const SUPABASE_URL      = Deno.env.get('SUPABASE_URL')!;
-const SUPABASE_SVC_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
-const TWILIO_WEBHOOK_URL = Deno.env.get('TWILIO_WEBHOOK_URL')
+const SUPABASE_URL        = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_SVC_KEY    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const TWILIO_ACCOUNT_SID  = Deno.env.get('TWILIO_ACCOUNT_SID') || '';
+const TWILIO_AUTH_TOKEN   = Deno.env.get('TWILIO_AUTH_TOKEN') || '';
+const TWILIO_WEBHOOK_URL  = Deno.env.get('TWILIO_WEBHOOK_URL')
   || `${SUPABASE_URL}/functions/v1/twilio-webhook`;
+
+const SMS_MEDIA_BUCKET = 'sms-media';
 
 const TWIML_EMPTY = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 const TWIML_HDRS  = { 'Content-Type': 'text/xml' };
@@ -130,6 +133,98 @@ async function logSms(payload: object) {
     },
     body: JSON.stringify(payload),
   });
+}
+
+// ── proxyTwilioMedia ──
+// Twilio webhooks include MediaUrlN form fields when the inbound message has
+// attachments (an MMS). The URLs are tied to the Twilio account lifetime and
+// require basic auth to fetch — neither is suitable for direct rendering in
+// the admin UI. So for each piece of media we:
+//   1. Fetch from Twilio (basic-auth with our account SID + auth token).
+//   2. Re-upload to our own public sms-media bucket under
+//      inbound/<yyyy-mm-dd>/<MessageSid>-<idx>.<ext> (deterministic, idempotent
+//      against retries — Twilio retries with the same Sid on 5xx).
+//   3. Return the bucket's public URL paired with the original content type.
+// On any per-piece failure we log + continue; the SMS is still saved (with a
+// shorter media_urls array) rather than dropped. We never want to lose an
+// inbound message because of a media side-effect.
+function extFromContentType(ct: string): string {
+  const t = (ct || '').toLowerCase();
+  if (t.includes('jpeg') || t.includes('jpg')) return 'jpg';
+  if (t.includes('png'))  return 'png';
+  if (t.includes('webp')) return 'webp';
+  if (t.includes('heic')) return 'heic';
+  if (t.includes('gif'))  return 'gif';
+  if (t.includes('mp4'))  return 'mp4';
+  if (t.includes('quicktime') || t.includes('mov')) return 'mov';
+  if (t.includes('pdf'))  return 'pdf';
+  return 'bin';
+}
+
+async function proxyTwilioMedia(
+  formData: FormData,
+  sid: string,
+): Promise<Array<{ url: string; content_type: string }>> {
+  const numMedia = parseInt((formData.get('NumMedia') as string) || '0', 10);
+  if (!numMedia || numMedia <= 0) return [];
+
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
+    console.error('proxyTwilioMedia: TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN unset — cannot fetch media');
+    return [];
+  }
+
+  const datePrefix = ptDateFmt.format(new Date()); // YYYY-MM-DD in PT
+  const basicAuth  = 'Basic ' + btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
+  const cleanSid   = (sid || `sms-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '');
+  const out: Array<{ url: string; content_type: string }> = [];
+
+  for (let i = 0; i < numMedia; i++) {
+    const url = formData.get(`MediaUrl${i}`) as string;
+    const ct  = (formData.get(`MediaContentType${i}`) as string) || 'application/octet-stream';
+    if (!url) continue;
+
+    try {
+      // Twilio's MediaUrl issues a 302 redirect to the actual media host
+      // (S3) which serves the bytes without auth. Following redirects with
+      // the auth header attached is harmless; Deno's fetch follows by
+      // default.
+      const mediaRes = await fetch(url, { headers: { Authorization: basicAuth } });
+      if (!mediaRes.ok) {
+        console.error(`proxyTwilioMedia: fetch ${url} -> ${mediaRes.status}`);
+        continue;
+      }
+      const bytes = new Uint8Array(await mediaRes.arrayBuffer());
+
+      const ext     = extFromContentType(ct);
+      const path    = `inbound/${datePrefix}/${cleanSid}-${i}.${ext}`;
+      const upRes   = await fetch(
+        `${SUPABASE_URL}/storage/v1/object/${SMS_MEDIA_BUCKET}/${path}`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${SUPABASE_SVC_KEY}`,
+            apikey: SUPABASE_SVC_KEY,
+            'Content-Type': ct,
+            'x-upsert': 'true',
+          },
+          body: bytes,
+        },
+      );
+      if (!upRes.ok) {
+        const errText = await upRes.text().catch(() => '');
+        console.error(`proxyTwilioMedia: upload failed ${path} -> ${upRes.status} ${errText}`);
+        continue;
+      }
+
+      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${SMS_MEDIA_BUCKET}/${path}`;
+      out.push({ url: publicUrl, content_type: ct });
+    } catch (e) {
+      console.error(`proxyTwilioMedia: exception for MediaUrl${i}:`, e);
+      // continue — never block the message log on a media error
+    }
+  }
+
+  return out;
 }
 
 async function handleStop(customerId: string | null, from: string, to: string): Promise<string> {
@@ -371,8 +466,13 @@ Deno.serve(async (req: Request) => {
 
     const from = formData.get('From') as string;
     const to   = formData.get('To')   as string;
-    const body = formData.get('Body') as string;
+    const body = (formData.get('Body') as string) || ''; // MMS-only sends empty body
     const sid  = formData.get('MessageSid') as string;
+
+    // Proxy any MMS media to our own bucket BEFORE inserting the sms_messages
+    // row so admin's first realtime payload already includes thumbnails.
+    // Failure here never blocks the message log — see proxyTwilioMedia.
+    const mediaUrls = await proxyTwilioMedia(formData, sid);
 
     const digits10 = from.replace(/[^0-9]/g, '').slice(-10);
     const custRpc  = await fetch(`${SUPABASE_URL}/rest/v1/rpc/find_customer_by_phone`, {
@@ -398,6 +498,7 @@ Deno.serve(async (req: Request) => {
     await logSms({
       customer_id: customerId, direction: 'inbound', body,
       from_number: from, to_number: to, twilio_sid: sid, status: 'received',
+      media_urls: mediaUrls,
     });
 
     const keyword = (body || '').trim().toUpperCase();
