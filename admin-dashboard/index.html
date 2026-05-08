@@ -655,6 +655,11 @@
     .attach-chip .chip-x:hover { background: rgba(0,0,0,0.9); }
     .attach-chip.uploading::after { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0.6); border-radius: 8px; }
     .attach-chip .chip-spinner { position: absolute; top: 50%; left: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border: 2px solid var(--gray-300); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; z-index: 1; }
+    /* Composer character counter — sits below the composer row, right-aligned.
+       Color shifts at SMS-segment boundaries so the cost implication is visible. */
+    .compose-counter { padding: 2px 20px 8px 20px; font-size: 11px; color: var(--gray-400); text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    .compose-counter.warn { color: var(--amber); }
+    .compose-counter.over { color: var(--red); font-weight: 600; }
     /* Action card — shown above composer when AI detects an actionable request */
     .inbox-action-card { margin: 0 16px 8px; padding: 10px 14px; background: #f0f4ff; border: 1.5px solid #c7d7fe; border-radius: 10px; display: flex; align-items: center; gap: 10px; font-size: 13px; animation: fadeSlideIn .15s ease; }
     @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
@@ -12224,13 +12229,14 @@ ${oneCopy}
         <button class="btn-attach" id="attach-btn" onclick="document.getElementById('compose-attach-input').click()" title="Attach photos">📎</button>
         <textarea class="inbox-composer-input" id="compose-input" rows="1"
           placeholder="Type a reply…"
-          oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"
+          oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';updateComposeCounter()"
           onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendSMSReply()}"></textarea>
         <div class="inbox-composer-actions">
           <button class="btn-draft" id="draft-reply-btn" onclick="draftSMSReply()" title="AI drafts a reply based on conversation history — you review before sending">✦ Draft</button>
           <button class="btn btn-primary" id="sms-reply-btn" onclick="sendSMSReply()">Send</button>
         </div>
-      </div>`;
+      </div>
+      <div id="compose-counter" class="compose-counter">0/500</div>`;
 
     if (!silent) setTimeout(() => { const mt = document.getElementById('msg-thread'); if (mt) mt.scrollTop = mt.scrollHeight; }, 50);
   }
@@ -12331,6 +12337,27 @@ ${oneCopy}
     loadOverviewIssues(); // refresh overview count
     // Refresh thread to show issue badge
     if (currentConv) openSMSConversation(currentConv.customer_id||'', currentConv.phone, null, true);
+  }
+
+  // ── updateComposeCounter ──
+  // Live char counter below the composer. Color shifts at SMS-segment
+  // boundaries so the billing implication is visible:
+  //   0–160   normal   (1 SMS segment, ~$0.01 outbound)
+  //   161–320 amber    (2 segments, ~$0.02)
+  //   321–500 red bold (3+ segments — cost adds up at scale)
+  //   500+    same red, but Twilio still accepts; doesn't block send
+  // We use a flat 160-char rule for simplicity. GSM-7 vs Unicode (emoji)
+  // would change to 70-char segments; the inbox composer is mostly plain
+  // English text so this is close enough. Refine later if needed.
+  function updateComposeCounter() {
+    const el = document.getElementById('compose-counter');
+    const input = document.getElementById('compose-input');
+    if (!el || !input) return;
+    const len = (input.value || '').length;
+    el.textContent = `${len}/500`;
+    el.classList.remove('warn', 'over');
+    if (len > 320)      el.classList.add('over');
+    else if (len > 160) el.classList.add('warn');
   }
 
   // ── Composer attachments (MMS Phase 2) ──
@@ -12445,6 +12472,7 @@ ${oneCopy}
     const btn = document.getElementById('sms-reply-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
     input.value = ''; input.style.height = 'auto';
+    updateComposeCounter(); // reset counter to 0/500 immediately
     renderInboxActionCard(null); // clear any pending action card on send
 
     const mediaUrls = attachments.map(a => a.url);
@@ -12540,6 +12568,7 @@ ${oneCopy}
         input.style.height = input.scrollHeight + 'px';
         input.focus();
         input.selectionStart = input.selectionEnd = input.value.length;
+        updateComposeCounter(); // sync counter to drafted text length
       }
 
       // Show action card if the AI detected a clear actionable request
