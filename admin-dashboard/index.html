@@ -6188,7 +6188,7 @@
 
   // ── NAVIGATION ──
   const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', settings:'General', team:'Team' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'+ Add Item', services:'', notifications:'', reports:'', discounts:'', settings:'', team:'' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'', services:'', notifications:'', reports:'', discounts:'', settings:'', team:'' };
 
   // POS launcher — opens the POS app in a new tab (not an SPA page, just an external link)
   function openPosLauncher() {
@@ -6311,7 +6311,9 @@
     }
     if (currentPage === 'drivers')   { openDriverEditor(null);   return; }
     if (currentPage === 'inbox')     { openComposeSMS(); return; }
-    if (currentPage === 'lostfound') { openLostFoundCreate('found'); return; }
+    // Lost & Found has its own "+ Lost" / "+ Found" pair on the page —
+    // no topbar CTA needed (an "Add Item" default would force admins to
+    // remember which side it points to).
     const map = { overview:'add-order', customers:'add-customer', orders:'add-order' };
     if (map[currentPage]) openModal(map[currentPage]);
   }
