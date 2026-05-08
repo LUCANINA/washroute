@@ -5993,6 +5993,12 @@
     }
     if (id === 'drivers') { loadDrivers(); loadAdminDriverMessages(); }
     if (id === 'services') loadServices();
+    // session 145: refresh the Overview when navigating BACK to it. Without
+    // this, the "Requires Rescheduling" / "Unpaid" / "Issues" cards keep
+    // whatever they had at first page load, so a status change made on the
+    // Orders page (e.g. marking #3557 delivered) leaves the Overview cards
+    // showing the stale entry until a hard refresh.
+    if (id === 'overview') loadOverview();
     if (id === 'notifications') loadNotifications();
     if (id === 'reports') { initRptDateDefaults(); runCurrentReport(); loadNewCustomers(); loadRecentOrders(); load24hStats(); }
     if (id === 'processing') { loadProcessing(); startProcPoll(); } else { stopProcPoll(); }
