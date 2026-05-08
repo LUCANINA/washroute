@@ -645,6 +645,16 @@
     .btn-draft { background: none; border: 1.5px solid var(--gray-300); color: var(--gray-600); border-radius: 8px; padding: 8px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all .15s; }
     .btn-draft:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: #eff6ff; }
     .btn-draft:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-attach { background: none; border: none; color: var(--gray-500); font-size: 18px; cursor: pointer; padding: 6px 8px; border-radius: 8px; flex-shrink: 0; align-self: flex-end; transition: all .15s; }
+    .btn-attach:hover:not(:disabled) { background: var(--gray-100); color: var(--accent); }
+    .btn-attach:disabled { opacity: .5; cursor: not-allowed; }
+    .compose-attach-row { padding: 8px 20px 0 20px; display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+    .attach-chip { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; background: var(--gray-100); }
+    .attach-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .attach-chip .chip-x { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 10px; background: rgba(0,0,0,0.7); color: white; border: none; font-size: 14px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+    .attach-chip .chip-x:hover { background: rgba(0,0,0,0.9); }
+    .attach-chip.uploading::after { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0.6); border-radius: 8px; }
+    .attach-chip .chip-spinner { position: absolute; top: 50%; left: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border: 2px solid var(--gray-300); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; z-index: 1; }
     /* Action card — shown above composer when AI detects an actionable request */
     .inbox-action-card { margin: 0 16px 8px; padding: 10px 14px; background: #f0f4ff; border: 1.5px solid #c7d7fe; border-radius: 10px; display: flex; align-items: center; gap: 10px; font-size: 13px; animation: fadeSlideIn .15s ease; }
     @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
@@ -12049,7 +12059,15 @@ ${oneCopy}
     if (media.length) {
       mediaHtml = media.map(item => {
         const url = item?.url || '';
-        const ct  = (item?.content_type || '').toLowerCase();
+        let ct  = (item?.content_type || '').toLowerCase();
+        // Outbound items may store an empty content_type (we don't have it
+        // at send time). Infer from URL extension so thumbs still render.
+        if (!ct && url) {
+          const ext = (url.split('?')[0].split('.').pop() || '').toLowerCase();
+          if (['jpg','jpeg','png','webp','heic','gif'].includes(ext)) ct = 'image/' + (ext === 'jpg' ? 'jpeg' : ext);
+          else if (['mp4','mov'].includes(ext))                       ct = 'video/' + (ext === 'mov' ? 'quicktime' : 'mp4');
+          else if (ext === 'pdf')                                     ct = 'application/pdf';
+        }
         if (!url) return '';
         if (ct.startsWith('image/')) {
           // Click to open full-size in a new tab. The bucket is public so
@@ -12079,6 +12097,7 @@ ${oneCopy}
     currentConvPhone      = phone;
     currentConvCustomerId = customerId || null;
     renderInboxActionCard(null); // clear stale action card from previous conversation
+    if (typeof _resetComposeAttachments === 'function') _resetComposeAttachments(); // drop stale upload chips
 
     // Find conv in cached list (keys are now prefixed: 'sms:...')
     const convMeta = _allConvs.find(c => c.key === ('sms:' + (customerId || phone)))
@@ -12199,7 +12218,10 @@ ${oneCopy}
         </div>
       </div>
       <div id="inbox-action-card-slot"></div>
+      <div id="compose-attach-row" class="compose-attach-row" style="display:none"></div>
       <div class="inbox-composer">
+        <input type="file" id="compose-attach-input" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="display:none" onchange="onComposeAttachChange(event)" />
+        <button class="btn-attach" id="attach-btn" onclick="document.getElementById('compose-attach-input').click()" title="Attach photos">📎</button>
         <textarea class="inbox-composer-input" id="compose-input" rows="1"
           placeholder="Type a reply…"
           oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"
@@ -12311,21 +12333,132 @@ ${oneCopy}
     if (currentConv) openSMSConversation(currentConv.customer_id||'', currentConv.phone, null, true);
   }
 
+  // ── Composer attachments (MMS Phase 2) ──
+  // Per-conversation in-memory list of pending uploads. Reset whenever the
+  // conversation changes (see openSMSConversation) and after a successful
+  // send. Each entry is { id, status: 'uploading'|'ready'|'error', url, blobUrl, name }.
+  // Stored on window so the inline event handlers in the rendered chip
+  // markup can reach it without a closure.
+  window._composeAttachments = [];
+
+  function _renderComposeAttachRow() {
+    const row = document.getElementById('compose-attach-row');
+    if (!row) return;
+    const items = window._composeAttachments || [];
+    if (items.length === 0) { row.style.display = 'none'; row.innerHTML = ''; return; }
+    row.style.display = 'flex';
+    row.innerHTML = items.map(it => {
+      const previewSrc = it.url || it.blobUrl || '';
+      const cls = it.status === 'uploading' ? 'attach-chip uploading' : 'attach-chip';
+      return `<div class="${cls}" data-id="${esc(it.id)}">
+        ${previewSrc ? `<img src="${esc(previewSrc)}" alt="${esc(it.name||'')}" />` : ''}
+        ${it.status === 'uploading' ? '<div class="chip-spinner"></div>' : ''}
+        <button class="chip-x" onclick="removeComposeAttachment('${esc(it.id)}')" title="Remove">×</button>
+      </div>`;
+    }).join('');
+  }
+
+  function removeComposeAttachment(id) {
+    const arr = window._composeAttachments || [];
+    const idx = arr.findIndex(i => i.id === id);
+    if (idx >= 0) {
+      try { if (arr[idx].blobUrl) URL.revokeObjectURL(arr[idx].blobUrl); } catch (_) {}
+      arr.splice(idx, 1);
+      _renderComposeAttachRow();
+    }
+  }
+
+  function _resetComposeAttachments() {
+    const arr = window._composeAttachments || [];
+    for (const it of arr) {
+      try { if (it.blobUrl) URL.revokeObjectURL(it.blobUrl); } catch (_) {}
+    }
+    window._composeAttachments = [];
+    _renderComposeAttachRow();
+  }
+
+  async function onComposeAttachChange(ev) {
+    const files = Array.from(ev.target.files || []);
+    ev.target.value = ''; // allow re-selecting the same file later
+    if (!files.length) return;
+
+    const TEN_MB = 10 * 1024 * 1024;
+    for (const f of files) {
+      if (f.size > TEN_MB) {
+        showToast(`${f.name} is over 10 MB — skipped`, 'error');
+        continue;
+      }
+      // Twilio MMS struggles with HEIC on Android receivers; we restrict
+      // the picker accept= to widely-supported formats. The accept attr
+      // is advisory only on some platforms, so re-check here.
+      if (!/^image\/(jpeg|png|webp|gif)$/i.test(f.type)) {
+        showToast(`${f.name}: unsupported format — JPG/PNG/WEBP/GIF only`, 'error');
+        continue;
+      }
+
+      const localId = 'a-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const blobUrl = URL.createObjectURL(f);
+      const item = { id: localId, status: 'uploading', url: '', blobUrl, name: f.name };
+      window._composeAttachments.push(item);
+      _renderComposeAttachRow();
+
+      // Path scheme mirrors the inbound side: outbound/<yyyy-mm-dd>/<rand>.<ext>
+      const ext = (f.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      const path = `outbound/${today}/${localId}.${ext}`;
+
+      try {
+        const { error: upErr } = await db.storage.from('sms-media').upload(path, f, {
+          contentType: f.type,
+          upsert: true,
+        });
+        if (upErr) throw upErr;
+        const { data: pub } = db.storage.from('sms-media').getPublicUrl(path);
+        item.url    = pub.publicUrl;
+        item.status = 'ready';
+      } catch (err) {
+        item.status = 'error';
+        showToast(`Upload failed for ${f.name}: ${err.message || err}`, 'error');
+        // Remove the failed chip so the user isn't stuck with it
+        removeComposeAttachment(localId);
+        continue;
+      }
+      _renderComposeAttachRow();
+    }
+  }
+
   // ── sendSMSReply ──
   async function sendSMSReply() {
     const input = document.getElementById('compose-input');
     const body  = input.value.trim();
-    if (!body || !currentConvPhone) return;
+    const attachments = (window._composeAttachments || []).filter(a => a.status === 'ready' && a.url);
+    if (!currentConvPhone) return;
+    if (!body && attachments.length === 0) return;
+
+    // Block send while any attachment is still uploading.
+    const stillUploading = (window._composeAttachments || []).some(a => a.status === 'uploading');
+    if (stillUploading) {
+      showToast('Wait for attachments to finish uploading', 'error');
+      return;
+    }
+
     const btn = document.getElementById('sms-reply-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
     input.value = ''; input.style.height = 'auto';
     renderInboxActionCard(null); // clear any pending action card on send
 
+    const mediaUrls = attachments.map(a => a.url);
+
     try {
       const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
-        body: JSON.stringify({ to: currentConvPhone, body, customer_id: currentConvCustomerId }),
+        body: JSON.stringify({
+          to: currentConvPhone,
+          body,
+          customer_id: currentConvCustomerId,
+          media_urls: mediaUrls.length ? mediaUrls : undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Send failed');
@@ -12346,12 +12479,20 @@ ${oneCopy}
         if (container) {
           const bubble = document.createElement('div');
           bubble.style.cssText = 'display:flex;flex-direction:column;align-items:flex-end';
-          bubble.innerHTML = `<div class="message-bubble message-outbound">${esc(body)}</div><div class="msg-ts">${fmtDate(new Date().toISOString())} ${fmtTime(new Date().toISOString())}</div>`;
+          // Build the same DOM the renderer would produce for an outbound
+          // message so optimistic + post-reload look identical.
+          const optimisticMsg = {
+            direction: 'outbound',
+            body,
+            media_urls: mediaUrls.map(u => ({ url: u, content_type: '' })),
+          };
+          bubble.innerHTML = `${renderMessageBubble(optimisticMsg)}<div class="msg-ts">${fmtDate(new Date().toISOString())} ${fmtTime(new Date().toISOString())}</div>`;
           container.appendChild(bubble);
           msgThread.scrollTop = msgThread.scrollHeight;
         }
       }
 
+      _resetComposeAttachments();
       loadInbox();
     } catch (err) {
       showToast('Failed to send: ' + err.message, 'error');

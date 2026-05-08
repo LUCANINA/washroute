@@ -73,21 +73,34 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { to, body, customer_id, sent_by_driver_id } = await req.json();
+    const { to, body, customer_id, sent_by_driver_id, media_urls } = await req.json();
 
-    if (!to || !body) {
-      return new Response(JSON.stringify({ error: 'to and body are required' }), {
+    // Body becomes optional when media is attached — Twilio MMS allows
+    // empty body as long as MediaUrl is set. For SMS-only sends both 'to'
+    // and 'body' are still required.
+    const mediaList: string[] = Array.isArray(media_urls) ? media_urls.filter((u: unknown) => typeof u === 'string' && u) : [];
+    if (!to || (!body && mediaList.length === 0)) {
+      return new Response(JSON.stringify({ error: 'to and (body or media_urls) are required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      });
+    }
+    if (mediaList.length > 10) {
+      return new Response(JSON.stringify({ error: 'Twilio caps MediaUrl at 10 per message' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
       });
     }
 
-    const outboundParams: Record<string, string> = { To: to, Body: body };
-    if (TWILIO_MSG_SERVICE_SID) {
-      outboundParams.MessagingServiceSid = TWILIO_MSG_SERVICE_SID;
-    } else {
-      outboundParams.From = TWILIO_FROM;
-    }
+    // URLSearchParams can encode repeated keys. Twilio reads MediaUrl as
+    // an indexed array on its side regardless of suffix; the official
+    // helper libraries use `MediaUrl` repeated. We mirror that pattern.
+    const tParams = new URLSearchParams();
+    tParams.append('To', to);
+    if (body) tParams.append('Body', body);
+    if (TWILIO_MSG_SERVICE_SID) tParams.append('MessagingServiceSid', TWILIO_MSG_SERVICE_SID);
+    else                         tParams.append('From', TWILIO_FROM);
+    for (const u of mediaList) tParams.append('MediaUrl', u);
 
     const twilioRes = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
@@ -97,7 +110,7 @@ Deno.serve(async (req: Request) => {
           'Authorization': 'Basic ' + btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`),
           'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: new URLSearchParams(outboundParams),
+        body: tParams,
       }
     );
 
@@ -111,14 +124,22 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Persist media URLs alongside the message in the same shape the
+    // inbound webhook uses: array of {url, content_type}. We don't have
+    // the content_type from the client (it was already validated at upload
+    // time), so we leave it blank and let the renderer fall through to
+    // image extension matching. Most uploads will be image/* anyway.
+    const mediaRows = mediaList.map((u: string) => ({ url: u, content_type: '' }));
+
     const dbPayload: Record<string, unknown> = {
       customer_id: customer_id || null,
       direction: 'outbound',
-      body,
+      body: body || '',
       from_number: TWILIO_FROM,
       to_number: to,
       twilio_sid: twilioData.sid,
       status: twilioData.status,
+      media_urls: mediaRows,
     };
     if (sent_by_driver_id) {
       dbPayload.sent_by_driver_id = sent_by_driver_id;
