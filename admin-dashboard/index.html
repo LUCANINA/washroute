@@ -660,6 +660,80 @@
     .compose-counter { padding: 2px 20px 8px 20px; font-size: 11px; color: var(--gray-400); text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
     .compose-counter.warn { color: var(--amber); }
     .compose-counter.over { color: var(--red); font-weight: 600; }
+    /* Per-message action row below each bubble. Visible on hover so the
+       inbox stays calm at rest but the L&F quick-action is one click away. */
+    .msg-bubble-wrap { position: relative; max-width: 100%; }
+    .msg-actions { display: flex; gap: 4px; margin-top: 4px; opacity: 0; transition: opacity .15s; pointer-events: none; }
+    .msg-bubble-wrap:hover .msg-actions { opacity: 1; pointer-events: auto; }
+    .msg-action-btn { background: var(--gray-100); border: 1px solid var(--gray-200); color: var(--gray-700); border-radius: 999px; padding: 3px 10px; font-size: 11px; cursor: pointer; font-weight: 500; }
+    .msg-action-btn:hover { background: var(--gray-200); border-color: var(--gray-300); color: var(--gray-900); }
+
+    /* ─── Lost & Found page ─── */
+    .lf-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .lf-search-wrap { position: relative; flex: 0 1 380px; }
+    .lf-search-wrap svg { position: absolute; top: 50%; left: 12px; transform: translateY(-50%); color: var(--gray-400); pointer-events: none; }
+    .lf-search { width: 100%; padding: 10px 12px 10px 34px; border: 1px solid var(--gray-200); border-radius: 8px; font-size: 13.5px; background: white; outline: none; }
+    .lf-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .lf-toolbar-spacer { flex: 1; }
+    .lf-kanban { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .lf-col { background: var(--gray-50); border-radius: 12px; padding: 14px; min-height: 400px; display: flex; flex-direction: column; }
+    .lf-col[data-side="lost"]  .lf-col-title::before { content: '↘'; color: var(--red);   margin-right: 8px; font-weight: 700; }
+    .lf-col[data-side="found"] .lf-col-title::before { content: '↖'; color: var(--green); margin-right: 8px; font-weight: 700; }
+    .lf-col-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding: 0 4px; }
+    .lf-col-title { font-size: 13px; font-weight: 700; color: var(--gray-800); letter-spacing: 0.02em; }
+    .lf-col-count { background: var(--gray-200); color: var(--gray-700); font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+    .lf-col-body { display: flex; flex-direction: column; gap: 10px; }
+    .lf-card { background: white; border-radius: 10px; border: 1px solid var(--gray-200); padding: 12px; cursor: pointer; transition: all .15s; display: flex; gap: 12px; align-items: flex-start; }
+    .lf-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .lf-card-thumb { width: 56px; height: 56px; border-radius: 8px; background: var(--gray-100); flex-shrink: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; color: var(--gray-400); font-size: 22px; }
+    .lf-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .lf-card-body { flex: 1; min-width: 0; }
+    .lf-card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+    .lf-card-name { font-weight: 600; font-size: 13px; color: var(--gray-900); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lf-card-name.no-customer { color: var(--gray-500); font-style: italic; font-weight: 500; }
+    .lf-card-age { font-size: 11px; color: var(--gray-400); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    .lf-card-desc { font-size: 12.5px; color: var(--gray-700); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 6px; }
+    .lf-card-meta { display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--gray-500); }
+    .lf-card-meta .lf-pill { background: var(--gray-100); padding: 2px 8px; border-radius: 999px; }
+    .lf-card-meta .lf-pill.matched { background: var(--green-light); color: var(--green); font-weight: 600; }
+    .lf-empty { text-align: center; color: var(--gray-400); font-size: 13px; padding: 32px 16px; }
+    .lf-resolved-section { margin-top: 24px; }
+    .lf-resolved-header { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 4px; user-select: none; font-size: 13px; font-weight: 600; color: var(--gray-600); }
+    .lf-resolved-header:hover { color: var(--gray-900); }
+    .lf-resolved-count { background: var(--gray-200); color: var(--gray-700); font-size: 11.5px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+    .lf-resolved-body { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 8px 0; }
+    .lf-resolved-body .lf-card { opacity: 0.65; }
+    @media (max-width: 900px) {
+      .lf-kanban { grid-template-columns: 1fr; }
+      .lf-resolved-body { grid-template-columns: 1fr; }
+    }
+
+    /* ─── Lost & Found modals (create + detail) ─── */
+    .lf-modal-form { display: flex; flex-direction: column; gap: 14px; }
+    .lf-form-row { display: flex; flex-direction: column; gap: 6px; }
+    .lf-form-row label { font-size: 12px; font-weight: 600; color: var(--gray-700); }
+    .lf-photo-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    .lf-photo-tile { position: relative; width: 88px; height: 88px; border-radius: 10px; overflow: hidden; background: var(--gray-100); }
+    .lf-photo-tile img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+    .lf-photo-tile .tile-x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 11px; background: rgba(0,0,0,0.7); color: white; border: none; cursor: pointer; font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; }
+    .lf-photo-tile .tile-x:hover { background: rgba(0,0,0,0.9); }
+    .lf-photo-tile.uploading::after { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0.6); }
+    .lf-photo-tile.uploading::before { content: ''; position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; border: 2px solid var(--gray-300); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; z-index: 1; }
+    .lf-photo-add { width: 88px; height: 88px; border: 2px dashed var(--gray-300); border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 4px; cursor: pointer; color: var(--gray-500); font-size: 11px; background: white; transition: all .15s; }
+    .lf-photo-add:hover { border-color: var(--accent); color: var(--accent); }
+    .lf-photo-add svg { width: 22px; height: 22px; }
+    .lf-match-banner { background: var(--green-light); border: 1px solid var(--green); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--green); display: flex; justify-content: space-between; align-items: center; }
+    .lf-match-banner a { color: var(--green); font-weight: 700; cursor: pointer; }
+    .lf-match-search { position: relative; }
+    .lf-match-results { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: white; border: 1px solid var(--gray-200); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); max-height: 280px; overflow-y: auto; z-index: 1100; display: none; }
+    .lf-match-result { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--gray-100); display: flex; gap: 10px; align-items: flex-start; }
+    .lf-match-result:last-child { border-bottom: none; }
+    .lf-match-result:hover { background: var(--gray-50); }
+    .lf-match-result-thumb { width: 36px; height: 36px; border-radius: 6px; overflow: hidden; background: var(--gray-100); flex-shrink: 0; }
+    .lf-match-result-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .lf-match-result-body { flex: 1; min-width: 0; font-size: 12.5px; }
+    .lf-match-result-name { font-weight: 600; color: var(--gray-900); margin-bottom: 2px; }
+    .lf-match-result-desc { color: var(--gray-600); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* Action card — shown above composer when AI detects an actionable request */
     .inbox-action-card { margin: 0 16px 8px; padding: 10px 14px; background: #f0f4ff; border: 1.5px solid #c7d7fe; border-radius: 10px; display: flex; align-items: center; gap: 10px; font-size: 13px; animation: fadeSlideIn .15s ease; }
     @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
@@ -1297,6 +1371,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         Inbox
         <span class="nav-badge" id="badge-inbox" style="background:var(--red)">0</span>
+      </div>
+      <div id="nav-lostfound" class="nav-item" data-page="lostfound" data-section="ops" onclick="showPage('lostfound',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v3l2 2"/></svg>
+        Lost &amp; Found
+        <span class="nav-badge" id="badge-lostfound" style="background:var(--amber);display:none">0</span>
       </div>
       <div class="nav-item" data-page="drivers" data-section="ops" onclick="showPage('drivers',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M17 11l1.5 1.5L21 10"/></svg>
@@ -1950,6 +2029,47 @@
                 <div style="font-size:13px;color:var(--gray-500);margin-top:4px">Select a conversation</div>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- ── LOST & FOUND PAGE ── -->
+        <div class="page" id="page-lostfound">
+          <div class="lf-toolbar">
+            <div class="lf-search-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="lf-search" class="lf-search" placeholder="Search by description, customer, or order #…" oninput="renderLostFound()" />
+            </div>
+            <div class="lf-toolbar-spacer"></div>
+            <button class="btn btn-ghost" onclick="openLostFoundCreate('lost')" style="margin-right:6px">+ Lost</button>
+            <button class="btn btn-primary" onclick="openLostFoundCreate('found')">+ Found</button>
+          </div>
+          <div class="lf-kanban">
+            <div class="lf-col" data-side="lost">
+              <div class="lf-col-header">
+                <div class="lf-col-title">Open Lost</div>
+                <div class="lf-col-count" id="lf-count-lost">0</div>
+              </div>
+              <div class="lf-col-body" id="lf-list-lost">
+                <div class="loading"><div class="spinner"></div></div>
+              </div>
+            </div>
+            <div class="lf-col" data-side="found">
+              <div class="lf-col-header">
+                <div class="lf-col-title">Open Found</div>
+                <div class="lf-col-count" id="lf-count-found">0</div>
+              </div>
+              <div class="lf-col-body" id="lf-list-found">
+                <div class="loading"><div class="spinner"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="lf-resolved-section">
+            <div class="lf-resolved-header" onclick="toggleLfResolved()">
+              <span id="lf-resolved-chev">▸</span>
+              <span>Recently Resolved</span>
+              <span class="lf-resolved-count" id="lf-count-resolved">0</span>
+            </div>
+            <div class="lf-resolved-body" id="lf-list-resolved" style="display:none"></div>
           </div>
         </div>
 
@@ -3437,6 +3557,89 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('add-order')">Cancel</button>
       <button class="btn btn-primary" onclick="saveOrder()">Create Order</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── LOST & FOUND: CREATE ITEM ── -->
+<div class="modal-overlay" id="modal-lf-create">
+  <div class="modal" style="width:540px;max-width:96vw;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="lf-create-title">+ Add Item</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-top:2px;">Photos help customers identify their items</div>
+      </div>
+      <button class="modal-close" onclick="closeModal('lf-create')"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body lf-modal-form">
+      <input type="file" id="lf-create-photo-input" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="display:none" onchange="onLfCreatePhotoChange(event)" />
+
+      <div class="lf-form-row">
+        <label>Photos</label>
+        <div class="lf-photo-grid" id="lf-create-photo-grid">
+          <button class="lf-photo-add" onclick="document.getElementById('lf-create-photo-input').click()" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            Add photo
+          </button>
+        </div>
+      </div>
+
+      <div class="lf-form-row">
+        <label>Item description <span style="color:var(--red)">*</span></label>
+        <input type="text" id="lf-create-desc" class="form-input" placeholder='e.g. "Black North Face fleece, size M"' />
+      </div>
+
+      <div class="lf-form-row">
+        <label>Storage location</label>
+        <input type="text" id="lf-create-location" class="form-input" list="lf-location-suggestions" placeholder='e.g. "23rd Ave"' />
+        <datalist id="lf-location-suggestions"></datalist>
+      </div>
+
+      <div class="lf-form-row">
+        <label>Customer (if known)</label>
+        <input type="text" id="lf-create-customer-search" class="form-input" placeholder="Type name or phone…" oninput="onLfCustomerSearch(event)" autocomplete="off" />
+        <div style="position:relative">
+          <div id="lf-create-customer-results" class="lf-match-results"></div>
+        </div>
+        <div id="lf-create-customer-chip" style="display:none;font-size:12.5px;background:var(--gray-100);padding:6px 10px;border-radius:6px;display:none;align-items:center;gap:8px;width:fit-content;margin-top:4px"></div>
+      </div>
+
+      <div class="lf-form-row">
+        <label>Order # (if known)</label>
+        <input type="text" id="lf-create-order" class="form-input" placeholder="Optional" />
+      </div>
+
+      <div class="lf-form-row">
+        <label>Notes</label>
+        <textarea id="lf-create-notes" class="form-input" rows="2" placeholder='e.g. "Found on processing center floor"'></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('lf-create')">Cancel</button>
+      <button class="btn btn-primary" id="lf-create-save-btn" onclick="saveLostFoundCreate()">Save Item</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── LOST & FOUND: DETAIL / EDIT ── -->
+<div class="modal-overlay" id="modal-lf-detail">
+  <div class="modal" style="width:580px;max-width:96vw;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="lf-detail-title">Item</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-top:2px;" id="lf-detail-subtitle"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal('lf-detail')"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body lf-modal-form" id="lf-detail-body">
+      <div class="loading"><div class="spinner"></div></div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between" id="lf-detail-footer">
+      <button class="btn btn-ghost" style="color:var(--red)" onclick="deleteLostFound()">Delete</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="closeModal('lf-detail')">Close</button>
+        <button class="btn btn-primary" id="lf-detail-save-btn" onclick="saveLostFoundDetail()">Save</button>
+      </div>
     </div>
   </div>
 </div>
@@ -5451,7 +5654,7 @@
 
   // ── ROLE-BASED NAV ──
   const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', attendant: 'Attendant', pos_device: 'POS Device' };
-  const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','drivers','pos',
+  const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','lostfound','drivers','pos',
                         'reports','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
 
@@ -5962,8 +6165,8 @@
   }
 
   // ── NAVIGATION ──
-  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', settings:'General', team:'Team' };
-  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', services:'', notifications:'', reports:'', discounts:'', settings:'', team:'' };
+  const pageTitles = { overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing', drivers:'Drivers', launderers:'Launderers', racks:'Racks', maps:'Delivery Zones & Routes', inbox:'Inbox', lostfound:'Lost & Found', services:'Services & Pricing', notifications:'Notifications', reports:'Reports', discounts:'Discounts', settings:'General', team:'Team' };
+  const pageCTAs   = { overview:'New Order', customers:'Add Customer', orders:'New Order', processing:'', drivers:'', launderers:'', maps:'', inbox:'Compose', lostfound:'+ Add Item', services:'', notifications:'', reports:'', discounts:'', settings:'', team:'' };
 
   // POS launcher — opens the POS app in a new tab (not an SPA page, just an external link)
   function openPosLauncher() {
@@ -6013,6 +6216,7 @@
       if (!allServices.length || !allFees.length) { loadFees(); loadServices(); }
     }
     if (id === 'inbox')   loadInbox();
+    if (id === 'lostfound') loadLostFound();
     if (id === 'maps')    {
       setTimeout(()=>initZonesMap(), 80);
       setTimeout(()=>initRoutesPage(), 80);
@@ -6085,6 +6289,7 @@
     }
     if (currentPage === 'drivers')   { openDriverEditor(null);   return; }
     if (currentPage === 'inbox')     { openComposeSMS(); return; }
+    if (currentPage === 'lostfound') { openLostFoundCreate('found'); return; }
     const map = { overview:'add-order', customers:'add-customer', orders:'add-order' };
     if (map[currentPage]) openModal(map[currentPage]);
   }
@@ -6413,7 +6618,7 @@
     ]);
     allAddonServicesCache = addonSvcs || [];
     allPreferencesCache   = globalPrefs || [];
-    const results = await Promise.allSettled([loadSettings(), loadSites(), loadOverview(), loadCustomers(), loadOrders(currentOrderFilter), loadRoutes(), loadDiscounts(), initDriverMsgBadge()]);
+    const results = await Promise.allSettled([loadSettings(), loadSites(), loadOverview(), loadCustomers(), loadOrders(currentOrderFilter), loadRoutes(), loadDiscounts(), initDriverMsgBadge(), loadLostFound()]);
     const failed = results.filter(r => r.status === 'rejected');
     if (failed.length) {
       console.error('loadAll failures:', failed.map(r => r.reason));
@@ -12094,6 +12299,27 @@ ${oneCopy}
     return `<div class="message-bubble message-${m.direction}${media.length ? ' has-media' : ''}">${mediaHtml}${bodyHtml}</div>`;
   }
 
+  // ── convertMsgToLostFound ──
+  // One-click handler attached to inbound message bubbles. Looks up the
+  // message by id, then opens the Lost & Found create modal pre-filled
+  // with the photo URLs (already stored in our sms-media bucket — no
+  // re-upload), the body as the description seed, and the thread customer.
+  async function convertMsgToLostFound(msgId, side) {
+    const { data: m, error } = await db.from('sms_messages')
+      .select('id, body, media_urls, customer_id')
+      .eq('id', msgId).single();
+    if (error || !m) { showToast('Message not found', 'error'); return; }
+    const photos = Array.isArray(m.media_urls) ? m.media_urls : [];
+    if (photos.length === 0 && !m.body) {
+      showToast('Nothing to add — message has no photo or text', 'error'); return;
+    }
+    openLostFoundCreate(side, {
+      photoUrls: photos,
+      description: m.body || '',
+      customerId: m.customer_id || null,
+    });
+  }
+
   async function openSMSConversation(customerId, phone, itemEl, silent = false) {
     document.querySelectorAll('.inbox-item').forEach(i => i.classList.remove('active'));
     const clickedItem = typeof itemEl === 'string' ? document.querySelector(`[data-conv-key="${customerId||phone}"]`) : itemEl;
@@ -12215,8 +12441,14 @@ ${oneCopy}
       <div class="inbox-messages" id="msg-thread">
         <div style="width:100%;max-width:580px;margin:0 auto;display:flex;flex-direction:column;gap:12px">
           ${(msgs||[]).map(m => `
-            <div style="display:flex;flex-direction:column;align-items:${m.direction==='outbound'?'flex-end':'flex-start'}">
+            <div class="msg-bubble-wrap" style="display:flex;flex-direction:column;align-items:${m.direction==='outbound'?'flex-end':'flex-start'}">
               ${renderMessageBubble(m)}
+              ${m.id && m.direction === 'inbound' ? `
+                <div class="msg-actions">
+                  <button class="msg-action-btn" onclick="convertMsgToLostFound('${m.id}','found')" title="Add to Lost &amp; Found as Found">+ Found</button>
+                  <button class="msg-action-btn" onclick="convertMsgToLostFound('${m.id}','lost')" title="Add to Lost &amp; Found as Lost">+ Lost</button>
+                </div>
+              ` : ''}
               <div class="msg-ts">${fmtDate(m.created_at)} ${fmtTime(m.created_at)}</div>
             </div>`).join('')}
           ${(!msgs||msgs.length===0)?'<div style="text-align:center;color:var(--gray-400);font-size:13px;padding:20px">No messages yet</div>':''}
@@ -12337,6 +12569,596 @@ ${oneCopy}
     loadOverviewIssues(); // refresh overview count
     // Refresh thread to show issue badge
     if (currentConv) openSMSConversation(currentConv.customer_id||'', currentConv.phone, null, true);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // LOST & FOUND
+  // Issues with category='lost_found' and a populated lost_or_found field.
+  // Two-column kanban (lost vs found), photo gallery, manual lost↔found
+  // matching with type-ahead, mark-returned flow.
+  // ─────────────────────────────────────────────────────────────────────
+  let _lfRows = [];                 // last fetched issues
+  let _lfLocations = [];            // distinct storage_location values, autocomplete
+  let _lfCreateUploads = [];        // pending uploads in the create modal
+  let _lfCreateState = { side: 'found', customerId: null };
+  let _lfDetailId = null;           // currently open issue id
+  let _lfDetailRow = null;          // currently open issue full row
+
+  async function loadLostFound() {
+    const lostEl = document.getElementById('lf-list-lost');
+    const foundEl = document.getElementById('lf-list-found');
+    if (!lostEl || !foundEl) return;
+    lostEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    foundEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+    const { data, error } = await db.from('cs_issues')
+      .select('id, lost_or_found, status, title, notes, photo_urls, storage_location, matched_issue_id, resolved_returned_to, customer_id, order_id, created_at, resolved_at, customers(first_name_cache, last_name_cache, phone_cache)')
+      .eq('category', 'lost_found')
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (error) {
+      lostEl.innerHTML = `<div class="lf-empty">Failed to load: ${esc(error.message)}</div>`;
+      foundEl.innerHTML = '';
+      return;
+    }
+    _lfRows = data || [];
+
+    // Build storage-location autocomplete from history
+    const locSet = new Set();
+    _lfRows.forEach(r => { if (r.storage_location) locSet.add(r.storage_location); });
+    _lfLocations = Array.from(locSet).sort();
+    const dl = document.getElementById('lf-location-suggestions');
+    if (dl) dl.innerHTML = _lfLocations.map(l => `<option value="${esc(l)}">`).join('');
+
+    renderLostFound();
+  }
+
+  function renderLostFound() {
+    const lostEl = document.getElementById('lf-list-lost');
+    const foundEl = document.getElementById('lf-list-found');
+    const resolvedEl = document.getElementById('lf-list-resolved');
+    if (!lostEl || !foundEl) return;
+
+    const q = (document.getElementById('lf-search')?.value || '').toLowerCase().trim();
+    const matchesQuery = (r) => {
+      if (!q) return true;
+      const cust = r.customers ? `${r.customers.first_name_cache||''} ${r.customers.last_name_cache||''}`.toLowerCase() : '';
+      const phone = (r.customers?.phone_cache || '').toLowerCase();
+      return (r.title||'').toLowerCase().includes(q)
+          || (r.notes||'').toLowerCase().includes(q)
+          || cust.includes(q) || phone.includes(q)
+          || (String(r.id)).includes(q);
+    };
+
+    const openLost  = _lfRows.filter(r => r.lost_or_found === 'lost'  && r.status !== 'resolved' && matchesQuery(r));
+    const openFound = _lfRows.filter(r => r.lost_or_found === 'found' && r.status !== 'resolved' && matchesQuery(r));
+    const resolved  = _lfRows.filter(r => r.status === 'resolved' && matchesQuery(r)).slice(0, 50);
+
+    document.getElementById('lf-count-lost').textContent = openLost.length;
+    document.getElementById('lf-count-found').textContent = openFound.length;
+    document.getElementById('lf-count-resolved').textContent = resolved.length;
+
+    lostEl.innerHTML  = openLost.length  ? openLost.map(_lfRenderCard).join('')  : '<div class="lf-empty">No open lost items</div>';
+    foundEl.innerHTML = openFound.length ? openFound.map(_lfRenderCard).join('') : '<div class="lf-empty">No open found items</div>';
+    if (resolvedEl) resolvedEl.innerHTML = resolved.length ? resolved.map(_lfRenderCard).join('') : '<div class="lf-empty">Nothing resolved yet</div>';
+
+    // Sidebar badge: total open count across both columns
+    const total = openLost.length + openFound.length;
+    const badge = document.getElementById('badge-lostfound');
+    if (badge) {
+      badge.textContent = total || '';
+      badge.style.display = total > 0 ? '' : 'none';
+    }
+  }
+
+  function _lfRenderCard(r) {
+    const cust = r.customers ? `${r.customers.first_name_cache||''} ${r.customers.last_name_cache||''}`.trim() : '';
+    const photos = Array.isArray(r.photo_urls) ? r.photo_urls : [];
+    const thumb = photos[0]?.url
+      ? `<img src="${esc(photos[0].url)}" alt="" loading="lazy" />`
+      : `📦`;
+    const ageMs = Date.now() - new Date(r.created_at).getTime();
+    const ageDays = Math.floor(ageMs / 86400000);
+    const ageLabel = ageDays === 0 ? 'today'
+                   : ageDays === 1 ? '1d'
+                   : ageDays < 7   ? `${ageDays}d`
+                   : ageDays < 30  ? `${Math.floor(ageDays/7)}w`
+                                   : `${Math.floor(ageDays/30)}mo`;
+    const nameHtml = cust
+      ? `<div class="lf-card-name">${esc(cust)}</div>`
+      : `<div class="lf-card-name no-customer">No customer linked</div>`;
+    const matchedPill = r.matched_issue_id ? `<span class="lf-pill matched">Matched #${r.matched_issue_id}</span>` : '';
+    const locPill = r.storage_location ? `<span class="lf-pill">📍 ${esc(r.storage_location)}</span>` : '';
+    const photoCountPill = photos.length > 1 ? `<span class="lf-pill">📷 ${photos.length}</span>` : '';
+    return `<div class="lf-card" onclick="openLostFoundDetail(${r.id})">
+      <div class="lf-card-thumb">${thumb}</div>
+      <div class="lf-card-body">
+        <div class="lf-card-top">${nameHtml}<div class="lf-card-age">${ageLabel}</div></div>
+        <div class="lf-card-desc">${esc(r.title || '')}</div>
+        <div class="lf-card-meta">${matchedPill}${locPill}${photoCountPill}</div>
+      </div>
+    </div>`;
+  }
+
+  function toggleLfResolved() {
+    const body = document.getElementById('lf-list-resolved');
+    const chev = document.getElementById('lf-resolved-chev');
+    if (!body) return;
+    const isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : 'grid';
+    if (chev) chev.textContent = isOpen ? '▸' : '▾';
+  }
+
+  // ── Create modal ──
+  // Optional prefill object accepted so the inbox MMS one-click can pass
+  // a starting set of photo URLs + description + customer id without going
+  // back through the upload flow. See attachLostFoundFromMessage.
+  function openLostFoundCreate(side, prefill) {
+    _lfCreateState = {
+      side: side === 'lost' ? 'lost' : 'found',
+      customerId: prefill?.customerId || null,
+    };
+    _lfCreateUploads = [];
+    if (Array.isArray(prefill?.photoUrls) && prefill.photoUrls.length) {
+      // Pre-existing URLs already live in our sms-media bucket — skip upload
+      // and treat them as ready entries directly.
+      _lfCreateUploads = prefill.photoUrls.map((u, i) => ({
+        id: 'pre-' + i,
+        status: 'ready',
+        url: u.url || u,
+        content_type: u.content_type || '',
+        blobUrl: '',
+        name: '',
+      }));
+    }
+
+    document.getElementById('lf-create-title').textContent = _lfCreateState.side === 'lost' ? '+ Lost Item' : '+ Found Item';
+    document.getElementById('lf-create-desc').value = prefill?.description || '';
+    document.getElementById('lf-create-location').value = '';
+    document.getElementById('lf-create-customer-search').value = '';
+    document.getElementById('lf-create-order').value = '';
+    document.getElementById('lf-create-notes').value = '';
+    document.getElementById('lf-create-customer-results').style.display = 'none';
+    _lfRenderCreatePhotos();
+    _lfRenderCreateCustomerChip();
+
+    openModal('lf-create');
+  }
+
+  function _lfRenderCreatePhotos() {
+    const grid = document.getElementById('lf-create-photo-grid');
+    if (!grid) return;
+    const tiles = _lfCreateUploads.map(it => {
+      const src = it.url || it.blobUrl || '';
+      const cls = it.status === 'uploading' ? 'lf-photo-tile uploading' : 'lf-photo-tile';
+      return `<div class="${cls}" data-id="${esc(it.id)}">
+        ${src ? `<img src="${esc(src)}" alt="" />` : ''}
+        <button class="tile-x" onclick="removeLfCreatePhoto('${esc(it.id)}')" type="button" title="Remove">×</button>
+      </div>`;
+    }).join('');
+    grid.innerHTML = tiles + `<button class="lf-photo-add" onclick="document.getElementById('lf-create-photo-input').click()" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      Add photo
+    </button>`;
+  }
+
+  async function onLfCreatePhotoChange(ev) {
+    const files = Array.from(ev.target.files || []);
+    ev.target.value = '';
+    if (!files.length) return;
+    const TEN_MB = 10 * 1024 * 1024;
+    for (const f of files) {
+      if (f.size > TEN_MB) { showToast(`${f.name} is over 10 MB — skipped`, 'error'); continue; }
+      if (!/^image\/(jpeg|png|webp|gif)$/i.test(f.type)) { showToast(`${f.name}: JPG/PNG/WEBP/GIF only`, 'error'); continue; }
+
+      const localId = 'lf-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const blobUrl = URL.createObjectURL(f);
+      const item = { id: localId, status: 'uploading', url: '', content_type: f.type, blobUrl, name: f.name };
+      _lfCreateUploads.push(item);
+      _lfRenderCreatePhotos();
+
+      const ext = (f.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      const path = `lostfound/${today}/${localId}.${ext}`;
+      try {
+        const { error: upErr } = await db.storage.from('sms-media').upload(path, f, { contentType: f.type, upsert: true });
+        if (upErr) throw upErr;
+        const { data: pub } = db.storage.from('sms-media').getPublicUrl(path);
+        item.url = pub.publicUrl;
+        item.status = 'ready';
+      } catch (err) {
+        showToast(`Upload failed: ${err.message || err}`, 'error');
+        removeLfCreatePhoto(localId);
+        continue;
+      }
+      _lfRenderCreatePhotos();
+    }
+  }
+
+  function removeLfCreatePhoto(id) {
+    const idx = _lfCreateUploads.findIndex(i => i.id === id);
+    if (idx < 0) return;
+    try { if (_lfCreateUploads[idx].blobUrl) URL.revokeObjectURL(_lfCreateUploads[idx].blobUrl); } catch (_) {}
+    _lfCreateUploads.splice(idx, 1);
+    _lfRenderCreatePhotos();
+  }
+
+  // Customer search for create modal — same pattern as inbox compose.
+  let _lfCustSearchTimer = null;
+  function onLfCustomerSearch(ev) {
+    const q = (ev.target.value || '').trim();
+    const resultsEl = document.getElementById('lf-create-customer-results');
+    if (q.length < 2) { resultsEl.style.display = 'none'; return; }
+    if (_lfCustSearchTimer) clearTimeout(_lfCustSearchTimer);
+    _lfCustSearchTimer = setTimeout(async () => {
+      const digits = q.replace(/\D/g, '');
+      const isPhone = digits.length >= 4;
+      let query = db.from('customers').select('id, first_name_cache, last_name_cache, phone_cache').limit(8);
+      if (isPhone) query = query.like('phone_cache', `%${digits}%`);
+      else         query = query.or(`first_name_cache.ilike.%${q}%,last_name_cache.ilike.%${q}%`);
+      const { data } = await query;
+      if (!data?.length) { resultsEl.innerHTML = '<div class="lf-match-result"><div class="lf-match-result-body">No matches</div></div>'; resultsEl.style.display = 'block'; return; }
+      resultsEl.innerHTML = data.map(c => {
+        const name = `${c.first_name_cache||''} ${c.last_name_cache||''}`.trim() || '(no name)';
+        // Use data attributes + a helper to avoid JS-string injection issues
+        // with names containing quotes.
+        return `<div class="lf-match-result" data-cust-id="${esc(c.id)}" data-cust-name="${esc(name)}" onclick="pickLfCreateCustomerFromEl(this)">
+          <div class="lf-match-result-body">
+            <div class="lf-match-result-name">${esc(name)}</div>
+            <div class="lf-match-result-desc">${esc(c.phone_cache || '')}</div>
+          </div>
+        </div>`;
+      }).join('');
+      resultsEl.style.display = 'block';
+    }, 150);
+  }
+
+  function pickLfCreateCustomer(id, name) {
+    _lfCreateState.customerId = id;
+    document.getElementById('lf-create-customer-search').value = '';
+    document.getElementById('lf-create-customer-results').style.display = 'none';
+    _lfRenderCreateCustomerChip(name);
+  }
+
+  function pickLfCreateCustomerFromEl(el) {
+    pickLfCreateCustomer(el.dataset.custId, el.dataset.custName);
+  }
+
+  function _lfRenderCreateCustomerChip(nameOverride) {
+    const chip = document.getElementById('lf-create-customer-chip');
+    if (!chip) return;
+    if (!_lfCreateState.customerId) { chip.style.display = 'none'; chip.innerHTML = ''; return; }
+    let name = nameOverride;
+    if (!name) {
+      const found = (allCustomers || []).find(c => c.id === _lfCreateState.customerId);
+      name = found ? `${found.first_name_cache||''} ${found.last_name_cache||''}`.trim() : '(linked)';
+    }
+    chip.style.display = 'flex';
+    chip.innerHTML = `<span>👤 ${esc(name)}</span><button onclick="clearLfCreateCustomer()" style="background:none;border:none;cursor:pointer;color:var(--gray-500);font-size:14px;padding:0">×</button>`;
+  }
+
+  function clearLfCreateCustomer() {
+    _lfCreateState.customerId = null;
+    _lfRenderCreateCustomerChip();
+  }
+
+  async function saveLostFoundCreate() {
+    const desc = (document.getElementById('lf-create-desc').value || '').trim();
+    if (!desc) { showToast('Please describe the item', 'error'); return; }
+    if (_lfCreateUploads.some(u => u.status === 'uploading')) { showToast('Wait for photos to finish uploading', 'error'); return; }
+
+    const photoRows = _lfCreateUploads.filter(u => u.status === 'ready' && u.url).map(u => ({ url: u.url, content_type: u.content_type || '' }));
+    const location = (document.getElementById('lf-create-location').value || '').trim() || null;
+    const orderRaw = (document.getElementById('lf-create-order').value || '').trim();
+    const notes = (document.getElementById('lf-create-notes').value || '').trim() || null;
+    const author = currentUserDisplayName || currentUserFirstName || 'Admin';
+
+    // Resolve order_number → orders.id if provided. Fail soft (warn + still save).
+    let orderId = null;
+    if (orderRaw) {
+      const orderNum = parseInt(orderRaw.replace(/[^0-9]/g, ''), 10);
+      if (orderNum) {
+        const { data: ord } = await db.from('orders').select('id').eq('order_number', orderNum).maybeSingle();
+        if (ord?.id) orderId = ord.id;
+        else showToast(`Order #${orderNum} not found — saved without order link`, 'error');
+      }
+    }
+
+    const btn = document.getElementById('lf-create-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    const { data, error } = await db.from('cs_issues').insert({
+      category: 'lost_found',
+      lost_or_found: _lfCreateState.side,
+      title: desc,
+      notes,
+      photo_urls: photoRows,
+      storage_location: location,
+      customer_id: _lfCreateState.customerId,
+      order_id: orderId,
+      created_by: author,
+      status: 'open',
+      priority: 'normal',
+    }).select().single();
+
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Item'; }
+    if (error) { showToast('Failed: ' + error.message, 'error'); return; }
+    showToast(`${_lfCreateState.side === 'lost' ? 'Lost' : 'Found'} item #${data.id} saved`, 'success');
+    closeModal('lf-create');
+    loadLostFound();
+  }
+
+  // ── Detail modal ──
+  async function openLostFoundDetail(id) {
+    _lfDetailId = id;
+    _lfDetailRow = null;
+    document.getElementById('lf-detail-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    openModal('lf-detail');
+
+    const { data, error } = await db.from('cs_issues')
+      .select('*, customers(first_name_cache, last_name_cache, phone_cache), orders(order_number)')
+      .eq('id', id).single();
+    if (error || !data) {
+      document.getElementById('lf-detail-body').innerHTML = `<div class="lf-empty">Failed to load: ${esc(error?.message || 'not found')}</div>`;
+      return;
+    }
+    _lfDetailRow = data;
+    _lfRenderDetail(data);
+  }
+
+  function _lfRenderDetail(r) {
+    const sideLabel = r.lost_or_found === 'lost' ? 'Lost' : 'Found';
+    document.getElementById('lf-detail-title').textContent = `${sideLabel} item #${r.id}`;
+    const cust = r.customers ? `${r.customers.first_name_cache||''} ${r.customers.last_name_cache||''}`.trim() : '';
+    const sub = [
+      cust ? `👤 ${cust}` : '',
+      r.orders?.order_number ? `Order #${r.orders.order_number}` : '',
+      r.created_at ? `Added ${fmtDate(r.created_at)}` : '',
+    ].filter(Boolean).join(' · ');
+    document.getElementById('lf-detail-subtitle').textContent = sub;
+
+    const photos = Array.isArray(r.photo_urls) ? r.photo_urls : [];
+    const photoTiles = photos.map((p, i) => `
+      <div class="lf-photo-tile">
+        <img src="${esc(p.url)}" alt="" onclick="window.open('${esc(p.url)}', '_blank')" />
+        <button class="tile-x" onclick="removeLfDetailPhoto(${i})" type="button" title="Remove photo">×</button>
+      </div>`).join('');
+
+    const matchBanner = r.matched_issue_id
+      ? `<div class="lf-match-banner">
+           <span>Matched with item <a onclick="openLostFoundDetail(${r.matched_issue_id})">#${r.matched_issue_id}</a></span>
+           <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="unlinkLostFoundMatch()">Unlink</button>
+         </div>`
+      : `<div class="lf-form-row">
+           <label>Find a match</label>
+           <div class="lf-match-search">
+             <input type="text" id="lf-detail-match-input" class="form-input" placeholder="Type to search ${r.lost_or_found === 'lost' ? 'Found' : 'Lost'} items by description…" oninput="onLfMatchSearch(event)" autocomplete="off" />
+             <div id="lf-detail-match-results" class="lf-match-results"></div>
+           </div>
+         </div>`;
+
+    const resolvedBadge = r.status === 'resolved'
+      ? `<div class="lf-match-banner" style="background:var(--gray-100);border-color:var(--gray-300);color:var(--gray-700)">
+           <span>✓ Resolved${r.resolved_returned_to ? ' — ' + esc(r.resolved_returned_to) : ''}${r.resolved_at ? ' · ' + fmtDate(r.resolved_at) : ''}</span>
+           <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="reopenLostFound()">Reopen</button>
+         </div>`
+      : '';
+
+    document.getElementById('lf-detail-body').innerHTML = `
+      ${resolvedBadge}
+      ${matchBanner}
+      <div class="lf-form-row">
+        <label>Photos</label>
+        <input type="file" id="lf-detail-photo-input" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="display:none" onchange="onLfDetailPhotoChange(event)" />
+        <div class="lf-photo-grid" id="lf-detail-photo-grid">
+          ${photoTiles}
+          <button class="lf-photo-add" onclick="document.getElementById('lf-detail-photo-input').click()" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            Add photo
+          </button>
+        </div>
+      </div>
+
+      <div class="lf-form-row">
+        <label>Item description</label>
+        <input type="text" id="lf-detail-desc" class="form-input" value="${esc(r.title || '')}" />
+      </div>
+
+      <div class="lf-form-row">
+        <label>Storage location</label>
+        <input type="text" id="lf-detail-location" class="form-input" list="lf-location-suggestions" value="${esc(r.storage_location || '')}" />
+      </div>
+
+      <div class="lf-form-row">
+        <label>Notes</label>
+        <textarea id="lf-detail-notes" class="form-input" rows="3">${esc(r.notes || '')}</textarea>
+      </div>
+
+      ${r.status !== 'resolved' && r.matched_issue_id ? `
+        <div style="margin-top:8px;padding-top:14px;border-top:1px solid var(--gray-200)">
+          <button class="btn btn-primary" onclick="markLostFoundReturned()" style="width:100%">Mark Returned</button>
+        </div>
+      ` : ''}
+    `;
+  }
+
+  async function onLfDetailPhotoChange(ev) {
+    const files = Array.from(ev.target.files || []);
+    ev.target.value = '';
+    if (!files.length || !_lfDetailRow) return;
+    const TEN_MB = 10 * 1024 * 1024;
+    const newPhotos = Array.isArray(_lfDetailRow.photo_urls) ? [..._lfDetailRow.photo_urls] : [];
+    for (const f of files) {
+      if (f.size > TEN_MB) { showToast(`${f.name} over 10 MB — skipped`, 'error'); continue; }
+      if (!/^image\/(jpeg|png|webp|gif)$/i.test(f.type)) { showToast(`${f.name}: JPG/PNG/WEBP/GIF only`, 'error'); continue; }
+      const localId = 'lf-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+      const ext = (f.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      const path = `lostfound/${today}/${localId}.${ext}`;
+      try {
+        const { error: upErr } = await db.storage.from('sms-media').upload(path, f, { contentType: f.type, upsert: true });
+        if (upErr) throw upErr;
+        const { data: pub } = db.storage.from('sms-media').getPublicUrl(path);
+        newPhotos.push({ url: pub.publicUrl, content_type: f.type });
+      } catch (err) {
+        showToast(`Upload failed: ${err.message || err}`, 'error');
+      }
+    }
+    _lfDetailRow.photo_urls = newPhotos;
+    await db.from('cs_issues').update({ photo_urls: newPhotos, updated_at: new Date().toISOString() }).eq('id', _lfDetailId);
+    _lfRenderDetail(_lfDetailRow);
+    loadLostFound();
+  }
+
+  async function removeLfDetailPhoto(idx) {
+    if (!_lfDetailRow) return;
+    const photos = Array.isArray(_lfDetailRow.photo_urls) ? [..._lfDetailRow.photo_urls] : [];
+    photos.splice(idx, 1);
+    _lfDetailRow.photo_urls = photos;
+    await db.from('cs_issues').update({ photo_urls: photos, updated_at: new Date().toISOString() }).eq('id', _lfDetailId);
+    _lfRenderDetail(_lfDetailRow);
+    loadLostFound();
+  }
+
+  async function saveLostFoundDetail() {
+    if (!_lfDetailId || !_lfDetailRow) return;
+    const desc = (document.getElementById('lf-detail-desc')?.value || '').trim();
+    const loc = (document.getElementById('lf-detail-location')?.value || '').trim() || null;
+    const notes = (document.getElementById('lf-detail-notes')?.value || '').trim() || null;
+    if (!desc) { showToast('Description cannot be empty', 'error'); return; }
+
+    const btn = document.getElementById('lf-detail-save-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    const { error } = await db.from('cs_issues').update({
+      title: desc, storage_location: loc, notes, updated_at: new Date().toISOString(),
+    }).eq('id', _lfDetailId);
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    if (error) { showToast('Failed: ' + error.message, 'error'); return; }
+    showToast('Saved ✓', 'success');
+    closeModal('lf-detail');
+    loadLostFound();
+  }
+
+  // ── Match search (find a candidate from the OTHER side) ──
+  let _lfMatchTimer = null;
+  function onLfMatchSearch(ev) {
+    const q = (ev.target.value || '').trim().toLowerCase();
+    const resultsEl = document.getElementById('lf-detail-match-results');
+    if (!resultsEl || !_lfDetailRow) return;
+    if (q.length < 2) { resultsEl.style.display = 'none'; return; }
+    if (_lfMatchTimer) clearTimeout(_lfMatchTimer);
+    _lfMatchTimer = setTimeout(() => {
+      const otherSide = _lfDetailRow.lost_or_found === 'lost' ? 'found' : 'lost';
+      const candidates = _lfRows.filter(r =>
+        r.lost_or_found === otherSide
+        && r.status !== 'resolved'
+        && !r.matched_issue_id
+        && r.id !== _lfDetailId
+        && (
+          (r.title || '').toLowerCase().includes(q)
+          || (r.notes || '').toLowerCase().includes(q)
+          || (r.customers && (`${r.customers.first_name_cache||''} ${r.customers.last_name_cache||''}`).toLowerCase().includes(q))
+        )
+      ).slice(0, 8);
+      if (!candidates.length) {
+        resultsEl.innerHTML = `<div class="lf-match-result"><div class="lf-match-result-body">No candidates match "${esc(q)}"</div></div>`;
+        resultsEl.style.display = 'block';
+        return;
+      }
+      resultsEl.innerHTML = candidates.map(c => {
+        const cust = c.customers ? `${c.customers.first_name_cache||''} ${c.customers.last_name_cache||''}`.trim() : '';
+        const photo = (c.photo_urls?.[0]?.url) ? `<img src="${esc(c.photo_urls[0].url)}" alt="" />` : '';
+        return `<div class="lf-match-result" onclick="confirmLostFoundMatch(${c.id})">
+          <div class="lf-match-result-thumb">${photo}</div>
+          <div class="lf-match-result-body">
+            <div class="lf-match-result-name">#${c.id}${cust ? ' · ' + esc(cust) : ''}</div>
+            <div class="lf-match-result-desc">${esc(c.title || '')}</div>
+          </div>
+        </div>`;
+      }).join('');
+      resultsEl.style.display = 'block';
+    }, 150);
+  }
+
+  async function confirmLostFoundMatch(otherId) {
+    if (!_lfDetailId || !_lfDetailRow) return;
+    if (!confirm(`Link item #${_lfDetailId} ↔ #${otherId} as a match?`)) return;
+    // Set both rows to point at each other.
+    const now = new Date().toISOString();
+    const { error: e1 } = await db.from('cs_issues').update({ matched_issue_id: otherId, updated_at: now }).eq('id', _lfDetailId);
+    if (e1) { showToast('Failed: ' + e1.message, 'error'); return; }
+    const { error: e2 } = await db.from('cs_issues').update({ matched_issue_id: _lfDetailId, updated_at: now }).eq('id', otherId);
+    if (e2) {
+      // Roll back the first link so we don't leave a half-set match
+      await db.from('cs_issues').update({ matched_issue_id: null, updated_at: now }).eq('id', _lfDetailId);
+      showToast('Failed: ' + e2.message, 'error');
+      return;
+    }
+    showToast(`Matched #${_lfDetailId} ↔ #${otherId} ✓`, 'success');
+    openLostFoundDetail(_lfDetailId);
+    loadLostFound();
+  }
+
+  async function unlinkLostFoundMatch() {
+    if (!_lfDetailId || !_lfDetailRow?.matched_issue_id) return;
+    const otherId = _lfDetailRow.matched_issue_id;
+    if (!confirm(`Unlink #${_lfDetailId} from #${otherId}?`)) return;
+    const now = new Date().toISOString();
+    await db.from('cs_issues').update({ matched_issue_id: null, updated_at: now }).eq('id', _lfDetailId);
+    await db.from('cs_issues').update({ matched_issue_id: null, updated_at: now }).eq('id', otherId);
+    showToast('Unlinked', 'success');
+    openLostFoundDetail(_lfDetailId);
+    loadLostFound();
+  }
+
+  async function markLostFoundReturned() {
+    if (!_lfDetailId || !_lfDetailRow) return;
+    const how = prompt('How was the item returned?\n(e.g. "Delivered with #4032", "Customer pickup 5/2", "Mailed")');
+    if (how === null) return; // canceled
+    const trimmed = (how || '').trim();
+    if (!trimmed) { showToast('Please describe how it was returned', 'error'); return; }
+
+    const now = new Date().toISOString();
+    const otherId = _lfDetailRow.matched_issue_id;
+    const ids = otherId ? [_lfDetailId, otherId] : [_lfDetailId];
+    const { error } = await db.from('cs_issues').update({
+      status: 'resolved',
+      resolved_at: now,
+      resolved_returned_to: trimmed,
+      updated_at: now,
+    }).in('id', ids);
+    if (error) { showToast('Failed: ' + error.message, 'error'); return; }
+    showToast(otherId ? `Both items marked Returned` : 'Item marked Returned', 'success');
+    closeModal('lf-detail');
+    loadLostFound();
+  }
+
+  async function reopenLostFound() {
+    if (!_lfDetailId) return;
+    if (!confirm('Reopen this item? Resolution details will be cleared.')) return;
+    const now = new Date().toISOString();
+    const { error } = await db.from('cs_issues').update({
+      status: 'open', resolved_at: null, resolved_returned_to: null, updated_at: now,
+    }).eq('id', _lfDetailId);
+    if (error) { showToast('Failed: ' + error.message, 'error'); return; }
+    showToast('Reopened ✓', 'success');
+    closeModal('lf-detail');
+    loadLostFound();
+  }
+
+  async function deleteLostFound() {
+    if (!_lfDetailId) return;
+    if (!confirm(`Delete item #${_lfDetailId}? This can't be undone.`)) return;
+    const otherId = _lfDetailRow?.matched_issue_id;
+    if (otherId) {
+      // Clear the partner's match pointer so it doesn't end up dangling.
+      await db.from('cs_issues').update({ matched_issue_id: null, updated_at: new Date().toISOString() }).eq('id', otherId);
+    }
+    const { error } = await db.from('cs_issues').delete().eq('id', _lfDetailId);
+    if (error) { showToast('Failed: ' + error.message, 'error'); return; }
+    showToast('Deleted', 'success');
+    closeModal('lf-detail');
+    loadLostFound();
   }
 
   // ── updateComposeCounter ──
