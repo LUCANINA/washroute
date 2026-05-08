@@ -734,6 +734,20 @@
     .lf-match-result-body { flex: 1; min-width: 0; font-size: 12.5px; }
     .lf-match-result-name { font-weight: 600; color: var(--gray-900); margin-bottom: 2px; }
     .lf-match-result-desc { color: var(--gray-600); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Auto-suggest matches panel inside the create modal */
+    .lf-suggest { background: #fff7ed; border: 1px solid #fdba74; border-radius: 8px; padding: 10px 12px; margin-top: -4px; }
+    .lf-suggest-head { font-size: 12px; font-weight: 600; color: #9a3412; margin-bottom: 8px; }
+    .lf-suggest-item { display: flex; gap: 10px; align-items: center; padding: 8px 10px; background: white; border: 1px solid var(--gray-200); border-radius: 8px; margin-bottom: 6px; cursor: pointer; transition: all .15s; }
+    .lf-suggest-item:last-child { margin-bottom: 0; }
+    .lf-suggest-item:hover { border-color: var(--accent); }
+    .lf-suggest-item.selected { border-color: var(--green); background: var(--green-light); }
+    .lf-suggest-thumb { width: 36px; height: 36px; border-radius: 6px; overflow: hidden; background: var(--gray-100); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--gray-400); }
+    .lf-suggest-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .lf-suggest-body { flex: 1; min-width: 0; font-size: 12.5px; }
+    .lf-suggest-title { font-weight: 600; color: var(--gray-900); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lf-suggest-meta { color: var(--gray-500); font-size: 11px; margin-top: 2px; }
+    .lf-suggest-link { font-size: 11px; font-weight: 700; color: var(--accent); padding: 4px 10px; border: 1px solid var(--accent); border-radius: 999px; background: white; flex-shrink: 0; }
+    .lf-suggest-item.selected .lf-suggest-link { background: var(--green); border-color: var(--green); color: white; }
     /* Action card — shown above composer when AI detects an actionable request */
     .inbox-action-card { margin: 0 16px 8px; padding: 10px 14px; background: #f0f4ff; border: 1.5px solid #c7d7fe; border-radius: 10px; display: flex; align-items: center; gap: 10px; font-size: 13px; animation: fadeSlideIn .15s ease; }
     @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
@@ -3586,7 +3600,14 @@
 
       <div class="lf-form-row">
         <label>Item description <span style="color:var(--red)">*</span></label>
-        <input type="text" id="lf-create-desc" class="form-input" placeholder='e.g. "Black North Face fleece, size M"' />
+        <input type="text" id="lf-create-desc" class="form-input" placeholder='e.g. "Black North Face fleece, size M"' oninput="onLfCreateDescInput()" />
+      </div>
+
+      <!-- Auto-suggest panel: filled on input by _lfFindCreateMatches.
+           Hidden when no candidates pass the score threshold. -->
+      <div id="lf-create-suggest" class="lf-suggest" style="display:none">
+        <div class="lf-suggest-head">Possible matches from <span id="lf-suggest-otherside">Lost</span> items</div>
+        <div id="lf-suggest-list"></div>
       </div>
 
       <div class="lf-form-row">
@@ -3637,6 +3658,7 @@
     <div class="modal-footer" style="justify-content:space-between" id="lf-detail-footer">
       <button class="btn btn-ghost" style="color:var(--red)" onclick="deleteLostFound()">Delete</button>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" id="lf-detail-send-btn" onclick="sendLostFoundToCustomer()" style="display:none">📤 Send to customer</button>
         <button class="btn btn-ghost" onclick="closeModal('lf-detail')">Close</button>
         <button class="btn btn-primary" id="lf-detail-save-btn" onclick="saveLostFoundDetail()">Save</button>
       </div>
@@ -12580,9 +12602,20 @@ ${oneCopy}
   let _lfRows = [];                 // last fetched issues
   let _lfLocations = [];            // distinct storage_location values, autocomplete
   let _lfCreateUploads = [];        // pending uploads in the create modal
-  let _lfCreateState = { side: 'found', customerId: null };
+  let _lfCreateState = { side: 'found', customerId: null, matchCandidateId: null };
   let _lfDetailId = null;           // currently open issue id
   let _lfDetailRow = null;          // currently open issue full row
+  let _lfSuggestTimer = null;
+
+  // Stopwords + tokenizer for the auto-suggest scoring. Kept short on
+  // purpose — over-aggressive filtering loses signal on short item
+  // descriptions like "blue tee" where every token matters.
+  const _LF_STOPWORDS = new Set(['the','a','an','and','or','of','in','on','for','to','at','with','my','our','his','her','their','this','that','these','those','some','any']);
+  function _lfTokenize(text) {
+    if (!text) return [];
+    return (text.toLowerCase().match(/[a-z0-9]+/g) || [])
+      .filter(t => t.length >= 2 && !_LF_STOPWORDS.has(t));
+  }
 
   async function loadLostFound() {
     const lostEl = document.getElementById('lf-list-lost');
@@ -12697,6 +12730,7 @@ ${oneCopy}
     _lfCreateState = {
       side: side === 'lost' ? 'lost' : 'found',
       customerId: prefill?.customerId || null,
+      matchCandidateId: null,
     };
     _lfCreateUploads = [];
     if (Array.isArray(prefill?.photoUrls) && prefill.photoUrls.length) {
@@ -12721,8 +12755,95 @@ ${oneCopy}
     document.getElementById('lf-create-customer-results').style.display = 'none';
     _lfRenderCreatePhotos();
     _lfRenderCreateCustomerChip();
+    // Reset suggest panel and re-run if there's a prefilled description
+    document.getElementById('lf-create-suggest').style.display = 'none';
+    document.getElementById('lf-suggest-list').innerHTML = '';
+    document.getElementById('lf-suggest-otherside').textContent = _lfCreateState.side === 'lost' ? 'Found' : 'Lost';
+    if (prefill?.description) _lfFindCreateMatches();
 
     openModal('lf-create');
+  }
+
+  // Debounced trigger from the description input. Called by the textarea's
+  // oninput. Doing the suggest as the admin types lets them see if their
+  // description happens to match an existing item from the other side
+  // BEFORE they save — much smoother than the post-save match flow.
+  function onLfCreateDescInput() {
+    if (_lfSuggestTimer) clearTimeout(_lfSuggestTimer);
+    _lfSuggestTimer = setTimeout(_lfFindCreateMatches, 250);
+  }
+
+  function _lfFindCreateMatches() {
+    const desc = (document.getElementById('lf-create-desc')?.value || '').trim();
+    const panel = document.getElementById('lf-create-suggest');
+    const list  = document.getElementById('lf-suggest-list');
+    if (!panel || !list) return;
+    if (desc.length < 3) { panel.style.display = 'none'; list.innerHTML = ''; return; }
+
+    const tokens = _lfTokenize(desc);
+    if (tokens.length === 0) { panel.style.display = 'none'; return; }
+    const tokenSet = new Set(tokens);
+
+    const otherSide = _lfCreateState.side === 'lost' ? 'found' : 'lost';
+    const now = Date.now();
+
+    // Score every open candidate from the OTHER side. Composite score:
+    //   token overlap ratio  (largest signal — what they actually said)
+    //   + 0.25 if same customer is already linked (very strong signal)
+    //   + 0.10 if created within the last 14 days (recency bonus)
+    // Threshold of 0.18 keeps the panel quiet for vague descriptions
+    // ("a sock") but surfaces real candidates ("blue North Face fleece").
+    const scored = _lfRows
+      .filter(r => r.lost_or_found === otherSide && r.status !== 'resolved' && !r.matched_issue_id)
+      .map(r => {
+        const candTokens = new Set(_lfTokenize(r.title + ' ' + (r.notes || '')));
+        if (candTokens.size === 0) return null;
+        let overlap = 0;
+        for (const t of tokenSet) if (candTokens.has(t)) overlap++;
+        const denom = Math.max(tokenSet.size, candTokens.size);
+        let score = overlap / denom;
+        if (_lfCreateState.customerId && r.customer_id === _lfCreateState.customerId) score += 0.25;
+        const ageDays = Math.floor((now - new Date(r.created_at).getTime()) / 86400000);
+        if (ageDays <= 14) score += 0.10;
+        return { row: r, score, overlap };
+      })
+      .filter(x => x && x.overlap > 0 && x.score >= 0.18)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+
+    if (scored.length === 0) {
+      panel.style.display = 'none';
+      list.innerHTML = '';
+      _lfCreateState.matchCandidateId = null;
+      return;
+    }
+
+    panel.style.display = '';
+    list.innerHTML = scored.map(({ row: r }) => {
+      const cust = r.customers ? `${r.customers.first_name_cache||''} ${r.customers.last_name_cache||''}`.trim() : '';
+      const photo = r.photo_urls?.[0]?.url
+        ? `<img src="${esc(r.photo_urls[0].url)}" alt="" />`
+        : '📦';
+      const ageMs = Date.now() - new Date(r.created_at).getTime();
+      const ageDays = Math.floor(ageMs / 86400000);
+      const ageLabel = ageDays === 0 ? 'today' : ageDays === 1 ? '1d ago' : `${ageDays}d ago`;
+      const sel = _lfCreateState.matchCandidateId === r.id ? ' selected' : '';
+      const linkLabel = _lfCreateState.matchCandidateId === r.id ? '✓ Will link' : 'Link';
+      return `<div class="lf-suggest-item${sel}" onclick="toggleLfCreateMatchCandidate(${r.id})">
+        <div class="lf-suggest-thumb">${photo}</div>
+        <div class="lf-suggest-body">
+          <div class="lf-suggest-title">#${r.id} · ${esc(r.title || '')}</div>
+          <div class="lf-suggest-meta">${cust ? esc(cust) + ' · ' : ''}${ageLabel}${r.storage_location ? ' · 📍 ' + esc(r.storage_location) : ''}</div>
+        </div>
+        <div class="lf-suggest-link">${linkLabel}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function toggleLfCreateMatchCandidate(id) {
+    if (_lfCreateState.matchCandidateId === id) _lfCreateState.matchCandidateId = null;
+    else                                         _lfCreateState.matchCandidateId = id;
+    _lfFindCreateMatches(); // re-render with new selection state
   }
 
   function _lfRenderCreatePhotos() {
@@ -12883,7 +13004,27 @@ ${oneCopy}
 
     if (btn) { btn.disabled = false; btn.textContent = 'Save Item'; }
     if (error) { showToast('Failed: ' + error.message, 'error'); return; }
-    showToast(`${_lfCreateState.side === 'lost' ? 'Lost' : 'Found'} item #${data.id} saved`, 'success');
+
+    // If admin picked a suggested counterpart, link both rows in one go.
+    // This is the "match-on-create" shortcut the auto-suggest panel offers
+    // — saves a second click into the detail modal's match-search.
+    let toastMsg = `${_lfCreateState.side === 'lost' ? 'Lost' : 'Found'} item #${data.id} saved`;
+    if (_lfCreateState.matchCandidateId) {
+      const otherId = _lfCreateState.matchCandidateId;
+      const now = new Date().toISOString();
+      const { error: e1 } = await db.from('cs_issues').update({ matched_issue_id: otherId, updated_at: now }).eq('id', data.id);
+      const { error: e2 } = await db.from('cs_issues').update({ matched_issue_id: data.id, updated_at: now }).eq('id', otherId);
+      if (e1 || e2) {
+        // Roll back the match if either side failed; the new item itself stays.
+        await db.from('cs_issues').update({ matched_issue_id: null, updated_at: now }).eq('id', data.id);
+        await db.from('cs_issues').update({ matched_issue_id: null, updated_at: now }).eq('id', otherId);
+        showToast('Saved, but linking failed — link manually from the detail view', 'error');
+      } else {
+        toastMsg += ` ↔ matched with #${otherId}`;
+      }
+    }
+
+    showToast(toastMsg, 'success');
     closeModal('lf-create');
     loadLostFound();
   }
@@ -12943,6 +13084,17 @@ ${oneCopy}
            <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="reopenLostFound()">Reopen</button>
          </div>`
       : '';
+
+    // Show "Send to customer" only when this is a Found item with a known
+    // customer and it isn't already resolved. The button switches to the
+    // inbox, opens the customer's SMS thread, and pre-fills the composer
+    // with the photos and a friendly draft.
+    const sendBtn = document.getElementById('lf-detail-send-btn');
+    if (sendBtn) {
+      const photos = Array.isArray(r.photo_urls) ? r.photo_urls : [];
+      const canSend = r.lost_or_found === 'found' && r.customer_id && r.status !== 'resolved' && photos.length > 0;
+      sendBtn.style.display = canSend ? '' : 'none';
+    }
 
     document.getElementById('lf-detail-body').innerHTML = `
       ${resolvedBadge}
@@ -13144,6 +13296,63 @@ ${oneCopy}
     showToast('Reopened ✓', 'success');
     closeModal('lf-detail');
     loadLostFound();
+  }
+
+  async function sendLostFoundToCustomer() {
+    if (!_lfDetailRow) return;
+    const r = _lfDetailRow;
+    if (!r.customer_id) { showToast('Link a customer first', 'error'); return; }
+    const photos = Array.isArray(r.photo_urls) ? r.photo_urls : [];
+    if (photos.length === 0) { showToast('Need at least one photo to send', 'error'); return; }
+
+    // Look up phone + first name for the draft template
+    const { data: cust } = await db.from('customers').select('phone_cache, first_name_cache').eq('id', r.customer_id).single();
+    if (!cust?.phone_cache) { showToast('Customer has no phone number', 'error'); return; }
+
+    const firstName = cust.first_name_cache || 'there';
+    const ageDays = Math.floor((Date.now() - new Date(r.created_at).getTime()) / 86400000);
+    const ageLabel = ageDays === 0 ? 'today' : ageDays === 1 ? 'yesterday' : `${ageDays} days ago`;
+    const draft = `Hi ${firstName}, we think this might be yours — found it ${ageLabel}. Want us to deliver it with your next pickup?`;
+
+    closeModal('lf-detail');
+    // Switch to inbox, open the customer's thread, then once the composer
+    // is rendered drop the photo URLs into the attachment row + populate
+    // the textarea with the draft. The thread render is async (DOM not
+    // ready immediately after showPage), so we poll briefly.
+    const navEl = document.querySelector(`.nav-item[data-page="lostfound"]`);
+    showPage('inbox', document.querySelector(`.nav-item[data-page="inbox"]`));
+    await openSMSConversation(r.customer_id, cust.phone_cache, null, true);
+
+    // Wait for compose-input + compose-attach-row to be in the DOM. The
+    // conversation render above is synchronous-ish but defensive.
+    let tries = 0;
+    while (tries < 20 && !document.getElementById('compose-input')) {
+      await new Promise(res => setTimeout(res, 50));
+      tries++;
+    }
+    const input = document.getElementById('compose-input');
+    if (!input) { showToast('Could not open composer — please try again', 'error'); return; }
+
+    // Attach photos as already-ready entries (URLs are already in our
+    // bucket — reuse them, no re-upload).
+    window._composeAttachments = photos.map((p, i) => ({
+      id: 'lf-send-' + r.id + '-' + i,
+      status: 'ready',
+      url: p.url || p,
+      blobUrl: '',
+      name: 'lostfound-' + r.id + '-' + i,
+    }));
+    if (typeof _renderComposeAttachRow === 'function') _renderComposeAttachRow();
+
+    // Populate textarea + sync the segment counter
+    input.value = draft;
+    input.style.height = 'auto';
+    input.style.height = input.scrollHeight + 'px';
+    input.focus();
+    input.selectionStart = input.selectionEnd = input.value.length;
+    if (typeof updateComposeCounter === 'function') updateComposeCounter();
+
+    showToast('Composer ready — review and send', 'success');
   }
 
   async function deleteLostFound() {
