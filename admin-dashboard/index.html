@@ -12236,7 +12236,7 @@ ${oneCopy}
           <button class="btn btn-primary" id="sms-reply-btn" onclick="sendSMSReply()">Send</button>
         </div>
       </div>
-      <div id="compose-counter" class="compose-counter">0/500</div>`;
+      <div id="compose-counter" class="compose-counter">0 / 160</div>`;
 
     if (!silent) setTimeout(() => { const mt = document.getElementById('msg-thread'); if (mt) mt.scrollTop = mt.scrollHeight; }, 50);
   }
@@ -12340,24 +12340,28 @@ ${oneCopy}
   }
 
   // ── updateComposeCounter ──
-  // Live char counter below the composer. Color shifts at SMS-segment
-  // boundaries so the billing implication is visible:
-  //   0–160   normal   (1 SMS segment, ~$0.01 outbound)
-  //   161–320 amber    (2 segments, ~$0.02)
-  //   321–500 red bold (3+ segments — cost adds up at scale)
-  //   500+    same red, but Twilio still accepts; doesn't block send
-  // We use a flat 160-char rule for simplicity. GSM-7 vs Unicode (emoji)
-  // would change to 70-char segments; the inbox composer is mostly plain
-  // English text so this is close enough. Refine later if needed.
+  // Live char counter below the composer. The unit that matters for billing
+  // is SMS segments — 160 chars each on standard ASCII (Twilio's GSM-7).
+  // Below 160 we show "X / 160" so admins can see how close they are to
+  // crossing into a 2nd segment. Past 160 we switch to "X chars · N SMS"
+  // so the multi-segment cost is explicit. Color shifts at every segment
+  // boundary; doesn't block sending — Twilio segments and bills on its end.
+  // (Unicode/emoji-heavy bodies use 70-char segments at the wire level;
+  //  this is close enough for a guide and stays readable for typical text.)
   function updateComposeCounter() {
     const el = document.getElementById('compose-counter');
     const input = document.getElementById('compose-input');
     if (!el || !input) return;
     const len = (input.value || '').length;
-    el.textContent = `${len}/500`;
+    const seg = len === 0 ? 1 : Math.ceil(len / 160);
     el.classList.remove('warn', 'over');
-    if (len > 320)      el.classList.add('over');
-    else if (len > 160) el.classList.add('warn');
+    if (len <= 160) {
+      el.textContent = `${len} / 160`;
+    } else {
+      el.textContent = `${len} chars · ${seg} SMS`;
+      if (seg >= 3) el.classList.add('over');
+      else          el.classList.add('warn');
+    }
   }
 
   // ── Composer attachments (MMS Phase 2) ──
