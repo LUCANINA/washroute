@@ -24834,10 +24834,17 @@ ${oneCopy}
       return sum + price * units;
     }, 0);
     const { deliveryFee, sameDaySurcharge, deliveryTotal } = getDeliveryFees();
-    // Discount applies to the service base only (not delivery fee)
+    // POLICY (session 146): percent discounts apply to ALL service charges — base + weight
+    // overage + add-ons + add-on services + preference-linked services (Vinegar, Oxi, Air Dry,
+    // Shirt Service). The ONLY thing excluded is the delivery fee + same-day surcharge bundle
+    // (`deliveryTotal`). Before this change the discount applied to `base` only, which made
+    // labels like "SENIORS (5% off)" misleading because add-ons were silently excluded.
+    // Fixed-dollar discounts are not affected by this — they deduct a flat amount regardless
+    // of scope.
     const discountPct = (procCustomerDiscount?.type === 'percent') ? parseFloat(procCustomerDiscount.value) / 100 : 0;
-    const discountAmt = discountPct > 0 ? Math.round(base * discountPct * 100) / 100 : 0;
-    const subtotal = base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total + deliveryTotal - discountAmt;
+    const discountableSubtotal = base + overage_charge + addons_total + addonSvc_total + prefLinkedSvc_total;
+    const discountAmt = discountPct > 0 ? Math.round(discountableSubtotal * discountPct * 100) / 100 : 0;
+    const subtotal = discountableSubtotal + deliveryTotal - discountAmt;
     const creditApplied = Math.min(procCustomerCredits, subtotal); // never exceed total
     const preTipTotal   = Math.max(0, subtotal - creditApplied);
     // Team tip — stored on the order, applied on top of the charged subtotal
