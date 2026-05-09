@@ -69,7 +69,11 @@ function buildEmailHtml(order: any, customer: any): string {
   // Only show meaningful line items — include pref_service (Vinegar, Oxi, etc.)
   const DISPLAY_TYPES = new Set(['base', 'overage', 'addon_service', 'pref_service', 'delivery_fee', 'same_day_surcharge']);
   const displayItems = allItems.filter((i: any) => DISPLAY_TYPES.has(i.type) && Number(i.amount ?? 0) > 0);
-  const creditItems  = allItems.filter((i: any) => i.type === 'credit' && Number(i.amount ?? 0) < 0);
+  // Reductions to subtotal — both account credits AND service discounts (SENIORS, promo codes,
+  // etc.) render as green minus rows under the subtotal. Before this, type='discount' line items
+  // were silently dropped from the receipt, so customers saw an unexplained gap between
+  // (line items + tip) and Total Paid (e.g. SENIORS 5% off — Dorothy, May 2026).
+  const creditItems  = allItems.filter((i: any) => (i.type === 'credit' || i.type === 'discount') && Number(i.amount ?? 0) < 0);
 
   const subtotal = displayItems.reduce((sum: number, i: any) => sum + Number(i.amount ?? 0), 0);
   const total    = Number(order.total_amount ?? 0);

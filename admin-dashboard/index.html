@@ -9913,6 +9913,11 @@
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
     const creditItem = lineItems.find(li => li.type === 'credit');
     const creditAmt  = creditItem ? Math.abs(parseFloat(creditItem.amount || 0)) : 0;
+    // Preserve service discounts (SENIORS, promo codes, etc.) the same way we preserve
+    // credits — without this they'd be silently dropped from the rebuilt line_items and
+    // the customer would be overcharged on the next save.
+    const discountItems = lineItems.filter(li => li.type === 'discount' && Number(li.amount || 0) < 0);
+    const discountTotal = discountItems.reduce((s, d) => s + Math.abs(parseFloat(d.amount || 0)), 0);
 
     let html = '';
     let total = 0;
@@ -9945,6 +9950,11 @@
       const amt = parseFloat(li.amount || 0);
       html += `<div style="display:flex;justify-content:space-between"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
       total += amt;
+    });
+    discountItems.forEach(d => {
+      const amt = Math.abs(parseFloat(d.amount || 0));
+      html += `<div style="display:flex;justify-content:space-between;color:#059669"><span>${d.label || 'Discount'}</span><span>−${fmtMoney(amt)}</span></div>`;
+      total -= amt;
     });
     if (creditItem) {
       html += `<div style="display:flex;justify-content:space-between;color:#059669"><span>${creditItem.label || 'Credit applied'}</span><span>−${fmtMoney(creditAmt)}</span></div>`;
@@ -9986,10 +9996,16 @@
     const sameDayFeeObj = allFees.find(f => (f.category === 'Surcharge' || f.category === 'surcharge') && (f.name || '').toLowerCase().includes('same'));
     const sameDaySurcharge = opIsSameDay ? (sameDayFeeObj ? parseFloat(sameDayFeeObj.amount || 0) : 10) : 0;
 
-    // Build new line items from current state (base + overage + fees + active add-ons + credit)
+    // Build new line items from current state (base + overage + fees + active add-ons + discount + credit)
     const existingLineItems = Array.isArray(o.line_items) ? o.line_items : [];
     const creditItem = existingLineItems.find(li => li.type === 'credit');
     const creditAmt  = creditItem ? Math.abs(parseFloat(creditItem.amount || 0)) : 0;
+    // Preserve service discounts (SENIORS, promo codes) from the existing line_items.
+    // They aren't in _opEditAddons (only addon_service / pref_service / addon are), so without
+    // explicit preservation they'd be silently dropped on save and the customer would be
+    // overcharged on the next bill. Mirrors the credit-preservation pattern just above.
+    const discountItems = existingLineItems.filter(li => li.type === 'discount' && Number(li.amount || 0) < 0);
+    const discountTotal = discountItems.reduce((s, d) => s + Math.abs(parseFloat(d.amount || 0)), 0);
 
     const newLineItems = [];
     let addonTotal = 0;
@@ -10012,9 +10028,10 @@
         addonTotal += parseFloat(li.amount || 0);
       }
     });
+    discountItems.forEach(d => newLineItems.push(d));
     if (creditItem) newLineItems.push(creditItem);
 
-    const newTotal = Math.max(0, baseTotal + overageAmt + deliveryFee + sameDaySurcharge + addonTotal - creditAmt);
+    const newTotal = Math.max(0, baseTotal + overageAmt + deliveryFee + sameDaySurcharge + addonTotal - discountTotal - creditAmt);
 
     const update = {
       special_instructions: notes || null,
@@ -10140,9 +10157,12 @@
     // Partition line items (same logic as _openReceiptWindow)
     const displayItems = (lineItems || []).filter(li =>
       li.type === 'base' || li.type === 'overage' || li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && parseFloat(li.amount||0) > 0));
-    const delivFeeItem = (lineItems || []).find(li => li.type === 'delivery_fee');
-    const sameDayItem  = (lineItems || []).find(li => li.type === 'same_day_surcharge');
-    const creditItem   = (lineItems || []).find(li => li.type === 'credit');
+    const delivFeeItem  = (lineItems || []).find(li => li.type === 'delivery_fee');
+    const sameDayItem   = (lineItems || []).find(li => li.type === 'same_day_surcharge');
+    const creditItem    = (lineItems || []).find(li => li.type === 'credit');
+    // Service discounts (SENIORS, promo codes, etc.) — render as negative rows so the
+    // printed math reconciles. Without this they were silently dropped from receipts.
+    const discountItems = (lineItems || []).filter(li => li.type === 'discount' && Number(li.amount || 0) < 0);
     const subtotal = displayItems.reduce((s, li) => s + Number(li.amount || 0), 0);
     const fmtAmt = n => '$' + Math.abs(Number(n || 0)).toFixed(2);
 
@@ -10171,6 +10191,7 @@
       totLine('Subtotal', subtotal),
       ...(delivFeeItem ? [totLine('Delivery Fee', delivFeeItem.amount)] : []),
       ...(sameDayItem  ? [totLine('Same-day surcharge', sameDayItem.amount)] : []),
+      ...discountItems.map(d => totLine(String(d.label || 'Discount').substring(0, 30), d.amount, '-')),
       ...(tipDollars > 0 ? [totLine(tipLabel, tipDollars, '+')] : []),
       ...(creditItem   ? [totLine('Credit applied', creditItem.amount, '-')] : []),
     ].join('\n');
@@ -10317,11 +10338,13 @@ ${oneCopy}
     // Partition line items (same logic as browser popup and Star Markup)
     const displayItems = (lineItems || []).filter(li =>
       li.type === 'base' || li.type === 'overage' || li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && parseFloat(li.amount||0) > 0));
-    const delivFeeItem = (lineItems || []).find(li => li.type === 'delivery_fee');
-    const sameDayItem  = (lineItems || []).find(li => li.type === 'same_day_surcharge');
-    const creditItem   = (lineItems || []).find(li => li.type === 'credit');
-    const subtotal     = displayItems.reduce((s, li) => s + Number(li.amount || 0), 0);
-    const hasFeeSplit  = !!(delivFeeItem || sameDayItem || creditItem);
+    const delivFeeItem  = (lineItems || []).find(li => li.type === 'delivery_fee');
+    const sameDayItem   = (lineItems || []).find(li => li.type === 'same_day_surcharge');
+    const creditItem    = (lineItems || []).find(li => li.type === 'credit');
+    // Service discounts (SENIORS, promo codes, etc.) — render so printed math reconciles.
+    const discountItems = (lineItems || []).filter(li => li.type === 'discount' && Number(li.amount || 0) < 0);
+    const subtotal      = displayItems.reduce((s, li) => s + Number(li.amount || 0), 0);
+    const hasFeeSplit   = !!(delivFeeItem || sameDayItem || creditItem || discountItems.length);
     const fmt = n => '$' + Math.abs(Number(n || 0)).toFixed(2);
 
     // Pre-render barcode as inline SVG (PassPRNT cannot load CDN scripts)
@@ -10382,6 +10405,9 @@ ${oneCopy}
       totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Subtotal</span><span>${fmt(subtotal)}</span></div>`;
       if (delivFeeItem) totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Delivery Fee</span><span>${fmt(delivFeeItem.amount)}</span></div>`;
       if (sameDayItem)  totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Same-day surcharge</span><span>${fmt(sameDayItem.amount)}</span></div>`;
+      discountItems.forEach(d => {
+        totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(d.label || 'Discount')}</span><span style="color:#16a34a">\u2212${fmt(d.amount)}</span></div>`;
+      });
       if (ppHasTip)     totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(ppTipLabel)}</span><span>+${fmt(ppTipDollars)}</span></div>`;
       if (creditItem)   totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Credit applied</span><span style="color:#16a34a">\u2212${fmt(creditItem.amount)}</span></div>`;
     }
@@ -10509,11 +10535,13 @@ ${oneCopy}
     // Partition line items — only show meaningful service lines in the invoice body
     const displayItems = (lineItems || []).filter(li =>
       li.type === 'base' || li.type === 'overage' || li.type === 'addon_service' || li.type === 'pref_service' || (li.type === 'addon' && parseFloat(li.amount||0) > 0));
-    const delivFeeItem = (lineItems || []).find(li => li.type === 'delivery_fee');
-    const sameDayItem  = (lineItems || []).find(li => li.type === 'same_day_surcharge');
-    const creditItem   = (lineItems || []).find(li => li.type === 'credit');
-    const subtotal     = displayItems.reduce((s, li) => s + Number(li.amount || 0), 0);
-    const hasFeeSplit  = !!(delivFeeItem || sameDayItem || creditItem);
+    const delivFeeItem  = (lineItems || []).find(li => li.type === 'delivery_fee');
+    const sameDayItem   = (lineItems || []).find(li => li.type === 'same_day_surcharge');
+    const creditItem    = (lineItems || []).find(li => li.type === 'credit');
+    // Service discounts (SENIORS, promo codes, etc.) — render so printed math reconciles.
+    const discountItems = (lineItems || []).filter(li => li.type === 'discount' && Number(li.amount || 0) < 0);
+    const subtotal      = displayItems.reduce((s, li) => s + Number(li.amount || 0), 0);
+    const hasFeeSplit   = !!(delivFeeItem || sameDayItem || creditItem || discountItems.length);
     const fmt = n => '$' + Math.abs(Number(n || 0)).toFixed(2);
 
     // Invoice rows (li.label escaped for safety)
@@ -10559,12 +10587,15 @@ ${oneCopy}
     const hasTip = rTipDollars > 0;
     const receiptGrandTotal = Number(total || 0) + rTipDollars;
 
-    // Totals rows (subtotal / fees / tip / credit breakdown)
+    // Totals rows (subtotal / fees / discount / tip / credit breakdown)
     let totalsHtml = '';
     if (hasFeeSplit || hasTip) {
       totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Subtotal</span><span>${fmt(subtotal)}</span></div>`;
       if (delivFeeItem) totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Delivery Fee</span><span>${fmt(delivFeeItem.amount)}</span></div>`;
       if (sameDayItem)  totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Same-day surcharge</span><span>${fmt(sameDayItem.amount)}</span></div>`;
+      discountItems.forEach(d => {
+        totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(d.label || 'Discount')}</span><span style="color:#16a34a">&#8722;${fmt(d.amount)}</span></div>`;
+      });
       if (hasTip)       totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(rTipLabel)}</span><span>+${fmt(rTipDollars)}</span></div>`;
       if (creditItem)   totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Credit applied</span><span style="color:#16a34a">&#8722;${fmt(creditItem.amount)}</span></div>`;
     }
@@ -25160,7 +25191,14 @@ ${oneCopy}
       pickupStr: _fmtReceiptDate(o.pickup_window_start),
       delivStr:  _fmtReceiptDate(o.delivery_window_start),
       pickupRouteName, deliveryRouteName,
-      stopNum, routeName, addonTags, lineItems, total: bd.total,
+      stopNum, routeName, addonTags, lineItems,
+      // Receipt-builder contract (buildStarMarkup / _buildPassPrntHtml /
+      // _openReceiptWindow): `total` MUST be the pre-tip amount. The builders
+      // add tipDollars themselves to compute the printed AMOUNT DUE.
+      // bd.total = preTipTotal + tipDollars, so passing bd.total here would
+      // double-count the tip on the printed receipt (Cosmin #3981, May 2026).
+      // bd.preTipTotal matches what printBagTag passes (o.total_amount).
+      total: bd.preTipTotal,
       tipAmount: o.tip_amount, tipType: o.tip_type,
       orderId: o.id,
     };
