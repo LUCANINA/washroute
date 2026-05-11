@@ -1273,10 +1273,10 @@
     .team-role-badge.manager { background:#fef3c7;color:#92400e; }
     .team-role-badge.laundry_tech { background:#d1fae5;color:#065f46; }
     .team-role-badge.attendant { background:#ede9fe;color:#5b21b6; }
-    /* Session 147 pt 14: pos_device shares attendant badge styling (it IS the
-       attendant account from a permissions standpoint — label change handled
-       in ROLE_LABELS_MAP). */
-    .team-role-badge.pos_device { background:#ede9fe;color:#5b21b6; }
+    /* pos_device now lives under Team > Devices with its own honest label
+       ("POS Terminal") — restored to its original light-blue badge so it
+       reads distinct from the (legacy) attendant purple. */
+    .team-role-badge.pos_device { background:#f0f9ff;color:#0369a1; }
     .team-actions { display:flex;gap:8px; }
     /* Billing feature */
     .bill-badge { display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap; }
@@ -2856,6 +2856,7 @@
         <div class="page" id="page-team">
           <div class="section-tabs">
             <button class="section-tab active" id="team-tab-members" onclick="setTeamTab('members',this)">Team Members</button>
+            <button class="section-tab" id="team-tab-devices" onclick="setTeamTab('devices',this)">Devices</button>
             <button class="section-tab" id="team-tab-permissions" onclick="setTeamTab('permissions',this)">Permissions</button>
           </div>
 
@@ -2873,6 +2874,20 @@
                 </button>
               </div>
               <div id="team-list" style="display:flex;flex-direction:column;gap:8px">
+                <div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab: Devices (session 147 pt 14 — shared terminal/role accounts) -->
+          <div id="team-view-devices" style="display:none">
+            <div style="max-width:720px;margin:0 auto;padding-top:20px">
+              <p style="font-size:13px;color:var(--gray-500);margin:0 0 16px">
+                Shared login accounts for terminals (POS iPads, Laundry processing kanban).
+                Multiple people use the same login; individual identity at the POS comes from the cashier's PIN on the
+                <a href="#launderers" onclick="event.preventDefault();showPage('launderers',document.querySelector('.nav-item[data-page=&quot;launderers&quot;]'))" style="color:var(--accent)">Launderers</a> page.
+              </p>
+              <div id="team-devices-list" style="display:flex;flex-direction:column;gap:8px">
                 <div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>
               </div>
             </div>
@@ -5694,13 +5709,11 @@
   });
 
   // ── ROLE-BASED NAV ──
-  // Session 147 pt 14: pos_device displays as "Attendant" because the
-  // device-account concept doesn't communicate permission intent in the UI —
-  // it IS the attendant account from a permissions standpoint. The DB role
-  // stays 'pos_device' (POS auth code keys on that). The individual attendant
-  // profiles are hidden from the Team page filter; the shared foothill@
-  // account is the only "Attendant" badge that surfaces.
-  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', attendant: 'Attendant', pos_device: 'Attendant' };
+  // Session 147 pt 14: device-class roles get their own surface (Team > Devices)
+  // so the labels can be honest again — POS Terminal / Laundry Kanban — instead
+  // of the prior "pos_device → Attendant" display hack that conflated permission
+  // intent across roles.
+  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Kanban', attendant: 'Attendant', pos_device: 'POS Terminal' };
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','lostfound','drivers','pos',
                         'reports','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
@@ -5733,8 +5746,10 @@
     _teamTab = tab;
     document.querySelectorAll('#page-team .section-tab').forEach(t => t.classList.remove('active'));
     if (btn) btn.classList.add('active');
-    document.getElementById('team-view-members').style.display = tab === 'members' ? '' : 'none';
+    document.getElementById('team-view-members').style.display     = tab === 'members'     ? '' : 'none';
+    document.getElementById('team-view-devices').style.display     = tab === 'devices'     ? '' : 'none';
     document.getElementById('team-view-permissions').style.display = tab === 'permissions' ? '' : 'none';
+    if (tab === 'devices')                                 loadDevicesTab();
     if (tab === 'permissions' && currentUserRole === 'admin') loadPermissionsGrid();
     try { history.replaceState(null, '', '#team/' + tab); } catch(_) {}
   }
@@ -5750,15 +5765,16 @@
   async function loadTeamPage() {
     const container = document.getElementById('team-list');
     container.innerHTML = '<div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>';
-    // Session 147 pt 14: 'attendant' role hidden from the Team page now that PINs
-    // are managed on the Launderers page. The 9 attendant profiles still exist in
-    // the DB (needed by the live POS auth flow which reads profiles.pos_pin until
-    // Phase 2 ships the switch to launderers.pin). Restore = add 'attendant' back
-    // to the .in(...) list.
+    // Session 147 pt 14: Team Members tab shows REAL HUMANS only (admin + manager).
+    //  - 'attendant' is hidden (individual cashier profiles, retiring in Phase 4)
+    //  - 'laundry_tech' + 'pos_device' moved to the new Devices tab (shared
+    //    terminal accounts get their own surface so their actions don't pollute
+    //    the people view)
+    // Restore = add the omitted roles back to the .in(...) list.
     const { data, error } = await db
       .from('profiles')
       .select('id, first_name, last_name, email, phone, role, pos_pin')
-      .in('role', ['admin', 'manager', 'laundry_tech', 'pos_device'])
+      .in('role', ['admin', 'manager'])
       .order('role').order('first_name');
     if (error || !data) {
       container.innerHTML = '<div style="color:var(--red);text-align:center;padding:40px 0">Failed to load team.</div>';
@@ -5791,8 +5807,75 @@
 
     // Show/hide Permissions tab based on role (admin only)
     document.getElementById('team-tab-permissions').style.display = currentUserRole === 'admin' ? '' : 'none';
+    // Devices tab is also admin-only — it manages shared terminal credentials.
+    document.getElementById('team-tab-devices').style.display = currentUserRole === 'admin' ? '' : 'none';
     // If currently on permissions tab, load the grid
     if (_teamTab === 'permissions' && currentUserRole === 'admin') loadPermissionsGrid();
+  }
+
+  // Session 147 pt 14: Devices tab — shared terminal/role accounts.
+  // Lists profiles with role in (laundry_tech, pos_device). These are
+  // shared logins (multiple humans use the same email/password to operate
+  // a terminal). Individual cashier identity at the POS still comes from
+  // a launderer's PIN (Phase 2 wires that end-to-end; Phase 1 already
+  // landed the data).
+  const DEVICE_TYPE_DESCRIPTIONS = {
+    laundry_tech: { label: 'Laundry Kanban', sub: 'Shared kanban login for processing / folding' },
+    pos_device:   { label: 'POS Terminal',   sub: 'Shared iPad / register login' },
+  };
+
+  async function loadDevicesTab() {
+    const container = document.getElementById('team-devices-list');
+    if (!container) return;
+    container.innerHTML = '<div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>';
+    const { data, error } = await db
+      .from('profiles')
+      .select('id, first_name, last_name, email, role')
+      .in('role', ['laundry_tech', 'pos_device'])
+      .order('role').order('email');
+    if (error) {
+      container.innerHTML = `<div style="color:var(--red);text-align:center;padding:40px 0">Failed to load devices: ${esc(error.message)}</div>`;
+      return;
+    }
+    if (!data || !data.length) {
+      container.innerHTML = '<div style="text-align:center;color:var(--gray-400);padding:40px 0;font-size:13px">No device accounts yet.</div>';
+      return;
+    }
+    // Side-fetch pos_devices so we can show printer linkage / device name for pos_device rows
+    const posIds = data.filter(p => p.role === 'pos_device').map(p => p.id);
+    let posDeviceByAuth = {};
+    if (posIds.length) {
+      const { data: pds } = await db.from('pos_devices').select('id, name, auth_user_id, printer_token, is_active').in('auth_user_id', posIds);
+      (pds || []).forEach(d => { posDeviceByAuth[d.auth_user_id] = d; });
+    }
+    container.innerHTML = data.map(p => {
+      const t = DEVICE_TYPE_DESCRIPTIONS[p.role] || { label: p.role, sub: '' };
+      const displayName = [p.first_name, p.last_name].filter(Boolean).join(' ') || t.label;
+      const initials = displayName.split(' ').map(w => w[0]?.toUpperCase() || '').join('').slice(0, 2) || '?';
+      const pos = posDeviceByAuth[p.id];
+      const linkedDeviceLine = pos
+        ? `<div style="font-size:12px;color:var(--gray-500);margin-top:2px">Linked: ${esc(pos.name || 'Unnamed')}${pos.printer_token ? ` · printer ${esc(pos.printer_token)}` : ''}${pos.is_active === false ? ' · <span style="color:var(--red)">offline</span>' : ''}</div>`
+        : '';
+      // Reuse the existing role-edit modal so admins can rotate the role assignment
+      // if needed. Most actions on device accounts (password reset, token rotate) live
+      // on the underlying auth user + pos_devices row; future iteration can grow
+      // device-specific buttons here.
+      const encoded = encodeURIComponent(JSON.stringify({
+        id: p.id, first: p.first_name||'', last: p.last_name||'',
+        email: p.email||'', phone: '', role: p.role
+      }));
+      return `
+        <div class="team-card" onclick="openTeamMemberEditor('${encoded}')" style="cursor:pointer">
+          <div class="team-avatar">${initials}</div>
+          <div class="team-info" style="flex:1;min-width:0">
+            <div class="team-name">${esc(displayName)}</div>
+            <div style="font-size:12.5px;color:var(--gray-500);margin-top:1px">${esc(p.email||'')}</div>
+            <div style="font-size:11.5px;color:var(--gray-400);margin-top:2px">${esc(t.sub)}</div>
+            ${linkedDeviceLine}
+          </div>
+          <span class="team-role-badge ${p.role}">${esc(t.label)}</span>
+        </div>`;
+    }).join('');
   }
 
   async function loadPermissionsGrid() {
