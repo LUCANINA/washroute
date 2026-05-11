@@ -1391,8 +1391,7 @@
         Lost &amp; Found
         <span class="nav-badge" id="badge-lostfound" style="background:var(--amber);display:none">0</span>
       </div>
-      <!-- Drivers nav hidden session 147 pt 13 — consolidated into Team. Restore = remove display:none. -->
-      <div class="nav-item" data-page="drivers" data-section="ops" onclick="showPage('drivers',this)" style="display:none">
+      <div class="nav-item" data-page="drivers" data-section="ops" onclick="showPage('drivers',this)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><path d="M17 11l1.5 1.5L21 10"/></svg>
         Drivers
         <span class="nav-badge" id="admin-msg-badge" style="display:none;background:var(--red)">0</span>
@@ -1424,8 +1423,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
           Delivery Zones
         </div>
-        <!-- Launderers nav hidden session 147 pt 13 — consolidated into Team. Restore = remove display:none. -->
-        <div class="nav-item" data-page="launderers" data-section="settings" onclick="showPage('launderers',this)" style="display:none">
+        <div class="nav-item" data-page="launderers" data-section="settings" onclick="showPage('launderers',this)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><path d="M16 3.13a4 4 0 010 7.75"/><path d="M21 21v-2a4 4 0 00-3-3.87"/></svg>
           Launderers
         </div>
@@ -2853,25 +2851,17 @@
 
           <!-- Tab: Team Members -->
           <div id="team-view-members">
-            <div style="max-width:780px;margin:0 auto;padding-top:20px">
-              <!-- Action bar: search + add buttons -->
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-                <input type="search" id="team-search" placeholder="Search name or email…" class="form-input"
-                       style="flex:1;min-width:200px;padding:8px 12px;font-size:13px"
-                       oninput="renderTeamList()">
-                <button class="btn" onclick="openInviteModal('invite')" title="Send an account invite by email">
+            <div style="max-width:720px;margin:0 auto;padding-top:20px">
+              <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:16px">
+                <button class="btn" onclick="openInviteModal('invite')">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M4 4h16v12H4z"/><polyline points="22,4 12,13 2,4"/></svg>
                   Send Invite
                 </button>
-                <button class="btn btn-primary" onclick="openInviteModal('create')" title="Create an account directly (admin / manager / attendant / laundry tech)">
+                <button class="btn btn-primary" onclick="openInviteModal('create')">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   Create Account
                 </button>
-                <button class="btn" onclick="openDriverEditor(null)" title="Add a driver (vehicle / license)">+ Driver</button>
-                <button class="btn" onclick="addFolderInline()" title="Add a folder (free-text, no auth account)">+ Folder</button>
               </div>
-              <!-- Filter chips: All / role-by-role -->
-              <div id="team-filter-chips" style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap"></div>
               <div id="team-list" style="display:flex;flex-direction:column;gap:8px">
                 <div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>
               </div>
@@ -5599,16 +5589,6 @@
           location.replace('#orders/driver-schedule');
           return;
         }
-        // session 147 pt 13: drivers + launderers consolidated into team.
-        // Hide nav, but keep deep links working by routing to the Team page
-        // with the role filter pre-selected.
-        if (hashPage === 'drivers' || hashPage === 'launderers') {
-          const _preFilter = hashPage === 'drivers' ? 'driver' : 'folder';
-          location.replace('#team');
-          setTimeout(() => { try { _teamFilter = _preFilter; renderTeamFilterChips(); renderTeamList(); } catch (_) {} }, 200);
-          // fall through — showPage('team') runs because location.replace just set the hash
-          hashPage = 'team';
-        }
         // If no hash or no permission, land on first allowed page
         const defaultPage = ALL_PAGE_IDS.find(p => canAccessPage(p)) || 'processing';
         if (hashPage && document.getElementById('page-' + hashPage) && canAccessPage(hashPage)) {
@@ -5704,7 +5684,7 @@
   });
 
   // ── ROLE-BASED NAV ──
-  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', attendant: 'Attendant', driver: 'Driver', pos_device: 'POS Device', launderer_only: 'Folder', orphan_driver: 'Driver (unlinked)' };
+  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', attendant: 'Attendant', pos_device: 'POS Device' };
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','lostfound','drivers','pos',
                         'reports','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
@@ -5751,196 +5731,47 @@
   };
   const EDITABLE_ROLES = ['manager', 'laundry_tech', 'attendant']; // admin is always full access
 
-  // ── Unified Team page (session 147 pt 13) ──
-  // Reads from public.team_members_v which unions profiles, drivers (orphan
-  // included), and free-text launderers into one row-per-person shape.
-  let _teamCache = [];
-  let _teamFilter = 'all'; // 'all' | role string | 'inactive' | 'orphans'
-
   async function loadTeamPage() {
     const container = document.getElementById('team-list');
     container.innerHTML = '<div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>';
     const { data, error } = await db
-      .from('team_members_v')
-      .select('*')
-      .order('role').order('display_name');
-    if (error) {
-      container.innerHTML = `<div style="color:var(--red);text-align:center;padding:40px 0">Failed to load team: ${error.message}</div>`;
+      .from('profiles')
+      .select('id, first_name, last_name, email, phone, role, pos_pin')
+      .in('role', ['admin', 'manager', 'laundry_tech', 'attendant', 'pos_device'])
+      .order('role').order('first_name');
+    if (error || !data) {
+      container.innerHTML = '<div style="color:var(--red);text-align:center;padding:40px 0">Failed to load team.</div>';
       return;
     }
-    _teamCache = data || [];
-    renderTeamFilterChips();
-    renderTeamList();
+    if (!data.length) {
+      container.innerHTML = '<div style="text-align:center;color:var(--gray-400);padding:40px 0">No team members yet.</div>';
+      return;
+    }
+    container.innerHTML = data.map(p => {
+      const name = [p.first_name, p.last_name].filter(Boolean).join(' ') || '(No name)';
+      const initials = name.split(' ').map(w=>w[0]?.toUpperCase()||'').join('').slice(0,2);
+      const roleLabel = ROLE_LABELS_MAP[p.role] || 'Staff';
+      const emailLine = p.email ? `<div style="font-size:12.5px;color:var(--gray-500);margin-top:1px">${p.email}</div>` : '';
+      const phoneLine = p.phone ? `<div style="font-size:12.5px;color:var(--gray-500)">${p.phone}</div>` : '';
+      const pinChip   = p.pos_pin ? `<span title="POS PIN set" style="display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:600;color:var(--gray-600);background:var(--gray-100);padding:2px 7px;border-radius:999px;margin-right:6px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="10" height="10"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        PIN</span>` : '';
+      const encoded = encodeURIComponent(JSON.stringify({ id: p.id, first: p.first_name||'', last: p.last_name||'', email: p.email||'', phone: p.phone||'', role: p.role }));
+      return `
+        <div class="team-card" onclick="openTeamMemberEditor('${encoded}')" style="cursor:pointer">
+          <div class="team-avatar">${initials}</div>
+          <div class="team-info" style="flex:1;min-width:0">
+            <div class="team-name">${name}</div>
+            ${emailLine}${phoneLine}
+          </div>
+          ${pinChip}<span class="team-role-badge ${p.role}">${roleLabel}</span>
+        </div>`;
+    }).join('');
 
     // Show/hide Permissions tab based on role (admin only)
     document.getElementById('team-tab-permissions').style.display = currentUserRole === 'admin' ? '' : 'none';
+    // If currently on permissions tab, load the grid
     if (_teamTab === 'permissions' && currentUserRole === 'admin') loadPermissionsGrid();
-  }
-
-  function renderTeamFilterChips() {
-    const el = document.getElementById('team-filter-chips');
-    if (!el) return;
-    // Count people per filter bucket
-    const counts = {
-      all: _teamCache.length,
-      admin: _teamCache.filter(r => r.role === 'admin').length,
-      manager: _teamCache.filter(r => r.role === 'manager').length,
-      driver: _teamCache.filter(r => r.role === 'driver' || r.driver_id).length,
-      folder: _teamCache.filter(r => r.role === 'laundry_tech' || r.launderer_id || r.source === 'launderer_only').length,
-      attendant: _teamCache.filter(r => r.role === 'attendant').length,
-      orphans: _teamCache.filter(r => r.source === 'orphan_driver').length,
-    };
-    const chips = [
-      ['all',       'All',       counts.all],
-      ['admin',     'Admin',     counts.admin],
-      ['manager',   'Manager',   counts.manager],
-      ['driver',    'Driver',    counts.driver],
-      ['folder',    'Folder',    counts.folder],
-      ['attendant', 'Attendant', counts.attendant],
-    ];
-    if (counts.orphans > 0) chips.push(['orphans', '⚠ Cleanup', counts.orphans]);
-
-    el.innerHTML = chips.map(([key, label, n]) => {
-      const active = _teamFilter === key;
-      const bg     = active ? 'var(--accent)' : 'var(--gray-100)';
-      const fg     = active ? '#fff' : 'var(--gray-700)';
-      return `<button class="team-filter-chip" data-filter="${key}"
-        onclick="setTeamFilter('${key}')"
-        style="background:${bg};color:${fg};border:none;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px">
-        ${label}<span style="opacity:.7;font-weight:500">${n}</span>
-      </button>`;
-    }).join('');
-  }
-
-  function setTeamFilter(key) {
-    _teamFilter = key;
-    renderTeamFilterChips();
-    renderTeamList();
-  }
-
-  function renderTeamList() {
-    const container = document.getElementById('team-list');
-    if (!container) return;
-    const searchEl = document.getElementById('team-search');
-    const q = (searchEl?.value || '').trim().toLowerCase();
-
-    // Apply filter + search
-    let rows = _teamCache;
-    if (_teamFilter === 'admin')     rows = rows.filter(r => r.role === 'admin');
-    else if (_teamFilter === 'manager')   rows = rows.filter(r => r.role === 'manager');
-    else if (_teamFilter === 'attendant') rows = rows.filter(r => r.role === 'attendant');
-    else if (_teamFilter === 'driver')    rows = rows.filter(r => r.role === 'driver' || r.driver_id);
-    else if (_teamFilter === 'folder')    rows = rows.filter(r => r.role === 'laundry_tech' || r.launderer_id || r.source === 'launderer_only');
-    else if (_teamFilter === 'orphans')   rows = rows.filter(r => r.source === 'orphan_driver');
-
-    if (q) {
-      rows = rows.filter(r =>
-        (r.display_name || '').toLowerCase().includes(q) ||
-        (r.email || '').toLowerCase().includes(q) ||
-        (r.phone || '').toLowerCase().includes(q)
-      );
-    }
-
-    if (!rows.length) {
-      container.innerHTML = `<div style="text-align:center;color:var(--gray-400);padding:40px 0;font-size:13px">
-        ${q ? `No matches for "${esc(q)}"` : 'No team members yet.'}
-      </div>`;
-      return;
-    }
-
-    container.innerHTML = rows.map(r => {
-      const name = r.display_name || '(unnamed)';
-      const initials = name.split(' ').map(w => w[0]?.toUpperCase() || '').join('').slice(0, 2) || '?';
-      const emailLine = r.email ? `<div style="font-size:12.5px;color:var(--gray-500);margin-top:1px">${esc(r.email)}</div>` : '';
-      const phoneLine = r.phone ? `<div style="font-size:12.5px;color:var(--gray-500)">${esc(r.phone)}</div>` : '';
-
-      // Primary role badge (matches existing .team-role-badge styling)
-      const primaryRoleLabel = ROLE_LABELS_MAP[r.role] || 'Staff';
-      const primaryRoleClass = r.role; // keep CSS class compatible with existing styles
-      // Secondary capability chips
-      const chips = [];
-      if (r.driver_id    && r.role !== 'driver')        chips.push({ label: '🚐 Driver',  title: r.vehicle_plate || 'Driver' });
-      if (r.launderer_id && r.role !== 'laundry_tech' && r.source !== 'launderer_only') chips.push({ label: '🧺 Folder', title: 'Folds orders' });
-      const inactiveTag = (r.driver_id && r.driver_active === false) || (r.launderer_id && r.launderer_active === false)
-        ? '<span style="font-size:10.5px;font-weight:600;color:var(--gray-500);background:var(--gray-100);padding:2px 7px;border-radius:999px;margin-left:6px">inactive</span>'
-        : '';
-      const chipHtml = chips.map(c =>
-        `<span title="${esc(c.title)}" style="font-size:10.5px;font-weight:600;color:var(--gray-700);background:var(--gray-100);padding:2px 8px;border-radius:999px">${c.label}</span>`
-      ).join(' ');
-
-      // Click target depends on source
-      let onclickAttr = '';
-      if (r.source === 'profile') {
-        const encoded = encodeURIComponent(JSON.stringify({
-          id: r.profile_id, first: r.first_name || '', last: r.last_name || '',
-          email: r.email || '', phone: r.phone || '', role: r.role
-        }));
-        onclickAttr = `onclick="openTeamMemberEditor('${encoded}')"`;
-      } else if (r.source === 'launderer_only') {
-        onclickAttr = `onclick="openFolderInlineEdit('${r.launderer_id}')"`;
-      } else if (r.source === 'orphan_driver') {
-        onclickAttr = `onclick="openOrphanDriverCleanup('${r.driver_id}')"`;
-      }
-
-      return `
-        <div class="team-card" ${onclickAttr} style="cursor:pointer">
-          <div class="team-avatar">${initials}</div>
-          <div class="team-info" style="flex:1;min-width:0">
-            <div class="team-name">${esc(name)}</div>
-            ${emailLine}${phoneLine}
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
-            ${chipHtml}
-            <span class="team-role-badge ${primaryRoleClass}">${primaryRoleLabel}</span>
-            ${inactiveTag}
-          </div>
-        </div>`;
-    }).join('');
-  }
-
-  // ── Helpers for the non-profile rows ──
-  async function addFolderInline() {
-    const name = prompt('Folder name (free-text — no account needed):');
-    if (!name || !name.trim()) return;
-    const { error } = await db.from('launderers').insert({ name: name.trim() });
-    if (error) { showToast('Failed: ' + error.message, 'error'); return; }
-    showToast(`${name.trim()} added`, 'success');
-    loadTeamPage();
-  }
-
-  async function openFolderInlineEdit(launderer_id) {
-    const row = _teamCache.find(r => r.launderer_id === launderer_id);
-    if (!row) return;
-    const action = prompt(`Folder: ${row.display_name}\n\nType:\n  R = rename\n  T = toggle active (currently ${row.launderer_active ? 'active' : 'inactive'})\n  D = delete\n  (cancel to exit)`);
-    if (!action) return;
-    const k = action.trim().toUpperCase();
-    if (k === 'R') {
-      const newName = prompt('New name:', row.display_name);
-      if (!newName || !newName.trim() || newName.trim() === row.display_name) return;
-      const { error } = await db.from('launderers').update({ name: newName.trim() }).eq('id', launderer_id);
-      if (error) { showToast(error.message, 'error'); return; }
-      showToast('Renamed', 'success'); loadTeamPage();
-    } else if (k === 'T') {
-      const { error } = await db.from('launderers').update({ is_active: !row.launderer_active }).eq('id', launderer_id);
-      if (error) { showToast(error.message, 'error'); return; }
-      showToast(row.launderer_active ? 'Marked inactive' : 'Marked active', 'success'); loadTeamPage();
-    } else if (k === 'D') {
-      if (!confirm(`Remove ${row.display_name}?`)) return;
-      const { error } = await db.from('launderers').delete().eq('id', launderer_id);
-      if (error) { showToast(error.message, 'error'); return; }
-      showToast('Removed', 'success'); loadTeamPage();
-    }
-  }
-
-  async function openOrphanDriverCleanup(driver_id) {
-    const row = _teamCache.find(r => r.driver_id === driver_id && r.source === 'orphan_driver');
-    if (!row) return;
-    const action = prompt(`Orphan driver row (driver.id=${driver_id}, profile_id=${row.profile_id || 'NULL'}).\n\nThis driver record exists but its profile is missing or has the wrong role.\n\nType:\n  D = delete this driver row (it's not used)\n  (cancel to exit)`);
-    if (!action || action.trim().toUpperCase() !== 'D') return;
-    if (!confirm(`Hard-delete driver row ${driver_id}? This cannot be undone via the UI.`)) return;
-    const { error } = await db.from('drivers').delete().eq('id', driver_id);
-    if (error) { showToast('Delete failed: ' + error.message, 'error'); return; }
-    showToast('Driver row deleted', 'success'); loadTeamPage();
   }
 
   async function loadPermissionsGrid() {
