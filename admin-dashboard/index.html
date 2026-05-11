@@ -5858,8 +5858,8 @@
             else opRenderDetailsReadonly(allOrders[idx]);
             opPopulateBilling(allOrders[idx]); // refresh Billing tab charge button
           }
-          // Refresh RCC columns/map when order status changes (delivery stops may appear/disappear
-          // based on NOT_READY_FOR_DELIVERY filter as orders advance through the pipeline)
+          // Refresh RCC columns/map when order status changes (the "not ready" badge on
+          // delivery cards tracks order status as it advances through the pipeline)
           if (_rccActiveRoutes.size > 0) {
             if (updated.pickup_run_id && _rccActiveRoutes.has(updated.pickup_run_id)) rccRefreshRoute(updated.pickup_run_id);
             if (updated.delivery_run_id && _rccActiveRoutes.has(updated.delivery_run_id)) rccRefreshRoute(updated.delivery_run_id);
@@ -18497,9 +18497,8 @@ ${oneCopy}
               .select('route_id, status, stop_type, orders!inner(status)')
               .in('route_id', todayRoutes.map(r => r.id));
             const routeToTemplate = Object.fromEntries(todayRoutes.map(r => [r.id, r.template_id]));
-            const _nrfd = ['processing', 'folding', 'picked_up'];
-            (todayStops||[]).filter(s => !DEAD_ORDER_STATUSES.includes(s.orders?.status)
-                && !(s.stop_type === 'delivery' && _nrfd.includes(s.orders?.status))).forEach(s => {
+            // Count ALL alive stops (planning view) — see Map view chip-count comment.
+            (todayStops||[]).filter(s => !DEAD_ORDER_STATUSES.includes(s.orders?.status)).forEach(s => {
               const tid = routeToTemplate[s.route_id];
               if (!tid) return;
               if (!todayStopStatus[tid]) todayStopStatus[tid] = { total: 0, done: 0, pending: 0 };
@@ -18716,9 +18715,8 @@ ${oneCopy}
               .select('route_id, status, stop_type, orders!inner(status)')
               .in('route_id', todayRoutes.map(r => r.id));
             const routeToTemplate = Object.fromEntries(todayRoutes.map(r => [r.id, r.template_id]));
-            const _nrfd = ['processing', 'folding', 'picked_up'];
-            (todayStops||[]).filter(s => !DEAD_ORDER_STATUSES.includes(s.orders?.status)
-                && !(s.stop_type === 'delivery' && _nrfd.includes(s.orders?.status))).forEach(s => {
+            // Count ALL alive stops (planning view) — see Map view chip-count comment.
+            (todayStops||[]).filter(s => !DEAD_ORDER_STATUSES.includes(s.orders?.status)).forEach(s => {
               const tid = routeToTemplate[s.route_id];
               if (!tid) return;
               if (!todayStopStatus[tid]) todayStopStatus[tid] = { total: 0, done: 0, pending: 0 };
@@ -18944,10 +18942,8 @@ ${oneCopy}
         .in('route_id', todayRoutes.map(r => r.id));
 
       if (!stops?.length) return;
-      // Exclude dead orders and delivery stops for orders not ready for delivery
-      const _nrfd3 = ['processing', 'folding', 'picked_up'];
-      const liveStops = stops.filter(s => !DEAD_ORDER_STATUSES.includes(s.orders?.status)
-          && !(s.stop_type === 'delivery' && _nrfd3.includes(s.orders?.status)));
+      // Count ALL alive stops (planning view) — see Map view chip-count comment.
+      const liveStops = stops.filter(s => !DEAD_ORDER_STATUSES.includes(s.orders?.status));
       if (!liveStops.length) return;
       const total   = liveStops.length;
       const done    = liveStops.filter(s => s.status === 'complete' || s.status === 'skipped' || s.status === 'failed').length;
@@ -19152,10 +19148,12 @@ ${oneCopy}
     const routeIds = _dsRoutes.map(r => r.id);
     if (routeIds.length) {
       const { data: sc } = await db.from('route_stops').select('route_id, status, stop_type, orders(status, overcap_booking)').in('route_id', routeIds);
-      const _notReady = ['processing', 'folding', 'picked_up'];
+      // Show ALL planned stops on the Map view regardless of order processing
+      // status — the chip count is a planning view, not a "ready to dispatch"
+      // view. Cards display a "not ready" badge for delivery stops whose order
+      // is still in picked_up/processing/folding.
       (sc||[]).filter(s => s.orders && !DEAD_ORDER_STATUSES.includes(s.orders.status)
-          && s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed'
-          && !(s.stop_type === 'delivery' && _notReady.includes(s.orders.status)))
+          && s.status !== 'complete' && s.status !== 'skipped' && s.status !== 'failed')
         .forEach(s => {
           _dsCountMap[s.route_id] = (_dsCountMap[s.route_id]||0) + 1;
           if (s.orders?.overcap_booking) {
@@ -19326,11 +19324,11 @@ ${oneCopy}
       .eq('route_id', routeId)
       .order('stop_number');
 
-    const NOT_READY_FOR_DELIVERY = ['processing', 'folding', 'picked_up'];
     const activeStops = (stops||[]).filter(s => {
       if (!s.orders || DEAD_ORDER_STATUSES.includes(s.orders.status)) return false;
-      // Hide delivery stops for orders still being processed — not ready to hand to driver
-      if (s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY.includes(s.orders.status)) return false;
+      // Show ALL alive stops — including delivery stops whose order is still being
+      // processed. The card builder surfaces a "not ready" badge so admin can
+      // distinguish planned-but-not-laundered stops at a glance.
       return true;
     });
 
@@ -19629,6 +19627,19 @@ ${oneCopy}
       photoSkippedBadge = `<span class="rcc-card-dot"></span><span style="font-size:9.5px;font-weight:600;color:#92400e;background:#fef3c7;padding:1px 5px;border-radius:4px;" title="Driver completed this stop without a photo (no signal / camera issue)">📷✗</span>`;
     }
 
+    // "Not ready" badge — delivery stop whose order hasn't finished processing yet.
+    // Surfaces planned stops the driver shouldn't pick up bags for yet (bags are
+    // still being washed/folded/racked). Replaces the prior hard-hide behavior so
+    // admin can plan against the full picture without losing this signal.
+    let notReadyBadge = '';
+    const _ord = s.orders;
+    if (isDelivery && _ord && ['picked_up','processing','folding'].includes(_ord.status)) {
+      const _stLbl = _ord.status === 'picked_up' ? 'awaiting wash'
+                    : _ord.status === 'processing' ? 'in wash'
+                    : 'folding';
+      notReadyBadge = `<span class="rcc-card-dot"></span><span style="font-size:9.5px;font-weight:600;color:#92400e;background:#fef3c7;padding:1px 5px;border-radius:4px;border:1px solid #fde68a;" title="Delivery planned, but bags are still ${_stLbl} — not ready to dispatch yet">🧺 ${_stLbl}</span>`;
+    }
+
     // ETA + at-risk badge for active stops (pending or en_route)
     let etaBadge = '';
     if (s.estimated_arrival && ['pending','en_route'].includes(s.status)) {
@@ -19687,6 +19698,7 @@ ${oneCopy}
         ${movedBadge}
         ${enRouteBadge}
         ${photoSkippedBadge}
+        ${notReadyBadge}
         ${etaBadge}
       </div>
     </div>`;
@@ -20363,10 +20375,9 @@ ${oneCopy}
       .eq('route_id', routeId)
       .order('stop_number');
 
-    const NOT_READY_FOR_DELIVERY2 = ['processing', 'folding', 'picked_up'];
     const activeStops = (stops||[]).filter(s => {
       if (!s.orders || DEAD_ORDER_STATUSES.includes(s.orders.status)) return false;
-      if (s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY2.includes(s.orders.status)) return false;
+      // Same planning-view rule as rccToggleRoute (see comment there).
       return true;
     });
     // Resolve addresses: stop address_id → same-leg order address → other-leg → customer fallback
