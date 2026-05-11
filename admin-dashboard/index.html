@@ -2683,22 +2683,25 @@
 
         <!-- ── DRIVERS ── -->
         <div class="page" id="page-drivers">
-          <!-- ── Tab bar ── -->
-          <div style="display:flex;align-items:center;gap:0;margin-bottom:20px;border-bottom:2px solid var(--gray-100)">
-            <button class="filter-tab active" id="drv-tab-messages" onclick="switchDriverTab('messages')"
-              style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--gray-900)">
+          <!-- ── Tab bar — session 147: Messages hidden, team uses Slack instead ── -->
+          <!-- Whole bar hidden (only one visible tab left). Restore = remove display:none. -->
+          <div style="display:none;align-items:center;gap:0;margin-bottom:20px;border-bottom:2px solid var(--gray-100)">
+            <button class="filter-tab" id="drv-tab-messages" onclick="switchDriverTab('messages')"
+              style="display:none;padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--gray-400)">
               Messages
             </button>
-            <button class="filter-tab" id="drv-tab-manage" onclick="switchDriverTab('manage')"
-              style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--gray-400)">
+            <button class="filter-tab active" id="drv-tab-manage" onclick="switchDriverTab('manage')"
+              style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--gray-900)">
               All Drivers
             </button>
             <div style="flex:1"></div>
             <div id="drv-tab-actions"></div>
           </div>
+          <!-- Header row when tab bar is hidden — shows the + New Driver action -->
+          <div id="drv-page-actions" style="display:flex;justify-content:flex-end;margin-bottom:14px;"></div>
 
-          <!-- ═══ MESSAGES TAB ═══ -->
-          <div id="drv-panel-messages">
+          <!-- ═══ MESSAGES TAB (hidden session 147 — team uses Slack) ═══ -->
+          <div id="drv-panel-messages" style="display:none">
             <div style="display:grid;grid-template-columns:260px 1fr;gap:0;height:calc(100vh - 190px);border-radius:14px;overflow:hidden;border:1px solid var(--gray-200);background:white">
               <!-- Online driver list -->
               <div style="border-right:1px solid var(--gray-200);display:flex;flex-direction:column;overflow:hidden">
@@ -2734,7 +2737,7 @@
           <!-- Schedule tab moved to Orders > Schedule in session 147. -->
 
           <!-- ═══ ALL DRIVERS TAB ═══ -->
-          <div id="drv-panel-manage" style="display:none">
+          <div id="drv-panel-manage">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap">
               <div class="filter-tabs" style="display:flex;gap:4px">
                 <button class="filter-tab active" id="drvf-all"      onclick="filterDrivers('all',this)">All</button>
@@ -6249,7 +6252,7 @@
       setTimeout(()=>initZonesMap(), 80);
       setTimeout(()=>initRoutesPage(), 80);
     }
-    if (id === 'drivers') { loadDrivers(); loadAdminDriverMessages(); }
+    if (id === 'drivers') { loadDrivers(); switchDriverTab('manage'); /* session 147: Messages hidden — team uses Slack. To restore: unhide tab bar markup in page-drivers, remove `if (tab === 'messages') tab = 'manage';` redirect in switchDriverTab, and add loadAdminDriverMessages() here. */ }
     if (id === 'services') loadServices();
     // session 145: refresh the Overview when navigating BACK to it. Without
     // this, the "Requires Rescheduling" / "Unpaid" / "Issues" cards keep
@@ -26370,22 +26373,25 @@ ${oneCopy}
   /* ──────────────────────────────
      DRIVERS PAGE — TAB SWITCHING
   ────────────────────────────── */
-  let _activeDriverTab = 'messages';
+  let _activeDriverTab = 'manage'; // session 147: Messages hidden — team uses Slack
 
   function switchDriverTab(tab) {
-    // Schedule was moved to Orders > Schedule in session 147 — redirect any
-    // legacy callers/bookmarks rather than landing them on a hidden tab.
+    // Session 147: schedule moved to Orders > Schedule.
     if (tab === 'schedule') {
       showPage('orders', document.querySelector('.nav-item[data-page="orders"]'));
       switchOrdersView('driver-schedule');
       return;
     }
+    // Session 147: Messages tab hidden (team uses Slack). Fall through to manage.
+    if (tab === 'messages') tab = 'manage';
+
     _activeDriverTab = tab;
     const tabs = {
       messages: { tab: document.getElementById('drv-tab-messages'), panel: document.getElementById('drv-panel-messages') },
       manage:   { tab: document.getElementById('drv-tab-manage'),   panel: document.getElementById('drv-panel-manage') },
     };
-    const actions = document.getElementById('drv-tab-actions');
+    const tabActions  = document.getElementById('drv-tab-actions');
+    const pageActions = document.getElementById('drv-page-actions');
 
     // Reset all tabs
     Object.values(tabs).forEach(({ tab: t, panel: p }) => {
@@ -26398,14 +26404,14 @@ ${oneCopy}
     if (sel?.tab) { sel.tab.style.borderBottomColor = 'var(--accent)'; sel.tab.style.color = 'var(--gray-900)'; }
     if (sel?.panel) sel.panel.style.display = '';
 
-    // Tab-specific actions
-    if (actions) {
-      if (tab === 'manage') {
-        actions.innerHTML = `<button class="btn btn-primary" onclick="openDriverEditor(null)" style="font-size:13px;padding:7px 16px">+ New Driver</button>`;
-      } else {
-        actions.innerHTML = '';
-      }
-    }
+    // Tab-specific actions — render to whichever slot is visible (tab bar or
+    // standalone page header). Both get the same HTML so a future restore of
+    // the tab bar lights up automatically.
+    const actionHtml = (tab === 'manage')
+      ? `<button class="btn btn-primary" onclick="openDriverEditor(null)" style="font-size:13px;padding:7px 16px">+ New Driver</button>`
+      : '';
+    if (tabActions)  tabActions.innerHTML  = actionHtml;
+    if (pageActions) pageActions.innerHTML = actionHtml;
   }
 
   /* ──────────────────────────────

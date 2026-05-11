@@ -982,7 +982,9 @@
 <div class="screen" id="screen-messages">
   <div class="msg-hdr">
     <div class="msg-hdr-title">Messages</div>
-    <div class="msg-hdr-sub">Team &amp; customers</div>
+    <div class="msg-hdr-sub" id="msg-hdr-sub">Customers</div>
+    <!-- Subtitle set to "Customers" by default; runtime swaps to
+         "Team & customers" if DRIVER_INTERNAL_MSG_ENABLED is true. -->
   </div>
   <div class="msg-conv-list" id="msg-conv-list"></div>
 </div>
@@ -1071,6 +1073,10 @@
 const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
 const BIZ_TZ = 'America/Los_Angeles';
+// Session 147: internal admin↔driver chat hidden — team uses Slack. The DB
+// table (driver_messages), the realtime subscription, and the load function
+// all stay intact for easy restore. Flip this flag to re-enable the UI.
+const DRIVER_INTERNAL_MSG_ENABLED = false;
 const db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'wr-driver-auth', autoRefreshToken: true, persistSession: true } });
 
 /* Strip auth-flow URL params after Supabase init — see customer-app for
@@ -3292,7 +3298,12 @@ async function loadCustomerSms() {
 }
 
 function updateMsgBadge() {
-  const adminUnread = allAdminMessages.filter(m => m.sender_type === 'admin' && !m.read_at).length;
+  // Session 147: admin unread excluded when internal messaging is disabled
+  // (team uses Slack — adminUnread would otherwise inflate the nav badge with
+  // counts that the driver has no way to clear from the UI).
+  const adminUnread = DRIVER_INTERNAL_MSG_ENABLED
+    ? allAdminMessages.filter(m => m.sender_type === 'admin' && !m.read_at).length
+    : 0;
   // Customer SMS: count inbound messages from this session that driver hasn't read
   const custUnread = allCustomerSms.filter(m =>
     m.direction === 'inbound' && _smsSessionStart && m.created_at >= _smsSessionStart && !m._driverRead
@@ -3321,21 +3332,24 @@ function renderConversationList() {
 
   let h = '';
 
-  // Admin thread (always shown)
-  const lastAdmin = allAdminMessages.length ? allAdminMessages[allAdminMessages.length - 1] : null;
-  const adminUnread = allAdminMessages.filter(m => m.sender_type === 'admin' && !m.read_at).length;
-  h += `<div class="msg-conv-label">Team</div>`;
-  h += `<div class="msg-conv-item" onclick="openMessageThread('admin')">
-    <div class="msg-conv-avatar avatar-admin">FL</div>
-    <div class="msg-conv-info">
-      <div class="msg-conv-name">Family Laundry</div>
-      <div class="msg-conv-preview">${lastAdmin ? lastAdmin.body.substring(0, 50) : 'Send a message to the team'}</div>
-    </div>
-    <div class="msg-conv-meta">
-      ${lastAdmin ? `<div class="msg-conv-time">${fmtMsgTime(lastAdmin.created_at)}</div>` : ''}
-      ${adminUnread > 0 ? `<div class="msg-conv-badge">${adminUnread}</div>` : ''}
-    </div>
-  </div>`;
+  // Admin thread (session 147: hidden — team uses Slack. Flip
+  // DRIVER_INTERNAL_MSG_ENABLED at the top of the script to restore.)
+  if (DRIVER_INTERNAL_MSG_ENABLED) {
+    const lastAdmin = allAdminMessages.length ? allAdminMessages[allAdminMessages.length - 1] : null;
+    const adminUnread = allAdminMessages.filter(m => m.sender_type === 'admin' && !m.read_at).length;
+    h += `<div class="msg-conv-label">Team</div>`;
+    h += `<div class="msg-conv-item" onclick="openMessageThread('admin')">
+      <div class="msg-conv-avatar avatar-admin">FL</div>
+      <div class="msg-conv-info">
+        <div class="msg-conv-name">Family Laundry</div>
+        <div class="msg-conv-preview">${lastAdmin ? lastAdmin.body.substring(0, 50) : 'Send a message to the team'}</div>
+      </div>
+      <div class="msg-conv-meta">
+        ${lastAdmin ? `<div class="msg-conv-time">${fmtMsgTime(lastAdmin.created_at)}</div>` : ''}
+        ${adminUnread > 0 ? `<div class="msg-conv-badge">${adminUnread}</div>` : ''}
+      </div>
+    </div>`;
+  }
 
   // Customer threads — only messages from this driver session (clean thread)
   const custGroups = {};
@@ -3386,11 +3400,15 @@ function renderConversationList() {
     });
   }
 
-  if (!allAdminMessages.length && !custEntries.length) {
+  // Empty state: when internal messaging is disabled, only customer entries matter.
+  const isEmpty = DRIVER_INTERNAL_MSG_ENABLED
+    ? (!allAdminMessages.length && !custEntries.length)
+    : !custEntries.length;
+  if (isEmpty) {
     h += `<div class="msg-empty">
       <div class="msg-empty-icon">${ICONS.msg}</div>
       <div style="font-size:18px;font-weight:800;margin-bottom:8px">No Messages Yet</div>
-      <div style="font-size:14px;color:var(--muted);line-height:1.6">Messages with the team and customers will appear here.</div>
+      <div style="font-size:14px;color:var(--muted);line-height:1.6">${DRIVER_INTERNAL_MSG_ENABLED ? 'Messages with the team and customers will appear here.' : 'Messages with customers will appear here.'}</div>
     </div>`;
   }
 
@@ -3408,6 +3426,10 @@ function fmtMsgTime(ts) {
 
 // ── Open a thread ──
 function openMessageThread(threadId) {
+  // Session 147: refuse admin thread opens when internal messaging is disabled.
+  // Anything that still references 'admin' (stale realtime push, old code path)
+  // bails silently instead of opening a dead UI.
+  if (threadId === 'admin' && !DRIVER_INTERNAL_MSG_ENABLED) return;
   _msgActiveThread = threadId;
 
   // Show thread screen, hide conversation list
