@@ -3763,6 +3763,31 @@ function _schedDateLabel(iso) {
   return `${d.toLocaleDateString('en-US', { weekday:'short', timeZone: BIZ_TZ })}, ${mon}`;
 }
 
+// ── Default delivery-window selection (session 147) ──
+// Business rule: a default delivery window should match the pickup window's
+// time-of-half-day. So 8 AM pickup defaults to 8 PM delivery; 6-8 PM pickup
+// defaults to 6-8 PM next day; etc. This produces a predictable, symmetric
+// schedule rather than always landing on the first available evening slot.
+//
+// Implementation: minutes-of-day mod 720 collapses AM and PM into the same
+// "hour of half-day" bucket. 8 AM (480 min) and 8 PM (1200 min) both map to
+// 480, so they match each other. If no slot in the delivery date's valid
+// windows shares the pickup's mod-720 bucket (e.g. delivery route runs PM
+// only and pickup was at an unusual time), fall back to the first valid slot.
+//
+// Inputs: validWins  = filtered list (>= minMins, !isFull) for the picker
+//         allWins    = full unfiltered list (used as last-resort fallback)
+//         pickupWindow = the chosen pickup window (or null)
+//         minMins    = earliest allowed startMins for the first eligible date
+function pickDefaultDeliveryWindow(validWins, allWins, pickupWindow, minMins) {
+  const pickupMod = (pickupWindow?.startMins != null) ? pickupWindow.startMins % 720 : null;
+  const matched   = (pickupMod != null) ? validWins.find(w => w.startMins % 720 === pickupMod) : null;
+  return matched
+      || validWins[0]
+      || allWins.filter(w => w.startMins >= minMins)[0]
+      || null;
+}
+
 // Entry point: called by renderStep(1)
 async function renderSchedCard() {
   const todayIso = localIso();
@@ -3910,19 +3935,15 @@ async function selectSchedDeliveryDate(iso) {
   // Fetch delivery-date capacity
   await _fetchDeliveryCapacity();
 
-  // Auto-select the delivery window. Session 147: prefer the slot that matches
-  // the pickup's time-of-half-day so a 9 AM pickup defaults to 9 PM delivery
-  // (mod 720 — 8 AM and 8 PM both resolve to minute-480-of-half-day). Falls
-  // back to the first valid non-full window. On the first eligible date,
-  // respect the template turnaround — only PM windows for PM pickups.
+  // Auto-select the delivery window via the shared helper (matches pickup
+  // time-of-half-day). On the first eligible date, respect the template
+  // turnaround — only PM windows for PM pickups (via minMins).
   {
     const isFirstDate = draft._deliveryOptions?.length > 0 && iso === draft._deliveryOptions[0];
     const minMins     = isFirstDate ? (draft._earliestDeliveryWindowMins ?? 0) : 0;
-    const wins = (draft._deliveryWindows || draft.availableWindows);
-    const validWins   = wins.filter(w => w.startMins >= minMins && !w.isFull);
-    const pickupMod   = draft.pickupWindow?.startMins != null ? draft.pickupWindow.startMins % 720 : null;
-    const matched     = pickupMod != null ? validWins.find(w => w.startMins % 720 === pickupMod) : null;
-    draft.deliveryWindow = matched || validWins[0] || wins.filter(w => w.startMins >= minMins)[0] || null;
+    const allWins     = (draft._deliveryWindows || draft.availableWindows);
+    const validWins   = allWins.filter(w => w.startMins >= minMins && !w.isFull);
+    draft.deliveryWindow = pickDefaultDeliveryWindow(validWins, allWins, draft.pickupWindow, minMins);
   }
 
   const valDate = document.getElementById('val-delivery-date');
@@ -4294,17 +4315,13 @@ async function _updateSchedDelivery() {
   // Fetch delivery-date capacity and build delivery-specific windows
   await _fetchDeliveryCapacity();
 
-  // Auto-select the delivery window. Session 147: prefer the slot that matches
-  // the pickup's time-of-half-day (mod 720) so a 9 AM pickup defaults to 9 PM
-  // delivery. Falls back to the first valid non-full window.
+  // Auto-select the delivery window via the shared helper.
   {
     const isFirstDate = draft.deliveryDate === dates[0];
     const minMins     = isFirstDate ? _pickupTmplStartMins : 0;
-    const wins = (draft._deliveryWindows || draft.availableWindows);
-    const validWins   = wins.filter(w => w.startMins >= minMins && !w.isFull);
-    const pickupMod   = draft.pickupWindow?.startMins != null ? draft.pickupWindow.startMins % 720 : null;
-    const matched     = pickupMod != null ? validWins.find(w => w.startMins % 720 === pickupMod) : null;
-    draft.deliveryWindow = matched || validWins[0] || wins.filter(w => w.startMins >= minMins)[0] || null;
+    const allWins     = (draft._deliveryWindows || draft.availableWindows);
+    const validWins   = allWins.filter(w => w.startMins >= minMins && !w.isFull);
+    draft.deliveryWindow = pickDefaultDeliveryWindow(validWins, allWins, draft.pickupWindow, minMins);
   }
 
   const valDate = document.getElementById('val-delivery-date');
