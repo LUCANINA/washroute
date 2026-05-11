@@ -23084,17 +23084,61 @@ ${oneCopy}
       list.innerHTML = '<div style="padding:32px;text-align:center;color:var(--gray-400);font-size:13px">No launderers yet — add your first one below.</div>';
       return;
     }
-    list.innerHTML = allLaunCache.map(l => `<div class="laun-row" id="laun-row-${l.id}">
-      <div class="laun-name">${l.name}</div>
-      <label class="toggle-switch" style="flex-shrink:0" title="${l.is_active?'Active':'Inactive'}">
-        <input type="checkbox" ${l.is_active?'checked':''} onchange="toggleLaunActive('${l.id}',this.checked)" />
-        <span class="toggle-slider"></span>
-      </label>
-      <button class="btn btn-ghost" style="padding:5px 10px;font-size:13px;flex-shrink:0" title="View packed orders" onclick="openLaunHistory('${l.id}',${escAttrJSArg(l.name)})">📋</button>
-      <button class="svc-del-btn" onclick="deleteLaunderer('${l.id}',${escAttrJSArg(l.name)})" title="Remove">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-      </button>
-    </div>`).join('');
+    list.innerHTML = allLaunCache.map(l => {
+      // Session 147 pt 14: PIN chip — masked display + click to set/change/clear.
+      // A launderer with a PIN can identify themselves at the POS (Phase 2 wiring
+      // pending — POS currently still reads from profiles.pos_pin).
+      const pinChip = l.pin
+        ? `<button class="btn btn-ghost" style="padding:5px 10px;font-size:12px;font-family:ui-monospace,monospace;flex-shrink:0"
+             title="POS PIN set — click to change or clear" onclick="setLaunPin('${l.id}',${escAttrJSArg(l.name)})">
+             🔐 ••••${esc(l.pin.slice(-2))}
+           </button>`
+        : `<button class="btn btn-ghost" style="padding:5px 10px;font-size:12px;color:var(--gray-400);flex-shrink:0"
+             title="Set a 4-digit POS PIN so this person can ring up sales" onclick="setLaunPin('${l.id}',${escAttrJSArg(l.name)})">
+             + PIN
+           </button>`;
+      return `<div class="laun-row" id="laun-row-${l.id}">
+        <div class="laun-name">${esc(l.name)}</div>
+        ${pinChip}
+        <label class="toggle-switch" style="flex-shrink:0" title="${l.is_active?'Active':'Inactive'}">
+          <input type="checkbox" ${l.is_active?'checked':''} onchange="toggleLaunActive('${l.id}',this.checked)" />
+          <span class="toggle-slider"></span>
+        </label>
+        <button class="btn btn-ghost" style="padding:5px 10px;font-size:13px;flex-shrink:0" title="View packed orders" onclick="openLaunHistory('${l.id}',${escAttrJSArg(l.name)})">📋</button>
+        <button class="svc-del-btn" onclick="deleteLaunderer('${l.id}',${escAttrJSArg(l.name)})" title="Remove">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+        </button>
+      </div>`;
+    }).join('');
+  }
+
+  // ── PIN management (session 147 pt 14) ──
+  // PIN is a 4-digit string used at the POS to identify a cashier under the
+  // shared device account. Empty = clear (no POS access). Unique among
+  // active launderers — enforced by the partial UNIQUE index on (pin) WHERE
+  // pin IS NOT NULL.
+  async function setLaunPin(id, name) {
+    const current = allLaunCache.find(l => l.id === id)?.pin || '';
+    const v = prompt(`POS PIN for ${name}\n\nEnter a 4-digit PIN, or leave blank to clear.\n(Current: ${current ? '••••' + current.slice(-2) : 'not set'})`, current);
+    if (v === null) return; // user cancelled
+    const trimmed = v.trim();
+    if (trimmed && !/^\d{4}$/.test(trimmed)) {
+      showToast('PIN must be exactly 4 digits (or empty to clear)', 'error');
+      return;
+    }
+    const newPin = trimmed || null;
+    const { error } = await db.from('launderers').update({ pin: newPin }).eq('id', id);
+    if (error) {
+      if (error.code === '23505' || /unique/i.test(error.message)) {
+        showToast(`That PIN is already in use — pick a different one`, 'error');
+      } else {
+        showToast(error.message, 'error');
+      }
+      return;
+    }
+    allLaunCache = allLaunCache.map(l => l.id === id ? { ...l, pin: newPin } : l);
+    renderLaunList();
+    showToast(newPin ? `PIN updated for ${name}` : `PIN cleared for ${name}`, 'success');
   }
 
   async function addLaunderer() {
