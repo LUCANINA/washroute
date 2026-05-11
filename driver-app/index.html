@@ -1896,7 +1896,9 @@ async function _loadDriverDataInner() {
   // These are "ghost deliveries" — the bag was picked up but never progressed
   // through processing in software (often because intake happened off-site).
   // Showing them would send the driver to a location with nothing to deliver.
-  // Matches the admin dashboard RCC filter (NOT_READY_FOR_DELIVERY).
+  // (Admin Map view intentionally DOES show these — see admin-dashboard
+  // rccBuildCard's "not ready" badge — because admin is a planning surface
+  // and David needs to see the full picture. Driver app is action-only.)
   const NOT_READY_FOR_DELIVERY = ['picked_up', 'processing', 'folding'];
   const isGhostDelivery = s =>
     s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY.includes(s.orders?.status);
