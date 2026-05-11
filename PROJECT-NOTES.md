@@ -50,6 +50,34 @@ Migrations: `session_147_backfill_orphan_service_ids` + `session_147_create_orde
 - **Driver (`driver-app/index.html`):** New top-level constant `DRIVER_INTERNAL_MSG_ENABLED = false`. Flip to true to restore. Team section in `renderConversationList` gated on the flag. `updateMsgBadge` excludes adminUnread when off (would otherwise inflate the nav badge with counts the driver can't clear from the UI). `openMessageThread('admin')` silently bails when off — catches stale realtime pushes. Messages screen subtitle 'Team & customers' → 'Customers'. Empty state copy adjusts.
 - **Customer SMS path fully preserved.** Customer threads in the driver-app Messages tab still render, still send via twilio. The `driver_messages` DB table, its realtime subscription, and `loadDriverMessages` all stay intact so data continues to flow into `allAdminMessages` — the UI just doesn't render it.
 
+**14. POS attendant → launderer unification, Phase 1 (data prep).** After the pt 13 reversal, David landed on the right design: **one shared device account per POS terminal** (`foothill@familylaundry.com`, already exists) is the auth boundary, and **individual cashier identity comes from a PIN that maps to a launderer row**. Today's 9 individual `attendant` profiles (each `attendant-{firstname}-{lastname}@familylaundry.local` with their own `pos_pin`) collapse into "launderer with a PIN" — same person, simpler model, single people list.
+
+The eventual end state is launderers as the canonical "people who work here" table:
+- Launderer **with** a PIN → can identify themselves at the POS (acting under the shared device account)
+- Launderer **without** a PIN → folder credit only (today's behaviour for 8 of 17 launderers)
+- `pos_device` accounts (Foothill etc.) stay as-is — the iPad-level auth boundary
+- `laundry_tech` shared account (info@) stays as-is — the kanban-level auth boundary
+- Individual `attendant` profiles get retired once Phase 2 ships
+
+**Phase 1 (this commit, pure data prep — no code changes, fully additive):**
+- Added `launderers.pin TEXT` nullable column
+- Added partial UNIQUE index `WHERE pin IS NOT NULL` so two launderers can't share a PIN; NULLs don't collide
+- Backfilled `launderers.pin` from `profiles.pos_pin` for the 9 attendant-linked launderers — every existing cashier now has their PIN on both tables
+- POS continues to read from `profiles.pos_pin` (unchanged). 0 customer-facing impact, 0 code changes.
+- Reversal: `DROP INDEX launderers_pin_unique_idx; ALTER TABLE launderers DROP COLUMN pin;`
+
+**Phase 2 (deferred to a fresh session):** POS code switches its PIN lookup from `profiles.pos_pin` to `launderers.pin`. Adds `pos_shifts.cashier_launderer_id` (nullable, additive) + backfills the 3 existing shifts. Cashier identity throughout the POS becomes the launderer (not the profile). pos_shifts.cashier_profile_id stays for back-compat during transition.
+
+**Phase 3 (later):** Admin Team UI shows one Launderers list with PIN column. Add/edit modal grows a PIN field. "Attendant (POS only)" option dropped from the Invite/Create-Account role picker.
+
+**Phase 4 (much later, when confident):** Deactivate/delete the 9 standalone attendant profiles. Drop `pos_shifts.cashier_profile_id` and `profiles.pos_pin`.
+
+What pt 13's reversal taught us: the right unification is the POS-cashier collapse, not a giant view-and-filter UI rebuild. The 8 folders without auth aren't an awkward edge case — they're the prototype for what cashiers become.
+
+Migration: `session_147_launderers_pin_phase1`. 1 commit. Phases 2-4 deferred.
+
+---
+
 **13. Team / Drivers / Launderers consolidation — attempted and reversed.** Shipped a first cut (commit `8c8fcb3`, migration `session_147_team_members_view`) that unified the three pages into a single read view + redesigned Team list with capability badges (🚐 Driver, 🧺 Folder), filter chips, and a Cleanup chip for orphan-driver rows. David reviewed the live result and was not content with the design — wants to think about the right shape before committing. Cleanly reversed: `DROP VIEW team_members_v` (migration `session_147_drop_team_members_view`) + `git revert 8c8fcb3` (reverse commit `2751a79`). All three source pages restored as they were before this attempt. Source tables (`profiles`, `drivers`, `launderers`) were never touched at any point — pure additive view + UI work, fully reversible by design. **What we learned and should preserve for the rethink:** (a) 8 of 17 launderers are profile-linked, not 1 as I initially assumed — the launderer↔profile relationship is more populated than expected; (b) 3 orphan-driver rows surfaced — David's testing artifact (4 stops, safe to clean), an unnamed phone-only test row (0 stops, garbage), and John Roi's manager profile that has 186 real route_stops attributed to it (legitimate multi-role person, not a duplicate); (c) the `profiles.role TEXT` single-value column can't natively express multi-role people — any future consolidation needs to think about whether to add a roles join table, a boolean-per-capability column set, or live with single-role + parallel satellite tables. Notes left so a future session doesn't re-explore the same dead end.
 
 **Records affected this session:** 16 UPDATEs on `orders` (status advance), 6 UPDATEs on `orders` (orphan service_id backfill), 7 INSERTs into `_archive` snapshots, 16 INSERTs into `order_events` (status_change), 1 new RPC, 1 new table, 1 new CHECK constraint, 1 patched trigger. 10 commits net (8 landed + 1 reverted via the 9th = 1 reverse-commit). 3 migrations applied (2 landed + 1 reversal). 0 edge functions, 0 cron changes.
