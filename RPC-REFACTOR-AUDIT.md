@@ -15,6 +15,9 @@ Scanned all three apps and found ~75 `db.from(...).update(...)` call sites acros
 - `get_slot_availability / get_nearest_available_slots` — read-only
 - `claim_existing_customer / link_phone_auth_account / link_phone_auth_driver / find_customer_by_phone / check_account_exists` — auth flows
 - `update_service_sort_order / update_preference_sort_order / upsert_preference / delete_preference / delete_address / upsert_service_zone / delete_service_zone / exec_sql` — admin utility
+- `reschedule_order_leg` (session 135) — ✅ shipped
+- `advance_order_status` (session 135) — ✅ shipped
+- **`create_order_for_customer` (session 147) — ✅ shipped.** Consolidates customer-app `placeOrder`, customer-app subscription bootstrap, and admin Add Order modal. Enforces service_id resolution chain + line_items base.amount > 0. Plus `CHECK (service_id IS NOT NULL OR source='walk_in')` backstop on `orders` and `log_order_created` trigger fix so `source='scheduled'` actor reads as `'System'` not `'Customer'`.
 
 ---
 

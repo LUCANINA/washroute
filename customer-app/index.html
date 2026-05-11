@@ -5088,57 +5088,67 @@ async function placeOrder() {
   }
 
   const pad2 = n => String(n).padStart(2,'0');
-  const { data: order, error } = await db.from('orders').insert({
-    customer_id:          currentCustomer.id,
-    subscription_id:      _orderSubId,
-    service_id:           svc?.id || null,
-    status:               'scheduled',
-    total_bags:           bags,
-    total_amount:         total,
-    tax_amount:           taxAmount, // session 140 pt 3
-    pickup_window_start:  pw?.slotStart || null,
-    pickup_window_end:    pw?.slotEnd   || null,
-    delivery_window_start: (() => {
-      if (!deliveryDate) return null;
-      const dw = _effectiveDW || pw; // _effectiveDW is null only for standard orders with no custom window
-      if (dw?.startMins !== undefined) {
-        // Pacific-anchored — pacificIsoFromMins embeds the correct offset.
-        return pacificIsoFromMins(deliveryDate, dw.startMins);
-      }
-      return pacificIsoFromMins(deliveryDate, 8 * 60);  // 8 AM PT default
-    })(),
-    delivery_window_end: (() => {
-      if (!deliveryDate) return null;
-      const dw = _effectiveDW || pw;
-      if (dw?.endMins !== undefined) {
-        return pacificIsoFromMins(deliveryDate, dw.endMins);
-      }
-      return pacificIsoFromMins(deliveryDate, 18 * 60);  // 6 PM PT default
-    })(),
-    pickup_run_id:        null,                   // auto-assigned by DB trigger
-    is_same_day:          draft.isSameDay || false,
-    recurring_interval:   draft.recurring || null,
-    line_items:           lineItems,
-    special_instructions: draft.specialInstructions || null,
-    zone_id:              draft.zoneId || null,
-    pickup_address_id:    draft.addressId || null,
-    delivery_address_id:  draft.deliveryAddressId || draft.addressId || null,  // default delivery = same as pickup
-    source:               'customer_app',
-    tip_amount:           parseFloat(draft.tipAmount || 0),
-    tip_type:             draft.tipType === '%' ? 'pct' : 'dollar'
-    // order_number is GENERATED ALWAYS AS IDENTITY — DB auto-assigns, do not supply
-  }).select().single();
+  // Session 147: order creation goes through the create_order_for_customer RPC
+  // (single trusted door). The RPC handles service_id resolution + line_items
+  // validation server-side, so the "service_id NULL + $0 base" class of bug
+  // can't recur. See RPC-REFACTOR-AUDIT.md.
+  const _delivStart = (() => {
+    if (!deliveryDate) return null;
+    const dw = _effectiveDW || pw; // _effectiveDW is null only for standard orders with no custom window
+    if (dw?.startMins !== undefined) {
+      // Pacific-anchored — pacificIsoFromMins embeds the correct offset.
+      return pacificIsoFromMins(deliveryDate, dw.startMins);
+    }
+    return pacificIsoFromMins(deliveryDate, 8 * 60);  // 8 AM PT default
+  })();
+  const _delivEnd = (() => {
+    if (!deliveryDate) return null;
+    const dw = _effectiveDW || pw;
+    if (dw?.endMins !== undefined) {
+      return pacificIsoFromMins(deliveryDate, dw.endMins);
+    }
+    return pacificIsoFromMins(deliveryDate, 18 * 60);  // 6 PM PT default
+  })();
+  const { data: rpcRes, error } = await db.rpc('create_order_for_customer', {
+    p_customer_id:           currentCustomer.id,
+    p_total_bags:            bags,
+    p_total_amount:          total,
+    p_line_items:            lineItems,
+    p_source:                'customer_app',
+    p_pickup_address_id:     draft.addressId || null,
+    p_delivery_address_id:   draft.deliveryAddressId || draft.addressId || null,
+    p_pickup_window_start:   pw?.slotStart || null,
+    p_pickup_window_end:     pw?.slotEnd   || null,
+    p_delivery_window_start: _delivStart,
+    p_delivery_window_end:   _delivEnd,
+    p_service_id:            svc?.id || null, // RPC will resolve via pricelist fallback if NULL
+    p_zone_id:               draft.zoneId || null,
+    p_subscription_id:       _orderSubId,
+    p_recurring_interval:    draft.recurring || null,
+    p_is_same_day:           draft.isSameDay || false,
+    p_tip_amount:            parseFloat(draft.tipAmount || 0),
+    p_tip_type:              draft.tipType === '%' ? 'pct' : 'dollar',
+    p_tax_amount:            taxAmount,
+    p_special_instructions:  draft.specialInstructions || null,
+    p_status:                'scheduled'
+  });
 
   btn.disabled = false; btn.textContent = currentCustomer ? 'Place Order' : 'Create Account & Place Order';
   if (error) {
-    if (error.message?.includes('row-level security')) {
+    if (error.message?.includes('auth required') || error.message?.includes('row-level security')) {
       toast('Your session has expired — please sign in again.');
       setTimeout(() => db.auth.signOut(), 1500);
+    } else if (error.message?.includes('Base line item amount must be > 0') || error.message?.includes('No active service available')) {
+      // Server caught an unpriced order — defense in depth against the "services
+      // didn't load before submit" race. Tell the customer to retry.
+      toast('Could not load services — please refresh and try again.');
     } else {
       toast('Error: ' + error.message);
     }
     return;
   }
+  // Echo the RPC result into the same shape downstream code expects.
+  const order = { id: rpcRes.order_id, order_number: rpcRes.order_number };
 
   // ── Route assignment handled by DB trigger (auto_route_order) ──
   // No client-side route assignment needed — the AFTER INSERT trigger
@@ -6860,30 +6870,32 @@ async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId) {
   const defaultAddr = _savedAddresses.find(a => a.is_default) || _savedAddresses[0];
 
   // 9. Create the first recurring order with subscription_id
-  const { data: order, error: orderErr } = await db.from('orders').insert({
-    customer_id: currentCustomer.id,
-    subscription_id: subId,
-    service_id: svc?.id || null,
-    status: 'scheduled',
-    total_bags: bags,
-    total_amount: total,
-    pickup_window_start: pickupStart,
-    pickup_window_end: pickupEnd,
-    delivery_window_start: deliveryDate ? new Date(`${deliveryDate}T${pad2(wsH)}:${pad2(wsM)}:00${_offsetStr}`).toISOString() : null,
-    delivery_window_end: deliveryDate ? new Date(`${deliveryDate}T${pad2(weH)}:${pad2(weM)}:00${_offsetStr}`).toISOString() : null,
-    recurring_interval: 'weekly',
-    line_items: lineItems,
-    zone_id: zoneId,
-    pickup_address_id: defaultAddr?.id || null,
-    delivery_address_id: defaultAddr?.id || null,
-    source: 'customer_app',
+  // Session 147: routed through create_order_for_customer RPC (single trusted door).
+  const { data: rpcRes, error: orderErr } = await db.rpc('create_order_for_customer', {
+    p_customer_id:           currentCustomer.id,
+    p_total_bags:            bags,
+    p_total_amount:          total,
+    p_line_items:            lineItems,
+    p_source:                'customer_app',
+    p_pickup_address_id:     defaultAddr?.id || null,
+    p_delivery_address_id:   defaultAddr?.id || null,
+    p_pickup_window_start:   pickupStart,
+    p_pickup_window_end:     pickupEnd,
+    p_delivery_window_start: deliveryDate ? new Date(`${deliveryDate}T${pad2(wsH)}:${pad2(wsM)}:00${_offsetStr}`).toISOString() : null,
+    p_delivery_window_end:   deliveryDate ? new Date(`${deliveryDate}T${pad2(weH)}:${pad2(weM)}:00${_offsetStr}`).toISOString() : null,
+    p_service_id:            svc?.id || null, // RPC resolves via pricelist fallback if NULL
+    p_zone_id:               zoneId,
+    p_subscription_id:       subId,
+    p_recurring_interval:    'weekly',
     // Field is `default_tip` everywhere in the schema — `default_tip_amount` was a typo
     // that silently zeroed the tip on every subscription auto-pickup order.
-    tip_amount: parseFloat(currentCustomer.default_tip || 0),
-    tip_type: (currentCustomer.default_tip_type === '%' ? 'pct' : 'dollar')
-  }).select().single();
+    p_tip_amount:            parseFloat(currentCustomer.default_tip || 0),
+    p_tip_type:              (currentCustomer.default_tip_type === '%' ? 'pct' : 'dollar'),
+    p_status:                'scheduled'
+  });
 
   if (orderErr) throw new Error('Could not create pickup: ' + orderErr.message);
+  const order = { id: rpcRes.order_id, order_number: rpcRes.order_number };
 
   // Refresh user data so home screen shows the subscription card
   try { await loadUserData(); } catch (_) {}

@@ -16895,37 +16895,41 @@ ${oneCopy}
       if (dr) delivRunId = dr.id;
     }
 
-    const { data: newOrder, error } = await db.from('orders').insert({
-      customer_id:           customerId,
-      status:                'scheduled',
-      service_id:            serviceId,
-      total_bags:            bags,
-      total_amount:          totalAmount,
-      tax_amount:            taxAmount, // session 140 pt 3
-      zone_id:               _noSelectedTmpl?.zone_id || null,
-      pickup_address_id:     addressId,
-      delivery_address_id:   addressId,     // same address by default
-      pickup_window_start:   _noPickupStart,
-      pickup_window_end:     _noPickupEnd,
-      delivery_window_start: _noDelivStart || null,
-      delivery_window_end:   _noDelivEnd   || null,
-      pickup_run_id:         pickupRunId,
-      delivery_run_id:       delivRunId,
-      special_instructions:  notes || null,
-      tip_amount:            tipRaw,
-      tip_type:              _noTipType,
-      discount_id:           discountId,
-      is_same_day:           _noIsSameDay || false,
-      line_items:            [
-        { type: 'base', label: baseLabel, amount: subtotal, taxable: _baseTaxable },
-        ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee, taxable: _delivFeeTaxable }] : []),
-        ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge, taxable: _sameDayTaxable }] : [])
-      ],
-      source:                'scheduled',
-    }).select('id, order_number').single();
+    // Session 147: routed through create_order_for_customer RPC (single trusted door).
+    // RPC handles service_id resolution + line_items validation server-side.
+    const _lineItems = [
+      { type: 'base', label: baseLabel, amount: subtotal, taxable: _baseTaxable },
+      ...(deliveryFee > 0 ? [{ type: 'delivery_fee', label: 'Delivery fee', amount: deliveryFee, taxable: _delivFeeTaxable }] : []),
+      ...(sameDaySurcharge > 0 ? [{ type: 'same_day_surcharge', label: '⚡ Same-day surcharge', amount: sameDaySurcharge, taxable: _sameDayTaxable }] : [])
+    ];
+    const { data: rpcRes, error } = await db.rpc('create_order_for_customer', {
+      p_customer_id:           customerId,
+      p_total_bags:            bags,
+      p_total_amount:          totalAmount,
+      p_line_items:            _lineItems,
+      p_source:                'scheduled',
+      p_pickup_address_id:     addressId,
+      p_delivery_address_id:   addressId, // same address by default
+      p_pickup_window_start:   _noPickupStart,
+      p_pickup_window_end:     _noPickupEnd,
+      p_delivery_window_start: _noDelivStart || null,
+      p_delivery_window_end:   _noDelivEnd   || null,
+      p_service_id:            serviceId, // RPC will resolve via pricelist fallback if NULL
+      p_zone_id:               _noSelectedTmpl?.zone_id || null,
+      p_pickup_run_id:         pickupRunId,
+      p_delivery_run_id:       delivRunId,
+      p_discount_id:           discountId,
+      p_is_same_day:           _noIsSameDay || false,
+      p_tip_amount:            tipRaw,
+      p_tip_type:              _noTipType,
+      p_tax_amount:            taxAmount,
+      p_special_instructions:  notes || null,
+      p_status:                'scheduled'
+    });
 
     if (btn) { btn.disabled = false; btn.textContent = 'Create Order'; }
     if (error) { err.textContent = error.message; err.style.display='block'; return; }
+    const newOrder = { id: rpcRes.order_id, order_number: rpcRes.order_number };
 
     // Create route_stop rows for any auto-linked routes so the driver app sees them
     const newOrderId = newOrder?.id;
