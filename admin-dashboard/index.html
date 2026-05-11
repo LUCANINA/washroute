@@ -20525,6 +20525,14 @@ ${oneCopy}
     const dp = document.getElementById('runs-date-picker');
     _dsDateStr = (dp && dp.value) ? dp.value : today();
 
+    // Session 147 hotfix: ensure allDriversCache is populated before rendering
+    // any route columns. rccToggleRoute does `allDriversCache.find(d => d.id...)`
+    // and falls through to 'Unassigned' if the cache is empty. Prior to pt 11,
+    // visiting Drivers > Schedule before Map naturally pre-loaded the cache.
+    // After pt 11 moved Schedule under Orders, admins land on Orders > Map
+    // directly and the cache stayed empty.
+    if (!allDriversCache.length) await loadAllDriversCache();
+
     // Reset active state
     _rccActiveRoutes = new Set();
     _rccRouteData = {};
