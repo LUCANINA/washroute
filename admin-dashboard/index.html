@@ -137,7 +137,7 @@
     body.map-fullscreen .topbar              { display: none; }
     body.map-fullscreen #orders-view-toggle  { display: none !important; }
     body.map-fullscreen .content             { padding: 0; }
-    body.map-fullscreen #orders-schedule-view{ height: 100vh !important; }
+    body.map-fullscreen #orders-map-view{ height: 100vh !important; }
     body.tech-mode .tech-header { display: flex; }
     body.tech-mode #page-processing > .card { margin:0;border-radius:0;border:none;box-shadow:none; }
     body.tech-mode #page-processing > .card > div:first-child { display:none; } /* hide "Processing Queue / No orders waiting" bar */
@@ -1676,11 +1676,11 @@
 
         <!-- ── ORDERS ── -->
         <div class="page" id="page-orders">
-          <!-- Orders / Order Schedule / Driver Schedule Toggle -->
+          <!-- Orders / Map / Schedule sub-tab toggle -->
           <div id="orders-view-toggle" style="display:flex;gap:4px;margin-bottom:16px;">
             <button class="section-tab active" id="ovt-orders" onclick="switchOrdersView('orders')">List</button>
-            <button class="section-tab" id="ovt-schedule" onclick="switchOrdersView('schedule')">Map</button>
-            <!-- Driver Schedule moved to Drivers page -->
+            <button class="section-tab" id="ovt-map" onclick="switchOrdersView('map')">Map</button>
+            <button class="section-tab" id="ovt-driver-schedule" onclick="switchOrdersView('driver-schedule')">Schedule</button>
           </div>
 
           <!-- Orders List View -->
@@ -1712,8 +1712,8 @@
             </div>
           </div>
 
-          <!-- Daily Schedule View (will contain content from Daily Runs) -->
-          <div id="orders-schedule-view" style="display:none;flex-direction:column;height:calc(100vh - 110px);overflow:hidden;">
+          <!-- Map View (route + stop overlay) -->
+          <div id="orders-map-view" style="display:none;flex-direction:column;height:calc(100vh - 110px);overflow:hidden;">
             <!-- ── RCC: Date + Optimize bar ── -->
             <div style="padding:10px 16px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:12px;flex-shrink:0;background:#fff;">
               <span style="font-size:13px;font-weight:600;color:var(--gray-700)">Date:</span>
@@ -1759,6 +1759,20 @@
             </div>
           </div>
 
+          <!-- Driver Schedule View (moved from Drivers > Schedule in session 147) -->
+          <div id="orders-driver-schedule-view" style="display:none">
+            <!-- Week navigation -->
+            <div class="sched-week-nav">
+              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(-1)">← Prev Week</button>
+              <span class="sched-week-label" id="sched-week-label2">—</span>
+              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(1)">Next Week →</button>
+              <span style="font-size:12px;color:var(--gray-400);margin-left:8px;">Click any cell to reassign a driver for that day.</span>
+            </div>
+            <!-- Schedule grid -->
+            <div id="driver-schedule-grid" style="overflow-x:auto;padding:4px 0;">
+              <div class="loading"><div class="spinner"></div> Loading…</div>
+            </div>
+          </div>
 
         </div>
 
@@ -2675,10 +2689,6 @@
               style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-2px;color:var(--gray-900)">
               Messages
             </button>
-            <button class="filter-tab" id="drv-tab-schedule" onclick="switchDriverTab('schedule')"
-              style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--gray-400)">
-              Schedule
-            </button>
             <button class="filter-tab" id="drv-tab-manage" onclick="switchDriverTab('manage')"
               style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--gray-400)">
               All Drivers
@@ -2721,21 +2731,7 @@
             </div>
           </div>
 
-          <!-- ═══ ALL DRIVERS TAB ═══ -->
-          <!-- ═══ SCHEDULE TAB ═══ -->
-          <div id="drv-panel-schedule" style="display:none">
-            <!-- Week navigation -->
-            <div class="sched-week-nav">
-              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(-1)">← Prev Week</button>
-              <span class="sched-week-label" id="sched-week-label2">—</span>
-              <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;" onclick="shiftWeek(1)">Next Week →</button>
-              <span style="font-size:12px;color:var(--gray-400);margin-left:8px;">Click any cell to reassign a driver for that day.</span>
-            </div>
-            <!-- Schedule grid -->
-            <div id="driver-schedule-grid" style="overflow-x:auto;padding:4px 0;">
-              <div class="loading"><div class="spinner"></div> Loading…</div>
-            </div>
-          </div>
+          <!-- Schedule tab moved to Orders > Schedule in session 147. -->
 
           <!-- ═══ ALL DRIVERS TAB ═══ -->
           <div id="drv-panel-manage" style="display:none">
@@ -5579,25 +5575,35 @@
         startPaymentMethodListener();
 
         // Restore the page + sub-tab the user was on before refresh (from URL hash).
-        // Hash format: #page  or  #page/subtab  (e.g. #orders/schedule, #orders/in_process, #routes/schedule)
+        // Hash format: #page  or  #page/subtab  (e.g. #orders/map, #orders/driver-schedule, #orders/in_process)
         const hashRaw   = location.hash.replace('#', '');
         const hashParts = hashRaw.split('/');
         let   hashPage  = hashParts[0];
         const hashSub   = hashParts[1] || null;
         if (hashPage === 'driver-messages') hashPage = 'drivers'; // legacy redirect
+        // session 147: drivers/schedule moved to orders/driver-schedule
+        if (hashPage === 'drivers' && hashParts[1] === 'schedule') {
+          location.replace('#orders/driver-schedule');
+          return;
+        }
         // If no hash or no permission, land on first allowed page
         const defaultPage = ALL_PAGE_IDS.find(p => canAccessPage(p)) || 'processing';
         if (hashPage && document.getElementById('page-' + hashPage) && canAccessPage(hashPage)) {
+          // Order sub-routes that aren't filter-tabs:
+          //   'map' / 'driver-schedule' — Orders sub-tabs (handled below)
+          //   'schedule' — legacy alias for 'map' (handled inside switchOrdersView)
+          const ORDERS_VIEW_SUBS = new Set(['orders', 'map', 'schedule', 'driver-schedule']);
           // Pre-set the order filter before showPage() so loadOrders() fetches the right set
-          if (hashPage === 'orders' && hashSub && hashSub !== 'orders' && hashSub !== 'schedule') {
+          if (hashPage === 'orders' && hashSub && !ORDERS_VIEW_SUBS.has(hashSub)) {
             currentOrderFilter = hashSub;
           }
           showPage(hashPage, document.querySelector(`.nav-item[data-page="${hashPage}"]`));
           // Restore sub-tab state (showPage defaults each section to its first tab)
           if (hashSub) {
-            if (hashPage === 'orders' && hashSub === 'schedule') {
-              // Switch to Order Schedule sub-view (overrides the default 'orders' view set by showPage)
-              switchOrdersView('schedule');
+            if (hashPage === 'orders' && (hashSub === 'map' || hashSub === 'schedule')) {
+              switchOrdersView('map');
+            } else if (hashPage === 'orders' && hashSub === 'driver-schedule') {
+              switchOrdersView('driver-schedule');
             } else if (hashPage === 'orders' && hashSub !== 'orders') {
               // Activate the correct order filter button — loadOrders() already used the right filter above.
               // Also re-set hash since switchOrdersView('orders') just wrote #orders/orders.
@@ -12236,39 +12242,48 @@ ${oneCopy}
 
   // ── ORDERS PAGE: TOGGLE BETWEEN ORDERS / ORDER SCHEDULE ──
   function switchOrdersView(view) {
-    const ordersList = document.getElementById('orders-list-view');
-    const scheduleView = document.getElementById('orders-schedule-view');
-    const ovtOrders = document.getElementById('ovt-orders');
-    const ovtSchedule = document.getElementById('ovt-schedule');
+    // Back-compat: prior internal name for the Map view was 'schedule'.
+    // Session 147 renamed it to 'map' to free 'schedule' for the new
+    // driver-schedule sub-tab. Old bookmarks land on the Map cleanly.
+    if (view === 'schedule') view = 'map';
+
+    const ordersList   = document.getElementById('orders-list-view');
+    const mapView      = document.getElementById('orders-map-view');
+    const drvSchedView = document.getElementById('orders-driver-schedule-view');
+    const ovtOrders    = document.getElementById('ovt-orders');
+    const ovtMap       = document.getElementById('ovt-map');
+    const ovtDrvSched  = document.getElementById('ovt-driver-schedule');
 
     // Hide all views and deactivate all tabs
     ordersList.style.display = 'none';
-    scheduleView.style.display = 'none';
+    mapView.style.display = 'none';
+    if (drvSchedView) drvSchedView.style.display = 'none';
     ovtOrders.classList.remove('active');
-    ovtSchedule.classList.remove('active');
+    ovtMap.classList.remove('active');
+    if (ovtDrvSched) ovtDrvSched.classList.remove('active');
     unsubscribeDriverLocations();
     // Clear all bulk-select state on view change so neither floating bar
     // bleeds across views and stale ids don't carry over (would also have
     // double-stacked bars if List had a selection while Map was active).
     if (typeof clearOrderSelection === 'function') clearOrderSelection();
     if (typeof rccClearSelection === 'function') rccClearSelection();
+    // Leaving the Map view should exit fullscreen so other sub-tabs render normally.
+    if (view !== 'map' && document.body.classList.contains('map-fullscreen')) {
+      document.body.classList.remove('map-fullscreen');
+      const lbl = document.getElementById('btn-map-fullscreen-label');
+      if (lbl) lbl.textContent = 'Maximize';
+    }
 
     if (view === 'orders') {
       ordersList.style.display = '';
       ovtOrders.classList.add('active');
       document.getElementById('topbar-cta-label').textContent = 'New Order';
       document.getElementById('topbar-cta').style.display = '';
-      // Leaving the Map view should also exit fullscreen so List view renders normally.
-      if (document.body.classList.contains('map-fullscreen')) {
-        document.body.classList.remove('map-fullscreen');
-        const lbl = document.getElementById('btn-map-fullscreen-label');
-        if (lbl) lbl.textContent = 'Maximize';
-      }
       loadOrders(currentOrderFilter);
       try { history.replaceState(null, '', '#orders/' + (currentOrderFilter || 'scheduled')); } catch(_) {}
-    } else if (view === 'schedule') {
-      scheduleView.style.display = 'flex';
-      ovtSchedule.classList.add('active');
+    } else if (view === 'map') {
+      mapView.style.display = 'flex';
+      ovtMap.classList.add('active');
       document.getElementById('topbar-cta').style.display = 'none';
       setTimeout(() => {
         initRunsMap();
@@ -12277,8 +12292,13 @@ ${oneCopy}
         if (dp) dp.value = today();
         loadDailyRuns();
       }, 80);
+      try { history.replaceState(null, '', '#orders/map'); } catch(_) {}
+    } else if (view === 'driver-schedule') {
+      if (drvSchedView) drvSchedView.style.display = '';
+      if (ovtDrvSched) ovtDrvSched.classList.add('active');
+      document.getElementById('topbar-cta').style.display = 'none';
       loadDriverScheduleTab();
-      try { history.replaceState(null, '', '#orders/schedule'); } catch(_) {}
+      try { history.replaceState(null, '', '#orders/driver-schedule'); } catch(_) {}
     }
   }
 
@@ -19299,7 +19319,7 @@ ${oneCopy}
   async function initRoutesPage() {
     await loadAllDriversCache();
     await loadTemplates();
-    // Date picker is set in switchOrdersView('schedule')
+    // Date picker is set in switchOrdersView('map')
   }
 
   async function loadAllDriversCache() {
@@ -19795,8 +19815,9 @@ ${oneCopy}
   function shiftWeek(delta) {
     schedWeekOffset += delta;
     // Render whichever schedule is currently visible
-    const driversView = document.getElementById('drv-panel-schedule');
-    if (driversView && driversView.style.display !== 'none') {
+    // Session 147: driver schedule moved to Orders > Schedule sub-tab.
+    const driverSchedView = document.getElementById('orders-driver-schedule-view');
+    if (driverSchedView && driverSchedView.style.display !== 'none') {
       renderDriverSchedule();
     } else {
       renderWeeklySchedule();
@@ -20435,8 +20456,9 @@ ${oneCopy}
 
     showToast('Driver updated!', 'success');
     // Refresh whichever schedule view is currently active
-    const driversView = document.getElementById('drv-panel-schedule');
-    if (driversView && driversView.style.display !== 'none') {
+    // Session 147: driver schedule moved to Orders > Schedule sub-tab.
+    const driverSchedView = document.getElementById('orders-driver-schedule-view');
+    if (driverSchedView && driverSchedView.style.display !== 'none') {
       renderDriverSchedule();
     } else {
       renderWeeklySchedule();
@@ -26351,10 +26373,16 @@ ${oneCopy}
   let _activeDriverTab = 'messages';
 
   function switchDriverTab(tab) {
+    // Schedule was moved to Orders > Schedule in session 147 — redirect any
+    // legacy callers/bookmarks rather than landing them on a hidden tab.
+    if (tab === 'schedule') {
+      showPage('orders', document.querySelector('.nav-item[data-page="orders"]'));
+      switchOrdersView('driver-schedule');
+      return;
+    }
     _activeDriverTab = tab;
     const tabs = {
       messages: { tab: document.getElementById('drv-tab-messages'), panel: document.getElementById('drv-panel-messages') },
-      schedule: { tab: document.getElementById('drv-tab-schedule'), panel: document.getElementById('drv-panel-schedule') },
       manage:   { tab: document.getElementById('drv-tab-manage'),   panel: document.getElementById('drv-panel-manage') },
     };
     const actions = document.getElementById('drv-tab-actions');
@@ -26377,11 +26405,6 @@ ${oneCopy}
       } else {
         actions.innerHTML = '';
       }
-    }
-
-    // Load schedule data when switching to schedule tab
-    if (tab === 'schedule') {
-      loadDriverScheduleTab();
     }
   }
 
