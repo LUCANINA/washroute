@@ -17,7 +17,7 @@
 
 **7. Items report — paid-only filter + single gross revenue total.** David asked for a follow-up cleanup on the Reports → Items page. Was: `.neq('status', 'cancelled')` + dual "Service Revenue / Net Revenue" tiles + dual "Net / lb / Net / order" derivatives. Now: `.eq('status', 'delivered').eq('billing_status', 'paid')` + single "Gross Revenue" tile + "Revenue / lb" + "Revenue / order". "Gross" semantics: sum of `total_amount` (base service + add-ons + fees + surcharges + tax — everything in the price list), tip excluded, refunds NOT subtracted (partial refunds stay in gross by definition; full refunds drop out because `billing_status` flips to `'refunded'`). Side-effect: scheduled, picked_up, processing, ready_for_delivery, on-account-not-yet-billed, and refunded orders all drop out — which is what David wants (this is a "money realized" view, not "money booked"). CSV export header + rows updated to match. Net delta on the May 1-10 range: 589 → 489 orders (Delivery), $46k service / $55k net → **$49,888.70 gross** (Delivery), with a separate $893 Commercial row and a stray $9.95 "Unknown" row (one order with `service_id IS NULL` — minor data-quality issue worth chasing later).
 
-**Records affected this session:** 16 UPDATEs on `orders` (status advance), 1 INSERT into `_archive._kidango_advance_20260510` (snapshot), 16 INSERTs into `order_events` (status_change). 2 commits, 0 migrations, 0 edge functions, 0 cron changes.
+**Records affected this session:** 16 UPDATEs on `orders` (status advance), 1 INSERT into `_archive._kidango_advance_20260510` (snapshot), 16 INSERTs into `order_events` (status_change). 2 commits (admin-Map planning view + Items report cleanup), 0 migrations, 0 edge functions, 0 cron changes.
 
 ---
 

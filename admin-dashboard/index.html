@@ -27273,14 +27273,18 @@ ${oneCopy}
     const selFrom = fromEl.value;
     const selTo   = toEl.value;
 
-    // Fetch services map and orders in parallel
-    // Paginate to avoid 1000-row default limit on large date ranges
+    // Fetch services map and orders in parallel.
+    // Paginate to avoid 1000-row default limit on large date ranges.
+    // Session 146: only count orders that have actually been processed AND paid
+    // — exclude scheduled / picked_up / cancelled / failed / refunded so the
+    // report reflects real revenue, not booked-but-not-yet-realized work.
     let itemsOrders = [], itemsFetchError = null;
     { const BATCH = 1000; let offset = 0;
       while (true) {
         const { data, error: e } = await db.from('orders')
           .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status')
-          .neq('status', 'cancelled')
+          .eq('status', 'delivered')
+          .eq('billing_status', 'paid')
           .not('total_amount', 'is', null)
           .gte('delivery_window_start', fromISO)
           .lte('delivery_window_start', toISO)
@@ -27321,21 +27325,21 @@ ${oneCopy}
     filtered.forEach(o => {
       const svc = svcMap[o.service_id];
       const pl  = svc?.pricelist || UNKNOWN;
-      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, serviceRev: 0, totalRev: 0, refunds: 0, addons: {} };
+      // grossRev = sum of total_amount across all paid+delivered orders.
+      // Includes base service + add-ons + fees + surcharges + tax (everything
+      // billed in the price list). Tip is NOT included — that's separate from
+      // order revenue. Refunds are NOT subtracted — "gross" by definition.
+      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, grossRev: 0, addons: {} };
       const plData = byPricelist[pl];
       plData.orders++;
       plData.lbs      += parseFloat(o.weight_lbs   || 0);
       plData.bags     += parseInt(o.total_bags      || 0);
-      plData.totalRev += parseFloat(o.total_amount  || 0);
-      if (o.billing_status === 'refunded') plData.refunds += parseFloat(o.total_amount || 0);
+      plData.grossRev += parseFloat(o.total_amount  || 0);
 
-      // Parse line items for service revenue and add-ons
+      // Parse line items for add-ons (base is already counted in grossRev)
       if (Array.isArray(o.line_items)) {
         o.line_items.forEach(item => {
-          if (item.type === 'base') {
-            plData.serviceRev += parseFloat(item.amount || 0);
-            return;
-          }
+          if (item.type === 'base') return;
           if (item.type !== 'pref_service' && item.type !== 'addon' && item.type !== 'addon_service') return;
           // Extract add-on name (e.g. "Oxi × 2 bags" → "Oxi")
           const label = item.label || '';
@@ -27397,10 +27401,9 @@ ${oneCopy}
             <div class="items-summary-stat"><strong>${d.orders.toLocaleString()}</strong>Orders</div>
             <div class="items-summary-stat"><strong>${d.bags > 0 ? d.bags.toLocaleString() : '—'}</strong>Bags</div>
             <div class="items-summary-stat"><strong>${d.lbs > 0 ? fmtLbs(d.lbs) : '—'}</strong>Pounds Processed</div>
-            <div class="items-summary-stat"><strong>${d.serviceRev > 0 ? fmtMoney(d.serviceRev) : '—'}</strong>Service Revenue</div>
-            <div class="items-summary-stat"><strong>${d.totalRev > 0 ? fmtMoney(d.totalRev - d.refunds) : '—'}</strong>Net Revenue</div>
-            <div class="items-summary-stat"><strong>${d.lbs > 0 && d.totalRev > 0 ? fmtMoney((d.totalRev - d.refunds) / d.lbs) : '—'}</strong>Net / lb</div>
-            <div class="items-summary-stat"><strong>${d.orders > 0 && d.totalRev > 0 ? fmtMoney((d.totalRev - d.refunds) / d.orders) : '—'}</strong>Net / order</div>
+            <div class="items-summary-stat"><strong>${d.grossRev > 0 ? fmtMoney(d.grossRev) : '—'}</strong>Gross Revenue</div>
+            <div class="items-summary-stat"><strong>${d.lbs > 0 && d.grossRev > 0 ? fmtMoney(d.grossRev / d.lbs) : '—'}</strong>Revenue / lb</div>
+            <div class="items-summary-stat"><strong>${d.orders > 0 && d.grossRev > 0 ? fmtMoney(d.grossRev / d.orders) : '—'}</strong>Revenue / order</div>
           </div>
           <table class="items-tbl">
             <thead>
@@ -27433,20 +27436,20 @@ ${oneCopy}
     // Header
     rows.push([
       'Pricelist','Orders','Bags','Pounds Processed',
-      'Service Revenue','Net Revenue','Net / lb','Net / Order',
+      'Gross Revenue','Revenue / lb','Revenue / Order',
       'Add-on','Items','Add-on Revenue'
     ].map(esc).join(','));
 
     pricelists.forEach(d => {
-      const net        = (d.totalRev - d.refunds).toFixed(2);
-      const netPerLb   = d.lbs > 0    ? ((d.totalRev - d.refunds) / d.lbs).toFixed(2)    : '';
-      const netPerOrder = d.orders > 0 ? ((d.totalRev - d.refunds) / d.orders).toFixed(2) : '';
+      const gross        = d.grossRev.toFixed(2);
+      const revPerLb     = d.lbs > 0    ? (d.grossRev / d.lbs).toFixed(2)    : '';
+      const revPerOrder  = d.orders > 0 ? (d.grossRev / d.orders).toFixed(2) : '';
 
       // Summary row for this pricelist
       rows.push([
         d.pl, d.orders, d.bags,
         d.lbs.toFixed(1),
-        d.serviceRev.toFixed(2), net, netPerLb, netPerOrder,
+        gross, revPerLb, revPerOrder,
         '','',''
       ].map(esc).join(','));
 
