@@ -1273,7 +1273,10 @@
     .team-role-badge.manager { background:#fef3c7;color:#92400e; }
     .team-role-badge.laundry_tech { background:#d1fae5;color:#065f46; }
     .team-role-badge.attendant { background:#ede9fe;color:#5b21b6; }
-    .team-role-badge.pos_device { background:#f0f9ff;color:#0369a1; }
+    /* Session 147 pt 14: pos_device shares attendant badge styling (it IS the
+       attendant account from a permissions standpoint — label change handled
+       in ROLE_LABELS_MAP). */
+    .team-role-badge.pos_device { background:#ede9fe;color:#5b21b6; }
     .team-actions { display:flex;gap:8px; }
     /* Billing feature */
     .bill-badge { display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap; }
@@ -5691,7 +5694,13 @@
   });
 
   // ── ROLE-BASED NAV ──
-  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', attendant: 'Attendant', pos_device: 'POS Device' };
+  // Session 147 pt 14: pos_device displays as "Attendant" because the
+  // device-account concept doesn't communicate permission intent in the UI —
+  // it IS the attendant account from a permissions standpoint. The DB role
+  // stays 'pos_device' (POS auth code keys on that). The individual attendant
+  // profiles are hidden from the Team page filter; the shared foothill@
+  // account is the only "Attendant" badge that surfaces.
+  const ROLE_LABELS_MAP = { admin: 'Admin', manager: 'Manager', laundry_tech: 'Laundry Tech', attendant: 'Attendant', pos_device: 'Attendant' };
   const ALL_PAGE_IDS = ['overview','customers','orders','processing','inbox','lostfound','drivers','pos',
                         'reports','services','notifications','maps','launderers','racks',
                         'discounts','team','settings'];
