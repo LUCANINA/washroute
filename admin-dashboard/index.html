@@ -2882,14 +2882,72 @@
           <!-- Tab: Devices (session 147 pt 14 — shared terminal/role accounts) -->
           <div id="team-view-devices" style="display:none">
             <div style="max-width:720px;margin:0 auto;padding-top:20px">
-              <p style="font-size:13px;color:var(--gray-500);margin:0 0 16px">
-                Shared login accounts for terminals (POS iPads, Laundry processing kanban).
-                Multiple people use the same login; individual identity at the POS comes from the cashier's PIN on the
-                <a href="#launderers" onclick="event.preventDefault();showPage('launderers',document.querySelector('.nav-item[data-page=&quot;launderers&quot;]'))" style="color:var(--accent)">Launderers</a> page.
-              </p>
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px">
+                <p style="font-size:13px;color:var(--gray-500);margin:0;max-width:520px">
+                  Shared login accounts for terminals (POS iPads, Laundry processing kanban).
+                  Multiple people use the same login; individual identity at the POS comes from the cashier's PIN on the
+                  <a href="#launderers" onclick="event.preventDefault();showPage('launderers',document.querySelector('.nav-item[data-page=&quot;launderers&quot;]'))" style="color:var(--accent)">Launderers</a> page.
+                </p>
+                <button class="btn btn-primary" onclick="openAddDeviceModal()" style="white-space:nowrap;flex-shrink:0">+ Add Device</button>
+              </div>
               <div id="team-devices-list" style="display:flex;flex-direction:column;gap:8px">
                 <div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>
               </div>
+            </div>
+          </div>
+
+          <!-- Add Device modal (session 147 pt 15) -->
+          <div id="add-device-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+            <div style="background:white;border-radius:14px;padding:28px;width:460px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.25)">
+              <h3 style="margin:0 0 6px;font-size:18px;font-weight:700">Add Device</h3>
+              <p style="font-size:12.5px;color:var(--gray-500);margin:0 0 18px">Create a shared login for a new POS terminal or Laundry kanban iPad.</p>
+
+              <div style="display:flex;flex-direction:column;gap:12px">
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--gray-600);display:block;margin-bottom:5px">Device type</label>
+                  <select id="add-device-type" onchange="onAddDeviceTypeChange()" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;background:white;outline:none">
+                    <option value="pos_device">POS Terminal</option>
+                    <option value="laundry_tech">Laundry Kanban</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--gray-600);display:block;margin-bottom:5px">Display name</label>
+                  <input id="add-device-name" type="text" placeholder="e.g. Berkeley POS"
+                    oninput="onAddDeviceNameChange()"
+                    style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;outline:none" />
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--gray-600);display:block;margin-bottom:5px">Email <span style="color:var(--gray-400);font-weight:500">(auto-suggested from name)</span></label>
+                  <input id="add-device-email" type="email"
+                    style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;outline:none" />
+                </div>
+                <div>
+                  <label style="font-size:12px;font-weight:600;color:var(--gray-600);display:block;margin-bottom:5px">Password</label>
+                  <div style="display:flex;gap:6px">
+                    <input id="add-device-password" type="text"
+                      style="flex:1;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;font-family:ui-monospace,monospace;outline:none" />
+                    <button class="btn btn-ghost" onclick="generateAddDevicePassword()" style="padding:8px 14px;font-size:12px">↻ Generate</button>
+                  </div>
+                  <div style="font-size:11px;color:var(--gray-400);margin-top:4px">Shown once now — save it somewhere safe (admin can rotate later via the user editor).</div>
+                </div>
+                <div id="add-device-pos-only">
+                  <label style="font-size:12px;font-weight:600;color:var(--gray-600);display:block;margin-bottom:5px">Printer token (optional)</label>
+                  <input id="add-device-printer-token" type="text" placeholder="e.g. 00:11:62:36:30:7C"
+                    style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;font-family:ui-monospace,monospace;outline:none" />
+                  <div style="font-size:11px;color:var(--gray-400);margin-top:4px">Printer MAC address. Can be left blank and set later when the printer is paired.</div>
+                </div>
+                <div id="add-device-pos-loc">
+                  <label style="font-size:12px;font-weight:600;color:var(--gray-600);display:block;margin-bottom:5px">Location (optional)</label>
+                  <input id="add-device-location" type="text" placeholder="e.g. Berkeley front counter"
+                    style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;outline:none" />
+                </div>
+              </div>
+
+              <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+                <button class="btn" onclick="closeAddDeviceModal()">Cancel</button>
+                <button class="btn btn-primary" id="add-device-submit-btn" onclick="submitAddDevice()">Create Device</button>
+              </div>
+              <div id="add-device-error" style="display:none;margin-top:12px;color:var(--red);font-size:13px;text-align:center"></div>
             </div>
           </div>
 
@@ -4940,6 +4998,10 @@
   let BIZ_PRINT_TRANSPORT = 'browser';              // 'browser' | 'cloudprnt' | 'passprnt'
   let BIZ_REVIEW_LINK     = '';                     // loaded from settings table at startup
   let BIZ_TAX_RATE        = 0.1075;                 // session 140: loaded from settings.sales_tax_rate
+  // session 147 pt 15: brand email domain used for device-account email
+  // suggestions. Single source of truth so the "@familylaundry.com" assumption
+  // isn't hardcoded in JS. Multi-tenant later: this moves to tenants.email_domain.
+  let BIZ_BRAND_EMAIL_DOMAIN = 'familylaundry.com';
   let BIZ_INVOICE = {                              // loaded from settings.invoice_config at startup
     logo_url:      'https://admin.familylaundry.com/assets/logo_white.png',
     company_name:  'Family Laundry',
@@ -5878,6 +5940,119 @@
     }).join('');
   }
 
+  // ── Add Device modal (session 147 pt 15) ──
+  // Calls the provision-device-account edge function which creates the auth
+  // user + profile + pos_devices row in one server-side operation. Uses
+  // BIZ_BRAND_EMAIL_DOMAIN (from settings.brand_email_domain) for the
+  // suggested email so the hardcoded 'familylaundry.com' assumption is
+  // factored out for future multi-tenancy.
+  function _slugifyForEmail(s) {
+    return String(s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .slice(0, 40);
+  }
+  function generateAddDevicePassword() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789abcdefghijkmnpqrstuvwxyz';
+    let p = '';
+    for (let i = 0; i < 14; i++) p += chars[Math.floor(Math.random() * chars.length)];
+    document.getElementById('add-device-password').value = p;
+  }
+  function openAddDeviceModal() {
+    document.getElementById('add-device-type').value = 'pos_device';
+    document.getElementById('add-device-name').value = '';
+    document.getElementById('add-device-email').value = '';
+    document.getElementById('add-device-printer-token').value = '';
+    document.getElementById('add-device-location').value = '';
+    document.getElementById('add-device-error').style.display = 'none';
+    generateAddDevicePassword();
+    onAddDeviceTypeChange();
+    document.getElementById('add-device-modal').style.display = 'flex';
+    setTimeout(() => document.getElementById('add-device-name').focus(), 50);
+  }
+  function closeAddDeviceModal() {
+    document.getElementById('add-device-modal').style.display = 'none';
+  }
+  function onAddDeviceTypeChange() {
+    const type = document.getElementById('add-device-type').value;
+    const posOnlyEls = ['add-device-pos-only', 'add-device-pos-loc'];
+    posOnlyEls.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = (type === 'pos_device') ? '' : 'none';
+    });
+  }
+  function onAddDeviceNameChange() {
+    // Auto-fill the email suggestion as long as the user hasn't manually
+    // typed in the email field. Detect "user hasn't typed" by checking
+    // dataset.userEdited.
+    const nameEl = document.getElementById('add-device-name');
+    const emailEl = document.getElementById('add-device-email');
+    if (emailEl.dataset.userEdited === '1') return;
+    const slug = _slugifyForEmail(nameEl.value);
+    emailEl.value = slug ? `${slug}@${BIZ_BRAND_EMAIL_DOMAIN}` : '';
+  }
+  // Mark the email field as user-edited so name changes stop overriding it.
+  document.addEventListener('DOMContentLoaded', () => {
+    const emailEl = document.getElementById('add-device-email');
+    if (emailEl) emailEl.addEventListener('input', () => { emailEl.dataset.userEdited = '1'; });
+  });
+
+  async function submitAddDevice() {
+    const errEl = document.getElementById('add-device-error');
+    errEl.style.display = 'none';
+    const btn = document.getElementById('add-device-submit-btn');
+    btn.disabled = true; btn.textContent = 'Creating…';
+
+    const body = {
+      device_type:   document.getElementById('add-device-type').value,
+      name:          document.getElementById('add-device-name').value.trim(),
+      email:         document.getElementById('add-device-email').value.trim(),
+      password:      document.getElementById('add-device-password').value,
+      printer_token: document.getElementById('add-device-printer-token').value.trim() || null,
+      location:      document.getElementById('add-device-location').value.trim() || null,
+    };
+
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      const resp = await fetch(`${SUPA_URL}/functions/v1/provision-device-account`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPA_KEY,
+          'Authorization': `Bearer ${session?.access_token || SUPA_KEY}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const json = await resp.json();
+      if (!resp.ok || !json.success) throw new Error(json.error || 'Unknown error');
+      // Show a final "credentials" alert so admin sees the password one more time
+      // (it was visible in the input, but a confirmation is worth it).
+      alert(
+        `Device created!\n\n` +
+        `Type:     ${body.device_type === 'pos_device' ? 'POS Terminal' : 'Laundry Kanban'}\n` +
+        `Name:     ${body.name}\n` +
+        `Email:    ${body.email}\n` +
+        `Password: ${body.password}\n\n` +
+        `Save these credentials — the password is shown ONCE. ` +
+        `Sign in to the device with this email + password.`
+      );
+      closeAddDeviceModal();
+      // Reset the email-user-edited flag for next open
+      const emailEl = document.getElementById('add-device-email');
+      if (emailEl) emailEl.dataset.userEdited = '';
+      loadDevicesTab();
+      showToast(`${body.name} created`, 'success');
+    } catch (e) {
+      errEl.textContent = e.message || 'Failed to create device';
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Create Device';
+    }
+  }
+
   async function loadPermissionsGrid() {
     const grid = document.getElementById('permissions-grid');
     const { data, error } = await db.from('role_permissions').select('*').order('role').order('page_id');
@@ -6433,11 +6608,12 @@
 
   // ── SETTINGS ──
   async function loadSettings() {
-    const { data } = await db.from('settings').select('timezone, printer_token, print_transport, review_link, invoice_config, sales_tax_rate').eq('id', 1).single();
+    const { data } = await db.from('settings').select('timezone, printer_token, print_transport, review_link, invoice_config, sales_tax_rate, brand_email_domain').eq('id', 1).single();
     if (data?.timezone)        BIZ_TZ              = data.timezone;
     if (data?.printer_token)   BIZ_PRINTER_TOKEN   = data.printer_token;
     if (data?.print_transport) BIZ_PRINT_TRANSPORT = data.print_transport;
     if (data?.review_link !== undefined) BIZ_REVIEW_LINK = data.review_link || '';
+    if (data?.brand_email_domain) BIZ_BRAND_EMAIL_DOMAIN = data.brand_email_domain;
     // session 140: cached so reports + invoice rendering can read without
     // re-querying. Stored as a decimal (0.1075 = 10.75%).
     if (data?.sales_tax_rate != null) BIZ_TAX_RATE = Number(data.sales_tax_rate);
