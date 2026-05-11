@@ -5741,10 +5741,15 @@
   async function loadTeamPage() {
     const container = document.getElementById('team-list');
     container.innerHTML = '<div style="text-align:center;color:var(--gray-400);padding:40px 0">Loading…</div>';
+    // Session 147 pt 14: 'attendant' role hidden from the Team page now that PINs
+    // are managed on the Launderers page. The 9 attendant profiles still exist in
+    // the DB (needed by the live POS auth flow which reads profiles.pos_pin until
+    // Phase 2 ships the switch to launderers.pin). Restore = add 'attendant' back
+    // to the .in(...) list.
     const { data, error } = await db
       .from('profiles')
       .select('id, first_name, last_name, email, phone, role, pos_pin')
-      .in('role', ['admin', 'manager', 'laundry_tech', 'attendant', 'pos_device'])
+      .in('role', ['admin', 'manager', 'laundry_tech', 'pos_device'])
       .order('role').order('first_name');
     if (error || !data) {
       container.innerHTML = '<div style="color:var(--red);text-align:center;padding:40px 0">Failed to load team.</div>';
