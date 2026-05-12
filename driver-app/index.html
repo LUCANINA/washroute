@@ -3170,33 +3170,33 @@ async function cantCompleteStop(stopId) {
   const prevDriverNotes = stop.driver_notes || null;
   const isPickup = stop.stop_type === 'pickup';
 
-  // Mark route stop as skipped (route_stops constraint allows 'skipped' but not 'failed')
-  await db.from('route_stops').update({
-    status: 'skipped',
-    driver_notes: (stop.driver_notes ? stop.driver_notes + ' | ' : '') + 'Can\'t complete: ' + CANT_COMPLETE_LABELS[reason],
-  }).eq('id', stopId);
+  // Session 148: route through skip_route_stop RPC. The RPC atomically marks
+  // the stop skipped AND advances the order to pickup_failed/delivery_failed
+  // in one transaction — closes the orphan window where the prior non-atomic
+  // pattern could leave a stop 'skipped' but the order untouched if the
+  // second call failed.
+  const driverName = (currentProfile?.first_name || '') + (currentProfile?.last_name ? ' ' + currentProfile.last_name : '');
+  const noteSuffix = 'Can\'t complete: ' + CANT_COMPLETE_LABELS[reason];
+  const { data: rpcRes, error: rpcErr } = await db.rpc('skip_route_stop', {
+    p_stop_id:      stopId,
+    p_reason:       reason,
+    p_notes_suffix: noteSuffix,
+    p_actor_name:   driverName.trim() || 'Driver',
+  });
+  if (rpcErr) {
+    toast('Could not skip stop: ' + rpcErr.message);
+    return;
+  }
 
+  // Sync local cache from the RPC response.
   const idx = allStops.findIndex(s => s.id === stopId);
   if (idx >= 0) {
     allStops[idx].status = 'skipped';
-    if (stop?.orders?.id) {
-      // Map the order status + notification event to the correct stop type.
-      // Pickup failures → pickup_failed, delivery failures → delivery_failed.
-      const failedStatus = isPickup ? 'pickup_failed' : 'delivery_failed';
-      const failedEvent  = isPickup ? 'pickup_failed' : 'delivery_failed';
-
-      // Session 135: advance_order_status RPC enforces cancelled_by + driver_skip_reason for fail paths
-      const driverName = (currentProfile?.first_name || '') + (currentProfile?.last_name ? ' ' + currentProfile.last_name : '');
-      await db.rpc('advance_order_status', {
-        p_order_id:           stop.orders.id,
-        p_new_status:         failedStatus,
-        p_actor_name:         driverName.trim() || 'Driver',
-        p_cancelled_by:       'driver',
-        p_driver_skip_reason: reason,
-      });
-      allStops[idx].orders.status = failedStatus;
-
-      // Notify customer via SMS (matching template)
+    allStops[idx].driver_notes = (stop.driver_notes ? stop.driver_notes + ' | ' : '') + noteSuffix;
+    if (stop?.orders?.id && rpcRes?.new_order_status) {
+      allStops[idx].orders.status = rpcRes.new_order_status;
+      // Notify customer via SMS (matching template) — fire-and-forget.
+      const failedEvent = isPickup ? 'pickup_failed' : 'delivery_failed';
       try {
         await fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
           method: 'POST',

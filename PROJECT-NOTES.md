@@ -181,6 +181,56 @@ All three keep their `p_is_same_day` / `p_same_day_delivery` parameters for back
 
 ---
 
+## Session 148 pt 6 — three small tech-debt fixes batched
+
+After the incident, kept going on the tech-debt list. Three more items shipped:
+
+**1. `profiles.email` auto-sync trigger** (`session_148_sync_profile_email_on_auth_change`). Closes session 139 pt 6 tech debt where a renamed `auth.users.email` left `profiles.email` stale. The trigger:
+- Fires AFTER UPDATE OF email ON auth.users.
+- WHEN clause: `NEW.email IS NOT NULL AND NEW.email IS DISTINCT FROM OLD.email` — only on actual non-null changes.
+- SECURITY DEFINER so it can write to public.profiles from the auth.users trigger context.
+
+Carefully NOT-firing on email-to-NULL is critical: the audit found **1,007 phone-auth-only customers** with `auth.users.email IS NULL` but `profiles.email` set (admin or customer added it post-signup). A naive sync would have wiped all 1,007 emails. Verified with both positive (rename syncs) and negative (NULL doesn't clear) tests against real profiles, rolled back via DO block.
+
+**2. Audit skill UUID-based exclusion list** (`washroute-audit.skill`). Closes session 139 pt 6 tech debt. Check 12 (orphan auth users) had a hard-coded email exclusion list for staff accounts. When Foothill device's email was renamed in session 139, the rename would have leaked through and false-flagged the renamed account as an orphan. Replaced email-based exclusion with a UUID list (rename-proof). All 6 staff UUIDs captured in the SKILL.md with email + role as a comment so future onboarding is clear.
+
+Note: the `role='customer'` JOIN added in session 144 does most of the heavy lifting; the UUID list is belt-and-suspenders for any future staff onboarded with role NULL or role='customer' by mistake.
+
+**3. New `skip_route_stop` RPC** (`session_148_skip_route_stop_rpc`). Closes P1 from the blast-radius audit. The driver-app's `cantCompleteStop` was the last remaining non-atomic write in the system: `route_stops.update({status: 'skipped'})` direct, then `advance_order_status` RPC. If step 2 failed (network blip, ownership reject, anything), the stop sat skipped while the order's status remained — driver-visible orphan, no recovery action queued.
+
+The new RPC wraps both writes in one transaction:
+- Locks route_stops row, validates non-terminal status + supported stop_type
+- Ownership check via `enforce_caller_owns_order` (driver bypass from pt 5 satisfies)
+- UPDATE route_stops set status='skipped' + appended note
+- PERFORM advance_order_status with `cancelled_by='driver'` + `driver_skip_reason`
+- Returns combined state for client cache sync
+
+Driver-app `cantCompleteStop` patched to call this single RPC. Local cache now updated from RPC response rather than independently. The SMS notification stays fire-and-forget (post-mutation, doesn't gate the user flow).
+
+Tested end-to-end via mock driver JWT against a real pending pickup stop, rolled back. Zero artifacts.
+
+**4. Tech debt closed this session.** Five items from the audit + session 139 list shipped today:
+- ✅ Same-day pickup/delivery prevention (Kalen #4238 root-cause) — pt 1
+- ✅ Two app-side RPC migrations + GRANT hardening — pt 2
+- ✅ Caller-ownership checks on customer-callable mutation RPCs — pt 3 (+ pt 5 driver fix)
+- ✅ `is_same_day` → generated column — pt 4
+- ✅ `profiles.email` auto-sync trigger — pt 6
+- ✅ Audit skill UUID-based exclusion list — pt 6
+- ✅ New `skip_route_stop` RPC + driver-app patch — pt 6
+
+**Remaining tech-debt for future sessions:**
+- TD-1 (P2): admin `opToggleDiffDeliveryAddr` needs `save_order_address` extended with `p_clear bool DEFAULT false` flag. Current code writes `delivery_address_id = NULL` directly — safe single-field write but architecturally inconsistent.
+- TD-2 (P2): admin `opSaveRecurring` writes `recurring_interval` directly. Defer until subscription automation work establishes the canonical mutation pattern.
+- TD-3 (P1 architectural): POS refund/delete edge actions are not fully transactional (session 139 tech debt). Stripe refund + DB writes happen sequentially; partial failure leaves books inconsistent. Needs SECURITY DEFINER RPC the edge function calls after Stripe clears.
+- TD-4 (P1 from pt 5): tighten driver bypass in `enforce_caller_owns_order` to be order-scoped (EXISTS check on route_stops). Currently role-only.
+- TD-5 (P1 from pt 5): audit every SECURITY DEFINER RPC for transitive PERFORM calls to guarded RPCs.
+- TD-6 (P2 from pt 5): expand ownership-guard test suite to cover every distinct role in profiles.role.
+- TD-7 (P2 from pt 4): drop the `p_is_same_day` params from the 3 RPC signatures + remove client passes. Needs coordinated client+DB deploy.
+
+**Records affected:** 3 DB migrations applied (`session_148_sync_profile_email_on_auth_change`, `session_148_skip_route_stop_rpc`, audit skill rebuild). 1 trigger function + 1 RPC created. 1 driver-app function refactored. 1 skill archive rebuilt. 0 customer-facing changes.
+
+---
+
 *Prior: May 10, 2026 — Session 147. **Admin Map view: show all planned stops regardless of order processing status.** Direct follow-up to Session 145's Kidango Thu→Mon move. David opened tomorrow's Map view to verify the 16 Kidango deliveries and saw "0 stops" on the Kidango chip + "No active stops" in the route panel — but the DB had all 16 stops correctly attached to the Monday route. Root cause: the admin Map view filters out delivery stops whose order is still in `picked_up`/`processing`/`folding` ("the bags aren't folded yet, don't show them to the driver"). For Bay Area same-day pipelines that hides bags-not-ready noise; for Kidango (commercial, multi-day turnaround, no per-bag kanban) it hides the entire route. Fix is two-layer: data fix for today, code fix so it never recurs.*
 
 ## Session 147 — Admin Map planning view shows all alive stops + Items report cleanup
