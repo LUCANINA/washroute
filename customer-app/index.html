@@ -6434,9 +6434,15 @@ async function saveEditOrder() {
 
 async function skipPickup(orderId) {
   if (!confirm('Skip this pickup? Your subscription continues — we\'ll schedule your next pickup automatically.')) return;
-  const { error } = await db.from('orders')
-    .update({ status: 'skipped', cancelled_by: 'customer' })
-    .eq('id', orderId);
+  // Session 148: route through advance_order_status RPC instead of raw UPDATE.
+  // The RPC enforces cancelled_by attribution, blocks re-advance from terminal
+  // states, and writes an attributed order_event in the same transaction.
+  const { error } = await db.rpc('advance_order_status', {
+    p_order_id:     orderId,
+    p_new_status:   'skipped',
+    p_actor_name:   'Customer',
+    p_cancelled_by: 'customer',
+  });
   if (error) { toast('Could not skip order: ' + error.message); return; }
   toast('Pickup skipped — see you next time! 👋');
   showScreen('orders');
@@ -6445,11 +6451,17 @@ async function skipPickup(orderId) {
 
 async function cancelOrder(orderId) {
   if (!confirm('Cancel this order? This cannot be undone.')) return;
-  // cancelled_by: 'customer' is critical for attribution — admin reports filter
-  // by this field to distinguish customer cancellations from admin/system ones.
-  // Without it, customer cancels show up as 'system' (default NULL), polluting
-  // the metrics. Matches the pattern in skipPickup() above.
-  const { error } = await db.from('orders').update({ status: 'cancelled', cancelled_by: 'customer' }).eq('id', orderId);
+  // Session 148: route through advance_order_status RPC. The RPC enforces
+  // cancelled_by attribution (admin reports filter by this field to separate
+  // customer cancels from admin/system ones), blocks re-advance from terminal
+  // states, and writes an attributed order_event atomically with the status
+  // change.
+  const { error } = await db.rpc('advance_order_status', {
+    p_order_id:     orderId,
+    p_new_status:   'cancelled',
+    p_actor_name:   'Customer',
+    p_cancelled_by: 'customer',
+  });
   if (error) { toast('Could not cancel order: ' + error.message); return; }
   toast('Order cancelled');
   // Refresh cached orders and return to orders list
