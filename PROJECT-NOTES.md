@@ -43,6 +43,31 @@ Skill rebuild via the standard unpack → edit SKILL.md → rezip → `present_f
 
 ---
 
+## Session 148 pt 2 — RPC blast-radius audit + security harden
+
+After David asked "let's get some tech debt off our plate," ran a comprehensive scan of every raw `db.from(...).update()` site on the five critical tables (`orders`, `route_stops`, `customers`, `routes`, `addresses`) across all three apps and edge functions. 52 sites total. The architectural discipline turned out to be mostly in place: 31 SAFE (cache columns, `updated_at`, `is_default` toggles, etc.) + 16 RPC-WRAPPED (legitimate edge-function service-role writes, Stripe webhook backups) + 5 GAPS.
+
+**1. Credit ledger discipline confirmed.** The only place writing `customers.credits` outside an RPC is the legitimate stripe-webhook signup-credit migration (`credits: 20` for new customers). All other credit writes route through `apply_customer_credit_to_order` or `adjust_customer_credits`. Session 128's audit work has held.
+
+**2. Two migrations shipped.**
+- **customer-app `skipPickup`** (line ~6437) — was raw `{ status: 'skipped', cancelled_by: 'customer' }` UPDATE; now routes through `advance_order_status` with `p_actor_name='Customer'`, `p_cancelled_by='customer'`. Gains attributed `order_events` entry + defense against re-advance from terminal status.
+- **customer-app `cancelOrder`** (line ~6452) — same migration. Same gains.
+
+**3. Three remaining gaps documented as tech debt** (`RPC-REFACTOR-AUDIT.md` refreshed end-to-end):
+- `admin-dashboard opToggleDiffDeliveryAddr` — writes `delivery_address_id = NULL` directly because `save_order_address` requires `p_address_id NOT NULL`. Fix: extend the RPC with `p_clear bool DEFAULT false`. P2 (currently safe — no correlated fields).
+- `admin-dashboard opSaveRecurring` — writes `recurring_interval` directly; no subscription RPC exists yet. Defer until subscription automation lands.
+- `driver-app cantCompleteStop` — marks `route_stops.status='skipped'` BEFORE calling the order-advance RPC. Sub-second orphan window if the order RPC fails. P1, needs new `skip_route_stop(p_stop_id, p_reason, p_actor_name)` RPC for atomic skip + order-advance.
+
+**4. Security harden — anon/PUBLIC GRANT leak on the new `reschedule_order` RPC.** Postgres defaults to `EXECUTE` granted to `PUBLIC` (and Supabase's anon role is in PUBLIC) for new SECURITY DEFINER functions. Session 136 had applied `REVOKE` discipline to existing mutation RPCs but I didn't follow the same pattern when I shipped `reschedule_order` earlier today. Anyone with the anon key could have called it. Migration `session_148_revoke_anon_from_reschedule_order` applied — now authenticated + service_role + postgres only, matching every other mutation RPC. Added a verification SQL snippet to `RPC-REFACTOR-AUDIT.md` so the next session-148-style miss can be caught proactively.
+
+**5. ⚠️ Bigger architectural gap surfaced (deferred to next session): caller-ownership checks.** While auditing GRANTs, found that **none of the customer-callable mutation RPCs verify caller ownership.** `advance_order_status`, `reschedule_order`, `reschedule_order_leg`, `save_order_address` all trust the caller's `p_order_id` parameter. Because SECURITY DEFINER bypasses RLS, a signed-in customer could craft a direct RPC call against another customer's order and the RPC would happily process it. The customer-app's UI only exposes the user's own order IDs, but a malicious browser is not bound by the UI. `create_order_for_customer` (session 147) does this right with an internal `is_admin() OR caller.profile_id = customer.profile_id` check. The fix is a SQL helper `enforce_caller_owns_order(p_order_id)` that bypasses for `auth.uid() IS NULL` (service_role) or `is_admin()`, applied to every customer-reachable mutation RPC. **High-priority follow-up for the next tech-debt session** — pre-existing latent gap, not caused by today's work, but surfaced today.
+
+**6. Audit doc refresh.** `RPC-REFACTOR-AUDIT.md` was written session 135 as a "9 RPCs proposed to ship" roadmap. All 9 (plus 6 more) have shipped since. Rewrote the doc to reflect current state: complete RPC inventory, remaining migration gaps with severity, the ownership-check architectural debt, and a re-audit SQL snippet for future sessions.
+
+**Records affected:** 2 customer-app function bodies migrated (10 net lines of code change). 1 DB migration applied (`session_148_revoke_anon_from_reschedule_order`). 1 audit doc rewritten end-to-end. 1 commit (`574b97e`). 0 edge functions, 0 cron, 0 customer-facing data changes. 3 tech-debt items newly tracked.
+
+---
+
 *Prior: May 10, 2026 — Session 147. **Admin Map view: show all planned stops regardless of order processing status.** Direct follow-up to Session 145's Kidango Thu→Mon move. David opened tomorrow's Map view to verify the 16 Kidango deliveries and saw "0 stops" on the Kidango chip + "No active stops" in the route panel — but the DB had all 16 stops correctly attached to the Monday route. Root cause: the admin Map view filters out delivery stops whose order is still in `picked_up`/`processing`/`folding` ("the bags aren't folded yet, don't show them to the driver"). For Bay Area same-day pipelines that hides bags-not-ready noise; for Kidango (commercial, multi-day turnaround, no per-bag kanban) it hides the entire route. Fix is two-layer: data fix for today, code fix so it never recurs.*
 
 ## Session 147 — Admin Map planning view shows all alive stops + Items report cleanup
