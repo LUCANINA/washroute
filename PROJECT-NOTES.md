@@ -368,6 +368,42 @@ Other security surfaces audited and clean: SQL injection (all params via PL/pgSQ
 
 ---
 
+## Session 148 pt 9 — Credit-ledger silent-drain bug (Cindy Downing report)
+
+After pt 8 wrapped, Cindy Downing emailed: order #4295 charged her $412.95 to card but her $201.30 credit balance was supposed to be applied first per her note. Investigation surfaced a structural bug bigger than her one case.
+
+**Root cause: `expire-migration-credits` cron silently drained `customers.credits`** without inserting a `customer_transactions` row. Direct violation of the session 128 invariant that every credits write must pair with a ledger entry. The cron ran every morning at 1 AM PT zeroing any row where `credit_expires_at < now()` — but the original intent was a ONE-TIME launch promo (March 27 2026 deadline). The promo ended 6+ weeks ago but the cron kept running, draining 4-17 customers/day. Some upstream process (TBD — likely Starchup migration script or admin form bug) was still setting `credit_expires_at` to the old March 27 date on new credit additions.
+
+**Scale of impact.** Audit query (`(stored - sum_of_ledger_signed) <> 0`) surfaced:
+- 19 customers shorted, $684.20 total: Cindy $201.30, Randolph $100, Sarah Bseiso $68.95, 14 × $20 signup-promo, Acacia $19.95, Christine $15.
+- 318 customers with EXCESS stored (column > ledger sum), ~$10K total — likely pre-session-128 history where migration credit was added directly without ledger entries. Not actively harming customers; just a bookkeeping drift.
+- 2 customers actively at risk RIGHT NOW: Sarah Wheeler ($1,020) and Anne Silver ($20) — both had `credit_expires_at` = March 27 set TODAY (May 12), would have been silently wiped by tomorrow's cron run.
+
+**Decision (David):** remove credit expiration entirely. The launch promo is done; resurrecting it as a real feature later is cleaner than keeping a stale cron alive that's actively destroying credit.
+
+**Actions taken:**
+1. **Disabled the cron** (`session_148_disable_credit_expiration`): `cron.unschedule(jobid)` + `DROP FUNCTION public.expire_migration_credits()` (built earlier this session to log paired transactions — now obsolete since the cron itself is gone). Cleared `credit_expires_at` on the 2 at-risk customers.
+2. **Restored credit to 18 customers** via `adjust_customer_credits(amount, 'credit_add', note='Restored — silently drained by expire-migration-credits cron')`. Each got their original credit back, paired transaction logged.
+3. **Cindy's case was special — race condition with David.** During the ~2 minutes between my audit and my batch-restore, David refunded $201.30 to Cindy's card via admin (he'd seen her email and acted in parallel). My batch restore then over-compensated her by $201.30. Caught it 30 seconds later by checking which restore-recipients also had a same-day refund transaction. Reversed Cindy's restore via `adjust_customer_credits(201.30, 'credit_remove', note='Reversed session 148 auto-restore — David refunded equivalent $ to card')`. Cindy now whole at the card level, $0 credit.
+4. **Sarah Wheeler + Anne Silver preserved.** Their credits stay ($1,020 + $20). The cron is gone so the past-dated `credit_expires_at` no longer matters.
+
+**Known bookkeeping artifact:** the audit query still reports the 18 restored customers as "still short" because the original silent-drain events were NEVER logged — adding a credit_add today doubles the expected balance without offsetting the historical drain. The customers are WHOLE (their stored balance is correct); the ledger has 2 credit_add entries (original + restoration) but no credit_remove for the drain. Not worth backfilling fake credit_remove entries with made-up dates.
+
+**Architectural lessons banked:**
+1. **Cron jobs are invisible writers.** The blast-radius audit (pt 2) checked app code for raw `.update()` patterns but didn't enumerate cron commands. A cron with an inline UPDATE is just as much a writer as app code — needs to follow the same paired-transaction discipline. Should be checked by the audit tooling.
+2. **Dead features destroy data silently.** This cron should have been disabled after the March 28 launch sweep completed. Keeping it alive "just in case" for 6+ weeks let it silently destroy customer credit. **New principle: when a one-time campaign mechanism ends, DISABLE the supporting infrastructure same-day.**
+3. **Race conditions between batch auto-corrections and human admin actions are real.** When running a batch correction, snapshot the state at start of the run, then apply changes only to rows that match the snapshot. My batch didn't — David's parallel refund came in and I double-credited Cindy. Would have been worse if I'd been refunding cards via Stripe.
+
+**Tech debt opened:**
+- TD-12 (P1): Find and fix whoever is still setting `credit_expires_at` to the old March 27 date on new customer records. Sarah Wheeler had $1,020 added TODAY with that stale date — that means an admin form, import script, or other code path still has the old constant hardcoded. Likely a launch-era migration script that's still being run for new Starchup customer imports. Track down + fix.
+- TD-13 (P2): Reconcile the 318 customers with excess stored credit (~$10K total). They have more on the column than the ledger says. Probably pre-session-128 historical drift. Backfill credit_add transactions for each so the ledger matches reality. Low priority — customers benefit, no customer harm.
+- TD-14 (P3): DROP the `customers.credit_expires_at` column entirely after a soak period. Currently kept as historical metadata but it's no longer functional.
+- TD-15 (P2): Extend the daily audit / blast-radius tooling to enumerate `cron.job` commands and flag inline UPDATEs on critical tables (customers, orders, etc.). Cron jobs were invisible to pt 2's audit — this caught us today.
+
+**Records affected:** 1 DB migration applied (`session_148_disable_credit_expiration`). 1 cron job removed. 1 helper function dropped. 19 customers' credits adjusted (18 restored + 1 reconciled). 4 new tech debt items opened. 0 customer-facing data damage — all 19 are whole at card or credit level.
+
+---
+
 *Prior: May 10, 2026 — Session 147. **Admin Map view: show all planned stops regardless of order processing status.** Direct follow-up to Session 145's Kidango Thu→Mon move. David opened tomorrow's Map view to verify the 16 Kidango deliveries and saw "0 stops" on the Kidango chip + "No active stops" in the route panel — but the DB had all 16 stops correctly attached to the Monday route. Root cause: the admin Map view filters out delivery stops whose order is still in `picked_up`/`processing`/`folding` ("the bags aren't folded yet, don't show them to the driver"). For Bay Area same-day pipelines that hides bags-not-ready noise; for Kidango (commercial, multi-day turnaround, no per-bag kanban) it hides the entire route. Fix is two-layer: data fix for today, code fix so it never recurs.*
 
 ## Session 147 — Admin Map planning view shows all alive stops + Items report cleanup
