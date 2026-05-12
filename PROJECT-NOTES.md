@@ -1,5 +1,49 @@
 # WashRoute — Project Notes
-*Last updated: May 10, 2026 — Session 147. **Admin Map view: show all planned stops regardless of order processing status.** Direct follow-up to Session 145's Kidango Thu→Mon move. David opened tomorrow's Map view to verify the 16 Kidango deliveries and saw "0 stops" on the Kidango chip + "No active stops" in the route panel — but the DB had all 16 stops correctly attached to the Monday route. Root cause: the admin Map view filters out delivery stops whose order is still in `picked_up`/`processing`/`folding` ("the bags aren't folded yet, don't show them to the driver"). For Bay Area same-day pipelines that hides bags-not-ready noise; for Kidango (commercial, multi-day turnaround, no per-bag kanban) it hides the entire route. Fix is two-layer: data fix for today, code fix so it never recurs.*
+*Last updated: May 12, 2026 — Session 148. **Three-layer prevention of same-day pickup/delivery scheduling — Kalen Gleeson #4238 root-cause fix.** Customer #4238 was booked Mon May 11 7-9 AM pickup → Tue May 12 7-9 AM delivery via the customer-app. She edited Mon morning to move pickup to Tue, but delivery was never auto-pushed forward — order ended up with pickup AND delivery on Tue 7-9 AM (same route, same time, same day). John Roi T caught and rescued it Tue 8:40 AM, but only by luck. Bug root-cause: customer-app `saveEditOrder` called `reschedule_order_leg` twice (non-atomic, no cross-leg validation), and no DB-level constraint prevented `delivery_window_start <= pickup_window_end`. Fixed in three layers — UI auto-derivation (already present, hardened), atomic `reschedule_order` RPC with cross-leg invariant, and a backstop DB trigger.*
+
+## Session 148 — Same-day pickup/delivery prevention (Kalen Gleeson #4238)
+
+**Note on migration naming:** the two DB migrations applied this session are named `session_143_trg_enforce_pickup_before_delivery` and `session_143_reschedule_order_rpc` — a numbering mistake. They are session 148 work. Functional behavior is unaffected; the names stay as-applied because renaming applied migrations is messy.
+
+**1. The incident.** Order #4238 (Kalen Gleeson, customer `16dcab7b`). Original booking Sun May 10 7:01 PM PT: pickup Mon May 11 Berkeley AM 7-9 AM → delivery Tue May 12 Berkeley AM 7-9 AM. Mon May 11 3:42 AM PT, customer edited via app: bag count went up ($139.95 → $149.90), pickup moved forward one day (Mon → Tue), delivery NOT moved. Result: pickup AND delivery both Tue May 12 7-9 AM on the same Berkeley AM route. John Roi T noticed Tue 8:40 AM and rescheduled delivery to Berkeley PM (6-8 PM same day) — the rescue. Driver would otherwise have arrived to deliver laundry that hadn't been picked up yet.
+
+**2. Root cause — three failures stacked.** (a) Customer-app `saveEditOrder` (line 6220) called `reschedule_order_leg` twice in sequence, once per leg — no atomic transaction, no cross-leg view. (b) `reschedule_order_leg` validated only its own leg's sub-window alignment, never compared against the other leg's state. (c) No database trigger enforced `delivery_window_start > pickup_window_end`. The system had no layer that knew the rule.
+
+**3. Cleanest-path principle applied.** The minimum patch was a DB trigger alone. The cleanest path was three layers — UI prevention (so the bad state is unrepresentable), RPC validation (so the bad input can't be processed), DB trigger (so no path can persist it). All three shipped this session per David's explicit "we're past MVP, always pick the cleanest architectural path" directive (this is now a hard rule in `washroute.skill` — strengthened from guideline to hard rule).
+
+**4. Layer 1 — DB trigger `trg_enforce_pickup_before_delivery`** (migration `session_143_trg_enforce_pickup_before_delivery`, applied 2026-05-12 17:49 UTC). BEFORE INSERT OR UPDATE OF the four window columns on `orders`. Rejects any row state where `pickup_window_end IS NOT NULL AND delivery_window_start IS NOT NULL AND delivery_window_start <= pickup_window_end` with `RAISE EXCEPTION` using ERRCODE `check_violation` and a user-facing message that names the offending values. Fires alphabetically before the existing template-window triggers; coexists cleanly with them (orthogonal invariants). Verified against existing data — zero active orders violate the new invariant (6 historic cases in past 90 days, all in terminal status, untouched).
+
+**5. Layer 2 — new `reschedule_order` RPC** (migration `session_143_reschedule_order_rpc`, applied 2026-05-12 17:52 UTC). Canonical two-leg reschedule mutation. Both legs in one call, locked once, validated once (per-leg sub-window alignment + cross-leg invariant), single atomic UPDATE for both legs. No temporary-inconsistent-state window. Returns jsonb with `pickup_changed` / `delivery_changed` flags so callers know which legs moved. `reschedule_order_leg` rewritten as a thin wrapper that forwards to `reschedule_order` and re-shapes the return to v1 JSONB structure — every existing admin call site continues working unchanged (single-leg API preserved). The v1 body is snapshotted in `_archive._backup_function_defs` for rollback.
+
+Test coverage:
+- Synthetic INSERT with `delivery_window_start = pickup_window_end` correctly rejected (DO block test with rollback).
+- Cross-leg violation via RPC against order #3942 correctly rejected with `check_violation` (DO block test with rollback).
+- Valid two-leg reschedule via RPC against order #3942 correctly succeeds with both legs atomically updated (DO block test with rollback).
+- `reschedule_order` with no leg args correctly raises "no changes" error.
+- Kalen's order #4238 verified untouched throughout.
+
+**6. Layer 3 — customer-app `saveEditOrder` refactor.** Three sub-fixes in one commit:
+- **Atomic call.** Replaced two sequential `reschedule_order_leg` calls with one `reschedule_order` call. Eliminates the temporary-inconsistent-state window between the two writes that caused Kalen's exact bug. `_pickupArgs` and `_deliveryArgs` are built independently and spread into the single RPC call.
+- **`routeId` on original windows.** Modal init now does one extra query: `SELECT id, template_id FROM routes WHERE id IN (pickup_run_id, delivery_run_id)` and attaches `template_id` as `routeId` on the original pickup and delivery window objects. Without this, a pickup-only edit would have skipped delivery args (because `dw.routeId` was undefined) and the cross-leg check would have rejected the save — confusing user error. Now the original delivery template is known, so a pickup-only edit pushes BOTH legs to the RPC (delivery uses original template + auto-derived date + original time-of-day).
+- **Change detection.** New `_pickupChanged` / `_deliveryChanged` flags compare final state against originals captured at modal init (`_origPickupDate`, `_origDeliveryDate`, `_origPickupIso`, `_origDeliveryIso` stored on `_editSchedule`). Bag-only edits no longer fire noisy `rescheduled` order_events with old=new (regression fix in addition to the main change).
+
+`openEditOrder` is now async (was sync) to support the route template lookup. Onclick handlers don't await it; the promise is discarded, which is fine for fire-and-forget modal rendering. Lookup is a PK query — sub-50ms, no visible delay.
+
+**7. Cleanest-Path Principle strengthened in washroute.skill.** Previously a guideline; now a hard rule. Key additions per David's directive:
+- "WashRoute is past MVP. It serves real, paying customers. It needs to scale." Always pick the clean architecture even if it costs 30-60 extra minutes or a full session.
+- Six pre-commit checks (where does the invariant belong, is the inconsistent state representable, leg-scoped vs order-scoped mutation, hide multi-field sync inside RPCs/triggers, can future call sites bypass the safety net, are we storing a fact that's derivable).
+- "If you catch yourself reaching for 'good enough' — stop and propose the cleanest path instead. That is the work now."
+- Surface both paths to David before defaulting to the quick one — never silently take the shortcut.
+
+Skill rebuild via the standard unpack → edit SKILL.md → rezip → `present_files` pattern.
+
+**8. Records touched.** 2 migrations applied, 2 function definitions snapshotted to `_archive._backup_function_defs`, 1 trigger created, 1 RPC created (`reschedule_order`), 1 RPC rewritten as wrapper (`reschedule_order_leg`). 1 customer-app file modified (141 lines net +99/-42). 1 skill file rebuilt. 1 commit (`6962cf4`). 0 edge functions, 0 cron changes. 0 customer-facing data changes (Kalen's #4238 was already fine after John's rescue).
+
+**9. Tech debt opened.** `orders.is_same_day` is a stored boolean that drifts on edits (Kalen's #4238 had `is_same_day=false` even when it briefly became same-day). It's derivable from windows (`pickup_window_start::date = delivery_window_start::date`). Should be replaced with a generated column or a computed view to eliminate the drift bug class entirely. Out of scope for this session.
+
+---
+
+*Prior: May 10, 2026 — Session 147. **Admin Map view: show all planned stops regardless of order processing status.** Direct follow-up to Session 145's Kidango Thu→Mon move. David opened tomorrow's Map view to verify the 16 Kidango deliveries and saw "0 stops" on the Kidango chip + "No active stops" in the route panel — but the DB had all 16 stops correctly attached to the Monday route. Root cause: the admin Map view filters out delivery stops whose order is still in `picked_up`/`processing`/`folding` ("the bags aren't folded yet, don't show them to the driver"). For Bay Area same-day pipelines that hides bags-not-ready noise; for Kidango (commercial, multi-day turnaround, no per-bag kanban) it hides the entire route. Fix is two-layer: data fix for today, code fix so it never recurs.*
 
 ## Session 147 — Admin Map planning view shows all alive stops + Items report cleanup
 
