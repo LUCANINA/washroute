@@ -68,6 +68,49 @@ After David asked "let's get some tech debt off our plate," ran a comprehensive 
 
 ---
 
+## Session 148 pt 3 — Caller-ownership checks on customer-callable mutation RPCs
+
+Closed the architectural gap surfaced in pt 2: SECURITY DEFINER functions bypass RLS, so a signed-in customer could craft direct RPC calls (`advance_order_status`, `reschedule_order`, `save_order_address`) against any order — the UI doesn't expose other customers' IDs, but a malicious browser isn't bound by the UI. `create_order_for_customer` had this protection (session 147 added `is_admin() OR profile_match` checks); the others didn't.
+
+**1. New helper `enforce_caller_owns_order(p_order_id uuid)`** (migration `session_148_enforce_caller_owns_order`). SECURITY DEFINER, STABLE. Logic:
+- `auth.role() = 'service_role'` → bypass (edge functions are trusted)
+- `is_admin()` → bypass (admin / manager / laundry_tech)
+- Otherwise: SELECT order.customer_id, verify `EXISTS (SELECT 1 FROM customers c WHERE c.id = customer_id AND c.profile_id = auth.uid())`. Reject with `insufficient_privilege` (ERRCODE 42501) if not.
+- Walk-in orders (`customer_id IS NULL`) reject all non-admin/service callers — they should only be touched via admin/POS paths.
+
+GRANT-locked to `authenticated, service_role` only (no anon, no PUBLIC).
+
+**2. Patched three RPCs** to call `PERFORM public.enforce_caller_owns_order(p_order_id);` as the first action inside `BEGIN`:
+- `advance_order_status` (migration `session_148_advance_order_status_ownership_check`)
+- `reschedule_order` (migration `session_148_reschedule_order_ownership_check`) — `reschedule_order_leg` inherits via the wrapper pattern
+- `save_order_address` (migration `session_148_save_order_address_ownership_check`)
+
+Existing function bodies snapshotted to `_archive._backup_function_defs` before replacement.
+
+**3. Test coverage.** All 6 scenarios verified via `set_config('request.jwt.claims', ..., true)` to mock different JWT contexts:
+
+| Test | Caller | Expected | Result |
+|---|---|---|---|
+| Helper direct, order owner | Owner's profile | Pass | ✅ |
+| Helper direct, different customer | Another profile | Reject 42501 | ✅ |
+| Helper direct, admin profile | Admin | Bypass | ✅ |
+| Helper direct, service_role | Service | Bypass | ✅ |
+| End-to-end `advance_order_status` wrong customer | Another profile | Reject (CONTEXT chain shows guard fired) | ✅ |
+| End-to-end `advance_order_status` owner | Owner's profile | Succeed (DO block rollback) | ✅ |
+
+**4. Why the admin app isn't affected.** Admin dashboard users are logged in as admin / manager / laundry_tech profiles → `is_admin()` returns true → guard bypasses. All existing admin call sites continue to work. Verified via test #3.
+
+**5. Why the customer app isn't affected (for legitimate calls).** Customer-app users are signed in with their own profile JWT. When they call `advance_order_status` or `reschedule_order` for their own order (which is all the UI exposes), `auth.uid() = customer.profile_id` → guard passes. Test #6 confirmed this end-to-end.
+
+**6. Architectural lesson banked.** When SECURITY DEFINER is the door, RLS is irrelevant. Three layers of authorization now:
+- Layer 1 — GRANT: anon revoked, only `authenticated + service_role + postgres + admin`.
+- Layer 2 — internal ownership check: `enforce_caller_owns_order` (this commit).
+- Layer 3 — DB-level invariants: triggers like `trg_enforce_pickup_before_delivery` ensure data integrity regardless of caller.
+
+**Records affected:** 4 DB migrations applied (`session_148_enforce_caller_owns_order` + 3 RPC patches). 3 function bodies snapshotted to `_archive._backup_function_defs`. 0 app code changes (the apps already pass `p_order_id` correctly; the guard just verifies it). 0 customer-facing changes (legit calls continue to work).
+
+---
+
 *Prior: May 10, 2026 — Session 147. **Admin Map view: show all planned stops regardless of order processing status.** Direct follow-up to Session 145's Kidango Thu→Mon move. David opened tomorrow's Map view to verify the 16 Kidango deliveries and saw "0 stops" on the Kidango chip + "No active stops" in the route panel — but the DB had all 16 stops correctly attached to the Monday route. Root cause: the admin Map view filters out delivery stops whose order is still in `picked_up`/`processing`/`folding` ("the bags aren't folded yet, don't show them to the driver"). For Bay Area same-day pipelines that hides bags-not-ready noise; for Kidango (commercial, multi-day turnaround, no per-bag kanban) it hides the entire route. Fix is two-layer: data fix for today, code fix so it never recurs.*
 
 ## Session 147 — Admin Map planning view shows all alive stops + Items report cleanup
