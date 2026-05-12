@@ -111,6 +111,42 @@ Existing function bodies snapshotted to `_archive._backup_function_defs` before 
 
 ---
 
+## Session 148 pt 4 — `is_same_day` → generated column
+
+Closed the tech-debt item opened in pt 1: `orders.is_same_day` was a stored boolean set at INSERT time and never maintained on edits. Kalen Gleeson #4238 had `is_same_day=false` even after her order briefly became same-day. **Audit found zero readers in app code or DB functions** — the column was write-only — but the drift was a footgun waiting for the first feature that wanted to read it.
+
+**1. Pre-migration drift snapshot.** Of 3,883 orders, 148 had stored `is_same_day` differing from the Pacific-date-derived value (3.8% drift). 138 were stored `false` but should have been `true` (Kalen-class — pickup moved forward to match delivery's date). 10 were stored `true` but should have been `false` (admin rescheduled delivery to a different day after booking). All 148 snapshotted to `_archive._is_same_day_snapshot_20260512` before the column rebuild.
+
+**2. Column rebuilt as `GENERATED ALWAYS AS ... STORED`.**
+
+```sql
+COALESCE(
+  (pickup_window_start AT TIME ZONE 'America/Los_Angeles')::date
+    = (delivery_window_start AT TIME ZONE 'America/Los_Angeles')::date,
+  false
+)
+```
+
+Postgres recomputes on every INSERT/UPDATE that touches either window column. Result is now correct by construction — drift bug class eliminated. Verified: post-migration drift = 0; Kalen #4238 now correctly reads `true`.
+
+**3. Three RPCs patched** to stop writing the column (generated columns reject writes):
+- `create_order_for_customer` — removed `is_same_day` from INSERT column list + values
+- `record_order_intake` — removed `is_same_day` line from UPDATE
+- `place_pickup_order_for_customer` — removed `is_same_day` from INSERT
+
+All three keep their `p_is_same_day` / `p_same_day_delivery` parameters for back-compat — silently ignored. **No client code changes needed today.** The 3 client sites (`customer-app:5155`, `admin-dashboard:17049`, `admin-dashboard:25324`) continue to pass the param; the RPCs accept and discard it.
+
+**4. Why this matters.** This is the canonical example of the cleanest-path principle (washroute.skill, pt 6 of the principle's checks): "Are we storing a fact that's derivable from other columns? If yes, consider a generated column or computed view." Storing `is_same_day` redundantly required every code path that mutates windows to remember to also mutate `is_same_day`. Generated column = derivable fact = single source of truth = no drift possible.
+
+**5. Migration was atomic.** First attempt failed because I removed parameter defaults from the function signature (Postgres rejects `CREATE OR REPLACE` that changes defaults). Second attempt with exact signature match succeeded. Lesson: always re-fetch `pg_get_function_arguments(p.oid)` before patching a function body and match the signature byte-for-byte. Defaults are part of the signature.
+
+**6. Tech debt opened.**
+- The 3 `p_is_same_day` params are now dead. Cleanest follow-up is to drop them from the RPC signatures + remove the 3 client passes. Deferred because it requires coordinating client + DB deploys (intermediate state of "DB drops param" while "client still passes it" would crash). Either: ship together (one commit + immediate migration), or version the RPCs (`create_order_for_customer_v2` etc.). Not blocking.
+
+**Records affected:** 1 DB migration (`session_148_is_same_day_generated_column`). 3 RPC bodies + the column structure changed. 148-row drift snapshot in `_archive`. 0 app code changes. 0 customer-facing changes.
+
+---
+
 *Prior: May 10, 2026 — Session 147. **Admin Map view: show all planned stops regardless of order processing status.** Direct follow-up to Session 145's Kidango Thu→Mon move. David opened tomorrow's Map view to verify the 16 Kidango deliveries and saw "0 stops" on the Kidango chip + "No active stops" in the route panel — but the DB had all 16 stops correctly attached to the Monday route. Root cause: the admin Map view filters out delivery stops whose order is still in `picked_up`/`processing`/`folding` ("the bags aren't folded yet, don't show them to the driver"). For Bay Area same-day pipelines that hides bags-not-ready noise; for Kidango (commercial, multi-day turnaround, no per-bag kanban) it hides the entire route. Fix is two-layer: data fix for today, code fix so it never recurs.*
 
 ## Session 147 — Admin Map planning view shows all alive stops + Items report cleanup
