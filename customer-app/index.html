@@ -6002,7 +6002,7 @@ async function checkAddressWithCoords(lat, lng, displayAddr) {
 }
 
 /* ── ORDER EDITING ── */
-function openEditOrder() {
+async function openEditOrder() {
   const o = window._currentDetailOrder;
   if (!o) return;
   const existing = document.getElementById('edit-order-modal');
@@ -6032,10 +6032,31 @@ function openEditOrder() {
   // Initialise edit-schedule state from the order's stored timestamps (Pacific dates)
   const _esPickupDate  = o.pickup_window_start   ? new Date(o.pickup_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ })  : null;
   const _esDelivDate   = o.delivery_window_start ? new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;
-  function _winFromOrder(startIso, endIso) {
+
+  // Session 143: resolve route template_ids for the order's existing pickup
+  // and delivery runs so the edit modal carries `routeId` on the original
+  // window objects. Without these, a "change pickup only" edit (auto-derived
+  // delivery date shown in UI) saved with no delivery args attached —
+  // reschedule_order's cross-leg check then rejected the save because the
+  // new pickup overlapped the unchanged delivery. Fetching the templates here
+  // lets saveEditOrder push the delivery forward atomically.
+  let _origPickupTemplateId = null;
+  let _origDeliveryTemplateId = null;
+  if (o.pickup_run_id || o.delivery_run_id) {
+    const runIds = [o.pickup_run_id, o.delivery_run_id].filter(Boolean);
+    const { data: rs } = await db.from('routes')
+      .select('id, template_id')
+      .in('id', runIds);
+    const map = Object.fromEntries((rs || []).map(r => [r.id, r.template_id]));
+    _origPickupTemplateId   = o.pickup_run_id   ? map[o.pickup_run_id]   || null : null;
+    _origDeliveryTemplateId = o.delivery_run_id ? map[o.delivery_run_id] || null : null;
+  }
+
+  function _winFromOrder(startIso, endIso, routeId) {
     if (!startIso) return null;
     return { slotStart: startIso, slotEnd: endIso || null,
-             label: fmtSlot(startIso, endIso),
+             routeId:   routeId || null,
+             label:     fmtSlot(startIso, endIso),
              // Use pacificMinutesOfDay — the prior `new Date(toLocaleString)` round-trip
              // silently corrupted on non-Pacific browsers.
              startMins: pacificMinutesOfDay(startIso),
@@ -6043,13 +6064,19 @@ function openEditOrder() {
   }
   window._editSchedule = {
     pickupDate:       _esPickupDate,
-    pickupWindow:     _winFromOrder(o.pickup_window_start,  o.pickup_window_end),
+    pickupWindow:     _winFromOrder(o.pickup_window_start,  o.pickup_window_end,  _origPickupTemplateId),
     deliveryDate:     _esDelivDate,
     deliveryWindow:   null,   // null = inherit pickup window on save
     availableWindows: [],
     deliveryOptions:  [],
     zoneId:           o.zone_id || null,
-    _origDelivWindow: _winFromOrder(o.delivery_window_start, o.delivery_window_end)
+    _origDelivWindow: _winFromOrder(o.delivery_window_start, o.delivery_window_end, _origDeliveryTemplateId),
+    // Session 143: stash originals so saveEditOrder can tell whether each leg
+    // actually moved (without re-querying the order).
+    _origPickupDate:    _esPickupDate,
+    _origDeliveryDate:  _esDelivDate,
+    _origPickupIso:     o.pickup_window_start   || null,
+    _origDeliveryIso:   o.delivery_window_start || null
   };
 
   const chevSvg = `<svg class="sched-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>`;
@@ -6254,11 +6281,27 @@ async function saveEditOrder() {
   // instead of 17:00 UTC). Same bug class as C-H2 we fixed in computeSubWindows.
   const pw = es?.pickupWindow;
   const dw = es?.deliveryWindow || es?._origDelivWindow || pw; // customer choice > original delivery win > pickup win
-  const _pickupRpcNeeded = !!(pw?.slotStart && pw?.routeId && es?.pickupDate);
+
+  // Session 143: detect "did the user (or auto-derivation) actually move this
+  // leg?" by comparing final state to the original order. Going by reference
+  // identity (pw === origPw) doesn't work — editSelectPickupDate replaces the
+  // window object even on date pick with same time-of-day. ISO string compare
+  // is the source of truth. Originals captured at modal init in _editSchedule.
+  const _pickupChanged =
+        (es?.pickupDate && es.pickupDate !== es?._origPickupDate)
+     || (pw?.slotStart   && pw.slotStart   !== es?._origPickupIso);
+  const _deliveryChanged =
+        (es?.deliveryDate && es.deliveryDate !== es?._origDeliveryDate)
+     || (es?.deliveryWindow?.slotStart && es.deliveryWindow.slotStart !== es?._origDeliveryIso);
+
+  const _pickupRpcNeeded = _pickupChanged && !!(pw?.slotStart && pw?.routeId && es?.pickupDate);
+  const _deliveryRpcNeeded = _deliveryChanged && !!(es?.deliveryDate && dw?.routeId);
 
   // Session 135: pre-resolve route runs so we can fail early with a clear message
   // before any DB write happens. window objects from computeSubWindows carry
   // `routeId` = template id; we look up the matching routes.id for the run date.
+  // _origDelivWindow now carries routeId too (session 143) so a pickup-only edit
+  // can push delivery forward using the same delivery template.
   let pickupRunId = null;
   let deliveryRunId = null;
   if (_pickupRpcNeeded) {
@@ -6271,7 +6314,7 @@ async function saveEditOrder() {
     }
     pickupRunId = pickupRun.id;
   }
-  if (es?.deliveryDate && dw?.routeId) {
+  if (_deliveryRpcNeeded) {
     const { data: deliveryRun } = await db.from('routes')
       .select('id').eq('template_id', dw.routeId).eq('run_date', es.deliveryDate).maybeSingle();
     if (!deliveryRun?.id) {
@@ -6299,53 +6342,67 @@ async function saveEditOrder() {
     return;
   }
 
-  // 2) Then route the schedule changes through reschedule_order_leg, one call per
-  //    leg that actually changed. The RPC atomically updates orders.run_id +
-  //    window + repoints route_stops + logs attributed events.
-  // Track which legs were actually rescheduled so we fire the matching SMS for
-  // each — session 136 found Ja'Naie #3117 had her same-day delivery silently
-  // pushed to next-day after a bag-count edit, and the SMS only mentioned the
-  // unchanged pickup. The flag below replaces the old "delivery_rescheduled
-  // ONLY if pickup didn't change" branch which suppressed the delivery message
-  // whenever both legs moved.
+  // 2) Then route the schedule changes through the reschedule_order RPC —
+  //    ONE atomic call that handles both legs together. Session 143 replaced
+  //    the prior two-call reschedule_order_leg pattern because that pattern
+  //    had a temporary-inconsistent-state window between the two writes
+  //    (Kalen Gleeson #4238: pickup moved past existing delivery, but the
+  //    delivery write hadn't happened yet → trigger would have rejected the
+  //    pickup write even though final state was valid).
+  //
+  //    reschedule_order:
+  //      • locks the order once
+  //      • validates per-leg sub-window alignment for each leg that's changing
+  //      • validates cross-leg invariant (delivery_window_start > pickup_window_end)
+  //        BEFORE any UPDATE writes — so we fail fast with a clear error
+  //      • does ONE atomic UPDATE for both legs
+  //      • repoints route_stops for any leg whose route_id changed
+  //      • logs attributed `rescheduled` + `routed` events per leg that moved
+  //
+  //    Response carries `pickup_changed` / `delivery_changed` so we still
+  //    fire the right per-leg SMS (session 136 Ja'Naie #3117 lesson).
   let _pickupRescheduled   = false;
   let _deliveryRescheduled = false;
 
-  if (_pickupRpcNeeded) {
-    const { error: pErr } = await db.rpc('reschedule_order_leg', {
-      p_order_id:         orderId,
-      p_leg:              'pickup',
-      p_new_route_id:     pickupRunId,
-      p_new_window_start: pw.slotStart,
-      p_new_window_end:   pw.slotEnd,
-      p_actor_name:       'Customer',
-    });
-    if (pErr) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
-      toast('Pickup time could not be saved: ' + pErr.message);
-      return;
-    }
-    _pickupRescheduled = true;
-  }
+  // Build pickup args (only set them if pickup is actually changing).
+  const _pickupArgs = _pickupRpcNeeded ? {
+    p_pickup_route_id:     pickupRunId,
+    p_pickup_window_start: pw.slotStart,
+    p_pickup_window_end:   pw.slotEnd,
+  } : {};
+
+  // Build delivery args. _editSchedule's deliveryWindow may carry slot via
+  // startMins/endMins (the trustworthy DST-safe path) or via raw slotStart/slotEnd.
+  let _deliveryArgs = {};
   if (es?.deliveryDate && dw?.routeId && deliveryRunId) {
     const dStart = dw.startMins !== undefined
       ? pacificIsoFromMins(es.deliveryDate, dw.startMins) : dw.slotStart;
     const dEnd = dw.endMins !== undefined
       ? pacificIsoFromMins(es.deliveryDate, dw.endMins) : dw.slotEnd;
-    const { error: dErr } = await db.rpc('reschedule_order_leg', {
-      p_order_id:         orderId,
-      p_leg:              'delivery',
-      p_new_route_id:     deliveryRunId,
-      p_new_window_start: dStart,
-      p_new_window_end:   dEnd,
-      p_actor_name:       'Customer',
+    _deliveryArgs = {
+      p_delivery_route_id:     deliveryRunId,
+      p_delivery_window_start: dStart,
+      p_delivery_window_end:   dEnd,
+    };
+  }
+
+  // If neither leg actually has changes to push, skip the RPC entirely.
+  // (Step 1 above already wrote bag count / instructions / addresses.)
+  if (Object.keys(_pickupArgs).length || Object.keys(_deliveryArgs).length) {
+    const { data: rescheduleResult, error: rErr } = await db.rpc('reschedule_order', {
+      p_order_id:    orderId,
+      ..._pickupArgs,
+      ..._deliveryArgs,
+      p_actor_name:  'Customer',
     });
-    if (dErr) {
+    if (rErr) {
       if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
-      toast('Delivery time could not be saved: ' + dErr.message);
+      // The RPC error messages are written for end users — surface them directly.
+      toast('Schedule could not be saved: ' + rErr.message);
       return;
     }
-    _deliveryRescheduled = true;
+    _pickupRescheduled   = !!rescheduleResult?.pickup_changed;
+    _deliveryRescheduled = !!rescheduleResult?.delivery_changed;
   }
 
   document.getElementById('edit-order-modal')?.remove();
