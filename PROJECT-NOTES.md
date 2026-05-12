@@ -231,6 +231,77 @@ Tested end-to-end via mock driver JWT against a real pending pickup stop, rolled
 
 ---
 
+## Session 148 pt 7 — Transitive-PERFORM audit + SECOND INCIDENT (POS blocked)
+
+Continuing the tech-debt list, ran the transitive-PERFORM audit (TD-5). Surfaced a SECOND ownership-guard regression — same root cause as Javier, different role.
+
+**Audit query** added to `RPC-REFACTOR-AUDIT.md` for future re-runs:
+
+```sql
+SELECT p.proname AS caller,
+  CASE WHEN p.prosecdef THEN 'SECURITY DEFINER' ELSE 'INVOKER' END AS sec,
+  array_agg(DISTINCT target) AS calls
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+CROSS JOIN LATERAL (VALUES
+  ('advance_order_status'),('reschedule_order'),('reschedule_order_leg'),
+  ('save_order_address'),('skip_route_stop')
+) AS guarded(target)
+WHERE n.nspname='public'
+  AND p.proname <> guarded.target
+  AND p.prosrc ~* ('\m' || target || '\M')
+GROUP BY p.proname, p.prosecdef
+ORDER BY p.proname;
+```
+
+**Five matches; three were false positives** (regex matched comment text or error-message text — `pg_proc.prosrc` includes those):
+- `enforce_caller_owns_order` (comment mentions advance_order_status)
+- `enforce_pickup_before_delivery` (error message says "call reschedule_order() with both legs")
+- `sync_order_status_from_stops` (comment says "set by advance_order_status or a manual admin edit"; actual writes are direct UPDATEs)
+
+**Two real transitive callers:**
+1. `complete_route_stop` → `advance_order_status` — already mitigated by pt 5's driver bypass. Verified.
+2. `reschedule_order_to_window` → `reschedule_order_leg` — admin-only entry (`IF NOT is_admin() THEN forbidden`), so the inner call's guard is always satisfied. Safe.
+
+**Then I greppped app code for `advance_order_status`** and **found a SECOND incident.** `pos/index.html:4675` calls `advance_order_status` to advance walk-in orders' status from POS terminals. POS uses the `pos_device` role account. Same bug class as Javier:
+
+- `pos_device` was NOT in the bypass list (is_admin = admin/manager/laundry_tech only).
+- Walk-in orders have `customer_id IS NULL` → guard rejects non-admin callers with "insufficient_privilege."
+- **Double-blocked since pt 3 shipped.** Every POS "Move to Ready" / "Mark Delivered" tap has been silently failing.
+
+**Root cause meta-issue:** I kept fragmenting the bypass logic by role (is_admin handles 3 roles, driver added explicitly in pt 5, pos_device & attendant missed both times). The fragmented approach was always going to keep missing roles until I unified it.
+
+**Fix (`session_148_is_staff_helper_and_unified_bypass`):**
+
+1. New helper `is_staff()` — STABLE SECURITY DEFINER, returns true for ALL internal roles: `admin / manager / laundry_tech / driver / attendant / pos_device`. Superset of `is_admin()`.
+
+2. Rewrote `enforce_caller_owns_order` to use `is_staff()` instead of fragmented checks. Also removed the early "customer_id IS NULL → reject" branch (was redundant; customer EXISTS check naturally fails when customer_id IS NULL, and staff already bypassed).
+
+**Test coverage finally complete** — verified all 7 distinct profile.role values + service_role + anon:
+
+| Role | Expected | Result |
+|---|---|---|
+| admin | pass | ✅ |
+| manager | pass | ✅ |
+| laundry_tech | pass | ✅ |
+| driver | pass | ✅ |
+| attendant | pass | ✅ |
+| pos_device | pass | ✅ |
+| customer (other) | reject 42501 | ✅ |
+| customer (owner) | pass | ✅ |
+
+All driver / admin / POS / attendant flows unblocked. Customer-cross-order protection preserved.
+
+**Two lessons banked:**
+1. **`pg_proc.prosrc` regex hits comment text + error-message text.** Audits need manual triage of every match. Document in the audit doc.
+2. **Don't fragment authorization bypass lists by role.** Use a single `is_staff()`-style helper covering every internal role at once. Adding a new role becomes a one-line change in one place. The pt 3 + pt 5 + pt 7 cascade (3 incidents from the same architectural mistake) is the case study.
+
+**Tech debt closed:** TD-5 (transitive PERFORM audit) ✅. TD-6 (role-coverage test expansion) ✅ — every role now in the test set. TD-4 (order-scoped driver bypass) **deferred consciously** — the unified `is_staff()` model treats all internal roles as trusted at the function layer; per-stop scope still relies on RLS at the table layer (driver_rls_policies). Tightening to order-scoped would require introducing a different model just for drivers; not worth it today.
+
+**Records affected:** 1 DB migration applied (`session_148_is_staff_helper_and_unified_bypass`). 1 new helper (`is_staff()`). 1 existing helper rewritten (`enforce_caller_owns_order`). 1 incident affecting POS (no GPS / location data shows it's been unused today, so impact was zero — but the structural break existed since pt 3). 2 tech-debt items closed. 0 customer-facing data damage.
+
+---
+
 *Prior: May 10, 2026 — Session 147. **Admin Map view: show all planned stops regardless of order processing status.** Direct follow-up to Session 145's Kidango Thu→Mon move. David opened tomorrow's Map view to verify the 16 Kidango deliveries and saw "0 stops" on the Kidango chip + "No active stops" in the route panel — but the DB had all 16 stops correctly attached to the Monday route. Root cause: the admin Map view filters out delivery stops whose order is still in `picked_up`/`processing`/`folding` ("the bags aren't folded yet, don't show them to the driver"). For Bay Area same-day pipelines that hides bags-not-ready noise; for Kidango (commercial, multi-day turnaround, no per-bag kanban) it hides the entire route. Fix is two-layer: data fix for today, code fix so it never recurs.*
 
 ## Session 147 — Admin Map planning view shows all alive stops + Items report cleanup

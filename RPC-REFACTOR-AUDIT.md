@@ -131,3 +131,32 @@ GROUP BY p.proname
 HAVING 'anon' = ANY(array_agg(acl.grantee::regrole::text))
     OR '-'    = ANY(array_agg(acl.grantee::regrole::text));
 ```
+
+To find transitive callers of guarded RPCs (session 148 pt 7 — surfaced both
+the complete_route_stop → advance_order_status path and the POS regression):
+
+```sql
+SELECT p.proname AS caller,
+  CASE WHEN p.prosecdef THEN 'SECURITY DEFINER' ELSE 'INVOKER' END AS sec,
+  array_agg(DISTINCT target) AS calls
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+CROSS JOIN LATERAL (VALUES
+  ('advance_order_status'),('reschedule_order'),('reschedule_order_leg'),
+  ('save_order_address'),('skip_route_stop')
+) AS guarded(target)
+WHERE n.nspname='public'
+  AND p.proname <> guarded.target
+  AND p.prosrc ~* ('\m' || target || '\M')
+GROUP BY p.proname, p.prosecdef
+ORDER BY p.proname;
+```
+
+⚠️ **`pg_proc.prosrc` includes comments and error-message text.** Every match
+requires manual inspection. Typical false positives: COMMENT blocks, RAISE
+EXCEPTION strings that reference other RPCs by name.
+
+Also grep app code for every guarded RPC name across `admin-dashboard/`,
+`driver-app/`, `customer-app/`, `pos/`, and `supabase/functions/*/`. Confirm
+every caller's auth role can satisfy the guard. **Don't trust the app-side
+audit alone** — transitive DB calls are invisible to it.
