@@ -302,6 +302,72 @@ All driver / admin / POS / attendant flows unblocked. Customer-cross-order prote
 
 ---
 
+## Session 148 pt 8 — QA + security + architectural review passes
+
+David asked for triple review before signing off the day. Ran QA, security, and an independent architectural design review.
+
+**QA pass:** no High or Medium issues. 3 Low non-blocking items:
+- saveEditOrder's `if (es?.deliveryDate && dw?.routeId && deliveryRunId)` is redundant after the change-detection refactor; could simplify to `if (_deliveryRpcNeeded && deliveryRunId)`.
+- `openEditOrder` is now async; rapid double-clicks could fire parallel calls (idempotent in practice — modal is removed first, DB query is read-only — but worth a `_openEditInFlight` lock if we touch it again).
+- Step 1 of saveEditOrder always writes the orders row even when nothing changed; bumps `updated_at` on every modal-save click. Cosmetic.
+
+**Security pass — found and fixed one High.** Audited GRANT discipline on every new function. 5 functions inherited Supabase's automatic anon EXECUTE despite my migrations including `REVOKE PUBLIC`. **The lesson: Supabase grants anon separately from PUBLIC, so REVOKE PUBLIC is NOT sufficient.** Must explicitly REVOKE anon too.
+
+Patched in `session_148_harden_grants_on_new_functions` — explicit REVOKE on anon + PUBLIC for: `skip_route_stop`, `is_staff`, `enforce_caller_owns_order`, `sync_profile_email_on_auth_change`, `enforce_pickup_before_delivery`. Re-verified — all 9 session-148 functions now show only `authenticated / postgres / service_role`.
+
+Defense-in-depth context: `skip_route_stop` was the only mutation RPC with the gap. Anon callers would have hit `enforce_caller_owns_order` and been rejected (no role match, no profile match). So no exploit was possible. But GRANT-layer should block earlier; this restores that.
+
+Other security surfaces audited and clean: SQL injection (all params via PL/pgSQL bind, no string concat), search_path (explicit on all functions), privilege escalation (every SECURITY DEFINER has an auth check inside), generated column expression (literal timezone, no user input), trigger on auth.users (SECURITY DEFINER + WHEN clause + writes only to caller's profile), `_archive` schema visibility (not exposed via PostgREST per convention), error message data leakage (generic "no permission" — doesn't disclose existence/ownership).
+
+**Architectural design review (Explore agent, independent).** Validated the strong choices: three-layer prevention pattern, `reschedule_order` atomicity, `is_staff()` unification, generated column. Flagged 4 architectural smells worth tracking:
+
+1. **Ownership checks remain reactive, not proactive.** The next session that adds a new customer-callable RPC could forget to add the guard. No structural enforcement that "all customer-reachable RPCs have ownership checks." → suggests a generic `enforce_ownership(p_table_name, p_row_id, ...)` framework.
+2. **Driver bypass is role-only, not order-scoped** (TD-4, already banked). Asymmetric vs the customer profile-match check. Should close before scaling.
+3. **Transitive PERFORM audit underspecified.** Manual regex with no comment-stripping. Three false positives caught by human inspection in pt 7; the next session might not catch them. → write a filtering script or move to a code-review checklist.
+4. **Test coverage is snapshot-based, not continuous.** Pt 5 and pt 7 both discovered missing roles. The 8-scenario test matrix in pt 7 is a one-time check. No ongoing enforcement when a new role lands. → reusable test SQL that auto-covers every `profiles.role` value.
+
+**Migration-review skill updated** with a new "SECURITY DEFINER function checklist" mandatory section covering 6 items: GRANT discipline (REVOKE anon + PUBLIC explicitly), ownership check requirement, role-coverage testing (all 7 distinct values), transitive PERFORM audit, parameter-defaults byte-match, explicit search_path. Pre-flight for every future SECURITY DEFINER migration. Skill rebuilt + delivered to `~/Projects/WashRoute/washroute-migration-review.skill`.
+
+**RPC-REFACTOR-AUDIT.md updated** with the "REVOKE anon AND PUBLIC explicitly" lesson under the GRANT verification query.
+
+**4 new tech-debt items banked from the architectural review:**
+- TD-8 (P1, prerequisite to next feature ship): Generic `enforce_ownership` helper covering any (table, row_id) pair, not just orders. Replaces per-RPC ownership wiring.
+- TD-9 (P2): Filtering script or code-review checklist for the transitive PERFORM regex — strip comments + error message strings before matching.
+- TD-10 (P2): Reusable role-coverage test SQL that auto-iterates every `profiles.role` value for any new guarded RPC.
+- TD-11 (P3, scale-only): Authorization matrix DSL — single source of truth for role × RPC × context → allow/deny, with tooling to generate GRANTs, test expectations, and code stubs. Only worth investing when we're approaching 100+ RPCs.
+
+**Tech debt closed today:** 10 items (Kalen prevention, blast-radius migrations, GRANT harden ×2 — pt 2 reschedule_order + pt 8 the missed five, ownership checks, is_same_day generated, email sync, audit-skill UUIDs, skip_route_stop, transitive PERFORM audit, role-coverage tests, is_staff unification, migration-review checklist update).
+
+**Tech debt still open** (priority order — pick up next session):
+- TD-3 (P1): POS refund/delete transactional wrapper — real money at risk on partial failure.
+- TD-4 (P1, deferred consciously): order-scoped driver bypass — close before scaling.
+- TD-8 (P1): generic enforce_ownership helper.
+- TD-9 (P2), TD-10 (P2), TD-11 (P3): audit tooling improvements.
+- TD-1 (P2): `save_order_address` p_clear flag.
+- TD-2 (P2 blocked): opSaveRecurring needs subscription RPC.
+- TD-7 (P2): drop dead `p_is_same_day` params.
+
+**Records affected this pt:** 1 DB migration (`session_148_harden_grants_on_new_functions`). 1 audit doc updated. 1 skill rebuilt (washroute-migration-review). 4 new TD items banked. 1 architectural review delivered. 0 customer-facing changes.
+
+---
+
+## Session 148 final scorecard
+
+| Pt | Theme | Outcome |
+|----|-------|---------|
+| 1 | Kalen Gleeson same-day prevention | 3-layer fix shipped |
+| 2 | Blast-radius audit + skip/cancel migrations | 31 SAFE + 16 RPC-wrapped + 5 gaps; 2 migrated; anon-revoke on `reschedule_order` |
+| 3 | Caller-ownership checks on 3 mutation RPCs | Helper + 3 patches + tests |
+| 4 | `is_same_day` → generated column | 148 drift rows snapshotted, column rebuilt, 3 RPCs patched |
+| 5 | INCIDENT 1 (Javier blocked) | Driver bypass added in 5 minutes |
+| 6 | profiles.email sync + audit UUIDs + skip_route_stop RPC | 3 items batched |
+| 7 | Transitive-PERFORM audit + INCIDENT 2 (POS blocked) | is_staff() unification |
+| 8 | QA + security + architectural review | 1 security High fixed (GRANT discipline); migration-review skill hardened; 4 TD banked |
+
+**13 commits. 14 DB migrations. 2 production regressions found + fixed in <10 minutes each. 10 tech-debt items closed. 11 new TD items banked. Cleanest-Path principle promoted to hard rule and applied throughout.**
+
+---
+
 *Prior: May 10, 2026 — Session 147. **Admin Map view: show all planned stops regardless of order processing status.** Direct follow-up to Session 145's Kidango Thu→Mon move. David opened tomorrow's Map view to verify the 16 Kidango deliveries and saw "0 stops" on the Kidango chip + "No active stops" in the route panel — but the DB had all 16 stops correctly attached to the Monday route. Root cause: the admin Map view filters out delivery stops whose order is still in `picked_up`/`processing`/`folding` ("the bags aren't folded yet, don't show them to the driver"). For Bay Area same-day pipelines that hides bags-not-ready noise; for Kidango (commercial, multi-day turnaround, no per-bag kanban) it hides the entire route. Fix is two-layer: data fix for today, code fix so it never recurs.*
 
 ## Session 147 — Admin Map planning view shows all alive stops + Items report cleanup

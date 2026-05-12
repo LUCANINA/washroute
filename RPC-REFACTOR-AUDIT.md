@@ -132,6 +132,16 @@ HAVING 'anon' = ANY(array_agg(acl.grantee::regrole::text))
     OR '-'    = ANY(array_agg(acl.grantee::regrole::text));
 ```
 
+⚠️ **Session 148 pt 8 lesson — REVOKE PUBLIC alone is NOT sufficient in Supabase.** Supabase grants the `anon` role EXECUTE separately from PUBLIC. Every new function migration MUST include BOTH:
+
+```sql
+REVOKE EXECUTE ON FUNCTION public.<name>(<args>) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.<name>(<args>) FROM anon;
+GRANT  EXECUTE ON FUNCTION public.<name>(<args>) TO authenticated, service_role;
+```
+
+The pt 7 security review found 5 functions (skip_route_stop, is_staff, enforce_caller_owns_order, sync_profile_email_on_auth_change, enforce_pickup_before_delivery) had anon EXECUTE despite REVOKE PUBLIC being in their migrations. Fixed in `session_148_harden_grants_on_new_functions`.
+
 To find transitive callers of guarded RPCs (session 148 pt 7 — surfaced both
 the complete_route_stop → advance_order_status path and the POS regression):
 
