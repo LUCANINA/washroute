@@ -147,6 +147,40 @@ All three keep their `p_is_same_day` / `p_same_day_delivery` parameters for back
 
 ---
 
+## ⚠️ Session 148 pt 5 — INCIDENT: pt 3 ownership guard blocked drivers
+
+**~30 minutes after pt 3 shipped**, David surfaced that driver Javier (Francisco Cobos, fjaviercobos@gmail.com, role='driver') reported his app "stopped working" mid-route on the COMMERCIAL run. Diagnosed and fixed in ~5 minutes; root cause was my pt 3 work.
+
+**Root cause:** pt 3's `enforce_caller_owns_order` only bypassed for `is_admin()` (admin/manager/laundry_tech) and `service_role`. Drivers have `profile.role='driver'` — separate role, not in is_admin(). They aren't the order's customer either. So every driver action that flowed through `advance_order_status` was rejected with `42501 insufficient_privilege`.
+
+**The trap:** the surface I knew was guarded — `advance_order_status` direct calls — only fires from driver-app `cantCompleteStop` (skip/fail a stop). The MORE common driver path is `completeStop → complete_route_stop`, and `complete_route_stop` has no guard ITSELF, but it calls `advance_order_status` internally via `PERFORM`. The inner call inherits the caller's auth context and gets blocked. The whole transaction rolls back: `route_stops` not marked complete, order not advanced. Driver sees a generic save error.
+
+**Symptom on Javier's commercial route:** 3 stops `en_route` (he tapped On My Way — that's a service_role edge function, unaffected by the guard), 0 complete, 9 pending. Hours of work that didn't save.
+
+**Fix (`session_148_enforce_caller_owns_order_allow_drivers`):** added `role='driver'` to the bypass list in `enforce_caller_owns_order`. The driver-app's existing RLS policies (driver_rls_policies migration) already scope what stops/orders drivers can see — the RPC ownership check was meant to stop customers from mutating other customers' orders, not drivers from doing their job. Verified via mock JWT test against Javier's profile_id.
+
+**How this slipped past testing.** Pt 3's test suite covered admin / customer / service_role / anon — not driver. The audit doc earlier in pt 2 listed `advance_order_status` as "customer-callable" because the migrations were customer-app skip/cancel. I didn't account for it being **transitively driver-callable** via `complete_route_stop`'s internal `PERFORM`. App-side grep doesn't surface that — only reading the DB function source does.
+
+**Tech debt opened from this incident (3 items):**
+
+1. **Add non-customer role tests to ownership-guard suite.** Currently tests cover admin, customer, service_role, anon. Need to add `driver`, `laundry_tech`, `manager`, `attendant`, `pos_device`, `staff`. Every role that exists should be explicitly tested for both pass and reject paths.
+
+2. **Tighten driver bypass to be order-scoped.** The current driver bypass is role-only — any driver could call `advance_order_status` against any order, not just orders they have route_stops assigned for. Same threat model as before the guard existed (the driver-app's UI only exposes their own assigned stops), but architecturally inconsistent with the customer's profile-match check. Cleanest fix: bypass if `EXISTS (SELECT 1 FROM route_stops rs WHERE rs.order_id = p_order_id AND rs.driver_id IN (SELECT id FROM drivers WHERE profile_id = auth.uid()))`.
+
+3. **Audit transitive PERFORM calls across guarded RPCs.** `complete_route_stop` calls `advance_order_status` via PERFORM, which is invisible to app-side grep. Any other RPC that PERFORMs a guarded RPC needs the SAME callers' permissions audited. SQL to find candidates:
+   ```sql
+   SELECT proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+   WHERE n.nspname='public'
+     AND prosrc ~ 'PERFORM\s+(public\.)?(advance_order_status|reschedule_order|save_order_address)';
+   ```
+   Whoever calls a guarded RPC needs to satisfy the guard too. Document and verify.
+
+**Lesson banked.** Whenever I add a guard to a function, the test suite must cover **every distinct role in `profiles.role`**, plus look for **transitive callers via `pg_proc.prosrc` regex search**. App-level grep is necessary but not sufficient for DB function audits.
+
+**Records affected:** 1 DB migration applied (`session_148_enforce_caller_owns_order_allow_drivers`). 1 incident, 1 driver impacted (Javier), 3 stops stuck `en_route` until he retries (no data corruption — the rolled-back transactions left the DB in a clean pre-action state). 0 customer-facing data damage. 3 tech-debt items opened.
+
+---
+
 *Prior: May 10, 2026 — Session 147. **Admin Map view: show all planned stops regardless of order processing status.** Direct follow-up to Session 145's Kidango Thu→Mon move. David opened tomorrow's Map view to verify the 16 Kidango deliveries and saw "0 stops" on the Kidango chip + "No active stops" in the route panel — but the DB had all 16 stops correctly attached to the Monday route. Root cause: the admin Map view filters out delivery stops whose order is still in `picked_up`/`processing`/`folding` ("the bags aren't folded yet, don't show them to the driver"). For Bay Area same-day pipelines that hides bags-not-ready noise; for Kidango (commercial, multi-day turnaround, no per-bag kanban) it hides the entire route. Fix is two-layer: data fix for today, code fix so it never recurs.*
 
 ## Session 147 — Admin Map planning view shows all alive stops + Items report cleanup
