@@ -23374,19 +23374,66 @@ ${oneCopy}
     const start = new Date(new Date(dateVal + 'T00:00:00').getTime() + _ptOff * 60000).toISOString();
     const end   = new Date(new Date(dateVal + 'T23:59:59.999').getTime() + _ptOff * 60000).toISOString();
 
-    const { data: orders, error } = await db.from('orders')
-      .select(`id, order_number, status, total_bags, weight_lbs, total_amount, tip_amount, tip_type, folded_at,
-               customers(first_name_cache, last_name_cache)`)
-      .eq('folded_by_id', launHistLaunId)
-      .gte('folded_at', start)
-      .lte('folded_at', end)
-      .order('folded_at', { ascending: true });
+    // 1) Orders where this launderer is the PRIMARY (folded_by_id) — covers
+    //    both single-launderer orders AND orders where they're the first slot
+    //    of a split.
+    // 2) Orders where this launderer is a SECONDARY participant in a split
+    //    (slot 2 or 3) — folded_by_id points at someone else but they still
+    //    did part of the work.
+    // We need BOTH so this launderer's history reflects all the work they
+    // actually folded, not just the rows where they happen to be slot 1.
+    const [primaryRes, asgnRes] = await Promise.all([
+      db.from('orders')
+        .select(`id, order_number, status, total_bags, weight_lbs, total_amount, tip_amount, tip_type, folded_at, folded_by_id,
+                 customers(first_name_cache, last_name_cache)`)
+        .eq('folded_by_id', launHistLaunId)
+        .gte('folded_at', start)
+        .lte('folded_at', end),
+      db.from('order_folding_assignments')
+        .select('order_id, bags, weight_lbs')
+        .eq('launderer_id', launHistLaunId)
+    ]);
 
-    if (error) {
-      ordersEl.innerHTML = `<div style="padding:32px;text-align:center;color:var(--red);font-size:13px">${error.message}</div>`;
+    if (primaryRes.error) {
+      ordersEl.innerHTML = `<div style="padding:32px;text-align:center;color:var(--red);font-size:13px">${primaryRes.error.message}</div>`;
       return;
     }
-    renderLaunHistoryOrders(orders || []);
+
+    // Build this-launderer's share map: order_id → {bags, weight_lbs}
+    const myShareMap = {};
+    (asgnRes.data || []).forEach(a => { myShareMap[a.order_id] = a; });
+
+    // Find order IDs where this launderer was a SECONDARY participant
+    // (in myShareMap but not in primary results — i.e. someone else is folded_by_id).
+    const primaryIds = new Set((primaryRes.data || []).map(o => o.id));
+    const secondaryIds = Object.keys(myShareMap).filter(id => !primaryIds.has(id));
+
+    // Fetch the secondary orders' rows so we have customer/amount data.
+    let secondaryOrders = [];
+    if (secondaryIds.length) {
+      secondaryOrders = await pgInChunked(
+        () => db.from('orders').select(`id, order_number, status, total_bags, weight_lbs, total_amount, tip_amount, tip_type, folded_at, folded_by_id,
+                                        customers(first_name_cache, last_name_cache)`)
+          .gte('folded_at', start)
+          .lte('folded_at', end),
+        'id', secondaryIds
+      );
+    }
+
+    // Tag every order with this launderer's actual share. For split orders
+    // the share comes from order_folding_assignments; for single-person folds
+    // we credit the full order.
+    const allOrders = [...(primaryRes.data || []), ...secondaryOrders].map(o => {
+      const share = myShareMap[o.id]; // present only for split orders
+      return {
+        ...o,
+        _myBags: share ? parseFloat(share.bags || 0) : (o.total_bags || 0),
+        _myLbs:  share ? parseFloat(share.weight_lbs || 0) : (parseFloat(o.weight_lbs) || 0),
+        _isSplit: !!share
+      };
+    }).sort((a, b) => new Date(a.folded_at) - new Date(b.folded_at));
+
+    renderLaunHistoryOrders(allOrders);
   }
 
   function renderLaunHistoryOrders(orders) {
@@ -23403,11 +23450,15 @@ ${oneCopy}
       return;
     }
 
-    const totalBags    = orders.reduce((s,o) => s+(o.total_bags||0), 0);
-    const totalLbs     = orders.reduce((s,o) => s+(parseFloat(o.weight_lbs)||0), 0);
+    // Totals reflect THIS launderer's share, not the orders' full totals.
+    // For split orders, _myBags / _myLbs hold the per-person split share;
+    // for single-person folds they hold the full order amounts.
+    const totalBags    = orders.reduce((s,o) => s + (parseFloat(o._myBags ?? o.total_bags) || 0), 0);
+    const totalLbs     = orders.reduce((s,o) => s + (parseFloat(o._myLbs  ?? o.weight_lbs) || 0), 0);
     const totalRevenue = orders.reduce((s,o) => s + orderChargedTotal(o), 0);
+    const fmtCnt = n => Number.isInteger(n) ? n : Number(n).toFixed(1);
     document.getElementById('laun-hist-count').textContent   = orders.length;
-    document.getElementById('laun-hist-bags').textContent    = totalBags;
+    document.getElementById('laun-hist-bags').textContent    = fmtCnt(totalBags);
     document.getElementById('laun-hist-lbs').textContent     = totalLbs > 0 ? totalLbs.toFixed(1) : '—';
     document.getElementById('laun-hist-revenue').textContent = fmtMoney(totalRevenue);
     summaryEl.style.display = '';
@@ -23418,12 +23469,18 @@ ${oneCopy}
       const time = o.folded_at
         ? new Date(o.folded_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:BIZ_TZ})
         : '';
+      const myBags = parseFloat(o._myBags ?? o.total_bags) || 0;
+      const myLbs  = parseFloat(o._myLbs  ?? o.weight_lbs) || 0;
+      const bagLbl = `${fmtCnt(myBags)} bag${myBags !== 1 ? 's' : ''}${myLbs ? ` · ${myLbs.toFixed(1)} lbs` : ''}`;
+      const splitTag = o._isSplit
+        ? `<span style="font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-light);padding:1px 6px;border-radius:6px;margin-left:6px">👥 Split share</span>`
+        : '';
       return `<div class="laun-hist-order-row">
-        <div class="laun-hist-order-num">#${o.order_number}</div>
+        <div class="laun-hist-order-num">#${o.order_number}${splitTag}</div>
         <div class="laun-hist-order-cust">${name}</div>
         <div class="laun-hist-order-meta">
           <div class="laun-hist-order-amount">${fmtMoney(orderChargedTotal(o))}</div>
-          <div class="laun-hist-order-bags">${o.total_bags||0} bag${(o.total_bags||0)!==1?'s':''}${o.weight_lbs ? ` · ${Number(o.weight_lbs).toFixed(1)} lbs` : ''}</div>
+          <div class="laun-hist-order-bags">${bagLbl}</div>
           <div class="laun-hist-order-time">${time}</div>
         </div>
       </div>`;
@@ -27735,10 +27792,45 @@ ${oneCopy}
       return d >= selFrom && d <= selTo;
     });
 
+    // Load split-fold assignments for the in-range orders so we credit each
+    // participating launderer their actual share when an order was split
+    // between 2-3 people. `folded_by_id` on orders is just the "primary"
+    // (first-picked) launderer — the full per-person breakdown lives in
+    // order_folding_assignments. Without this join, the primary gets credit
+    // for the whole order and the secondary/tertiary launderers get zero.
+    const splitMap = {}; // order_id → [{launderer_id, bags, weight_lbs}, ...] (>1 row = real split)
+    if (filtered.length) {
+      const asgnRows = await pgInChunked(
+        () => db.from('order_folding_assignments').select('order_id, launderer_id, bags, weight_lbs'),
+        'order_id', filtered.map(o => o.id)
+      );
+      asgnRows.forEach(a => {
+        (splitMap[a.order_id] = splitMap[a.order_id] || []).push(a);
+      });
+      // Only keep entries with >1 row — a single-row assignment is the same as
+      // crediting folded_by_id, so we let the fallback path handle it.
+      Object.keys(splitMap).forEach(k => { if (splitMap[k].length <= 1) delete splitMap[k]; });
+    }
+
     // Split into assigned and unassigned
     const unassigned = { orders: 0, bags: 0, lbs: 0 };
     const statsMap = {};
     filtered.forEach(o => {
+      const splitRows = splitMap[o.id];
+      if (splitRows) {
+        // Order was split — credit each participant their actual share.
+        // Orders count is fractional (1/n per participant) so the TOTAL row
+        // still reflects real order count, not inflated by # participants.
+        const share = 1 / splitRows.length;
+        splitRows.forEach(a => {
+          const lid = a.launderer_id;
+          if (!statsMap[lid]) statsMap[lid] = { orders: 0, bags: 0, lbs: 0 };
+          statsMap[lid].orders += share;
+          statsMap[lid].bags   += parseFloat(a.bags || 0);
+          statsMap[lid].lbs    += parseFloat(a.weight_lbs || 0);
+        });
+        return;
+      }
       if (!o.folded_by_id) {
         unassigned.orders++;
         unassigned.bags += parseInt(o.total_bags || 0);
@@ -27805,6 +27897,9 @@ ${oneCopy}
       if (t2El) t2El.textContent = (t2Hrs > 0) ? (t2Lbs / t2Hrs).toFixed(1) : '—';
     }
 
+    // Bags & orders can be fractional (e.g. 0.5 of a 2-way split).
+    // Display at most 1 decimal place; hide ".0" for clean integers.
+    const fmtCount  = n => Number.isInteger(n) ? n.toLocaleString() : n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
     const fmtLbs    = n => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
     const fmtHrs    = h => h != null
       ? `<span style="font-weight:600">${h.toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> hrs</span>`
@@ -27830,8 +27925,8 @@ ${oneCopy}
           ${rows.map(r => `<tr>
             <td>${r.name}</td>
             <td style="font-size:12px;color:var(--gray-600);white-space:nowrap;width:1%">${esc(r.title)}</td>
-            <td>${r.orders.toLocaleString()}</td>
-            <td>${r.bags.toLocaleString()}</td>
+            <td>${fmtCount(r.orders)}</td>
+            <td>${fmtCount(r.bags)}</td>
             <td>${fmtLbs(r.lbs)}</td>
             <td>${fmtHrs(r.hrs)}</td>
             <td>${fmtLbsHr(r.lbs, r.hrs)}</td>
@@ -27850,8 +27945,8 @@ ${oneCopy}
           <tr>
             <td>Total</td>
             <td></td>
-            <td>${tot.orders.toLocaleString()}</td>
-            <td>${tot.bags.toLocaleString()}</td>
+            <td>${fmtCount(tot.orders)}</td>
+            <td>${fmtCount(tot.bags)}</td>
             <td>${fmtLbs(tot.lbs)}</td>
             <td>${tot.hrs != null ? fmtHrs(tot.hrs) : '—'}</td>
             <td>${fmtLbsHr(tot.lbs, tot.hrs)}</td>
@@ -27867,9 +27962,11 @@ ${oneCopy}
     if (!rows?.length && !unassigned?.orders) return;
     const esc = v => `"${String(v).replace(/"/g, '""')}"`;
     const headers = ['Folder','Orders','Bags','Pounds','Hours Worked','Lbs/Hr'];
+    // Orders & bags can be fractional (when participating in a split fold).
+    const fmtNum  = n => Number.isInteger(n) ? n : Number(n).toFixed(1);
     const csvRows = (rows || []).map(r => {
       const lbsHr = (r.hrs != null && r.hrs > 0 && r.lbs > 0) ? (r.lbs / r.hrs).toFixed(1) : '';
-      return [r.name, r.orders, r.bags, r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr].map(esc).join(',');
+      return [r.name, fmtNum(r.orders), fmtNum(r.bags), r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr].map(esc).join(',');
     });
     if (unassigned?.orders > 0) {
       csvRows.push(['Unassigned', unassigned.orders, unassigned.bags, unassigned.lbs.toFixed(1), '', ''].map(esc).join(','));
