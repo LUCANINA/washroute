@@ -1787,6 +1787,8 @@
                 <div class="card-title">Processing Queue</div>
                 <div class="card-sub" id="proc-subtitle">Orders in progress</div>
               </div>
+              <!-- Site filter chips — rendered by renderProcSiteFilterChips() once allSites loads -->
+              <div id="proc-site-filter-chips" style="display:flex;align-items:center;gap:6px;font-size:12px"></div>
             </div>
             <div class="kanban-board">
               <!-- 1. INTAKE -->
@@ -6453,6 +6455,9 @@
     const { data, error } = await db.from('sites').select('id, name, color, is_active, is_default').order('is_default', { ascending: false }).order('name');
     if (error) { console.error('loadSites:', error); return; }
     allSites = data || [];
+    // Now that sites are known, paint the Processing Queue filter chips
+    // (no-op if the user isn't on that page yet — they'll re-render on nav).
+    if (typeof renderProcSiteFilterChips === 'function') renderProcSiteFilterChips();
   }
   function getSiteById(id) { return allSites.find(s => s.id === id) || null; }
   function getDefaultSite() { return allSites.find(s => s.is_default) || allSites[0] || null; }
@@ -23420,16 +23425,33 @@ ${oneCopy}
       );
     }
 
-    // Tag every order with this launderer's actual share. For split orders
-    // the share comes from order_folding_assignments; for single-person folds
-    // we credit the full order.
+    // Determine which orders are TRUE splits (>1 assignment row) so the
+    // history view shows the "Split share" tag only for actual splits — not
+    // for single-person assignments that the new RPC also writes to the
+    // assignments table for consistency.
+    const allOrderIds = [...(primaryRes.data || []), ...secondaryOrders].map(o => o.id);
+    const splitCountMap = {}; // order_id → total assignment rows
+    if (allOrderIds.length) {
+      const countsRows = await pgInChunked(
+        () => db.from('order_folding_assignments').select('order_id'),
+        'order_id', allOrderIds
+      );
+      countsRows.forEach(r => {
+        splitCountMap[r.order_id] = (splitCountMap[r.order_id] || 0) + 1;
+      });
+    }
+
+    // Tag every order with this launderer's actual share + a split flag.
+    // For real splits (>1 assigned), use the per-row share. Otherwise use
+    // the order's full totals (single-person fold).
     const allOrders = [...(primaryRes.data || []), ...secondaryOrders].map(o => {
-      const share = myShareMap[o.id]; // present only for split orders
+      const share   = myShareMap[o.id];
+      const isSplit = (splitCountMap[o.id] || 0) > 1;
       return {
         ...o,
-        _myBags: share ? parseFloat(share.bags || 0) : (o.total_bags || 0),
-        _myLbs:  share ? parseFloat(share.weight_lbs || 0) : (parseFloat(o.weight_lbs) || 0),
-        _isSplit: !!share
+        _myBags: (isSplit && share && share.bags != null) ? parseFloat(share.bags) : (o.total_bags || 0),
+        _myLbs:  (isSplit && share && share.weight_lbs != null) ? parseFloat(share.weight_lbs) : (parseFloat(o.weight_lbs) || 0),
+        _isSplit: isSplit
       };
     }).sort((a, b) => new Date(a.folded_at) - new Date(b.folded_at));
 
@@ -23506,6 +23528,68 @@ ${oneCopy}
 
   // ── PROC TABS ──
   let procTabActive = 'intake';
+  // ── Processing Queue site filter (session 149) ──
+  // Lets the delivery crew default to seeing only their facility's work
+  // (23rd Ave). Foothill staff or admins peeking can flip to Foothill or All.
+  // Stores the site UUID, or '' for "all sites". Default resolves to the
+  // is_default site (23rd Ave) on first load.
+  let procSiteFilter = localStorage.getItem('wr-proc-site-filter'); // null on first load
+  function resolveProcSiteFilter() {
+    // Called when allSites has loaded. If we haven't stored a preference,
+    // adopt the default site (today: 23rd Ave). Stored '' (empty) means All.
+    if (procSiteFilter === null) {
+      const d = getDefaultSite();
+      procSiteFilter = d ? d.id : '';
+      return;
+    }
+    // Guard: if the stored filter points to a now-missing or deactivated
+    // site, fall back to the default — better than rendering an empty
+    // kanban with no obvious cause.
+    if (procSiteFilter) {
+      const stored = allSites.find(s => s.id === procSiteFilter);
+      if (!stored || !stored.is_active) {
+        const d = getDefaultSite();
+        procSiteFilter = d ? d.id : '';
+        localStorage.setItem('wr-proc-site-filter', procSiteFilter);
+      }
+    }
+  }
+  function _procSiteApply(query) {
+    // Apply the filter to a Supabase query builder. Empty string = All.
+    return procSiteFilter ? query.eq('site_id', procSiteFilter) : query;
+  }
+  function setProcSiteFilter(newVal) {
+    // newVal: site UUID, or '' for All. Persist + re-render + reload columns.
+    procSiteFilter = newVal;
+    localStorage.setItem('wr-proc-site-filter', newVal);
+    renderProcSiteFilterChips();
+    // Reload all four kanban columns with the new filter
+    loadIntakeCol();
+    reloadColumns('cleaning', 'folding', 'rack');
+  }
+  function renderProcSiteFilterChips() {
+    const el = document.getElementById('proc-site-filter-chips');
+    if (!el) return;
+    if (!allSites.length) { el.style.display = 'none'; return; }
+    resolveProcSiteFilter();
+    const activeSites = allSites.filter(s => s.is_active);
+    // Build chips: each site + an "All" option
+    const chip = (label, val, color) => {
+      const isActive = procSiteFilter === val;
+      const tint = color || 'var(--gray-400)';
+      return `<button onclick="setProcSiteFilter('${val}')"
+        style="padding:4px 10px;border-radius:14px;border:1.5px solid ${isActive ? tint : 'var(--gray-200)'};
+               background:${isActive ? tint + '15' : 'white'};
+               color:${isActive ? tint : 'var(--gray-600)'};
+               font-size:12px;font-weight:${isActive ? '700' : '500'};
+               font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .12s">
+        ${color ? `<span style="width:7px;height:7px;border-radius:50%;background:${tint};display:inline-block"></span>` : ''}
+        ${esc(label)}
+      </button>`;
+    };
+    el.style.display = 'flex';
+    el.innerHTML = activeSites.map(s => chip(s.name, s.id, s.color)).join('') + chip('All', '', null);
+  }
 
   function setProcTab(tab, btn) { /* replaced by 4-column kanban */ }
 
@@ -23791,15 +23875,15 @@ ${oneCopy}
       const { data } = await db.from('launderers').select('*').order('name');
       allLaunCache = data || [];
     }
-    const { data: orders } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, zone_id,
+    const { data: orders } = await _procSiteApply(db.from('orders')
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, zone_id, site_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, preferences, billing_type, addresses(id,label,line1,city)),
                services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, pricelist),
                service_zones(name, color),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
-      .eq('status', 'folding')
+      .eq('status', 'folding'))
       .order('updated_at', { ascending: true });
     allFoldOrders = orders || [];
     // Load split assignments for folding orders
@@ -24064,26 +24148,26 @@ ${oneCopy}
     const o    = foldActiveOrder;
     const bags = (o.total_bags || 1) / foldSplitCount;
     const lbs  = o.weight_lbs ? Number(o.weight_lbs) / foldSplitCount : null;
-    // Move order to folding, primary = first person
-    const { error } = await db.from('orders').update({
-      status: 'folding', folded_by_id: selected[0],
-      folded_at: new Date().toISOString(), updated_at: new Date().toISOString()
-    }).eq('id', o.id);
-    if (error) { showToast('Error saving: ' + error.message, 'error'); return; }
-    // Clear any previous split rows, then write new ones
-    await db.from('order_folding_assignments').delete().eq('order_id', o.id);
-    const rows = selected.map(launId => ({
-      order_id:     o.id,
+    // Route through assign_order_launderers RPC (the same door the POS uses).
+    // The RPC validates inputs, replaces split rows, updates orders.folded_by_id,
+    // stamps status='folding' + folded_at (via p_set_to_folding=true), and emits
+    // both the 'folded' assignment event and a 'status_change' event — all in
+    // one atomic transaction. Replaces the previous 3 separate raw writes.
+    const assignments = selected.map(launId => ({
       launderer_id: launId,
       bags:         Math.round(bags * 100) / 100,
-      weight_lbs:   lbs ? Math.round(lbs * 100) / 100 : null
+      weight_lbs:   lbs ? Math.round(lbs * 100) / 100 : null,
     }));
-    const { error: splErr } = await db.from('order_folding_assignments').insert(rows);
-    if (splErr) { showToast('Split save error: ' + splErr.message, 'error'); return; }
-    const names   = selected.map(id => allLaunCache.find(l => l.id === id)?.name || 'Launderer').join(', ');
-    const movedId = o.id;
+    const { error } = await db.rpc('assign_order_launderers', {
+      p_order_id:       o.id,
+      p_assignments:    assignments,
+      p_actor_name:     currentUserDisplayName || currentUserFirstName || 'Admin',
+      p_set_to_folding: true,
+    });
+    if (error) { showToast('Split save error: ' + error.message, 'error'); return; }
+    const names    = selected.map(id => allLaunCache.find(l => l.id === id)?.name || 'Launderer').join(', ');
+    const movedId  = o.id;
     const orderNum = o.order_number;
-    await logOrderEvent(o.id, 'folded', `Split between ${names}`, null, selected[0]);
     closeFoldPanel();
     ['proc-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
     allCleanOrders = allCleanOrders.filter(x => x.id !== movedId);
@@ -24105,23 +24189,29 @@ ${oneCopy}
 
   async function saveFolding() {
     if (!foldActiveOrder || !foldSelectedLaunId) return;
-    const _foldLaunName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
-    await logOrderEvent(foldActiveOrder.id, 'folded', `Assigned to ${_foldLaunName} for folding`, null, foldSelectedLaunId);
-    await logOrderEvent(foldActiveOrder.id, 'status_change', 'Folding', foldActiveOrder.status || 'processing', 'folding');
-    const { error } = await db.from('orders').update({
-      status: 'folding', folded_by_id: foldSelectedLaunId,
-      folded_at: new Date().toISOString(), updated_at: new Date().toISOString()
-    }).eq('id', foldActiveOrder.id);
+    const o = foldActiveOrder;
+    // Same RPC the split flow + the POS use. Single-person assignment is
+    // represented as a 1-entry array carrying the full order totals so the
+    // assignments table is always a complete record of who folded what.
+    const assignments = [{
+      launderer_id: foldSelectedLaunId,
+      bags:         o.total_bags != null ? Number(o.total_bags) : null,
+      weight_lbs:   o.weight_lbs != null ? Number(o.weight_lbs) : null,
+    }];
+    const { error } = await db.rpc('assign_order_launderers', {
+      p_order_id:       o.id,
+      p_assignments:    assignments,
+      p_actor_name:     currentUserDisplayName || currentUserFirstName || 'Admin',
+      p_set_to_folding: true,
+    });
     if (error) {
       const errEl = document.getElementById('fold-error');
       errEl.textContent = error.message; errEl.style.display = '';
       return;
     }
-    // Single-person assignment — clear any previous split rows
-    await db.from('order_folding_assignments').delete().eq('order_id', foldActiveOrder.id);
     const launName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
-    const movedId  = foldActiveOrder.id;
-    const orderNum = foldActiveOrder.order_number; // capture before closeFoldPanel() nulls foldActiveOrder
+    const movedId  = o.id;
+    const orderNum = o.order_number; // capture before closeFoldPanel() nulls foldActiveOrder
     closeFoldPanel();
     // Instant removal from source column
     ['proc-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
@@ -24133,18 +24223,30 @@ ${oneCopy}
 
   async function assignFolderInline(orderId, launId) {
     if (!launId) return;
-    const _inlineLaunName = allLaunCache.find(l => l.id === launId)?.name || 'Launderer';
-    await logOrderEvent(orderId, 'folded', `Reassigned to ${_inlineLaunName} for folding`, null, launId);
-    const { error } = await db.from('orders').update({
-      folded_by_id: launId,
-      updated_at: new Date().toISOString()
-    }).eq('id', orderId);
-    if (error) { showToast('Could not assign: ' + error.message, 'error'); return; }
-    // Clear any split assignments — inline reassign always means single person
-    await db.from('order_folding_assignments').delete().eq('order_id', orderId);
-    foldAssignmentsMap[orderId] = [];
-    const launName = allLaunCache.find(l => l.id === launId)?.name || 'Launderer';
     const order = allFoldOrders.find(o => o.id === orderId);
+    // Inline reassign on a fold card — order is already in 'folding' status,
+    // so we DON'T pass p_set_to_folding=true (no need to bump folded_at).
+    // RPC clears existing split rows and writes a single 1-row assignment
+    // with the full order totals.
+    const assignments = [{
+      launderer_id: launId,
+      bags:         order?.total_bags != null ? Number(order.total_bags) : null,
+      weight_lbs:   order?.weight_lbs != null ? Number(order.weight_lbs) : null,
+    }];
+    const { error } = await db.rpc('assign_order_launderers', {
+      p_order_id:       orderId,
+      p_assignments:    assignments,
+      p_actor_name:     currentUserDisplayName || currentUserFirstName || 'Admin',
+      p_set_to_folding: false,
+    });
+    if (error) { showToast('Could not assign: ' + error.message, 'error'); return; }
+    // Keep local cache in sync — the RPC wrote a 1-row assignment, so
+    // mirror that here too (the kanban card render uses foldAssignmentsMap
+    // to decide split vs single-person display).
+    foldAssignmentsMap[orderId] = assignments.map(a => ({
+      order_id: orderId, launderer_id: a.launderer_id, bags: a.bags, weight_lbs: a.weight_lbs
+    }));
+    const launName = allLaunCache.find(l => l.id === launId)?.name || 'Launderer';
     if (order) order.folded_by_id = launId;
     showToast(`Assigned to ${launName}`, 'success');
     renderFoldQueue();
@@ -24162,14 +24264,14 @@ ${oneCopy}
       const { data } = await db.from('racks').select('*').eq('is_active', true).order('sort_order');
       allRacksCache = data || [];
     }
-    const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, billing_status, rack_id, folded_by_id, source, special_instructions,
+    const { data } = await _procSiteApply(db.from('orders')
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, billing_status, rack_id, folded_by_id, source, special_instructions, site_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, addresses(id,label,line1,city)),
                services(name),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
-      .eq('status', 'ready_for_delivery')
+      .eq('status', 'ready_for_delivery'))
       .order('racked_at', { ascending: false })
       .limit(20); // only show recently racked
     allRackOrders = data || [];
@@ -24190,8 +24292,15 @@ ${oneCopy}
     }
     wrap.innerHTML = allRackOrders.map(o => {
       const name = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.trim() || '—';
+      // Site substitution: orders processed at a non-default site (Foothill)
+      // don't go on a numbered rack — they sit at that facility. Show the
+      // site name + color where the rack pill would normally be.
+      const site = o.site_id ? getSiteById(o.site_id) : null;
+      const isOffsite = site && !site.is_default;
       const rack = allRacksCache.find(r => r.id === o.rack_id);
-      const rackLabel = rack ? rack.name : '—';
+      const rackLabel = isOffsite ? site.name : (rack ? rack.name : '—');
+      const rackTint  = isOffsite ? (site.color || 'var(--accent)') : 'var(--accent)';
+      const rackIcon  = isOffsite ? '📍' : '🗂️';
       // billing_status = 'paid' covers both Stripe online charges AND POS cash
       // sales. Earlier `!!o.stripe_payment_intent_id` mislabeled every cash sale
       // as ❌ Unpaid because cash never produces a payment intent.
@@ -24213,7 +24322,7 @@ ${oneCopy}
         <div class="proc-card-name">${name}</div>
         <div class="proc-card-meta">
           <span>📦 ${o.total_bags||1} bag${(o.total_bags||1)!==1?'s':''}</span>
-          <span style="color:var(--accent);font-weight:600;text-decoration:underline;text-decoration-style:dotted">🗂️ ${rackLabel}</span>
+          <span style="color:${rackTint};font-weight:600;text-decoration:underline;text-decoration-style:dotted">${rackIcon} ${esc(rackLabel)}</span>
         </div>
       </div>`;
     }).join('');
@@ -24257,13 +24366,32 @@ ${oneCopy}
     const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
     const fn   = o.customers?.first_name_cache || '';
     const ln   = o.customers?.last_name_cache  || '';
+    // For orders processed at a non-default site (Foothill Blvd), there are
+    // no numbered racks — just a single "Mark Ready" button. The skip-rack
+    // path through the rack_order RPC handles billing + status advance the
+    // same way the rack-grid path does.
+    const site      = o.site_id ? getSiteById(o.site_id) : null;
+    const isOffsite = site && !site.is_default;
     const activeRacks = allRacksCache.filter(r => r.is_active);
-    const racksHTML = activeRacks.length
-      ? `<div class="rack-grid">${activeRacks.map(r =>
+    const sectionTitle = isOffsite ? `Ready at ${esc(site.name)}?` : 'Which rack?';
+    let racksHTML;
+    if (isOffsite) {
+      const tint = site.color || 'var(--accent)';
+      racksHTML = `<button class="rack-btn"
+        onclick="confirmOffsiteReady()"
+        style="width:100%;padding:14px;border-radius:10px;border:2px solid ${tint};background:${tint}15;color:${tint};font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+        <span style="width:9px;height:9px;border-radius:50%;background:${tint};display:inline-block"></span>
+        ✓ Mark Ready at ${esc(site.name)}
+      </button>
+      <div style="font-size:11.5px;color:var(--gray-400);margin-top:8px;text-align:center">Charges card · advances to Ready for Delivery · no rack assignment</div>`;
+    } else if (activeRacks.length) {
+      racksHTML = `<div class="rack-grid">${activeRacks.map(r =>
           `<button class="rack-btn${selectedRackId===r.id?' selected':''}" onclick="selectRack('${r.id}')">
             <span>${r.name}</span>
-          </button>`).join('')}</div>`
-      : `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No racks set up yet — add them in Settings → Racks.</div>`;
+          </button>`).join('')}</div>`;
+    } else {
+      racksHTML = `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No racks set up yet — add them in Settings → Racks.</div>`;
+    }
     // Line items breakdown (deduped to remove stale "Name: Yes" entries)
     const lineItems = _dedupeLineItems(o.line_items);
     const liHTML = lineItems.filter(li => {
@@ -24296,7 +24424,7 @@ ${oneCopy}
       </div>
       ${_buildPickupDeliveryHTML(o)}
       <div class="intake-section">
-        <div class="intake-section-label">Which rack?</div>
+        <div class="intake-section-label">${sectionTitle}</div>
         ${racksHTML}
       </div>`;
   }
@@ -24308,13 +24436,27 @@ ${oneCopy}
     saveRacking();
   }
 
+  // Entry point for the Foothill "Mark Ready" button — same downstream
+  // behavior as selectRack(), just routes through saveRacking() with
+  // skip_rack=true so the rack_order RPC doesn't require a rack_id.
+  function confirmOffsiteReady() {
+    selectedRackId = null; // no rack to assign
+    saveRacking({ skipRack: true });
+  }
+
   function closeRackPanel() {
     document.getElementById('rack-panel').classList.remove('open');
     rackActiveOrder = null; selectedRackId = null;
   }
 
-  async function saveRacking() {
-    if (!rackActiveOrder || !selectedRackId) return;
+  async function saveRacking(opts = {}) {
+    // opts.skipRack=true (session 149) — used for orders processed at a
+    // non-default site (Foothill Blvd) where there's no numbered rack.
+    // Routes through the same rack_order RPC with p_skip_rack=true so the
+    // billing + status advance behavior is identical to the rack path.
+    const skipRack = !!opts.skipRack;
+    if (!rackActiveOrder) return;
+    if (!skipRack && !selectedRackId) return;
     const errEl = document.getElementById('rack-error');
     const chargingEl = document.getElementById('rack-charging');
     if (chargingEl) chargingEl.style.display = '';
@@ -24327,16 +24469,22 @@ ${oneCopy}
     // The Stripe charge call (charge-order edge function) stays in the client
     // because holding a DB transaction open across a Stripe round-trip is risky.
     // The RPC returns needs_card_charge=true so we know when to make the call.
-    const _rackLabel  = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
+    // For skip_rack=true (Foothill), p_rack_name carries the site name so the
+    // RPC's "Ready at <X>" event description reads naturally.
+    const _site       = rackActiveOrder.site_id ? getSiteById(rackActiveOrder.site_id) : null;
+    const _rackLabel  = skipRack
+      ? (_site?.name || 'Offsite')
+      : (allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack');
     const _rackActor  = currentUserDisplayName || currentUserFirstName || 'Admin';
     const _orderId    = rackActiveOrder.id;
     const _orderNum   = rackActiveOrder.order_number;
 
     const { data: rpcRes, error } = await db.rpc('rack_order', {
       p_order_id:   _orderId,
-      p_rack_id:    selectedRackId,
+      p_rack_id:    skipRack ? null : selectedRackId,
       p_rack_name:  _rackLabel,
       p_actor_name: _rackActor,
+      p_skip_rack:  skipRack,
     });
     if (error) {
       errEl.textContent = error.message;
@@ -24400,7 +24548,7 @@ ${oneCopy}
 
     // Local state mirrors what the RPC just wrote.
     rackActiveOrder.status   = 'ready_for_delivery';
-    rackActiveOrder.rack_id  = selectedRackId;
+    rackActiveOrder.rack_id  = skipRack ? null : selectedRackId;
     const rackName   = _rackLabel;
     const movedId    = _orderId;
     const orderNum   = _orderNum;
@@ -24414,7 +24562,12 @@ ${oneCopy}
     ['fold-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
     allFoldOrders  = allFoldOrders.filter(o => o.id !== movedId);
     allCleanOrders = allCleanOrders.filter(o => o.id !== movedId);
-    showToast(`Order #${orderNum} racked on ${rackName}! Ready for delivery.`, 'success');
+    showToast(
+      skipRack
+        ? `Order #${orderNum} ready at ${rackName}! Ready for delivery.`
+        : `Order #${orderNum} racked on ${rackName}! Ready for delivery.`,
+      'success'
+    );
     reloadColumns('folding', 'rack');
     // Auto-send email receipt — skip for on-account and failed charges (receipt sent when actually charged)
     if (!isOnAccount && !chargeFailed) {
@@ -24499,14 +24652,17 @@ ${oneCopy}
       .eq('is_active', true);
     if (freshSvcs) allAddonServicesCache = freshSvcs;
 
+    // Render the site filter chips (no-op if allSites not loaded yet)
+    renderProcSiteFilterChips();
+
     // Kick off all 4 columns in parallel
     const [{ data: pickedUp }] = await Promise.all([
-      db.from('orders')
-        .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
+      _procSiteApply(db.from('orders')
+        .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, site_id,
                  stripe_payment_intent_id, pickup_window_start, delivery_window_start, total_amount, line_items,
                  customers(id, first_name_cache, last_name_cache, pricelist, preferences, billing_type),
                  services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
-        .eq('status', 'picked_up')
+        .eq('status', 'picked_up'))
         .order('actual_pickup_at', { ascending: true }),
     ]);
     allProcOrders = pickedUp || [];
@@ -24543,15 +24699,15 @@ ${oneCopy}
   }
 
   async function loadIntakeCol() {
-    const { data } = await db.from('orders')
-      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
+    const { data } = await _procSiteApply(db.from('orders')
+      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, site_id,
                stripe_payment_intent_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                actual_pickup_at, pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, pricelist, preferences, billing_type, addresses(id,label,line1,city)),
                services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
-      .eq('status', 'picked_up')
+      .eq('status', 'picked_up'))
       .order('actual_pickup_at', { ascending: true });
     allProcOrders = data || [];
     const b = document.getElementById('ptab-badge-intake');
@@ -24565,14 +24721,14 @@ ${oneCopy}
   async function loadCleaning() {
     const wrap = document.getElementById('clean-queue-wrap');
     if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
-    const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id,
+    const { data } = await _procSiteApply(db.from('orders')
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, site_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, preferences, billing_type, addresses(id,label,line1,city)),
                services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, pricelist),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
-      .eq('status', 'processing')
+      .eq('status', 'processing'))
       .order('updated_at', { ascending: true });
     allCleanOrders = data || [];
     document.getElementById('ptab-badge-clean')?.textContent !== undefined &&
