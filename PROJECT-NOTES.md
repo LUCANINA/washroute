@@ -1,5 +1,43 @@
 # WashRoute — Project Notes
-*Last updated: May 12, 2026 — Session 148 (9 parts shipped today, 14 commits, 18 DB migrations). **Heavy tech-debt + architecture day.** Three real production issues caught and fixed (Kalen Gleeson same-day overlap, Javier driver-app blocked, POS attendant blocked). One customer-reported credit drain (Cindy Downing) that surfaced a structural silent-drain cron bug affecting 19+ customers ($684+ in credit destroyed). Eleven tech-debt items closed; 15 new ones banked and prioritized. Seven new permanent cleanest-path principles added to `washroute.skill` (including: dead features destroy data silently, don't fragment auth bypass by role, cron jobs are invisible writers, batch corrections need snapshot-then-apply, REVOKE PUBLIC ≠ REVOKE anon). New audit Check 22 added to `washroute-audit.skill` for cron-coverage. Read the 9 pt entries below for full detail.*
+*Last updated: May 12, 2026 — Session 148 (10 parts shipped today, 15 commits, 18 DB migrations). **Heavy tech-debt + architecture day.** Three real production issues caught and fixed (Kalen Gleeson same-day overlap, Javier driver-app blocked, POS attendant blocked). One customer-reported credit drain (Cindy Downing) that surfaced a structural silent-drain cron bug affecting 19+ customers ($684+ in credit destroyed). Plus a fourth incident at end of session — Axel (driver Villafana-Gonzalez) reporting customer SMS broken, traced to a silent anon-key fallback in expired-session handling. Eleven tech-debt items closed; 15 new ones banked and prioritized. Seven new permanent cleanest-path principles added to `washroute.skill` (including: dead features destroy data silently, don't fragment auth bypass by role, cron jobs are invisible writers, batch corrections need snapshot-then-apply, REVOKE PUBLIC ≠ REVOKE anon). New audit Check 22 added to `washroute-audit.skill` for cron-coverage. Read the 10 pt entries below for full detail.*
+
+## Session 148 pt 10 — Driver SMS "Could not send" misdiagnosis (Axel incident)
+
+**The incident.** Axel (driver `e0684cea-...`, Villafana-Gonzalez, profile.role='driver', active) reported customer SMS in the driver app stopped working. Symptom on his iPhone Safari at `driver.familylaundry.com`: tapping a customer thread (Ishaq El-Amin, on his active SF route) and hitting Send produced a toast "Could not send — check your connection." His connection was visibly fine (5G+, app loaded normally, On My Way button still worked).
+
+**Investigation summary.**
+1. `send-sms` edge function v27 is correct — `STAFF_SMS_ROLES = {'admin','manager','driver','attendant'}`, driver role is present.
+2. Other drivers were successfully sending customer SMS within the same hour (014aa82a, cd00a0ef both sent ~7:21–7:26 PM PT). System-wide, send-sms is healthy.
+3. Axel's DB record was clean — role='driver', is_active=true, signed in fresh at 4:52 PM PT today, assigned to today's San Francisco route (20 open stops).
+4. **Key signal: Axel hadn't successfully sent customer SMS since May 9 (3 days), and there were ZERO failed-send rows in `sms_messages` for him.** No DB row means the function never accepted the request — but the customer info shown in the app proved the data WAS loaded. The fetch was firing and being rejected; we just didn't know why because the toast hid the real reason.
+
+**Root cause.** Two layers stacked:
+1. `_staffJwt()` in driver-app silently fell back to `SUPA_KEY` (anon) whenever `db.auth.getSession()` returned no session OR threw. Supabase JWTs last ~1 hour. On iPhone Safari, when the PWA sits backgrounded between sends, the auto-refresh timer can stop firing. Session quietly lapses; `_staffJwt()` returns anon.
+2. The hardened `send-sms` v22+ correctly rejects the anon key with HTTP 401 "Anon key not accepted; staff login required". The driver-app's `if (!res.ok) throw new Error(...)` collapsed that 401 into the generic `catch` block, which produced "Could not send — check your connection." Drivers (and Claude) assumed wifi was the problem.
+
+Axel signing out + signing back in via the Profile tab restored the working state. But the underlying fragility affects every driver: every ~hour of idle time, the next customer SMS send would fail and look like a wifi outage.
+
+**Cleanest-path fix shipped tonight.** Three layers in driver-app/index.html:
+
+1. **`_staffJwt()` rewritten** (line 1101+). Now: (a) returns `null` instead of `SUPA_KEY` when no usable session is available — eliminates the silent anon-fallback class of bug forever; (b) proactively calls `db.auth.refreshSession()` when the current token is within 60s of expiry, so calls during a long shift don't silently fail as the JWT ages out; (c) on refresh failure, falls through with the original near-expiry token rather than blocking — the server will issue a clean 401 that the call site now handles correctly.
+
+2. **`sendMessageInThread()` updated** (line 3540+). Two new branches before the fetch and after a non-OK response. Null-token branch → toast "Your sign-in expired. Open Profile and sign in again." (5s duration). 401/403 response branch → same toast. Inline checks happen before the generic `throw`, so the misleading wifi toast can no longer fire on an auth failure.
+
+3. **5xx server-error branch added to the catch block** (line 3651+). Strict regex `/^Server error 5\d\d$/` separates genuine server errors from network errors, so a 500 from send-sms also no longer gets blamed on the driver's wifi.
+
+**What's NOT in this fix (deferred tech debt — flagged in code comment at `_staffJwt()`):**
+
+1. **admin-dashboard has its own `_staffJwt()` with the identical bug** at line 4864: `return session?.access_token || SUPA_ANON_KEY`. It's called from 9 sites in admin-dashboard (charge-order, refund-charge, send-sms, etc.). When David or John Roi's admin session lapses, admin actions on hardened endpoints will fail the same way drivers did — generic toast, no indication that re-login is needed. Mechanically identical fix. Plus 6 inline `session?.access_token || SUPA_ANON_KEY` patterns elsewhere in admin-dashboard that bypass `_staffJwt()` entirely. **High-priority follow-up for next session.**
+
+2. **Driver app `reoptimizeRoute()` (line 1456) and `sendOnMyWay()` (line 2811)** still use the inline `session?.access_token || SUPA_KEY` fallback. Their endpoints (optimize-route, notify-on-my-way) currently accept anon so they aren't broken, but the pattern is a regression-waiting-to-happen if those endpoints are tightened. Low priority; route them through the new `_staffJwt()` next time those areas are touched.
+
+3. **No interactive sign-in CTA on the auth-expired toast.** Today the toast says "Open Profile and sign in again" and the driver has to manually navigate. A small follow-up could auto-route to Profile or surface a Sign In button. Non-blocking — wording is clear enough.
+
+**Cleanest-path principle applied.** The minimum patch was just updating the toast wording so drivers knew to sign in again. The cleanest path was three layers — fixing `_staffJwt()` itself so the bad state can't be silently entered (returning null instead of anon-key fallback), proactive session refresh so the bad state is rarer in the first place, AND fixing the call-site error handling so when the bad state does occur it's reported correctly. All three shipped together. The pattern (helper returns null on auth failure; callers must explicitly handle) becomes the canonical shape for staff-protected edge-function calls.
+
+**Records touched.** 1 file modified (driver-app/index.html, 72 insertions / 9 deletions). 0 DB migrations, 0 edge function deploys, 0 customer-facing data changes. Tech-debt items banked: admin-dashboard `_staffJwt()` mirror fix (HIGH), driver-app `sendOnMyWay` + `reoptimizeRoute` migration (LOW), interactive auth-expired CTA (LOW).
+
+---
 
 ## Session 148 — Same-day pickup/delivery prevention (Kalen Gleeson #4238)
 

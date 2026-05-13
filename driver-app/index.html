@@ -1098,14 +1098,50 @@ const db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'wr-d
     if (touched) history.replaceState({}, '', u.pathname + (u.search || '') + u.hash);
   } catch (e) { console.warn('_stripAuthUrlParams non-fatal:', e?.message); }
 })();
-// Session 137 security: returns the logged-in driver's JWT. Used when calling
-// edge functions (send-sms, etc.) that now require a real staff session
-// instead of the publicly embedded anon key.
+// Session 137 security: returns the logged-in driver's JWT for staff-protected
+// edge functions (e.g. send-sms). Returns null when no valid session is
+// available — callers MUST handle this and prompt sign-in rather than send
+// the anon key (the hardened functions reject it).
+//
+// Session 148 hardening (Axel incident): the previous implementation silently
+// fell back to SUPA_KEY (anon) whenever the session was missing or stale. The
+// hardened send-sms function correctly rejected the anon JWT with HTTP 401,
+// but the rejection surfaced to drivers as the generic "Could not send —
+// check your connection" toast in the catch block. Drivers (and we) assumed
+// it was a wifi problem when in fact their sign-in had silently lapsed.
+//
+// Two behaviors that fix this whole class of bug:
+//   1) Proactively refresh the session when within 60s of expiry so calls
+//      during a long driver shift don't silently start failing as the JWT
+//      ages out.
+//   2) Return null on any unrecoverable session state so call sites can
+//      branch on "no staff token" and show "Sign in again" instead of a
+//      misleading connection error.
+//
+// Follow-up (tech debt): sendOnMyWay and reoptimizeRoute still use the old
+// inline `session?.access_token || SUPA_KEY` pattern. They hit endpoints
+// that currently accept anon so they aren't broken, but the pattern should
+// be migrated through _staffJwt() for consistency next time we touch them.
 async function _staffJwt() {
   try {
-    const { data: { session } = {} } = await db.auth.getSession();
-    return session?.access_token || SUPA_KEY;
-  } catch (_) { return SUPA_KEY; }
+    let { data: { session } } = await db.auth.getSession();
+    if (!session?.access_token) return null;
+
+    const expiresAtMs = (session.expires_at || 0) * 1000;
+    if (expiresAtMs > 0 && (expiresAtMs - Date.now()) < 60_000) {
+      // Within 60s of expiry — refresh proactively so the next call has a
+      // fresh token. If refresh fails but the current token is still alive
+      // we use it as-is; if the server has actually revoked it, the call
+      // returns 401 and the call site surfaces the sign-in prompt.
+      try {
+        const { data: refreshed, error } = await db.auth.refreshSession();
+        if (!error && refreshed?.session?.access_token) {
+          session = refreshed.session;
+        }
+      } catch (_) { /* fall through with original token */ }
+    }
+    return session?.access_token || null;
+  } catch (_) { return null; }
 }
 
 let currentUser = null, currentProfile = null, currentDriver = null;
@@ -3561,11 +3597,21 @@ async function sendMessageInThread() {
       const custInfo = _msgCustomerMap[_msgActiveThread];
       if (!custInfo?.phone) { toast('No phone number on file'); return; }
 
+      // Session 148 (Axel incident): the hardened send-sms endpoint rejects
+      // the anon key. If our session is unavailable, prompt sign-in instead
+      // of trying to send (and getting back a 401 that the catch block would
+      // misreport as a connection problem).
+      const jwt = await _staffJwt();
+      if (!jwt) {
+        toast('Your sign-in expired. Open Profile and sign in again.', 5000);
+        return;
+      }
+
       const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await _staffJwt()}`,
+          'Authorization': `Bearer ${jwt}`,
         },
         body: JSON.stringify({
           to: custInfo.phone,
@@ -3574,7 +3620,16 @@ async function sendMessageInThread() {
           sent_by_driver_id: currentDriver.id,
         }),
       });
-      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      if (!res.ok) {
+        // 401/403 = server says the session is no good (could happen if it
+        // was revoked between our proactive refresh and this call). Same UX
+        // as the no-token branch — don't blame the wifi.
+        if (res.status === 401 || res.status === 403) {
+          toast('Your sign-in expired. Open Profile and sign in again.', 5000);
+          return;
+        }
+        throw new Error(`Server error ${res.status}`);
+      }
       // Add to local cache (the realtime subscription will also catch this)
       const fakeSms = {
         id: crypto.randomUUID(),
@@ -3595,7 +3650,15 @@ async function sendMessageInThread() {
     input.focus();
   } catch (e) {
     console.error('sendMessageInThread error:', e);
-    toast('Could not send — check your connection');
+    // The 401/403 path is handled inline above with a clearer message; this
+    // branch covers genuine network errors (fetch rejected) and 5xx server
+    // errors. Distinguish them so 5xx doesn't get blamed on the driver's wifi.
+    const msg = String(e?.message || '');
+    if (/^Server error 5\d\d$/.test(msg)) {
+      toast('Server error — please try again in a moment', 4000);
+    } else {
+      toast('Could not send — check your connection');
+    }
   } finally {
     btn.disabled = false;
     input.disabled = false;
