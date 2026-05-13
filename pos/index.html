@@ -4065,10 +4065,15 @@
       // Without these, the preview would say "$X will be refunded" even
       // when the order has already been fully refunded — the edge function
       // gets it right server-side regardless, but the UI text was wrong.
+      // Session 149: queue now shows ANY order at this site, not just walk-ins.
+      // Commercial delivery orders processed at Foothill (Kasa, Kidango, etc.)
+      // need to surface here the moment a driver completes their pickup stop
+      // (status='picked_up') so the Foothill attendant can intake the bag.
+      // The badge in the card render distinguishes walk-in counter-pickups
+      // (🏪 Retail) from delivery-bound bags (🚚 For delivery).
       let query = db.from('orders')
-        .select('id, order_number, status, customer_id, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at')
-        .eq('source', 'walk_in')
-        .in('status', ['processing', 'ready_for_delivery']);
+        .select('id, order_number, status, source, customer_id, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at')
+        .in('status', ['picked_up', 'processing', 'ready_for_delivery']);
 
       // session 111: Apply null-safe filter for default site
       const isDefaultSite = getDefaultSite()?.id === currentSiteId;
@@ -4177,16 +4182,25 @@
       return;
     }
 
+    // Session 149: commercial delivery orders dropped at Foothill by a driver
+    // land here in status='picked_up' — they need an intake step before they
+    // join the washing flow. Walk-ins skip this section entirely (their POS
+    // creation goes straight to 'processing').
+    const intake     = orders.filter(o => o.status === 'picked_up');
     const processing = orders.filter(o => o.status === 'processing');
     const ready      = orders.filter(o => o.status === 'ready_for_delivery');
 
     let html = '';
+    if (intake.length) {
+      html += `<div class="queue-section-label">${t('📥 Just dropped off')} (${intake.length})</div>`;
+      html += intake.map(o => renderQueueCard(o, 'picked_up')).join('');
+    }
     if (processing.length) {
       html += `<div class="queue-section-label">${t('🧼 Washing')} (${processing.length})</div>`;
       html += processing.map(o => renderQueueCard(o, 'processing')).join('');
     }
     if (ready.length) {
-      html += `<div class="queue-section-label">${t('✅ Ready for Pickup')} (${ready.length})</div>`;
+      html += `<div class="queue-section-label">${t('✅ Ready')} (${ready.length})</div>`;
       html += ready.map(o => renderQueueCard(o, 'ready_for_delivery')).join('');
     }
     list.innerHTML = html;
@@ -4375,6 +4389,15 @@
     const initials = name === t('Retail') || name === 'Retail' ? 'RE' :
       name.split(' ').map(n => (n[0] || '')).join('').slice(0, 2).toUpperCase();
 
+    // Session 149: orders dropped here by a driver pickup (source != 'walk_in')
+    // are bound for driver delivery, not counter pickup. The badge distinguishes
+    // them from walk-in retail bags so attendants know not to expect the
+    // customer to come back for it.
+    const isDelivery = order.source && order.source !== 'walk_in';
+    const deliveryBadge = isDelivery
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;background:#fee5d3;color:#4A1B0C;padding:2px 8px;border-radius:10px;white-space:nowrap">🚚 ${t('For delivery')}</span>`
+      : '';
+
     // Build a short service summary from line_items
     const items = (order.line_items || []).filter(li => li.kind === 'service' || li.kind === 'merchandise');
     let detail = '';
@@ -4391,42 +4414,50 @@
       const merchStr = merchItems.map(li => `${li.qty}× ${li.name}`).join(', ');
       detail = detail ? `${detail} · ${merchStr}` : merchStr;
     }
+    // Picked-up commercial orders haven't been intaked yet — line_items is
+    // empty until the attendant weighs + saves. Show a gentle prompt instead
+    // of the generic "No items" so the next action is obvious.
+    if (!detail && status === 'picked_up') {
+      detail = t('Awaiting intake');
+    }
 
     // Time ago
     const created = new Date(order.created_at);
     const timeAgo = relativeTime(created);
 
-    // Launderer state — only relevant while the order is in 'processing'.
-    // Once it's been advanced to ready_for_delivery, the assignment is locked
-    // and we just display it for context.
+    // Launderer state — only relevant while the order is in 'processing' or
+    // later. picked_up orders haven't entered the cleaning flow yet, so no
+    // launderer widget on those.
     const splitRows = _foldAssignmentsByOrder[order.id] || [];
     const hasAssignment = splitRows.length > 0 || !!order.folded_by_id;
     let launHtml = '';
-    if (hasAssignment) {
-      let assignedNames;
-      if (splitRows.length > 1) {
-        assignedNames = splitRows
-          .map(r => _activeLaunderers.find(l => l.id === r.launderer_id)?.name || '?')
-          .join(' + ');
-      } else {
-        assignedNames = _activeLaunderers.find(l => l.id === order.folded_by_id)?.name || t('Launderer');
+    if (status !== 'picked_up') {
+      if (hasAssignment) {
+        let assignedNames;
+        if (splitRows.length > 1) {
+          assignedNames = splitRows
+            .map(r => _activeLaunderers.find(l => l.id === r.launderer_id)?.name || '?')
+            .join(' + ');
+        } else {
+          assignedNames = _activeLaunderers.find(l => l.id === order.folded_by_id)?.name || t('Launderer');
+        }
+        const reassignBtn = (status === 'processing')
+          ? `<button class="laun-reassign" onclick="event.stopPropagation();openLaundererPicker('${order.id}')">${t('Reassign')}</button>`
+          : '';
+        launHtml = `
+          <div class="laun-assigned">
+            <span>👤</span>
+            <span class="laun-assigned-name">${assignedNames}</span>
+            ${reassignBtn}
+          </div>`;
+      } else if (status === 'processing') {
+        // stopPropagation so tapping the chip doesn't ALSO toggle card selection.
+        launHtml = `
+          <div class="laun-warn" onclick="event.stopPropagation();openLaundererPicker('${order.id}')">
+            <span style="flex:1">${t('Assign Launderer')}</span>
+            <span style="font-size:10px;opacity:0.7">${t('TAP →')}</span>
+          </div>`;
       }
-      const reassignBtn = (status === 'processing')
-        ? `<button class="laun-reassign" onclick="event.stopPropagation();openLaundererPicker('${order.id}')">${t('Reassign')}</button>`
-        : '';
-      launHtml = `
-        <div class="laun-assigned">
-          <span>👤</span>
-          <span class="laun-assigned-name">${assignedNames}</span>
-          ${reassignBtn}
-        </div>`;
-    } else if (status === 'processing') {
-      // stopPropagation so tapping the chip doesn't ALSO toggle card selection.
-      launHtml = `
-        <div class="laun-warn" onclick="event.stopPropagation();openLaundererPicker('${order.id}')">
-          <span style="flex:1">${t('Assign Launderer')}</span>
-          <span style="font-size:10px;opacity:0.7">${t('TAP →')}</span>
-        </div>`;
     }
 
     // Action button. Mark Ready is only enabled once a launderer is assigned —
@@ -4434,46 +4465,71 @@
     // advanceQueueOrder() guard re-checks before calling the RPC.
     // stopPropagation so the action click doesn't ALSO toggle card selection.
     let btnHtml = '';
-    if (status === 'processing') {
+    if (status === 'picked_up') {
+      // Session 149: intake panel itself is queued for the next session.
+      // For now we just surface the tap target so attendants can see the
+      // surface area exists and report any layout issues.
+      btnHtml = `<button class="queue-card-btn ready" onclick="event.stopPropagation();openPosIntakePlaceholder('${order.id}')">${t('✏️ Intake')}</button>`;
+    } else if (status === 'processing') {
       if (hasAssignment) {
         btnHtml = `<button class="queue-card-btn ready" onclick="event.stopPropagation();advanceQueueOrder('${order.id}', 'ready_for_delivery')">${t('✅ Mark Ready')}</button>`;
       }
     } else if (status === 'ready_for_delivery') {
-      btnHtml = `<button class="queue-card-btn pickup" onclick="event.stopPropagation();advanceQueueOrder('${order.id}', 'delivered')">${t('📦 Mark Picked Up')}</button>`;
+      // Walk-ins get "Mark Picked Up" so the cashier can hand the bag to the
+      // customer at the counter. Delivery-bound bags (commercial at Foothill)
+      // get marked delivered by the driver app when the delivery stop is
+      // completed — the POS shouldn't advance them.
+      if (!isDelivery) {
+        btnHtml = `<button class="queue-card-btn pickup" onclick="event.stopPropagation();advanceQueueOrder('${order.id}', 'delivered')">${t('📦 Mark Picked Up')}</button>`;
+      } else {
+        btnHtml = `<div style="text-align:center;font-size:12px;color:var(--gray-500);padding:8px 0;font-style:italic">${t('Awaiting driver pickup')}</div>`;
+      }
     }
 
-    // 3-step delete: tapping the card toggles selection (step 1), the
-    // Delete button only renders when this card is selected (step 2),
-    // and the confirm modal is the final guardrail (step 3 — see
-    // openDeletePosOrderModal). The button uses stopPropagation so a tap
-    // on Delete doesn't bubble back up and deselect the card.
+    // 3-step delete + reprint actions are walk-in-specific flows (reprinting
+    // a counter receipt, deleting a walk-in sale). Hide them for delivery
+    // orders — those aren't payable here, they're invoiced via the
+    // delivery flow, and they belong to a route_stop that shouldn't be
+    // orphaned by a POS-side delete.
     const isSelected  = (_selectedQueueOrderId === order.id);
     const cardClass   = 'queue-card' + (isSelected ? ' selected' : '');
-    // When the card is selected, surface two card-level actions side by
-    // side: Reprint (for the laundering team to grab another bag tag)
-    // and Delete (existing 3-step destructive flow). Both stop bubbling
-    // so they don't deselect the card.
-    const cardActions = isSelected ? `
+    const cardActions = (isSelected && !isDelivery && status !== 'picked_up') ? `
       <div class="queue-card-actions">
         <button class="queue-card-reprint-btn" onclick="event.stopPropagation();reprintQueueOrder('${order.id}')">${t('🖨 Reprint receipt')}</button>
         <button class="queue-card-delete-btn" onclick="event.stopPropagation();openDeletePosOrderModal('${order.id}')">${t('✕ Delete order')}</button>
       </div>
     ` : '';
 
+    // Time-line label varies by status: dropped off / dropped here / ready
+    let timeLabel;
+    if (status === 'picked_up')           timeLabel = t('Dropped off');
+    else if (status === 'processing')     timeLabel = t('In queue');
+    else                                  timeLabel = t('Ready');
+
     return `
       <div class="${cardClass}" onclick="togglePosCardSelected('${order.id}')">
         <div class="queue-card-top">
           <div class="queue-card-avatar" style="${name !== 'Retail' ? 'background:var(--accent);' : ''}">${esc(initials)}</div>
           <div class="queue-card-name">${esc(name)}</div>
+          ${deliveryBadge}
           <div class="queue-card-order">#${order.order_number}</div>
         </div>
         <div class="queue-card-detail">${detail ? esc(detail) : t('No items')}</div>
-        <div class="queue-card-time">${status === 'processing' ? t('Dropped off') : t('Ready')} ${timeAgo}</div>
+        <div class="queue-card-time">${timeLabel} ${timeAgo}</div>
         ${launHtml}
         ${btnHtml}
         ${cardActions}
       </div>
     `;
+  }
+
+  // Session 149 placeholder — the real POS Intake panel ships next session.
+  // For now, this just confirms the tap target is wired and points the
+  // attendant at the temporary workaround (use admin until intake is built).
+  function openPosIntakePlaceholder(orderId) {
+    const order = (queueOrders || []).find(o => o.id === orderId);
+    const ord   = order ? '#' + order.order_number : '';
+    showToast(t('Intake panel coming next session. For ' + ord + ' use admin for now.'), 'info');
   }
 
   /* ─── Launderer picker (POS) ───────────────────────────────────
@@ -4689,9 +4745,13 @@
     // text the customer "your laundry is ready for pickup". Uses the hydrated
     // cache built by loadWalkInQueue(), so no extra DB round-trip is needed.
     // Fire-and-forget — a send failure must not block the status update.
+    //
+    // Session 149: gated on source='walk_in' so commercial delivery orders
+    // processed at Foothill don't get "ready for counter pickup" texts —
+    // those bags are headed onto a driver's truck, not the customer's car.
     if (newStatus === 'ready_for_delivery') {
       const cachedOrder = (queueOrders || []).find(o => o.id === orderId);
-      if (cachedOrder && cachedOrder._customerPhone) {
+      if (cachedOrder && cachedOrder.source === 'walk_in' && cachedOrder._customerPhone) {
         sendPosTemplateSms(
           'walkin_order_ready',
           { order_number: cachedOrder.order_number },
