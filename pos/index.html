@@ -4072,7 +4072,7 @@
       // The badge in the card render distinguishes walk-in counter-pickups
       // (🏪 Retail) from delivery-bound bags (🚚 For delivery).
       let query = db.from('orders')
-        .select('id, order_number, status, source, customer_id, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at')
+        .select('id, order_number, status, source, site_id, customer_id, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at')
         .in('status', ['picked_up', 'processing', 'ready_for_delivery']);
 
       // session 111: Apply null-safe filter for default site
@@ -5730,6 +5730,20 @@ ${taxAmt > 0 ? `    <text-line>${('Tax (' + (TAX_RATE * 100).toFixed(2) + '%)').
     // Order number is the secondary line. Store header is demoted to
     // the footer area where it's still legible but doesn't compete.
     const escMarkup = s => String(s == null ? '' : s).replace(/[<>&]/g, '');
+    // Session 149: footer now includes the physical site address so
+    // customers know where the location is (standard retail receipt
+    // convention). Pulls from sites.address — prefer the order's own
+    // site_id (correct for reprints across device switches) and fall
+    // back to whatever site this device is signed into.
+    const _siteLookupId = order?.site_id || currentSiteId;
+    const _site = _siteLookupId ? (allSites || []).find(s => s.id === _siteLookupId) : null;
+    const _siteAddress = _site?.address || '';
+    const _addrParts = _siteAddress.split(',').map(p => p.trim()).filter(Boolean);
+    const _street    = _addrParts[0] || '';
+    const _cityState = _addrParts.slice(1).join(', ');
+    const addressXml = (_street || _cityState) ? `
+    ${_street    ? `<text-line>${escMarkup(_street)}</text-line>`    : ''}
+    ${_cityState ? `<text-line>${escMarkup(_cityState)}</text-line>` : ''}` : '';
     return `<?xml version="1.0" encoding="UTF-8"?>
 <document>
   <align mode="center">
@@ -5747,7 +5761,7 @@ ${lineItemsXml}
   </align>
   <feed unit="mm" quantity="4"/>
   <align mode="center">
-    <text-line><bold>FAMILY LAUNDRY</bold></text-line>
+    <text-line><bold>FAMILY LAUNDRY</bold></text-line>${addressXml}
     <text-line>www.familylaundry.com</text-line>
     <text-line>Thank you!</text-line>
     <text-line>Questions? info@familylaundry.com</text-line>
@@ -5783,6 +5797,15 @@ ${lineItemsXml}
       <tr><td><strong>Subtotal</strong></td><td style="text-align:right"><strong>$${subtotal.toFixed(2)}</strong></td></tr>
       ${taxAmt > 0 ? `<tr><td>Tax (${(TAX_RATE * 100).toFixed(2)}%)</td><td style="text-align:right">$${taxAmt.toFixed(2)}</td></tr>` : ''}
       ${tipAmt > 0 ? `<tr><td>Tip</td><td style="text-align:right">$${tipAmt.toFixed(2)}</td></tr>` : ''}`;
+    // Session 149: same site-address resolution as the Markup builder.
+    const _siteLookupIdH = order?.site_id || currentSiteId;
+    const _siteH = _siteLookupIdH ? (allSites || []).find(s => s.id === _siteLookupIdH) : null;
+    const _addrPartsH = (_siteH?.address || '').split(',').map(p => p.trim()).filter(Boolean);
+    const _streetH    = _addrPartsH[0] || '';
+    const _cityStateH = _addrPartsH.slice(1).join(', ');
+    const addressHtml = (_streetH || _cityStateH)
+      ? `<br>${esc(_streetH)}${_cityStateH ? '<br>' + esc(_cityStateH) : ''}`
+      : '';
     return `<!doctype html><html><head><title>Receipt ${orderNum}</title>
 <style>body{font-family:ui-monospace,Menlo,monospace;font-size:13px;padding:18px;width:280px;}
 .cust{font-size:22px;font-weight:800;text-align:center;letter-spacing:.02em;text-transform:uppercase;margin:0 0 4px}
@@ -5799,7 +5822,7 @@ td{padding:3px 0;border-bottom:1px dotted #ccc}
 <div class="meta">${now}</div>
 <table>${rows}${tipRows}</table>
 <div class="total">TOTAL: $${grandTotal}</div>
-<div class="brand"><strong>FAMILY LAUNDRY</strong><br>www.familylaundry.com</div>
+<div class="brand"><strong>FAMILY LAUNDRY</strong>${addressHtml}<br>www.familylaundry.com</div>
 <div class="foot">Thank you!<br>Questions? info@familylaundry.com</div>
 </body></html>`;
   }
