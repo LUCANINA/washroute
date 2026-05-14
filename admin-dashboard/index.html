@@ -18758,11 +18758,28 @@ ${oneCopy}
     filterCpOrders('billing', document.getElementById('cpof-done'));
   }
 
-  function printInvoice() {
+  async function printInvoice() {
     if (!cpBillingSelection.size) return;
     const orders = cpAllOrders
       .filter(o => cpBillingSelection.has(o.id))
       .sort((a, b) => (a.pickup_window_start || a.created_at) < (b.pickup_window_start || b.created_at) ? -1 : 1);
+    // Session 150: fetch customer_transactions for the selected orders so the
+    // receipt can show a separate "Account credit applied" line and a PAID row
+    // that reflects what was actually charged to the card (gross total minus
+    // any credit applied). Without this, an order paid with $20 credit + $X
+    // on card showed "PAID (Card) -$gross" — incorrect.
+    const _orderIds = orders.map(o => o.id);
+    const _creditByOrder = {};
+    if (_orderIds.length) {
+      const { data: _txns } = await db.from('customer_transactions')
+        .select('order_id,type,amount')
+        .in('order_id', _orderIds);
+      (_txns || []).forEach(t => {
+        if (t.type === 'credit_use') {
+          _creditByOrder[t.order_id] = (_creditByOrder[t.order_id] || 0) + parseFloat(t.amount || 0);
+        }
+      });
+    }
     const c = _panelCustomerData;
     const customerName = esc([c?.first_name_cache, c?.last_name_cache].filter(Boolean).join(' ') || 'Customer');
     const defaultAddr  = c?.addresses?.find(a => a.is_default) || c?.addresses?.[0];
@@ -18827,13 +18844,26 @@ ${oneCopy}
               <td style="text-align:right;padding:2px 0;font-size:12px">${fmtInvMoney(tipDol)}</td>
             </tr>` : '';
       const chargedTotal = _orderChargedTotal(o);
+      // Session 150: split paid amount across "Account credit applied" + the
+      // payment-method line so receipts honestly reflect mixed-tender orders.
+      // Skip the split when the order was paid entirely from credit
+      // (billing_payment_method='credit') — that path already shows
+      // "(Account Credit)" as the single paid line and there's no card amount.
+      const fullyPaidViaCredit = (o.billing_payment_method === 'credit');
+      const creditFromTxn = fullyPaidViaCredit ? 0 : (_creditByOrder[o.id] || 0);
+      const cardPaid = Math.round((chargedTotal - creditFromTxn) * 100) / 100;
+      const creditAppliedRow = creditFromTxn > 0 ? `
+            <tr>
+              <td style="padding:2px 0 2px 24px;font-size:12px;color:#059669">Account credit applied</td>
+              <td style="text-align:right;padding:2px 0;font-size:12px;color:#059669">−${fmtInvMoney(creditFromTxn)}</td>
+            </tr>` : '';
       // Payment status row — uses charged total so the "PAID" amount matches
       // what Stripe actually collected (subtotal + tip), not the pre-tip subtotal.
       const paidMethodLabel = o.billing_payment_method === 'credit' ? ' (Account Credit)' : o.billing_payment_method === 'check' ? ' (Check)' : o.billing_payment_method === 'cash' ? ' (Cash)' : o.stripe_payment_intent_id ? ' (Card)' : '';
       const paidRow = isPaid ? `
             <tr>
               <td style="padding:4px 0 0 24px;font-size:12px;font-weight:600;color:#059669">✓ PAID${paidMethodLabel}</td>
-              <td style="text-align:right;font-size:12px;font-weight:600;color:#059669;padding:4px 0 0">−${fmtInvMoney(chargedTotal)}</td>
+              <td style="text-align:right;font-size:12px;font-weight:600;color:#059669;padding:4px 0 0">−${fmtInvMoney(cardPaid)}</td>
             </tr>
             <tr>
               <td style="padding:4px 0 0 24px;font-size:12px;font-weight:700">Balance</td>
@@ -18847,6 +18877,7 @@ ${oneCopy}
           <table style="width:100%;border-collapse:collapse">
             ${lineRows}
             ${creditRows}
+            ${creditAppliedRow}
             ${tipRow}
             ${o.weight_lbs ? `<tr><td style="padding:2px 0 2px 24px;font-size:12px;color:#777">Weight</td><td style="text-align:right;padding:2px 0;font-size:12px;color:#777">${o.weight_lbs} lbs</td></tr>` : ''}
             <tr>
