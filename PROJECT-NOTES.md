@@ -1,5 +1,5 @@
 # WashRoute — Project Notes
-*Last updated: May 14, 2026 — Session 150. Morning audit + 3 cleanup fixes (Iyngkarran orphan auth, Joyce phone-OTP orphan, Baby Lee #4026 stop status drift), Lawanda Malone shell deleted, and a system-wide receipt audit that found + patched 3 paths where account-credit applications were hidden from receipts. Customer-facing impact: Wanda BoldenRoss #4069 ($20 credit + $140.95 card) used to show "PAID (Card) -$160.95" on admin invoice + "Total Paid $160.95" on customer email — both wrong vs the actual bank-statement charge. Now both correctly show the credit applied + actual card amount. Pricing-model exercise on Allister Lindamood's email also captured (April-only data: Option 1 flat $65/bag = +8% revenue; Option 2 $69/bag + $275/100lb subscription = +5%, but 81% rational uptake — viable retention play). Commits: 649d38a, ebb23c6, 71a5819.*
+*Last updated: May 14, 2026 — Session 150 (5 parts). **Pt 1:** Morning audit + 3 cleanup fixes (Iyngkarran orphan auth, Joyce phone-OTP orphan, Baby Lee #4026 stop status drift), Lawanda Malone shell deleted. **Pt 2:** System-wide receipt audit — found + patched 3 paths where account-credit applications were hidden from receipts (admin printInvoice, send-receipt edge fn v31, POS thermal + HTML). Wanda BoldenRoss #4069 ($20 credit + $140.95 card) now correctly shows the credit applied + actual card amount on all surfaces. **Pt 3:** Pricing-model exercise on Allister Lindamood's email (April-only data: Option 1 flat $65/bag = +8% revenue; Option 2 $69/bag + $275/100lb subscription = +5% but 81% rational uptake). **Pt 4:** POS multi-site unlock — order #4602 (David's test) tagged to Foothill site but RLS blocked POS from reading it. Migration `session_150_pos_device_site_id_and_rls` added `pos_devices.site_id` (NOT NULL, FK), backfilled Foothill Register → Foothill, replaced `pos_order_read` to allow walk-in-on-this-shift (existing) OR any active-processing order at the device's site (new). **Pt 5:** POS intake panel for delivery orders — replaces session-149 placeholder. Weight + bag count + auto base/overage + preserved line items + notes → `record_order_intake` RPC (same door admin uses). v1 deferred: add-ons, discounts, credit-at-intake, same-day surcharge UI. Commits: 649d38a, ebb23c6, 71a5819, a17105e, 035d625, c9ed974.*
 
 *Previously: May 13, 2026 — Session 149 (3 parts). **Pt 1:** Audited the April 11 split-order feature. Data layer wrote splits correctly, but the launderer report and per-launderer history view both ignored the splits table — primary launderer was getting full credit for every split order, 2nd/3rd participants got zero. Past-30-days impact: ~250 lbs of phantom credit on the most-affected primary, three launderers showing 0 lbs in the report despite folding 30–166 lbs each. Fixed report + history to join the assignments table, cleaned 2 dupe rows from a Confirm-Split double-tap on #3407, added UNIQUE constraint so the double-tap can't recur. **Pt 2:** Closed pt 1's tech-debt item — admin's three fold-assignment paths now route through `assign_order_launderers` RPC (with new `p_set_to_folding` flag, consolidated `folded` event type, old 3-arg overload dropped). **Pt 3:** Lit up the dormant multi-site foundation. Renamed Main → 23rd Ave (teal), Secondary → Foothill Blvd (coral), activated Foothill with addresses. Backfilled `default_site_id = Foothill` on 21 commercial accounts (Kasa Addison, Kasa Monarca, Meg Lamberton, Erika VanHarken, Extended Stay America, all 16 Kidango locations). Built kanban filter chip (23rd Ave default + Foothill + All) with persistence. Substituted "📍 Foothill" for rack labels on offsite orders. Extended `rack_order` RPC with `p_skip_rack` so Foothill orders advance to Ready without a rack assignment, plus single "Mark Ready" button in the rack panel that replaces the rack grid for non-default-site orders. Pending follow-up: POS "🚚 For Delivery" badge, driver "Load from Foothill" banner, and the long-standing `folded_by_id` dual-write cleanup from pt 1.*
 
@@ -22,6 +22,90 @@
 - Service-zone polygon overlaps (Hayward ↔ Concord 0.87 sq km, Concord ↔ Oakland 0.29, Berkeley ↔ Alameda 0.02, Hayward ↔ Alameda 0.02) — non-blocking, scheduled for a future zone-tightening session.
 - 16 unpaid delivered orders with `billing_status='failed'` and no Stripe card on file — pre-existing recovery candidates from session 83's batch retry; no change.
 - 2 oddities in Check 3: #2387 Katie Guadagno ($46.90) and #3841 Azucena Valencia ($9.95) both show `billing_status='paid'` with no Stripe payment intent — likely credit/cash, but worth confirming.
+
+---
+
+## Session 150 pt 5 — POS intake panel for delivery orders
+
+Replaces the session-149 placeholder (`openPosIntakePlaceholder` → toast). The Foothill attendant can now intake a dropped-off delivery order entirely from the POS, instead of bouncing to the admin Processing tab.
+
+**The flow.** Queue card's `✏️ Intake` button → `openPosIntake(orderId)` → fetches the order's service config → `posIntakeModal` opens prepopulated with customer name, "Customer estimate: N bags," and the customer-app bag count. Attendant types weight + (optionally) corrects bag count. The summary block recomputes live: `service.name · bags × base_price` + `lbs_overage × overage_rate` + preserved-from-booking line items (`delivery_fee`, `same_day_surcharge`, any customer-app addons) + Total. Optional notes textarea. Confirm → calls `record_order_intake` RPC (same transactional door admin uses) → advances status to `processing`, writes the new line_items + total_amount, logs attributed event. Toast → queue reloads → card disappears (now in processing) → also surfaces in admin kanban's Cleaning column.
+
+**Line-items rule.** `record_order_intake` replaces the order's `line_items` array wholesale, so the POS panel rebuilds the full list: new base + new overage (if any) + everything else preserved verbatim from `orders.line_items` (filtered by `type !== 'base' && type !== 'overage'`). Same convention admin's saveIntake follows by rebuilding from its `procAddons` state. Different surfaces, same downstream shape — receipt renderer and billing logic don't care which app entered the data.
+
+**Actor attribution.** Uses `shift.cashier_first_name + last_name + ' (POS)'` if PIN-locked, else `shift.cashier_first_name + ' (POS)'`, else `device.name`, else `'POS'`. Surfaces in `order_events` so admin can see who intaked what at which terminal.
+
+**v1 scope intentionally minimal:** no add-on prefs (Vinegar, Oxi at counter), no discount application, no credit-at-intake, no same-day-surcharge UI. Those belong to v2 once we know which Foothill attendants actually need at the counter vs admin tab. The generated `orders.is_same_day` column (session 148 pt 4) still drives the boolean — the RPC's `p_is_same_day` arg is passed for honesty but ignored on write (generated columns reject).
+
+**Bug caught in the same session:** initial deploy crashed on every Intake tap with "Service config missing" because `loadWalkInQueue`'s SELECT didn't include `service_id` (or `is_same_day`). Fix in `c9ed974` — added both columns to the select list. Both audits (Audit 1 DB-functions and Audit 2 client-side grep) only catch column drops, not missing-from-select bugs — worth adding a "new feature reads column X — does the query that loads X actually select it?" check to the QA skill.
+
+**Records touched.** 1 file modified (`pos/index.html`, +235/-10 then +1/-1 fix). 0 DB migrations (RPC already existed). 1 edge function deploy → none (no edge function changes). 2 commits (`035d625` + `c9ed974`).
+
+**Tech debt opened.**
+1. **POS intake v2 backlog** — add-ons / discount / credit-at-intake / same-day surcharge UI. Wait for operational signal from David before building.
+2. **Queue load select audit pattern** — when a new feature reads a column, verify the load query selects it. Worth a checklist item in `washroute-qa` skill.
+
+---
+
+## Session 150 pt 4 — POS multi-site unlock: device site_id + RLS broaden
+
+Session 149 pt 3 lit up the dormant multi-site foundation: customers get a `default_site_id`, the `set_order_site_on_insert` trigger auto-tags orders, and the admin kanban filter chip works. But when David tested it today by routing order #4602 to Foothill and looking at the POS, the order **showed in the admin kanban (Foothill filter) but not in the POS Retail Queue**. Three-layer alignment check: data tag ✓, UI filter ✓, RLS ✗.
+
+**Root cause.** `pos_order_read` RLS policy restricted POS reads to `source = 'walk_in'` only. The POS UI was broadened in commit `91b8e87` to include delivery orders, but the RLS policy was never updated to match — classic "ship the code, forget the DB layer" gap. RLS stripped #4602 (source=`customer_app`) before the POS query saw it.
+
+**Cleanest-path decision.** Three options surfaced:
+- (A) Add `pos_devices.site_id NOT NULL`, scope RLS to device's site.
+- (B) Add `pos_shifts.site_id`, scope per-shift (more flexibility).
+- (C) Pass site as JWT claim (non-standard).
+
+Picked (A). One POS device exists today (Foothill Register) and physical terminals don't move between locations. Adding site_id at the device level matches operational reality and keeps RLS simple. (B) would be overkill.
+
+**Migration `session_150_pos_device_site_id_and_rls`** (applied 2026-05-14 18:55ish UTC). Two parts:
+
+1. `ALTER TABLE pos_devices ADD COLUMN site_id UUID REFERENCES sites(id)` → backfill Foothill Register to Foothill Blvd site → `ALTER COLUMN ... SET NOT NULL`. Future POS devices MUST declare their site at creation.
+
+2. `DROP POLICY pos_order_read` → `CREATE POLICY pos_order_read` with two OR branches:
+   - **(a) Original walk-in-on-shift** (preserved verbatim): `source='walk_in' AND pos_shift_id IN (this device's shifts)`. No regression for existing retail flow.
+   - **(b) NEW site-scoped active processing**: `site_id IN (this device's site) AND status IN ('picked_up','processing','folding','ready_for_delivery')`. Allows reading any order — walk-in or delivery — sitting at this device's site in active processing states. Other sites' orders stay invisible.
+
+   Wrapped under `pos_session_active() AND (a OR b)`. Updates still flow through SECURITY DEFINER RPCs (`record_order_intake`, `rack_order`, etc.) so no UPDATE policy change needed.
+
+**Verification.** Post-migration: `(select site_id from pos_devices where name='Foothill Register') = (select site_id from orders where order_number=4602)` → TRUE. Status check → TRUE. David hard-refreshed POS → #4602 surfaced with "🚚 For delivery" badge + "Awaiting intake" status. End-to-end works.
+
+**Tech debt opened.**
+1. **POS `currentSiteId` still localStorage-driven.** The UI dropdown lets a Foothill terminal claim it's at 23rd Ave (or vice versa). Today's RLS catches that — server-side reads only honor the device's stored site, regardless of UI. But the UI is now inconsistent with the DB truth. Should read currentSiteId from `pos_devices.site_id` and remove the dropdown when a device is permanently assigned. Low priority — single device, no second site live yet.
+2. **Pattern for next code-broadening change:** when a UI query is broadened, audit the matching RLS policy in the same commit. This was a hidden 3-layer gap; we got lucky the test caught it before production. The QA skill should add a "did you broaden any UI query? did the RLS policy match?" check.
+
+**Records touched.** 1 migration applied. 1 RLS policy replaced (original snapshotted in the migration body for rollback). 0 file changes (this was a pure DB unlock — the POS code was already correct). Verified via mock JWT and live test.
+
+---
+
+## Session 150 pt 3 — Pricing-model exercise (Allister Lindamood reply)
+
+David's customer Allister wrote a thoughtful note about the subscription pause + per-bag pricing structure. David drafted two options for the reply:
+- **Option 1:** flat $65/bag (10% increase from current $59) for everyone, no subscription.
+- **Option 2:** $69/bag + bring back a $275/month subscription with weight allowance.
+
+Modeled both against April 2026 data (top 200 customers by revenue, normalized to per-month). Key inputs:
+- Top 200 average: 8.73 bags/mo, 185.2 lbs/mo, $529 monthly revenue
+- Median top-200: 125.5 lbs/mo
+- Total current monthly revenue (all 662 active customers): $170,291
+
+Results:
+
+| Scenario | Total monthly | Δ vs today |
+|---|---|---|
+| Today ($59/bag) | $170,291 | — |
+| Option 1 ($65/bag) | $184,409 | +$14K (+8%) |
+| Option 2 — 80 lb subscription | $189,634 | +$19K (+11%) |
+| Option 2 — 100 lb subscription | $179,041 | +$8.7K (+5%) |
+| Option 2 — 130 lb subscription | $167,752 | **−$2.5K (−1.5%)** |
+
+Rational-uptake check (subscribers for whom the sub is cheaper than $69/bag): 36% at 80 lb, **81% at 100 lb**, 99% at 130 lb.
+
+**Recommendation:** Option 1 if pure revenue + simplicity. Option 2 at 100 lb if retention story matters — 81% would save money, trades ~$5K/mo of Option 1's upside for a real "loyal-customer benefit" pitch. Avoid 130 lb (revenue loss) and 80 lb (perceived trap, only 36% benefit).
+
+Email reply not drafted yet — David held the decision pending more thought. Pricing exercise captured in chat for future reference.
 
 ---
 
