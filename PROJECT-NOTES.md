@@ -1,5 +1,71 @@
 # WashRoute — Project Notes
-*Last updated: May 13, 2026 — Session 149 (3 parts). **Pt 1:** Audited the April 11 split-order feature. Data layer wrote splits correctly, but the launderer report and per-launderer history view both ignored the splits table — primary launderer was getting full credit for every split order, 2nd/3rd participants got zero. Past-30-days impact: ~250 lbs of phantom credit on the most-affected primary, three launderers showing 0 lbs in the report despite folding 30–166 lbs each. Fixed report + history to join the assignments table, cleaned 2 dupe rows from a Confirm-Split double-tap on #3407, added UNIQUE constraint so the double-tap can't recur. **Pt 2:** Closed pt 1's tech-debt item — admin's three fold-assignment paths now route through `assign_order_launderers` RPC (with new `p_set_to_folding` flag, consolidated `folded` event type, old 3-arg overload dropped). **Pt 3:** Lit up the dormant multi-site foundation. Renamed Main → 23rd Ave (teal), Secondary → Foothill Blvd (coral), activated Foothill with addresses. Backfilled `default_site_id = Foothill` on 21 commercial accounts (Kasa Addison, Kasa Monarca, Meg Lamberton, Erika VanHarken, Extended Stay America, all 16 Kidango locations). Built kanban filter chip (23rd Ave default + Foothill + All) with persistence. Substituted "📍 Foothill" for rack labels on offsite orders. Extended `rack_order` RPC with `p_skip_rack` so Foothill orders advance to Ready without a rack assignment, plus single "Mark Ready" button in the rack panel that replaces the rack grid for non-default-site orders. Pending follow-up: POS "🚚 For Delivery" badge, driver "Load from Foothill" banner, and the long-standing `folded_by_id` dual-write cleanup from pt 1.*
+*Last updated: May 14, 2026 — Session 150. Morning audit + 3 cleanup fixes (Iyngkarran orphan auth, Joyce phone-OTP orphan, Baby Lee #4026 stop status drift), Lawanda Malone shell deleted, and a system-wide receipt audit that found + patched 3 paths where account-credit applications were hidden from receipts. Customer-facing impact: Wanda BoldenRoss #4069 ($20 credit + $140.95 card) used to show "PAID (Card) -$160.95" on admin invoice + "Total Paid $160.95" on customer email — both wrong vs the actual bank-statement charge. Now both correctly show the credit applied + actual card amount. Pricing-model exercise on Allister Lindamood's email also captured (April-only data: Option 1 flat $65/bag = +8% revenue; Option 2 $69/bag + $275/100lb subscription = +5%, but 81% rational uptake — viable retention play). Commits: 649d38a, ebb23c6, 71a5819.*
+
+*Previously: May 13, 2026 — Session 149 (3 parts). **Pt 1:** Audited the April 11 split-order feature. Data layer wrote splits correctly, but the launderer report and per-launderer history view both ignored the splits table — primary launderer was getting full credit for every split order, 2nd/3rd participants got zero. Past-30-days impact: ~250 lbs of phantom credit on the most-affected primary, three launderers showing 0 lbs in the report despite folding 30–166 lbs each. Fixed report + history to join the assignments table, cleaned 2 dupe rows from a Confirm-Split double-tap on #3407, added UNIQUE constraint so the double-tap can't recur. **Pt 2:** Closed pt 1's tech-debt item — admin's three fold-assignment paths now route through `assign_order_launderers` RPC (with new `p_set_to_folding` flag, consolidated `folded` event type, old 3-arg overload dropped). **Pt 3:** Lit up the dormant multi-site foundation. Renamed Main → 23rd Ave (teal), Secondary → Foothill Blvd (coral), activated Foothill with addresses. Backfilled `default_site_id = Foothill` on 21 commercial accounts (Kasa Addison, Kasa Monarca, Meg Lamberton, Erika VanHarken, Extended Stay America, all 16 Kidango locations). Built kanban filter chip (23rd Ave default + Foothill + All) with persistence. Substituted "📍 Foothill" for rack labels on offsite orders. Extended `rack_order` RPC with `p_skip_rack` so Foothill orders advance to Ready without a rack assignment, plus single "Mark Ready" button in the rack panel that replaces the rack grid for non-default-site orders. Pending follow-up: POS "🚚 For Delivery" badge, driver "Load from Foothill" banner, and the long-standing `folded_by_id` dual-write cleanup from pt 1.*
+
+## Session 150 — Morning rounds (May 14, 2026)
+
+**Audit fixes applied:**
+- **Iyngkarran Kumar** — deleted orphan auth user `33e00a81-...` (email iyngkarrankumar@gmail.com). Real account is phone-auth `d24c36a3-...`. Next magic-link request will attach his email cleanly via `send-magic-link` v17.
+- **Joyce Lee** — deleted orphan phone-OTP auth `9055c7e4-...` (phone +1 510-926-5142). Real account is email-auth `b45cf0d9-...` (joycelywrites@gmail.com). Next OTP request will attach via `prepare-phone-otp`.
+- **Baby Lee #4026** — flipped delivery `route_stop.status` from `en_route` → `complete`. `completed_at` was already stamped; the status column simply never synced.
+
+**Tech debt opened:**
+
+1. ⚠️ **Commercial orders can advance past pickup without a `route_stops` row.** Order #3516 (Covenant House) was created Apr 30, pickup window May 7 12-3pm, currently `ready_for_delivery` with a valid delivery stop on COMMERCIAL route May 14 12-3pm — but **no pickup `route_stops` row exists** and `actual_pickup_at` is NULL. The order advanced through pickup → processing → ready without anyone capturing who/when/which driver did the pickup. David's rule: "even commercial orders require scheduled pickups and deliveries." There is a code path (likely the recurring-order trigger, intake flow, or admin manual-advance) that lets a pickup leg skip route_stop creation. **Next-session work:** trace the create path on Covenant House's most recent recurring chain, find the missing INSERT, add a NOT EXISTS guard or require an explicit route_id at pickup-advance time. Order's delivery is fine for today — fix is structural, not data-cleanup.
+
+2. ⚠️ **Stop `status` can drift from `completed_at`.** Baby Lee #4026's delivery stop had `completed_at` stamped (matching the order's `actual_delivery_at`) but its `status` was stuck at `en_route`. The driver-app's `completeStop` flow does multiple non-atomic writes (`route_stops` update + `orders` update + `routes` update — see RPC #3 `complete_route_stop` in `RPC-REFACTOR-AUDIT.md`). Either a network blip dropped the status leg specifically, or there's a race in the driver app. **Highest daily-volume path in the system; this is the RPC #3 we already had queued.** Today's incident is one more reason to ship it.
+
+**Lawanda Malone shell deleted.** Phone `(510) 913-4480` was shared with active customer Craig Griffin. Lawanda had 0 orders / 0 LTV / 0 addresses / 0 transactions / 0 SMS / 0 subscriptions — completely empty since Apr 1. `DELETE FROM auth.users WHERE id = 'fed741b0-...'` cascaded through profiles + customers cleanly. The phone is now unclaimed at the auth layer; next OTP into `(510) 913-4480` will attach to Craig's email-auth user via `prepare-phone-otp`.
+
+**Other audit findings noted, not actioned this session:**
+- Service-zone polygon overlaps (Hayward ↔ Concord 0.87 sq km, Concord ↔ Oakland 0.29, Berkeley ↔ Alameda 0.02, Hayward ↔ Alameda 0.02) — non-blocking, scheduled for a future zone-tightening session.
+- 16 unpaid delivered orders with `billing_status='failed'` and no Stripe card on file — pre-existing recovery candidates from session 83's batch retry; no change.
+- 2 oddities in Check 3: #2387 Katie Guadagno ($46.90) and #3841 Azucena Valencia ($9.95) both show `billing_status='paid'` with no Stripe payment intent — likely credit/cash, but worth confirming.
+
+---
+
+## Session 150 pt 2 — Receipt audit: account-credit applications now show on every receipt
+
+**The trigger.** Wanda BoldenRoss #4069 paid $160.95 with $20 from her account credit + $140.95 on card (Mastercard ····1026). The admin invoice rendered "✓ PAID (Card) −$160.95" — wrong. Card only saw $140.95; the $20 credit deduction was invisible. David spotted it and asked for a system-wide audit.
+
+**The pattern.** `apply_customer_credit_to_order` RPC (session 134) inserts a `customer_transactions` row with `type='credit_use'` and an attributed `charge` row for the remaining card amount. The order's `total_amount` is the GROSS pre-credit value. Every receipt renderer that looked only at `order.total_amount` and `order.stripe_payment_intent_id` and not at `customer_transactions` showed the gross total as if it had hit the card.
+
+**Audit scope — all receipt/invoice render paths system-wide:**
+
+| Path | File / fn | Status |
+|---|---|---|
+| Admin HTML receipt | `admin/printInvoice` | ✅ Fixed (commit `649d38a`) |
+| Customer email receipt | `supabase/functions/send-receipt` v31 | ✅ Fixed (commit `ebb23c6`) |
+| POS thermal markup + HTML fallback | `pos/queuePosPrintJob`, `buildPosReceiptMarkup`, `buildPosReceiptHtml` | ✅ Fixed (commit `71a5819`) — future-proofing only (0 POS orders have ever had credit_use applied) |
+| Admin monthly INVOICE (HTML) | `admin/generateInvoiceHTML` | ⏳ Deferred — invoice-only path with no PAID line; risk only if credited orders appear on next-month statements |
+| Admin monthly INVOICE (jsPDF) | `admin/buildInvoicePdfBase64` | ⏳ Deferred — same caveat as above |
+| Customer-app order detail | `customer-app/index.html` ~5450 | ✅ OK — only shows "✓ Payment received" badge, no specific payment-method claim |
+| Driver app | `driver-app/index.html` | ✅ OK — doesn't display payment info |
+
+**The fix shape (consistent across all three patched paths):**
+1. Query `customer_transactions` for `order_id=X AND type='credit_use'`, sum amounts → `creditApplied`.
+2. Compute `cardPaid = chargedTotal - creditApplied`.
+3. Render a green "Account credit applied −$X" row between the line items and the tip/total block.
+4. Adjust the final paid amount to `cardPaid` (so it matches the customer's bank statement).
+5. Special-case `billing_payment_method='credit'` (already-handled fully-credit path) — skip the split, keep the existing single "(Account Credit)" label.
+
+**Verified balance invariant:** Grand Total = creditApplied + cardPaid (within rounding). For Wanda's #4069: $160.95 = $20.00 + $140.95 ✓
+
+**send-receipt v31 changes:**
+- `buildEmailHtml(order, customer, creditApplied = 0)` — new third arg
+- New `accountCreditHtml` row appended to creditItemsHtml in the totals block
+- Final total label flips to "Paid by Card" with `cardPaid` amount when mixed-tender
+- Deno handler fetches transactions before calling buildEmailHtml, non-fatal on error
+
+**POS changes (`pos/index.html`):**
+- `queuePosPrintJob` does one extra SELECT for credit_use, sets `order._creditApplied`
+- Both `buildPosReceiptMarkup` (Star thermal XML) and `buildPosReceiptHtml` (fallback) render a "Credit applied / Paid by card" block after TOTAL when > 0
+- POS bag-tag wiring (session 149 WIP for printing customer address under name) was also completed in the same commit since it was sitting unstaged in pos/index.html
+
+**Allister Lindamood pricing-model exercise (April 2026 baseline):** modeled current $59/bag against two proposed options for his thoughtful-customer reply. Top 200 customers in April: 8.73 bags/mo avg, 185.2 lbs/mo avg, $529/mo revenue avg. Headline: Option 1 (flat $65/bag) = +$14K/mo (+8%) clean revenue uplift, simple message. Option 2 ($69/bag + $275/100lb subscription) = +$8.7K/mo (+5%), 81% of top 200 would rationally subscribe (saving an avg $11/mo) — meaningful retention story but ~$5K/mo less revenue than Option 1. Worst variant: Option 2 at 130 lb allowance LOSES money (-1.5%) — would be a giveaway. Recommended Option 2 at 100 lb if retention matters; Option 1 if pure revenue / simplicity. Conversation captured in chat; no email drafted yet.
+
+---
 
 ## Session 149 — Split-order feature audit + reporting fix
 
