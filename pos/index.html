@@ -2296,6 +2296,58 @@
         </div>
       </div>
 
+      <!-- ─── POS Intake modal (session 150 pt 5) ───────────────────
+           Replaces the session-149 placeholder. Weighs delivery orders
+           dropped off at Foothill, calculates base + overage, calls
+           record_order_intake RPC (same transactional door admin uses).
+           v1 scope: weight + bag count + notes. Add-ons, discount, and
+           credit application deferred to v2.
+           ──────────────────────────────────────────────────────── -->
+      <div class="modal-overlay" id="posIntakeModal">
+        <div class="modal" style="max-width: 480px;">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title" id="posIntakeTitle" data-i18n>Intake order</div>
+              <div class="modal-sub" id="posIntakeSub">—</div>
+            </div>
+            <button class="modal-close" onclick="closePosIntake()">×</button>
+          </div>
+          <div class="modal-body">
+            <div id="posIntakeCustomer" style="padding:10px 14px;background:var(--gray-50);border-radius:10px;margin-bottom:14px;"></div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+              <div>
+                <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-500);margin-bottom:4px;" data-i18n>Weight (lbs)</label>
+                <input type="number" inputmode="decimal" step="0.1" min="0" id="posIntakeWeight"
+                  style="width:100%;padding:12px;border:1px solid var(--gray-200);border-radius:10px;font-size:18px;font-weight:600;text-align:center;"
+                  oninput="recalcPosIntake()" placeholder="0.0">
+              </div>
+              <div>
+                <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-500);margin-bottom:4px;" data-i18n>Bag count</label>
+                <input type="number" inputmode="numeric" step="1" min="1" id="posIntakeBags"
+                  style="width:100%;padding:12px;border:1px solid var(--gray-200);border-radius:10px;font-size:18px;font-weight:600;text-align:center;"
+                  oninput="recalcPosIntake()">
+              </div>
+            </div>
+
+            <div id="posIntakeSummary" style="background:var(--gray-50);border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px;"></div>
+
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-500);margin-bottom:4px;" data-i18n>Notes (optional)</label>
+              <textarea id="posIntakeNotes" rows="2" placeholder="Special instructions, condition, etc."
+                style="width:100%;padding:10px;border:1px solid var(--gray-200);border-radius:10px;font-size:14px;resize:vertical;font-family:inherit;"></textarea>
+            </div>
+
+            <div id="posIntakeError" style="display:none;color:var(--red);background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;font-size:13px;margin-top:10px;"></div>
+
+            <div class="modal-actions" style="margin-top: 18px; display:flex; gap:8px;">
+              <button class="btn" style="flex:1; background:var(--gray-100); border:none; color:var(--gray-700); padding:12px; border-radius:8px; font-weight:600; cursor:pointer;" onclick="closePosIntake()" data-i18n>Cancel</button>
+              <button class="btn btn-primary" id="posIntakeConfirmBtn" style="flex:2; padding:12px; border-radius:8px; font-weight:700; cursor:pointer;" onclick="confirmPosIntake()" data-i18n>⚖️ Save &amp; Start Processing</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ─── Refund modal ──────────────────────────────────── -->
       <div class="modal-overlay" id="refundModal">
         <div class="modal" style="max-width: 480px;">
@@ -4476,10 +4528,9 @@
     // stopPropagation so the action click doesn't ALSO toggle card selection.
     let btnHtml = '';
     if (status === 'picked_up') {
-      // Session 149: intake panel itself is queued for the next session.
-      // For now we just surface the tap target so attendants can see the
-      // surface area exists and report any layout issues.
-      btnHtml = `<button class="queue-card-btn ready" onclick="event.stopPropagation();openPosIntakePlaceholder('${order.id}')">${t('✏️ Intake')}</button>`;
+      // Session 150 pt 5: real intake panel ships here. Opens posIntakeModal,
+      // calls record_order_intake RPC on confirm, refreshes the queue.
+      btnHtml = `<button class="queue-card-btn ready" onclick="event.stopPropagation();openPosIntake('${order.id}')">${t('✏️ Intake')}</button>`;
     } else if (status === 'processing') {
       if (hasAssignment) {
         btnHtml = `<button class="queue-card-btn ready" onclick="event.stopPropagation();advanceQueueOrder('${order.id}', 'ready_for_delivery')">${t('✅ Mark Ready')}</button>`;
@@ -4533,13 +4584,187 @@
     `;
   }
 
-  // Session 149 placeholder — the real POS Intake panel ships next session.
-  // For now, this just confirms the tap target is wired and points the
-  // attendant at the temporary workaround (use admin until intake is built).
-  function openPosIntakePlaceholder(orderId) {
+  // ───────────────────────────────────────────────────────────────
+  // POS Intake panel (session 150 pt 5)
+  // Replaces the session-149 placeholder. Weighs delivery orders
+  // dropped at Foothill, calculates base + overage, calls the same
+  // record_order_intake RPC the admin uses. v1 keeps it minimal:
+  // weight + bag count + notes. Add-ons / discounts / credit-at-intake
+  // belong to v2 once we know which of those Foothill attendants
+  // actually need at the counter.
+  // ───────────────────────────────────────────────────────────────
+  let _posIntakeOrder = null;
+  let _posIntakeSvc   = null;
+
+  async function openPosIntake(orderId) {
     const order = (queueOrders || []).find(o => o.id === orderId);
-    const ord   = order ? '#' + order.order_number : '';
-    showToast(t('Intake panel coming next session. For ' + ord + ' use admin for now.'), 'info');
+    if (!order) { showToast(t('Order not found'), 'error'); return; }
+    _posIntakeOrder = order;
+
+    // Fetch the service row to know pricing (base, lbs/bag, overage rate).
+    // Cached fetch — services rarely change and there's typically one per order.
+    const { data: svc, error: svcErr } = await db.from('services')
+      .select('id, name, base_price, lbs_per_bag, overage_rate_per_lb, pricing_type')
+      .eq('id', order.service_id)
+      .single();
+    if (svcErr || !svc) {
+      showToast(t('Service config missing — use admin to intake this order'), 'error');
+      _posIntakeOrder = null;
+      return;
+    }
+    _posIntakeSvc = svc;
+
+    // Populate the panel
+    document.getElementById('posIntakeTitle').textContent = `${t('Intake order')} #${order.order_number}`;
+    document.getElementById('posIntakeSub').textContent = svc.name || t('Wash & Fold');
+    document.getElementById('posIntakeCustomer').innerHTML = `
+      <div style="font-size:14px;font-weight:700">${esc(order._customerName || t('Customer'))}</div>
+      <div style="font-size:12px;color:var(--gray-500);margin-top:2px">
+        ${t('Customer estimate')}: ${order.total_bags || 1} ${t('bag')}${order.total_bags === 1 ? '' : 's'}
+      </div>`;
+    document.getElementById('posIntakeWeight').value = '';
+    document.getElementById('posIntakeBags').value   = order.total_bags || 1;
+    document.getElementById('posIntakeNotes').value  = '';
+    document.getElementById('posIntakeError').style.display = 'none';
+
+    recalcPosIntake();
+    showModal('posIntakeModal');
+    // Defer focus so the modal animation doesn't steal the keyboard.
+    setTimeout(() => document.getElementById('posIntakeWeight')?.focus(), 100);
+  }
+
+  // Live recalculation of the totals block as the attendant types.
+  function recalcPosIntake() {
+    if (!_posIntakeSvc || !_posIntakeOrder) return;
+    const weight = parseFloat(document.getElementById('posIntakeWeight').value) || 0;
+    const bags   = parseInt(document.getElementById('posIntakeBags').value, 10) || 0;
+    const pricePerBag = parseFloat(_posIntakeSvc.base_price || 0);
+    const ovgRate     = parseFloat(_posIntakeSvc.overage_rate_per_lb || 3);
+    const lbsPerBag   = parseInt(_posIntakeSvc.lbs_per_bag || 25, 10);
+
+    const base       = bags * pricePerBag;
+    const overageLbs = Math.max(0, weight - bags * lbsPerBag);
+    const overage    = Math.round(overageLbs * ovgRate * 100) / 100;
+
+    // Preserve any non-intake line items already on the order (delivery_fee,
+    // same_day_surcharge, prior addons). The intake replaces base + overage
+    // ONLY; everything else stays. Same rule the admin's saveIntake follows
+    // implicitly by passing the full re-computed list (it just rebuilds them
+    // from procAddons state; we don't have that state on POS, so we preserve
+    // the existing rows verbatim).
+    const existing = Array.isArray(_posIntakeOrder.line_items) ? _posIntakeOrder.line_items : [];
+    const preserved = existing.filter(li => li.type !== 'base' && li.type !== 'overage');
+    const preservedTotal = preserved.reduce((s, li) => s + Number(li.amount || 0), 0);
+
+    const total = Math.round((base + overage + preservedTotal) * 100) / 100;
+
+    const fmt = n => '$' + Number(n).toFixed(2);
+    const summary = document.getElementById('posIntakeSummary');
+    summary.innerHTML = `
+      <div style="display:flex;justify-content:space-between;padding:3px 0">
+        <span>${esc(_posIntakeSvc.name)} · ${bags} ${t('bag')}${bags === 1 ? '' : 's'} × ${fmt(pricePerBag)}</span>
+        <span>${fmt(base)}</span>
+      </div>
+      ${overage > 0 ? `<div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--amber-700,#b45309)">
+        <span>${overageLbs.toFixed(1)} lbs ${t('overage')} × ${fmt(ovgRate)}/lb</span>
+        <span>${fmt(overage)}</span>
+      </div>` : ''}
+      ${preserved.map(li => `<div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--gray-600)">
+        <span>${esc(li.label || li.type)}</span>
+        <span>${fmt(li.amount)}</span>
+      </div>`).join('')}
+      <div style="display:flex;justify-content:space-between;padding:8px 0 2px;margin-top:6px;border-top:1px solid var(--gray-200);font-weight:800;font-size:15px">
+        <span>${t('Total')}</span>
+        <span>${fmt(total)}</span>
+      </div>`;
+  }
+
+  async function confirmPosIntake() {
+    if (!_posIntakeOrder || !_posIntakeSvc) return;
+    const weight = parseFloat(document.getElementById('posIntakeWeight').value);
+    const bags   = parseInt(document.getElementById('posIntakeBags').value, 10);
+    const notes  = (document.getElementById('posIntakeNotes').value || '').trim();
+    const errEl  = document.getElementById('posIntakeError');
+    errEl.style.display = 'none';
+
+    if (!weight || weight <= 0) {
+      errEl.textContent = t('Please enter the order weight.');
+      errEl.style.display = '';
+      document.getElementById('posIntakeWeight')?.focus();
+      return;
+    }
+    if (!bags || bags <= 0) {
+      errEl.textContent = t('Please enter the bag count.');
+      errEl.style.display = '';
+      document.getElementById('posIntakeBags')?.focus();
+      return;
+    }
+
+    const btn = document.getElementById('posIntakeConfirmBtn');
+    btn.disabled = true; btn.textContent = t('Saving…');
+
+    const pricePerBag = parseFloat(_posIntakeSvc.base_price || 0);
+    const ovgRate     = parseFloat(_posIntakeSvc.overage_rate_per_lb || 3);
+    const lbsPerBag   = parseInt(_posIntakeSvc.lbs_per_bag || 25, 10);
+    const base        = bags * pricePerBag;
+    const overageLbs  = Math.max(0, weight - bags * lbsPerBag);
+    const overage     = Math.round(overageLbs * ovgRate * 100) / 100;
+
+    const existing = Array.isArray(_posIntakeOrder.line_items) ? _posIntakeOrder.line_items : [];
+    const preserved = existing.filter(li => li.type !== 'base' && li.type !== 'overage');
+    const preservedTotal = preserved.reduce((s, li) => s + Number(li.amount || 0), 0);
+    const total = Math.round((base + overage + preservedTotal) * 100) / 100;
+
+    // Rebuild line_items: base + (overage if any) + everything preserved from the
+    // original booking. Same shape admin uses so downstream consumers (receipt
+    // renderer, billing logic) don't care which app entered the data.
+    const lineItems = [
+      { type: 'base', label: `${_posIntakeSvc.name} · ${bags} bag${bags === 1 ? '' : 's'} × $${pricePerBag.toFixed(2)}`, amount: base, taxable: false },
+    ];
+    if (overage > 0) {
+      lineItems.push({ type: 'overage', label: `${overageLbs.toFixed(1)} lbs overage × $${ovgRate.toFixed(2)}/lb`, amount: overage, taxable: false });
+    }
+    preserved.forEach(li => lineItems.push(li));
+
+    // Attribute the action to the active cashier (PIN-locked) or the device.
+    const actorName = (shift?.cashier_first_name && shift?.cashier_last_name)
+      ? `${shift.cashier_first_name} ${shift.cashier_last_name} (POS)`
+      : (shift?.cashier_first_name ? `${shift.cashier_first_name} (POS)` : (device?.name || 'POS'));
+
+    const { error } = await db.rpc('record_order_intake', {
+      p_order_id:       _posIntakeOrder.id,
+      p_weight_lbs:     weight,
+      p_bags:           bags,
+      p_total_amount:   total,
+      p_line_items:     lineItems,
+      p_service_id:     _posIntakeSvc.id,
+      p_discount_id:    null,
+      p_is_same_day:    !!_posIntakeOrder.is_same_day,
+      p_notes:          notes || null,
+      p_credit_applied: 0,
+      p_customer_id:    _posIntakeOrder.customer_id,
+      p_actor_name:     actorName,
+    });
+
+    if (error) {
+      errEl.textContent = error.message;
+      errEl.style.display = '';
+      btn.disabled = false; btn.textContent = t('⚖️ Save & Start Processing');
+      return;
+    }
+
+    const movedNum = _posIntakeOrder.order_number;
+    closePosIntake();
+    showToast(`${t('Order')} #${movedNum} → ${t('Processing')}`, 'success');
+    await loadWalkInQueue();
+  }
+
+  function closePosIntake() {
+    closeAll();
+    _posIntakeOrder = null;
+    _posIntakeSvc = null;
+    const btn = document.getElementById('posIntakeConfirmBtn');
+    if (btn) { btn.disabled = false; btn.textContent = t('⚖️ Save & Start Processing'); }
   }
 
   /* ─── Launderer picker (POS) ───────────────────────────────────
