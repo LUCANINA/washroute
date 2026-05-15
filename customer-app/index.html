@@ -359,6 +359,31 @@
     .tip-custom-input { flex: 1; padding: 9px 12px; border: 1.5px solid var(--gray-200); border-radius: 8px; font-size: 15px; font-family: inherit; color: var(--text); outline: none; }
     .tip-custom-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
 
+    /* ── Confirm Order — compact summary card layout (session 152 pt 3) ── */
+    /* Each review section (Service / Preferences / Pickup / Delivery) collapses
+       to a one-or-two-line summary with an Edit link. Tap Edit jumps back to
+       the relevant step. Pricing card stays expanded. */
+    .confirm-summary-card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; }
+    .confirm-summary-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .confirm-summary-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); }
+    .confirm-summary-edit { font-size: 13px; font-weight: 600; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0; font-family: inherit; }
+    .confirm-summary-body { font-size: 14px; color: var(--text); line-height: 1.45; }
+    .confirm-summary-body .sub { font-size: 12.5px; color: var(--gray-500); margin-top: 2px; display: block; }
+
+    /* Sticky Place Order bar — fixed above the bottom nav, only visible on the
+       confirm step (toggled by body.confirm-active). Total lives in its OWN
+       element above the button so existing btn.textContent assignments in
+       placeOrder() / renderConfirmAuth() don't disturb the total display. */
+    .confirm-cta-bar { position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 430px; background: white; border-top: 1px solid var(--gray-200); padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 99; box-shadow: 0 -6px 16px rgba(0,0,0,0.05); display: none; box-sizing: border-box; }
+    body.confirm-active .confirm-cta-bar { display: block; }
+    body.confirm-active .main-content { padding-bottom: 200px; }
+    .confirm-cta-total-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; padding: 0 2px; }
+    .confirm-cta-total-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-500); }
+    .confirm-cta-total-amount { font-size: 19px; font-weight: 800; color: var(--navy); }
+    .confirm-cta-bar .btn-primary { width: 100%; margin: 0; }
+    .confirm-cta-edit { display: block; width: 100%; background: none; border: none; font-size: 13px; color: var(--gray-500); padding: 10px 0 2px; cursor: pointer; text-align: center; font-family: inherit; }
+    .confirm-cta-edit:hover { color: var(--gray-700); }
+
     /* ── ACCOUNT ── */
     .acct-hero { background: var(--navy); padding: 24px 20px 20px; color: white; flex-shrink: 0; }
     .acct-top { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
@@ -1295,10 +1320,10 @@
           </div>
         </div>
 
-        <div style="height:8px"></div>
-        <button class="btn-primary" id="btn-place" onclick="placeOrder()">Place Order</button>
-        <div style="height:10px"></div>
-        <button class="btn-secondary" onclick="goOrderStep(1)" style="font-size:14px">← Edit Details</button>
+        <!-- Session 152 pt 3: Place Order + Edit Details moved to the fixed
+             .confirm-cta-bar below #screen-new-order so they're always visible
+             on this step regardless of scroll. Help footer stays in the
+             scroll area so it's visible just above the sticky CTA. -->
         <div class="order-help">Need help? Visit <a href="https://familylaundry.com" target="_blank" style="color:var(--accent)">familylaundry.com</a></div>
       </div>
 
@@ -1653,6 +1678,18 @@
   </div>
 
   <!-- ═══ BOTTOM NAV ═══ -->
+  <!-- Sticky Place Order bar — session 152 pt 3. Total lives in #confirm-cta-total
+       (outside the button) so existing btn.textContent assignments in
+       placeOrder() and renderConfirmAuth() don't disturb the total display. -->
+  <div class="confirm-cta-bar" id="confirm-cta-bar">
+    <div class="confirm-cta-total-row">
+      <span class="confirm-cta-total-label">Total</span>
+      <span class="confirm-cta-total-amount" id="confirm-cta-total">$0.00</span>
+    </div>
+    <button class="btn-primary" id="btn-place" onclick="placeOrder()">Place Order</button>
+    <button class="confirm-cta-edit" onclick="goOrderStep(0)">← Edit details</button>
+  </div>
+
   <nav class="bottom-nav" id="bottom-nav" style="display:none">
     <button class="nav-btn active" id="nav-home" onclick="goTo('home')">
       <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
@@ -1824,6 +1861,9 @@ function showScreen(id) {
   el?.querySelector('.main-content')?.scrollTo(0, 0);
   // On desktop, the auth screen needs full-width for the split layout
   document.body.classList.toggle('on-auth-screen', id === 'auth');
+  // Session 152 pt 3: always hide the sticky Place Order bar when leaving the
+  // new-order flow. goOrderStep(4) re-adds it when the user lands on confirm.
+  if (id !== 'new-order') document.body.classList.remove('confirm-active');
 }
 
 function goTo(page) {
@@ -3550,6 +3590,10 @@ async function goOrderStep(step) {
   if (step === 0) { initOrderStep0(); }
   orderStep = step;
   renderStep(step);
+  // Session 152 pt 3: toggle the sticky Place Order bar so it's only visible
+  // on the confirm step. The body class also extends .main-content's bottom
+  // padding so content can scroll above the bar.
+  document.body.classList.toggle('confirm-active', step === 4);
 }
 
 async function renderStep(step) {
@@ -4562,49 +4606,64 @@ function buildConfirmSummary() {
   const delDate     = draft.deliveryDate ? fmt(new Date(draft.deliveryDate + 'T12:00:00')) : '—';
   const delWinLabel = delWin ? delWin.label : '—';
 
+  // Session 152 pt 3: collapsed summaries replace the previous 4 separate
+  // detail cards (Service Details, Preferences, Pickup, Delivery). Each
+  // becomes a one-or-two-line card with an "Edit →" link that jumps back
+  // to the step where the user originally chose that thing. Pricing card
+  // stays fully expanded since the line-item breakdown is what informs the
+  // decision to pay.
+
+  // Preferences one-liner: list paid add-ons by name; otherwise "Standard preferences".
+  const paidAddons = globalPrefs
+    .filter(g => draft.prefs[g.id] && (draft.prefs[g.id].priceMod || 0) > 0)
+    .map(g => escHtml(g.name));
+  const prefsSummary = paidAddons.length
+    ? paidAddons.join(', ')
+    : '<span style="color:var(--gray-500)">Standard preferences</span>';
+
+  // Service details one-liner: "Wash & Fold · 1 bag" (+ frequency if recurring).
+  const svcSummary = `${escHtml(svc?.name || 'Service')} · ${bags} bag${bags!==1?'s':''}`
+    + (draft.recurring ? ` · <span style="color:var(--gray-500)">${escHtml(freqLabel)}</span>` : '');
+
+  // Final total including tip (also used by the sticky CTA bar below).
+  const tipAmtVal     = parseFloat(draft.tipAmount || 0);
+  const tipDollarsVal = draft.tipType === '%' ? Math.round(total * tipAmtVal) / 100 : tipAmtVal;
+  const finalTotal    = total + (tipAmtVal > 0 ? tipDollarsVal : 0);
+
   document.getElementById('confirm-summary').innerHTML = `
-    <div class="d-section-title">Service details</div>
-    <div class="confirm-card">
-      <div class="d-row">
-        <span class="d-key">Service</span>
-        <span class="d-val">${svc?.name || '—'}</span>
+    <div class="confirm-summary-card">
+      <div class="confirm-summary-head">
+        <div class="confirm-summary-title">Service</div>
+        <button class="confirm-summary-edit" onclick="goOrderStep(3)">Edit →</button>
       </div>
-      <div class="d-row">
-        <span class="d-key">Frequency</span>
-        <span class="d-val">${freqLabel}</span>
+      <div class="confirm-summary-body">${svcSummary}</div>
+    </div>
+
+    <div class="confirm-summary-card">
+      <div class="confirm-summary-head">
+        <div class="confirm-summary-title">Preferences</div>
+        <button class="confirm-summary-edit" onclick="goOrderStep(2)">Edit →</button>
       </div>
-      <div class="d-row">
-        <span class="d-key">Bags</span>
-        <span class="d-val">${bags} bag${bags!==1?'s':''}</span>
+      <div class="confirm-summary-body">${prefsSummary}</div>
+    </div>
+
+    <div class="confirm-summary-card">
+      <div class="confirm-summary-head">
+        <div class="confirm-summary-title">Pickup</div>
+        <button class="confirm-summary-edit" onclick="goOrderStep(1)">Edit →</button>
+      </div>
+      <div class="confirm-summary-body">
+        ${fmt(pickup)} · ${timeLabel}
+        <span class="sub">${escHtml(draft.address||'—')}</span>
       </div>
     </div>
 
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:20px;margin-bottom:8px">
-      <div class="d-section-title" style="margin:0">Preferences</div>
-      <button onclick="goOrderStep(2)" style="font-size:13px;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0">Edit →</button>
-    </div>
-    <div class="confirm-card">
-      ${prefRows}
-    </div>
-
-    <div class="d-section-title" style="margin-top:20px">Pickup</div>
-    <div class="confirm-card">
-      <div class="d-row">
-        <span class="d-key">Address</span>
-        <span class="d-val" style="font-size:13px">${escHtml(draft.address||'—')}</span>
+    <div class="confirm-summary-card">
+      <div class="confirm-summary-head">
+        <div class="confirm-summary-title">Delivery</div>
+        <button class="confirm-summary-edit" onclick="goOrderStep(1)">Edit →</button>
       </div>
-      <div class="d-row">
-        <span class="d-key">When</span>
-        <span class="d-val">${fmt(pickup)}<br><span style="font-size:12px;font-weight:400;color:var(--gray-400)">${timeLabel}</span></span>
-      </div>
-    </div>
-
-    <div class="d-section-title" style="margin-top:20px">Delivery</div>
-    <div class="confirm-card">
-      <div class="d-row">
-        <span class="d-key">When</span>
-        <span class="d-val">${delDate}<br><span style="font-size:12px;font-weight:400;color:var(--gray-400)">${delWinLabel}</span></span>
-      </div>
+      <div class="confirm-summary-body">${delDate} · ${delWinLabel}</div>
     </div>
 
     <div class="d-section-title" style="margin-top:20px">Pricing</div>
@@ -4616,22 +4675,18 @@ function buildConfirmSummary() {
       ${addonRows}
       ${routeFees.map(f => `<div class="d-row"><span class="d-key">${escHtml(f.name)}</span><span class="d-val">+${$m(parseFloat(f.amount||0))}</span></div>`).join('')}
       ${sameDayFee > 0 ? `<div class="d-row"><span class="d-key">⚡ Same-day surcharge</span><span class="d-val" style="color:var(--accent);font-weight:600;">+${$m(sameDayFee)}</span></div>` : ''}
-      ${(() => {
-        const tipAmt = parseFloat(draft.tipAmount || 0);
-        if (tipAmt <= 0) return '';
-        const tipDollars = draft.tipType === '%' ? Math.round(total * tipAmt) / 100 : tipAmt;
-        const tipLabel = draft.tipType === '%' ? `Team Tip (${tipAmt}%)` : 'Team Tip';
-        return `<div class="d-row"><span class="d-key">${tipLabel}</span><span class="d-val" style="color:var(--green);font-weight:600;">+${$m(tipDollars)}</span></div>`;
-      })()}
+      ${tipAmtVal > 0 ? `<div class="d-row"><span class="d-key">${draft.tipType === '%' ? `Team Tip (${tipAmtVal}%)` : 'Team Tip'}</span><span class="d-val" style="color:var(--green);font-weight:600;">+${$m(tipDollarsVal)}</span></div>` : ''}
       <div class="d-row" style="border-top:1.5px solid var(--gray-200);margin-top:4px;padding-top:14px">
         <span class="d-key" style="font-weight:700;font-size:15px">Estimated Total</span>
-        <span class="d-val" style="font-size:17px;font-weight:800;color:var(--navy)">${$m((() => {
-          const tipAmt = parseFloat(draft.tipAmount || 0);
-          const tipDollars = draft.tipType === '%' ? Math.round(total * tipAmt) / 100 : tipAmt;
-          return total + (tipAmt > 0 ? tipDollars : 0);
-        })())}</span>
+        <span class="d-val" style="font-size:17px;font-weight:800;color:var(--navy)">${$m(finalTotal)}</span>
       </div>
     </div>`;
+
+  // Sync the sticky CTA bar's total. It lives outside the button so
+  // placeOrder() and renderConfirmAuth() can keep using btn.textContent
+  // without disturbing this display.
+  const ctaTotalEl = document.getElementById('confirm-cta-total');
+  if (ctaTotalEl) ctaTotalEl.textContent = $m(finalTotal);
 
   // Session 141: render the promo code section in its sibling div.
   // It lives outside #confirm-summary so input state survives summary rerenders.
