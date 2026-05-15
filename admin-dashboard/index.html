@@ -10356,7 +10356,7 @@
   </align>
   <ruled-line/>
   <text-line size="${_nameSize}"><bold>${custNameXml}</bold></text-line>
-${custPhone ? `  <text-line>${_escXml(custPhone)}</text-line>\n` : ''}  <text-line>${_escXml(custAddr || '')}</text-line>
+${custPhone ? `  <text-line>${_escXml(custPhone)}</text-line>\n` : ''}${custAddr ? `  <text-line>${_escXml(custAddr)}</text-line>\n` : ''}
   <ruled-line/>
   <text-line><bold>${orderLine}</bold></text-line>
   <ruled-line/>
@@ -10786,6 +10786,36 @@ ${oneCopy}
     w.document.write(fullHtml); w.document.close();
   }
 
+  // Receipt-address resolver. Returns the delivery address for an order, with
+  // safe fallbacks. Used by printBagTag (manual reprint) and _autoPrintIntake
+  // (auto-print on Save & Start Processing). The receipt doubles as a bag tag
+  // — the driver reads the address off the printed slip when they pick the
+  // bag off the rack, so we always want the DELIVERY address, regardless of
+  // whether customer.address_cache is populated.
+  // Fallback chain: delivery_address → pickup_address → customer.address_cache.
+  async function _resolveDeliveryAddrForReceipt(o, cust) {
+    const addrId = o?.delivery_address_id || o?.pickup_address_id;
+    if (addrId) {
+      // Try cached addresses on the customer object (admin page loads them
+      // with the customer record). If we don't have a hit, fall through to
+      // a direct DB lookup so a stale cache never produces a blank receipt.
+      const cached = (cust?.addresses || []).find(a => a.id === addrId);
+      if (cached) {
+        const s = [cached.line1, cached.city].filter(Boolean).join(', ');
+        if (s) return s;
+      }
+      try {
+        const { data } = await db.from('addresses')
+          .select('line1, city').eq('id', addrId).maybeSingle();
+        if (data) {
+          const s = [data.line1, data.city].filter(Boolean).join(', ');
+          if (s) return s;
+        }
+      } catch (_) { /* fall through to cache */ }
+    }
+    return cust?.address_cache || '';
+  }
+
   async function printBagTag(overrideOrderId) {
     // Can be called from the order panel (no arg) or directly from a kanban card (with orderId)
     const targetId = overrideOrderId || opCurrentOrderId;
@@ -10806,7 +10836,10 @@ ${oneCopy}
     // allOrders has customer_id + allCustomers; kanban caches have o.customers embedded — use whichever is available
     const cust = allCustomers.find(c => c.id === o.customer_id) || o.customers || {};
     const custName = [cust.first_name_cache, cust.last_name_cache].filter(Boolean).join(' ').toUpperCase() || '—';
-    const custAddr = cust.address_cache || '';
+    // Receipt prints DELIVERY address always — so drivers can see where the
+    // bag is going even when the app is offline. Falls back to pickup
+    // address, then to the legacy customer.address_cache for safety.
+    const custAddr = await _resolveDeliveryAddrForReceipt(o, cust);
     const custPhone = cust.phone_cache || '';
     const orderNum = String(o.order_number || o.id.slice(-5).toUpperCase());
 
@@ -25603,7 +25636,10 @@ ${oneCopy}
     if (!o) return;
     const cust = allCustomers.find(c => c.id === (procCustomerId || o.customer_id)) || {};
     const custName = [cust.first_name_cache, cust.last_name_cache].filter(Boolean).join(' ').toUpperCase() || '—';
-    const custAddr = cust.address_cache || '';
+    // Receipt prints DELIVERY address always — so drivers can see where the
+    // bag is going even when the app is offline. Falls back to pickup
+    // address, then to the legacy customer.address_cache for safety.
+    const custAddr = await _resolveDeliveryAddrForReceipt(o, cust);
     const custPhone = cust.phone_cache || '';
     const orderNum = String(o.order_number || o.id.slice(-5).toUpperCase());
 
