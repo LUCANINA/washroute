@@ -4128,6 +4128,11 @@
   </div>
 
   <!-- ── CONTACT TAB ── -->
+  <!-- Session 151: Contact tab restructured into 3 cards.
+       Card 1 = identity only (was previously mixed with Price List + routing settings).
+       Card 2 = Addresses (unchanged).
+       Card 3 = Operations (Route Override + Default Processing Site).
+       Price List moved entirely to Billing tab (saved by saveBilling, not saveCustomerContact). -->
   <div class="cp-body" id="cptab-contact">
     <div class="cp-section-head"><span>Name &amp; Contact</span></div>
     <div class="cp-card">
@@ -4138,43 +4143,22 @@
       <div class="cp-field"><div class="cp-field-label">Phone</div><input class="cp-input" id="cpe-phone" type="tel" placeholder="Phone number"></div>
       <div class="cp-field"><div class="cp-field-label">Email</div><input class="cp-input" id="cpe-email" type="email" placeholder="Email address"></div>
       <div id="cp-app-status" style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;margin-bottom:12px;font-size:13px;min-height:38px"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-        <div class="cp-field">
-          <div class="cp-field-label">Price List</div>
-          <!-- Options populated from allCategories at panel-open time (session 141 pt 7) -->
-          <select class="cp-input" id="cpe-type"></select>
-        </div>
-        <div class="cp-field">
-          <div class="cp-field-label">How They Found Us</div>
-          <select class="cp-input" id="cpe-source">
-            <option value="">— Select —</option>
-            <option value="nextdoor">Nextdoor</option>
-            <option value="yelp">Yelp</option>
-            <option value="google">Google search</option>
-            <option value="friend_family">Friend / family</option>
-            <option value="instagram">Instagram</option>
-            <option value="roots_soul">Roots &amp; Soul</option>
-            <option value="oakland_ballers">Oakland Ballers</option>
-            <option value="saw_van">I saw your van!</option>
-            <option value="other">Other</option>
-            <option value="ai">ChatGPT, Claude, or other AI</option>
-            <option value="ambassador">Ambassador / Referral Code</option>
-          </select>
-        </div>
-      </div>
       <div class="cp-field">
-        <div class="cp-field-label">Route Override</div>
-        <select class="cp-input" id="cpe-route-override">
-          <option value="">— Default (zone-based) —</option>
+        <div class="cp-field-label">How They Found Us</div>
+        <select class="cp-input" id="cpe-source">
+          <option value="">— Select —</option>
+          <option value="nextdoor">Nextdoor</option>
+          <option value="yelp">Yelp</option>
+          <option value="google">Google search</option>
+          <option value="friend_family">Friend / family</option>
+          <option value="instagram">Instagram</option>
+          <option value="roots_soul">Roots &amp; Soul</option>
+          <option value="oakland_ballers">Oakland Ballers</option>
+          <option value="saw_van">I saw your van!</option>
+          <option value="other">Other</option>
+          <option value="ai">ChatGPT, Claude, or other AI</option>
+          <option value="ambassador">Ambassador / Referral Code</option>
         </select>
-        <div style="font-size:11px;color:var(--gray-400);margin-top:3px">When set, orders auto-route to this route instead of the customer's zone.</div>
-      </div>
-      <div class="cp-field">
-        <div class="cp-field-label">Default Processing Site</div>
-        <select class="cp-input" id="cpe-default-site">
-          <option value="">— Use main site —</option>
-        </select>
-        <div style="font-size:11px;color:var(--gray-400);margin-top:3px">New orders from this customer will be assigned to this site automatically. Leave empty to use the main site.</div>
       </div>
     </div>
 
@@ -4201,6 +4185,27 @@
       </div>
     </div>
 
+    <!-- Operations card (session 151): advanced routing/processing rules for this customer.
+         Lives on Contact tab because Save Contact Info already handles these fields,
+         but visually separated from identity so the top card stays uncluttered. -->
+    <div class="cp-section-head"><span>Operations</span></div>
+    <div class="cp-card">
+      <div class="cp-field">
+        <div class="cp-field-label">Route Override</div>
+        <select class="cp-input" id="cpe-route-override">
+          <option value="">— Default (zone-based) —</option>
+        </select>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:3px">When set, orders auto-route to this route instead of the customer's zone.</div>
+      </div>
+      <div class="cp-field">
+        <div class="cp-field-label">Default Processing Site</div>
+        <select class="cp-input" id="cpe-default-site">
+          <option value="">— Use main site —</option>
+        </select>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:3px">New orders from this customer will be assigned to this site automatically. Leave empty to use the main site.</div>
+      </div>
+    </div>
+
     <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--gray-100)">
       <button class="btn btn-primary cp-save-btn" onclick="saveCustomerContact()">Save Contact Info</button>
       <div class="cp-save-msg" id="cp-contact-msg">✓ Saved</div>
@@ -4208,10 +4213,32 @@
   </div>
 
   <!-- ── BILLING TAB ── -->
+  <!-- Session 151: Billing tab regrouped from 6 stacked cards into 3 logical sections:
+       Plan → Payment → Balance & Adjustments. Price List moved here from Contact tab
+       (saved by saveBilling, not saveCustomerContact). No DOM IDs changed — load
+       functions and Stripe integration hooks all reference fields by ID, so moving
+       markup around inside the tab doesn't break wiring. -->
   <div class="cp-body" id="cptab-billing" style="display:none">
 
-    <!-- Billing Type + Payment Method + Billing Group -->
-    <div class="cp-section-head"><span>Billing</span></div>
+    <!-- 1. PLAN — what this customer is on (price list + subscription) -->
+    <div class="cp-section-head"><span>Plan</span></div>
+    <div class="cp-card">
+      <div class="cp-field">
+        <div class="cp-field-label">Price List</div>
+        <!-- Options populated from allCategories at panel-open time (session 141 pt 7).
+             Lives on Billing tab as of session 151; saveBilling writes pricelist now. -->
+        <select class="cp-input" id="cpe-type"></select>
+      </div>
+      <!-- Subscription content (Assign Plan + Start Checkout, or active sub display).
+           Populated by renderCpSubscription() into #cpb-sub-content. -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:12px;padding-top:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Subscription</div>
+        <div id="cpb-sub-content" style="font-size:13px;color:var(--gray-500)">Loading…</div>
+      </div>
+    </div>
+
+    <!-- 2. PAYMENT — how this customer pays -->
+    <div class="cp-section-head"><span>Payment</span></div>
     <div class="cp-card">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
         <div class="cp-field">
@@ -4236,67 +4263,42 @@
           <option value="">— None —</option>
         </select>
       </div>
-    </div>
 
-    <!-- Subscription -->
-    <div class="cp-section-head"><span>Subscription</span></div>
-    <div class="cp-card" id="cpb-subscription-card">
-      <div id="cpb-sub-content" style="font-size:13px;color:var(--gray-500)">Loading…</div>
-    </div>
-
-    <!-- Discount -->
-    <div class="cp-section-head"><span>Discount</span></div>
-    <div class="cp-card">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-        <div class="cp-field">
-          <select class="cp-input" id="cpb-discount">
-            <option value="">— None —</option>
-          </select>
-        </div>
-        <div class="cp-field">
-          <label style="display:flex;align-items:center;gap:5px;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);cursor:pointer;margin-top:6px">
-            <input type="checkbox" id="cpb-fee-exempt" style="width:14px;height:14px;accent-color:var(--accent)"> Fee/Min Exempt
-          </label>
-          <div style="font-size:12px;color:var(--gray-400);margin-top:4px">Customer is not charged pickup fees</div>
+      <!-- Card on file -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Card on File</div>
+        <div id="cp-payment-info" style="margin-bottom:4px">—</div>
+        <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
+        <div id="cp-card-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px">
+          <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">Enter Card Details</div>
+          <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:7px;margin-bottom:10px;font-size:14px"></div>
+          <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
+          <div style="display:flex;gap:8px">
+            <button id="cp-card-submit-btn" class="btn btn-primary" style="padding:7px 16px;font-size:13px" onclick="adminSubmitCard()">Save Card</button>
+            <button class="btn btn-ghost" style="padding:7px 13px;font-size:13px" onclick="adminCloseCardForm()">Cancel</button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Apply Promo Code (session 141) — admin-applied $ codes -->
-    <div class="cp-section-head"><span>Apply Promo Code</span></div>
-    <div class="cp-card">
-      <div style="display:flex;gap:8px;align-items:stretch">
-        <select class="cp-input" id="cpb-promo-code" style="flex:1">
-          <option value="">— Choose a code —</option>
-        </select>
-        <button class="btn btn-primary" onclick="applyPromoToCustomer()" id="cpb-promo-apply"
-                style="padding:8px 16px;font-size:13px;white-space:nowrap">Apply</button>
-      </div>
-      <div style="font-size:12px;color:var(--gray-400);margin-top:6px">
-        Adds the $ value to this customer's credit. Only unredeemed fixed-amount codes are listed; once applied, the code is burned.
-      </div>
-    </div>
-
-    <!-- Payment on File -->
-    <div class="cp-section-head"><span>Payment on File</span></div>
-    <div class="cp-card">
-      <div id="cp-payment-info" style="margin-bottom:4px">—</div>
-      <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
-      <div id="cp-card-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px">
-        <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">Enter Card Details</div>
-        <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:7px;margin-bottom:10px;font-size:14px"></div>
-        <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
-        <div style="display:flex;gap:8px">
-          <button id="cp-card-submit-btn" class="btn btn-primary" style="padding:7px 16px;font-size:13px" onclick="adminSubmitCard()">Save Card</button>
-          <button class="btn btn-ghost" style="padding:7px 13px;font-size:13px" onclick="adminCloseCardForm()">Cancel</button>
+      <!-- Default Tip -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Default Tip</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input class="cp-input" id="cpb-tip-amount" type="number" min="0" step="0.01" placeholder="0" style="width:90px">
+          <div class="filter-tabs" style="flex-shrink:0">
+            <button class="filter-tab active" id="cpb-tip-dollar" onclick="setCpTipType('$',this)">$</button>
+            <button class="filter-tab" id="cpb-tip-pct" onclick="setCpTipType('%',this)">%</button>
+          </div>
+          <span style="font-size:12px;color:var(--gray-400)">Set by customer in their app</span>
         </div>
       </div>
     </div>
 
-    <!-- Credits & Balance -->
-    <div class="cp-section-head"><span>Credits</span></div>
+    <!-- 3. BALANCE & ADJUSTMENTS — what they owe + what reduces what they owe -->
+    <div class="cp-section-head"><span>Balance &amp; Adjustments</span></div>
     <div class="cp-card">
-      <!-- Credits row -->
+      <!-- Account Credit -->
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:6px">Account Credit</div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
         <div style="font-size:22px;font-weight:700;color:var(--gray-900)" id="cpb-credits-display">$0.00</div>
         <div style="display:flex;gap:6px;margin-left:4px">
@@ -4315,27 +4317,47 @@
         </div>
       </div>
 
-      <!-- Balance row (on-demand unpaid orders) -->
-      <div style="border-top:1px solid var(--gray-100);margin-top:12px;padding-top:12px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:6px">Balance</div>
+      <!-- Outstanding Balance -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:6px">Outstanding Balance</div>
         <div style="display:flex;align-items:baseline;gap:8px">
           <div style="font-size:22px;font-weight:700" id="cpb-balance-display">$0.00</div>
           <div style="font-size:12px;color:var(--gray-400)" id="cpb-balance-label">outstanding</div>
         </div>
         <div style="font-size:11.5px;color:var(--gray-400);margin-top:3px" id="cpb-balance-detail"></div>
       </div>
-    </div>
 
-    <!-- Default Tip -->
-    <div class="cp-section-head"><span>Default Tip</span></div>
-    <div class="cp-card">
-      <div style="display:flex;gap:8px;align-items:center">
-        <input class="cp-input" id="cpb-tip-amount" type="number" min="0" step="0.01" placeholder="0" style="width:90px">
-        <div class="filter-tabs" style="flex-shrink:0">
-          <button class="filter-tab active" id="cpb-tip-dollar" onclick="setCpTipType('$',this)">$</button>
-          <button class="filter-tab" id="cpb-tip-pct" onclick="setCpTipType('%',this)">%</button>
+      <!-- Discount + Fee Exempt -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Discount</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+          <div class="cp-field" style="margin-bottom:0">
+            <select class="cp-input" id="cpb-discount">
+              <option value="">— None —</option>
+            </select>
+          </div>
+          <div class="cp-field" style="margin-bottom:0">
+            <label style="display:flex;align-items:center;gap:5px;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);cursor:pointer;margin-top:6px">
+              <input type="checkbox" id="cpb-fee-exempt" style="width:14px;height:14px;accent-color:var(--accent)"> Fee/Min Exempt
+            </label>
+            <div style="font-size:12px;color:var(--gray-400);margin-top:4px">Customer is not charged pickup fees</div>
+          </div>
         </div>
-        <span style="font-size:12px;color:var(--gray-400)">Set by customer in their app</span>
+      </div>
+
+      <!-- Apply Promo Code (session 141) — admin-applied $ codes -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Apply Promo Code</div>
+        <div style="display:flex;gap:8px;align-items:stretch">
+          <select class="cp-input" id="cpb-promo-code" style="flex:1">
+            <option value="">— Choose a code —</option>
+          </select>
+          <button class="btn btn-primary" onclick="applyPromoToCustomer()" id="cpb-promo-apply"
+                  style="padding:8px 16px;font-size:13px;white-space:nowrap">Apply</button>
+        </div>
+        <div style="font-size:12px;color:var(--gray-400);margin-top:6px">
+          Adds the $ value to this customer's credit. Only unredeemed fixed-amount codes are listed; once applied, the code is burned.
+        </div>
       </div>
     </div>
 
@@ -17710,14 +17732,15 @@ ${oneCopy}
       showToast('First or last name is required', 'error');
       return;
     }
-    const type   = document.getElementById('cpe-type').value;
+    // Session 151: pricelist moved to saveBilling. saveCustomerContact only writes
+    // identity + operational fields (route override + default site).
     const src    = document.getElementById('cpe-source').value;
     const routeOverride = document.getElementById('cpe-route-override').value || null;
     const defaultSite   = document.getElementById('cpe-default-site')?.value || null;
     const { data: c } = await db.from('customers').select('profile_id').eq('id',panelCustomerId).single();
     // Write null for blanks so profile never stores '' (which would get denormalised downstream).
     if (c?.profile_id) await db.from('profiles').update({ first_name: fn || null, last_name: ln || null, phone: phone || null, email: email || null }).eq('id', c.profile_id);
-    const { error } = await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, pricelist:type||'Delivery', referral_source:src||null, route_template_override_id:routeOverride, default_site_id:defaultSite }).eq('id', panelCustomerId);
+    const { error } = await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, referral_source:src||null, route_template_override_id:routeOverride, default_site_id:defaultSite }).eq('id', panelCustomerId);
     btn.disabled=false; btn.textContent=origText;
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
@@ -17786,6 +17809,9 @@ ${oneCopy}
     const btn = document.querySelector('#cptab-billing .cp-save-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     const billingType = document.getElementById('cpb-billing-type').value;
+    // Session 151: pricelist moved here from saveCustomerContact (the Price List
+    // field now lives in the Plan section at the top of the Billing tab).
+    const pricelist   = document.getElementById('cpe-type').value || 'Delivery';
     const patch = {
       billing_type:     billingType,
       payment_method:   document.getElementById('cpb-payment-method').value,
@@ -17794,6 +17820,7 @@ ${oneCopy}
       default_tip_type: _cpTipType,
       discount_id:      document.getElementById('cpb-discount').value || null,
       billing_group_id: billingType === 'on_account' ? (document.getElementById('cpb-billing-group').value || null) : null,
+      pricelist:        pricelist,
       updated_at:       new Date().toISOString(),
     };
     const { error } = await db.from('customers').update(patch).eq('id', panelCustomerId);
