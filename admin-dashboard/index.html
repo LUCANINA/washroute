@@ -447,6 +447,12 @@
     .cp-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--gray-100); flex-shrink: 0; padding: 0 20px; overflow-x: auto; }
     .cp-tab { padding: 11px 14px; font-size: 13px; font-weight: 500; color: var(--gray-500); cursor: pointer; border: none; background: transparent; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; white-space: nowrap; }
     .cp-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+    /* Sub-tabs (session 152) — secondary nav inside a parent tab. Smaller, uppercase,
+       tracked typography differentiates them from the primary .cp-tabs row. */
+    .cp-subtabs { display: flex; gap: 2px; border-bottom: 1px solid var(--gray-100); margin-bottom: 16px; }
+    .cp-subtab { padding: 8px 14px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--gray-400); cursor: pointer; border: none; background: transparent; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s; white-space: nowrap; }
+    .cp-subtab:hover { color: var(--gray-600); }
+    .cp-subtab.active { color: var(--gray-900); border-bottom-color: var(--accent); }
     .cp-body { flex: 1; overflow-y: auto; padding: 16px 60px 32px 20px; background: #f5f5f7; }
     .cp-field { margin-bottom: 14px; }
     .cp-field:last-child { margin-bottom: 0; }
@@ -4217,10 +4223,21 @@
        Plan → Payment → Balance & Adjustments. Price List moved here from Contact tab
        (saved by saveBilling, not saveCustomerContact). No DOM IDs changed — load
        functions and Stripe integration hooks all reference fields by ID, so moving
-       markup around inside the tab doesn't break wiring. -->
+       markup around inside the tab doesn't break wiring.
+       Session 152: each section now wraps in a sub-tab pane (Plan/Payment/Balance),
+       switched by cpBillingSubtab(). One shared Save Billing button at the bottom
+       saves all 3 sub-tabs' fields in a single UPDATE — no per-sub-tab save needed. -->
   <div class="cp-body" id="cptab-billing" style="display:none">
 
+    <!-- Sub-tab strip — defaults to 'plan'; last-used remembered in localStorage. -->
+    <div class="cp-subtabs">
+      <button class="cp-subtab active" data-subtab="plan"    onclick="cpBillingSubtab('plan',this)">Plan</button>
+      <button class="cp-subtab"        data-subtab="payment" onclick="cpBillingSubtab('payment',this)">Payment</button>
+      <button class="cp-subtab"        data-subtab="balance" onclick="cpBillingSubtab('balance',this)">Balance</button>
+    </div>
+
     <!-- 1. PLAN — what this customer is on (price list + subscription) -->
+    <div class="cpb-pane" id="cpb-pane-plan">
     <div class="cp-section-head"><span>Plan</span></div>
     <div class="cp-card">
       <div class="cp-field">
@@ -4236,8 +4253,10 @@
         <div id="cpb-sub-content" style="font-size:13px;color:var(--gray-500)">Loading…</div>
       </div>
     </div>
+    </div><!-- /cpb-pane-plan -->
 
     <!-- 2. PAYMENT — how this customer pays -->
+    <div class="cpb-pane" id="cpb-pane-payment" style="display:none">
     <div class="cp-section-head"><span>Payment</span></div>
     <div class="cp-card">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
@@ -4293,8 +4312,10 @@
         </div>
       </div>
     </div>
+    </div><!-- /cpb-pane-payment -->
 
     <!-- 3. BALANCE & ADJUSTMENTS — what they owe + what reduces what they owe -->
+    <div class="cpb-pane" id="cpb-pane-balance" style="display:none">
     <div class="cp-section-head"><span>Balance &amp; Adjustments</span></div>
     <div class="cp-card">
       <!-- Account Credit -->
@@ -4360,7 +4381,9 @@
         </div>
       </div>
     </div>
+    </div><!-- /cpb-pane-balance -->
 
+    <!-- Shared Save Billing button — saves all 3 sub-tabs in one UPDATE. -->
     <div style="margin-top:20px">
       <button class="btn btn-primary cp-save-btn" onclick="saveBilling()">Save Billing</button>
       <div class="cp-save-msg" id="cp-billing-msg">✓ Saved</div>
@@ -17327,6 +17350,26 @@ ${oneCopy}
     // Lazy loads
     if (name === 'transactions') loadCpTransactions(panelCustomerId);
     if (name === 'engagement')   loadCpEngagement(panelCustomerId, _panelPhone);
+    // When entering Billing, restore the last-used sub-tab (session 152).
+    if (name === 'billing') {
+      const last = localStorage.getItem('wr-cpb-subtab') || 'plan';
+      cpBillingSubtab(last);
+    }
+  }
+
+  // Session 152 — Billing sub-tabs (Plan / Payment / Balance).
+  // `btn` is optional; when omitted (e.g., restoring from localStorage on tab entry)
+  // we find the matching button by data-subtab attribute. All sub-tab content lives
+  // inside #cptab-billing already, so we just toggle pane visibility.
+  function cpBillingSubtab(name, btn) {
+    document.querySelectorAll('.cp-subtab').forEach(t => t.classList.remove('active'));
+    const activeBtn = btn || document.querySelector(`.cp-subtab[data-subtab="${name}"]`);
+    if (activeBtn) activeBtn.classList.add('active');
+    ['plan','payment','balance'].forEach(n => {
+      const el = document.getElementById('cpb-pane-' + n);
+      if (el) el.style.display = (n === name) ? '' : 'none';
+    });
+    try { localStorage.setItem('wr-cpb-subtab', name); } catch (e) { /* private mode */ }
   }
 
   async function openCustomerPanel(customerId, startTab) {
@@ -17348,6 +17391,10 @@ ${oneCopy}
     // Hide any stale save messages
     ['cp-contact-msg','cp-billing-msg','cp-pref-msg','cp-notes-msg'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; });
     document.getElementById('cp-add-addr-form').style.display = 'none';
+    // Session 152 — restore last-used Billing sub-tab whether or not the panel
+    // opens on Billing. Calling this on every open keeps the sub-tab in a known
+    // state and avoids a flash of the wrong pane when switching customers.
+    try { cpBillingSubtab(localStorage.getItem('wr-cpb-subtab') || 'plan'); } catch (e) { cpBillingSubtab('plan'); }
 
     const { data: c } = await db.from('customers')
       .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, billing_group_id, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id, default_site_id')
