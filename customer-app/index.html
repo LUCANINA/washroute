@@ -7485,7 +7485,10 @@ function renderConfirmPromoSection() {
 
   sec.innerHTML = `
     <div class="d-section-title" style="margin-top:20px">Promo Code</div>
-    <div class="confirm-card">
+    <!-- Session 152 pt 4: override .confirm-card's zero vertical padding —
+         the children below (credit notice + input row) don't use .d-row so
+         they don't get the 10px row-padding the Pricing card relies on. -->
+    <div class="confirm-card" style="padding:14px 16px">
       ${activePctRow}
       ${creditRow}
       <div style="display:flex;gap:8px;align-items:stretch">
