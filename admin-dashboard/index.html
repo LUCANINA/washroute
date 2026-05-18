@@ -5800,7 +5800,7 @@
 
   const PAGE_LABELS = {
     overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing',
-    inbox:'Inbox', drivers:'Drivers', pos:'POS', reports:'Reports', services:'Services',
+    inbox:'Inbox', lostfound:'Lost & Found', drivers:'Drivers', pos:'POS', reports:'Reports', services:'Services',
     notifications:'Notifications', maps:'Delivery Zones', launderers:'Launderers',
     racks:'Racks', discounts:'Discounts', team:'Team', settings:'General'
   };
@@ -5965,10 +5965,12 @@
   }
 
   async function togglePermission(role, pageId, allowed) {
+    // Use upsert (not update) so toggling a page that's missing a row in
+    // role_permissions self-heals by inserting it. Prevents the silent-no-op
+    // we hit on `lostfound`, which was in ALL_PAGE_IDS / nav but had no DB
+    // rows seeded.
     const { error } = await db.from('role_permissions')
-      .update({ allowed })
-      .eq('role', role)
-      .eq('page_id', pageId);
+      .upsert({ role, page_id: pageId, allowed }, { onConflict: 'role,page_id' });
     if (error) {
       showToast('Failed to update permission', 'error');
       loadPermissionsGrid(); // revert UI
