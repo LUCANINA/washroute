@@ -1087,6 +1087,16 @@
     .rev-empty { text-align:center; padding:40px 20px; color:var(--gray-400); font-size:13px; }
     .rev-zero { color:var(--gray-300); }
 
+    /* ── POS Sales tab — preset chips + filter row ── */
+    .ps-preset { padding:7px 14px; background:var(--gray-50); color:var(--gray-700); border:1px solid var(--gray-200); border-radius:20px; font-family:inherit; font-size:12.5px; font-weight:500; cursor:pointer; transition:all .12s; }
+    .ps-preset:hover { border-color:var(--gray-400); }
+    .ps-preset.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .ps-filter-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:14px 20px; border-bottom:1px solid var(--gray-100); }
+    .ps-filter-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--gray-400); }
+    .ps-kind-tag { display:inline-block; font-size:10.5px; font-weight:600; padding:2px 7px; border-radius:10px; margin-left:8px; text-transform:uppercase; letter-spacing:.04em; }
+    .ps-kind-tag.service { background:#e0f2fe; color:#075985; }
+    .ps-kind-tag.merchandise { background:#fef3c7; color:#92400e; }
+
     /* ── NOTIFICATIONS PAGE ── */
     .notif-layout { display:grid;grid-template-columns:268px 1fr;gap:20px;height:calc(100vh - 56px - 56px - 48px);min-height:520px; }
     .notif-sidebar { background:white;border-radius:var(--radius);border:1px solid var(--gray-200);overflow-y:auto;display:flex;flex-direction:column; }
@@ -2314,6 +2324,7 @@
             <div class="rpt-page-tabs">
               <button class="rpt-page-tab active" onclick="setRptTab('revenue',this)">Daily Revenue</button>
               <button class="rpt-page-tab" onclick="setRptTab('items',this)">Items</button>
+              <button class="rpt-page-tab" onclick="setRptTab('possales',this)">POS Sales</button>
               <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">Drivers</button>
               <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">Launderers</button>
               <button class="rpt-page-tab" onclick="setRptTab('onaccount',this)">On Account</button>
@@ -2381,6 +2392,40 @@
             </div>
             <div id="items-rpt-body">
               <div class="rev-empty">Select a date range above and the report will load automatically.</div>
+            </div>
+          </div>
+
+          <!-- ── TAB: POS SALES ── -->
+          <div id="rpttab-possales" style="display:none">
+            <div class="card" style="margin-bottom:16px;padding:0">
+              <div class="ps-filter-row">
+                <span class="ps-filter-label">Quick range</span>
+                <button class="ps-preset" id="ps-preset-today"      onclick="setPosSalesPreset('today',this)">Today</button>
+                <button class="ps-preset" id="ps-preset-yesterday"  onclick="setPosSalesPreset('yesterday',this)">Yesterday</button>
+                <button class="ps-preset" id="ps-preset-7d"         onclick="setPosSalesPreset('7d',this)">Last 7 days</button>
+                <button class="ps-preset" id="ps-preset-month"      onclick="setPosSalesPreset('month',this)">This month</button>
+                <button class="ps-preset" id="ps-preset-lastmonth"  onclick="setPosSalesPreset('lastmonth',this)">Last month</button>
+                <span style="flex:1"></span>
+                <span class="ps-filter-label">Site</span>
+                <select id="ps-site-filter" onchange="loadPosSalesReport()" style="padding:7px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none;background:white">
+                  <option value="">All sites</option>
+                </select>
+                <button class="rev-export-btn" id="possales-export-btn" style="display:none" onclick="exportPosSalesCSV()">Export CSV</button>
+              </div>
+              <div class="items-summary-row" id="ps-summary-row">
+                <div class="items-summary-stat"><strong id="ps-summary-tx">—</strong>Transactions</div>
+                <div class="items-summary-stat"><strong id="ps-summary-items">—</strong>Items Sold</div>
+                <div class="items-summary-stat"><strong id="ps-summary-rev">—</strong>Gross Revenue</div>
+                <div class="items-summary-stat"><strong id="ps-summary-tax">—</strong>Tax Collected</div>
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:0">
+              <div id="ps-rpt-body">
+                <div class="rev-empty">Select a date range above and the report will load automatically.</div>
+              </div>
+              <div style="padding:10px 20px;border-top:1px solid var(--gray-100);font-size:11.5px;color:var(--gray-500);line-height:1.4">
+                Includes only POS / retail orders (<code>source = walk_in</code>) with <strong>billing_status = paid</strong>. Fully refunded orders are excluded. Tax is allocated proportionally to taxable items in the same order. Gross Revenue is the sum of line-item amounts before tax.
+              </div>
             </div>
           </div>
 
@@ -25786,6 +25831,7 @@ ${oneCopy}
   function runCurrentReport() {
     if (rptTab === 'revenue')            loadRevenueReport();
     else if (rptTab === 'items')         loadItemsReport();
+    else if (rptTab === 'possales')      loadPosSalesReport();
     else if (rptTab === 'launderer')     loadLaundererReport();
     else if (rptTab === 'drivers')       loadReports();
     else if (rptTab === 'onaccount')     loadOnAccountReport();
@@ -25796,7 +25842,7 @@ ${oneCopy}
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['drivers','revenue','items','launderer','onaccount','subscriptions','registrations'].forEach(t => {
+    ['drivers','revenue','items','possales','launderer','onaccount','subscriptions','registrations'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
@@ -28031,6 +28077,326 @@ ${oneCopy}
 
   window.loadItemsReport = loadItemsReport;
   window.exportItemsCSV  = exportItemsCSV;
+
+  // ──────────────────────────────────────────────────────────────
+  // POS SALES REPORT (session 154)
+  // ──────────────────────────────────────────────────────────────
+  // Aggregates paid POS / retail orders (source='walk_in', billing_status='paid')
+  // in the selected date window, grouped by item name. Tax is allocated to
+  // taxable items proportionally to their share of the order's taxable subtotal.
+  // Refunded orders are excluded entirely (billing_status='refunded'); partial
+  // refunds on still-paid orders are not subtracted from item revenue (v1
+  // simplification — refund data lives on the order, not per-line-item).
+  let _posSalesData = { items: [], totals: { tx:0, units:0, rev:0, tax:0 }, from:'', to:'', site:'' };
+  let _posSalesSitesPopulated = false;
+
+  async function populatePosSalesSiteOptions() {
+    if (_posSalesSitesPopulated) return;
+    const sel = document.getElementById('ps-site-filter');
+    if (!sel) return;
+    const { data, error } = await db.from('sites').select('id, name').order('name');
+    if (error || !data) return;
+    const currentVal = sel.value;
+    sel.innerHTML = '<option value="">All sites</option>' +
+      data.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+    if (currentVal) sel.value = currentVal;
+    _posSalesSitesPopulated = true;
+  }
+
+  function setPosSalesPreset(preset, btn) {
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    if (!fromEl || !toEl) return;
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    const [Y, M] = today.split('-').map(Number);
+    let from = today, to = today;
+
+    if (preset === 'today') {
+      from = to = today;
+    } else if (preset === 'yesterday') {
+      const y = addDaysPacific(today, -1);
+      from = to = y;
+    } else if (preset === '7d') {
+      from = addDaysPacific(today, -6);
+      to   = today;
+    } else if (preset === 'month') {
+      from = `${Y}-${String(M).padStart(2,'0')}-01`;
+      to   = today;
+    } else if (preset === 'lastmonth') {
+      const lastM = M === 1 ? 12 : M - 1;
+      const lastY = M === 1 ? Y - 1 : Y;
+      from = `${lastY}-${String(lastM).padStart(2,'0')}-01`;
+      // Last day of last month = day 0 of "this month" (UTC math is fine for day-of-month
+      // because we're only consuming the date number)
+      const lastDay = new Date(Date.UTC(Y, M - 1, 0)).getUTCDate();
+      to = `${lastY}-${String(lastM).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+    }
+
+    fromEl.value = from;
+    toEl.value   = to;
+
+    document.querySelectorAll('#rpttab-possales .ps-preset').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+
+    loadPosSalesReport();
+  }
+
+  // Detect which preset (if any) matches the current From/To values, so the
+  // chip auto-highlights when the user opens the tab.
+  function _refreshPosSalesPresetHighlight() {
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    if (!fromEl?.value || !toEl?.value) return;
+    const from = fromEl.value, to = toEl.value;
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    const [Y, M] = today.split('-').map(Number);
+
+    const matches = (() => {
+      if (from === today && to === today) return 'today';
+      if (from === to && from === addDaysPacific(today, -1)) return 'yesterday';
+      if (from === addDaysPacific(today, -6) && to === today) return '7d';
+      if (from === `${Y}-${String(M).padStart(2,'0')}-01` && to === today) return 'month';
+      const lastM = M === 1 ? 12 : M - 1;
+      const lastY = M === 1 ? Y - 1 : Y;
+      const lastDay = new Date(Date.UTC(Y, M - 1, 0)).getUTCDate();
+      if (from === `${lastY}-${String(lastM).padStart(2,'0')}-01` &&
+          to   === `${lastY}-${String(lastM).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`) {
+        return 'lastmonth';
+      }
+      return null;
+    })();
+
+    document.querySelectorAll('#rpttab-possales .ps-preset').forEach(b => b.classList.remove('active'));
+    if (matches) {
+      const el = document.getElementById('ps-preset-' + matches);
+      if (el) el.classList.add('active');
+    }
+  }
+
+  async function loadPosSalesReport() {
+    const fromEl    = document.getElementById('rpt-from');
+    const toEl      = document.getElementById('rpt-to');
+    const body      = document.getElementById('ps-rpt-body');
+    const exportBtn = document.getElementById('possales-export-btn');
+    if (!fromEl?.value || !toEl?.value) {
+      showToast('Please select a date range', 'error');
+      return;
+    }
+    if (exportBtn) exportBtn.style.display = 'none';
+
+    await populatePosSalesSiteOptions();
+    _refreshPosSalesPresetHighlight();
+
+    const siteFilter = document.getElementById('ps-site-filter')?.value || '';
+    const selFrom    = fromEl.value;
+    const selTo      = toEl.value;
+
+    body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
+    _setPosSalesSummary('—', '—', '—', '—');
+
+    // Pacific-anchored bounds — keeps the window right whether the admin is in
+    // PT or anywhere else.
+    const fromISO = pacificDayStart(selFrom).toISOString();
+    const toISO   = pacificDayEnd(selTo).toISOString();
+
+    // Paginate; supabase-js .range() needs a fresh query each call.
+    const BATCH = 1000;
+    let orders = [];
+    let fetchError = null;
+    let offset = 0;
+    while (true) {
+      let q = db.from('orders')
+        .select('id, order_number, total_amount, tax_amount, tip_amount, amount_refunded, billing_status, site_id, line_items, created_at')
+        .eq('source', 'walk_in')
+        .eq('billing_status', 'paid')
+        .gte('created_at', fromISO)
+        .lte('created_at', toISO)
+        .order('created_at')
+        .range(offset, offset + BATCH - 1);
+      if (siteFilter) q = q.eq('site_id', siteFilter);
+      const { data, error } = await q;
+      if (error) { fetchError = error; break; }
+      orders.push(...(data || []));
+      if (!data || data.length < BATCH) break;
+      offset += BATCH;
+    }
+
+    if (fetchError) {
+      body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${esc(fetchError.message)}</div>`;
+      return;
+    }
+
+    if (!orders.length) {
+      body.innerHTML = '<div class="rev-empty">No POS transactions in this date range.</div>';
+      _setPosSalesSummary(0, 0, '$0.00', '$0.00');
+      _posSalesData = { items: [], totals: { tx:0, units:0, rev:0, tax:0 }, from:selFrom, to:selTo, site:siteFilter };
+      return;
+    }
+
+    // Aggregate by item name. We key on the cleaned-up name so "Caprisun"
+    // sold yesterday and today merge into one row.
+    const itemMap = new Map();
+    let totalUnits = 0;
+    let totalRev   = 0;
+    let totalTax   = 0;
+
+    orders.forEach(o => {
+      if (!Array.isArray(o.line_items)) return;
+
+      // Sum taxable portion of this order so we can prorate tax_amount
+      // among only the taxable line items.
+      const orderTax = parseFloat(o.tax_amount || 0);
+      const taxableSubtotal = o.line_items
+        .filter(li => li && li.taxable)
+        .reduce((s, li) => s + parseFloat(li.amount ?? li.subtotal ?? 0), 0);
+
+      o.line_items.forEach(li => {
+        if (!li) return;
+        const name   = (li.name || li.label || 'Unknown').toString().trim() || 'Unknown';
+        const kind   = (li.kind || li.type || 'other').toString();
+        const qty    = parseInt(li.qty || 1) || 1;
+        const lbs    = parseFloat(li.weight_lbs || 0);
+        const amount = parseFloat(li.amount ?? li.subtotal ?? 0);
+        const isPerLb = li.pricing_type === 'per_lb' || lbs > 0;
+
+        let taxShare = 0;
+        if (li.taxable && taxableSubtotal > 0 && orderTax > 0) {
+          taxShare = (amount / taxableSubtotal) * orderTax;
+        }
+
+        if (!itemMap.has(name)) {
+          itemMap.set(name, {
+            name, kind,
+            units: 0, lbs: 0,
+            transactions: new Set(),
+            revenue: 0, tax: 0,
+            anyPerLb: false,
+          });
+        }
+        const e = itemMap.get(name);
+        if (isPerLb) { e.lbs += lbs; e.anyPerLb = true; }
+        e.units += qty;
+        e.transactions.add(o.id);
+        e.revenue += amount;
+        e.tax     += taxShare;
+
+        totalUnits += qty;
+        totalRev   += amount;
+      });
+
+      totalTax += orderTax;
+    });
+
+    const items = Array.from(itemMap.values()).sort((a, b) => b.revenue - a.revenue);
+    const totals = { tx: orders.length, units: totalUnits, rev: totalRev, tax: totalTax };
+    _posSalesData = { items, totals, from: selFrom, to: selTo, site: siteFilter };
+
+    // Render summary headline
+    _setPosSalesSummary(
+      totals.tx.toLocaleString(),
+      totals.units.toLocaleString(),
+      fmtMoney(totals.rev),
+      fmtMoney(totals.tax)
+    );
+
+    // Render table
+    const rows = items.map(it => {
+      const qtyDisplay = it.anyPerLb
+        ? (it.lbs > 0 ? `${(it.lbs % 1 === 0 ? it.lbs : it.lbs.toFixed(1))} lbs` : `${it.units}`)
+        : `${it.units.toLocaleString()}`;
+      const kindLabel = it.kind === 'service' ? 'Service'
+                      : it.kind === 'merchandise' ? 'Merchandise'
+                      : it.kind.charAt(0).toUpperCase() + it.kind.slice(1);
+      const kindClass = (it.kind === 'service' || it.kind === 'merchandise') ? it.kind : 'service';
+      return `<tr>
+        <td>${esc(it.name)}<span class="ps-kind-tag ${kindClass}">${esc(kindLabel)}</span></td>
+        <td>${qtyDisplay}</td>
+        <td>${it.transactions.size.toLocaleString()}</td>
+        <td>${fmtMoney(it.revenue)}</td>
+        <td>${it.tax > 0 ? fmtMoney(it.tax) : '<span class="rev-zero">—</span>'}</td>
+      </tr>`;
+    }).join('');
+
+    body.innerHTML = `
+      <table class="items-tbl">
+        <thead>
+          <tr>
+            <th style="text-align:left">Item</th>
+            <th>Qty Sold</th>
+            <th>Transactions</th>
+            <th>Gross Revenue</th>
+            <th>Tax Collected</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr>
+            <td>Total</td>
+            <td>${totalUnits.toLocaleString()}</td>
+            <td>${totals.tx.toLocaleString()}</td>
+            <td>${fmtMoney(totalRev)}</td>
+            <td>${fmtMoney(totalTax)}</td>
+          </tr>
+        </tfoot>
+      </table>`;
+
+    if (exportBtn) exportBtn.style.display = '';
+  }
+
+  function _setPosSalesSummary(tx, items, rev, tax) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('ps-summary-tx',    tx);
+    set('ps-summary-items', items);
+    set('ps-summary-rev',   rev);
+    set('ps-summary-tax',   tax);
+  }
+
+  function exportPosSalesCSV() {
+    const { items, totals, from, to, site } = _posSalesData;
+    if (!items.length) return;
+    const escCsv = v => `"${String(v).replace(/"/g, '""')}"`;
+    const rows = [];
+    rows.push(['Item','Kind','Qty Sold','Unit','Transactions','Gross Revenue','Tax Collected'].map(escCsv).join(','));
+    items.forEach(it => {
+      const isLb = it.anyPerLb;
+      rows.push([
+        it.name,
+        it.kind,
+        isLb ? it.lbs.toFixed(1) : it.units,
+        isLb ? 'lbs' : 'units',
+        it.transactions.size,
+        it.revenue.toFixed(2),
+        it.tax.toFixed(2),
+      ].map(escCsv).join(','));
+    });
+    rows.push([
+      'TOTAL','',
+      '',
+      '',
+      totals.tx,
+      totals.rev.toFixed(2),
+      totals.tax.toFixed(2),
+    ].map(escCsv).join(','));
+
+    const siteLabel = site
+      ? (document.querySelector(`#ps-site-filter option[value="${site}"]`)?.textContent || 'site').replace(/\s+/g,'-')
+      : 'all-sites';
+    const csv = rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `pos-sales-${siteLabel}-${from}-to-${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // (uses the global fmtMoney helper defined earlier in this file)
+
+  window.loadPosSalesReport  = loadPosSalesReport;
+  window.setPosSalesPreset   = setPosSalesPreset;
+  window.exportPosSalesCSV   = exportPosSalesCSV;
 
   let _laundererReportData = [];
 
