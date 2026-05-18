@@ -1096,6 +1096,32 @@
     .ps-kind-tag { display:inline-block; font-size:10.5px; font-weight:600; padding:2px 7px; border-radius:10px; margin-left:8px; text-transform:uppercase; letter-spacing:.04em; }
     .ps-kind-tag.service { background:#e0f2fe; color:#075985; }
     .ps-kind-tag.merchandise { background:#fef3c7; color:#92400e; }
+    /* Sub-tab pill switcher (By Item / By Order). Per PROJECT-NOTES style rule:
+       primary tabs use underline (.rpt-page-tab); secondary nav uses pills. */
+    .ps-subtabs-row { display:flex; gap:10px; align-items:center; padding:14px 0; }
+    .ps-subtabs { display:flex; gap:2px; background:var(--gray-100); border-radius:var(--radius); padding:3px; }
+    .ps-subtab { padding:6px 14px; border-radius:6px; font-size:12.5px; font-weight:500; color:var(--gray-600); cursor:pointer; border:none; background:transparent; transition:all .12s; font-family:inherit; }
+    .ps-subtab.active { background:#fff; color:var(--gray-900); font-weight:600; box-shadow:var(--shadow-sm); }
+    /* By Order table — wide; needs horizontal scroll on narrow screens */
+    .ps-by-order-wrap { overflow-x:auto; }
+    .ps-by-order-tbl { width:100%; min-width:1100px; border-collapse:collapse; font-size:13px; }
+    .ps-by-order-tbl th { padding:9px 14px; text-align:right; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-400); border-bottom:1px solid var(--gray-100); white-space:nowrap; background:var(--gray-50); }
+    .ps-by-order-tbl th:first-child, .ps-by-order-tbl th.left { text-align:left; }
+    .ps-by-order-tbl td { padding:10px 14px; border-bottom:1px solid var(--gray-100); text-align:right; color:var(--gray-700); vertical-align:top; }
+    .ps-by-order-tbl td:first-child, .ps-by-order-tbl td.left { text-align:left; color:var(--gray-900); }
+    .ps-by-order-tbl tbody tr.clickable { cursor:pointer; transition:background .1s; }
+    .ps-by-order-tbl tbody tr.clickable:hover td { background:var(--gray-50); }
+    .ps-by-order-tbl tbody tr.refunded td { background:#fef2f2; color:var(--gray-500); }
+    .ps-by-order-tbl tbody tr.refunded:hover td { background:#fee2e2; }
+    .ps-by-order-tbl tfoot td { font-weight:700; border-top:2px solid var(--gray-200); border-bottom:none; background:var(--gray-50); color:var(--gray-800); }
+    .ps-order-num { color:var(--accent); font-weight:600; }
+    .ps-pm-tag { display:inline-block; font-size:11px; padding:2px 7px; border-radius:10px; background:var(--gray-100); color:var(--gray-700); white-space:nowrap; }
+    .ps-pm-tag.card { background:#dbeafe; color:#1e40af; }
+    .ps-pm-tag.cash { background:#dcfce7; color:#166534; }
+    .ps-pm-tag.credit { background:#f3e8ff; color:#6b21a8; }
+    .ps-status-pill { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:10px; margin-left:6px; text-transform:uppercase; letter-spacing:.04em; }
+    .ps-status-pill.refunded { background:#fee2e2; color:#991b1b; }
+    .ps-items-snippet { font-size:11.5px; color:var(--gray-500); margin-top:2px; line-height:1.3; }
 
     /* ── NOTIFICATIONS PAGE ── */
     .notif-layout { display:grid;grid-template-columns:268px 1fr;gap:20px;height:calc(100vh - 56px - 56px - 48px);min-height:520px; }
@@ -2418,12 +2444,36 @@
                 <div class="items-summary-stat"><strong id="ps-summary-tax">—</strong>Tax Collected</div>
               </div>
             </div>
-            <div class="card" style="margin-bottom:0">
-              <div id="ps-rpt-body">
-                <div class="rev-empty">Select a date range above and the report will load automatically.</div>
+
+            <!-- Sub-tab switcher (By Item / By Order) -->
+            <div class="ps-subtabs-row">
+              <div class="ps-subtabs">
+                <button class="ps-subtab active" id="ps-subtab-byitem"  onclick="setPsSubTab('byitem')">By Item</button>
+                <button class="ps-subtab"        id="ps-subtab-byorder" onclick="setPsSubTab('byorder')">By Order</button>
               </div>
-              <div style="padding:10px 20px;border-top:1px solid var(--gray-100);font-size:11.5px;color:var(--gray-500);line-height:1.4">
-                Includes only POS / retail orders (<code>source = walk_in</code>) with <strong>billing_status = paid</strong>. Fully refunded orders are excluded. Tax is allocated proportionally to taxable items in the same order. Gross Revenue is the sum of line-item amounts before tax.
+            </div>
+
+            <!-- By Item view -->
+            <div id="ps-by-item-view">
+              <div class="card" style="margin-bottom:0">
+                <div id="ps-rpt-body">
+                  <div class="rev-empty">Select a date range above and the report will load automatically.</div>
+                </div>
+                <div style="padding:10px 20px;border-top:1px solid var(--gray-100);font-size:11.5px;color:var(--gray-500);line-height:1.4">
+                  Includes only POS / retail orders (<code>source = walk_in</code>) with <strong>billing_status = paid</strong>. Fully refunded orders are excluded. Tax is allocated proportionally to taxable items in the same order. Gross Revenue is the sum of line-item amounts before tax.
+                </div>
+              </div>
+            </div>
+
+            <!-- By Order view -->
+            <div id="ps-by-order-view" style="display:none">
+              <div class="card" style="margin-bottom:0;padding:0">
+                <div id="ps-by-order-body">
+                  <div class="rev-empty">Select a date range above and the report will load automatically.</div>
+                </div>
+                <div style="padding:10px 20px;border-top:1px solid var(--gray-100);font-size:11.5px;color:var(--gray-500);line-height:1.4">
+                  One row per POS / retail transaction. Includes both paid and fully-refunded orders for audit visibility (refunded rows are tinted red). The headline at top reflects paid sales only — refunds aren't subtracted there. Net per row = Gross + Tax + Tip − Refund. Click an order # to open its details.
+                </div>
               </div>
             </div>
           </div>
@@ -28087,7 +28137,9 @@ ${oneCopy}
   // refunds on still-paid orders are not subtracted from item revenue (v1
   // simplification — refund data lives on the order, not per-line-item).
   let _posSalesData = { items: [], totals: { tx:0, units:0, rev:0, tax:0 }, from:'', to:'', site:'' };
+  let _posSalesOrders = []; // paid + refunded orders with hydrated customer/cashier names (used by By Order tab)
   let _posSalesSitesPopulated = false;
+  let _psSubTab = 'byitem'; // 'byitem' | 'byorder'
 
   async function populatePosSalesSiteOptions() {
     if (_posSalesSitesPopulated) return;
@@ -28192,6 +28244,8 @@ ${oneCopy}
     const selTo      = toEl.value;
 
     body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
+    const byOrderBodyEl = document.getElementById('ps-by-order-body');
+    if (byOrderBodyEl) byOrderBodyEl.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
     _setPosSalesSummary('—', '—', '—', '—');
 
     // Pacific-anchored bounds — keeps the window right whether the admin is in
@@ -28200,34 +28254,46 @@ ${oneCopy}
     const toISO   = pacificDayEnd(selTo).toISOString();
 
     // Paginate; supabase-js .range() needs a fresh query each call.
+    // We pull paid + refunded together — paid feeds the By Item aggregation
+    // and the headline (refunded would inflate "Gross" for stuff that came
+    // back), while the By Order tab uses both for audit visibility.
+    // We hydrate customer + cashier (via pos_shifts→profiles) so the By Order
+    // table doesn't have to do a second round trip.
     const BATCH = 1000;
-    let orders = [];
+    let allOrders = [];
     let fetchError = null;
     let offset = 0;
     while (true) {
       let q = db.from('orders')
-        .select('id, order_number, total_amount, tax_amount, tip_amount, amount_refunded, billing_status, site_id, line_items, created_at')
+        .select('id, order_number, customer_id, total_amount, tax_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, site_id, pos_shift_id, line_items, created_at, customers(id, first_name_cache, last_name_cache), pos_shifts(id, cashier_profile_id, profiles:cashier_profile_id(id, first_name, last_name))')
         .eq('source', 'walk_in')
-        .eq('billing_status', 'paid')
+        .in('billing_status', ['paid', 'refunded'])
         .gte('created_at', fromISO)
         .lte('created_at', toISO)
-        .order('created_at')
+        .order('created_at', { ascending: false })
         .range(offset, offset + BATCH - 1);
       if (siteFilter) q = q.eq('site_id', siteFilter);
       const { data, error } = await q;
       if (error) { fetchError = error; break; }
-      orders.push(...(data || []));
+      allOrders.push(...(data || []));
       if (!data || data.length < BATCH) break;
       offset += BATCH;
     }
 
     if (fetchError) {
       body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${esc(fetchError.message)}</div>`;
+      const byOrderBody = document.getElementById('ps-by-order-body');
+      if (byOrderBody) byOrderBody.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${esc(fetchError.message)}</div>`;
       return;
     }
 
+    // Paid-only subset feeds the By Item aggregation + the headline.
+    const orders = allOrders.filter(o => o.billing_status === 'paid');
+    _posSalesOrders = allOrders;
+    _renderPosByOrder(allOrders);
+
     if (!orders.length) {
-      body.innerHTML = '<div class="rev-empty">No POS transactions in this date range.</div>';
+      body.innerHTML = '<div class="rev-empty">No paid POS transactions in this date range.</div>';
       _setPosSalesSummary(0, 0, '$0.00', '$0.00');
       _posSalesData = { items: [], totals: { tx:0, units:0, rev:0, tax:0 }, from:selFrom, to:selTo, site:siteFilter };
       return;
@@ -28393,8 +28459,147 @@ ${oneCopy}
 
   // (uses the global fmtMoney helper defined earlier in this file)
 
+  function setPsSubTab(sub) {
+    _psSubTab = sub;
+    document.querySelectorAll('#rpttab-possales .ps-subtab').forEach(b => b.classList.remove('active'));
+    const activeBtn = document.getElementById('ps-subtab-' + sub);
+    if (activeBtn) activeBtn.classList.add('active');
+    const itemView  = document.getElementById('ps-by-item-view');
+    const orderView = document.getElementById('ps-by-order-view');
+    if (itemView)  itemView.style.display  = sub === 'byitem'  ? '' : 'none';
+    if (orderView) orderView.style.display = sub === 'byorder' ? '' : 'none';
+  }
+
+  // Build the compact items snippet shown under the customer name —
+  // e.g. "Wash & Dry 31lb · Caprisun ×2". Cap at 3 items + "+N more".
+  function _buildOrderItemsSnippet(o) {
+    if (!Array.isArray(o.line_items) || !o.line_items.length) return '<span class="rev-zero">—</span>';
+    const parts = [];
+    o.line_items.forEach(li => {
+      if (!li) return;
+      const name = (li.name || li.label || 'item').toString().trim();
+      const lbs = parseFloat(li.weight_lbs || 0);
+      const qty = parseInt(li.qty || 1) || 1;
+      const isPerLb = li.pricing_type === 'per_lb' || lbs > 0;
+      if (isPerLb && lbs > 0) {
+        const lbsLabel = lbs % 1 === 0 ? `${lbs}` : lbs.toFixed(1);
+        parts.push(`${name} ${lbsLabel}lb`);
+      } else if (qty > 1) {
+        parts.push(`${name} ×${qty}`);
+      } else {
+        parts.push(name);
+      }
+    });
+    const shown = parts.slice(0, 3).map(esc).join(' · ');
+    const more  = parts.length > 3 ? ` <span style="color:var(--gray-400)">+${parts.length - 3} more</span>` : '';
+    return shown + more;
+  }
+
+  function _renderPosByOrder(orders) {
+    const body = document.getElementById('ps-by-order-body');
+    if (!body) return;
+    if (!orders.length) {
+      body.innerHTML = '<div class="rev-empty">No POS transactions in this date range.</div>';
+      return;
+    }
+
+    // Aggregated footer totals across every visible row.
+    let tGross = 0, tTax = 0, tTip = 0, tRefund = 0, tNet = 0;
+
+    const rows = orders.map(o => {
+      const total   = parseFloat(o.total_amount    || 0);
+      const tax     = parseFloat(o.tax_amount      || 0);
+      const tip     = parseFloat(o.tip_amount      || 0);
+      const refund  = parseFloat(o.amount_refunded || 0);
+      const gross   = total - tax;
+      const net     = gross + tax + tip - refund;
+
+      tGross  += gross;
+      tTax    += tax;
+      tTip    += tip;
+      tRefund += refund;
+      tNet    += net;
+
+      const c = o.customers;
+      const customerName = c
+        ? esc(((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() || 'Customer')
+        : '<span style="color:var(--gray-400);font-style:italic">Walk-in</span>';
+
+      const cashierProfile = o.pos_shifts?.profiles;
+      const cashierName = cashierProfile
+        ? esc(((cashierProfile.first_name || '') + ' ' + (cashierProfile.last_name || '')).trim() || '—')
+        : '<span class="rev-zero">—</span>';
+
+      const pmRaw   = (o.billing_payment_method || '').toString().toLowerCase();
+      const pmClass = ['card','cash','credit'].includes(pmRaw) ? pmRaw : '';
+      const pmLabel = pmRaw ? pmRaw.charAt(0).toUpperCase() + pmRaw.slice(1) : '—';
+      const pmCell  = pmRaw
+        ? `<span class="ps-pm-tag ${pmClass}">${esc(pmLabel)}</span>`
+        : '<span class="rev-zero">—</span>';
+
+      const dt = new Date(o.created_at);
+      const dStr = dt.toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' });
+      const tStr = dt.toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit' });
+
+      const isRefunded = o.billing_status === 'refunded';
+      const rowClass = 'clickable' + (isRefunded ? ' refunded' : '');
+      const statusPill = isRefunded
+        ? '<span class="ps-status-pill refunded">Refunded</span>'
+        : '';
+
+      // Use event.stopPropagation so the inner button-style click on the order
+      // # cell doesn't double-fire with the whole-row click.
+      const openOrderAttr = `onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
+
+      return `<tr class="${rowClass}" ${openOrderAttr}>
+        <td class="left"><div>${esc(dStr)}</div><div style="font-size:11.5px;color:var(--gray-500)">${esc(tStr)}</div></td>
+        <td class="left"><span class="ps-order-num">#${o.order_number}</span>${statusPill}</td>
+        <td class="left"><div>${customerName}</div><div class="ps-items-snippet">${_buildOrderItemsSnippet(o)}</div></td>
+        <td class="left">${pmCell}</td>
+        <td class="left">${cashierName}</td>
+        <td>${fmtMoney(gross)}</td>
+        <td>${tax > 0 ? fmtMoney(tax) : '<span class="rev-zero">—</span>'}</td>
+        <td>${tip > 0 ? fmtMoney(tip) : '<span class="rev-zero">—</span>'}</td>
+        <td>${refund > 0 ? '<span style="color:var(--red)">−' + fmtMoney(refund) + '</span>' : '<span class="rev-zero">—</span>'}</td>
+        <td><strong>${fmtMoney(net)}</strong></td>
+      </tr>`;
+    }).join('');
+
+    body.innerHTML = `
+      <div class="ps-by-order-wrap">
+        <table class="ps-by-order-tbl">
+          <thead>
+            <tr>
+              <th class="left">When</th>
+              <th class="left">Order</th>
+              <th class="left">Customer / Items</th>
+              <th class="left">Payment</th>
+              <th class="left">Cashier</th>
+              <th>Gross</th>
+              <th>Tax</th>
+              <th>Tip</th>
+              <th>Refund</th>
+              <th>Net</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr>
+              <td class="left" colspan="5">${orders.length} ${orders.length === 1 ? 'transaction' : 'transactions'}</td>
+              <td>${fmtMoney(tGross)}</td>
+              <td>${fmtMoney(tTax)}</td>
+              <td>${fmtMoney(tTip)}</td>
+              <td>${tRefund > 0 ? '<span style="color:var(--red)">−' + fmtMoney(tRefund) + '</span>' : fmtMoney(0)}</td>
+              <td>${fmtMoney(tNet)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`;
+  }
+
   window.loadPosSalesReport  = loadPosSalesReport;
   window.setPosSalesPreset   = setPosSalesPreset;
+  window.setPsSubTab         = setPsSubTab;
   window.exportPosSalesCSV   = exportPosSalesCSV;
 
   let _laundererReportData = [];
