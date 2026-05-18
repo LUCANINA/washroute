@@ -24156,7 +24156,10 @@ ${oneCopy}
       const folderName  = splitAsgn.length > 1
         ? null
         : (allLaunCache.find(l => l.id === o.folded_by_id)?.name || null);
-      const alreadyPaid = !!o.stripe_payment_intent_id;
+      // billing_status = 'paid' covers Stripe online charges AND POS cash/credit/check
+      // sales. Plain `!!o.stripe_payment_intent_id` mislabels every cash sale as
+      // unpaid because cash never produces a payment intent. (Same fix as racked kanban.)
+      const alreadyPaid = o.billing_status === 'paid';
       const zoneName  = o.service_zones?.name  || '';
       const zoneColor = o.service_zones?.color || '#94a3b8';
       const activeLaun  = allLaunCache.filter(l => l.is_active);
@@ -24984,7 +24987,9 @@ ${oneCopy}
       const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
       const bags = o.total_bags || 1;
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
-      const alreadyPaid = !!o.stripe_payment_intent_id;
+      // billing_status='paid' covers Stripe + cash/credit/check (Stripe-only
+      // check missed POS cash sales — same fix as racked kanban).
+      const alreadyPaid = o.billing_status === 'paid';
       return `<div class="proc-card" id="clean-card-${o.id}"
         style="cursor:pointer"
         onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openFoldPanel('${o.id}')`}"
@@ -25033,7 +25038,9 @@ ${oneCopy}
       const bags = o.total_bags || 1;
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : null;
       const svcName = o.services?.name || '—';
-      const alreadyPaid = !!o.stripe_payment_intent_id;
+      // billing_status='paid' covers Stripe + cash/credit/check (Stripe-only
+      // check missed POS cash sales — same fix as racked kanban).
+      const alreadyPaid = o.billing_status === 'paid';
       const prefs   = o.services?.preferences || [];
       // Show chips for pref options that have a price mod (non-standard selections)
       const premiumOpts = [];
