@@ -324,11 +324,18 @@
     color: white;
   }
   .queue-badge-icon { font-size: 13px; }
-  .queue-badge-count { min-width: 12px; text-align: center; }
-
-  /* Site badge inherits .pill — see toggleSiteDropdown() */
-  .site-badge { /* layout via .pill */ }
-  .site-badge-text { white-space: nowrap; }
+  .queue-badge-label { font-weight: 700; font-size: 13px; line-height: 1; }
+  .queue-badge-count {
+    min-width: 18px;
+    text-align: center;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: rgba(0,0,0,.08);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .queue-badge.has-items .queue-badge-count { background: var(--accent); color: white; }
+  .queue-badge.active .queue-badge-count { background: rgba(255,255,255,.25); color: white; }
 
   /* Reader status pill — collapsed from the prior 2-element verbose
      "○ Not connected   Connect reader" block. Single pill, dot color
@@ -357,38 +364,8 @@
   .admin-pill { /* layout via .pill */ }
   .admin-pill.signed-in { background: var(--green-light); border-color: var(--green); color: var(--green); }
 
-  /* session 111: Site selector dropdown — appears on badge click */
-  .site-selector-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    margin-top: 6px;
-    background: white;
-    border: 1px solid var(--gray-200);
-    border-radius: 10px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    z-index: 1000;
-    min-width: 200px;
-    overflow: hidden;
-  }
-  .site-selector-item {
-    padding: 10px 14px;
-    border: none;
-    background: white;
-    cursor: pointer;
-    font-size: 13px;
-    color: var(--gray-700);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    text-align: left;
-    border-bottom: 1px solid var(--gray-100);
-    transition: background 0.1s;
-  }
-  .site-selector-item:last-child { border-bottom: none; }
-  .site-selector-item:hover { background: var(--gray-50); }
-  .site-selector-item.active { background: var(--accent-light); color: var(--accent-dark); font-weight: 600; }
+  /* Session 155: .site-selector-dropdown + .site-selector-item* removed —
+     dropdown UI eliminated (see enterRegister: site sourced from device row). */
 
   /* ─── Queue panel (overlays the cart area) ─────────────────── */
   .queue-panel {
@@ -1803,15 +1780,11 @@
           <div class="customer-chip-name" id="custName" data-i18n>Customer</div>
         </button>
 
-        <!-- session 111: site selector — now matches all other pills -->
-        <button class="pill site-badge" id="siteBadge" onclick="toggleSiteDropdown()" style="display:none;" title="Switch site" data-i18n-title="Switch site">
-          <span class="pill-dot" id="siteBadgeDot"></span>
-          <span class="site-badge-text" id="siteBadgeText">—</span>
-          <span class="pill-arrow">▾</span>
-          <div class="site-selector-dropdown" id="siteDropdown" style="display:none;">
-            <!-- Populated by toggleSiteDropdown() -->
-          </div>
-        </button>
+        <!-- Session 155: site selector removed from topbar. The device row
+             (pos_devices.site_id) is the authoritative location; the cashier
+             never needs to pick or switch. Keeping the device's site visible
+             via the reader pill on the far right ("Foothill Register" etc.)
+             is enough signal for the operator. -->
 
         <button class="pill" id="refundBtn" onclick="openRefundModal()" title="Refund a recent sale" data-i18n-title="Refund a recent sale">
           <span style="font-size:14px;line-height:1">↩</span>
@@ -1820,6 +1793,7 @@
 
         <button class="pill queue-badge" id="queueBadge" onclick="toggleQueue()" title="Retail orders in process" data-i18n-title="Retail orders in process">
           <span class="queue-badge-icon">📦</span>
+          <span class="queue-badge-label" data-i18n>Orders</span>
           <span class="queue-badge-count" id="queueCount">0</span>
         </button>
 
@@ -1935,23 +1909,8 @@
         </div>
       </div>
 
-      <!-- ══════════════════════════════════════════════════════
-           MODAL: Site selector (session 111)
-           Shown after admin auth if multiple active sites exist.
-           ══════════════════════════════════════════════════════ -->
-      <div class="modal-overlay" id="siteSelectorModal">
-        <div class="modal" style="max-width: 440px;">
-          <div class="modal-header">
-            <div>
-              <div class="modal-title" data-i18n>Select processing site</div>
-              <div class="modal-sub" data-i18n>Where are you processing today?</div>
-            </div>
-          </div>
-          <div class="modal-body" id="siteSelectorBody">
-            <!-- Populated by showSiteSelectorModal() -->
-          </div>
-        </div>
-      </div>
+      <!-- Session 155: site-selector modal removed. Device row pins each
+           register to a site; cashiers never pick. -->
 
       <!-- ══════════════════════════════════════════════════════
            MODAL: Customer lookup
@@ -2434,9 +2393,9 @@
     'Reader connected': 'Lector conectado',
     'Reader offline': 'Lector desconectado',
     'Refund': 'Reembolso',
+    'Orders': 'Órdenes',
     'Switch language / Cambiar idioma': 'Switch language / Cambiar idioma',
     'End shift and switch cashier': 'Cerrar turno y cambiar cajero',
-    'Switch site': 'Cambiar sucursal',
     'Retail orders in process': 'Órdenes minoristas en proceso',
     'Card reader status': 'Estado del lector de tarjeta',
 
@@ -2684,10 +2643,6 @@
     'Tap to include': 'Toca para incluir',
     'Add to cart': 'Agregar al carrito',
 
-    // Site selector
-    'Select processing site': 'Seleccionar sucursal de procesamiento',
-    'Where are you processing today?': '¿Dónde está procesando hoy?',
-
     // Customer lookup / create modal
     'Find customer': 'Buscar cliente',
     'Phone': 'Teléfono',
@@ -2870,11 +2825,15 @@
   async function loadDevice() {
     const { data: { user } } = await db.auth.getUser();
     if (!user) { showToast(t('Session expired. Please sign in again.'), 'error'); setTimeout(()=>showAuthScreen('screen-login'),400); return false; }
-    // pos_devices has no site_id column (yet). Register-to-site mapping is
-    // done by localStorage → default site → first-active fallback inside
-    // enterRegister().
+    // Session 150 pt 4 added pos_devices.site_id (NOT NULL). The device row
+    // is the authoritative location — every POS install is permanently
+    // pinned to a site, and the RLS pos_order_read policy already enforces
+    // device.site_id when reading active-processing orders. We pull it
+    // here so enterRegister() can set currentSiteId from the device row
+    // instead of localStorage (session 155 — closes the localStorage
+    // source-of-truth tech debt logged in session 150 pt 4).
     const { data, error } = await db.from('pos_devices')
-      .select('id, name, location, stripe_reader_id, printer_token, is_active')
+      .select('id, name, location, site_id, stripe_reader_id, printer_token, is_active')
       .eq('is_active', true).eq('auth_user_id', user.id).limit(1).maybeSingle();
     if (error || !data) {
       console.error('[POS] loadDevice error:', error);
@@ -3007,21 +2966,21 @@
     showAuthScreen('screen-register');
     updateCashierBadge();
     await loadSites();
-    // Site selection fallback: localStorage → default site → first active.
-    // (pos_devices has no site_id column yet — future schema change will
-    // pin each register to a site explicitly.)
-    const activeSites = allSites.filter(s => s.is_active);
-    if (activeSites.length) {
-      let picked = null;
-      const remembered = localStorage.getItem('wr-pos-site-id');
-      if (remembered) {
-        picked = activeSites.find(s => s.id === remembered) || null;
-      }
-      if (!picked) picked = activeSites.find(s => s.is_default) || activeSites[0];
-      currentSiteId = picked.id;
-      try { localStorage.setItem('wr-pos-site-id', currentSiteId); } catch (_) {}
+    // Session 155: site is fully determined by the device row. pos_devices.site_id
+    // is NOT NULL (session 150 pt 4) so this is always populated; the
+    // fallback path below only kicks in if a brand-new register is
+    // somehow loaded before its site_id is set, which RLS would already
+    // reject. localStorage is no longer the source of truth.
+    if (device?.site_id) {
+      currentSiteId = device.site_id;
+    } else {
+      // Defensive fallback — shouldn't trigger in normal operation since
+      // pos_devices.site_id is NOT NULL.
+      const activeSites = allSites.filter(s => s.is_active);
+      const picked = activeSites.find(s => s.is_default) || activeSites[0];
+      currentSiteId = picked?.id || null;
+      console.warn('[POS] device.site_id missing; falling back to', currentSiteId);
     }
-    updateSiteBadge();
     // session 140: pull the live sales-tax rate alongside the catalog so
     // the very first cart paint uses the admin-set rate (not the default).
     await Promise.all([loadRetailServices(), loadTaxRate()]);
@@ -3054,7 +3013,10 @@
      session 111: Multi-site support — POS site selector + queue-by-site
      ───────────────────────────────────────────────────────────── */
   let allSites = []; // [{id, name, color, is_active, is_default}]
-  let currentSiteId = null; // set after user selects a site
+  // Session 155: currentSiteId now sourced from device.site_id in enterRegister(),
+  // not from any cashier selection. allSites is still loaded so other code that
+  // needs site metadata (e.g. site-tagging on inserts) can look up by id.
+  let currentSiteId = null;
 
   async function loadSites() {
     // session 111: Load sites (mirrors admin pattern)
@@ -3607,103 +3569,12 @@
     closeAll();
   }
 
-  // session 111: Show site selector modal with cards for each active site
-  function showSiteSelectorModal() {
-    const activeSites = allSites.filter(s => s.is_active);
-    const body = document.getElementById('siteSelectorBody');
-    if (!activeSites.length) {
-      body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--gray-500);">' + t('No sites available') + '</div>';
-      showModal('siteSelectorModal');
-      return;
-    }
-    const lastSiteId = localStorage.getItem('wr-pos-site-id');
-    body.innerHTML = '<div style="display:flex;flex-direction:column;gap:10px;padding:16px;">' +
-      activeSites.map(site => `
-        <button onclick="selectSite('${site.id}')" style="
-          padding:14px 16px;
-          border:2px solid var(--gray-200);
-          background:white;
-          border-radius:10px;
-          cursor:pointer;
-          display:flex;
-          align-items:center;
-          gap:12px;
-          transition:all 0.15s;
-          ${lastSiteId === site.id ? 'border-color:var(--accent);background:var(--accent-light);' : 'hover{border-color:var(--gray-300);}'}
-        ">
-          <div style="width:12px;height:12px;border-radius:50%;background:${site.color || '#9ca3af'};flex-shrink:0;"></div>
-          <div style="text-align:left;">
-            <div style="font-weight:700;color:var(--gray-900);">${site.name}</div>
-          </div>
-        </button>
-      `).join('') +
-      '</div>';
-  }
-
-  // session 111: Handle site selection from modal
-  async function selectSite(siteId) {
-    currentSiteId = siteId;
-    localStorage.setItem('wr-pos-site-id', currentSiteId);
-    updateSiteBadge();
-    closeAll();
-    await loadWalkInQueue();
-    showToast(`${t('Switched to')} ${getSiteById(siteId)?.name || t('site')}`, 'success');
-  }
-
-  // session 111: Update the site badge in topbar.
-  // Session 137 refinement: hide the badge entirely whenever there's only
-  // one active site — clicking it does nothing in that case (the dropdown
-  // early-returns), so showing it just adds visual noise. Auto-reappears
-  // once a second site is activated, no code change needed.
-  function updateSiteBadge() {
-    const badge = document.getElementById('siteBadge');
-    const dot = document.getElementById('siteBadgeDot');
-    const text = document.getElementById('siteBadgeText');
-    const activeCount = allSites.filter(s => s.is_active).length;
-    if (currentSiteId && activeCount > 1) {
-      const site = getSiteById(currentSiteId);
-      if (site) {
-        badge.style.display = 'inline-flex';
-        dot.style.background = site.color || '#9ca3af';
-        text.textContent = site.name;
-        return;
-      }
-    }
-    badge.style.display = 'none';
-  }
-
-  // session 111: Toggle site selector dropdown
-  function toggleSiteDropdown() {
-    const dropdown = document.getElementById('siteDropdown');
-    const isOpen = dropdown.style.display !== 'none';
-    if (isOpen) {
-      dropdown.style.display = 'none';
-      return;
-    }
-    const activeSites = allSites.filter(s => s.is_active);
-    if (activeSites.length <= 1) return; // hide dropdown if only one site
-    dropdown.innerHTML = activeSites.map(site => `
-      <button class="site-selector-item ${site.id === currentSiteId ? 'active' : ''}" onclick="switchSite('${site.id}')">
-        <div style="width:8px;height:8px;border-radius:50%;background:${site.color || '#9ca3af'};flex-shrink:0;"></div>
-        <span>${site.name}</span>
-      </button>
-    `).join('');
-    dropdown.style.display = 'block';
-  }
-
-  // session 111: Switch site from dropdown
-  async function switchSite(siteId) {
-    if (siteId === currentSiteId) {
-      document.getElementById('siteDropdown').style.display = 'none';
-      return;
-    }
-    currentSiteId = siteId;
-    localStorage.setItem('wr-pos-site-id', currentSiteId);
-    updateSiteBadge();
-    document.getElementById('siteDropdown').style.display = 'none';
-    await loadWalkInQueue();
-    showToast(`${t('Switched to')} ${getSiteById(siteId)?.name || t('site')}`, 'success');
-  }
+  // Session 155: showSiteSelectorModal / selectSite / updateSiteBadge /
+  // toggleSiteDropdown / switchSite all removed. Site is now sourced
+  // exclusively from pos_devices.site_id at sign-in (see enterRegister).
+  // The site-badge topbar pill and the first-sign-in modal are gone — the
+  // device row is the authoritative location, surfaced indirectly via the
+  // reader-pill device name ("Foothill Register" etc.).
 
   /* ─── Customer lookup ──────────────────────────────────────── */
   function openLookup() {
