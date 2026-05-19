@@ -24287,6 +24287,34 @@ ${oneCopy}
     renderFoldQueue();
   }
 
+  // ── Session 155: Retail cards on the admin Processing kanban are
+  //    display-only. The POS Retail Queue is the single writer for retail
+  //    mutations (launderer assignment, intake edits, status advances).
+  //    These helpers produce the attribute string and footer hint applied
+  //    to retail cards across all 4 columns (Intake / Cleaning / Folding /
+  //    Rack). For non-retail orders, they pass through the normal
+  //    interactive attributes (cursor:pointer + onclick + swipe handlers).
+  //
+  //    `openFn` is the panel opener for the column (e.g. "openFoldPanel").
+  //    For retail, the click is replaced with a non-destructive toast so
+  //    accidental taps don't open a panel that could edit the order. ──
+  function _procCardInteractiveAttrs(o, openFn) {
+    if (o && o.source === 'walk_in') {
+      return `style="cursor:default" onclick="event.stopPropagation();showToast('Retail orders are managed in the POS Retail Queue', 'info')"`;
+    }
+    return `style="cursor:pointer"
+        onclick="${openFn}('${o.id}')"
+        ontouchstart="touchStartOrder(event,'${o.id}')"
+        ontouchmove="touchMoveOrder(event)"
+        ontouchend="touchEndOrder(event)"`;
+  }
+  function _procCardRetailFooter(o) {
+    if (!o || o.source !== 'walk_in') return '';
+    return `<div style="margin-top:8px;font-size:11px;color:var(--gray-400);font-style:italic;border-top:1px dashed var(--gray-100);padding-top:6px;display:flex;align-items:center;gap:5px">
+      <span style="font-size:11px">🔒</span> Managed via POS
+    </div>`;
+  }
+
   function renderFoldQueue() {
     const wrap = document.getElementById('fold-queue-wrap');
     if (!wrap) return;
@@ -24314,7 +24342,9 @@ ${oneCopy}
       const zoneName  = o.service_zones?.name  || '';
       const zoneColor = o.service_zones?.color || '#94a3b8';
       const activeLaun  = allLaunCache.filter(l => l.is_active);
-      const noFolderBadge = !o.folded_by_id ? `
+      // Session 155: hide the inline launderer assignment dropdown for
+      // retail orders — POS owns launderer assignment.
+      const noFolderBadge = (!o.folded_by_id && o.source !== 'walk_in') ? `
         <div style="margin-top:8px;padding:7px 9px;background:#fef9c3;border:1.5px solid #f59e0b;border-radius:8px;display:flex;align-items:center;gap:7px" onclick="event.stopPropagation()">
           <span style="font-size:13px;flex-shrink:0">⚠️</span>
           <select style="flex:1;font-size:12px;padding:3px 6px;border:1px solid #f59e0b;border-radius:5px;background:white;font-family:inherit;cursor:pointer;color:#92400e;font-weight:600"
@@ -24324,11 +24354,7 @@ ${oneCopy}
           </select>
         </div>` : '';
       return `<div class="proc-card" id="fold-card-${o.id}"
-        style="cursor:pointer"
-        onclick="openRackPanel('${o.id}')"
-        ontouchstart="touchStartOrder(event,'${o.id}')"
-        ontouchmove="touchMoveOrder(event)"
-        ontouchend="touchEndOrder(event)">
+        ${_procCardInteractiveAttrs(o, 'openRackPanel')}>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
           <div>
             <div class="proc-card-order">#${o.order_number||'—'}</div>
@@ -24352,6 +24378,7 @@ ${oneCopy}
           : folderName ? `<div style="font-size:12px;color:var(--gray-500)">👤 Folded by <strong style="color:var(--gray-700)">${folderName}</strong></div>` : ''}
         ${noFolderBadge}
         ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${n}"</div>` : ''; })()}
+        ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
     filterKanbanCol('fold'); // re-apply search if active
@@ -24700,16 +24727,23 @@ ${oneCopy}
           : isOnAcct
             ? `<span style="font-size:11px;font-weight:600;color:#1e40af;display:inline-flex;align-items:center;gap:2px" title="On Account — added to balance">✔ Invoiced</span>`
             : `<span style="font-size:11px;font-weight:600;color:#dc2626;display:inline-flex;align-items:center;gap:2px" title="Not yet charged">❌ Unpaid</span>`;
-      return `<div class="proc-card" id="racked-card-${o.id}" style="cursor:pointer" onclick="openRackPanel('${o.id}')">
+      return `<div class="proc-card" id="racked-card-${o.id}"
+        ${o.source === 'walk_in'
+          ? `style="cursor:default" onclick="event.stopPropagation();showToast('Retail orders are managed in the POS Retail Queue', 'info')"`
+          : `style="cursor:pointer" onclick="openRackPanel('${o.id}')"`}>
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div class="proc-card-order">#${o.order_number||'—'}</div>
-          ${payBadge}
+          <div style="display:flex;align-items:center;gap:6px">
+            ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:var(--accent-light);color:var(--blue);padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Retail</span>`:''}
+            ${payBadge}
+          </div>
         </div>
         <div class="proc-card-name">${name}</div>
         <div class="proc-card-meta">
           <span>📦 ${o.total_bags||1} bag${(o.total_bags||1)!==1?'s':''}</span>
           <span style="color:${rackTint};font-weight:600;text-decoration:underline;text-decoration-style:dotted">${rackIcon} ${esc(rackLabel)}</span>
         </div>
+        ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
     filterKanbanCol('rack'); // re-apply search if active
@@ -25143,11 +25177,7 @@ ${oneCopy}
       // check missed POS cash sales — same fix as racked kanban).
       const alreadyPaid = o.billing_status === 'paid';
       return `<div class="proc-card" id="clean-card-${o.id}"
-        style="cursor:pointer"
-        onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openFoldPanel('${o.id}')`}"
-        ontouchstart="touchStartOrder(event,'${o.id}')"
-        ontouchmove="touchMoveOrder(event)"
-        ontouchend="touchEndOrder(event)">
+        ${_procCardInteractiveAttrs(o, alreadyPaid ? 'openRackPanel' : 'openFoldPanel')}>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
           <div>
             <div class="proc-card-order">#${o.order_number||'—'}</div>
@@ -25162,6 +25192,7 @@ ${oneCopy}
           <span>${_serviceLabelForOrder(o)}</span>
         </div>
         ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${n}"</div>` : ''; })()}
+        ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
     filterKanbanCol('clean'); // re-apply search if active
@@ -25198,14 +25229,16 @@ ${oneCopy}
       const premiumOpts = [];
       prefs.forEach(g => { const d = (g.options||[]).find(opt=>opt.is_default); if(d&&d.price_mod>0) premiumOpts.push(d.label); });
       return `<div class="proc-card no-drag" id="proc-card-${o.id}"
-        style="cursor:pointer"
-        onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openIntakePanel('${o.id}')`}">
+        ${o.source === 'walk_in'
+          ? `style="cursor:default" onclick="event.stopPropagation();showToast('Retail orders are managed in the POS Retail Queue', 'info')"`
+          : `style="cursor:pointer" onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openIntakePanel('${o.id}')`}"`}>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
           <div>
             <div class="proc-card-order">#${o.order_number||'—'}</div>
             <div class="proc-card-name">${name}</div>
           </div>
           ${alreadyPaid?`<span style="font-size:10px;font-weight:700;color:#059669">✅ Paid</span>`:''}
+          ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:var(--accent-light);color:var(--blue);padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Retail</span>`:''}
         </div>
         <div class="proc-card-meta">
           <span>📦 ${bags} bag${bags!==1?'s':''}</span>
@@ -25214,6 +25247,7 @@ ${oneCopy}
         </div>
         ${premiumOpts.length ? `<div class="proc-card-prefs">${premiumOpts.map(l=>`<span class="proc-card-pref-chip">${l}</span>`).join('')}</div>` : ''}
         ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${n}"</div>` : ''; })()}
+        ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
     filterKanbanCol('intake'); // re-apply search if active
