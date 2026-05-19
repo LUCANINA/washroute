@@ -1760,13 +1760,19 @@
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;">
                   <input type="search" id="order-search" placeholder="Search…" class="form-input" style="width:140px;padding:5px 9px;font-size:12.5px" oninput="filterOrdersBySearch(this.value)">
+                  <!-- Session 155: 'Delivered' and 'Archived' tabs are
+                       hidden from the primary filter row to keep the operational
+                       view focused on active work. The data is still loaded
+                       (_loadDeliveredOrders runs in Phase 2 background fetch)
+                       so the search input finds them across all statuses
+                       — search bypasses tab filtering in getFilteredOrders. -->
                   <div class="filter-tabs" id="order-filter-tabs">
                     <button class="filter-tab active" data-filter="scheduled" onclick="filterOrders('scheduled',this)">Scheduled</button>
                     <button class="filter-tab" data-filter="in_process" onclick="filterOrders('in_process',this)">In Process</button>
                     <button class="filter-tab" data-filter="ready" onclick="filterOrders('ready',this)">Ready</button>
                     <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
-                    <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
-                    <button class="filter-tab" data-filter="archived" onclick="filterOrders('archived',this)" title="Archived failed/skipped orders — history preserved, hidden from Overview">Archived</button>
+                    <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)" style="display:none">Delivered</button>
+                    <button class="filter-tab" data-filter="archived" onclick="filterOrders('archived',this)" style="display:none" title="Archived failed/skipped orders — history preserved, hidden from Overview">Archived</button>
                   </div>
                 </div>
               </div>
