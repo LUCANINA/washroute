@@ -4038,7 +4038,14 @@
       // (🏪 Retail) from delivery-bound bags (🚚 For delivery).
       let query = db.from('orders')
         .select('id, order_number, status, source, site_id, customer_id, service_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at, card_brand, card_last4, pos_shift_id')
-        .in('status', ['picked_up', 'processing', 'ready_for_delivery']);
+        // Session 156: include 'folding' so bags stay visible through the
+        // folding stage. Earlier filter missed it — when an admin assigned
+        // a launderer, the bag advanced processing→folding and silently
+        // disappeared from the POS queue even though the Foothill team
+        // was still working it. The pos_order_read RLS already admits
+        // folding orders at the device's site (session 150 pt 4); this
+        // just aligns the client query.
+        .in('status', ['picked_up', 'processing', 'folding', 'ready_for_delivery']);
 
       // session 111: Apply null-safe filter for default site
       const isDefaultSite = getDefaultSite()?.id === currentSiteId;
@@ -4842,12 +4849,23 @@
   function startQueueRefresh() {
     if (_queueTimer) clearInterval(_queueTimer);
     _queueTimer = setInterval(async () => {
-      // Quick count query — lightweight
-      const { count, error } = await db
+      // Session 156: badge count must match the panel filter — same status
+      // set ('picked_up', 'processing', 'folding', 'ready_for_delivery') and
+      // same site scope as loadWalkInQueue. Old filter restricted to
+      // source='walk_in' which silently undercounted delivery orders at
+      // Foothill (Kasa, Kidango, Extended Stay) every 30s, overwriting
+      // the correct count set by renderQueue.
+      let countQuery = db
         .from('orders')
         .select('id', { count: 'exact', head: true })
-        .eq('source', 'walk_in')
-        .in('status', ['processing', 'ready_for_delivery']);
+        .in('status', ['picked_up', 'processing', 'folding', 'ready_for_delivery']);
+      const isDefaultSite = getDefaultSite()?.id === currentSiteId;
+      if (isDefaultSite) {
+        countQuery = countQuery.or(`site_id.eq.${currentSiteId},site_id.is.null`);
+      } else if (currentSiteId) {
+        countQuery = countQuery.eq('site_id', currentSiteId);
+      }
+      const { count, error } = await countQuery;
       if (!error) {
         const badge = document.getElementById('queueCount');
         const badgeEl = document.getElementById('queueBadge');
