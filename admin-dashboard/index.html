@@ -1742,19 +1742,23 @@
               <div class="stat-card"><div class="stat-label">Revenue Today</div><div class="stat-value" id="ostat-revenue">—</div><div class="stat-sub" id="ostat-revenue-sub"></div></div>
             </div>
             <div class="card">
-              <div class="card-header" style="flex-wrap:wrap;gap:10px;">
-                <div>
-                  <div class="card-title">Orders</div>
-                  <div class="card-sub" id="orders-count-label"></div>
-                </div>
-                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                  <!-- Session 155: source segment toggle. Default 'delivery' (the
-                       bread and butter). 'retail' = POS walk-ins. 'all' = both. -->
-                  <div class="filter-tabs" id="order-source-tabs" title="Filter by order source" style="margin-right:8px;">
+              <!-- Session 155: card-header is two-row.
+                   Row 1: title (left) + source toggle (right, fixed position).
+                   Row 2: search + status tabs (right). Keeping the source
+                   toggle on its own row means its position stays put even
+                   when the Scheduled status tab is hidden in Retail mode. -->
+              <div class="card-header" style="flex-direction:column;align-items:stretch;gap:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                  <div>
+                    <div class="card-title">Orders</div>
+                    <div class="card-sub" id="orders-count-label"></div>
+                  </div>
+                  <div class="filter-tabs" id="order-source-tabs" title="Filter by order source">
                     <button class="filter-tab active" data-src="delivery" onclick="setOrdersSource('delivery',this)">🚚 Delivery</button>
                     <button class="filter-tab" data-src="retail"   onclick="setOrdersSource('retail',this)">🏪 Retail</button>
-                    <button class="filter-tab" data-src="all"      onclick="setOrdersSource('all',this)">All</button>
                   </div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;">
                   <input type="search" id="order-search" placeholder="Search…" class="form-input" style="width:140px;padding:5px 9px;font-size:12.5px" oninput="filterOrdersBySearch(this.value)">
                   <div class="filter-tabs" id="order-filter-tabs">
                     <button class="filter-tab active" data-filter="scheduled" onclick="filterOrders('scheduled',this)">Scheduled</button>
@@ -8111,11 +8115,13 @@
   // Session 155: source filter for the Orders page.
   // 'delivery' = orders where source IS NULL OR source != 'walk_in' (the bread and butter)
   // 'retail'   = orders where source = 'walk_in' (POS counter sales)
-  // 'all'      = no source filter
   // Default = 'delivery' so the page lands on the operational view.
+  // (The original 3-way toggle had an 'all' state too; David's call to drop
+  // it — the two segments don't share enough operational vocabulary to make
+  // a combined list useful, and the customer profile already gives unified
+  // history when you need it.)
   let _ordersSourceFilter = 'delivery';
   function _orderMatchesSource(o) {
-    if (_ordersSourceFilter === 'all') return true;
     const isRetail = o && o.source === 'walk_in';
     return _ordersSourceFilter === 'retail' ? isRetail : !isRetail;
   }
@@ -8402,7 +8408,7 @@
   // Session 155: source-segment click handler. Re-render everything that
   // reads from getFilteredOrders or counts orders by source.
   function setOrdersSource(src, btn) {
-    if (!['delivery', 'retail', 'all'].includes(src)) return;
+    if (!['delivery', 'retail'].includes(src)) return;
     _ordersSourceFilter = src;
     document.querySelectorAll('#order-source-tabs .filter-tab').forEach(b => {
       b.classList.toggle('active', b === btn);
