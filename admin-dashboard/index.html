@@ -169,6 +169,9 @@
     .stat-card-link:hover { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.1); }
     .stat-label { font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 6px; }
     .stat-value { font-size: 22px; font-weight: 700; color: var(--gray-900); letter-spacing: -.03em; line-height: 1; margin-bottom: 6px; }
+    /* Session 155: small breakdown line beneath stat values (e.g. "48 delivery · 4 retail") */
+    .stat-sub { font-size: 11px; color: var(--gray-500); line-height: 1.3; min-height: 14px; }
+    .stat-sub:empty { display: none; }
     .stat-delta { font-size: 12px; font-weight: 500; color: var(--gray-500); }
     .delta-up { color: var(--green); }
     .card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 20px; transition: background .12s; }
@@ -1725,17 +1728,33 @@
           <!-- Orders List View -->
           <div id="orders-list-view">
             <div class="stats-grid">
-              <div class="stat-card"><div class="stat-label">Picked Up Today</div><div class="stat-value" id="ostat-pickups">—</div></div>
-              <div class="stat-card"><div class="stat-label">Delivered Today</div><div class="stat-value" id="ostat-delivered">—</div></div>
-              <div class="stat-card"><div class="stat-label">Orders Processing</div><div class="stat-value" id="ostat-processing">—</div></div>
-              <div class="stat-card"><div class="stat-label">Ready for Delivery</div><div class="stat-value" id="ostat-ready">—</div></div>
-              <div class="stat-card"><div class="stat-label">$ In Process</div><div class="stat-value" id="ostat-in-process">—</div></div>
-              <div class="stat-card"><div class="stat-label">Revenue Today</div><div class="stat-value" id="ostat-revenue">—</div></div>
+              <!-- Session 155: Each tile shows the combined total as the big
+                   number plus a subtitle breaking it into Delivery / Retail.
+                   The big number stays the at-a-glance summary; the subtitle
+                   lets David see which segment is moving without flipping
+                   the source toggle. Hidden via empty textContent when there
+                   are no retail orders to report (typical for sleepy days). -->
+              <div class="stat-card"><div class="stat-label">Picked Up Today</div><div class="stat-value" id="ostat-pickups">—</div><div class="stat-sub" id="ostat-pickups-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Delivered Today</div><div class="stat-value" id="ostat-delivered">—</div><div class="stat-sub" id="ostat-delivered-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Orders Processing</div><div class="stat-value" id="ostat-processing">—</div><div class="stat-sub" id="ostat-processing-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Ready</div><div class="stat-value" id="ostat-ready">—</div><div class="stat-sub" id="ostat-ready-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">$ In Process</div><div class="stat-value" id="ostat-in-process">—</div><div class="stat-sub" id="ostat-in-process-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Revenue Today</div><div class="stat-value" id="ostat-revenue">—</div><div class="stat-sub" id="ostat-revenue-sub"></div></div>
             </div>
             <div class="card">
               <div class="card-header" style="flex-wrap:wrap;gap:10px;">
-                <div><div class="card-title">Orders</div><div class="card-sub" id="orders-count-label"></div></div>
+                <div>
+                  <div class="card-title">Orders</div>
+                  <div class="card-sub" id="orders-count-label"></div>
+                </div>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                  <!-- Session 155: source segment toggle. Default 'delivery' (the
+                       bread and butter). 'retail' = POS walk-ins. 'all' = both. -->
+                  <div class="filter-tabs" id="order-source-tabs" title="Filter by order source" style="margin-right:8px;">
+                    <button class="filter-tab active" data-src="delivery" onclick="setOrdersSource('delivery',this)">🚚 Delivery</button>
+                    <button class="filter-tab" data-src="retail"   onclick="setOrdersSource('retail',this)">🏪 Retail</button>
+                    <button class="filter-tab" data-src="all"      onclick="setOrdersSource('all',this)">All</button>
+                  </div>
                   <input type="search" id="order-search" placeholder="Search…" class="form-input" style="width:140px;padding:5px 9px;font-size:12.5px" oninput="filterOrdersBySearch(this.value)">
                   <div class="filter-tabs" id="order-filter-tabs">
                     <button class="filter-tab active" data-filter="scheduled" onclick="filterOrders('scheduled',this)">Scheduled</button>
@@ -5231,7 +5250,14 @@
   };
 
   // ── COMBINED PICKUP cell: route on top, compact date+time below ──
+  // Session 155: Retail orders (source='walk_in') have no scheduled pickup
+  // window — the customer walks in with the bag. Show "Walk-in · created
+  // time" instead of "—" so the cell carries meaning.
   const pickupCombinedCell = (o) => {
+    if (o && o.source === 'walk_in') {
+      const t = o.created_at ? `${fmtDateShort(o.created_at)} · ${fmtTimeShort(o.created_at)}` : '';
+      return `<div style="font-weight:600;font-size:12px;color:var(--gray-700);line-height:1.3">Walk-in</div>${t ? `<div style="font-size:11px;color:var(--gray-400);line-height:1.3">${t}</div>` : ''}`;
+    }
     const route = o.pickup_run?.name || '';
     let timeLine = '';
     if (o.actual_pickup_at) {
@@ -5273,7 +5299,18 @@
   };
 
   // ── COMBINED DELIVERY cell: route on top, compact date+time below ──
+  // Session 155: Retail orders never get assigned a driver — the customer
+  // is the driver. Hide the "+ Assign" affordance and instead show either
+  // the pickup-by-customer time (when delivered) or "Counter pickup" as
+  // the destination label.
   const deliveryCombinedCell = (o) => {
+    if (o && o.source === 'walk_in') {
+      if (o.actual_delivery_at) {
+        const t = `${fmtDateShort(o.actual_delivery_at)} · ${fmtTimeShort(o.actual_delivery_at)}`;
+        return `<div style="font-weight:600;font-size:12px;color:var(--gray-700);line-height:1.3">Picked up by customer</div><div style="font-size:11px;color:var(--gray-400);line-height:1.3">${t}</div>`;
+      }
+      return `<div style="font-weight:600;font-size:12px;color:var(--gray-700);line-height:1.3">Counter pickup</div>`;
+    }
     const route = o.delivery_run?.name || '';
     let timeLine = '';
     if (o.actual_delivery_at) {
@@ -5428,7 +5465,19 @@
     return '';
   };
 
-  const statusBadge = (s) => {
+  // Session 155: optional `source` arg relabels retail-relevant statuses.
+  // 'ready_for_delivery' on a walk_in order means "ready for the customer
+  // to come back to the counter and pick it up" — not "ready to load on a
+  // truck". Same for 'delivered' which on retail = "customer picked it up".
+  // Most call sites still pass just `status`; passing `source='walk_in'`
+  // is opt-in for the contexts where it matters (Orders page rows,
+  // customer profile order history).
+  const RETAIL_STATUS_LABELS = {
+    picked_up:          'Dropped Off',
+    ready_for_delivery: 'Ready for Pickup',
+    delivered:          'Picked Up by Customer',
+  };
+  const statusBadge = (s, source) => {
     const map = {
       // Order statuses
       scheduled:          ['badge-gray',   'Scheduled'],
@@ -5457,7 +5506,10 @@
       in_progress:        ['badge-blue',   'In Progress'],
       complete:           ['badge-green',  'Complete'],
     };
-    const [cls, label] = map[s] || ['badge-gray', s];
+    let [cls, label] = map[s] || ['badge-gray', s];
+    if (source === 'walk_in' && RETAIL_STATUS_LABELS[s]) {
+      label = RETAIL_STATUS_LABELS[s];
+    }
     return `<span class="badge ${cls}">${label}</span>`;
   };
 
@@ -8049,12 +8101,24 @@
                actual_pickup_at, actual_delivery_at,
                pickup_run_id, delivery_run_id,
                pickup_address_id, delivery_address_id,
-               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, overcap_booking, cancelled_by, driver_skip_reason, site_id,
+               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, overcap_booking, cancelled_by, driver_skip_reason, site_id, source,
                archived_at, archived_reason, archived_by,
                services(name),
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
                pickup_run:pickup_run_id(id, name),
                delivery_run:delivery_run_id(id, name)`;
+
+  // Session 155: source filter for the Orders page.
+  // 'delivery' = orders where source IS NULL OR source != 'walk_in' (the bread and butter)
+  // 'retail'   = orders where source = 'walk_in' (POS counter sales)
+  // 'all'      = no source filter
+  // Default = 'delivery' so the page lands on the operational view.
+  let _ordersSourceFilter = 'delivery';
+  function _orderMatchesSource(o) {
+    if (_ordersSourceFilter === 'all') return true;
+    const isRetail = o && o.source === 'walk_in';
+    return _ordersSourceFilter === 'retail' ? isRetail : !isRetail;
+  }
   let _deliveredLoaded = false;
   let _sideFetchDone = false;
 
@@ -8193,32 +8257,77 @@
 
   function updateOrderStatCards() {
     const todayStr = today();
-    // Picked Up Today: orders actually picked up today (Pacific time)
-    const pickedUpToday = allOrders.filter(o => {
-      if (!['picked_up','processing','folding','ready_for_delivery','out_for_delivery','delivered'].includes(o.status)) return false;
-      return toLocalDate(o.actual_pickup_at) === todayStr;
-    }).length;
-    // Processing: picked_up through folding (actively being worked on)
-    const processing = allOrders.filter(o => ['picked_up','processing','folding'].includes(o.status)).length;
-    // Ready for Delivery: on the rack waiting to go out
-    const readyCount = allOrders.filter(o => o.status === 'ready_for_delivery').length;
-    // Delivered Today: orders delivered today (Pacific time)
-    const deliveredToday = allOrders.filter(o => o.status === 'delivered' && toLocalDate(o.actual_delivery_at) === todayStr).length;
-    // $ In Process: projected revenue from in-flight orders (subtotal + tip).
-    // charge-order will bill the tip-inclusive amount at rack time.
-    const inProcessRevenue = allOrders.filter(o => ['picked_up','processing','folding'].includes(o.status) && o.billing_status !== 'paid')
-      .reduce((sum, o) => sum + orderChargedTotal(o), 0);
-    // Revenue Today: only orders successfully charged via Stripe (Pacific time).
-    // Use chargedTotal so the figure matches what actually hit Stripe today.
-    const revenueToday = allOrders.filter(o => o.billing_status === 'paid' && toLocalDate(o.billed_at) === todayStr)
-      .reduce((sum, o) => sum + orderChargedTotal(o), 0);
+
+    // Session 155: each stat is computed twice — once for delivery, once for
+    // retail — then summed for the big number. The split is rendered as a
+    // small subtitle ("48 delivery · 4 retail" or "$1,130.75 delivery · $3.00
+    // retail") so the operator can see both segments without toggling the
+    // source filter. When retail is 0 we skip the subtitle entirely to avoid
+    // visual noise on sleepy days.
+    const isRetail = (o) => o && o.source === 'walk_in';
+    const splitCount = (predicate) => {
+      let d = 0, r = 0;
+      for (const o of allOrders) {
+        if (!predicate(o)) continue;
+        if (isRetail(o)) r++; else d++;
+      }
+      return { delivery: d, retail: r, total: d + r };
+    };
+    const splitSum = (predicate, valueFn) => {
+      let d = 0, r = 0;
+      for (const o of allOrders) {
+        if (!predicate(o)) continue;
+        const v = valueFn(o) || 0;
+        if (isRetail(o)) r += v; else d += v;
+      }
+      return { delivery: d, retail: r, total: d + r };
+    };
+
+    const _PICKED_UP_STATUSES = ['picked_up','processing','folding','ready_for_delivery','out_for_delivery','delivered'];
+    const _PROCESSING_STATUSES = ['picked_up','processing','folding'];
+
+    const pickedUp  = splitCount(o => _PICKED_UP_STATUSES.includes(o.status) && toLocalDate(o.actual_pickup_at) === todayStr);
+    const processed = splitCount(o => _PROCESSING_STATUSES.includes(o.status));
+    const ready     = splitCount(o => o.status === 'ready_for_delivery');
+    const delivered = splitCount(o => o.status === 'delivered' && toLocalDate(o.actual_delivery_at) === todayStr);
+    const inProcess = splitSum(
+      o => _PROCESSING_STATUSES.includes(o.status) && o.billing_status !== 'paid',
+      o => orderChargedTotal(o)
+    );
+    const revenue   = splitSum(
+      o => o.billing_status === 'paid' && toLocalDate(o.billed_at) === todayStr,
+      o => orderChargedTotal(o)
+    );
+
     const _s = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-    _s('ostat-pickups', pickedUpToday);
-    _s('ostat-processing', processing);
-    _s('ostat-ready', readyCount);
-    _s('ostat-delivered', deliveredToday);
-    _s('ostat-in-process', fmtMoney(inProcessRevenue));
-    _s('ostat-revenue', fmtMoney(revenueToday));
+    const _setSubCount = (id, split) => {
+      const e = document.getElementById(id);
+      if (!e) return;
+      e.textContent = split.retail > 0
+        ? `${split.delivery} delivery · ${split.retail} retail`
+        : '';
+    };
+    const _setSubMoney = (id, split) => {
+      const e = document.getElementById(id);
+      if (!e) return;
+      e.textContent = split.retail > 0
+        ? `${fmtMoney(split.delivery)} delivery · ${fmtMoney(split.retail)} retail`
+        : '';
+    };
+
+    _s('ostat-pickups',       pickedUp.total);
+    _s('ostat-processing',    processed.total);
+    _s('ostat-ready',         ready.total);
+    _s('ostat-delivered',     delivered.total);
+    _s('ostat-in-process',    fmtMoney(inProcess.total));
+    _s('ostat-revenue',       fmtMoney(revenue.total));
+
+    _setSubCount('ostat-pickups-sub',    pickedUp);
+    _setSubCount('ostat-processing-sub', processed);
+    _setSubCount('ostat-ready-sub',      ready);
+    _setSubCount('ostat-delivered-sub',  delivered);
+    _setSubMoney('ostat-in-process-sub', inProcess);
+    _setSubMoney('ostat-revenue-sub',    revenue);
   }
 
   // Single source of truth for "what's an Issue row?" — used by the Orders → Issues tab
@@ -8244,12 +8353,16 @@
     return ORDER_FILTER_GROUPS.issues.includes(o.status);
   }
 
-  // Returns allOrders filtered by currentOrderFilter + orderSearchTerm
+  // Returns allOrders filtered by currentOrderFilter + orderSearchTerm + _ordersSourceFilter
   // When a search term is active, search spans ALL orders including delivered/cancelled
   // so staff can locate past orders for recall, comments, or reference.
+  //
+  // Session 155: source filter is applied FIRST (Delivery / Retail / All).
+  // It also applies to search results so the active segment is the consistent
+  // mental model — switching to All if you want to see across both sources.
   const DELIVERED_TAB_WINDOW_DAYS = 7;
   function getFilteredOrders() {
-    let data = allOrders;
+    let data = allOrders.filter(_orderMatchesSource);
     // If user is searching, skip tab filter — search across ALL orders (active + inactive + archived)
     if (orderSearchTerm) {
       data = data.filter(o => {
@@ -8286,18 +8399,46 @@
     return data;
   }
 
+  // Session 155: source-segment click handler. Re-render everything that
+  // reads from getFilteredOrders or counts orders by source.
+  function setOrdersSource(src, btn) {
+    if (!['delivery', 'retail', 'all'].includes(src)) return;
+    _ordersSourceFilter = src;
+    document.querySelectorAll('#order-source-tabs .filter-tab').forEach(b => {
+      b.classList.toggle('active', b === btn);
+    });
+    // Hide the Scheduled status tab when in Retail mode — walk-ins are never
+    // future-dated, so the tab would always be 0. Auto-shift to In Process
+    // if Scheduled was the active tab.
+    const schedTab = document.querySelector('#order-filter-tabs [data-filter="scheduled"]');
+    if (schedTab) {
+      schedTab.style.display = src === 'retail' ? 'none' : '';
+      if (src === 'retail' && currentOrderFilter === 'scheduled') {
+        const fallbackBtn = document.querySelector('#order-filter-tabs [data-filter="in_process"]');
+        if (fallbackBtn) filterOrders('in_process', fallbackBtn);
+      }
+    }
+    updateOrderFilterCounts();
+    updateOrderStatCards();
+    renderOrders();
+  }
+
   // Updates each pill button to show its count badge
+  // Session 155: counts respect _ordersSourceFilter so the badge numbers
+  // match what's actually visible in the list. (Switching to Retail shouldn't
+  // show "Issues 11" if 11 of those are Delivery issues.)
   function updateOrderFilterCounts() {
     const TAB_LABELS = { scheduled:'Scheduled', in_process:'In Process', ready:'Ready', issues:'Issues', delivered:'Delivered', archived:'Archived' };
     // Active-tab counts must exclude archived orders — otherwise Issues would still show rows we've hidden
-    const activeOnly = allOrders.filter(o => !o.archived_at);
+    const sourceFiltered = allOrders.filter(_orderMatchesSource);
+    const activeOnly = sourceFiltered.filter(o => !o.archived_at);
     const counts = {
       scheduled:  activeOnly.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
       in_process: activeOnly.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
       ready:      activeOnly.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
       issues:     activeOnly.filter(o => { if (o.status === 'skipped' && o.cancelled_by === 'customer') return false; if (o.status === 'skipped' && o.recurring_interval) return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; const _cs = ['ready_for_delivery','out_for_delivery','delivered']; if (o.billing_status === 'failed' && _cs.includes(o.status) && o.customers?.billing_type !== 'on_account') return true; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status); }).length,
       delivered:  (() => { const cutoff = new Date(Date.now() - DELIVERED_TAB_WINDOW_DAYS*24*60*60*1000).toISOString(); return activeOnly.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
-      archived:   allOrders.filter(o => o.archived_at).length,
+      archived:   sourceFiltered.filter(o => o.archived_at).length,
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
       const key = btn.dataset.filter;
@@ -8437,7 +8578,7 @@
           <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${esc(o.customers?.phone_cache||'')}" data-cust-name="${esc((o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||''))}" onchange="updateOrderBatchBar()"></td>
           <td style="font-size:11.5px;color:var(--gray-400);font-weight:600;white-space:nowrap;padding:8px 4px">${o.order_number ? '#'+o.order_number : '—'}</td>
           <td class="td-name" style="padding:8px 8px">${orderCustomerCell(o)}</td>
-          <td style="padding:8px 6px">${inIssues ? issueBadge(o) : statusBadge(o.status)}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:3px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : (o.overcap_booking ? `<span style="color:#c2560a;font-size:11px;margin-left:3px;cursor:help" title="Booked over base capacity — within 125% soft ceiling">▲</span>` : '')}${inArchived && o.archived_at ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:3px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.archived_reason || '')}">📦 ${fmtDate(o.archived_at)}${o.archived_reason ? ' · ' + esc(o.archived_reason) : ''}</div>` : ''}</td>
+          <td style="padding:8px 6px">${inIssues ? issueBadge(o) : statusBadge(o.status, o.source)}${o.source === 'walk_in' ? `<span title="Retail (POS walk-in)" style="display:inline-block;margin-left:6px;font-size:10px;font-weight:700;color:#5a3a06;background:#fef3c7;border-radius:4px;padding:2px 6px;vertical-align:middle">🏪 Retail</span>` : ''}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:3px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : (o.overcap_booking ? `<span style="color:#c2560a;font-size:11px;margin-left:3px;cursor:help" title="Booked over base capacity — within 125% soft ceiling">▲</span>` : '')}${inArchived && o.archived_at ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:3px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.archived_reason || '')}">📦 ${fmtDate(o.archived_at)}${o.archived_reason ? ' · ' + esc(o.archived_reason) : ''}</div>` : ''}</td>
           <td style="white-space:nowrap;padding:6px 8px">${pickupCombinedCell(o)}</td>
           <td style="white-space:nowrap;padding:6px 8px">${deliveryCombinedCell(o)}</td>
           <td style="font-size:12px;text-align:center;padding:8px 4px;line-height:1.3">${bagsDisplay}</td>
@@ -27943,14 +28084,22 @@ ${oneCopy}
     // Session 146: only count orders that have actually been processed AND paid
     // — exclude scheduled / picked_up / cancelled / failed / refunded so the
     // report reflects real revenue, not booked-but-not-yet-realized work.
+    //
+    // Session 155: Retail (POS walk-in) orders need a different filter — they
+    // don't have a delivery_window_start (no pickup/delivery scheduling), and
+    // revenue is real the moment the customer pays at the counter, not when
+    // they come back for the bag. So we run a second query for source='walk_in'
+    // AND billing_status='paid' filtered by billed_at, then merge into the
+    // same aggregation map under the 'Retail' pricelist key.
     let itemsOrders = [], itemsFetchError = null;
     { const BATCH = 1000; let offset = 0;
       while (true) {
         const { data, error: e } = await db.from('orders')
-          .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status')
+          .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status, source, billed_at')
           .eq('status', 'delivered')
           .eq('billing_status', 'paid')
           .not('total_amount', 'is', null)
+          .neq('source', 'walk_in')  // walk-in handled by its own query below — keyed off billed_at, not delivery_window_start
           .gte('delivery_window_start', fromISO)
           .lte('delivery_window_start', toISO)
           .order('delivery_window_start')
@@ -27961,12 +28110,31 @@ ${oneCopy}
         offset += BATCH;
       }
     }
+    // Retail (POS walk-in) paid orders, keyed off billed_at.
+    let retailOrders = [];
+    if (!itemsFetchError) { const BATCH = 1000; let offset = 0;
+      while (true) {
+        const { data, error: e } = await db.from('orders')
+          .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status, source, billed_at')
+          .eq('source', 'walk_in')
+          .eq('billing_status', 'paid')
+          .not('total_amount', 'is', null)
+          .gte('billed_at', fromISO)
+          .lte('billed_at', toISO)
+          .order('billed_at')
+          .range(offset, offset + BATCH - 1);
+        if (e) { itemsFetchError = e; break; }
+        retailOrders.push(...(data || []));
+        if (!data || data.length < BATCH) break;
+        offset += BATCH;
+      }
+    }
     const [{ data: services }] = await Promise.all([
       db.from('services').select('id, name, pricelist, is_addon')
     ]);
 
     if (itemsFetchError) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${itemsFetchError.message}</div>`; return; }
-    if (!itemsOrders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
+    if (!itemsOrders.length && !retailOrders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
     const orders = itemsOrders;
 
     // Build lookup: serviceId → { name, pricelist, is_addon }
@@ -27979,13 +28147,48 @@ ${oneCopy}
       const d = new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
       return d >= selFrom && d <= selTo;
     });
+    // Retail uses billed_at instead of delivery_window_start
+    const filteredRetail = retailOrders.filter(o => {
+      if (!o.billed_at) return false;
+      const d = new Date(o.billed_at).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      return d >= selFrom && d <= selTo;
+    });
 
-    if (!filtered.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
+    if (!filtered.length && !filteredRetail.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
 
     // Group by pricelist
     // pricelists: { [name]: { orders: N, lbs: N, addons: { [addonName]: { bags: N, revenue: N } } } }
     const byPricelist = {};
     const UNKNOWN = 'Unknown';
+
+    // Shared add-on parser — handles both taxonomies (delivery/customer-app and POS).
+    // Delivery/customer-app writes add-ons as type='pref_service'|'addon'|'addon_service'.
+    // POS writes them as type='service' + kind='addon' (session 155: dual taxonomy
+    // documented; unifying is tech debt for a future pass).
+    const ADDON_BLOCKLIST = new Set([
+      'Air Dry (per item · billed at processing)',
+      'Yes',
+      'Oxiclean',
+    ]);
+    const _accumulateAddons = (lineItems, plData) => {
+      if (!Array.isArray(lineItems)) return;
+      lineItems.forEach(item => {
+        const isAddonType  = item.type === 'pref_service' || item.type === 'addon' || item.type === 'addon_service';
+        const isAddonKind  = item.kind === 'addon';
+        if (item.type === 'base') return;
+        if (!isAddonType && !isAddonKind) return;
+        // Extract add-on name (e.g. "Oxi × 2 bags" → "Oxi", "  + Oxi" → "Oxi")
+        const label = (item.label || item.name || '').replace(/^\s*\+\s*/, '').trim();
+        const addonName = label.split('×')[0].trim() || label;
+        if (ADDON_BLOCKLIST.has(addonName)) return;
+        const qtyMatch = label.match(/×\s*(\d+)/);
+        const qty = qtyMatch ? parseInt(qtyMatch[1]) : (parseInt(item.qty) || 1);
+        const rev = parseFloat(item.amount || 0);
+        if (!plData.addons[addonName]) plData.addons[addonName] = { bags: 0, revenue: 0 };
+        plData.addons[addonName].bags    += qty;
+        plData.addons[addonName].revenue += rev;
+      });
+    };
 
     filtered.forEach(o => {
       const svc = svcMap[o.service_id];
@@ -28000,31 +28203,22 @@ ${oneCopy}
       plData.lbs      += parseFloat(o.weight_lbs   || 0);
       plData.bags     += parseInt(o.total_bags      || 0);
       plData.grossRev += parseFloat(o.total_amount  || 0);
+      _accumulateAddons(o.line_items, plData);
+    });
 
-      // Parse line items for add-ons (base is already counted in grossRev)
-      if (Array.isArray(o.line_items)) {
-        o.line_items.forEach(item => {
-          if (item.type === 'base') return;
-          if (item.type !== 'pref_service' && item.type !== 'addon' && item.type !== 'addon_service') return;
-          // Extract add-on name (e.g. "Oxi × 2 bags" → "Oxi")
-          const label = item.label || '';
-          const addonName = label.split('×')[0].trim() || label;
-          // Skip legacy/junk add-on labels
-          const ADDON_BLOCKLIST = new Set([
-            'Air Dry (per item · billed at processing)',
-            'Yes',
-            'Oxiclean',
-          ]);
-          if (ADDON_BLOCKLIST.has(addonName)) return;
-          // Extract bag quantity from label (e.g. "Oxi × 2 bags" → 2)
-          const qtyMatch = label.match(/×\s*(\d+)/);
-          const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
-          const rev = parseFloat(item.amount || 0);
-          if (!plData.addons[addonName]) plData.addons[addonName] = { bags: 0, revenue: 0 };
-          plData.addons[addonName].bags    += qty;
-          plData.addons[addonName].revenue += rev;
-        });
-      }
+    // Retail aggregation — all retail orders land in byPricelist['Retail'] regardless
+    // of which service was used (POS has 'Wash & Dry' / 'Wash & Fold' / merchandise).
+    // This is the simplest mental model for the report: one Retail bucket for the
+    // whole POS funnel. If we ever split sites here, we'd key by site_id instead.
+    filteredRetail.forEach(o => {
+      const pl = 'Retail';
+      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, grossRev: 0, addons: {} };
+      const plData = byPricelist[pl];
+      plData.orders++;
+      plData.lbs      += parseFloat(o.weight_lbs   || 0);
+      plData.bags     += parseInt(o.total_bags      || 0);
+      plData.grossRev += parseFloat(o.total_amount  || 0);
+      _accumulateAddons(o.line_items, plData);
     });
 
     // Render — preferred order of price lists
