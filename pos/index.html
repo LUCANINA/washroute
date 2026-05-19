@@ -1316,22 +1316,8 @@
     background: var(--green-light);
     color: var(--green);
   }
-  .walk-in-btn {
-    width: 100%;
-    padding: 18px;
-    background: var(--brand-navy);
-    color: white;
-    border: none;
-    border-radius: 14px;
-    font-size: 16px;
-    font-weight: 700;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-  }
-  .walk-in-btn:hover { background: var(--gray-800); }
+  /* Session 155: .walk-in-btn removed alongside the "Continue as retail"
+     button. Lookup modal's × close button covers the same bail-out. */
 
   /* ── "No match" empty state inside lookup modal ─────────────── */
   .no-match {
@@ -1943,9 +1929,11 @@
               <button class="numkey" onclick="phoneKey('0')">0</button>
               <button class="numkey back" onclick="phoneKey('back')">⌫</button>
             </div>
-            <button class="walk-in-btn" onclick="continueAsWalkIn()">
-              <span>👋</span> <span data-i18n>Continue as retail</span>
-            </button>
+            <!-- Session 155: "Continue as retail" button removed. The × close
+                 button in the modal header covers the same bail-out path
+                 (modal closes, currentCustomer stays null = anonymous retail).
+                 For laundry carts the button was blocked anyway — laundry
+                 always needs a customer attached. -->
           </div>
         </div>
       </div>
@@ -2454,7 +2442,6 @@
     'Last name': 'Apellido',
     'Email (optional)': 'Correo (opcional)',
     'Email': 'Correo',
-    'Continue as retail': 'Continuar sin cliente',
     'Detach customer': 'Quitar cliente',
     'Customer attached': 'Cliente vinculado',
     'Attach a customer before charging laundry.': 'Vincule un cliente antes de cobrar lavandería.',
@@ -3583,17 +3570,10 @@
     showModal('lookupModal');
   }
 
-  // session 114: tapping "Continue as walk-in" is OK for merchandise-only
-  // carts, but NOT for laundry carts — we need the phone number to text
-  // when the order's ready. Show a toast in that case instead of closing.
-  function continueAsWalkIn() {
-    if (cartHasLaundry()) {
-      showToast(t('Laundry needs a customer — we text them when the order is ready.'), 'error');
-      return;
-    }
-    setWalkIn();
-    closeAll();
-  }
+  // Session 155: continueAsWalkIn removed. The button it served was redundant
+  // with the modal × close button (lookup modal opens explicitly via + Customer
+  // pill or via the Attach-customer charge button; X closes either flow safely).
+  // setWalkIn() is still used by newSale() to reset state after a completed sale.
 
   function phoneKey(k) {
     if (k === 'back') {
