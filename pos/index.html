@@ -4382,7 +4382,14 @@
     // option to attendants.
     const isSelected  = (_selectedQueueOrderId === order.id);
     const cardClass   = 'queue-card' + (isSelected ? ' selected' : '');
-    const cardActions = (isSelected && !isDelivery && status !== 'picked_up') ? `
+    // Session 156: Reprint is now available for both walk-in retail AND
+    // commercial delivery cards. The original gate restricted to walk-ins
+    // because the original use case was a counter receipt — but at Foothill
+    // the laundry team uses the printed copy as a bag tag for commercial
+    // bags too (Kasa, Kidango, Extended Stay). Still hidden for picked_up
+    // status — at that point the bag hasn't been weighed yet, so the
+    // receipt has no line items to print meaningfully.
+    const cardActions = (isSelected && status !== 'picked_up') ? `
       <div class="queue-card-actions">
         <button class="queue-card-reprint-btn" onclick="event.stopPropagation();reprintQueueOrder('${order.id}')">${t('🖨 Reprint receipt')}</button>
       </div>
