@@ -5390,8 +5390,11 @@
   /* ─── Receipt action handlers (success modal) ─────────────────
      Print  — queues a CloudPRNT job if a printer token is saved,
               otherwise falls back to a browser print popup.
-     Email  — calls the existing `send-receipt` edge function.
-     Text   — calls `send-sms` with a short SMS summary.
+     Email  — calls the `send-receipt` edge function (full HTML receipt
+              with itemized line items).
+     Text   — calls `send-order-notification` with the
+              `walkin_receipt_text` template (short SMS summary, body
+              editable from admin Notifications tab).
      All three cancel the auto-advance timer when clicked so the
      cashier has time to tap additional options.
      ───────────────────────────────────────────────────────────── */
@@ -5492,31 +5495,31 @@
   }
 
   async function handleReceiptText() {
+    // Session 155: rerouted from send-sms (which now rejects anon-key auth
+    // and was returning 401 silently) to send-order-notification, same
+    // orchestrator as walkin_order_placed / walkin_order_ready. The receipt
+    // body lives in the `walkin_receipt_text` template in message_templates,
+    // so it's editable in the admin Notifications tab now instead of being
+    // hardcoded here. {{order_number}} and {{amount}} are interpolated
+    // server-side from the order row (amount = total_amount + tip).
     stopSuccessAutoAdvance();
     const btn = document.getElementById('rcptBtnText');
-    if (!lastPosOrder) { showToast(t('No order attached to this sale'), 'error'); return; }
+    if (!lastPosOrder || !lastPosOrder.id) {
+      showToast(t('No order attached to this sale'), 'error'); return;
+    }
     if (!currentCustomer || !currentCustomer.phone) {
       showToast(t('No phone on file for this customer'), 'error'); return;
     }
-    const preTip = Number(lastPosOrder.total_amount || 0);
-    const tipAmt = Number(lastPosOrder.tip_amount || 0);
-    const amt = (preTip + tipAmt).toFixed(2);
-    const num = lastPosOrder.order_number ? `#${lastPosOrder.order_number}` : '';
-    const smsBody = `Family Laundry — receipt for order ${num}. Total: $${amt}. Thank you!`;
     try {
       if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-sms`, {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-order-notification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-        body: JSON.stringify({
-          to: currentCustomer.phone,
-          body: smsBody,
-          customer_id: currentCustomer.id || null,
-        }),
+        body: JSON.stringify({ orderId: lastPosOrder.id, event: 'walkin_receipt_text' }),
       });
       if (!res.ok) {
         const body = await res.text();
-        throw new Error(`send-sms failed: ${body || res.status}`);
+        throw new Error(`send-order-notification failed: ${body || res.status}`);
       }
       if (btn) btn.innerHTML = `<div class="receipt-btn-icon">✓</div><div>${t('Sent')}</div>`;
     } catch (e) {
