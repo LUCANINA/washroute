@@ -4654,24 +4654,19 @@
 
     // session 114: When the attendant flips an order to ready_for_delivery,
     // text the customer "your laundry is ready for pickup". Uses the hydrated
-    // cache built by loadWalkInQueue(), so no extra DB round-trip is needed.
+    // cache built by loadWalkInQueue() for the phone guard, so we can skip
+    // the round-trip if we already know there's no phone on file.
     // Fire-and-forget — a send failure must not block the status update.
     //
     // Session 149: gated on source='walk_in' so commercial delivery orders
     // processed at Foothill don't get "ready for counter pickup" texts —
     // those bags are headed onto a driver's truck, not the customer's car.
+    // Session 155: helper now takes orderId only — server handles template
+    // lookup, phone, interpolation, Twilio, logging.
     if (newStatus === 'ready_for_delivery') {
       const cachedOrder = (queueOrders || []).find(o => o.id === orderId);
       if (cachedOrder && cachedOrder.source === 'walk_in' && cachedOrder._customerPhone) {
-        sendPosTemplateSms(
-          'walkin_order_ready',
-          { order_number: cachedOrder.order_number },
-          {
-            id:    cachedOrder.customer_id,
-            name:  cachedOrder._customerName,
-            phone: cachedOrder._customerPhone,
-          }
-        );
+        sendPosTemplateSms('walkin_order_ready', cachedOrder.id);
       }
     }
 
@@ -5259,8 +5254,10 @@
       // fire the "order placed — we'll text you when it's ready" SMS
       // automatically. Fire-and-forget; any failure is logged but
       // never blocks the UI or the sale.
-      if (order && order.status === 'processing' && currentCustomer && currentCustomer.phone) {
-        sendPosTemplateSms('walkin_order_placed', order, currentCustomer);
+      // Session 155: helper now takes orderId only — server handles
+      // template lookup, phone, interpolation, Twilio, logging.
+      if (order && order.id && order.status === 'processing' && currentCustomer && currentCustomer.phone) {
+        sendPosTemplateSms('walkin_order_placed', order.id);
       }
       // Refresh queue badge immediately so the new order appears
       loadWalkInQueue();
@@ -5439,74 +5436,56 @@
     }
   }
 
-  /* ─── Walk-in SMS helper (session 114) ─────────────────────────
+  /* ─── Walk-in SMS helper (session 114, rerouted session 155) ───
      Sends one of the walk-in message templates to an attached
      customer. Fire-and-forget: any failure is logged to the console
      but never surfaces as an error in the POS UI (we don't want a
-     Twilio hiccup to block a sale or a "Mark Ready" tap).
+     network blip to block a sale or a "Mark Ready" tap).
 
      triggerKey  : 'walkin_order_placed' | 'walkin_order_ready'
-     order       : { order_number } — the freshly-saved order row
-     customer    : { id, name, phone } — the attached customer
+     orderId     : the order UUID — server fetches the customer +
+                   template + phone + interpolation itself
 
      The template's sms_enabled flag acts as a kill switch — flip it
      off in the admin dashboard and these texts stop immediately.
+
+     Session 155 routing change: this helper used to call `send-sms`
+     directly with the anon key. On 2026-05-09 `send-sms` was hardened
+     to reject anon-key auth (only signed-in staff roles allowed), and
+     since `pos_device` is intentionally excluded from the staff role
+     allowlist, every POS SMS call started returning 401 and the
+     fire-and-forget pattern swallowed the error silently. That broke
+     walk-in SMS for ~10 days before the gap was noticed.
+
+     The fix: route through `send-order-notification`, the same
+     orchestrator every other SMS path in the system uses. It looks
+     up the template (including walkin_* trigger keys via its
+     `event ?? trigger_key` fallback), reads customer.phone_cache +
+     first_name_cache from the DB, interpolates, hits Twilio with the
+     service role key, and writes the sms_messages row — all
+     server-side. The POS no longer needs to know the customer's
+     phone or first name; the server-side cache is the source of
+     truth. One orchestrator for all SMS = no more drift.
      ───────────────────────────────────────────────────────────── */
-  async function sendPosTemplateSms(triggerKey, order, customer) {
+  async function sendPosTemplateSms(triggerKey, orderId) {
     try {
-      if (!order || !customer || !customer.phone) return;
-
-      // Load the template — if disabled or missing, silently skip.
-      const { data: tmpl, error: tErr } = await db
-        .from('message_templates')
-        .select('sms_enabled, sms_body')
-        .eq('trigger_key', triggerKey)
-        .maybeSingle();
-      if (tErr) {
-        console.warn('[POS] sendPosTemplateSms template lookup failed:', triggerKey, tErr);
-        return;
-      }
-      if (!tmpl || !tmpl.sms_enabled || !tmpl.sms_body) return;
-
-      // Extract first name from "First Last" (fall back to "there").
-      const firstName =
-        (customer.name || '').trim().split(/\s+/)[0] || 'there';
-
-      // Placeholder substitution. Keep this list tight — only what the
-      // two walk-in templates actually reference.
-      const body = tmpl.sms_body
-        .replace(/\{\{\s*first_name\s*\}\}/g,  firstName)
-        .replace(/\{\{\s*order_number\s*\}\}/g, order.order_number || '');
-
-      // Normalize to E.164 (US assumed). phone_cache may be bare digits,
-      // "(415) 555-0134", or "+14155550134" — we only care about the
-      // last 10 digits.
-      const digits = (customer.phone || '').replace(/\D/g, '').slice(-10);
-      if (digits.length !== 10) {
-        console.warn('[POS] sendPosTemplateSms bad phone, skipping:', customer.phone);
-        return;
-      }
-      const to = '+1' + digits;
-
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-sms`, {
+      if (!orderId || !triggerKey) return;
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-order-notification`, {
         method: 'POST',
         headers: {
           'Content-Type':  'application/json',
           apikey:          SUPABASE_ANON_KEY,
           Authorization:   `Bearer ${SUPABASE_ANON_KEY}`,
         },
-        body: JSON.stringify({
-          to,
-          body,
-          customer_id: customer.id || null,
-        }),
+        body: JSON.stringify({ orderId, event: triggerKey }),
       });
       if (!res.ok) {
         const txt = await res.text();
-        console.warn('[POS] sendPosTemplateSms send failed:', triggerKey, res.status, txt);
-      } else {
-        console.log('[POS] sendPosTemplateSms sent:', triggerKey, 'to', to);
+        console.warn('[POS] sendPosTemplateSms failed:', triggerKey, res.status, txt);
+        return;
       }
+      const data = await res.json().catch(() => ({}));
+      console.log('[POS] sendPosTemplateSms result:', triggerKey, data);
     } catch (e) {
       console.warn('[POS] sendPosTemplateSms error:', triggerKey, e);
     }
