@@ -1763,6 +1763,15 @@
           <span class="pill-arrow">▾</span>
         </button>
 
+        <!-- Session 156: shift transactions report. Prints a summary of
+             the current cashier's sales for the open shift — cash vs card
+             totals + a per-transaction list. Useful at end-of-shift for
+             till reconciliation. -->
+        <button class="pill" id="shiftReportBtn" onclick="printTransactionsReport()" title="Print transactions report for current shift" data-i18n-title="Print transactions report for current shift">
+          <span style="font-size:14px;line-height:1">🧾</span>
+          <span data-i18n>Print Transactions</span>
+        </button>
+
         <!-- Language toggle. Shows the OTHER language (tap to switch).
              Initial label set by applyTranslations() based on _lang state. -->
         <button class="lang-toggle" id="langToggle" onclick="togglePosLang()" title="Switch language / Cambiar idioma" data-i18n-title="Switch language / Cambiar idioma" aria-label="Switch language">ES</button>
@@ -2628,6 +2637,12 @@
 
     // Topbar + tabs (additions found by sweep)
     'Refund a recent sale': 'Reembolsar una venta reciente',
+    // Session 156: Print Transactions report
+    'Print Transactions': 'Imprimir transacciones',
+    'Print transactions report for current shift': 'Imprimir reporte de transacciones del turno actual',
+    'No transactions yet on this shift.': 'Aún no hay transacciones en este turno.',
+    'Transactions report sent to printer': 'Reporte enviado a la impresora',
+    'Could not print transactions report': 'No se pudo imprimir el reporte',
     'Laundry Services': 'Servicios de lavandería',
     'Tap products to add to cart': 'Toca productos para agregar al carrito',
     'Clear all': 'Vaciar todo',
@@ -3928,7 +3943,7 @@
       // The badge in the card render distinguishes walk-in counter-pickups
       // (🏪 Retail) from delivery-bound bags (🚚 For delivery).
       let query = db.from('orders')
-        .select('id, order_number, status, source, site_id, customer_id, service_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at')
+        .select('id, order_number, status, source, site_id, customer_id, service_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at, card_brand, card_last4, pos_shift_id')
         .in('status', ['picked_up', 'processing', 'ready_for_delivery']);
 
       // session 111: Apply null-safe filter for default site
@@ -3970,17 +3985,40 @@
         }
       }
 
+      // Session 156: hydrate cashier name via pos_shifts → profiles so
+      // reprinted receipts show the ORIGINAL cashier (whoever placed the
+      // order), not whoever's currently signed in. Same pattern admin uses
+      // for the POS Sales report (session 154 pt 3).
+      const shiftIds = [...new Set((data || []).map(o => o.pos_shift_id).filter(Boolean))];
+      let shiftMap = {};
+      if (shiftIds.length) {
+        const { data: shifts } = await db
+          .from('pos_shifts')
+          .select('id, cashier_profile_id, profiles:cashier_profile_id(first_name, last_name)')
+          .in('id', shiftIds);
+        for (const s of (shifts || [])) {
+          shiftMap[s.id] = {
+            firstName: s.profiles?.first_name || '',
+            lastName:  s.profiles?.last_name  || '',
+          };
+        }
+      }
+
       // Attach name + phone + address to each order. Address prints on the
       // receipt below the customer name (session 149) — the printed copy
       // doubles as a bag tag, and the laundering team needs to see where
       // the bag goes (especially for commercial-at-Foothill orders).
+      // Cashier first/last name attached for reprint receipts (session 156).
       queueOrders = (data || []).map(o => {
         const c = o.customer_id ? custMap[o.customer_id] : null;
+        const s = o.pos_shift_id ? shiftMap[o.pos_shift_id] : null;
         return {
           ...o,
           _customerName:    c ? c.name    : (o.customer_id ? t('Customer') : t('Retail')),
           _customerPhone:   c ? c.phone   : '',
           _customerAddress: c ? c.address : '',
+          _cashierFirstName: s ? s.firstName : '',
+          _cashierLastName:  s ? s.lastName  : '',
         };
       });
 
@@ -4882,7 +4920,11 @@
 
       if (result.status === 'succeeded' || result.status === 'requires_capture') {
         pendingPaymentIntentId = null;
-        await chargeAndFinish('card', result.id || result.payment_intent_id);
+        // Session 156: capture card_brand + card_last4 from the success poll
+        // and pass them through to createPosOrder so they land on the order
+        // row for receipt printing. Both can be null if Stripe expand
+        // didn't include them (rare).
+        await chargeAndFinish('card', result.id || result.payment_intent_id, result.card_brand, result.card_last4);
       } else {
         throw new Error(t('Payment did not succeed (status: ') + result.status + ')');
       }
@@ -5220,7 +5262,10 @@
 
   // Shared finish: guard, create the order in Supabase, show success.
   // stripePaymentIntentId is set when paying by card via Terminal.
-  async function chargeAndFinish(method, stripePaymentIntentId) {
+  // Session 156: cardBrand + cardLast4 are captured from the get_payment
+  // success poll (stripe-terminal v16 returns them via expand:latest_charge)
+  // and stored on the order so receipts can render 'Paid by Visa ····4242'.
+  async function chargeAndFinish(method, stripePaymentIntentId, cardBrand, cardLast4) {
     if (cart.length === 0) return;
 
     // Re-entrancy guard. If a previous chargeAndFinish is still awaiting
@@ -5243,7 +5288,14 @@
     methodButtons.forEach(b => b.disabled = true);
 
     try {
-      const order = await createPosOrder({ paymentMethod: method, stripePaymentIntentId });
+      const order = await createPosOrder({ paymentMethod: method, stripePaymentIntentId, cardBrand, cardLast4 });
+      // Session 156: hydrate cashier name from the current shift so the
+      // receipt builder can print "Attendant: Maria Garcia". Same hydration
+      // pattern as _customerName / _customerAddress. For reprints from the
+      // queue, loadWalkInQueue hydrates this via the pos_shifts → profiles
+      // join (see below).
+      order._cashierFirstName = shift?.cashier_first_name || '';
+      order._cashierLastName  = shift?.cashier_last_name  || '';
       lastPosOrder = order;
       // session 114: For laundry drop-offs (status = 'processing'),
       // fire the "order placed — we'll text you when it's ready" SMS
@@ -5254,6 +5306,13 @@
       if (order && order.id && order.status === 'processing' && currentCustomer && currentCustomer.phone) {
         sendPosTemplateSms('walkin_order_placed', order.id);
       }
+      // Session 156: auto-print 2 copies of the receipt (customer + bag tag)
+      // immediately after the order is saved. Cashier no longer needs to tap
+      // the Print button on the success modal — it still works as a manual
+      // reprint, but the default-happy-path eliminates a click on every sale.
+      // Fire-and-forget; any printer error is logged + surfaced via the
+      // existing print-job pipeline, never blocks the UI.
+      queuePosPrintJob(order, 2).catch(e => console.warn('[POS] auto-print failed:', e));
       // Refresh queue badge immediately so the new order appears
       loadWalkInQueue();
       closeAll();
@@ -5524,6 +5583,173 @@
     }
   }
 
+  /* ─── Session 156: Print Transactions report for the open shift.
+     Prints a summary of the current cashier's sales since shift start:
+       1. Header (cashier name, site, shift start time)
+       2. Summary block (cash count + total, card count + total, grand total)
+       3. Detailed list (time, order #, customer, amount, payment method)
+     Useful at end-of-shift for till reconciliation. Uses the same
+     print_jobs queue as receipts. Cashiers can run mid-shift too —
+     prints whatever's been sold so far in the open shift. ─────────────── */
+  async function printTransactionsReport() {
+    if (!shift || !shift.shift_id) {
+      showToast(t('Sign in to a shift first.'), 'error');
+      return;
+    }
+    const btn = document.getElementById('shiftReportBtn');
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+    try {
+      // Pull every paid + refunded order for this shift. Refunded rows
+      // appear in the detail list (marked with a minus prefix) but are
+      // subtracted from the summary totals so reconciliation matches
+      // the cash in the drawer.
+      const { data, error } = await db.from('orders')
+        .select('id, order_number, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, card_brand, card_last4, created_at, billed_at, customer_id, customers(first_name_cache, last_name_cache)')
+        .eq('pos_shift_id', shift.shift_id)
+        .in('billing_status', ['paid', 'refunded'])
+        .order('billed_at', { ascending: true });
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) {
+        showToast(t('No transactions yet on this shift.'), 'info');
+        return;
+      }
+      const markup = buildShiftReportMarkup(data);
+      const printerToken = device?.printer_token || '';
+      if (printerToken) {
+        const { error: insErr } = await db.from('print_jobs').insert({
+          printer_token: printerToken,
+          order_id: null, // shift report isn't tied to a single order
+          content: markup,
+          status: 'pending',
+        });
+        if (insErr) throw new Error(insErr.message);
+        showToast(t('Transactions report sent to printer'), 'success');
+        return;
+      }
+      // No printer — fall back to browser popup with the same content as plain text
+      const win = window.open('', '_blank', 'width=380,height=640');
+      if (!win) { throw new Error('Pop-up blocked — allow pop-ups to print'); }
+      win.document.write(`<pre style="font-family:monospace;font-size:11px;white-space:pre-wrap;padding:16px">${markup.replace(/<[^>]+>/g, '')}</pre>`);
+      win.document.close();
+      setTimeout(() => { try { win.print(); } catch (e) {} }, 300);
+    } catch (e) {
+      console.error('[POS] Print Transactions failed:', e);
+      showToast(e.message || t('Could not print transactions report'), 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+    }
+  }
+
+  function buildShiftReportMarkup(rows) {
+    const cashier = [shift?.cashier_first_name, shift?.cashier_last_name].filter(Boolean).join(' ') || 'Cashier';
+    const site = getSiteById(currentSiteId)?.name || (device?.name || 'POS');
+    // The `shift` global from get_active_pos_shift doesn't include started_at;
+    // we derive the shift start from the earliest billed_at on the rows we're
+    // reporting on. Good enough — and it always matches the data shown below.
+    const earliest = rows
+      .map(r => r.billed_at)
+      .filter(Boolean)
+      .sort()[0];
+    const shiftStart = earliest
+      ? new Date(earliest).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })
+      : '';
+    const now = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+
+    // Bucket orders by payment method. Refunds reduce both the count
+    // and the total for their bucket so the summary mirrors the
+    // drawer/Stripe reality. Net = (sum total+tip) − (sum refunded).
+    const buckets = { cash: { count: 0, total: 0 }, card: { count: 0, total: 0 }, other: { count: 0, total: 0 } };
+    const lines = [];
+    rows.forEach(r => {
+      const method = (r.billing_payment_method || '').toLowerCase();
+      const bucketKey = method === 'cash' ? 'cash'
+                     : (method === 'card' || method === 'credit_card') ? 'card'
+                     : 'other';
+      const charged  = Number(r.total_amount || 0) + Number(r.tip_amount || 0);
+      const refunded = Number(r.amount_refunded || 0);
+      const net      = charged - refunded;
+      buckets[bucketKey].count++;
+      buckets[bucketKey].total += net;
+
+      const cust = r.customers
+        ? (`${r.customers.first_name_cache || ''} ${r.customers.last_name_cache || ''}`.trim() || 'Retail')
+        : 'Retail';
+      const tt = r.billed_at
+        ? new Date(r.billed_at).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' })
+        : '—';
+      const methodLabel = method === 'cash' ? 'Cash'
+                        : (method === 'card' || method === 'credit_card')
+                          ? (r.card_last4 ? `Card ····${r.card_last4}` : 'Card')
+                          : (method || '—');
+      const refundTag = refunded > 0.005
+        ? (refunded >= charged - 0.005 ? ' [REFUNDED]' : ` [-$${refunded.toFixed(2)} refunded]`)
+        : '';
+      lines.push({
+        tt,
+        ordNum: r.order_number ? `#${r.order_number}` : '—',
+        cust,
+        net,
+        methodLabel,
+        refundTag,
+      });
+    });
+
+    // Build the line-item rows for the markup. Use fixed-width columns
+    // that fit a 48-char thermal line: time(6) ord(6) cust(18) amt(8) method(remaining).
+    const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, '');
+    const detailXml = lines.map(l => {
+      const time   = esc(l.tt).padEnd(7);              // "9:14 AM"
+      const ord    = esc(l.ordNum).padEnd(7);          // "#4938"
+      const cust   = esc(l.cust).slice(0, 14).padEnd(15);
+      const amt    = ('$' + Math.abs(l.net).toFixed(2)).padStart(8);
+      const method = esc(l.methodLabel + l.refundTag).slice(0, 18);
+      return `    <text-line>${time}${ord}${cust}${amt}  ${method}</text-line>`;
+    }).join('\n');
+
+    const cashStr  = `${buckets.cash.count} sale${buckets.cash.count !== 1 ? 's' : ''}`;
+    const cardStr  = `${buckets.card.count} sale${buckets.card.count !== 1 ? 's' : ''}`;
+    const grandCount = buckets.cash.count + buckets.card.count + buckets.other.count;
+    const grandNet   = buckets.cash.total + buckets.card.total + buckets.other.total;
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<document>
+  <align mode="center">
+    <text-line size="2:2"><bold>TRANSACTIONS</bold></text-line>
+    <text-line>${esc(cashier)}</text-line>
+    <text-line>${esc(site)}</text-line>
+${shiftStart ? `    <text-line>First sale: ${esc(shiftStart)}</text-line>` : ''}
+    <text-line>Printed: ${esc(now)}</text-line>
+  </align>
+  <ruled-line/>
+  <align mode="center">
+    <text-line size="1:2"><bold>SUMMARY</bold></text-line>
+  </align>
+  <align mode="left">
+    <text-line>${('Cash:  ' + cashStr).padEnd(28)}${('$' + buckets.cash.total.toFixed(2)).padStart(10)}</text-line>
+    <text-line>${('Card:  ' + cardStr).padEnd(28)}${('$' + buckets.card.total.toFixed(2)).padStart(10)}</text-line>${buckets.other.count > 0 ? `\n    <text-line>${('Other: ' + buckets.other.count + ' sale' + (buckets.other.count !== 1 ? 's' : '')).padEnd(28)}${('$' + buckets.other.total.toFixed(2)).padStart(10)}</text-line>` : ''}
+  </align>
+  <ruled-line/>
+  <align mode="right">
+    <text-line size="1:2"><bold>TOTAL: $${grandNet.toFixed(2)}</bold></text-line>
+    <text-line>${grandCount} transaction${grandCount !== 1 ? 's' : ''}</text-line>
+  </align>
+  <feed unit="mm" quantity="3"/>
+  <align mode="center">
+    <text-line size="1:2"><bold>DETAIL</bold></text-line>
+  </align>
+  <ruled-line/>
+  <align mode="left">
+${detailXml}
+  </align>
+  <ruled-line/>
+  <align mode="center">
+    <text-line>Net amounts shown. Refunds tagged.</text-line>
+  </align>
+  <feed unit="mm" quantity="10"/>
+  <cut type="partial"/>
+</document>`;
+  }
+
   /* ─── POS print-job queue helper ─────────────────────────────
      Builds a minimal Star Document Markup receipt for a POS sale
      and inserts a row into `print_jobs`. The admin-side CloudPRNT
@@ -5639,6 +5865,42 @@ ${taxAmt > 0 ? `    <text-line>${('Tax (' + (TAX_RATE * 100).toFixed(2) + '%)').
     <text-line><bold>${(_cardPaid > 0 ? 'Paid by card' : 'Paid by credit').padEnd(28, ' ')}${('$' + _cardPaid.toFixed(2)).padStart(10, ' ')}</bold></text-line>
   </align>` : '';
 
+    // Session 156: payment method line. Shows "Paid in cash" or
+    // "Paid by Visa ····4242". Skipped when split-tender block above
+    // already covers it.
+    const _payMethod = (order.billing_payment_method || '').toLowerCase();
+    const _cardBrand = String(order.card_brand || '').replace(/[<>&]/g, '');
+    const _cardLast4 = String(order.card_last4 || '').replace(/[<>&]/g, '');
+    let payLine = '';
+    if (!_credApp) {
+      if (_payMethod === 'cash') {
+        payLine = 'Paid in cash';
+      } else if (_payMethod === 'card' || _payMethod === 'credit_card') {
+        const brand = _cardBrand
+          ? _cardBrand.charAt(0).toUpperCase() + _cardBrand.slice(1)
+          : 'Card';
+        payLine = _cardLast4
+          ? `Paid by ${brand} ····${_cardLast4}`
+          : `Paid by ${brand}`;
+      }
+    }
+    const payLineXml = payLine ? `
+  <align mode="right">
+    <text-line>${payLine}</text-line>
+  </align>` : '';
+
+    // Session 156: attendant (cashier) name. Hydrated onto the order
+    // by chargeAndFinish (fresh sales) or loadWalkInQueue (reprints) so
+    // the receipt always shows who placed the order, even on reprints
+    // taken by a different cashier later in the day.
+    const _cashierFirst = String(order._cashierFirstName || '').replace(/[<>&]/g, '');
+    const _cashierLast  = String(order._cashierLastName  || '').replace(/[<>&]/g, '');
+    const _cashierFull  = `${_cashierFirst} ${_cashierLast}`.trim();
+    const attendantXml = _cashierFull ? `
+  <align mode="left">
+    <text-line>Attendant: ${_cashierFull}</text-line>
+  </align>` : '';
+
     // Layout reworked so the customer name dominates the top of the
     // ticket — the laundering team uses the printed copy as a bag tag
     // and needs to identify whose order it is at a glance from a stack.
@@ -5669,7 +5931,7 @@ ${lineItemsXml}
   <ruled-line/>${summaryXml}
   <align mode="right">
     <text-line size="1:2"><bold>TOTAL: $${grandTotal}</bold></text-line>
-  </align>${tenderXml}
+  </align>${tenderXml}${payLineXml}${attendantXml}
   <feed unit="mm" quantity="4"/>
   <align mode="center">
     <text-line><bold>FAMILY LAUNDRY</bold></text-line>
@@ -5754,7 +6016,7 @@ ${tenderRows ? `<table>${tenderRows}</table>` : ''}
          when the cart is merchandise-only
        - paid at time of sale (cash / card)
      ───────────────────────────────────────────────────────────── */
-  async function createPosOrder({ paymentMethod, stripePaymentIntentId }) {
+  async function createPosOrder({ paymentMethod, stripePaymentIntentId, cardBrand, cardLast4 }) {
     // session 111: Defensive check — ensure site is selected before creating order
     if (!currentSiteId) {
       alert('Please select a processing site first.');
@@ -5909,6 +6171,10 @@ ${tenderRows ? `<table>${tenderRows}</table>` : ''}
       billing_payment_method: paymentMethod, // 'cash' or 'card'
       // Stripe Terminal payment reference (card payments only)
       ...(stripePaymentIntentId ? { stripe_payment_intent_id: stripePaymentIntentId } : {}),
+      // Session 156: card brand + last4 from the Terminal payment (null
+      // for cash sales). Receipt prints "Paid by Visa ····4242" when set.
+      ...(cardBrand ? { card_brand: cardBrand } : {}),
+      ...(cardLast4 ? { card_last4: cardLast4 } : {}),
       // Merchandise-only sales are immediately "delivered" at the counter.
       actual_delivery_at:    status === 'delivered' ? nowIso : null,
     };
@@ -5920,7 +6186,7 @@ ${tenderRows ? `<table>${tenderRows}</table>` : ''}
     const { data, error } = await db
       .from('orders')
       .insert(payload)
-      .select('id, order_number, status, total_amount, tax_amount, tip_amount, line_items')
+      .select('id, order_number, status, total_amount, tax_amount, tip_amount, line_items, billing_payment_method, card_brand, card_last4')
       .single();
 
     if (error) {
