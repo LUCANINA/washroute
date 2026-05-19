@@ -4436,18 +4436,56 @@
     setTimeout(() => document.getElementById('posIntakeWeight')?.focus(), 100);
   }
 
+  // Session 156: compute the base + overage line items honoring the
+  // service's pricing_type. Per-lb services (Commercial Wash & Fold,
+  // HCEB Wash & Dry, Retail) charge weight × base_price flat — no
+  // overage concept. Per-bag services (Delivery Wash & Fold at $59/bag
+  // for the first 25 lbs/bag, $3/lb overage) charge bags × base_price
+  // plus an overage band when weight exceeds bags × lbs_per_bag.
+  //
+  // Returns { base, baseLabel, overage, overageLbs, overageRate, overageLabel? }.
+  function _computeIntakePrice(svc, weight, bags) {
+    const pricingType = svc?.pricing_type || 'per_bag';
+    const basePrice   = parseFloat(svc?.base_price || 0);
+    const ovgRate     = parseFloat(svc?.overage_rate_per_lb || 3);
+    const lbsPerBag   = parseInt(svc?.lbs_per_bag || 25, 10);
+    const name        = svc?.name || 'Service';
+
+    if (pricingType === 'per_lb') {
+      const lbsRound = Math.round((weight || 0) * 10) / 10;
+      const base = Math.round(lbsRound * basePrice * 100) / 100;
+      return {
+        pricingType: 'per_lb',
+        base,
+        baseLabel: `${name} · ${lbsRound.toFixed(1)} lbs × $${basePrice.toFixed(2)}/lb`,
+        overage: 0,
+        overageLbs: 0,
+        overageRate: ovgRate,
+      };
+    }
+
+    // per_bag (default + legacy)
+    const base       = Math.round(bags * basePrice * 100) / 100;
+    const overageLbs = Math.max(0, (weight || 0) - bags * lbsPerBag);
+    const overage    = Math.round(overageLbs * ovgRate * 100) / 100;
+    return {
+      pricingType: 'per_bag',
+      base,
+      baseLabel: `${name} · ${bags} bag${bags === 1 ? '' : 's'} × $${basePrice.toFixed(2)}`,
+      overage,
+      overageLbs,
+      overageRate: ovgRate,
+      overageLabel: `${overageLbs.toFixed(1)} lbs overage × $${ovgRate.toFixed(2)}/lb`,
+    };
+  }
+
   // Live recalculation of the totals block as the attendant types.
   function recalcPosIntake() {
     if (!_posIntakeSvc || !_posIntakeOrder) return;
     const weight = parseFloat(document.getElementById('posIntakeWeight').value) || 0;
     const bags   = parseInt(document.getElementById('posIntakeBags').value, 10) || 0;
-    const pricePerBag = parseFloat(_posIntakeSvc.base_price || 0);
-    const ovgRate     = parseFloat(_posIntakeSvc.overage_rate_per_lb || 3);
-    const lbsPerBag   = parseInt(_posIntakeSvc.lbs_per_bag || 25, 10);
 
-    const base       = bags * pricePerBag;
-    const overageLbs = Math.max(0, weight - bags * lbsPerBag);
-    const overage    = Math.round(overageLbs * ovgRate * 100) / 100;
+    const p = _computeIntakePrice(_posIntakeSvc, weight, bags);
 
     // Preserve any non-intake line items already on the order (delivery_fee,
     // same_day_surcharge, prior addons). The intake replaces base + overage
@@ -4459,18 +4497,18 @@
     const preserved = existing.filter(li => li.type !== 'base' && li.type !== 'overage');
     const preservedTotal = preserved.reduce((s, li) => s + Number(li.amount || 0), 0);
 
-    const total = Math.round((base + overage + preservedTotal) * 100) / 100;
+    const total = Math.round((p.base + p.overage + preservedTotal) * 100) / 100;
 
     const fmt = n => '$' + Number(n).toFixed(2);
     const summary = document.getElementById('posIntakeSummary');
     summary.innerHTML = `
       <div style="display:flex;justify-content:space-between;padding:3px 0">
-        <span>${esc(_posIntakeSvc.name)} · ${bags} ${t('bag')}${bags === 1 ? '' : 's'} × ${fmt(pricePerBag)}</span>
-        <span>${fmt(base)}</span>
+        <span>${esc(p.baseLabel)}</span>
+        <span>${fmt(p.base)}</span>
       </div>
-      ${overage > 0 ? `<div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--amber-700,#b45309)">
-        <span>${overageLbs.toFixed(1)} lbs ${t('overage')} × ${fmt(ovgRate)}/lb</span>
-        <span>${fmt(overage)}</span>
+      ${p.overage > 0 ? `<div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--amber-700,#b45309)">
+        <span>${esc(p.overageLabel)}</span>
+        <span>${fmt(p.overage)}</span>
       </div>` : ''}
       ${preserved.map(li => `<div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--gray-600)">
         <span>${esc(li.label || li.type)}</span>
@@ -4506,26 +4544,24 @@
     const btn = document.getElementById('posIntakeConfirmBtn');
     btn.disabled = true; btn.textContent = t('Saving…');
 
-    const pricePerBag = parseFloat(_posIntakeSvc.base_price || 0);
-    const ovgRate     = parseFloat(_posIntakeSvc.overage_rate_per_lb || 3);
-    const lbsPerBag   = parseInt(_posIntakeSvc.lbs_per_bag || 25, 10);
-    const base        = bags * pricePerBag;
-    const overageLbs  = Math.max(0, weight - bags * lbsPerBag);
-    const overage     = Math.round(overageLbs * ovgRate * 100) / 100;
+    // Session 156: pricing-type aware computation. Per-lb services
+    // (Commercial, HCEB, Retail) charge weight × base_price; per-bag
+    // services (Delivery $59/bag) charge bags × base_price + overage.
+    const p = _computeIntakePrice(_posIntakeSvc, weight, bags);
 
     const existing = Array.isArray(_posIntakeOrder.line_items) ? _posIntakeOrder.line_items : [];
     const preserved = existing.filter(li => li.type !== 'base' && li.type !== 'overage');
     const preservedTotal = preserved.reduce((s, li) => s + Number(li.amount || 0), 0);
-    const total = Math.round((base + overage + preservedTotal) * 100) / 100;
+    const total = Math.round((p.base + p.overage + preservedTotal) * 100) / 100;
 
     // Rebuild line_items: base + (overage if any) + everything preserved from the
     // original booking. Same shape admin uses so downstream consumers (receipt
     // renderer, billing logic) don't care which app entered the data.
     const lineItems = [
-      { type: 'base', label: `${_posIntakeSvc.name} · ${bags} bag${bags === 1 ? '' : 's'} × $${pricePerBag.toFixed(2)}`, amount: base, taxable: false },
+      { type: 'base', label: p.baseLabel, amount: p.base, taxable: false },
     ];
-    if (overage > 0) {
-      lineItems.push({ type: 'overage', label: `${overageLbs.toFixed(1)} lbs overage × $${ovgRate.toFixed(2)}/lb`, amount: overage, taxable: false });
+    if (p.overage > 0) {
+      lineItems.push({ type: 'overage', label: p.overageLabel, amount: p.overage, taxable: false });
     }
     preserved.forEach(li => lineItems.push(li));
 
