@@ -2521,12 +2521,14 @@
     // Queue panel — section labels (CSS uppercases them via text-transform)
     '📥 Just dropped off': '📥 Recién entregado',
     '🧼 Washing': '🧼 Lavando',
+    '👕 Folding': '👕 Doblando',
     '✅ Ready': '✅ Listo',
     '✅ Ready for Pickup': '✅ Listo para recoger',
     'No orders in the queue': 'No hay órdenes en la fila',
     '✅ Mark Ready': '✅ Marcar listo',
     '📦 Mark Picked Up': '📦 Marcar entregado',
     'Dropped off': 'Entregado',
+    'Folding': 'Doblando',
     'Ready': 'Listo',
     'No items': 'Sin artículos',
     'Assign Launderer': 'Asignar lavandero',
@@ -4186,8 +4188,13 @@
     // land here in status='picked_up' — they need an intake step before they
     // join the washing flow. Walk-ins skip this section entirely (their POS
     // creation goes straight to 'processing').
+    // Session 156: 'folding' bin added — bags between processing + ready
+    // (admin assigned a launderer). Without this bin, folding bags counted
+    // toward the badge total but had no visible card, leaving operators
+    // wondering 'where did it go?'.
     const intake     = orders.filter(o => o.status === 'picked_up');
     const processing = orders.filter(o => o.status === 'processing');
+    const folding    = orders.filter(o => o.status === 'folding');
     const ready      = orders.filter(o => o.status === 'ready_for_delivery');
 
     let html = '';
@@ -4198,6 +4205,10 @@
     if (processing.length) {
       html += `<div class="queue-section-label">${t('🧼 Washing')} (${processing.length})</div>`;
       html += processing.map(o => renderQueueCard(o, 'processing')).join('');
+    }
+    if (folding.length) {
+      html += `<div class="queue-section-label">${t('👕 Folding')} (${folding.length})</div>`;
+      html += folding.map(o => renderQueueCard(o, 'folding')).join('');
     }
     if (ready.length) {
       html += `<div class="queue-section-label">${t('✅ Ready')} (${ready.length})</div>`;
@@ -4339,6 +4350,12 @@
       if (hasAssignment) {
         btnHtml = `<button class="queue-card-btn ready" onclick="event.stopPropagation();advanceQueueOrder('${order.id}', 'ready_for_delivery')">${t('✅ Mark Ready')}</button>`;
       }
+    } else if (status === 'folding') {
+      // Session 156: when admin assigns a launderer the order advances to
+      // 'folding'. The Foothill team needs to complete the cycle from POS
+      // without bouncing back to admin — Mark Ready advances to
+      // ready_for_delivery, mirroring the admin fold panel's primary action.
+      btnHtml = `<button class="queue-card-btn ready" onclick="event.stopPropagation();advanceQueueOrder('${order.id}', 'ready_for_delivery')">${t('✅ Mark Ready')}</button>`;
     } else if (status === 'ready_for_delivery') {
       // Walk-ins get "Mark Picked Up" so the cashier can hand the bag to the
       // customer at the counter. Delivery-bound bags (commercial at Foothill)
@@ -4375,6 +4392,7 @@
     let timeLabel;
     if (status === 'picked_up')           timeLabel = t('Dropped off');
     else if (status === 'processing')     timeLabel = t('In queue');
+    else if (status === 'folding')        timeLabel = t('Folding');
     else                                  timeLabel = t('Ready');
 
     return `
