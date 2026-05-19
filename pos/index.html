@@ -772,6 +772,12 @@
   }
   .cart-clear:hover { text-decoration: underline; }
 
+  /* Session 155: queue panel header keeps the back button right-aligned
+     after the "Retail Queue" title was removed. .cart-header uses
+     space-between; with one child that falls to the start, which would
+     move the back button to the left. Override with flex-end here. */
+  .cart-header.queue-header { justify-content: flex-end; }
+
   .cart-items {
     flex: 1;
     overflow-y: auto;
@@ -1807,8 +1813,11 @@
         <aside class="cart">
           <!-- Queue panel (hidden by default, slides over cart) -->
           <div class="queue-panel" id="queuePanel">
-            <div class="cart-header">
-              <div class="cart-header-title">📦 <span data-i18n>Retail Queue</span></div>
+            <!-- Session 155: "📦 Retail Queue" title removed. The Orders pill
+                 in the topbar (now active/blue when the panel is open) is
+                 enough signal that this is the queue view; the title was
+                 visual noise. Back-to-cart action retained. -->
+            <div class="cart-header queue-header">
               <button class="cart-clear" onclick="toggleQueue()" data-i18n>← Back to cart</button>
             </div>
             <div class="queue-list" id="queueList">
@@ -2501,7 +2510,6 @@
     'Failed to print': 'Falló la impresión',
 
     // Queue panel
-    'Retail Queue': 'Fila Minorista',
     '🧼 Washing': '🧼 Lavando',
     '✅ Ready for Pickup': '✅ Listo para recoger',
     'No orders in the queue': 'No hay órdenes en la fila',
