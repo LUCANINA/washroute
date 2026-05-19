@@ -10933,25 +10933,35 @@ ${oneCopy}
   // Fallback chain: delivery_address → pickup_address → customer.address_cache.
   async function _resolveDeliveryAddrForReceipt(o, cust) {
     const addrId = o?.delivery_address_id || o?.pickup_address_id;
+    const fmt = (a) => [a?.line1, a?.city].filter(Boolean).join(', ');
     if (addrId) {
-      // Try cached addresses on the customer object (admin page loads them
-      // with the customer record). If we don't have a hit, fall through to
-      // a direct DB lookup so a stale cache never produces a blank receipt.
-      const cached = (cust?.addresses || []).find(a => a.id === addrId);
+      // Try cached addresses on whichever customer object the caller passed,
+      // then on the order's nested customer (kanban fetches embed addresses
+      // there). One of the two will almost always have it; both being empty
+      // means the caller's order/customer fetch didn't include the array.
+      const candidates = [
+        ...((cust?.addresses) || []),
+        ...((o?.customers?.addresses) || []),
+      ];
+      const cached = candidates.find(a => a.id === addrId);
       if (cached) {
-        const s = [cached.line1, cached.city].filter(Boolean).join(', ');
+        const s = fmt(cached);
         if (s) return s;
       }
+      // Last-resort DB lookup. Gated by RLS — `admin_all_addresses` only
+      // admits role='admin', so non-admin counter staff (manager /
+      // laundry_tech) silently get null here. That's why the cached paths
+      // above matter — the loaders MUST embed addresses(id, line1, city) so
+      // this branch never has to fire on the print critical path.
       try {
         const { data } = await db.from('addresses')
           .select('line1, city').eq('id', addrId).maybeSingle();
-        if (data) {
-          const s = [data.line1, data.city].filter(Boolean).join(', ');
-          if (s) return s;
-        }
+        const s = fmt(data);
+        if (s) return s;
       } catch (_) { /* fall through to cache */ }
     }
-    return cust?.address_cache || '';
+    // Legacy denormalized cache on the customer record — last fallback.
+    return cust?.address_cache || o?.customers?.address_cache || '';
   }
 
   async function printBagTag(overrideOrderId) {
@@ -24893,9 +24903,10 @@ ${oneCopy}
     // Kick off all 4 columns in parallel
     const [{ data: pickedUp }] = await Promise.all([
       _procSiteApply(db.from('orders')
-        .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, site_id,
+        .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, site_id, customer_id,
                  stripe_payment_intent_id, pickup_window_start, delivery_window_start, total_amount, line_items,
-                 customers(id, first_name_cache, last_name_cache, pricelist, preferences, billing_type),
+                 pickup_address_id, delivery_address_id,
+                 customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, preferences, billing_type, address_cache, addresses(id, line1, city)),
                  services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
         .eq('status', 'picked_up'))
         .order('actual_pickup_at', { ascending: true }),
@@ -25809,7 +25820,17 @@ ${oneCopy}
   async function _autoPrintIntake(lineItems, bd, printWin) {
     const o = procActiveOrder;
     if (!o) return;
-    const cust = allCustomers.find(c => c.id === (procCustomerId || o.customer_id)) || {};
+    // Mirror printBagTag's fallback chain: allCustomers cache → o.customers
+    // nested object → empty. allCustomers may miss when (a) the customer was
+    // added after the page loaded or (b) procCustomerId hasn't been wired yet.
+    // o.customers (set by openIntakePanel's fresh fetch) reliably carries the
+    // nested addresses array used by the receipt-address resolver — without
+    // this fallback non-admin staff (manager / laundry_tech) silently printed
+    // receipts with a blank delivery address because RLS blocked the resolver's
+    // last-resort DB lookup on `addresses`.
+    const cust = allCustomers.find(c => c.id === (procCustomerId || o.customer_id || o.customers?.id))
+              || o.customers
+              || {};
     const custName = [cust.first_name_cache, cust.last_name_cache].filter(Boolean).join(' ').toUpperCase() || '—';
     // Receipt prints DELIVERY address always — so drivers can see where the
     // bag is going even when the app is offline. Falls back to pickup
