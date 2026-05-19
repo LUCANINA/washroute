@@ -2190,7 +2190,7 @@
             <div class="success-amount" id="successAmt">$0.00</div>
             <div class="success-sub" id="successSub">Paid in full · Thank you!</div>
             <div id="successTipLine" style="display:none; margin-top:2px; font-size:13px; font-weight:600; color:var(--gray-500);"></div>
-            <div id="successOrderNum" style="display:none; margin-top:4px; font-size:13px; font-weight:700; color:var(--accent-dark);"></div>
+            <div id="successOrderNum" style="display:none; margin-top:4px; font-size:13px; font-weight:700; color:var(--gray-700);"></div>
             <div id="successChange" style="display:none; margin-top:6px; padding:8px 14px; background:var(--green-light); color:var(--green); border-radius:8px; font-size:15px; font-weight:700;"></div>
             <div class="receipt-options">
               <button class="receipt-btn" id="rcptBtnPrint" onclick="handleReceiptPrint()">
@@ -2515,7 +2515,6 @@
     '✅ Ready': '✅ Listo',
     '✅ Ready for Pickup': '✅ Listo para recoger',
     'No orders in the queue': 'No hay órdenes en la fila',
-    'Select a site to view orders': 'Seleccione una sucursal para ver órdenes',
     '✅ Mark Ready': '✅ Marcar listo',
     '📦 Mark Picked Up': '📦 Marcar entregado',
     'Dropped off': 'Entregado',
@@ -3900,18 +3899,14 @@
   // Fetch walk-in orders from Supabase. Only orders with
   // source = 'walk_in' and a non-terminal status are shown.
   async function loadWalkInQueue() {
-    // session 111: Require site selection before loading queue
+    // Session 155: currentSiteId is sourced from pos_devices.site_id (NOT NULL)
+    // at sign-in. The "Select a site to view orders" empty state that used to
+    // live here was unreachable post-refactor, so it's been removed. Anything
+    // weird that still produces a null currentSiteId is a real bug and should
+    // be loud, not silently rendering an empty state.
     if (!currentSiteId) {
+      console.warn('[POS] loadWalkInQueue called without currentSiteId — device.site_id missing?');
       renderQueue([]);
-      const list = document.getElementById('queueList');
-      if (list && queueOpen) {
-        list.innerHTML = `
-          <div class="queue-empty">
-            <div class="queue-empty-icon">🏪</div>
-            ${t('Select a site to view orders')}
-          </div>
-        `;
-      }
       return;
     }
     try {
