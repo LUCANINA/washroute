@@ -2643,6 +2643,9 @@
     'No transactions yet on this shift.': 'Aún no hay transacciones en este turno.',
     'Transactions report sent to printer': 'Reporte enviado a la impresora',
     'Could not print transactions report': 'No se pudo imprimir el reporte',
+    // Session 156: auto-update banner
+    'New POS version available': 'Nueva versión disponible',
+    'Refresh now': 'Actualizar ahora',
     'Laundry Services': 'Servicios de lavandería',
     'Tap products to add to cart': 'Toca productos para agregar al carrito',
     'Clear all': 'Vaciar todo',
@@ -2801,6 +2804,96 @@
 
   // Apply translations on initial load too.
   document.addEventListener('DOMContentLoaded', applyTranslations);
+
+  // ═══════════════════════════════════════════════════════════════
+  // Session 156: POS auto-update detection
+  // ───────────────────────────────────────────────────────────────
+  // Problem: when we deploy new POS code, the iPad's cached page
+  // keeps running the OLD code until David force-quits the app and
+  // signs in again. Easy to forget; field bugs linger because of it.
+  //
+  // Solution: HEAD-request /pos/index.html periodically + on tab
+  // visibility change, compare the ETag/Last-Modified header to the
+  // value at page load. If different, show a non-blocking banner
+  // with a Refresh button. We DO NOT auto-reload — the cashier might
+  // be mid-sale, and a forced reload would lose the cart. The banner
+  // sits at the top until tapped, surviving across sales.
+  // ═══════════════════════════════════════════════════════════════
+  let _posBootVersion = null;
+
+  async function _fetchPosVersionTag() {
+    try {
+      // Cache-busting query string + cache: 'no-store' so the iPad
+      // actually hits the server instead of serving a stale 304 from
+      // its disk cache.
+      const res = await fetch('/pos/index.html?_v=' + Date.now(), {
+        method: 'HEAD',
+        cache: 'no-store',
+      });
+      if (!res.ok) return null;
+      return res.headers.get('etag') || res.headers.get('last-modified') || null;
+    } catch (_e) {
+      // Network failure — silent, will retry next interval.
+      return null;
+    }
+  }
+
+  async function _checkPosForUpdate() {
+    const tag = await _fetchPosVersionTag();
+    if (!tag) return;
+    if (_posBootVersion === null) {
+      _posBootVersion = tag;
+      console.log('[POS] update baseline:', tag);
+      return;
+    }
+    if (tag !== _posBootVersion) {
+      console.log('[POS] new version detected:', tag, '(was', _posBootVersion, ')');
+      _showPosUpdateBanner();
+    }
+  }
+
+  function _showPosUpdateBanner() {
+    if (document.getElementById('posUpdateBanner')) return; // already showing
+    const banner = document.createElement('div');
+    banner.id = 'posUpdateBanner';
+    banner.innerHTML = `
+      <span style="font-weight:700;display:flex;align-items:center;gap:8px">
+        <span style="font-size:18px;line-height:1">🔄</span>
+        <span data-i18n-dyn="banner-text">${t('New POS version available')}</span>
+      </span>
+      <button onclick="location.reload()" style="background:white;color:var(--accent-dark, #1d4ed8);border:none;border-radius:10px;padding:8px 16px;font-weight:700;cursor:pointer;font-size:14px">
+        ${t('Refresh now')}
+      </button>
+    `;
+    banner.style.cssText = `
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--accent, #3b82f6);
+      color: white;
+      padding: 10px 14px 10px 18px;
+      border-radius: 14px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.22);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 14px;
+      max-width: 92vw;
+    `;
+    document.body.appendChild(banner);
+  }
+
+  // Wire periodic + visibility-driven checks. 5-minute interval is
+  // gentle enough not to hammer the CDN; visibilitychange catches the
+  // common case where the cashier switches apps and comes back.
+  setInterval(_checkPosForUpdate, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') _checkPosForUpdate();
+  });
+  // Set the baseline shortly after page load (after auth + DOM are settled).
+  setTimeout(_checkPosForUpdate, 2000);
 
   // ═══════════════════════════════════════════════════════════════
   // AUTH STATE — device + shift
