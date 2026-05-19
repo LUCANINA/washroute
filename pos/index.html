@@ -439,15 +439,12 @@
     background: var(--accent-light);
     box-shadow: 0 4px 12px rgba(59, 130, 246, 0.18);
   }
-  /* Selected-card action row — Reprint + Delete sit side-by-side */
+  /* Selected-card action row — Reprint receipt button. (Session 155:
+     was a 2-up grid with Delete; Delete removed, single button now.) */
   .queue-card-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
     margin-top: 8px;
   }
-  .queue-card-reprint-btn,
-  .queue-card-delete-btn {
+  .queue-card-reprint-btn {
     width: 100%;
     padding: 10px 0;
     border: none;
@@ -456,18 +453,11 @@
     font-weight: 700;
     cursor: pointer;
     transition: background 0.12s;
-  }
-  .queue-card-reprint-btn {
     background: var(--gray-100);
     color: var(--gray-800);
   }
   .queue-card-reprint-btn:hover { background: var(--gray-200); }
   .queue-card-reprint-btn:disabled { opacity: .55; cursor: default; }
-  .queue-card-delete-btn {
-    background: #dc2626;
-    color: white;
-  }
-  .queue-card-delete-btn:hover { background: #b91c1c; }
   .queue-card-top {
     display: flex;
     align-items: center;
@@ -2403,34 +2393,10 @@
         </div>
       </div>
 
-      <!-- ─── Queue order delete-confirm modal ──────────────────
-           Step 3 of the 3-step delete flow (select card → tap Delete → confirm here).
-           Renders a refund preview (auto-refund of remaining balance) so the
-           cashier sees exactly what will happen before they tap Delete.
-           ──────────────────────────────────────────────────── -->
-      <div class="modal-overlay" id="deleteOrderModal">
-        <div class="modal" style="max-width: 420px;">
-          <div class="modal-header">
-            <div>
-              <div class="modal-title" data-i18n>Delete order?</div>
-              <div class="modal-sub" id="deleteOrderSub">Order #—</div>
-            </div>
-            <button class="modal-close" onclick="closeAll()">×</button>
-          </div>
-          <div class="modal-body" style="padding: 16px 20px;">
-            <div id="deleteOrderDetails" style="font-size:14px;color:var(--gray-700);line-height:1.5;"></div>
-            <div id="deleteOrderRefundPreview" style="margin-top:14px;padding:12px;background:var(--gray-50);border-radius:10px;font-size:13px;color:var(--gray-700);"></div>
-            <div style="margin-top:14px;padding:10px;background:#fef2f2;color:#7f1d1d;border-radius:8px;font-size:12px;line-height:1.5;">
-              <strong data-i18n>This cannot be undone.</strong> <span data-i18n>The order will be permanently removed from the system.</span>
-            </div>
-            <div id="deleteOrderError" style="display:none;margin-top:12px;padding:10px;background:#fef2f2;color:#dc2626;border-radius:8px;font-size:13px;"></div>
-          </div>
-          <div class="modal-footer" style="display:flex;gap:10px;">
-            <button class="btn" onclick="closeAll()" style="flex:1;" data-i18n>Cancel</button>
-            <button class="btn" id="deleteOrderConfirmBtn" onclick="executeDeletePosOrder()" style="flex:1;background:#dc2626;color:white;" data-i18n>Delete order</button>
-          </div>
-        </div>
-      </div>
+      <!-- Session 155: queue-order delete-confirm modal removed.
+           See note on cardActions render block below — cashier-side
+           hard-delete is no longer a path. Refunds go through the ↩
+           Refund flow in the topbar. -->
 
     </div><!-- /device-screen -->
   </div><!-- /device -->
@@ -2603,7 +2569,6 @@
     'TAP →': 'TOCA →',
     'Reassign': 'Reasignar',
     'Folded by': 'Doblado por',
-    '✕ Delete order': '✕ Eliminar orden',
     'just now': 'ahora',
     ' ago': '',
     'min': 'min',
@@ -2645,7 +2610,6 @@
     'Processing…': 'Procesando…',
     'Refund failed': 'Reembolso fallido',
     'Order not found': 'Orden no encontrada',
-    ' deleted': ' eliminada',
     'Full refund processed (cash)': 'Reembolso total procesado (efectivo)',
     'Full refund processed (card)': 'Reembolso total procesado (tarjeta)',
     'Partial refund processed (cash)': 'Reembolso parcial procesado (efectivo)',
@@ -2653,28 +2617,10 @@
     ' — hand back $': ' — entregar $',
     ' from till': ' del cajón',
     ' back to card': ' a la tarjeta',
-    ' refunded to card': ' reembolsado a la tarjeta',
 
-    // Delete order modal
-    'Delete order?': '¿Eliminar orden?',
-    'Order #—': 'Orden #—',
-    '💸 Auto-refund': '💸 Reembolso automático',
-    ' will be refunded to the customer.': ' será reembolsado al cliente.',
-    ' was already refunded earlier; only the remaining balance will refund now.': ' ya se reembolsó antes; solo el saldo restante se reembolsará ahora.',
-    'Card sales refund automatically via Stripe. Cash sales: hand the cash back from the till.': 'Las ventas con tarjeta se reembolsan automáticamente vía Stripe. En efectivo: entregue el dinero del cajón.',
-    'Already refunded': 'Ya reembolsado',
-    ' has already been refunded against this order. Deleting will not refund again.': ' ya se reembolsó por esta orden. Eliminar no reembolsará otra vez.',
-    'No refund needed': 'No se necesita reembolso',
-    'Order has no remaining balance to refund.': 'La orden no tiene saldo pendiente.',
-    'Order has no payment to refund.': 'La orden no tiene pago para reembolsar.',
-    'This cannot be undone.': 'Esto no se puede deshacer.',
-    ' The order will be permanently removed from the system.': ' La orden se eliminará permanentemente del sistema.',
-    'Delete order': 'Eliminar orden',
-    'Deleting…': 'Eliminando…',
-    'Delete failed': 'Eliminación fallida',
+    // Shared (queue card flows)
     'Order #': 'Orden #',
     'Order not found in queue — please refresh.': 'Orden no encontrada en la fila — actualice.',
-    'Total charged: $': 'Total cobrado: $',
 
     // Errors / toasts (general)
     'Could not save the order. Please try again.': 'No se pudo guardar la orden. Intente de nuevo.',
@@ -2786,9 +2732,6 @@
     // Launderer modal additions
     'Split 2 ways': 'Dividir en 2',
     'Split 3 ways': 'Dividir en 3',
-
-    // Delete order modal additions
-    'The order will be permanently removed from the system.': 'La orden se eliminará permanentemente del sistema.',
 
     // Language toggle label — the toggle button text is set programmatically
     // ('ES' / 'EN') and never goes through t(), but include the key here for
@@ -4302,149 +4245,15 @@
     }
   }
 
-  function openDeletePosOrderModal(orderId) {
-    const order = (queueOrders || []).find(o => o.id === orderId);
-    if (!order) {
-      showToast(t('Order not found in queue — please refresh.'), 'error');
-      return;
-    }
-
-    // Build a quick item summary from line_items (mirrors renderQueueCard's
-    // detail line so the cashier sees the same wording in the modal).
-    const items = (order.line_items || []).filter(li => li.kind === 'service' || li.kind === 'merchandise');
-    const svcItems = items.filter(li => li.kind === 'service');
-    const merchItems = items.filter(li => li.kind === 'merchandise');
-    let detail = '';
-    if (svcItems.length) {
-      detail = svcItems.map(li => {
-        const w = li.weight_lbs ? `${li.weight_lbs} lb ` : '';
-        const addons = (li.addons || []).map(a => a.name).join(', ');
-        return `${w}${li.name}${addons ? ' + ' + addons : ''}`;
-      }).join(', ');
-    }
-    if (merchItems.length) {
-      const merchStr = merchItems.map(li => `${li.qty}× ${li.name}`).join(', ');
-      detail = detail ? `${detail} · ${merchStr}` : merchStr;
-    }
-
-    const total = Number(order.total_amount || 0);
-    const tip   = Number(order.tip_amount || 0);
-    const refunded = Number(order.amount_refunded || 0);
-    const remaining = +(total + tip - refunded).toFixed(2);
-
-    // The order's billing fields might not be on the cached queueOrders row
-    // (loadWalkInQueue selects a narrow column set). Pull them from the row
-    // we have, but fall back to a fresh fetch in the modal so the refund
-    // preview is always accurate.
-    const customerName = order._customerName || t('Retail');
-
-    document.getElementById('deleteOrderSub').textContent =
-      t('Order #') + order.order_number;
-
-    // esc() the DB-sourced customer name + line-item description before
-    // stitching into innerHTML — prevents HTML injection from a malicious
-    // customer record or item label.
-    const detailsHtml = `
-      <div style="font-weight:700;color:var(--gray-900);margin-bottom:4px;">${esc(customerName)}</div>
-      <div style="color:var(--gray-600);">${detail ? esc(detail) : t('No items')}</div>
-      <div style="margin-top:6px;font-size:13px;color:var(--gray-500);">${t('Total charged: $')}${(total + tip).toFixed(2)}${tip > 0 ? ' (' + t('incl. $') + tip.toFixed(2) + t(' tip') + ')' : ''}</div>
-    `;
-    document.getElementById('deleteOrderDetails').innerHTML = detailsHtml;
-
-    // Refund preview. The cached queue row now includes amount_refunded +
-    // tip_amount (loadWalkInQueue select), so we can show the right state
-    // for three scenarios: fully refundable, partial-already-refunded with
-    // remaining balance, and already-fully-refunded.
-    const previewEl = document.getElementById('deleteOrderRefundPreview');
-    if (remaining > 0.005) {
-      // There's still money to refund.
-      const partialNote = refunded > 0.005
-        ? `<div style="margin-top:2px;font-size:12px;color:var(--gray-500);">$${refunded.toFixed(2)}${t(' was already refunded earlier; only the remaining balance will refund now.')}</div>`
-        : '';
-      previewEl.innerHTML = `
-        <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">${t('💸 Auto-refund')}</div>
-        <div>$${remaining.toFixed(2)}${t(' will be refunded to the customer.')}</div>
-        ${partialNote}
-        <div style="margin-top:4px;font-size:12px;color:var(--gray-500);">${t('Card sales refund automatically via Stripe. Cash sales: hand the cash back from the till.')}</div>
-      `;
-    } else if (refunded > 0.005) {
-      // Already fully refunded against. Order will still be deleted, but
-      // no second Stripe call (the edge function's needsRefund guard catches this).
-      previewEl.innerHTML = `
-        <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">${t('Already refunded')}</div>
-        <div style="font-size:13px;color:var(--gray-600);">$${refunded.toFixed(2)}${t(' has already been refunded against this order. Deleting will not refund again.')}</div>
-      `;
-    } else {
-      // Was never paid (e.g. billing_status null or 'failed').
-      previewEl.innerHTML = `
-        <div style="font-weight:600;color:var(--gray-900);margin-bottom:4px;">${t('No refund needed')}</div>
-        <div style="font-size:12px;color:var(--gray-500);">${t('Order has no payment to refund.')}</div>
-      `;
-    }
-
-    document.getElementById('deleteOrderError').style.display = 'none';
-    document.getElementById('deleteOrderConfirmBtn').disabled = false;
-    document.getElementById('deleteOrderConfirmBtn').textContent = t('Delete order');
-
-    // Stash the target so executeDeletePosOrder can read it without
-    // re-finding by id (the queue may have refreshed between modal open
-    // and confirm tap).
-    _deletePosOrderTarget = { id: order.id, order_number: order.order_number };
-
-    closeAll();
-    setTimeout(() => showModal('deleteOrderModal'), 100);
-  }
-
-  let _deletePosOrderTarget = null;
-
-  async function executeDeletePosOrder() {
-    if (!_deletePosOrderTarget) return;
-    if (!shift || !shift.shift_id) {
-      showToast(t('Sign in to a shift first.'), 'error');
-      return;
-    }
-
-    const btn = document.getElementById('deleteOrderConfirmBtn');
-    const errEl = document.getElementById('deleteOrderError');
-    btn.disabled = true;
-    btn.textContent = t('Deleting…');
-    errEl.style.display = 'none';
-
-    try {
-      const data = await callEdge('stripe-terminal', {
-        action: 'delete_pos_order',
-        pos_shift_id: shift.shift_id,
-        order_id: _deletePosOrderTarget.id,
-      });
-
-      console.log('[DeleteOrder] Success:', data);
-
-      // Build a contextual toast.
-      let toastMsg = `${t('Order #')}${data.order_number}${t(' deleted')}`;
-      if (data.refunded_amount > 0) {
-        const m = data.payment_method === 'cash' ? 'cash' : 'card';
-        const tail = m === 'cash'
-          ? `${t(' — hand back $')}${Number(data.refunded_amount).toFixed(2)}${t(' from till')}`
-          : ` — $${Number(data.refunded_amount).toFixed(2)}${t(' refunded to card')}`;
-        toastMsg += tail;
-      }
-
-      // Clear selection + close modal + refresh queue so the deleted card
-      // disappears immediately.
-      _selectedQueueOrderId = null;
-      _deletePosOrderTarget = null;
-      closeAll();
-      showToast(toastMsg, 'success');
-      await loadWalkInQueue();
-
-    } catch (err) {
-      console.error('[DeleteOrder] Failed:', err);
-      errEl.textContent = err.message || t('Delete failed');
-      errEl.style.display = 'block';
-      btn.disabled = false;
-      btn.textContent = t('Delete order');
-    }
-  }
+  // Session 155: openDeletePosOrderModal + executeDeletePosOrder removed.
+  // The Delete-order path was a destructive "tap card → Delete → confirm"
+  // flow that auto-refunded the Stripe charge AND hard-deleted the order
+  // row, leaving only a customer_transactions refund row as audit trail.
+  // Cashiers were tapping it as a "this is done, get it off my screen"
+  // button at pickup time, silently nuking orders. Refunds now live only
+  // on the dedicated ↩ topbar Refund flow; the POS no longer offers a
+  // hard-delete option to attendants. The matching `delete_pos_order`
+  // edge function action still exists for any future admin-only path.
 
   function renderQueueCard(order, status) {
     const name = order._customerName || t('Retail');
@@ -4547,17 +4356,23 @@
       }
     }
 
-    // 3-step delete + reprint actions are walk-in-specific flows (reprinting
-    // a counter receipt, deleting a walk-in sale). Hide them for delivery
-    // orders — those aren't payable here, they're invoiced via the
-    // delivery flow, and they belong to a route_stop that shouldn't be
-    // orphaned by a POS-side delete.
+    // Reprint receipt is walk-in-specific (reprinting a counter receipt).
+    // Hide it for delivery orders — those are invoiced via the delivery flow,
+    // not the POS.
+    //
+    // Note (session 155): the Delete button was removed from this row.
+    // It was a destructive "tap card → Delete → confirm" path that auto-
+    // refunded the charge AND hard-deleted the order row, leaving only a
+    // `customer_transactions` refund row as audit trail. Cashiers were
+    // tapping it as a "this is done, get it off my screen" button at
+    // pickup time, silently nuking orders. Refunds belong in the dedicated
+    // Refund flow (↩ topbar button); the POS no longer offers a hard-delete
+    // option to attendants.
     const isSelected  = (_selectedQueueOrderId === order.id);
     const cardClass   = 'queue-card' + (isSelected ? ' selected' : '');
     const cardActions = (isSelected && !isDelivery && status !== 'picked_up') ? `
       <div class="queue-card-actions">
         <button class="queue-card-reprint-btn" onclick="event.stopPropagation();reprintQueueOrder('${order.id}')">${t('🖨 Reprint receipt')}</button>
-        <button class="queue-card-delete-btn" onclick="event.stopPropagation();openDeletePosOrderModal('${order.id}')">${t('✕ Delete order')}</button>
       </div>
     ` : '';
 
