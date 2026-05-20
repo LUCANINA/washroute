@@ -4877,6 +4877,13 @@
       <div style="font-size:11.5px;color:var(--gray-500);margin-top:6px">Driver uses this to log into the driver app. You can share it with them directly.</div>
     </div>
 
+    <!-- Reset password (existing drivers only) — session 156 -->
+    <div class="so-section" id="drv-reset-pw-section" style="display:none">
+      <div class="so-label">Driver App Login</div>
+      <div style="font-size:13px;color:var(--gray-600);margin-bottom:8px">If the driver is locked out, you can reset their password directly. Share the new one with them after.</div>
+      <button class="btn btn-ghost" id="drv-reset-pw-btn" onclick="resetDriverPasswordFromPanel()" style="font-size:13px">🔑 Reset password</button>
+    </div>
+
     <!-- Active toggle -->
     <div class="so-section">
       <div class="so-label">Status</div>
@@ -20004,8 +20011,10 @@ ${oneCopy}
     document.getElementById('drv-password').value    = '';
     document.getElementById('drv-error').style.display = 'none';
 
-    // Password section only for new drivers; email locked once account exists
+    // Password section only for new drivers; email locked once account exists.
+    // Session 156: existing drivers get a Reset password section instead.
     document.getElementById('drv-password-section').style.display = d ? 'none' : 'block';
+    document.getElementById('drv-reset-pw-section').style.display  = d ? 'block' : 'none';
     const emailEl = document.getElementById('drv-email');
     emailEl.readOnly = !!d;
     emailEl.style.background = d ? 'var(--gray-50)' : '';
@@ -20031,6 +20040,45 @@ ${oneCopy}
   function closeDriverEditor() {
     document.getElementById('slideover-driver').classList.remove('open');
     document.getElementById('driver-slideover-backdrop').style.display = 'none';
+  }
+
+  // Session 156: admin/manager-gated driver password reset.
+  // Calls admin_reset_driver_password RPC which validates caller role,
+  // confirms target is a driver, enforces 8-char minimum, and writes a
+  // bcrypt hash to auth.users.encrypted_password.
+  async function resetDriverPasswordFromPanel() {
+    if (!currentDriverProfileId) {
+      showToast('No driver selected', 'error');
+      return;
+    }
+    const d = allDriversList.find(x => x.id === currentDriverId);
+    const name = d ? `${d.firstName} ${d.lastName}`.trim() : 'this driver';
+    const pw = prompt(
+      `Reset password for ${name}\n\nEnter a new password (min 8 characters).\nWrite it down — you'll need to share it with them.`,
+      ''
+    );
+    if (pw === null) return; // cancelled
+    const trimmed = pw.trim();
+    if (trimmed.length < 8) {
+      showToast('Password must be at least 8 characters', 'error');
+      return;
+    }
+    const btn = document.getElementById('drv-reset-pw-btn');
+    const origText = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Resetting…';
+    try {
+      const { error } = await db.rpc('admin_reset_driver_password', {
+        p_profile_id: currentDriverProfileId,
+        p_new_password: trimmed,
+      });
+      if (error) throw new Error(error.message);
+      showToast(`Password reset for ${name} — share it with them now`, 'success');
+    } catch (e) {
+      console.error('[admin] reset driver password:', e);
+      showToast(e.message || 'Reset failed', 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = origText;
+    }
   }
 
   async function saveDriver() {
