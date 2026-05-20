@@ -8450,7 +8450,10 @@
     }
     updateOrderFilterCounts();
     updateOrderStatCards();
-    renderOrders();
+    // Session 156: must pass the filtered data — renderOrders(data) requires
+    // its argument and silently throws on undefined.length. Bug caused stale
+    // rows to persist when toggling between Delivery and Retail.
+    renderOrders(getFilteredOrders());
   }
 
   // Updates each pill button to show its count badge
