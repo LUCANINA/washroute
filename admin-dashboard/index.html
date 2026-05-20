@@ -7063,7 +7063,11 @@
       }
 
       // ── Process Check 3: Unpaid Delivered ──
-      const unpaid = (c3.data || []).filter(o => !o.stripe_payment_intent_id || o.billing_status !== 'paid');
+      // Session 156: 'paid' covers card + cash + credit + check; same
+      // taxonomy as session 154 pt 4 on kanbans + session 156 _payStatusIcon.
+      // Old filter '!PI || status!=paid' false-flagged cash retail sales
+      // (no PI exists for cash) that reached delivered status.
+      const unpaid = (c3.data || []).filter(o => o.billing_status !== 'paid');
       if (unpaid.length > 0) {
         const total = unpaid.reduce((s, o) => s + orderChargedTotal(o), 0);
         results.push({ severity: 'P0', icon: '🔴', label: 'Unpaid delivered orders', count: unpaid.length,
@@ -7999,9 +8003,23 @@
   function _payStatusIcon(o) {
     const custId = o.customers?.id;
     const billingType = o.customers?.billing_type;
-    // Already charged successfully
-    if (o.stripe_payment_intent_id && o.billing_status !== 'failed') {
-      return `<span class="pay-tip" data-tip="Paid" style="color:#16a34a;font-size:13px;font-weight:800;line-height:1">$</span>`;
+    // Session 156: 'Paid' is anything with billing_status='paid' — card,
+    // cash, credit, check, all of them. Previous check required
+    // stripe_payment_intent_id which meant cash sales (no PI in Stripe)
+    // fell through to the 'No card on file' warning at the bottom — even
+    // when the customer had handed over $236 in cash. Source of truth
+    // for payment status is billing_status, NOT the PI column. Same
+    // taxonomy lesson as session 154 pt 4 on the kanbans.
+    if (o.billing_status === 'paid') {
+      const method = (o.billing_payment_method || '').toLowerCase();
+      const last4  = o.card_last4 || '';
+      const tip = method === 'cash'    ? 'Paid in cash'
+                : method === 'credit'  ? 'Paid by account credit'
+                : method === 'check'   ? 'Paid by check'
+                : (method === 'card' || method === 'credit_card')
+                    ? (last4 ? `Paid by card ····${last4}` : 'Paid by card')
+                : 'Paid';
+      return `<span class="pay-tip" data-tip="${tip}" style="color:#16a34a;font-size:13px;font-weight:800;line-height:1">$</span>`;
     }
     // Charge failed
     if (o.billing_status === 'failed') {
@@ -8104,7 +8122,7 @@
   // Statuses eligible for manual admin archive (kept in sync with DB check — see add_archive_columns migration)
   const ARCHIVABLE_STATUSES = ['pickup_failed','delivery_failed','skipped','cancelled'];
 
-  const _orderSelectCols = `id, order_number, status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, billing_status,
+  const _orderSelectCols = `id, order_number, status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, billing_status, billing_payment_method, card_brand, card_last4,
                weight_lbs, total_bags, service_id, special_instructions, line_items,
                pickup_window_start, pickup_window_end,
                delivery_window_start, delivery_window_end,
