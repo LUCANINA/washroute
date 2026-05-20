@@ -2643,7 +2643,7 @@
     // Session 156: Print Transactions report
     'Print Transactions': 'Imprimir transacciones',
     'Print transactions report for current shift': 'Imprimir reporte de transacciones del turno actual',
-    'No transactions yet on this shift.': 'Aún no hay transacciones en este turno.',
+    'No transactions yet today.': 'Aún no hay transacciones hoy.',
     'Transactions report sent to printer': 'Reporte enviado a la impresora',
     'Could not print transactions report': 'No se pudo imprimir el reporte',
     // Session 156: auto-update banner
@@ -5772,18 +5772,50 @@
     const btn = document.getElementById('shiftReportBtn');
     if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
     try {
-      // Pull every paid + refunded order for this shift. Refunded rows
-      // appear in the detail list (marked with a minus prefix) but are
-      // subtracted from the summary totals so reconciliation matches
-      // the cash in the drawer.
+      // Session 156 redesign: 'transactions' = everything this cashier
+      // rang up TODAY (full Pacific day), not just the current PIN session.
+      // Operationally cashiers PIN in/out many times per day, each creating
+      // a new pos_shifts row — but a 'shift' in the operator's mental model
+      // is the whole working day. So we query by cashier_profile_id across
+      // every shift row started today in Pacific time, then collect every
+      // paid/refunded order tied to those shifts.
+
+      // Compute today's Pacific day window. DST-aware via Intl.
+      const BIZ_TZ = 'America/Los_Angeles';
+      const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      const offsetH = (() => {
+        const noon = new Date(`${todayPT}T12:00:00Z`);
+        const ptHr = parseInt(noon.toLocaleString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', hour12: false }), 10);
+        return 12 - ptHr;
+      })();
+      const offsetStr = '-' + String(offsetH).padStart(2, '0') + ':00';
+      const startISO = `${todayPT}T00:00:00${offsetStr}`;
+      const endISO   = `${todayPT}T23:59:59.999${offsetStr}`;
+
+      // Step 1: every shift this cashier started today.
+      const { data: shifts, error: sErr } = await db.from('pos_shifts')
+        .select('id, started_at')
+        .eq('cashier_profile_id', shift.cashier_profile_id)
+        .gte('started_at', startISO)
+        .lte('started_at', endISO);
+      if (sErr) throw new Error(sErr.message);
+      const shiftIds = (shifts || []).map(s => s.id);
+      if (shiftIds.length === 0) {
+        showToast(t('No transactions yet today.'), 'info');
+        return;
+      }
+
+      // Step 2: every paid/refunded order tied to those shifts. Refunded
+      // rows appear in the detail list but subtract from the summary
+      // totals so cash-drawer reconciliation matches reality.
       const { data, error } = await db.from('orders')
         .select('id, order_number, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, card_brand, card_last4, created_at, billed_at, customer_id, customers(first_name_cache, last_name_cache)')
-        .eq('pos_shift_id', shift.shift_id)
+        .in('pos_shift_id', shiftIds)
         .in('billing_status', ['paid', 'refunded'])
         .order('billed_at', { ascending: true });
       if (error) throw new Error(error.message);
       if (!data || data.length === 0) {
-        showToast(t('No transactions yet on this shift.'), 'info');
+        showToast(t('No transactions yet today.'), 'info');
         return;
       }
       const markup = buildShiftReportMarkup(data);
