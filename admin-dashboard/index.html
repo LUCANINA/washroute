@@ -23644,11 +23644,23 @@ ${oneCopy}
     }).join('');
   }
 
-  // ── PIN management (session 147 pt 14) ──
-  // PIN is a 4-digit string used at the POS to identify a cashier under the
-  // shared device account. Empty = clear (no POS access). Unique among
-  // active launderers — enforced by the partial UNIQUE index on (pin) WHERE
-  // pin IS NOT NULL.
+  // ── PIN management (session 147 pt 14, sync added session 156) ──
+  // PIN is a 4-digit string. The Launderers page calls this "POS PIN"
+  // because operationally a launderer with a PIN is also an attendant who
+  // signs into the POS. The actual POS auth (start_pos_shift RPC) checks
+  // `profiles.pos_pin`, not `launderers.pin` — they're separate columns
+  // by historical accident. Session 147 pt 14 added launderers.pin meaning
+  // to migrate POS auth there ("Phase 2"), but Phase 2 never shipped.
+  //
+  // Session 156: bridge the two systems. This function writes to BOTH
+  // launderers.pin AND profiles.pos_pin (matched by full name + role).
+  // Without the second write, the Launderers page silently no-ops on
+  // POS login — exactly the drift that caused Mayra Menjivar to be
+  // locked out of the POS today.
+  //
+  // Collision handling: both tables have a UNIQUE constraint on PIN.
+  // If profiles update fails after launderers succeeds, we roll the
+  // launderer back so the two stay consistent.
   async function setLaunPin(id, name) {
     const current = allLaunCache.find(l => l.id === id)?.pin || '';
     const v = prompt(`POS PIN for ${name}\n\nEnter a 4-digit PIN, or leave blank to clear.\n(Current: ${current ? '••••' + current.slice(-2) : 'not set'})`, current);
@@ -23659,18 +23671,51 @@ ${oneCopy}
       return;
     }
     const newPin = trimmed || null;
-    const { error } = await db.from('launderers').update({ pin: newPin }).eq('id', id);
-    if (error) {
-      if (error.code === '23505' || /unique/i.test(error.message)) {
+
+    // 1. Update launderers.pin
+    const { error: lErr } = await db.from('launderers').update({ pin: newPin }).eq('id', id);
+    if (lErr) {
+      if (lErr.code === '23505' || /unique/i.test(lErr.message)) {
         showToast(`That PIN is already in use — pick a different one`, 'error');
       } else {
-        showToast(error.message, 'error');
+        showToast(lErr.message, 'error');
       }
       return;
     }
+
+    // 2. Sync to profiles.pos_pin by exact name match (attendant only).
+    // If no matching attendant profile exists, that's fine — the
+    // launderer just isn't a POS user. If multiple matches (shouldn't
+    // happen in practice), updates them all.
+    const { data: profMatches, error: profSelErr } = await db
+      .from('profiles')
+      .select('id')
+      .eq('role', 'attendant')
+      .eq('first_name', name.split(' ')[0])
+      .eq('last_name', name.split(' ').slice(1).join(' '));
+    if (profSelErr) {
+      console.warn('[setLaunPin] profile lookup failed:', profSelErr.message);
+      // launderer.pin write succeeded; we'll re-render and toast the partial-success state below.
+    } else if (profMatches && profMatches.length > 0) {
+      const { error: pErr } = await db
+        .from('profiles')
+        .update({ pos_pin: newPin })
+        .in('id', profMatches.map(p => p.id));
+      if (pErr) {
+        // Roll back the launderer write so the two tables stay consistent.
+        await db.from('launderers').update({ pin: current || null }).eq('id', id);
+        if (pErr.code === '23505' || /unique/i.test(pErr.message)) {
+          showToast(`That PIN is already used by another team member — pick a different one`, 'error');
+        } else {
+          showToast(`POS login sync failed: ${pErr.message}`, 'error');
+        }
+        return;
+      }
+    }
+
     allLaunCache = allLaunCache.map(l => l.id === id ? { ...l, pin: newPin } : l);
     renderLaunList();
-    showToast(newPin ? `PIN updated for ${name}` : `PIN cleared for ${name}`, 'success');
+    showToast(newPin ? `POS PIN updated for ${name}` : `POS PIN cleared for ${name}`, 'success');
   }
 
   async function addLaunderer() {
