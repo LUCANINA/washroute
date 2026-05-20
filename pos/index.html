@@ -3744,21 +3744,19 @@
   // signed in under a device account when this runs, so we query
   // Supabase directly.
   async function lookupCustomerByPhone(digits) {
-    // Query Supabase. Use the last 7 digits as a broad
-    // filter (last 4 has too many false positives, last 7 is unique
-    // enough), then verify exact match client-side after normalizing.
-    const last7 = digits.slice(-7);
+    // Session 157: server-side normalized lookup via pos_lookup_customer_by_phone RPC.
+    // The previous client-side `phone_cache ILIKE '%${last7}%'` filter silently missed
+    // formatted phones like '(510) 368-5368' because the hyphen splits the last 7 digits
+    // ('368-5368' is not a substring of '3685368'). That bug created 5 duplicate-customer
+    // pairs in 3 days before being caught. The RPC strips non-digit chars on both sides
+    // and compares last 10, so any phone format matches correctly.
     try {
-      const { data, error } = await db
-        .from('customers')
-        .select('id, first_name_cache, last_name_cache, phone_cache, email_cache, address_cache, total_orders, pricelist')
-        .ilike('phone_cache', `%${last7}%`)
-        .limit(20);
+      const { data, error } = await db.rpc('pos_lookup_customer_by_phone', { p_digits: digits });
       if (error) {
         console.error('[POS] customer lookup error:', error);
         return [];
       }
-      return (data || []).filter(c => normalizePhone(c.phone_cache) === digits);
+      return data || [];
     } catch (e) {
       console.error('[POS] customer lookup fatal:', e);
       return [];
