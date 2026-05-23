@@ -3395,7 +3395,7 @@
 </div>
 
 <!-- Recall Order modal — put a delivered order back onto a route -->
-<div id="recall-order-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1002;align-items:center;justify-content:center;">
+<div id="recall-order-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1102;align-items:center;justify-content:center;">
   <div class="modal" style="max-width:440px;">
     <div class="modal-header">
       <div>
@@ -8957,6 +8957,15 @@
   // ── RECALL ORDER (delivered → back onto a route) ──
   // Opens a modal that lets staff pick a route and place the order back on it.
   // Deliberately does NOT send any SMS to the customer.
+  //
+  // The recall modal captures the order id into its own state (_recallOrderId)
+  // the moment it opens — it does NOT read the live `opCurrentOrderId` global at
+  // confirm time. This matches the _singleStatusOrderId pattern and makes the
+  // flow immune to the order panel being closed (which nulls opCurrentOrderId)
+  // while the modal is still open. The pairing z-index fix (modal above the
+  // panel + its backdrop) prevents that close from happening in the first place,
+  // but capturing the id is the durable backstop.
+  let _recallOrderId = null;
   async function opRecallOrder() {
     if (!opCurrentOrderId) return;
     const o = allOrders.find(x => x.id === opCurrentOrderId);
@@ -8968,6 +8977,7 @@
       showToast('Only delivered orders can be recalled', 'error');
       return;
     }
+    _recallOrderId = opCurrentOrderId; // capture for confirmRecallOrder
     // Ensure routes cache is ready
     await opPrefetchRoutes();
 
@@ -9004,6 +9014,7 @@
   function closeRecallModal() {
     const m = document.getElementById('recall-order-modal');
     if (m) m.style.display = 'none';
+    _recallOrderId = null;
   }
 
   async function confirmRecallOrder() {
@@ -9012,13 +9023,14 @@
     const btn    = document.getElementById('recall-confirm-btn');
     const showErr = msg => { if (errEl) { errEl.textContent = msg; errEl.style.display = ''; } };
 
-    // Bail conditions now surface a visible error instead of returning silently.
-    // Previous version returned early on missing opCurrentOrderId or a missing
-    // entry in the allOrders cache — making the modal feel unresponsive when
-    // the delivered order had been opened from a context (search, deep-link,
-    // freshly-status-updated tab) where allOrders no longer held it.
-    if (!opCurrentOrderId) {
-      console.warn('[recall] aborted: opCurrentOrderId is null');
+    // Use the order id captured when the modal opened (_recallOrderId), NOT the
+    // live opCurrentOrderId global. The global is nulled by closeOrderPanel(),
+    // which can fire while this modal is open (e.g. a stray click on the panel
+    // backdrop). Reading it here was the cause of the spurious "No order is
+    // open" error. The captured id is stable for the life of the modal.
+    const orderId = _recallOrderId;
+    if (!orderId) {
+      console.warn('[recall] aborted: _recallOrderId is null');
       showErr('No order is open. Close this modal, reopen the order, and try again.');
       return;
     }
@@ -9029,7 +9041,7 @@
     // The local in-memory copy is only used for cache-sync after the RPC
     // succeeds — it is NOT required to make the call. Fall back gracefully
     // if it isn't in the cache; the post-RPC reload still corrects the UI.
-    const o = allOrders.find(x => x.id === opCurrentOrderId) || null;
+    const o = allOrders.find(x => x.id === orderId) || null;
 
     const opt = sel.selectedOptions[0];
     const runDate = opt?.dataset?.runDate || '';
@@ -9057,9 +9069,9 @@
       const actorName = (typeof currentUserDisplayName !== 'undefined' && currentUserDisplayName)
         || (typeof currentUserFirstName !== 'undefined' && currentUserFirstName)
         || 'Admin';
-      console.log('[recall] calling RPC', { orderId: opCurrentOrderId, routeId, actorName });
+      console.log('[recall] calling RPC', { orderId, routeId, actorName });
       const { data: rpcRes, error: rpcErr } = await db.rpc('recall_delivered_order', {
-        p_order_id:          opCurrentOrderId,
+        p_order_id:          orderId,
         p_delivery_route_id: routeId,
         p_reason:            reason || null,
         p_actor_name:        actorName,
