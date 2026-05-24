@@ -3218,6 +3218,11 @@
 <div class="batch-bar" id="oa-action-bar">
   <span class="batch-bar-count" id="oa-selected-label">Selected</span>
   <div class="batch-bar-sep"></div>
+  <button class="batch-bar-btn" onclick="openOAPaymentModal()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+    Record Payment
+  </button>
+  <div class="batch-bar-sep"></div>
   <button class="batch-bar-btn" onclick="previewSelectedInvoice()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
     Preview PDF
@@ -3356,6 +3361,91 @@
       <button class="btn btn-ghost" onclick="previewInvoicePDF()" style="margin-right:auto">Preview PDF</button>
       <button class="btn btn-ghost" onclick="closeInvoiceModal()">Cancel</button>
       <button class="btn btn-primary" id="inv-send-btn" onclick="sendInvoiceEmail()">Send Invoice</button>
+    </div>
+  </div>
+</div>
+
+<!-- Record Payment Modal (On Account) -->
+<div id="oa-payment-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1055;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:680px;width:96%;max-height:92vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <div class="modal-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="vertical-align:-2px;margin-right:6px"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+        Record Payment
+      </div>
+      <button class="modal-close" onclick="closeOAPaymentModal()"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;overflow-y:auto">
+      <div id="oap-account-label" style="font-size:13px;font-weight:600;color:var(--gray-700)"></div>
+
+      <!-- Date range -->
+      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div>
+          <label class="form-label">From</label>
+          <input type="date" id="oap-from" class="form-input" style="max-width:160px" onchange="oaPaymentLoadOrders()">
+        </div>
+        <div>
+          <label class="form-label">To</label>
+          <input type="date" id="oap-to" class="form-input" style="max-width:160px" onchange="oaPaymentLoadOrders()">
+        </div>
+        <div style="font-size:11.5px;color:var(--gray-400);padding-bottom:9px">Unpaid orders in this date range</div>
+      </div>
+
+      <!-- Orders checklist -->
+      <div style="border:1px solid var(--gray-200);border-radius:8px;overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">
+          <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer">
+            <input type="checkbox" id="oap-select-all" checked onchange="oaPaymentToggleAll(this.checked)">
+            <span id="oap-orders-count">0 orders</span>
+          </label>
+          <span style="font-size:12.5px;color:var(--gray-500)">Outstanding: <strong id="oap-outstanding">$0.00</strong></span>
+        </div>
+        <div id="oap-orders-list" style="max-height:260px;overflow-y:auto"></div>
+      </div>
+
+      <!-- Check details -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:140px">
+          <label class="form-label">Amount received</label>
+          <input type="number" id="oap-amount" class="form-input" step="0.01" min="0" placeholder="0.00" oninput="oaPaymentRecalc()">
+        </div>
+        <div style="flex:1;min-width:140px">
+          <label class="form-label">Method</label>
+          <select id="oap-method" class="form-input">
+            <option value="check">Check</option>
+            <option value="ach">ACH</option>
+            <option value="wire">Wire</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:140px">
+          <label class="form-label">Reference / check #</label>
+          <input type="text" id="oap-reference" class="form-input" placeholder="Optional">
+        </div>
+        <div style="flex:1;min-width:140px">
+          <label class="form-label">Date received</label>
+          <input type="date" id="oap-received" class="form-input">
+        </div>
+      </div>
+
+      <!-- Applying summary + mismatch -->
+      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
+        <span style="font-size:13px;color:var(--gray-600)">Applying to <strong id="oap-apply-count">0</strong> order(s)</span>
+        <span style="font-size:15px;font-weight:700" id="oap-apply-total">$0.00</span>
+      </div>
+      <div id="oap-mismatch" style="display:none;font-size:12px;border-radius:8px;padding:8px 10px;line-height:1.4"></div>
+
+      <!-- Recorded payments history -->
+      <div id="oap-history-wrap" style="display:none">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);margin-bottom:6px">Recorded payments</div>
+        <div id="oap-history-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px">
+      <button class="btn btn-ghost" onclick="closeOAPaymentModal()" style="margin-right:auto">Cancel</button>
+      <button class="btn btn-primary" id="oap-submit-btn" onclick="submitOAPayment()">Record Payment</button>
     </div>
   </div>
 </div>
@@ -29752,6 +29842,207 @@ ${oneCopy}
     }
   }
   window.openSelectedInvoiceModal = openSelectedInvoiceModal;
+
+  // ── RECORD PAYMENT (On Account) ─────────────────────────────────
+  // Posts a real-world payment (check / ACH / wire) against an on-account
+  // group or standalone customer. Records the payment in the `payments`
+  // ledger and marks the ticked unpaid orders paid via record_account_payment.
+  let _oapState = null; // { type:'group'|'standalone', id, name, orders:[] }
+
+  const OAP_STATUSES = ['delivered','ready_for_delivery','out_for_delivery','picked_up','processing','folding','scheduled'];
+
+  function openOAPaymentModal() {
+    const checked = [...document.querySelectorAll('.oa-select-cb:checked')];
+    if (!checked.length) { showToast('Select an account first', 'error'); return; }
+    if (checked.length > 1) { showToast('Select one account to record a payment', 'error'); return; }
+    const cb = checked[0];
+    _oapState = { type: cb.dataset.type, id: cb.dataset.id, name: cb.dataset.name, orders: [] };
+    document.getElementById('oap-account-label').textContent = cb.dataset.name;
+    document.getElementById('oap-from').value = document.getElementById('rpt-from').value || '';
+    document.getElementById('oap-to').value = document.getElementById('rpt-to').value || '';
+    document.getElementById('oap-received').value = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    document.getElementById('oap-reference').value = '';
+    document.getElementById('oap-method').value = 'check';
+    document.getElementById('oap-mismatch').style.display = 'none';
+    document.getElementById('oa-payment-modal').style.display = 'flex';
+    oaPaymentLoadOrders();
+    oaPaymentRenderHistory();
+  }
+  window.openOAPaymentModal = openOAPaymentModal;
+
+  function closeOAPaymentModal() {
+    document.getElementById('oa-payment-modal').style.display = 'none';
+    _oapState = null;
+  }
+  window.closeOAPaymentModal = closeOAPaymentModal;
+
+  async function oaPaymentLoadOrders() {
+    const st = _oapState; if (!st) return;
+    const fromVal = document.getElementById('oap-from').value;
+    const toVal   = document.getElementById('oap-to').value;
+    const listEl  = document.getElementById('oap-orders-list');
+    listEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">Loading…</div>';
+
+    let q = db.from('orders')
+      .select('id, order_number, total_amount, tip_amount, tip_type, billing_status, pickup_window_start, customer_id, customers!inner(first_name_cache, last_name_cache, billing_group_id, billing_type)')
+      .eq('customers.billing_type', 'on_account')
+      .in('status', OAP_STATUSES)
+      .or('billing_status.is.null,billing_status.not.in.(paid,refunded)')
+      .order('pickup_window_start', { ascending: true });
+    if (st.type === 'group') q = q.eq('customers.billing_group_id', st.id);
+    else q = q.eq('customer_id', st.id);
+    if (fromVal) q = q.gte('pickup_window_start', pacificDayStart(fromVal).toISOString());
+    if (toVal)   q = q.lte('pickup_window_start', pacificDayEnd(toVal).toISOString());
+
+    const { data, error } = await q;
+    if (error) { listEl.innerHTML = '<div style="padding:16px;color:var(--red);font-size:13px">Error loading orders: ' + esc(error.message) + '</div>'; return; }
+    st.orders = (data || []).map(o => ({ ...o, _amt: orderChargedTotal(o) }));
+    oaPaymentRenderOrders();
+  }
+  window.oaPaymentLoadOrders = oaPaymentLoadOrders;
+
+  function oaPaymentRenderOrders() {
+    const st = _oapState; if (!st) return;
+    const listEl = document.getElementById('oap-orders-list');
+    const isGroup = st.type === 'group';
+    if (!st.orders.length) {
+      listEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">No unpaid orders in this date range</div>';
+    } else {
+      listEl.innerHTML = st.orders.map(o => {
+        const nm = ((o.customers?.first_name_cache || '') + ' ' + (o.customers?.last_name_cache || '')).trim();
+        return `<label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--gray-100);cursor:pointer;font-size:13px">
+          <input type="checkbox" class="oap-order-cb" data-id="${esc(o.id)}" data-amt="${o._amt}" checked onchange="oaPaymentRecalc()">
+          <span style="flex:1;min-width:0">
+            <span style="font-weight:600">#${esc(String(o.order_number || '—'))}</span>
+            ${isGroup ? `<span style="color:var(--gray-500)"> · ${esc(nm)}</span>` : ''}
+            <span style="color:var(--gray-400)"> · ${fmtDate(o.pickup_window_start)}</span>
+          </span>
+          <span style="font-weight:600">${fmtMoney(o._amt)}</span>
+        </label>`;
+      }).join('');
+    }
+    const outstanding = st.orders.reduce((s, o) => s + o._amt, 0);
+    document.getElementById('oap-outstanding').textContent = fmtMoney(outstanding);
+    document.getElementById('oap-orders-count').textContent = st.orders.length + ' order' + (st.orders.length === 1 ? '' : 's');
+    document.getElementById('oap-select-all').checked = st.orders.length > 0;
+    const amtEl = document.getElementById('oap-amount');
+    amtEl.value = outstanding ? outstanding.toFixed(2) : '';
+    oaPaymentRecalc();
+  }
+
+  function oaPaymentToggleAll(checked) {
+    document.querySelectorAll('.oap-order-cb').forEach(cb => { cb.checked = checked; });
+    oaPaymentRecalc();
+  }
+  window.oaPaymentToggleAll = oaPaymentToggleAll;
+
+  function oaPaymentRecalc() {
+    const cbs = [...document.querySelectorAll('.oap-order-cb')];
+    const checked = cbs.filter(c => c.checked);
+    const applyTotal = checked.reduce((s, c) => s + parseFloat(c.dataset.amt || 0), 0);
+    document.getElementById('oap-apply-count').textContent = checked.length;
+    document.getElementById('oap-apply-total').textContent = fmtMoney(applyTotal);
+    document.getElementById('oap-select-all').checked = cbs.length > 0 && checked.length === cbs.length;
+
+    const amt = parseFloat(document.getElementById('oap-amount').value || 0);
+    const mm = document.getElementById('oap-mismatch');
+    const diff = Math.round((amt - applyTotal) * 100) / 100;
+    if (amt > 0 && Math.abs(diff) >= 0.01) {
+      const more = diff > 0;
+      mm.style.display = '';
+      mm.style.background = more ? '#fef3c7' : '#fee2e2';
+      mm.style.border = '1px solid ' + (more ? '#fcd34d' : '#fca5a5');
+      mm.style.color = more ? '#92400e' : '#991b1b';
+      mm.textContent = more
+        ? `Check is ${fmtMoney(diff)} more than the ${checked.length} selected order(s). The extra is recorded on the payment but not applied to any order.`
+        : `Check is ${fmtMoney(-diff)} less than the ${checked.length} selected order(s). Untick orders until the totals match, or record this as a partial payment.`;
+    } else {
+      mm.style.display = 'none';
+    }
+    document.getElementById('oap-submit-btn').disabled = checked.length === 0;
+  }
+  window.oaPaymentRecalc = oaPaymentRecalc;
+
+  async function oaPaymentRenderHistory() {
+    const st = _oapState; if (!st) return;
+    const wrap = document.getElementById('oap-history-wrap');
+    const listEl = document.getElementById('oap-history-list');
+    const col = st.type === 'group' ? 'billing_group_id' : 'customer_id';
+    const { data, error } = await db.from('payments').select('*').eq(col, st.id)
+      .order('received_date', { ascending: false }).order('created_at', { ascending: false });
+    if (error || !data || !data.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    const methodLabels = { check: 'Check', ach: 'ACH', wire: 'Wire', other: 'Other' };
+    listEl.innerHTML = data.map(p => {
+      const voided = !!p.voided_at;
+      const ml = methodLabels[p.method] || p.method;
+      return `<div style="display:flex;align-items:center;gap:10px;border:1px solid var(--gray-200);border-radius:8px;padding:8px 12px;font-size:13px;${voided ? 'opacity:.55' : ''}">
+        <span style="flex:1;min-width:0">
+          <strong>${fmtMoney(p.amount)}</strong> · ${ml}${p.reference ? ` · ${esc(p.reference)}` : ''}
+          <span style="color:var(--gray-400)"> · ${fmtDate(p.received_date)}</span>
+          ${voided ? '<span style="color:var(--red);font-weight:600"> · VOIDED</span>' : ''}
+          <br><span style="font-size:11.5px;color:var(--gray-500)">Applied ${fmtMoney(p.applied_amount)}</span>
+        </span>
+        ${voided ? '' : `<button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="oaVoidPayment('${escJS(p.id)}', this)">Void</button>`}
+      </div>`;
+    }).join('');
+  }
+
+  async function submitOAPayment() {
+    const st = _oapState; if (!st) return;
+    const checked = [...document.querySelectorAll('.oap-order-cb:checked')];
+    if (!checked.length) { showToast('Select at least one order', 'error'); return; }
+    const ids = checked.map(c => c.dataset.id);
+    const amt = parseFloat(document.getElementById('oap-amount').value || 0);
+    if (!(amt > 0)) { showToast('Enter the amount received', 'error'); return; }
+    const method    = document.getElementById('oap-method').value;
+    const reference = document.getElementById('oap-reference').value.trim();
+    const received  = document.getElementById('oap-received').value || null;
+    const applyTotal = checked.reduce((s, c) => s + parseFloat(c.dataset.amt || 0), 0);
+
+    const ok = confirm(`Record a ${method.toUpperCase()} payment of ${fmtMoney(amt)} for ${st.name}?\n\nThis marks ${ids.length} order(s) (${fmtMoney(applyTotal)}) as paid.`);
+    if (!ok) return;
+
+    const btn = document.getElementById('oap-submit-btn');
+    btn.disabled = true; btn.textContent = 'Recording…';
+    const { data, error } = await db.rpc('record_account_payment', {
+      p_order_ids:        ids,
+      p_amount:           amt,
+      p_method:           method,
+      p_reference:        reference || null,
+      p_received_date:    received,
+      p_notes:            null,
+      p_actor_name:       currentUserDisplayName || currentUserFirstName || 'Admin',
+      p_billing_group_id: st.type === 'group' ? st.id : null,
+      p_customer_id:      st.type === 'standalone' ? st.id : null,
+    });
+    btn.disabled = false; btn.textContent = 'Record Payment';
+    if (error) { showToast('Failed to record payment: ' + error.message, 'error'); return; }
+    showToast(`Payment recorded — ${data.settled_count} order(s) marked paid ✓`, 'success');
+    await oaPaymentLoadOrders();
+    await oaPaymentRenderHistory();
+    loadOnAccountReport();
+  }
+  window.submitOAPayment = submitOAPayment;
+
+  async function oaVoidPayment(paymentId, btn) {
+    if (!confirm('Void this payment? The orders it settled will return to outstanding (unpaid).')) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Voiding…'; }
+    const { data, error } = await db.rpc('void_account_payment', {
+      p_payment_id: paymentId,
+      p_actor_name: currentUserDisplayName || currentUserFirstName || 'Admin',
+    });
+    if (error) {
+      showToast('Failed to void: ' + error.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Void'; }
+      return;
+    }
+    showToast(`Payment voided — ${data.reverted_count} order(s) returned to outstanding`, 'success');
+    await oaPaymentLoadOrders();
+    await oaPaymentRenderHistory();
+    loadOnAccountReport();
+  }
+  window.oaVoidPayment = oaVoidPayment;
 
   // ── STANDALONE INVOICE SUPPORT ──────────────────────────────────
   function getInvoiceForStandalone(customerId) {
