@@ -1914,9 +1914,23 @@ async function _loadDriverDataInner() {
     }
   }
 
-  // Auto-create driver record on first login (sequential — depends on group 1 result)
+  // Provision a driver record on first login — but ONLY for genuine staff accounts.
+  // GUARD (Randy Harrison orphan fix): a phone-OTP or customer login that reaches the
+  // driver app with no driver record must NOT be silently turned into a brand-new active
+  // driver. New phone/customer signups default to role='customer'; auto-creating a driver
+  // for them produced empty orphan driver records (Randy logged in by phone code before his
+  // real driver account existed, and the app minted a nameless customer-role "driver" he then
+  // kept landing in instead of his real routes). Only auto-create when the profile is real
+  // staff; otherwise refuse access and sign out with a clear message.
+  const DRIVER_CAPABLE_ROLES = ['driver', 'manager', 'admin'];
   let drv = linkedDrv || drv0;
   if (!drv) {
+    if (!currentProfile || !DRIVER_CAPABLE_ROLES.includes(currentProfile.role)) {
+      showLoading(false);
+      toast('No driver account is set up for this login. Please contact your admin.');
+      setTimeout(() => db.auth.signOut(), 3000);
+      return;
+    }
     // UPSERT with DB-level UNIQUE constraint on profile_id — race-safe (session 111)
     const { data: nd } = await db.from('drivers')
       .upsert({ profile_id: currentUser.id, is_active: true }, { onConflict: 'profile_id' })
