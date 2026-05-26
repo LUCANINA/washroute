@@ -1879,20 +1879,37 @@ async function loadDriverData() {
 }
 async function _loadDriverDataInner() {
   _dataLoading = true;
+  // Session 151: is this a background refresh (driver already signed in with a
+  // loaded driver record), or the initial login load? On a background refresh we
+  // must NEVER let a transient profile/driver fetch failure sign the driver out —
+  // that was a root cause of "logged out on every stop" once realtime echoes
+  // started triggering loadDriverData() on the hot completion path.
+  const _isBackgroundRefresh = appReady && !!currentDriver;
   try {
   // ── Group 1: profile + driver record in parallel ──
   const [{ data: prof }, { data: drv0 }] = await Promise.all([
     db.from('profiles').select('*').eq('id', currentUser.id).single(),
     db.from('drivers').select('*').eq('profile_id', currentUser.id).order('created_at').limit(1).maybeSingle()
   ]);
-  currentProfile = prof;
+  // Don't clobber a known-good profile with a transient null on a background refresh.
+  if (prof) {
+    currentProfile = prof;
+  } else if (_isBackgroundRefresh) {
+    return; // keep existing session/data; this refresh just hit a blip
+  } else {
+    currentProfile = prof;
+  }
 
   // ── Phone OTP account linking ──
   // When a driver logs in via phone OTP, Supabase creates a new auth user with a new UUID.
   // Their existing driver record is linked to an older email-based profile UUID.
   // link_phone_auth_driver re-points the drivers row to the new phone-auth profile UUID.
+  // Session 151: only attempt phone→driver linking on the INITIAL login load. The
+  // link is a one-time repoint; re-running it on every background refresh put both
+  // an extra RPC and its MULTIPLE_MATCHES sign-out path on the hot completion path
+  // for no benefit (the driver is already linked by then).
   let linkedDrv = null;
-  if (currentUser.phone) {
+  if (currentUser.phone && !_isBackgroundRefresh) {
     try {
       const { data: linked, error: linkErr } = await db.rpc('link_phone_auth_driver', {
         p_phone_digits:   currentUser.phone,
@@ -1925,12 +1942,19 @@ async function _loadDriverDataInner() {
   const DRIVER_CAPABLE_ROLES = ['driver', 'manager', 'admin'];
   let drv = linkedDrv || drv0;
   if (!drv) {
-    if (!currentProfile || !DRIVER_CAPABLE_ROLES.includes(currentProfile.role)) {
+    // Session 151: a transient empty driver fetch during a background refresh must
+    // NOT sign the driver out mid-route — reuse the known-good driver record. The
+    // sign-out path below is for genuine first-login provisioning only.
+    if (_isBackgroundRefresh && currentDriver) {
+      drv = currentDriver;
+    } else if (!currentProfile || !DRIVER_CAPABLE_ROLES.includes(currentProfile.role)) {
       showLoading(false);
       toast('No driver account is set up for this login. Please contact your admin.');
       setTimeout(() => db.auth.signOut(), 3000);
       return;
     }
+  }
+  if (!drv) {
     // UPSERT with DB-level UNIQUE constraint on profile_id — race-safe (session 111)
     const { data: nd } = await db.from('drivers')
       .upsert({ profile_id: currentUser.id, is_active: true }, { onConflict: 'profile_id' })
@@ -3858,7 +3882,17 @@ function subscribeToRouteStopUpdates() {
       if (['cancelled','delivered'].includes(updated.status)) {
         const idx = allStops.findIndex(s => s.orders?.id === updated.id);
         if (idx < 0) return;
-        const removedStopId = allStops[idx].id;
+        const localStop = allStops[idx];
+        // Session 151: if this driver already finished the stop themselves, this
+        // 'delivered' UPDATE is just the echo of their own completion — keep the
+        // finished stop visible (don't make completed work vanish from the route).
+        if (updated.status === 'delivered' && ['complete','skipped'].includes(localStop.status)) {
+          if (localStop.orders) localStop.orders.status = updated.status;
+          renderHome();
+          renderRoute();
+          return;
+        }
+        const removedStopId = localStop.id;
         allStops.splice(idx, 1);
         renderHome();
         renderRoute();
@@ -3905,9 +3939,26 @@ function subscribeToRouteStopUpdates() {
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'routes' }, payload => {
       if (_dataLoading) return;
       const updated = payload.new;
-      const wasMyRoute = todayRoutes.some(r => r.id === updated.id) || upcomingRoutes.some(r => r.id === updated.id);
+      const localRoute = todayRoutes.find(r => r.id === updated.id) || upcomingRoutes.find(r => r.id === updated.id);
+      const wasMyRoute = !!localRoute;
       const isNowMine  = updated.driver_id === currentDriver?.id || updated.driver_id === null;
-      // Route was just given to us, or taken away — full reload
+
+      // ⚠️ Session 151 — fix for "route disappears + driver logged out on every stop":
+      // complete_route_stop() bumps this route's completed_stops / status / started_at,
+      // and those writes echo straight back to THIS driver through realtime. If the route
+      // is still ours, that echo is our OWN completion — patch the local route in place and
+      // do NOT reload. The previous code reloaded on any routes change, so every single stop
+      // completion ran a full loadDriverData() on a hot path; any transient profile-fetch
+      // failure inside it signed the driver out (Eve & Angel). Only a genuine reassignment
+      // (route taken from us, given to us, or cancelled) warrants a reload.
+      if (wasMyRoute && isNowMine && updated.status !== 'cancelled') {
+        if (updated.status)                  localRoute.status          = updated.status;
+        if (updated.completed_stops != null) localRoute.completed_stops = updated.completed_stops;
+        if (updated.started_at)              localRoute.started_at      = updated.started_at;
+        renderHome();
+        return;
+      }
+      // Route was just given to us, taken away, or cancelled — full reload
       if (wasMyRoute || isNowMine) {
         loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
       }
