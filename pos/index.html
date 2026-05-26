@@ -490,8 +490,18 @@
   .queue-card-btn:hover { background: var(--gray-50); border-color: var(--gray-400); }
   .queue-card-btn.ready { color: var(--green); border-color: var(--green); }
   .queue-card-btn.ready:hover { background: var(--green-light); }
-  .queue-card-btn.pickup { color: var(--accent); border-color: var(--accent); }
-  .queue-card-btn.pickup:hover { background: var(--accent-light); }
+  /* Mark Picked Up is the final hand-to-customer action for retail bags.
+     Make it a SOLID, larger button so cashiers don't skip it (which left
+     collected orders stuck in the queue for days). */
+  .queue-card-btn.pickup {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+    font-size: 15px;
+    padding: 13px 0;
+    box-shadow: 0 2px 6px rgba(59,130,246,0.30);
+  }
+  .queue-card-btn.pickup:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
   .queue-card-btn:disabled { opacity: 0.5; cursor: default; }
 
   /* Launderer assignment chip on queue cards.
@@ -4037,7 +4047,7 @@
       // The badge in the card render distinguishes walk-in counter-pickups
       // (🏪 Retail) from delivery-bound bags (🚚 For delivery).
       let query = db.from('orders')
-        .select('id, order_number, status, source, site_id, customer_id, service_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at, card_brand, card_last4, pos_shift_id')
+        .select('id, order_number, status, source, site_id, customer_id, service_id, is_same_day, total_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, total_bags, weight_lbs, folded_by_id, line_items, created_at, updated_at, ready_for_delivery_at, card_brand, card_last4, pos_shift_id')
         // Session 156: include 'folding' so bags stay visible through the
         // folding stage. Earlier filter missed it — when an admin assigned
         // a launderer, the bag advanced processing→folding and silently
@@ -4296,9 +4306,16 @@
       detail = t('Awaiting intake');
     }
 
-    // Time ago
-    const created = new Date(order.created_at);
-    const timeAgo = relativeTime(created);
+    // Time ago — anchor to the status that the card's time label describes.
+    // For ready_for_delivery, count from when the order BECAME ready
+    // (ready_for_delivery_at), not when it was created. Commercial recurring
+    // orders are often created days before pickup/delivery, so created_at made
+    // a freshly-folded bag read "Ready 9d ago". Fall back to created_at for
+    // older rows that predate the ready_for_delivery_at backfill.
+    const anchorIso = (status === 'ready_for_delivery' && order.ready_for_delivery_at)
+      ? order.ready_for_delivery_at
+      : order.created_at;
+    const timeAgo = relativeTime(new Date(anchorIso));
 
     // Launderer state — only relevant while the order is in 'processing' or
     // later. picked_up orders haven't entered the cleaning flow yet, so no
