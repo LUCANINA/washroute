@@ -1020,6 +1020,10 @@
             <input type="checkbox" id="s-sms-consent" required>
             <span>I agree to receive SMS updates from Family Laundry. Msg &amp; data rates may apply. Reply STOP to opt out.</span>
           </label>
+          <label class="sms-consent-row">
+            <input type="checkbox" id="s-email-consent" checked>
+            <span>Email me deals, updates &amp; reminders from Family Laundry. Unsubscribe anytime.</span>
+          </label>
           <div class="field">
             <label>How did you find us? <span style="font-size:11px;color:var(--gray-400);font-weight:400">(optional)</span></label>
             <select id="s-source" style="width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:15px;font-family:inherit;color:var(--text);background:white;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 12 8%22><path d=%22M1 1l5 5 5-5%22 fill=%22none%22 stroke=%22%23888%22 stroke-width=%221.5%22 stroke-linecap=%22round%22/></svg>');background-repeat:no-repeat;background-position:right 14px center;background-size:12px">
@@ -2375,6 +2379,7 @@ async function handleSignup(e) {
   const phone = document.getElementById('s-phone').value.trim();
   const pass  = document.getElementById('s-pass').value;
   const smsConsent = document.getElementById('s-sms-consent').checked;
+  const emailConsent = document.getElementById('s-email-consent')?.checked ?? false;
   const referralSource = document.getElementById('s-source')?.value || null;
   const btn = document.getElementById('btn-signup');
   const errEl = document.getElementById('signup-err');
@@ -2415,7 +2420,7 @@ async function handleSignup(e) {
   } catch (e) { /* Non-fatal — let signUp proceed if pre-check fails */ }
 
   const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://app.familylaundry.com/';
-  const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone, sms_consent: smsConsent, referral_source: referralSource }, emailRedirectTo: redirectUrl } });
+  const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone, sms_consent: smsConsent, email_consent: emailConsent, referral_source: referralSource }, emailRedirectTo: redirectUrl } });
   btn.disabled = false; btn.textContent = 'Create Account';
   if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
   if (data.user) {
@@ -2424,7 +2429,7 @@ async function handleSignup(e) {
     // lost. loadUserData() will handle profile/customer creation after email
     // confirmation using user_metadata stored in the auth record.
     if (data.session) {
-      await ensureProfile(data.user, first, last, email, phone, smsConsent, referralSource);
+      await ensureProfile(data.user, first, last, email, phone, smsConsent, referralSource, emailConsent);
     }
     // If no session yet, email confirmation is required — show check-your-email panel
     if (!data.session) {
@@ -2452,7 +2457,7 @@ async function _findCustomerByPhone(phone) {
   return cust;
 }
 
-async function ensureProfile(user, first, last, email, phone, smsConsent = false, referralSource = null) {
+async function ensureProfile(user, first, last, email, phone, smsConsent = false, referralSource = null, emailConsent = false) {
   // Write NULL (not '') so the trigger doesn't wipe customers.first_name_cache on returning
   // sign-ins whose auth metadata has no first_name (session 115 "Unknown" incident).
   await db.from('profiles').upsert({
@@ -2488,6 +2493,7 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
       email_cache:      email || user.email || '',
       phone_cache:      phone || user.user_metadata?.phone || '',
       sms_consent_at:   smsConsent ? new Date().toISOString() : null,
+      email_marketing_consent_at: emailConsent ? new Date().toISOString() : null,
       referral_source:  referralSource || null
     });
     const { data: newCust } = await db.from('customers').select('*').eq('profile_id', user.id).maybeSingle();
@@ -2496,6 +2502,10 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
     currentCustomer = ec;
     if (smsConsent && !ec.sms_consent_at) {
       await db.from('customers').update({ sms_consent_at: new Date().toISOString() }).eq('id', ec.id);
+    }
+    // Mirror for email marketing consent; never re-consent someone who opted out.
+    if (emailConsent && !ec.email_marketing_consent_at && !ec.email_marketing_opt_out_at) {
+      await db.from('customers').update({ email_marketing_consent_at: new Date().toISOString() }).eq('id', ec.id);
     }
   }
 }
@@ -2841,6 +2851,7 @@ async function loadUserData() {
         first_name_cache: custFirst, last_name_cache: custLast,
         email_cache: custEmail, phone_cache: custPhone,
         sms_consent_at: m.sms_consent ? new Date().toISOString() : null,
+        email_marketing_consent_at: m.email_consent ? new Date().toISOString() : null,
         referral_source: m.referral_source || null
       }).then(() => {});
       const { data } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
@@ -4833,6 +4844,7 @@ async function renderConfirmAuth() {
         first_name_cache: first, last_name_cache: last,
         email_cache: email, phone_cache: phone,
         sms_consent_at: m.sms_consent ? new Date().toISOString() : null,
+        email_marketing_consent_at: m.email_consent ? new Date().toISOString() : null,
         referral_source: m.referral_source || null
       });
       const { data: newCust } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
