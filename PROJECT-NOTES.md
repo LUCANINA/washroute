@@ -1919,6 +1919,20 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 ---
 
 ## Driver App — Completed Features
+
+> ⚠️ **GUARDRAIL (session 151) — never react to the echo of the driver's OWN writes.**
+> `routes`, `route_stops`, and `orders` are all in the `supabase_realtime` publication, so
+> every write `complete_route_stop()` / `skip_route_stop()` make echoes straight back to the
+> same driver's subscription. Realtime handlers MUST reconcile against local state first, not
+> blindly react. Concretely: (1) the `routes` UPDATE handler only does a full `loadDriverData()`
+> on a genuine reassignment (route taken from / given to us, or cancelled) — a
+> completed_stops/status/started_at bump is the driver's own completion and is patched in place;
+> (2) `loadDriverData()` is the login-time loader and may `signOut()` on a missing driver/profile
+> — it must NEVER do so on a background refresh (guarded by `_isBackgroundRefresh`), or a transient
+> blip on the hot completion path logs the driver out and wipes the route (the Eve & Angel bug);
+> (3) the `orders` UPDATE handler keeps a stop the driver already finished (`complete`/`skipped`)
+> visible instead of splicing it out when the order flips to `delivered`. Do not regress these.
+
 - Daily route loads automatically by driver login
 - Per-stop detail view: address, customer name, order info, special instructions
 - One-tap Google Maps navigation
@@ -2272,6 +2286,26 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### May 25, 2026 (session 151) — Driver app: route disappears + driver logged out on every stop completion
+
+**Trigger:** Eve Piñon and Angel Rodriguez both reported that their route vanished and they were kicked back to the login screen *every time they completed a stop* this afternoon. One noted it had also happened the previous week. Both log in via **phone OTP** (auth_email null, auth_phone set), each with a single, correctly-linked driver record.
+
+**Root cause — the driver app was reacting to the echo of its OWN writes.** `complete_route_stop()` (the RPC behind tap-to-complete) writes to three tables that are all in the `supabase_realtime` publication: `route_stops` (stop → complete), `orders` (status → picked_up/delivered), and `routes` (completed_stops / status / started_at bump). Those writes echo straight back to the same driver's realtime subscription. Three compounding defects:
+
+1. **(High) `routes` UPDATE handler reloaded on every completion.** It treated any change to a route it owned as a possible reassignment and fired a full `loadDriverData()`. So every single stop completion ran the heavy login-time loader on a hot path.
+2. **(High) `loadDriverData()` signs the driver out on a transient failure.** Its profile fetch uses `.single()`; a momentary null/error set `currentProfile = null`, hit the "No driver account is set up" branch, and called `db.auth.signOut()`. Harmless at login, but once #1 made it run after every completion, a single network blip logged the driver out and wiped the route. This is the "logged out" symptom.
+3. **(Medium) `orders` UPDATE handler removed the driver's own just-completed delivery.** On a delivery, the order flips to `delivered`; the echo arrived and the handler spliced the stop out of `allStops` — completed work visibly disappeared from the route.
+
+**Fix (driver-app/index.html only, no DB migration):**
+- `routes` UPDATE realtime handler: if the route is still ours (`wasMyRoute && isNowMine` and not cancelled), patch `status`/`completed_stops`/`started_at` on the local route object in place and re-render — **no reload**. Only a genuine reassignment (taken away, given to us, or cancelled) triggers `loadDriverData()`.
+- `loadDriverData()`: added `_isBackgroundRefresh = appReady && !!currentDriver`. On a background refresh a transient null profile or empty driver fetch now **bails / reuses the known-good record instead of signing out**. The sign-out paths are initial-login-only now.
+- Phone→driver link RPC (`link_phone_auth_driver`, incl. its `MULTIPLE_MATCHES` sign-out) is now **skipped on background refresh** — linking is a one-time login repoint, no reason to re-run it (and risk its sign-out) on the hot path.
+- `orders` UPDATE handler: when the order flips to `delivered` but the local stop is already `complete`/`skipped` (the driver's own action), keep the finished stop visible and just sync the order status.
+
+**Structural prevention / guardrail (see ⚠️ section below):** the driver app must reconcile realtime events against local truth, not blindly react to its own writes. All affected handlers now check local state first.
+
+**Verification:** JS parse check passed (`node --check` on extracted inline script). washroute-qa blast-radius audit: confirmed the only self-echo reload was the routes handler; all other `loadDriverData()` call sites (manual refresh, stop-became-mine, INSERT, SUBSCRIBED, initial/cached load) and all three `signOut()` paths are now safe. Customer app is not affected (customers don't complete stops, so no counter-echo loop). Commit `a70e2fe`.
 
 ### May 1, 2026 (session 140, pt 1) — Per-lb pricing fix on Confirm screen + admin Add Order modal
 
