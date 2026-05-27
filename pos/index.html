@@ -4723,9 +4723,27 @@
       return;
     }
 
+    // Build the print payload from the JUST-recorded intake before we clear
+    // _posIntakeOrder, so the receipt/bag tag reflects the actual weight,
+    // bags, total, and line items that were taken in (not the pre-intake
+    // booking estimate). Carries over the customer name/address, order
+    // number, tax/tip and any payment fields already on the order.
+    const printOrder = {
+      ..._posIntakeOrder,
+      total_amount: total,
+      line_items:   lineItems,
+      total_bags:   bags,
+      weight_lbs:   weight,
+      status:       'processing',
+    };
+
     const movedNum = _posIntakeOrder.order_number;
     closePosIntake();
     showToast(`${t('Order')} #${movedNum} → ${t('Processing')}`, 'success');
+    // Auto-print 2 copies (laundering bag tag + customer copy), mirroring the
+    // walk-in charge flow. Fire-and-forget; printer errors are logged via the
+    // print-job pipeline and never block the queue refresh.
+    queuePosPrintJob(printOrder, 2).catch(e => console.warn('[POS] intake auto-print failed:', e));
     await loadWalkInQueue();
   }
 
