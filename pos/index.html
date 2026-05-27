@@ -2364,7 +2364,7 @@
             </div>
             <div id="refundDaySummary" style="margin-top:8px;font-size:12px;color:var(--gray-500);min-height:16px;"></div>
           </div>
-          <div class="modal-body" style="padding: 0; min-height: 300px; max-height: 360px; overflow-y: auto;">
+          <div class="modal-body" style="padding: 0; height: 360px; overflow-y: auto;">
             <div id="refundList" style="padding: 12px 20px;">
               <div style="text-align:center;padding:30px;color:var(--gray-400);" data-i18n>Loading sales…</div>
             </div>
@@ -5307,8 +5307,14 @@
     _syncRefundDayChips();
     const listEl = document.getElementById('refundList');
     const sumEl  = document.getElementById('refundDaySummary');
-    listEl.innerHTML =
-      '<div style="text-align:center;padding:30px;color:var(--gray-400);">' + t('Loading sales…') + '</div>';
+    // Only show the full-height loading placeholder on the very first open
+    // (empty list). On a day switch the list already has rows — keep them in
+    // place so the modal height never changes; they're replaced once the new
+    // day's sales arrive a moment later.
+    if (!listEl.childElementCount || listEl.querySelector('[data-refund-msg]')) {
+      listEl.innerHTML =
+        '<div data-refund-msg style="display:flex;align-items:center;justify-content:center;height:320px;text-align:center;color:var(--gray-400);">' + t('Loading sales…') + '</div>';
+    }
     if (sumEl) sumEl.textContent = '';
 
     try {
@@ -5335,7 +5341,7 @@
 
       if (sales.length === 0) {
         listEl.innerHTML =
-          '<div style="text-align:center;padding:30px;color:var(--gray-400);">' + t('No sales on this day') + '</div>';
+          '<div data-refund-msg style="display:flex;align-items:center;justify-content:center;height:320px;text-align:center;color:var(--gray-400);">' + t('No sales on this day') + '</div>';
         return;
       }
 
@@ -5410,7 +5416,7 @@
     } catch (err) {
       console.error('[Refund] Failed to load sales:', err);
       listEl.innerHTML =
-        `<div style="text-align:center;padding:30px;color:#dc2626;">${t('Failed to load sales: ')}${err.message || t('Unknown error')}</div>`;
+        `<div data-refund-msg style="display:flex;align-items:center;justify-content:center;height:320px;text-align:center;padding:0 24px;color:#dc2626;">${t('Failed to load sales: ')}${err.message || t('Unknown error')}</div>`;
     }
   }
 
