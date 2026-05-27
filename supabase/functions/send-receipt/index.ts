@@ -50,7 +50,7 @@ function dedupeLineItems(items: any[]): any[] {
   });
 }
 
-function buildEmailHtml(order: any, customer: any): string {
+function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): string {
   const firstName = customer.first_name_cache ?? customer.email_cache?.split('@')[0] ?? 'there';
 
   // Normalize two possible line_item formats:
@@ -103,6 +103,14 @@ function buildEmailHtml(order: any, customer: any): string {
   const taxLabel    = taxRatePct ? `Sales tax (${(taxRatePct * 100).toFixed(2)}%)` : 'Sales tax';
 
   const grandTotal = total + tipDollars;
+  // Session 150: split mixed-tender payments. `creditApplied` (passed in by the
+  // handler from customer_transactions where type='credit_use') is the dollar
+  // amount paid from the customer's account credit. `cardPaid` is what hit
+  // their actual card. When both are > 0, the receipt shows them as separate
+  // lines so the customer's bank-statement charge matches what they see here.
+  const cardPaid = Math.max(0, Math.round((grandTotal - creditApplied) * 100) / 100);
+  const hasMixedTender = creditApplied > 0 && cardPaid > 0;
+  const fullyPaidByCredit = creditApplied > 0 && cardPaid === 0;
 
   // Schedule rows
   const pickupAddr = order.pickup_address;
@@ -158,6 +166,13 @@ function buildEmailHtml(order: any, customer: any): string {
           <td style="padding:5px 0;font-size:13px;font-weight:600;text-align:right;color:#059669;">\u2212${fmt(i.amount)}</td>
         </tr>`).join('');
 
+  // Session 150: account-credit-application row, separate from line-item credits.
+  const accountCreditHtml = creditApplied > 0 ? `
+        <tr>
+          <td style="padding:5px 0;font-size:13px;color:#059669;">Account credit applied</td>
+          <td style="padding:5px 0;font-size:13px;font-weight:600;text-align:right;color:#059669;">\u2212${fmt(creditApplied)}</td>
+        </tr>` : '';
+
   // Tip row — styled like credit items but in green with a + prefix
   const tipHtml = tipDollars > 0 ? `
         <tr>
@@ -178,7 +193,7 @@ function buildEmailHtml(order: any, customer: any): string {
     : '';
 
   // Show subtotal row only when it differs from total (i.e. credits exist, multi-line, tax, or tip)
-  const showSubtotal = displayItems.length > 1 || creditItems.length > 0 || tipDollars > 0 || taxAmt > 0;
+  const showSubtotal = displayItems.length > 1 || creditItems.length > 0 || tipDollars > 0 || taxAmt > 0 || creditApplied > 0;
 
   return `
 <!DOCTYPE html>
@@ -230,14 +245,25 @@ function buildEmailHtml(order: any, customer: any): string {
                 <td align="right" style="font-size:13px;color:#111827;font-weight:500;">${fmt(subtotal)}</td>
               </tr>` : ''}
               ${creditItemsHtml}
+              ${accountCreditHtml}
               ${taxHtml}
               ${tipHtml}
             </table>
 
             <table width="100%" cellpadding="0" cellspacing="0" style="border-top:2px solid #111827;margin-top:10px;">
               <tr>
-                <td style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding-top:14px;">Total${grandTotal > 0 ? ' Paid' : ''}</td>
-                <td align="right" style="font-size:24px;font-weight:900;padding-top:10px;${grandTotal <= 0 ? 'color:#059669;' : ''}">${grandTotal <= 0 ? '$0.00 (paid with credits)' : fmt(grandTotal)}</td>
+                <td style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding-top:14px;">${
+                  // Session 150: label/amount honestly reflect mixed-tender payments.
+                  // - fully credit: green "$0.00 (paid with credits)"
+                  // - mixed credit + card: big number = card amount (matches bank statement)
+                  // - card only / no credit: existing behavior
+                  hasMixedTender ? 'Paid by Card' : (fullyPaidByCredit || grandTotal <= 0 ? 'Total' : 'Total Paid')
+                }</td>
+                <td align="right" style="font-size:24px;font-weight:900;padding-top:10px;${(fullyPaidByCredit || grandTotal <= 0) ? 'color:#059669;' : ''}">${
+                  fullyPaidByCredit || grandTotal <= 0
+                    ? '$0.00 (paid with credits)'
+                    : fmt(hasMixedTender ? cardPaid : grandTotal)
+                }</td>
               </tr>
             </table>
 
@@ -291,7 +317,22 @@ Deno.serve(async (req: Request) => {
     const toEmail  = customer?.email_cache;
     if (!toEmail) throw new Error('Customer has no email address on file');
 
-    const html = buildEmailHtml(order, customer);
+    // Session 150: fetch credit_use transactions for this order so the email
+    // receipt can split mixed-tender payments. Without this, an order paid
+    // with $20 credit + $X card showed "Total Paid: $gross" — the gross total
+    // didn't match what hit the customer's bank statement.
+    let creditApplied = 0;
+    try {
+      const { data: txns } = await supabase
+        .from('customer_transactions')
+        .select('amount')
+        .eq('order_id', order_id)
+        .eq('type', 'credit_use');
+      creditApplied = (txns ?? []).reduce((s: number, t: any) => s + Number(t.amount ?? 0), 0);
+      creditApplied = Math.round(creditApplied * 100) / 100;
+    } catch (_e) { /* non-fatal — email still goes without the credit breakdown */ }
+
+    const html = buildEmailHtml(order, customer, creditApplied);
 
     const sgRes = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',

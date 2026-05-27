@@ -359,6 +359,31 @@
     .tip-custom-input { flex: 1; padding: 9px 12px; border: 1.5px solid var(--gray-200); border-radius: 8px; font-size: 15px; font-family: inherit; color: var(--text); outline: none; }
     .tip-custom-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.08); }
 
+    /* ── Confirm Order — compact summary card layout (session 152 pt 3) ── */
+    /* Each review section (Service / Preferences / Pickup / Delivery) collapses
+       to a one-or-two-line summary with an Edit link. Tap Edit jumps back to
+       the relevant step. Pricing card stays expanded. */
+    .confirm-summary-card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; }
+    .confirm-summary-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .confirm-summary-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-400); }
+    .confirm-summary-edit { font-size: 13px; font-weight: 600; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0; font-family: inherit; }
+    .confirm-summary-body { font-size: 14px; color: var(--text); line-height: 1.45; }
+    .confirm-summary-body .sub { font-size: 12.5px; color: var(--gray-500); margin-top: 2px; display: block; }
+
+    /* Sticky Place Order bar — fixed above the bottom nav, only visible on the
+       confirm step (toggled by body.confirm-active). Total lives in its OWN
+       element above the button so existing btn.textContent assignments in
+       placeOrder() / renderConfirmAuth() don't disturb the total display. */
+    .confirm-cta-bar { position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 430px; background: white; border-top: 1px solid var(--gray-200); padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 99; box-shadow: 0 -6px 16px rgba(0,0,0,0.05); display: none; box-sizing: border-box; }
+    body.confirm-active .confirm-cta-bar { display: block; }
+    body.confirm-active .main-content { padding-bottom: 200px; }
+    .confirm-cta-total-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; padding: 0 2px; }
+    .confirm-cta-total-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-500); }
+    .confirm-cta-total-amount { font-size: 19px; font-weight: 800; color: var(--navy); }
+    .confirm-cta-bar .btn-primary { width: 100%; margin: 0; }
+    .confirm-cta-edit { display: block; width: 100%; background: none; border: none; font-size: 13px; color: var(--gray-500); padding: 10px 0 2px; cursor: pointer; text-align: center; font-family: inherit; }
+    .confirm-cta-edit:hover { color: var(--gray-700); }
+
     /* ── ACCOUNT ── */
     .acct-hero { background: var(--navy); padding: 24px 20px 20px; color: white; flex-shrink: 0; }
     .acct-top { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
@@ -995,6 +1020,10 @@
             <input type="checkbox" id="s-sms-consent" required>
             <span>I agree to receive SMS updates from Family Laundry. Msg &amp; data rates may apply. Reply STOP to opt out.</span>
           </label>
+          <label class="sms-consent-row">
+            <input type="checkbox" id="s-email-consent" checked>
+            <span>Email me deals, updates &amp; reminders from Family Laundry. Unsubscribe anytime.</span>
+          </label>
           <div class="field">
             <label>How did you find us? <span style="font-size:11px;color:var(--gray-400);font-weight:400">(optional)</span></label>
             <select id="s-source" style="width:100%;padding:12px 14px;border:1.5px solid var(--gray-200);border-radius:10px;font-size:15px;font-family:inherit;color:var(--text);background:white;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 12 8%22><path d=%22M1 1l5 5 5-5%22 fill=%22none%22 stroke=%22%23888%22 stroke-width=%221.5%22 stroke-linecap=%22round%22/></svg>');background-repeat:no-repeat;background-position:right 14px center;background-size:12px">
@@ -1295,10 +1324,10 @@
           </div>
         </div>
 
-        <div style="height:8px"></div>
-        <button class="btn-primary" id="btn-place" onclick="placeOrder()">Place Order</button>
-        <div style="height:10px"></div>
-        <button class="btn-secondary" onclick="goOrderStep(1)" style="font-size:14px">← Edit Details</button>
+        <!-- Session 152 pt 3: Place Order + Edit Details moved to the fixed
+             .confirm-cta-bar below #screen-new-order so they're always visible
+             on this step regardless of scroll. Help footer stays in the
+             scroll area so it's visible just above the sticky CTA. -->
         <div class="order-help">Need help? Visit <a href="https://familylaundry.com" target="_blank" style="color:var(--accent)">familylaundry.com</a></div>
       </div>
 
@@ -1653,6 +1682,18 @@
   </div>
 
   <!-- ═══ BOTTOM NAV ═══ -->
+  <!-- Sticky Place Order bar — session 152 pt 3. Total lives in #confirm-cta-total
+       (outside the button) so existing btn.textContent assignments in
+       placeOrder() and renderConfirmAuth() don't disturb the total display. -->
+  <div class="confirm-cta-bar" id="confirm-cta-bar">
+    <div class="confirm-cta-total-row">
+      <span class="confirm-cta-total-label">Total</span>
+      <span class="confirm-cta-total-amount" id="confirm-cta-total">$0.00</span>
+    </div>
+    <button class="btn-primary" id="btn-place" onclick="placeOrder()">Place Order</button>
+    <button class="confirm-cta-edit" onclick="goOrderStep(0)">← Edit details</button>
+  </div>
+
   <nav class="bottom-nav" id="bottom-nav" style="display:none">
     <button class="nav-btn active" id="nav-home" onclick="goTo('home')">
       <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
@@ -1824,6 +1865,9 @@ function showScreen(id) {
   el?.querySelector('.main-content')?.scrollTo(0, 0);
   // On desktop, the auth screen needs full-width for the split layout
   document.body.classList.toggle('on-auth-screen', id === 'auth');
+  // Session 152 pt 3: always hide the sticky Place Order bar when leaving the
+  // new-order flow. goOrderStep(4) re-adds it when the user lands on confirm.
+  if (id !== 'new-order') document.body.classList.remove('confirm-active');
 }
 
 function goTo(page) {
@@ -2335,6 +2379,7 @@ async function handleSignup(e) {
   const phone = document.getElementById('s-phone').value.trim();
   const pass  = document.getElementById('s-pass').value;
   const smsConsent = document.getElementById('s-sms-consent').checked;
+  const emailConsent = document.getElementById('s-email-consent')?.checked ?? false;
   const referralSource = document.getElementById('s-source')?.value || null;
   const btn = document.getElementById('btn-signup');
   const errEl = document.getElementById('signup-err');
@@ -2375,7 +2420,7 @@ async function handleSignup(e) {
   } catch (e) { /* Non-fatal — let signUp proceed if pre-check fails */ }
 
   const redirectUrl = window.location.protocol === 'https:' ? window.location.href.split('?')[0].split('#')[0] : 'https://app.familylaundry.com/';
-  const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone, sms_consent: smsConsent, referral_source: referralSource }, emailRedirectTo: redirectUrl } });
+  const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone, sms_consent: smsConsent, email_consent: emailConsent, referral_source: referralSource }, emailRedirectTo: redirectUrl } });
   btn.disabled = false; btn.textContent = 'Create Account';
   if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
   if (data.user) {
@@ -2384,7 +2429,7 @@ async function handleSignup(e) {
     // lost. loadUserData() will handle profile/customer creation after email
     // confirmation using user_metadata stored in the auth record.
     if (data.session) {
-      await ensureProfile(data.user, first, last, email, phone, smsConsent, referralSource);
+      await ensureProfile(data.user, first, last, email, phone, smsConsent, referralSource, emailConsent);
     }
     // If no session yet, email confirmation is required — show check-your-email panel
     if (!data.session) {
@@ -2412,7 +2457,7 @@ async function _findCustomerByPhone(phone) {
   return cust;
 }
 
-async function ensureProfile(user, first, last, email, phone, smsConsent = false, referralSource = null) {
+async function ensureProfile(user, first, last, email, phone, smsConsent = false, referralSource = null, emailConsent = false) {
   // Write NULL (not '') so the trigger doesn't wipe customers.first_name_cache on returning
   // sign-ins whose auth metadata has no first_name (session 115 "Unknown" incident).
   await db.from('profiles').upsert({
@@ -2448,6 +2493,7 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
       email_cache:      email || user.email || '',
       phone_cache:      phone || user.user_metadata?.phone || '',
       sms_consent_at:   smsConsent ? new Date().toISOString() : null,
+      email_marketing_consent_at: emailConsent ? new Date().toISOString() : null,
       referral_source:  referralSource || null
     });
     const { data: newCust } = await db.from('customers').select('*').eq('profile_id', user.id).maybeSingle();
@@ -2456,6 +2502,10 @@ async function ensureProfile(user, first, last, email, phone, smsConsent = false
     currentCustomer = ec;
     if (smsConsent && !ec.sms_consent_at) {
       await db.from('customers').update({ sms_consent_at: new Date().toISOString() }).eq('id', ec.id);
+    }
+    // Mirror for email marketing consent; never re-consent someone who opted out.
+    if (emailConsent && !ec.email_marketing_consent_at && !ec.email_marketing_opt_out_at) {
+      await db.from('customers').update({ email_marketing_consent_at: new Date().toISOString() }).eq('id', ec.id);
     }
   }
 }
@@ -2801,6 +2851,7 @@ async function loadUserData() {
         first_name_cache: custFirst, last_name_cache: custLast,
         email_cache: custEmail, phone_cache: custPhone,
         sms_consent_at: m.sms_consent ? new Date().toISOString() : null,
+        email_marketing_consent_at: m.email_consent ? new Date().toISOString() : null,
         referral_source: m.referral_source || null
       }).then(() => {});
       const { data } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
@@ -3550,6 +3601,10 @@ async function goOrderStep(step) {
   if (step === 0) { initOrderStep0(); }
   orderStep = step;
   renderStep(step);
+  // Session 152 pt 3: toggle the sticky Place Order bar so it's only visible
+  // on the confirm step. The body class also extends .main-content's bottom
+  // padding so content can scroll above the bar.
+  document.body.classList.toggle('confirm-active', step === 4);
 }
 
 async function renderStep(step) {
@@ -4562,49 +4617,64 @@ function buildConfirmSummary() {
   const delDate     = draft.deliveryDate ? fmt(new Date(draft.deliveryDate + 'T12:00:00')) : '—';
   const delWinLabel = delWin ? delWin.label : '—';
 
+  // Session 152 pt 3: collapsed summaries replace the previous 4 separate
+  // detail cards (Service Details, Preferences, Pickup, Delivery). Each
+  // becomes a one-or-two-line card with an "Edit →" link that jumps back
+  // to the step where the user originally chose that thing. Pricing card
+  // stays fully expanded since the line-item breakdown is what informs the
+  // decision to pay.
+
+  // Preferences one-liner: list paid add-ons by name; otherwise "Standard preferences".
+  const paidAddons = globalPrefs
+    .filter(g => draft.prefs[g.id] && (draft.prefs[g.id].priceMod || 0) > 0)
+    .map(g => escHtml(g.name));
+  const prefsSummary = paidAddons.length
+    ? paidAddons.join(', ')
+    : '<span style="color:var(--gray-500)">Standard preferences</span>';
+
+  // Service details one-liner: "Wash & Fold · 1 bag" (+ frequency if recurring).
+  const svcSummary = `${escHtml(svc?.name || 'Service')} · ${bags} bag${bags!==1?'s':''}`
+    + (draft.recurring ? ` · <span style="color:var(--gray-500)">${escHtml(freqLabel)}</span>` : '');
+
+  // Final total including tip (also used by the sticky CTA bar below).
+  const tipAmtVal     = parseFloat(draft.tipAmount || 0);
+  const tipDollarsVal = draft.tipType === '%' ? Math.round(total * tipAmtVal) / 100 : tipAmtVal;
+  const finalTotal    = total + (tipAmtVal > 0 ? tipDollarsVal : 0);
+
   document.getElementById('confirm-summary').innerHTML = `
-    <div class="d-section-title">Service details</div>
-    <div class="confirm-card">
-      <div class="d-row">
-        <span class="d-key">Service</span>
-        <span class="d-val">${svc?.name || '—'}</span>
+    <div class="confirm-summary-card">
+      <div class="confirm-summary-head">
+        <div class="confirm-summary-title">Service</div>
+        <button class="confirm-summary-edit" onclick="goOrderStep(3)">Edit →</button>
       </div>
-      <div class="d-row">
-        <span class="d-key">Frequency</span>
-        <span class="d-val">${freqLabel}</span>
+      <div class="confirm-summary-body">${svcSummary}</div>
+    </div>
+
+    <div class="confirm-summary-card">
+      <div class="confirm-summary-head">
+        <div class="confirm-summary-title">Preferences</div>
+        <button class="confirm-summary-edit" onclick="goOrderStep(2)">Edit →</button>
       </div>
-      <div class="d-row">
-        <span class="d-key">Bags</span>
-        <span class="d-val">${bags} bag${bags!==1?'s':''}</span>
+      <div class="confirm-summary-body">${prefsSummary}</div>
+    </div>
+
+    <div class="confirm-summary-card">
+      <div class="confirm-summary-head">
+        <div class="confirm-summary-title">Pickup</div>
+        <button class="confirm-summary-edit" onclick="goOrderStep(1)">Edit →</button>
+      </div>
+      <div class="confirm-summary-body">
+        ${fmt(pickup)} · ${timeLabel}
+        <span class="sub">${escHtml(draft.address||'—')}</span>
       </div>
     </div>
 
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:20px;margin-bottom:8px">
-      <div class="d-section-title" style="margin:0">Preferences</div>
-      <button onclick="goOrderStep(2)" style="font-size:13px;font-weight:600;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0">Edit →</button>
-    </div>
-    <div class="confirm-card">
-      ${prefRows}
-    </div>
-
-    <div class="d-section-title" style="margin-top:20px">Pickup</div>
-    <div class="confirm-card">
-      <div class="d-row">
-        <span class="d-key">Address</span>
-        <span class="d-val" style="font-size:13px">${escHtml(draft.address||'—')}</span>
+    <div class="confirm-summary-card">
+      <div class="confirm-summary-head">
+        <div class="confirm-summary-title">Delivery</div>
+        <button class="confirm-summary-edit" onclick="goOrderStep(1)">Edit →</button>
       </div>
-      <div class="d-row">
-        <span class="d-key">When</span>
-        <span class="d-val">${fmt(pickup)}<br><span style="font-size:12px;font-weight:400;color:var(--gray-400)">${timeLabel}</span></span>
-      </div>
-    </div>
-
-    <div class="d-section-title" style="margin-top:20px">Delivery</div>
-    <div class="confirm-card">
-      <div class="d-row">
-        <span class="d-key">When</span>
-        <span class="d-val">${delDate}<br><span style="font-size:12px;font-weight:400;color:var(--gray-400)">${delWinLabel}</span></span>
-      </div>
+      <div class="confirm-summary-body">${delDate} · ${delWinLabel}</div>
     </div>
 
     <div class="d-section-title" style="margin-top:20px">Pricing</div>
@@ -4616,22 +4686,18 @@ function buildConfirmSummary() {
       ${addonRows}
       ${routeFees.map(f => `<div class="d-row"><span class="d-key">${escHtml(f.name)}</span><span class="d-val">+${$m(parseFloat(f.amount||0))}</span></div>`).join('')}
       ${sameDayFee > 0 ? `<div class="d-row"><span class="d-key">⚡ Same-day surcharge</span><span class="d-val" style="color:var(--accent);font-weight:600;">+${$m(sameDayFee)}</span></div>` : ''}
-      ${(() => {
-        const tipAmt = parseFloat(draft.tipAmount || 0);
-        if (tipAmt <= 0) return '';
-        const tipDollars = draft.tipType === '%' ? Math.round(total * tipAmt) / 100 : tipAmt;
-        const tipLabel = draft.tipType === '%' ? `Team Tip (${tipAmt}%)` : 'Team Tip';
-        return `<div class="d-row"><span class="d-key">${tipLabel}</span><span class="d-val" style="color:var(--green);font-weight:600;">+${$m(tipDollars)}</span></div>`;
-      })()}
+      ${tipAmtVal > 0 ? `<div class="d-row"><span class="d-key">${draft.tipType === '%' ? `Team Tip (${tipAmtVal}%)` : 'Team Tip'}</span><span class="d-val" style="color:var(--green);font-weight:600;">+${$m(tipDollarsVal)}</span></div>` : ''}
       <div class="d-row" style="border-top:1.5px solid var(--gray-200);margin-top:4px;padding-top:14px">
         <span class="d-key" style="font-weight:700;font-size:15px">Estimated Total</span>
-        <span class="d-val" style="font-size:17px;font-weight:800;color:var(--navy)">${$m((() => {
-          const tipAmt = parseFloat(draft.tipAmount || 0);
-          const tipDollars = draft.tipType === '%' ? Math.round(total * tipAmt) / 100 : tipAmt;
-          return total + (tipAmt > 0 ? tipDollars : 0);
-        })())}</span>
+        <span class="d-val" style="font-size:17px;font-weight:800;color:var(--navy)">${$m(finalTotal)}</span>
       </div>
     </div>`;
+
+  // Sync the sticky CTA bar's total. It lives outside the button so
+  // placeOrder() and renderConfirmAuth() can keep using btn.textContent
+  // without disturbing this display.
+  const ctaTotalEl = document.getElementById('confirm-cta-total');
+  if (ctaTotalEl) ctaTotalEl.textContent = $m(finalTotal);
 
   // Session 141: render the promo code section in its sibling div.
   // It lives outside #confirm-summary so input state survives summary rerenders.
@@ -4778,6 +4844,7 @@ async function renderConfirmAuth() {
         first_name_cache: first, last_name_cache: last,
         email_cache: email, phone_cache: phone,
         sms_consent_at: m.sms_consent ? new Date().toISOString() : null,
+        email_marketing_consent_at: m.email_consent ? new Date().toISOString() : null,
         referral_source: m.referral_source || null
       });
       const { data: newCust } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
@@ -6002,7 +6069,7 @@ async function checkAddressWithCoords(lat, lng, displayAddr) {
 }
 
 /* ── ORDER EDITING ── */
-function openEditOrder() {
+async function openEditOrder() {
   const o = window._currentDetailOrder;
   if (!o) return;
   const existing = document.getElementById('edit-order-modal');
@@ -6032,10 +6099,31 @@ function openEditOrder() {
   // Initialise edit-schedule state from the order's stored timestamps (Pacific dates)
   const _esPickupDate  = o.pickup_window_start   ? new Date(o.pickup_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ })  : null;
   const _esDelivDate   = o.delivery_window_start ? new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : null;
-  function _winFromOrder(startIso, endIso) {
+
+  // Session 143: resolve route template_ids for the order's existing pickup
+  // and delivery runs so the edit modal carries `routeId` on the original
+  // window objects. Without these, a "change pickup only" edit (auto-derived
+  // delivery date shown in UI) saved with no delivery args attached —
+  // reschedule_order's cross-leg check then rejected the save because the
+  // new pickup overlapped the unchanged delivery. Fetching the templates here
+  // lets saveEditOrder push the delivery forward atomically.
+  let _origPickupTemplateId = null;
+  let _origDeliveryTemplateId = null;
+  if (o.pickup_run_id || o.delivery_run_id) {
+    const runIds = [o.pickup_run_id, o.delivery_run_id].filter(Boolean);
+    const { data: rs } = await db.from('routes')
+      .select('id, template_id')
+      .in('id', runIds);
+    const map = Object.fromEntries((rs || []).map(r => [r.id, r.template_id]));
+    _origPickupTemplateId   = o.pickup_run_id   ? map[o.pickup_run_id]   || null : null;
+    _origDeliveryTemplateId = o.delivery_run_id ? map[o.delivery_run_id] || null : null;
+  }
+
+  function _winFromOrder(startIso, endIso, routeId) {
     if (!startIso) return null;
     return { slotStart: startIso, slotEnd: endIso || null,
-             label: fmtSlot(startIso, endIso),
+             routeId:   routeId || null,
+             label:     fmtSlot(startIso, endIso),
              // Use pacificMinutesOfDay — the prior `new Date(toLocaleString)` round-trip
              // silently corrupted on non-Pacific browsers.
              startMins: pacificMinutesOfDay(startIso),
@@ -6043,13 +6131,19 @@ function openEditOrder() {
   }
   window._editSchedule = {
     pickupDate:       _esPickupDate,
-    pickupWindow:     _winFromOrder(o.pickup_window_start,  o.pickup_window_end),
+    pickupWindow:     _winFromOrder(o.pickup_window_start,  o.pickup_window_end,  _origPickupTemplateId),
     deliveryDate:     _esDelivDate,
     deliveryWindow:   null,   // null = inherit pickup window on save
     availableWindows: [],
     deliveryOptions:  [],
     zoneId:           o.zone_id || null,
-    _origDelivWindow: _winFromOrder(o.delivery_window_start, o.delivery_window_end)
+    _origDelivWindow: _winFromOrder(o.delivery_window_start, o.delivery_window_end, _origDeliveryTemplateId),
+    // Session 143: stash originals so saveEditOrder can tell whether each leg
+    // actually moved (without re-querying the order).
+    _origPickupDate:    _esPickupDate,
+    _origDeliveryDate:  _esDelivDate,
+    _origPickupIso:     o.pickup_window_start   || null,
+    _origDeliveryIso:   o.delivery_window_start || null
   };
 
   const chevSvg = `<svg class="sched-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>`;
@@ -6254,11 +6348,27 @@ async function saveEditOrder() {
   // instead of 17:00 UTC). Same bug class as C-H2 we fixed in computeSubWindows.
   const pw = es?.pickupWindow;
   const dw = es?.deliveryWindow || es?._origDelivWindow || pw; // customer choice > original delivery win > pickup win
-  const _pickupRpcNeeded = !!(pw?.slotStart && pw?.routeId && es?.pickupDate);
+
+  // Session 143: detect "did the user (or auto-derivation) actually move this
+  // leg?" by comparing final state to the original order. Going by reference
+  // identity (pw === origPw) doesn't work — editSelectPickupDate replaces the
+  // window object even on date pick with same time-of-day. ISO string compare
+  // is the source of truth. Originals captured at modal init in _editSchedule.
+  const _pickupChanged =
+        (es?.pickupDate && es.pickupDate !== es?._origPickupDate)
+     || (pw?.slotStart   && pw.slotStart   !== es?._origPickupIso);
+  const _deliveryChanged =
+        (es?.deliveryDate && es.deliveryDate !== es?._origDeliveryDate)
+     || (es?.deliveryWindow?.slotStart && es.deliveryWindow.slotStart !== es?._origDeliveryIso);
+
+  const _pickupRpcNeeded = _pickupChanged && !!(pw?.slotStart && pw?.routeId && es?.pickupDate);
+  const _deliveryRpcNeeded = _deliveryChanged && !!(es?.deliveryDate && dw?.routeId);
 
   // Session 135: pre-resolve route runs so we can fail early with a clear message
   // before any DB write happens. window objects from computeSubWindows carry
   // `routeId` = template id; we look up the matching routes.id for the run date.
+  // _origDelivWindow now carries routeId too (session 143) so a pickup-only edit
+  // can push delivery forward using the same delivery template.
   let pickupRunId = null;
   let deliveryRunId = null;
   if (_pickupRpcNeeded) {
@@ -6271,7 +6381,7 @@ async function saveEditOrder() {
     }
     pickupRunId = pickupRun.id;
   }
-  if (es?.deliveryDate && dw?.routeId) {
+  if (_deliveryRpcNeeded) {
     const { data: deliveryRun } = await db.from('routes')
       .select('id').eq('template_id', dw.routeId).eq('run_date', es.deliveryDate).maybeSingle();
     if (!deliveryRun?.id) {
@@ -6299,53 +6409,67 @@ async function saveEditOrder() {
     return;
   }
 
-  // 2) Then route the schedule changes through reschedule_order_leg, one call per
-  //    leg that actually changed. The RPC atomically updates orders.run_id +
-  //    window + repoints route_stops + logs attributed events.
-  // Track which legs were actually rescheduled so we fire the matching SMS for
-  // each — session 136 found Ja'Naie #3117 had her same-day delivery silently
-  // pushed to next-day after a bag-count edit, and the SMS only mentioned the
-  // unchanged pickup. The flag below replaces the old "delivery_rescheduled
-  // ONLY if pickup didn't change" branch which suppressed the delivery message
-  // whenever both legs moved.
+  // 2) Then route the schedule changes through the reschedule_order RPC —
+  //    ONE atomic call that handles both legs together. Session 143 replaced
+  //    the prior two-call reschedule_order_leg pattern because that pattern
+  //    had a temporary-inconsistent-state window between the two writes
+  //    (Kalen Gleeson #4238: pickup moved past existing delivery, but the
+  //    delivery write hadn't happened yet → trigger would have rejected the
+  //    pickup write even though final state was valid).
+  //
+  //    reschedule_order:
+  //      • locks the order once
+  //      • validates per-leg sub-window alignment for each leg that's changing
+  //      • validates cross-leg invariant (delivery_window_start > pickup_window_end)
+  //        BEFORE any UPDATE writes — so we fail fast with a clear error
+  //      • does ONE atomic UPDATE for both legs
+  //      • repoints route_stops for any leg whose route_id changed
+  //      • logs attributed `rescheduled` + `routed` events per leg that moved
+  //
+  //    Response carries `pickup_changed` / `delivery_changed` so we still
+  //    fire the right per-leg SMS (session 136 Ja'Naie #3117 lesson).
   let _pickupRescheduled   = false;
   let _deliveryRescheduled = false;
 
-  if (_pickupRpcNeeded) {
-    const { error: pErr } = await db.rpc('reschedule_order_leg', {
-      p_order_id:         orderId,
-      p_leg:              'pickup',
-      p_new_route_id:     pickupRunId,
-      p_new_window_start: pw.slotStart,
-      p_new_window_end:   pw.slotEnd,
-      p_actor_name:       'Customer',
-    });
-    if (pErr) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
-      toast('Pickup time could not be saved: ' + pErr.message);
-      return;
-    }
-    _pickupRescheduled = true;
-  }
+  // Build pickup args (only set them if pickup is actually changing).
+  const _pickupArgs = _pickupRpcNeeded ? {
+    p_pickup_route_id:     pickupRunId,
+    p_pickup_window_start: pw.slotStart,
+    p_pickup_window_end:   pw.slotEnd,
+  } : {};
+
+  // Build delivery args. _editSchedule's deliveryWindow may carry slot via
+  // startMins/endMins (the trustworthy DST-safe path) or via raw slotStart/slotEnd.
+  let _deliveryArgs = {};
   if (es?.deliveryDate && dw?.routeId && deliveryRunId) {
     const dStart = dw.startMins !== undefined
       ? pacificIsoFromMins(es.deliveryDate, dw.startMins) : dw.slotStart;
     const dEnd = dw.endMins !== undefined
       ? pacificIsoFromMins(es.deliveryDate, dw.endMins) : dw.slotEnd;
-    const { error: dErr } = await db.rpc('reschedule_order_leg', {
-      p_order_id:         orderId,
-      p_leg:              'delivery',
-      p_new_route_id:     deliveryRunId,
-      p_new_window_start: dStart,
-      p_new_window_end:   dEnd,
-      p_actor_name:       'Customer',
+    _deliveryArgs = {
+      p_delivery_route_id:     deliveryRunId,
+      p_delivery_window_start: dStart,
+      p_delivery_window_end:   dEnd,
+    };
+  }
+
+  // If neither leg actually has changes to push, skip the RPC entirely.
+  // (Step 1 above already wrote bag count / instructions / addresses.)
+  if (Object.keys(_pickupArgs).length || Object.keys(_deliveryArgs).length) {
+    const { data: rescheduleResult, error: rErr } = await db.rpc('reschedule_order', {
+      p_order_id:    orderId,
+      ..._pickupArgs,
+      ..._deliveryArgs,
+      p_actor_name:  'Customer',
     });
-    if (dErr) {
+    if (rErr) {
       if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
-      toast('Delivery time could not be saved: ' + dErr.message);
+      // The RPC error messages are written for end users — surface them directly.
+      toast('Schedule could not be saved: ' + rErr.message);
       return;
     }
-    _deliveryRescheduled = true;
+    _pickupRescheduled   = !!rescheduleResult?.pickup_changed;
+    _deliveryRescheduled = !!rescheduleResult?.delivery_changed;
   }
 
   document.getElementById('edit-order-modal')?.remove();
@@ -6377,9 +6501,15 @@ async function saveEditOrder() {
 
 async function skipPickup(orderId) {
   if (!confirm('Skip this pickup? Your subscription continues — we\'ll schedule your next pickup automatically.')) return;
-  const { error } = await db.from('orders')
-    .update({ status: 'skipped', cancelled_by: 'customer' })
-    .eq('id', orderId);
+  // Session 148: route through advance_order_status RPC instead of raw UPDATE.
+  // The RPC enforces cancelled_by attribution, blocks re-advance from terminal
+  // states, and writes an attributed order_event in the same transaction.
+  const { error } = await db.rpc('advance_order_status', {
+    p_order_id:     orderId,
+    p_new_status:   'skipped',
+    p_actor_name:   'Customer',
+    p_cancelled_by: 'customer',
+  });
   if (error) { toast('Could not skip order: ' + error.message); return; }
   toast('Pickup skipped — see you next time! 👋');
   showScreen('orders');
@@ -6388,11 +6518,17 @@ async function skipPickup(orderId) {
 
 async function cancelOrder(orderId) {
   if (!confirm('Cancel this order? This cannot be undone.')) return;
-  // cancelled_by: 'customer' is critical for attribution — admin reports filter
-  // by this field to distinguish customer cancellations from admin/system ones.
-  // Without it, customer cancels show up as 'system' (default NULL), polluting
-  // the metrics. Matches the pattern in skipPickup() above.
-  const { error } = await db.from('orders').update({ status: 'cancelled', cancelled_by: 'customer' }).eq('id', orderId);
+  // Session 148: route through advance_order_status RPC. The RPC enforces
+  // cancelled_by attribution (admin reports filter by this field to separate
+  // customer cancels from admin/system ones), blocks re-advance from terminal
+  // states, and writes an attributed order_event atomically with the status
+  // change.
+  const { error } = await db.rpc('advance_order_status', {
+    p_order_id:     orderId,
+    p_new_status:   'cancelled',
+    p_actor_name:   'Customer',
+    p_cancelled_by: 'customer',
+  });
   if (error) { toast('Could not cancel order: ' + error.message); return; }
   toast('Order cancelled');
   // Refresh cached orders and return to orders list
@@ -7361,7 +7497,10 @@ function renderConfirmPromoSection() {
 
   sec.innerHTML = `
     <div class="d-section-title" style="margin-top:20px">Promo Code</div>
-    <div class="confirm-card">
+    <!-- Session 152 pt 4: override .confirm-card's zero vertical padding —
+         the children below (credit notice + input row) don't use .d-row so
+         they don't get the 10px row-padding the Pricing card relies on. -->
+    <div class="confirm-card" style="padding:14px 16px">
       ${activePctRow}
       ${creditRow}
       <div style="display:flex;gap:8px;align-items:stretch">

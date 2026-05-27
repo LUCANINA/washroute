@@ -1098,14 +1098,50 @@ const db = supabase.createClient(SUPA_URL, SUPA_KEY, { auth: { storageKey: 'wr-d
     if (touched) history.replaceState({}, '', u.pathname + (u.search || '') + u.hash);
   } catch (e) { console.warn('_stripAuthUrlParams non-fatal:', e?.message); }
 })();
-// Session 137 security: returns the logged-in driver's JWT. Used when calling
-// edge functions (send-sms, etc.) that now require a real staff session
-// instead of the publicly embedded anon key.
+// Session 137 security: returns the logged-in driver's JWT for staff-protected
+// edge functions (e.g. send-sms). Returns null when no valid session is
+// available — callers MUST handle this and prompt sign-in rather than send
+// the anon key (the hardened functions reject it).
+//
+// Session 148 hardening (Axel incident): the previous implementation silently
+// fell back to SUPA_KEY (anon) whenever the session was missing or stale. The
+// hardened send-sms function correctly rejected the anon JWT with HTTP 401,
+// but the rejection surfaced to drivers as the generic "Could not send —
+// check your connection" toast in the catch block. Drivers (and we) assumed
+// it was a wifi problem when in fact their sign-in had silently lapsed.
+//
+// Two behaviors that fix this whole class of bug:
+//   1) Proactively refresh the session when within 60s of expiry so calls
+//      during a long driver shift don't silently start failing as the JWT
+//      ages out.
+//   2) Return null on any unrecoverable session state so call sites can
+//      branch on "no staff token" and show "Sign in again" instead of a
+//      misleading connection error.
+//
+// Follow-up (tech debt): sendOnMyWay and reoptimizeRoute still use the old
+// inline `session?.access_token || SUPA_KEY` pattern. They hit endpoints
+// that currently accept anon so they aren't broken, but the pattern should
+// be migrated through _staffJwt() for consistency next time we touch them.
 async function _staffJwt() {
   try {
-    const { data: { session } = {} } = await db.auth.getSession();
-    return session?.access_token || SUPA_KEY;
-  } catch (_) { return SUPA_KEY; }
+    let { data: { session } } = await db.auth.getSession();
+    if (!session?.access_token) return null;
+
+    const expiresAtMs = (session.expires_at || 0) * 1000;
+    if (expiresAtMs > 0 && (expiresAtMs - Date.now()) < 60_000) {
+      // Within 60s of expiry — refresh proactively so the next call has a
+      // fresh token. If refresh fails but the current token is still alive
+      // we use it as-is; if the server has actually revoked it, the call
+      // returns 401 and the call site surfaces the sign-in prompt.
+      try {
+        const { data: refreshed, error } = await db.auth.refreshSession();
+        if (!error && refreshed?.session?.access_token) {
+          session = refreshed.session;
+        }
+      } catch (_) { /* fall through with original token */ }
+    }
+    return session?.access_token || null;
+  } catch (_) { return null; }
 }
 
 let currentUser = null, currentProfile = null, currentDriver = null;
@@ -1843,20 +1879,37 @@ async function loadDriverData() {
 }
 async function _loadDriverDataInner() {
   _dataLoading = true;
+  // Session 151: is this a background refresh (driver already signed in with a
+  // loaded driver record), or the initial login load? On a background refresh we
+  // must NEVER let a transient profile/driver fetch failure sign the driver out —
+  // that was a root cause of "logged out on every stop" once realtime echoes
+  // started triggering loadDriverData() on the hot completion path.
+  const _isBackgroundRefresh = appReady && !!currentDriver;
   try {
   // ── Group 1: profile + driver record in parallel ──
   const [{ data: prof }, { data: drv0 }] = await Promise.all([
     db.from('profiles').select('*').eq('id', currentUser.id).single(),
     db.from('drivers').select('*').eq('profile_id', currentUser.id).order('created_at').limit(1).maybeSingle()
   ]);
-  currentProfile = prof;
+  // Don't clobber a known-good profile with a transient null on a background refresh.
+  if (prof) {
+    currentProfile = prof;
+  } else if (_isBackgroundRefresh) {
+    return; // keep existing session/data; this refresh just hit a blip
+  } else {
+    currentProfile = prof;
+  }
 
   // ── Phone OTP account linking ──
   // When a driver logs in via phone OTP, Supabase creates a new auth user with a new UUID.
   // Their existing driver record is linked to an older email-based profile UUID.
   // link_phone_auth_driver re-points the drivers row to the new phone-auth profile UUID.
+  // Session 151: only attempt phone→driver linking on the INITIAL login load. The
+  // link is a one-time repoint; re-running it on every background refresh put both
+  // an extra RPC and its MULTIPLE_MATCHES sign-out path on the hot completion path
+  // for no benefit (the driver is already linked by then).
   let linkedDrv = null;
-  if (currentUser.phone) {
+  if (currentUser.phone && !_isBackgroundRefresh) {
     try {
       const { data: linked, error: linkErr } = await db.rpc('link_phone_auth_driver', {
         p_phone_digits:   currentUser.phone,
@@ -1878,8 +1931,29 @@ async function _loadDriverDataInner() {
     }
   }
 
-  // Auto-create driver record on first login (sequential — depends on group 1 result)
+  // Provision a driver record on first login — but ONLY for genuine staff accounts.
+  // GUARD (Randy Harrison orphan fix): a phone-OTP or customer login that reaches the
+  // driver app with no driver record must NOT be silently turned into a brand-new active
+  // driver. New phone/customer signups default to role='customer'; auto-creating a driver
+  // for them produced empty orphan driver records (Randy logged in by phone code before his
+  // real driver account existed, and the app minted a nameless customer-role "driver" he then
+  // kept landing in instead of his real routes). Only auto-create when the profile is real
+  // staff; otherwise refuse access and sign out with a clear message.
+  const DRIVER_CAPABLE_ROLES = ['driver', 'manager', 'admin'];
   let drv = linkedDrv || drv0;
+  if (!drv) {
+    // Session 151: a transient empty driver fetch during a background refresh must
+    // NOT sign the driver out mid-route — reuse the known-good driver record. The
+    // sign-out path below is for genuine first-login provisioning only.
+    if (_isBackgroundRefresh && currentDriver) {
+      drv = currentDriver;
+    } else if (!currentProfile || !DRIVER_CAPABLE_ROLES.includes(currentProfile.role)) {
+      showLoading(false);
+      toast('No driver account is set up for this login. Please contact your admin.');
+      setTimeout(() => db.auth.signOut(), 3000);
+      return;
+    }
+  }
   if (!drv) {
     // UPSERT with DB-level UNIQUE constraint on profile_id — race-safe (session 111)
     const { data: nd } = await db.from('drivers')
@@ -3170,33 +3244,33 @@ async function cantCompleteStop(stopId) {
   const prevDriverNotes = stop.driver_notes || null;
   const isPickup = stop.stop_type === 'pickup';
 
-  // Mark route stop as skipped (route_stops constraint allows 'skipped' but not 'failed')
-  await db.from('route_stops').update({
-    status: 'skipped',
-    driver_notes: (stop.driver_notes ? stop.driver_notes + ' | ' : '') + 'Can\'t complete: ' + CANT_COMPLETE_LABELS[reason],
-  }).eq('id', stopId);
+  // Session 148: route through skip_route_stop RPC. The RPC atomically marks
+  // the stop skipped AND advances the order to pickup_failed/delivery_failed
+  // in one transaction — closes the orphan window where the prior non-atomic
+  // pattern could leave a stop 'skipped' but the order untouched if the
+  // second call failed.
+  const driverName = (currentProfile?.first_name || '') + (currentProfile?.last_name ? ' ' + currentProfile.last_name : '');
+  const noteSuffix = 'Can\'t complete: ' + CANT_COMPLETE_LABELS[reason];
+  const { data: rpcRes, error: rpcErr } = await db.rpc('skip_route_stop', {
+    p_stop_id:      stopId,
+    p_reason:       reason,
+    p_notes_suffix: noteSuffix,
+    p_actor_name:   driverName.trim() || 'Driver',
+  });
+  if (rpcErr) {
+    toast('Could not skip stop: ' + rpcErr.message);
+    return;
+  }
 
+  // Sync local cache from the RPC response.
   const idx = allStops.findIndex(s => s.id === stopId);
   if (idx >= 0) {
     allStops[idx].status = 'skipped';
-    if (stop?.orders?.id) {
-      // Map the order status + notification event to the correct stop type.
-      // Pickup failures → pickup_failed, delivery failures → delivery_failed.
-      const failedStatus = isPickup ? 'pickup_failed' : 'delivery_failed';
-      const failedEvent  = isPickup ? 'pickup_failed' : 'delivery_failed';
-
-      // Session 135: advance_order_status RPC enforces cancelled_by + driver_skip_reason for fail paths
-      const driverName = (currentProfile?.first_name || '') + (currentProfile?.last_name ? ' ' + currentProfile.last_name : '');
-      await db.rpc('advance_order_status', {
-        p_order_id:           stop.orders.id,
-        p_new_status:         failedStatus,
-        p_actor_name:         driverName.trim() || 'Driver',
-        p_cancelled_by:       'driver',
-        p_driver_skip_reason: reason,
-      });
-      allStops[idx].orders.status = failedStatus;
-
-      // Notify customer via SMS (matching template)
+    allStops[idx].driver_notes = (stop.driver_notes ? stop.driver_notes + ' | ' : '') + noteSuffix;
+    if (stop?.orders?.id && rpcRes?.new_order_status) {
+      allStops[idx].orders.status = rpcRes.new_order_status;
+      // Notify customer via SMS (matching template) — fire-and-forget.
+      const failedEvent = isPickup ? 'pickup_failed' : 'delivery_failed';
       try {
         await fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
           method: 'POST',
@@ -3561,11 +3635,21 @@ async function sendMessageInThread() {
       const custInfo = _msgCustomerMap[_msgActiveThread];
       if (!custInfo?.phone) { toast('No phone number on file'); return; }
 
+      // Session 148 (Axel incident): the hardened send-sms endpoint rejects
+      // the anon key. If our session is unavailable, prompt sign-in instead
+      // of trying to send (and getting back a 401 that the catch block would
+      // misreport as a connection problem).
+      const jwt = await _staffJwt();
+      if (!jwt) {
+        toast('Your sign-in expired. Open Profile and sign in again.', 5000);
+        return;
+      }
+
       const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await _staffJwt()}`,
+          'Authorization': `Bearer ${jwt}`,
         },
         body: JSON.stringify({
           to: custInfo.phone,
@@ -3574,7 +3658,16 @@ async function sendMessageInThread() {
           sent_by_driver_id: currentDriver.id,
         }),
       });
-      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      if (!res.ok) {
+        // 401/403 = server says the session is no good (could happen if it
+        // was revoked between our proactive refresh and this call). Same UX
+        // as the no-token branch — don't blame the wifi.
+        if (res.status === 401 || res.status === 403) {
+          toast('Your sign-in expired. Open Profile and sign in again.', 5000);
+          return;
+        }
+        throw new Error(`Server error ${res.status}`);
+      }
       // Add to local cache (the realtime subscription will also catch this)
       const fakeSms = {
         id: crypto.randomUUID(),
@@ -3595,7 +3688,15 @@ async function sendMessageInThread() {
     input.focus();
   } catch (e) {
     console.error('sendMessageInThread error:', e);
-    toast('Could not send — check your connection');
+    // The 401/403 path is handled inline above with a clearer message; this
+    // branch covers genuine network errors (fetch rejected) and 5xx server
+    // errors. Distinguish them so 5xx doesn't get blamed on the driver's wifi.
+    const msg = String(e?.message || '');
+    if (/^Server error 5\d\d$/.test(msg)) {
+      toast('Server error — please try again in a moment', 4000);
+    } else {
+      toast('Could not send — check your connection');
+    }
   } finally {
     btn.disabled = false;
     input.disabled = false;
@@ -3781,7 +3882,17 @@ function subscribeToRouteStopUpdates() {
       if (['cancelled','delivered'].includes(updated.status)) {
         const idx = allStops.findIndex(s => s.orders?.id === updated.id);
         if (idx < 0) return;
-        const removedStopId = allStops[idx].id;
+        const localStop = allStops[idx];
+        // Session 151: if this driver already finished the stop themselves, this
+        // 'delivered' UPDATE is just the echo of their own completion — keep the
+        // finished stop visible (don't make completed work vanish from the route).
+        if (updated.status === 'delivered' && ['complete','skipped'].includes(localStop.status)) {
+          if (localStop.orders) localStop.orders.status = updated.status;
+          renderHome();
+          renderRoute();
+          return;
+        }
+        const removedStopId = localStop.id;
         allStops.splice(idx, 1);
         renderHome();
         renderRoute();
@@ -3828,9 +3939,26 @@ function subscribeToRouteStopUpdates() {
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'routes' }, payload => {
       if (_dataLoading) return;
       const updated = payload.new;
-      const wasMyRoute = todayRoutes.some(r => r.id === updated.id) || upcomingRoutes.some(r => r.id === updated.id);
+      const localRoute = todayRoutes.find(r => r.id === updated.id) || upcomingRoutes.find(r => r.id === updated.id);
+      const wasMyRoute = !!localRoute;
       const isNowMine  = updated.driver_id === currentDriver?.id || updated.driver_id === null;
-      // Route was just given to us, or taken away — full reload
+
+      // ⚠️ Session 151 — fix for "route disappears + driver logged out on every stop":
+      // complete_route_stop() bumps this route's completed_stops / status / started_at,
+      // and those writes echo straight back to THIS driver through realtime. If the route
+      // is still ours, that echo is our OWN completion — patch the local route in place and
+      // do NOT reload. The previous code reloaded on any routes change, so every single stop
+      // completion ran a full loadDriverData() on a hot path; any transient profile-fetch
+      // failure inside it signed the driver out (Eve & Angel). Only a genuine reassignment
+      // (route taken from us, given to us, or cancelled) warrants a reload.
+      if (wasMyRoute && isNowMine && updated.status !== 'cancelled') {
+        if (updated.status)                  localRoute.status          = updated.status;
+        if (updated.completed_stops != null) localRoute.completed_stops = updated.completed_stops;
+        if (updated.started_at)              localRoute.started_at      = updated.started_at;
+        renderHome();
+        return;
+      }
+      // Route was just given to us, taken away, or cancelled — full reload
       if (wasMyRoute || isNowMine) {
         loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
       }

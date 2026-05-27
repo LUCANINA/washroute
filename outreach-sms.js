@@ -5,6 +5,16 @@
 // and directing them to add a card at app.familylaundry.com
 // ============================================================
 //
+// ⚠️ AUTH REQUIREMENT (session 155):
+// You MUST be signed in to the admin dashboard as an admin/manager user
+// when running this. The script POSTs to the `send-sms` edge function,
+// which was hardened on 2026-05-09 to reject anon-key auth. supabase-js
+// will automatically attach your session JWT to outgoing requests, but
+// only if you're signed in. If your session has expired or you run this
+// from an unauthenticated tab, every send will silently 401 (you'll see
+// 'send-sms send failed: 401 ...' in the console, but the script keeps
+// going). Verify by checking the response status on the first few sends.
+//
 // DRY RUN MODE: Set DRY_RUN = true to preview messages without sending
 // Set DRY_RUN = false when you're ready to actually send
 //

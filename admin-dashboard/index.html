@@ -169,6 +169,9 @@
     .stat-card-link:hover { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99,91,255,.1); }
     .stat-label { font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 6px; }
     .stat-value { font-size: 22px; font-weight: 700; color: var(--gray-900); letter-spacing: -.03em; line-height: 1; margin-bottom: 6px; }
+    /* Session 155: small breakdown line beneath stat values (e.g. "48 delivery · 4 retail") */
+    .stat-sub { font-size: 11px; color: var(--gray-500); line-height: 1.3; min-height: 14px; }
+    .stat-sub:empty { display: none; }
     .stat-delta { font-size: 12px; font-weight: 500; color: var(--gray-500); }
     .delta-up { color: var(--green); }
     .card { background: white; border: 1px solid var(--gray-200); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 20px; transition: background .12s; }
@@ -1087,6 +1090,42 @@
     .rev-empty { text-align:center; padding:40px 20px; color:var(--gray-400); font-size:13px; }
     .rev-zero { color:var(--gray-300); }
 
+    /* ── POS Sales tab — preset chips + filter row ── */
+    .ps-preset { padding:7px 14px; background:var(--gray-50); color:var(--gray-700); border:1px solid var(--gray-200); border-radius:20px; font-family:inherit; font-size:12.5px; font-weight:500; cursor:pointer; transition:all .12s; }
+    .ps-preset:hover { border-color:var(--gray-400); }
+    .ps-preset.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .ps-filter-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:14px 20px; border-bottom:1px solid var(--gray-100); }
+    .ps-filter-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--gray-400); }
+    .ps-kind-tag { display:inline-block; font-size:10.5px; font-weight:600; padding:2px 7px; border-radius:10px; margin-left:8px; text-transform:uppercase; letter-spacing:.04em; }
+    .ps-kind-tag.service { background:#e0f2fe; color:#075985; }
+    .ps-kind-tag.merchandise { background:#fef3c7; color:#92400e; }
+    /* Sub-tab pill switcher (By Item / By Order). Per PROJECT-NOTES style rule:
+       primary tabs use underline (.rpt-page-tab); secondary nav uses pills. */
+    .ps-subtabs-row { display:flex; gap:10px; align-items:center; padding:14px 0; }
+    .ps-subtabs { display:flex; gap:2px; background:var(--gray-100); border-radius:var(--radius); padding:3px; }
+    .ps-subtab { padding:6px 14px; border-radius:6px; font-size:12.5px; font-weight:500; color:var(--gray-600); cursor:pointer; border:none; background:transparent; transition:all .12s; font-family:inherit; }
+    .ps-subtab.active { background:#fff; color:var(--gray-900); font-weight:600; box-shadow:var(--shadow-sm); }
+    /* By Order table — wide; needs horizontal scroll on narrow screens */
+    .ps-by-order-wrap { overflow-x:auto; }
+    .ps-by-order-tbl { width:100%; min-width:1200px; border-collapse:collapse; font-size:13px; }
+    .ps-by-order-tbl th { padding:9px 14px; text-align:right; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-400); border-bottom:1px solid var(--gray-100); white-space:nowrap; background:var(--gray-50); }
+    .ps-by-order-tbl th:first-child, .ps-by-order-tbl th.left { text-align:left; }
+    .ps-by-order-tbl td { padding:10px 14px; border-bottom:1px solid var(--gray-100); text-align:right; color:var(--gray-700); vertical-align:top; }
+    .ps-by-order-tbl td:first-child, .ps-by-order-tbl td.left { text-align:left; color:var(--gray-900); }
+    .ps-by-order-tbl tbody tr.clickable { cursor:pointer; transition:background .1s; }
+    .ps-by-order-tbl tbody tr.clickable:hover td { background:var(--gray-50); }
+    .ps-by-order-tbl tbody tr.refunded td { background:#fef2f2; color:var(--gray-500); }
+    .ps-by-order-tbl tbody tr.refunded:hover td { background:#fee2e2; }
+    .ps-by-order-tbl tfoot td { font-weight:700; border-top:2px solid var(--gray-200); border-bottom:none; background:var(--gray-50); color:var(--gray-800); }
+    .ps-order-num { color:var(--accent); font-weight:600; }
+    .ps-pm-tag { display:inline-block; font-size:11px; padding:2px 7px; border-radius:10px; background:var(--gray-100); color:var(--gray-700); white-space:nowrap; }
+    .ps-pm-tag.card { background:#dbeafe; color:#1e40af; }
+    .ps-pm-tag.cash { background:#dcfce7; color:#166534; }
+    .ps-pm-tag.credit { background:#f3e8ff; color:#6b21a8; }
+    .ps-status-pill { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:10px; margin-left:6px; text-transform:uppercase; letter-spacing:.04em; }
+    .ps-status-pill.refunded { background:#fee2e2; color:#991b1b; }
+    .ps-items-snippet { font-size:11.5px; color:var(--gray-500); margin-top:2px; line-height:1.3; }
+
     /* ── NOTIFICATIONS PAGE ── */
     .notif-layout { display:grid;grid-template-columns:268px 1fr;gap:20px;height:calc(100vh - 56px - 56px - 48px);min-height:520px; }
     .notif-sidebar { background:white;border-radius:var(--radius);border:1px solid var(--gray-200);overflow-y:auto;display:flex;flex-direction:column; }
@@ -1689,25 +1728,51 @@
           <!-- Orders List View -->
           <div id="orders-list-view">
             <div class="stats-grid">
-              <div class="stat-card"><div class="stat-label">Picked Up Today</div><div class="stat-value" id="ostat-pickups">—</div></div>
-              <div class="stat-card"><div class="stat-label">Delivered Today</div><div class="stat-value" id="ostat-delivered">—</div></div>
-              <div class="stat-card"><div class="stat-label">Orders Processing</div><div class="stat-value" id="ostat-processing">—</div></div>
-              <div class="stat-card"><div class="stat-label">Ready for Delivery</div><div class="stat-value" id="ostat-ready">—</div></div>
-              <div class="stat-card"><div class="stat-label">$ In Process</div><div class="stat-value" id="ostat-in-process">—</div></div>
-              <div class="stat-card"><div class="stat-label">Revenue Today</div><div class="stat-value" id="ostat-revenue">—</div></div>
+              <!-- Session 155: Each tile shows the combined total as the big
+                   number plus a subtitle breaking it into Delivery / Retail.
+                   The big number stays the at-a-glance summary; the subtitle
+                   lets David see which segment is moving without flipping
+                   the source toggle. Hidden via empty textContent when there
+                   are no retail orders to report (typical for sleepy days). -->
+              <div class="stat-card"><div class="stat-label">Picked Up Today</div><div class="stat-value" id="ostat-pickups">—</div><div class="stat-sub" id="ostat-pickups-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Delivered Today</div><div class="stat-value" id="ostat-delivered">—</div><div class="stat-sub" id="ostat-delivered-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Orders Processing</div><div class="stat-value" id="ostat-processing">—</div><div class="stat-sub" id="ostat-processing-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Ready</div><div class="stat-value" id="ostat-ready">—</div><div class="stat-sub" id="ostat-ready-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">$ In Process</div><div class="stat-value" id="ostat-in-process">—</div><div class="stat-sub" id="ostat-in-process-sub"></div></div>
+              <div class="stat-card"><div class="stat-label">Revenue Today</div><div class="stat-value" id="ostat-revenue">—</div><div class="stat-sub" id="ostat-revenue-sub"></div></div>
             </div>
             <div class="card">
-              <div class="card-header" style="flex-wrap:wrap;gap:10px;">
-                <div><div class="card-title">Orders</div><div class="card-sub" id="orders-count-label"></div></div>
-                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <!-- Session 155: card-header is two-row.
+                   Row 1: title (left) + source toggle (right, fixed position).
+                   Row 2: search + status tabs (right). Keeping the source
+                   toggle on its own row means its position stays put even
+                   when the Scheduled status tab is hidden in Retail mode. -->
+              <div class="card-header" style="flex-direction:column;align-items:stretch;gap:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                  <div>
+                    <div class="card-title">Orders</div>
+                    <div class="card-sub" id="orders-count-label"></div>
+                  </div>
+                  <div class="filter-tabs" id="order-source-tabs" title="Filter by order source">
+                    <button class="filter-tab active" data-src="delivery" onclick="setOrdersSource('delivery',this)">🚚 Delivery</button>
+                    <button class="filter-tab" data-src="retail"   onclick="setOrdersSource('retail',this)">🏪 Retail</button>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;">
                   <input type="search" id="order-search" placeholder="Search…" class="form-input" style="width:140px;padding:5px 9px;font-size:12.5px" oninput="filterOrdersBySearch(this.value)">
+                  <!-- Session 155: 'Delivered' and 'Archived' tabs are
+                       hidden from the primary filter row to keep the operational
+                       view focused on active work. The data is still loaded
+                       (_loadDeliveredOrders runs in Phase 2 background fetch)
+                       so the search input finds them across all statuses
+                       — search bypasses tab filtering in getFilteredOrders. -->
                   <div class="filter-tabs" id="order-filter-tabs">
                     <button class="filter-tab active" data-filter="scheduled" onclick="filterOrders('scheduled',this)">Scheduled</button>
                     <button class="filter-tab" data-filter="in_process" onclick="filterOrders('in_process',this)">In Process</button>
                     <button class="filter-tab" data-filter="ready" onclick="filterOrders('ready',this)">Ready</button>
                     <button class="filter-tab" data-filter="issues" onclick="filterOrders('issues',this)">Issues</button>
-                    <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)">Delivered</button>
-                    <button class="filter-tab" data-filter="archived" onclick="filterOrders('archived',this)" title="Archived failed/skipped orders — history preserved, hidden from Overview">Archived</button>
+                    <button class="filter-tab" data-filter="delivered" onclick="filterOrders('delivered',this)" style="display:none">Delivered</button>
+                    <button class="filter-tab" data-filter="archived" onclick="filterOrders('archived',this)" style="display:none" title="Archived failed/skipped orders — history preserved, hidden from Overview">Archived</button>
                   </div>
                 </div>
               </div>
@@ -1787,6 +1852,8 @@
                 <div class="card-title">Processing Queue</div>
                 <div class="card-sub" id="proc-subtitle">Orders in progress</div>
               </div>
+              <!-- Site filter chips — rendered by renderProcSiteFilterChips() once allSites loads -->
+              <div id="proc-site-filter-chips" style="display:flex;align-items:center;gap:6px;font-size:12px"></div>
             </div>
             <div class="kanban-board">
               <!-- 1. INTAKE -->
@@ -2202,7 +2269,6 @@
               </div>
               <!-- Sub-tab: Laundry Services -->
               <div id="pos-subtab-laundry">
-              <button class="rpt-page-tab" onclick="setRptTab('subscriptions',this)">⭐ Subscriptions</button>
                 <div id="pos-retail-services-body" style="padding:8px 20px 0;"></div>
                 <div class="svc-add-row" style="grid-template-columns:1fr 112px 116px 120px;gap:10px;max-width:600px;">
                   <input class="svc-add-input" id="nrs-name" placeholder="Service name…" onkeydown="if(event.key==='Enter')saveNewRetailSvc()" />
@@ -2312,10 +2378,11 @@
             <div class="rpt-page-tabs">
               <button class="rpt-page-tab active" onclick="setRptTab('revenue',this)">Daily Revenue</button>
               <button class="rpt-page-tab" onclick="setRptTab('items',this)">Items</button>
+              <button class="rpt-page-tab" onclick="setRptTab('possales',this)">POS Sales</button>
               <button class="rpt-page-tab" onclick="setRptTab('drivers',this)">Drivers</button>
               <button class="rpt-page-tab" onclick="setRptTab('launderer',this)">Launderers</button>
               <button class="rpt-page-tab" onclick="setRptTab('onaccount',this)">On Account</button>
-              <button class="rpt-page-tab" onclick="setRptTab('subscriptions',this)">⭐ Subscriptions</button>
+              <button class="rpt-page-tab" onclick="setRptTab('subscriptions',this)">Subscriptions</button>
               <button class="rpt-page-tab" onclick="setRptTab('registrations',this)">Registrations</button>
             </div>
           </div>
@@ -2379,6 +2446,64 @@
             </div>
             <div id="items-rpt-body">
               <div class="rev-empty">Select a date range above and the report will load automatically.</div>
+            </div>
+          </div>
+
+          <!-- ── TAB: POS SALES ── -->
+          <div id="rpttab-possales" style="display:none">
+            <div class="card" style="margin-bottom:16px;padding:0">
+              <div class="ps-filter-row">
+                <span class="ps-filter-label">Quick range</span>
+                <button class="ps-preset" id="ps-preset-today"      onclick="setPosSalesPreset('today',this)">Today</button>
+                <button class="ps-preset" id="ps-preset-yesterday"  onclick="setPosSalesPreset('yesterday',this)">Yesterday</button>
+                <button class="ps-preset" id="ps-preset-7d"         onclick="setPosSalesPreset('7d',this)">Last 7 days</button>
+                <button class="ps-preset" id="ps-preset-month"      onclick="setPosSalesPreset('month',this)">This month</button>
+                <button class="ps-preset" id="ps-preset-lastmonth"  onclick="setPosSalesPreset('lastmonth',this)">Last month</button>
+                <span style="flex:1"></span>
+                <span class="ps-filter-label">Site</span>
+                <select id="ps-site-filter" onchange="loadPosSalesReport()" style="padding:7px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none;background:white">
+                  <option value="">All sites</option>
+                </select>
+                <button class="rev-export-btn" id="possales-export-btn" style="display:none" onclick="exportPosSalesCSV()">Export CSV</button>
+              </div>
+              <div class="items-summary-row" id="ps-summary-row">
+                <div class="items-summary-stat"><strong id="ps-summary-tx">—</strong>Transactions</div>
+                <div class="items-summary-stat"><strong id="ps-summary-items">—</strong>Items Sold</div>
+                <div class="items-summary-stat"><strong id="ps-summary-rev">—</strong>Gross Revenue</div>
+                <div class="items-summary-stat"><strong id="ps-summary-tax">—</strong>Tax Collected</div>
+              </div>
+            </div>
+
+            <!-- Sub-tab switcher (By Item / By Order) -->
+            <div class="ps-subtabs-row">
+              <div class="ps-subtabs">
+                <button class="ps-subtab active" id="ps-subtab-byitem"  onclick="setPsSubTab('byitem')">By Item</button>
+                <button class="ps-subtab"        id="ps-subtab-byorder" onclick="setPsSubTab('byorder')">By Order</button>
+              </div>
+            </div>
+
+            <!-- By Item view -->
+            <div id="ps-by-item-view">
+              <div class="card" style="margin-bottom:0">
+                <div id="ps-rpt-body">
+                  <div class="rev-empty">Select a date range above and the report will load automatically.</div>
+                </div>
+                <div style="padding:10px 20px;border-top:1px solid var(--gray-100);font-size:11.5px;color:var(--gray-500);line-height:1.4">
+                  Includes only POS / retail orders (<code>source = walk_in</code>) with <strong>billing_status = paid</strong>. Fully refunded orders are excluded. Tax is allocated proportionally to taxable items in the same order. Gross Revenue is the sum of line-item amounts before tax.
+                </div>
+              </div>
+            </div>
+
+            <!-- By Order view -->
+            <div id="ps-by-order-view" style="display:none">
+              <div class="card" style="margin-bottom:0;padding:0">
+                <div id="ps-by-order-body">
+                  <div class="rev-empty">Select a date range above and the report will load automatically.</div>
+                </div>
+                <div style="padding:10px 20px;border-top:1px solid var(--gray-100);font-size:11.5px;color:var(--gray-500);line-height:1.4">
+                  One row per POS / retail transaction. Includes both paid and fully-refunded orders for audit visibility (refunded rows are tinted red). The headline at top reflects paid sales only — refunds aren't subtracted there. Net per row = Gross + Tax + Tip − Refund. <strong>Fees</strong> are live Stripe processing fees pulled from balance_transactions; <em>italic ~$X</em> means we fell back to a 2.9% + $0.30 estimate (live data temporarily unavailable). Cash orders show — for fees. Refunded orders show — for fees because Stripe refunds the fee on full refunds in the US. Clicking any row opens the order details.
+                </div>
+              </div>
             </div>
           </div>
 
@@ -2766,10 +2891,11 @@
               </div>
             </div>
             <!-- Column headers (grid template matches row template for exact alignment) -->
-            <div class="laun-row" style="display:grid;grid-template-columns:1fr 48px 110px 32px;gap:14px;align-items:center;background:var(--gray-50);padding:8px 20px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-500);border-bottom:1px solid var(--gray-200)">
+            <div class="laun-row" style="display:grid;grid-template-columns:1fr 48px 110px 130px 32px;gap:14px;align-items:center;background:var(--gray-50);padding:8px 20px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-500);border-bottom:1px solid var(--gray-200)">
               <div style="font-weight:700">Name</div>
               <div style="text-align:center" title="View packed orders">Orders</div>
               <div style="text-align:center">POS PIN</div>
+              <div style="text-align:center" title="Name as it appears on this person's Square timecard — used to match their hours in the Launderers report">Square Name</div>
               <div></div>
             </div>
             <div class="laun-list" id="laun-list">
@@ -3150,6 +3276,11 @@
 <div class="batch-bar" id="oa-action-bar">
   <span class="batch-bar-count" id="oa-selected-label">Selected</span>
   <div class="batch-bar-sep"></div>
+  <button class="batch-bar-btn" onclick="openOAPaymentModal()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+    Record Payment
+  </button>
+  <div class="batch-bar-sep"></div>
   <button class="batch-bar-btn" onclick="previewSelectedInvoice()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="13" height="13"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
     Preview PDF
@@ -3292,6 +3423,91 @@
   </div>
 </div>
 
+<!-- Record Payment Modal (On Account) -->
+<div id="oa-payment-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1055;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:680px;width:96%;max-height:92vh;display:flex;flex-direction:column">
+    <div class="modal-header">
+      <div class="modal-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="vertical-align:-2px;margin-right:6px"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+        Record Payment
+      </div>
+      <button class="modal-close" onclick="closeOAPaymentModal()"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;overflow-y:auto">
+      <div id="oap-account-label" style="font-size:13px;font-weight:600;color:var(--gray-700)"></div>
+
+      <!-- Date range -->
+      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div>
+          <label class="form-label">From</label>
+          <input type="date" id="oap-from" class="form-input" style="max-width:160px" onchange="oaPaymentLoadOrders()">
+        </div>
+        <div>
+          <label class="form-label">To</label>
+          <input type="date" id="oap-to" class="form-input" style="max-width:160px" onchange="oaPaymentLoadOrders()">
+        </div>
+        <div style="font-size:11.5px;color:var(--gray-400);padding-bottom:9px">Unpaid orders in this date range</div>
+      </div>
+
+      <!-- Orders checklist -->
+      <div style="border:1px solid var(--gray-200);border-radius:8px;overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-200)">
+          <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer">
+            <input type="checkbox" id="oap-select-all" checked onchange="oaPaymentToggleAll(this.checked)">
+            <span id="oap-orders-count">0 orders</span>
+          </label>
+          <span style="font-size:12.5px;color:var(--gray-500)">Outstanding: <strong id="oap-outstanding">$0.00</strong></span>
+        </div>
+        <div id="oap-orders-list" style="max-height:260px;overflow-y:auto"></div>
+      </div>
+
+      <!-- Check details -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:140px">
+          <label class="form-label">Amount received</label>
+          <input type="number" id="oap-amount" class="form-input" step="0.01" min="0" placeholder="0.00" oninput="oaPaymentRecalc()">
+        </div>
+        <div style="flex:1;min-width:140px">
+          <label class="form-label">Method</label>
+          <select id="oap-method" class="form-input">
+            <option value="check">Check</option>
+            <option value="ach">ACH</option>
+            <option value="wire">Wire</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:140px">
+          <label class="form-label">Reference / check #</label>
+          <input type="text" id="oap-reference" class="form-input" placeholder="Optional">
+        </div>
+        <div style="flex:1;min-width:140px">
+          <label class="form-label">Date received</label>
+          <input type="date" id="oap-received" class="form-input">
+        </div>
+      </div>
+
+      <!-- Applying summary + mismatch -->
+      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
+        <span style="font-size:13px;color:var(--gray-600)">Applying to <strong id="oap-apply-count">0</strong> order(s)</span>
+        <span style="font-size:15px;font-weight:700" id="oap-apply-total">$0.00</span>
+      </div>
+      <div id="oap-mismatch" style="display:none;font-size:12px;border-radius:8px;padding:8px 10px;line-height:1.4"></div>
+
+      <!-- Recorded payments history -->
+      <div id="oap-history-wrap" style="display:none">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);margin-bottom:6px">Recorded payments</div>
+        <div id="oap-history-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px">
+      <button class="btn btn-ghost" onclick="closeOAPaymentModal()" style="margin-right:auto">Cancel</button>
+      <button class="btn btn-primary" id="oap-submit-btn" onclick="submitOAPayment()">Record Payment</button>
+    </div>
+  </div>
+</div>
+
 <!-- Reschedule Route modal (per-order pickup or delivery) -->
 <div id="reassign-run-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1000;align-items:center;justify-content:center;">
   <div class="modal" style="max-width:420px;">
@@ -3327,7 +3543,7 @@
 </div>
 
 <!-- Recall Order modal — put a delivered order back onto a route -->
-<div id="recall-order-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1002;align-items:center;justify-content:center;">
+<div id="recall-order-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.35);z-index:1102;align-items:center;justify-content:center;">
   <div class="modal" style="max-width:440px;">
     <div class="modal-header">
       <div>
@@ -4184,6 +4400,11 @@
   </div>
 
   <!-- ── CONTACT TAB ── -->
+  <!-- Session 151: Contact tab restructured into 3 cards.
+       Card 1 = identity only (was previously mixed with Price List + routing settings).
+       Card 2 = Addresses (unchanged).
+       Card 3 = Operations (Route Override + Default Processing Site).
+       Price List moved entirely to Billing tab (saved by saveBilling, not saveCustomerContact). -->
   <div class="cp-body" id="cptab-contact">
     <div class="cp-section-head"><span>Name &amp; Contact</span></div>
     <div class="cp-card">
@@ -4194,43 +4415,22 @@
       <div class="cp-field"><div class="cp-field-label">Phone</div><input class="cp-input" id="cpe-phone" type="tel" placeholder="Phone number"></div>
       <div class="cp-field"><div class="cp-field-label">Email</div><input class="cp-input" id="cpe-email" type="email" placeholder="Email address"></div>
       <div id="cp-app-status" style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;margin-bottom:12px;font-size:13px;min-height:38px"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-        <div class="cp-field">
-          <div class="cp-field-label">Price List</div>
-          <!-- Options populated from allCategories at panel-open time (session 141 pt 7) -->
-          <select class="cp-input" id="cpe-type"></select>
-        </div>
-        <div class="cp-field">
-          <div class="cp-field-label">How They Found Us</div>
-          <select class="cp-input" id="cpe-source">
-            <option value="">— Select —</option>
-            <option value="nextdoor">Nextdoor</option>
-            <option value="yelp">Yelp</option>
-            <option value="google">Google search</option>
-            <option value="friend_family">Friend / family</option>
-            <option value="instagram">Instagram</option>
-            <option value="roots_soul">Roots &amp; Soul</option>
-            <option value="oakland_ballers">Oakland Ballers</option>
-            <option value="saw_van">I saw your van!</option>
-            <option value="other">Other</option>
-            <option value="ai">ChatGPT, Claude, or other AI</option>
-            <option value="ambassador">Ambassador / Referral Code</option>
-          </select>
-        </div>
-      </div>
       <div class="cp-field">
-        <div class="cp-field-label">Route Override</div>
-        <select class="cp-input" id="cpe-route-override">
-          <option value="">— Default (zone-based) —</option>
+        <div class="cp-field-label">How They Found Us</div>
+        <select class="cp-input" id="cpe-source">
+          <option value="">— Select —</option>
+          <option value="nextdoor">Nextdoor</option>
+          <option value="yelp">Yelp</option>
+          <option value="google">Google search</option>
+          <option value="friend_family">Friend / family</option>
+          <option value="instagram">Instagram</option>
+          <option value="roots_soul">Roots &amp; Soul</option>
+          <option value="oakland_ballers">Oakland Ballers</option>
+          <option value="saw_van">I saw your van!</option>
+          <option value="other">Other</option>
+          <option value="ai">ChatGPT, Claude, or other AI</option>
+          <option value="ambassador">Ambassador / Referral Code</option>
         </select>
-        <div style="font-size:11px;color:var(--gray-400);margin-top:3px">When set, orders auto-route to this route instead of the customer's zone.</div>
-      </div>
-      <div class="cp-field">
-        <div class="cp-field-label">Default Processing Site</div>
-        <select class="cp-input" id="cpe-default-site">
-          <option value="">— Use main site —</option>
-        </select>
-        <div style="font-size:11px;color:var(--gray-400);margin-top:3px">New orders from this customer will be assigned to this site automatically. Leave empty to use the main site.</div>
       </div>
     </div>
 
@@ -4257,6 +4457,27 @@
       </div>
     </div>
 
+    <!-- Operations card (session 151): advanced routing/processing rules for this customer.
+         Lives on Contact tab because Save Contact Info already handles these fields,
+         but visually separated from identity so the top card stays uncluttered. -->
+    <div class="cp-section-head"><span>Operations</span></div>
+    <div class="cp-card">
+      <div class="cp-field">
+        <div class="cp-field-label">Route Override</div>
+        <select class="cp-input" id="cpe-route-override">
+          <option value="">— Default (zone-based) —</option>
+        </select>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:3px">When set, orders auto-route to this route instead of the customer's zone.</div>
+      </div>
+      <div class="cp-field">
+        <div class="cp-field-label">Default Processing Site</div>
+        <select class="cp-input" id="cpe-default-site">
+          <option value="">— Use main site —</option>
+        </select>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:3px">New orders from this customer will be assigned to this site automatically. Leave empty to use the main site.</div>
+      </div>
+    </div>
+
     <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--gray-100)">
       <button class="btn btn-primary cp-save-btn" onclick="saveCustomerContact()">Save Contact Info</button>
       <div class="cp-save-msg" id="cp-contact-msg">✓ Saved</div>
@@ -4264,10 +4485,48 @@
   </div>
 
   <!-- ── BILLING TAB ── -->
+  <!-- Session 151: Billing tab regrouped from 6 stacked cards into 3 logical sections:
+       Plan → Payment → Balance & Adjustments. Price List moved here from Contact tab
+       (saved by saveBilling, not saveCustomerContact). No DOM IDs changed — load
+       functions and Stripe integration hooks all reference fields by ID, so moving
+       markup around inside the tab doesn't break wiring.
+       Session 152: each section now wraps in a sub-tab pane (Plan/Payment/Balance),
+       switched by cpBillingSubtab(). One shared Save Billing button at the bottom
+       saves all 3 sub-tabs' fields in a single UPDATE — no per-sub-tab save needed. -->
   <div class="cp-body" id="cptab-billing" style="display:none">
 
-    <!-- Billing Type + Payment Method + Billing Group -->
-    <div class="cp-section-head"><span>Billing</span></div>
+    <!-- Sub-tab strip — pill style matches every other secondary-nav strip in the admin
+         (Orders status filters, Drivers Messages/Manage, Settings Invoice/Printer/Reviews,
+         Customers List/Map/Groups, Transactions date range, etc.). Defaults to 'plan';
+         last-used remembered in localStorage. -->
+    <div class="filter-tabs" style="margin-bottom:16px">
+      <button class="filter-tab active" data-subtab="plan"    onclick="cpBillingSubtab('plan',this)">Plan</button>
+      <button class="filter-tab"        data-subtab="payment" onclick="cpBillingSubtab('payment',this)">Payment</button>
+      <button class="filter-tab"        data-subtab="balance" onclick="cpBillingSubtab('balance',this)">Balance</button>
+    </div>
+
+    <!-- 1. PLAN — what this customer is on (price list + subscription) -->
+    <div class="cpb-pane" id="cpb-pane-plan">
+    <div class="cp-section-head"><span>Plan</span></div>
+    <div class="cp-card">
+      <div class="cp-field">
+        <div class="cp-field-label">Price List</div>
+        <!-- Options populated from allCategories at panel-open time (session 141 pt 7).
+             Lives on Billing tab as of session 151; saveBilling writes pricelist now. -->
+        <select class="cp-input" id="cpe-type"></select>
+      </div>
+      <!-- Subscription content (Assign Plan + Start Checkout, or active sub display).
+           Populated by renderCpSubscription() into #cpb-sub-content. -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:12px;padding-top:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Subscription</div>
+        <div id="cpb-sub-content" style="font-size:13px;color:var(--gray-500)">Loading…</div>
+      </div>
+    </div>
+    </div><!-- /cpb-pane-plan -->
+
+    <!-- 2. PAYMENT — how this customer pays -->
+    <div class="cpb-pane" id="cpb-pane-payment" style="display:none">
+    <div class="cp-section-head"><span>Payment</span></div>
     <div class="cp-card">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
         <div class="cp-field">
@@ -4292,67 +4551,44 @@
           <option value="">— None —</option>
         </select>
       </div>
-    </div>
 
-    <!-- Subscription -->
-    <div class="cp-section-head"><span>Subscription</span></div>
-    <div class="cp-card" id="cpb-subscription-card">
-      <div id="cpb-sub-content" style="font-size:13px;color:var(--gray-500)">Loading…</div>
-    </div>
-
-    <!-- Discount -->
-    <div class="cp-section-head"><span>Discount</span></div>
-    <div class="cp-card">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
-        <div class="cp-field">
-          <select class="cp-input" id="cpb-discount">
-            <option value="">— None —</option>
-          </select>
-        </div>
-        <div class="cp-field">
-          <label style="display:flex;align-items:center;gap:5px;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);cursor:pointer;margin-top:6px">
-            <input type="checkbox" id="cpb-fee-exempt" style="width:14px;height:14px;accent-color:var(--accent)"> Fee/Min Exempt
-          </label>
-          <div style="font-size:12px;color:var(--gray-400);margin-top:4px">Customer is not charged pickup fees</div>
+      <!-- Card on file -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Card on File</div>
+        <div id="cp-payment-info" style="margin-bottom:4px">—</div>
+        <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
+        <div id="cp-card-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px">
+          <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">Enter Card Details</div>
+          <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:7px;margin-bottom:10px;font-size:14px"></div>
+          <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
+          <div style="display:flex;gap:8px">
+            <button id="cp-card-submit-btn" class="btn btn-primary" style="padding:7px 16px;font-size:13px" onclick="adminSubmitCard()">Save Card</button>
+            <button class="btn btn-ghost" style="padding:7px 13px;font-size:13px" onclick="adminCloseCardForm()">Cancel</button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Apply Promo Code (session 141) — admin-applied $ codes -->
-    <div class="cp-section-head"><span>Apply Promo Code</span></div>
-    <div class="cp-card">
-      <div style="display:flex;gap:8px;align-items:stretch">
-        <select class="cp-input" id="cpb-promo-code" style="flex:1">
-          <option value="">— Choose a code —</option>
-        </select>
-        <button class="btn btn-primary" onclick="applyPromoToCustomer()" id="cpb-promo-apply"
-                style="padding:8px 16px;font-size:13px;white-space:nowrap">Apply</button>
-      </div>
-      <div style="font-size:12px;color:var(--gray-400);margin-top:6px">
-        Adds the $ value to this customer's credit. Only unredeemed fixed-amount codes are listed; once applied, the code is burned.
-      </div>
-    </div>
-
-    <!-- Payment on File -->
-    <div class="cp-section-head"><span>Payment on File</span></div>
-    <div class="cp-card">
-      <div id="cp-payment-info" style="margin-bottom:4px">—</div>
-      <div id="cp-card-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px"></div>
-      <div id="cp-card-form" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-top:10px">
-        <div style="font-size:12px;font-weight:700;color:var(--gray-600);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">Enter Card Details</div>
-        <div id="cp-card-element" style="padding:10px 12px;background:white;border:1px solid var(--gray-300);border-radius:7px;margin-bottom:10px;font-size:14px"></div>
-        <div id="cp-card-errors" style="color:var(--red);font-size:12.5px;margin-bottom:10px;display:none"></div>
-        <div style="display:flex;gap:8px">
-          <button id="cp-card-submit-btn" class="btn btn-primary" style="padding:7px 16px;font-size:13px" onclick="adminSubmitCard()">Save Card</button>
-          <button class="btn btn-ghost" style="padding:7px 13px;font-size:13px" onclick="adminCloseCardForm()">Cancel</button>
+      <!-- Default Tip -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Default Tip</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input class="cp-input" id="cpb-tip-amount" type="number" min="0" step="0.01" placeholder="0" style="width:90px">
+          <div class="filter-tabs" style="flex-shrink:0">
+            <button class="filter-tab active" id="cpb-tip-dollar" onclick="setCpTipType('$',this)">$</button>
+            <button class="filter-tab" id="cpb-tip-pct" onclick="setCpTipType('%',this)">%</button>
+          </div>
+          <span style="font-size:12px;color:var(--gray-400)">Set by customer in their app</span>
         </div>
       </div>
     </div>
+    </div><!-- /cpb-pane-payment -->
 
-    <!-- Credits & Balance -->
-    <div class="cp-section-head"><span>Credits</span></div>
+    <!-- 3. BALANCE & ADJUSTMENTS — what they owe + what reduces what they owe -->
+    <div class="cpb-pane" id="cpb-pane-balance" style="display:none">
+    <div class="cp-section-head"><span>Balance &amp; Adjustments</span></div>
     <div class="cp-card">
-      <!-- Credits row -->
+      <!-- Account Credit -->
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:6px">Account Credit</div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
         <div style="font-size:22px;font-weight:700;color:var(--gray-900)" id="cpb-credits-display">$0.00</div>
         <div style="display:flex;gap:6px;margin-left:4px">
@@ -4371,30 +4607,52 @@
         </div>
       </div>
 
-      <!-- Balance row (on-demand unpaid orders) -->
-      <div style="border-top:1px solid var(--gray-100);margin-top:12px;padding-top:12px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:6px">Balance</div>
+      <!-- Outstanding Balance -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:6px">Outstanding Balance</div>
         <div style="display:flex;align-items:baseline;gap:8px">
           <div style="font-size:22px;font-weight:700" id="cpb-balance-display">$0.00</div>
           <div style="font-size:12px;color:var(--gray-400)" id="cpb-balance-label">outstanding</div>
         </div>
         <div style="font-size:11.5px;color:var(--gray-400);margin-top:3px" id="cpb-balance-detail"></div>
       </div>
-    </div>
 
-    <!-- Default Tip -->
-    <div class="cp-section-head"><span>Default Tip</span></div>
-    <div class="cp-card">
-      <div style="display:flex;gap:8px;align-items:center">
-        <input class="cp-input" id="cpb-tip-amount" type="number" min="0" step="0.01" placeholder="0" style="width:90px">
-        <div class="filter-tabs" style="flex-shrink:0">
-          <button class="filter-tab active" id="cpb-tip-dollar" onclick="setCpTipType('$',this)">$</button>
-          <button class="filter-tab" id="cpb-tip-pct" onclick="setCpTipType('%',this)">%</button>
+      <!-- Discount + Fee Exempt -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Discount</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px">
+          <div class="cp-field" style="margin-bottom:0">
+            <select class="cp-input" id="cpb-discount">
+              <option value="">— None —</option>
+            </select>
+          </div>
+          <div class="cp-field" style="margin-bottom:0">
+            <label style="display:flex;align-items:center;gap:5px;font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--gray-500);cursor:pointer;margin-top:6px">
+              <input type="checkbox" id="cpb-fee-exempt" style="width:14px;height:14px;accent-color:var(--accent)"> Fee/Min Exempt
+            </label>
+            <div style="font-size:12px;color:var(--gray-400);margin-top:4px">Customer is not charged pickup fees</div>
+          </div>
         </div>
-        <span style="font-size:12px;color:var(--gray-400)">Set by customer in their app</span>
+      </div>
+
+      <!-- Apply Promo Code (session 141) — admin-applied $ codes -->
+      <div style="border-top:1px solid var(--gray-100);margin-top:14px;padding-top:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray-400);margin-bottom:8px">Apply Promo Code</div>
+        <div style="display:flex;gap:8px;align-items:stretch">
+          <select class="cp-input" id="cpb-promo-code" style="flex:1">
+            <option value="">— Choose a code —</option>
+          </select>
+          <button class="btn btn-primary" onclick="applyPromoToCustomer()" id="cpb-promo-apply"
+                  style="padding:8px 16px;font-size:13px;white-space:nowrap">Apply</button>
+        </div>
+        <div style="font-size:12px;color:var(--gray-400);margin-top:6px">
+          Adds the $ value to this customer's credit. Only unredeemed fixed-amount codes are listed; once applied, the code is burned.
+        </div>
       </div>
     </div>
+    </div><!-- /cpb-pane-balance -->
 
+    <!-- Shared Save Billing button — saves all 3 sub-tabs in one UPDATE. -->
     <div style="margin-top:20px">
       <button class="btn btn-primary cp-save-btn" onclick="saveBilling()">Save Billing</button>
       <div class="cp-save-msg" id="cp-billing-msg">✓ Saved</div>
@@ -4766,6 +5024,13 @@
         <input class="form-input" id="drv-password" type="password" name="drv-password" autocomplete="new-password" placeholder="Minimum 8 characters">
       </form>
       <div style="font-size:11.5px;color:var(--gray-500);margin-top:6px">Driver uses this to log into the driver app. You can share it with them directly.</div>
+    </div>
+
+    <!-- Reset password (existing drivers only) — session 156 -->
+    <div class="so-section" id="drv-reset-pw-section" style="display:none">
+      <div class="so-label">Driver App Login</div>
+      <div style="font-size:13px;color:var(--gray-600);margin-bottom:8px">If the driver is locked out, you can reset their password directly. Share the new one with them after.</div>
+      <button class="btn btn-ghost" id="drv-reset-pw-btn" onclick="resetDriverPasswordFromPanel()" style="font-size:13px">🔑 Reset password</button>
     </div>
 
     <!-- Active toggle -->
@@ -5155,7 +5420,14 @@
   };
 
   // ── COMBINED PICKUP cell: route on top, compact date+time below ──
+  // Session 155: Retail orders (source='walk_in') have no scheduled pickup
+  // window — the customer walks in with the bag. Show "Walk-in · created
+  // time" instead of "—" so the cell carries meaning.
   const pickupCombinedCell = (o) => {
+    if (o && o.source === 'walk_in') {
+      const t = o.created_at ? `${fmtDateShort(o.created_at)} · ${fmtTimeShort(o.created_at)}` : '';
+      return `<div style="font-weight:600;font-size:12px;color:var(--gray-700);line-height:1.3">Walk-in</div>${t ? `<div style="font-size:11px;color:var(--gray-400);line-height:1.3">${t}</div>` : ''}`;
+    }
     const route = o.pickup_run?.name || '';
     let timeLine = '';
     if (o.actual_pickup_at) {
@@ -5197,7 +5469,18 @@
   };
 
   // ── COMBINED DELIVERY cell: route on top, compact date+time below ──
+  // Session 155: Retail orders never get assigned a driver — the customer
+  // is the driver. Hide the "+ Assign" affordance and instead show either
+  // the pickup-by-customer time (when delivered) or "Counter pickup" as
+  // the destination label.
   const deliveryCombinedCell = (o) => {
+    if (o && o.source === 'walk_in') {
+      if (o.actual_delivery_at) {
+        const t = `${fmtDateShort(o.actual_delivery_at)} · ${fmtTimeShort(o.actual_delivery_at)}`;
+        return `<div style="font-weight:600;font-size:12px;color:var(--gray-700);line-height:1.3">Picked up by customer</div><div style="font-size:11px;color:var(--gray-400);line-height:1.3">${t}</div>`;
+      }
+      return `<div style="font-weight:600;font-size:12px;color:var(--gray-700);line-height:1.3">Counter pickup</div>`;
+    }
     const route = o.delivery_run?.name || '';
     let timeLine = '';
     if (o.actual_delivery_at) {
@@ -5352,7 +5635,19 @@
     return '';
   };
 
-  const statusBadge = (s) => {
+  // Session 155: optional `source` arg relabels retail-relevant statuses.
+  // 'ready_for_delivery' on a walk_in order means "ready for the customer
+  // to come back to the counter and pick it up" — not "ready to load on a
+  // truck". Same for 'delivered' which on retail = "customer picked it up".
+  // Most call sites still pass just `status`; passing `source='walk_in'`
+  // is opt-in for the contexts where it matters (Orders page rows,
+  // customer profile order history).
+  const RETAIL_STATUS_LABELS = {
+    picked_up:          'Dropped Off',
+    ready_for_delivery: 'Ready for Pickup',
+    delivered:          'Picked Up by Customer',
+  };
+  const statusBadge = (s, source) => {
     const map = {
       // Order statuses
       scheduled:          ['badge-gray',   'Scheduled'],
@@ -5381,7 +5676,10 @@
       in_progress:        ['badge-blue',   'In Progress'],
       complete:           ['badge-green',  'Complete'],
     };
-    const [cls, label] = map[s] || ['badge-gray', s];
+    let [cls, label] = map[s] || ['badge-gray', s];
+    if (source === 'walk_in' && RETAIL_STATUS_LABELS[s]) {
+      label = RETAIL_STATUS_LABELS[s];
+    }
     return `<span class="badge ${cls}">${label}</span>`;
   };
 
@@ -5818,7 +6116,7 @@
 
   const PAGE_LABELS = {
     overview:'Overview', customers:'Customers', orders:'Orders', processing:'Processing',
-    inbox:'Inbox', drivers:'Drivers', pos:'POS', reports:'Reports', services:'Services',
+    inbox:'Inbox', lostfound:'Lost & Found', drivers:'Drivers', pos:'POS', reports:'Reports', services:'Services',
     notifications:'Notifications', maps:'Delivery Zones', launderers:'Launderers',
     racks:'Racks', discounts:'Discounts', team:'Team', settings:'General'
   };
@@ -6096,10 +6394,12 @@
   }
 
   async function togglePermission(role, pageId, allowed) {
+    // Use upsert (not update) so toggling a page that's missing a row in
+    // role_permissions self-heals by inserting it. Prevents the silent-no-op
+    // we hit on `lostfound`, which was in ALL_PAGE_IDS / nav but had no DB
+    // rows seeded.
     const { error } = await db.from('role_permissions')
-      .update({ allowed })
-      .eq('role', role)
-      .eq('page_id', pageId);
+      .upsert({ role, page_id: pageId, allowed }, { onConflict: 'role,page_id' });
     if (error) {
       showToast('Failed to update permission', 'error');
       loadPermissionsGrid(); // revert UI
@@ -6629,6 +6929,9 @@
     const { data, error } = await db.from('sites').select('id, name, color, is_active, is_default').order('is_default', { ascending: false }).order('name');
     if (error) { console.error('loadSites:', error); return; }
     allSites = data || [];
+    // Now that sites are known, paint the Processing Queue filter chips
+    // (no-op if the user isn't on that page yet — they'll re-render on nav).
+    if (typeof renderProcSiteFilterChips === 'function') renderProcSiteFilterChips();
   }
   function getSiteById(id) { return allSites.find(s => s.id === id) || null; }
   function getDefaultSite() { return allSites.find(s => s.is_default) || allSites[0] || null; }
@@ -7034,7 +7337,11 @@
       }
 
       // ── Process Check 3: Unpaid Delivered ──
-      const unpaid = (c3.data || []).filter(o => !o.stripe_payment_intent_id || o.billing_status !== 'paid');
+      // Session 156: 'paid' covers card + cash + credit + check; same
+      // taxonomy as session 154 pt 4 on kanbans + session 156 _payStatusIcon.
+      // Old filter '!PI || status!=paid' false-flagged cash retail sales
+      // (no PI exists for cash) that reached delivered status.
+      const unpaid = (c3.data || []).filter(o => o.billing_status !== 'paid');
       if (unpaid.length > 0) {
         const total = unpaid.reduce((s, o) => s + orderChargedTotal(o), 0);
         results.push({ severity: 'P0', icon: '🔴', label: 'Unpaid delivered orders', count: unpaid.length,
@@ -7970,9 +8277,23 @@
   function _payStatusIcon(o) {
     const custId = o.customers?.id;
     const billingType = o.customers?.billing_type;
-    // Already charged successfully
-    if (o.stripe_payment_intent_id && o.billing_status !== 'failed') {
-      return `<span class="pay-tip" data-tip="Paid" style="color:#16a34a;font-size:13px;font-weight:800;line-height:1">$</span>`;
+    // Session 156: 'Paid' is anything with billing_status='paid' — card,
+    // cash, credit, check, all of them. Previous check required
+    // stripe_payment_intent_id which meant cash sales (no PI in Stripe)
+    // fell through to the 'No card on file' warning at the bottom — even
+    // when the customer had handed over $236 in cash. Source of truth
+    // for payment status is billing_status, NOT the PI column. Same
+    // taxonomy lesson as session 154 pt 4 on the kanbans.
+    if (o.billing_status === 'paid') {
+      const method = (o.billing_payment_method || '').toLowerCase();
+      const last4  = o.card_last4 || '';
+      const tip = method === 'cash'    ? 'Paid in cash'
+                : method === 'credit'  ? 'Paid by account credit'
+                : method === 'check'   ? 'Paid by check'
+                : (method === 'card' || method === 'credit_card')
+                    ? (last4 ? `Paid by card ····${last4}` : 'Paid by card')
+                : 'Paid';
+      return `<span class="pay-tip" data-tip="${tip}" style="color:#16a34a;font-size:13px;font-weight:800;line-height:1">$</span>`;
     }
     // Charge failed
     if (o.billing_status === 'failed') {
@@ -8075,19 +8396,33 @@
   // Statuses eligible for manual admin archive (kept in sync with DB check — see add_archive_columns migration)
   const ARCHIVABLE_STATUSES = ['pickup_failed','delivery_failed','skipped','cancelled'];
 
-  const _orderSelectCols = `id, order_number, status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, billing_status,
+  const _orderSelectCols = `id, order_number, status, total_amount, tip_amount, tip_type, stripe_payment_intent_id, billing_status, billing_payment_method, card_brand, card_last4,
                weight_lbs, total_bags, service_id, special_instructions, line_items,
                pickup_window_start, pickup_window_end,
                delivery_window_start, delivery_window_end,
                actual_pickup_at, actual_delivery_at,
                pickup_run_id, delivery_run_id,
                pickup_address_id, delivery_address_id,
-               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, overcap_booking, cancelled_by, driver_skip_reason, site_id,
+               created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, overcap_booking, cancelled_by, driver_skip_reason, site_id, source,
                archived_at, archived_reason, archived_by,
                services(name),
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
                pickup_run:pickup_run_id(id, name),
                delivery_run:delivery_run_id(id, name)`;
+
+  // Session 155: source filter for the Orders page.
+  // 'delivery' = orders where source IS NULL OR source != 'walk_in' (the bread and butter)
+  // 'retail'   = orders where source = 'walk_in' (POS counter sales)
+  // Default = 'delivery' so the page lands on the operational view.
+  // (The original 3-way toggle had an 'all' state too; David's call to drop
+  // it — the two segments don't share enough operational vocabulary to make
+  // a combined list useful, and the customer profile already gives unified
+  // history when you need it.)
+  let _ordersSourceFilter = 'delivery';
+  function _orderMatchesSource(o) {
+    const isRetail = o && o.source === 'walk_in';
+    return _ordersSourceFilter === 'retail' ? isRetail : !isRetail;
+  }
   let _deliveredLoaded = false;
   let _sideFetchDone = false;
 
@@ -8226,32 +8561,77 @@
 
   function updateOrderStatCards() {
     const todayStr = today();
-    // Picked Up Today: orders actually picked up today (Pacific time)
-    const pickedUpToday = allOrders.filter(o => {
-      if (!['picked_up','processing','folding','ready_for_delivery','out_for_delivery','delivered'].includes(o.status)) return false;
-      return toLocalDate(o.actual_pickup_at) === todayStr;
-    }).length;
-    // Processing: picked_up through folding (actively being worked on)
-    const processing = allOrders.filter(o => ['picked_up','processing','folding'].includes(o.status)).length;
-    // Ready for Delivery: on the rack waiting to go out
-    const readyCount = allOrders.filter(o => o.status === 'ready_for_delivery').length;
-    // Delivered Today: orders delivered today (Pacific time)
-    const deliveredToday = allOrders.filter(o => o.status === 'delivered' && toLocalDate(o.actual_delivery_at) === todayStr).length;
-    // $ In Process: projected revenue from in-flight orders (subtotal + tip).
-    // charge-order will bill the tip-inclusive amount at rack time.
-    const inProcessRevenue = allOrders.filter(o => ['picked_up','processing','folding'].includes(o.status) && o.billing_status !== 'paid')
-      .reduce((sum, o) => sum + orderChargedTotal(o), 0);
-    // Revenue Today: only orders successfully charged via Stripe (Pacific time).
-    // Use chargedTotal so the figure matches what actually hit Stripe today.
-    const revenueToday = allOrders.filter(o => o.billing_status === 'paid' && toLocalDate(o.billed_at) === todayStr)
-      .reduce((sum, o) => sum + orderChargedTotal(o), 0);
+
+    // Session 155: each stat is computed twice — once for delivery, once for
+    // retail — then summed for the big number. The split is rendered as a
+    // small subtitle ("48 delivery · 4 retail" or "$1,130.75 delivery · $3.00
+    // retail") so the operator can see both segments without toggling the
+    // source filter. When retail is 0 we skip the subtitle entirely to avoid
+    // visual noise on sleepy days.
+    const isRetail = (o) => o && o.source === 'walk_in';
+    const splitCount = (predicate) => {
+      let d = 0, r = 0;
+      for (const o of allOrders) {
+        if (!predicate(o)) continue;
+        if (isRetail(o)) r++; else d++;
+      }
+      return { delivery: d, retail: r, total: d + r };
+    };
+    const splitSum = (predicate, valueFn) => {
+      let d = 0, r = 0;
+      for (const o of allOrders) {
+        if (!predicate(o)) continue;
+        const v = valueFn(o) || 0;
+        if (isRetail(o)) r += v; else d += v;
+      }
+      return { delivery: d, retail: r, total: d + r };
+    };
+
+    const _PICKED_UP_STATUSES = ['picked_up','processing','folding','ready_for_delivery','out_for_delivery','delivered'];
+    const _PROCESSING_STATUSES = ['picked_up','processing','folding'];
+
+    const pickedUp  = splitCount(o => _PICKED_UP_STATUSES.includes(o.status) && toLocalDate(o.actual_pickup_at) === todayStr);
+    const processed = splitCount(o => _PROCESSING_STATUSES.includes(o.status));
+    const ready     = splitCount(o => o.status === 'ready_for_delivery');
+    const delivered = splitCount(o => o.status === 'delivered' && toLocalDate(o.actual_delivery_at) === todayStr);
+    const inProcess = splitSum(
+      o => _PROCESSING_STATUSES.includes(o.status) && o.billing_status !== 'paid',
+      o => orderChargedTotal(o)
+    );
+    const revenue   = splitSum(
+      o => o.billing_status === 'paid' && toLocalDate(o.billed_at) === todayStr,
+      o => orderChargedTotal(o)
+    );
+
     const _s = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-    _s('ostat-pickups', pickedUpToday);
-    _s('ostat-processing', processing);
-    _s('ostat-ready', readyCount);
-    _s('ostat-delivered', deliveredToday);
-    _s('ostat-in-process', fmtMoney(inProcessRevenue));
-    _s('ostat-revenue', fmtMoney(revenueToday));
+    const _setSubCount = (id, split) => {
+      const e = document.getElementById(id);
+      if (!e) return;
+      e.textContent = split.retail > 0
+        ? `${split.delivery} delivery · ${split.retail} retail`
+        : '';
+    };
+    const _setSubMoney = (id, split) => {
+      const e = document.getElementById(id);
+      if (!e) return;
+      e.textContent = split.retail > 0
+        ? `${fmtMoney(split.delivery)} delivery · ${fmtMoney(split.retail)} retail`
+        : '';
+    };
+
+    _s('ostat-pickups',       pickedUp.total);
+    _s('ostat-processing',    processed.total);
+    _s('ostat-ready',         ready.total);
+    _s('ostat-delivered',     delivered.total);
+    _s('ostat-in-process',    fmtMoney(inProcess.total));
+    _s('ostat-revenue',       fmtMoney(revenue.total));
+
+    _setSubCount('ostat-pickups-sub',    pickedUp);
+    _setSubCount('ostat-processing-sub', processed);
+    _setSubCount('ostat-ready-sub',      ready);
+    _setSubCount('ostat-delivered-sub',  delivered);
+    _setSubMoney('ostat-in-process-sub', inProcess);
+    _setSubMoney('ostat-revenue-sub',    revenue);
   }
 
   // Single source of truth for "what's an Issue row?" — used by the Orders → Issues tab
@@ -8277,12 +8657,16 @@
     return ORDER_FILTER_GROUPS.issues.includes(o.status);
   }
 
-  // Returns allOrders filtered by currentOrderFilter + orderSearchTerm
+  // Returns allOrders filtered by currentOrderFilter + orderSearchTerm + _ordersSourceFilter
   // When a search term is active, search spans ALL orders including delivered/cancelled
   // so staff can locate past orders for recall, comments, or reference.
+  //
+  // Session 155: source filter is applied FIRST (Delivery / Retail / All).
+  // It also applies to search results so the active segment is the consistent
+  // mental model — switching to All if you want to see across both sources.
   const DELIVERED_TAB_WINDOW_DAYS = 7;
   function getFilteredOrders() {
-    let data = allOrders;
+    let data = allOrders.filter(_orderMatchesSource);
     // If user is searching, skip tab filter — search across ALL orders (active + inactive + archived)
     if (orderSearchTerm) {
       data = data.filter(o => {
@@ -8319,18 +8703,49 @@
     return data;
   }
 
+  // Session 155: source-segment click handler. Re-render everything that
+  // reads from getFilteredOrders or counts orders by source.
+  function setOrdersSource(src, btn) {
+    if (!['delivery', 'retail'].includes(src)) return;
+    _ordersSourceFilter = src;
+    document.querySelectorAll('#order-source-tabs .filter-tab').forEach(b => {
+      b.classList.toggle('active', b === btn);
+    });
+    // Hide the Scheduled status tab when in Retail mode — walk-ins are never
+    // future-dated, so the tab would always be 0. Auto-shift to In Process
+    // if Scheduled was the active tab.
+    const schedTab = document.querySelector('#order-filter-tabs [data-filter="scheduled"]');
+    if (schedTab) {
+      schedTab.style.display = src === 'retail' ? 'none' : '';
+      if (src === 'retail' && currentOrderFilter === 'scheduled') {
+        const fallbackBtn = document.querySelector('#order-filter-tabs [data-filter="in_process"]');
+        if (fallbackBtn) filterOrders('in_process', fallbackBtn);
+      }
+    }
+    updateOrderFilterCounts();
+    updateOrderStatCards();
+    // Session 156: must pass the filtered data — renderOrders(data) requires
+    // its argument and silently throws on undefined.length. Bug caused stale
+    // rows to persist when toggling between Delivery and Retail.
+    renderOrders(getFilteredOrders());
+  }
+
   // Updates each pill button to show its count badge
+  // Session 155: counts respect _ordersSourceFilter so the badge numbers
+  // match what's actually visible in the list. (Switching to Retail shouldn't
+  // show "Issues 11" if 11 of those are Delivery issues.)
   function updateOrderFilterCounts() {
     const TAB_LABELS = { scheduled:'Scheduled', in_process:'In Process', ready:'Ready', issues:'Issues', delivered:'Delivered', archived:'Archived' };
     // Active-tab counts must exclude archived orders — otherwise Issues would still show rows we've hidden
-    const activeOnly = allOrders.filter(o => !o.archived_at);
+    const sourceFiltered = allOrders.filter(_orderMatchesSource);
+    const activeOnly = sourceFiltered.filter(o => !o.archived_at);
     const counts = {
       scheduled:  activeOnly.filter(o => (ORDER_FILTER_GROUPS.scheduled||[]).includes(o.status)).length,
       in_process: activeOnly.filter(o => (ORDER_FILTER_GROUPS.in_process||[]).includes(o.status)).length,
       ready:      activeOnly.filter(o => (ORDER_FILTER_GROUPS.ready||[]).includes(o.status)).length,
       issues:     activeOnly.filter(o => { if (o.status === 'skipped' && o.cancelled_by === 'customer') return false; if (o.status === 'skipped' && o.recurring_interval) return false; if (o.status === 'pickup_failed' && o.recurring_interval) return false; const _cs = ['ready_for_delivery','out_for_delivery','delivered']; if (o.billing_status === 'failed' && _cs.includes(o.status) && o.customers?.billing_type !== 'on_account') return true; return (ORDER_FILTER_GROUPS.issues||[]).includes(o.status); }).length,
       delivered:  (() => { const cutoff = new Date(Date.now() - DELIVERED_TAB_WINDOW_DAYS*24*60*60*1000).toISOString(); return activeOnly.filter(o => o.status === 'delivered' && (o.actual_delivery_at || o.delivery_window_start || '') >= cutoff).length; })(),
-      archived:   allOrders.filter(o => o.archived_at).length,
+      archived:   sourceFiltered.filter(o => o.archived_at).length,
     };
     document.querySelectorAll('#order-filter-tabs .filter-tab').forEach(btn => {
       const key = btn.dataset.filter;
@@ -8470,7 +8885,7 @@
           <td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="order-select-cb" data-id="${o.id}" data-num="${o.order_number}" data-status="${o.status}" data-customer-id="${custId}" data-phone="${esc(o.customers?.phone_cache||'')}" data-cust-name="${esc((o.customers?.first_name_cache||'') + ' ' + (o.customers?.last_name_cache||''))}" onchange="updateOrderBatchBar()"></td>
           <td style="font-size:11.5px;color:var(--gray-400);font-weight:600;white-space:nowrap;padding:8px 4px">${o.order_number ? '#'+o.order_number : '—'}</td>
           <td class="td-name" style="padding:8px 8px">${orderCustomerCell(o)}</td>
-          <td style="padding:8px 6px">${inIssues ? issueBadge(o) : statusBadge(o.status)}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:3px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : (o.overcap_booking ? `<span style="color:#c2560a;font-size:11px;margin-left:3px;cursor:help" title="Booked over base capacity — within 125% soft ceiling">▲</span>` : '')}${inArchived && o.archived_at ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:3px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.archived_reason || '')}">📦 ${fmtDate(o.archived_at)}${o.archived_reason ? ' · ' + esc(o.archived_reason) : ''}</div>` : ''}</td>
+          <td style="padding:8px 6px">${inIssues ? issueBadge(o) : statusBadge(o.status, o.source)}${o.source === 'walk_in' ? `<span title="Retail (POS walk-in)" style="display:inline-block;margin-left:6px;font-size:10px;font-weight:700;color:#5a3a06;background:#fef3c7;border-radius:4px;padding:2px 6px;vertical-align:middle">🏪 Retail</span>` : ''}${o.routing_error ? `<span style="color:#dc2626;font-size:11px;margin-left:3px;cursor:help" title="${o.routing_error.replace(/"/g,'&quot;')}">⚠️</span>` : (o.overcap_booking ? `<span style="color:#c2560a;font-size:11px;margin-left:3px;cursor:help" title="Booked over base capacity — within 125% soft ceiling">▲</span>` : '')}${inArchived && o.archived_at ? `<div style="font-size:10.5px;color:var(--gray-400);margin-top:3px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(o.archived_reason || '')}">📦 ${fmtDate(o.archived_at)}${o.archived_reason ? ' · ' + esc(o.archived_reason) : ''}</div>` : ''}</td>
           <td style="white-space:nowrap;padding:6px 8px">${pickupCombinedCell(o)}</td>
           <td style="white-space:nowrap;padding:6px 8px">${deliveryCombinedCell(o)}</td>
           <td style="font-size:12px;text-align:center;padding:8px 4px;line-height:1.3">${bagsDisplay}</td>
@@ -8808,6 +9223,15 @@
   // ── RECALL ORDER (delivered → back onto a route) ──
   // Opens a modal that lets staff pick a route and place the order back on it.
   // Deliberately does NOT send any SMS to the customer.
+  //
+  // The recall modal captures the order id into its own state (_recallOrderId)
+  // the moment it opens — it does NOT read the live `opCurrentOrderId` global at
+  // confirm time. This matches the _singleStatusOrderId pattern and makes the
+  // flow immune to the order panel being closed (which nulls opCurrentOrderId)
+  // while the modal is still open. The pairing z-index fix (modal above the
+  // panel + its backdrop) prevents that close from happening in the first place,
+  // but capturing the id is the durable backstop.
+  let _recallOrderId = null;
   async function opRecallOrder() {
     if (!opCurrentOrderId) return;
     const o = allOrders.find(x => x.id === opCurrentOrderId);
@@ -8819,6 +9243,7 @@
       showToast('Only delivered orders can be recalled', 'error');
       return;
     }
+    _recallOrderId = opCurrentOrderId; // capture for confirmRecallOrder
     // Ensure routes cache is ready
     await opPrefetchRoutes();
 
@@ -8855,6 +9280,7 @@
   function closeRecallModal() {
     const m = document.getElementById('recall-order-modal');
     if (m) m.style.display = 'none';
+    _recallOrderId = null;
   }
 
   async function confirmRecallOrder() {
@@ -8863,13 +9289,14 @@
     const btn    = document.getElementById('recall-confirm-btn');
     const showErr = msg => { if (errEl) { errEl.textContent = msg; errEl.style.display = ''; } };
 
-    // Bail conditions now surface a visible error instead of returning silently.
-    // Previous version returned early on missing opCurrentOrderId or a missing
-    // entry in the allOrders cache — making the modal feel unresponsive when
-    // the delivered order had been opened from a context (search, deep-link,
-    // freshly-status-updated tab) where allOrders no longer held it.
-    if (!opCurrentOrderId) {
-      console.warn('[recall] aborted: opCurrentOrderId is null');
+    // Use the order id captured when the modal opened (_recallOrderId), NOT the
+    // live opCurrentOrderId global. The global is nulled by closeOrderPanel(),
+    // which can fire while this modal is open (e.g. a stray click on the panel
+    // backdrop). Reading it here was the cause of the spurious "No order is
+    // open" error. The captured id is stable for the life of the modal.
+    const orderId = _recallOrderId;
+    if (!orderId) {
+      console.warn('[recall] aborted: _recallOrderId is null');
       showErr('No order is open. Close this modal, reopen the order, and try again.');
       return;
     }
@@ -8880,7 +9307,7 @@
     // The local in-memory copy is only used for cache-sync after the RPC
     // succeeds — it is NOT required to make the call. Fall back gracefully
     // if it isn't in the cache; the post-RPC reload still corrects the UI.
-    const o = allOrders.find(x => x.id === opCurrentOrderId) || null;
+    const o = allOrders.find(x => x.id === orderId) || null;
 
     const opt = sel.selectedOptions[0];
     const runDate = opt?.dataset?.runDate || '';
@@ -8908,9 +9335,9 @@
       const actorName = (typeof currentUserDisplayName !== 'undefined' && currentUserDisplayName)
         || (typeof currentUserFirstName !== 'undefined' && currentUserFirstName)
         || 'Admin';
-      console.log('[recall] calling RPC', { orderId: opCurrentOrderId, routeId, actorName });
+      console.log('[recall] calling RPC', { orderId, routeId, actorName });
       const { data: rpcRes, error: rpcErr } = await db.rpc('recall_delivered_order', {
-        p_order_id:          opCurrentOrderId,
+        p_order_id:          orderId,
         p_delivery_route_id: routeId,
         p_reason:            reason || null,
         p_actor_name:        actorName,
@@ -10527,7 +10954,7 @@
   </align>
   <ruled-line/>
   <text-line size="${_nameSize}"><bold>${custNameXml}</bold></text-line>
-${custPhone ? `  <text-line>${_escXml(custPhone)}</text-line>\n` : ''}  <text-line>${_escXml(custAddr || '')}</text-line>
+${custPhone ? `  <text-line>${_escXml(custPhone)}</text-line>\n` : ''}${custAddr ? `  <text-line>${_escXml(custAddr)}</text-line>\n` : ''}
   <ruled-line/>
   <text-line><bold>${orderLine}</bold></text-line>
   <ruled-line/>
@@ -10957,6 +11384,46 @@ ${oneCopy}
     w.document.write(fullHtml); w.document.close();
   }
 
+  // Receipt-address resolver. Returns the delivery address for an order, with
+  // safe fallbacks. Used by printBagTag (manual reprint) and _autoPrintIntake
+  // (auto-print on Save & Start Processing). The receipt doubles as a bag tag
+  // — the driver reads the address off the printed slip when they pick the
+  // bag off the rack, so we always want the DELIVERY address, regardless of
+  // whether customer.address_cache is populated.
+  // Fallback chain: delivery_address → pickup_address → customer.address_cache.
+  async function _resolveDeliveryAddrForReceipt(o, cust) {
+    const addrId = o?.delivery_address_id || o?.pickup_address_id;
+    const fmt = (a) => [a?.line1, a?.city].filter(Boolean).join(', ');
+    if (addrId) {
+      // Try cached addresses on whichever customer object the caller passed,
+      // then on the order's nested customer (kanban fetches embed addresses
+      // there). One of the two will almost always have it; both being empty
+      // means the caller's order/customer fetch didn't include the array.
+      const candidates = [
+        ...((cust?.addresses) || []),
+        ...((o?.customers?.addresses) || []),
+      ];
+      const cached = candidates.find(a => a.id === addrId);
+      if (cached) {
+        const s = fmt(cached);
+        if (s) return s;
+      }
+      // Last-resort DB lookup. Gated by RLS — `admin_all_addresses` only
+      // admits role='admin', so non-admin counter staff (manager /
+      // laundry_tech) silently get null here. That's why the cached paths
+      // above matter — the loaders MUST embed addresses(id, line1, city) so
+      // this branch never has to fire on the print critical path.
+      try {
+        const { data } = await db.from('addresses')
+          .select('line1, city').eq('id', addrId).maybeSingle();
+        const s = fmt(data);
+        if (s) return s;
+      } catch (_) { /* fall through to cache */ }
+    }
+    // Legacy denormalized cache on the customer record — last fallback.
+    return cust?.address_cache || o?.customers?.address_cache || '';
+  }
+
   async function printBagTag(overrideOrderId) {
     // Can be called from the order panel (no arg) or directly from a kanban card (with orderId)
     const targetId = overrideOrderId || opCurrentOrderId;
@@ -10977,7 +11444,10 @@ ${oneCopy}
     // allOrders has customer_id + allCustomers; kanban caches have o.customers embedded — use whichever is available
     const cust = allCustomers.find(c => c.id === o.customer_id) || o.customers || {};
     const custName = [cust.first_name_cache, cust.last_name_cache].filter(Boolean).join(' ').toUpperCase() || '—';
-    const custAddr = cust.address_cache || '';
+    // Receipt prints DELIVERY address always — so drivers can see where the
+    // bag is going even when the app is offline. Falls back to pickup
+    // address, then to the legacy customer.address_cache for safety.
+    const custAddr = await _resolveDeliveryAddrForReceipt(o, cust);
     const custPhone = cust.phone_cache || '';
     const orderNum = String(o.order_number || o.id.slice(-5).toUpperCase());
 
@@ -17443,6 +17913,27 @@ ${oneCopy}
     // Lazy loads
     if (name === 'transactions') loadCpTransactions(panelCustomerId);
     if (name === 'engagement')   loadCpEngagement(panelCustomerId, _panelPhone);
+    // When entering Billing, restore the last-used sub-tab (session 152).
+    if (name === 'billing') {
+      const last = localStorage.getItem('wr-cpb-subtab') || 'plan';
+      cpBillingSubtab(last);
+    }
+  }
+
+  // Session 152 — Billing sub-tabs (Plan / Payment / Balance).
+  // `btn` is optional; when omitted (e.g., restoring from localStorage on tab entry)
+  // we find the matching button by data-subtab attribute. Scoped to #cptab-billing
+  // so the .filter-tab class match doesn't pick up other filter rows on the page.
+  // All sub-tab content lives inside #cptab-billing already — we just toggle pane visibility.
+  function cpBillingSubtab(name, btn) {
+    document.querySelectorAll('#cptab-billing .filter-tab[data-subtab]').forEach(t => t.classList.remove('active'));
+    const activeBtn = btn || document.querySelector(`#cptab-billing .filter-tab[data-subtab="${name}"]`);
+    if (activeBtn) activeBtn.classList.add('active');
+    ['plan','payment','balance'].forEach(n => {
+      const el = document.getElementById('cpb-pane-' + n);
+      if (el) el.style.display = (n === name) ? '' : 'none';
+    });
+    try { localStorage.setItem('wr-cpb-subtab', name); } catch (e) { /* private mode */ }
   }
 
   async function openCustomerPanel(customerId, startTab) {
@@ -17464,6 +17955,10 @@ ${oneCopy}
     // Hide any stale save messages
     ['cp-contact-msg','cp-billing-msg','cp-pref-msg','cp-notes-msg'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; });
     document.getElementById('cp-add-addr-form').style.display = 'none';
+    // Session 152 — restore last-used Billing sub-tab whether or not the panel
+    // opens on Billing. Calling this on every open keeps the sub-tab in a known
+    // state and avoids a flash of the wrong pane when switching customers.
+    try { cpBillingSubtab(localStorage.getItem('wr-cpb-subtab') || 'plan'); } catch (e) { cpBillingSubtab('plan'); }
 
     const { data: c } = await db.from('customers')
       .select('id, profile_id, lifetime_value, total_orders, total_bags, last_order_at, risk_status, pricelist, referral_source, access_instructions, notes, preferences, first_name_cache, last_name_cache, email_cache, phone_cache, card_last4, card_brand, card_exp_month, card_exp_year, stripe_default_payment_method_id, addresses(id, label, line1, line2, city, state, zip, lat, lng, delivery_instructions, is_default), billing_type, billing_group_id, payment_method, credits, default_tip, default_tip_type, fee_exempt, discount_id, sms_marketing_opt_out_at, email_marketing_opt_out_at, customer_payment_methods(id, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year, is_default, created_at), route_template_override_id, default_site_id')
@@ -17848,14 +18343,15 @@ ${oneCopy}
       showToast('First or last name is required', 'error');
       return;
     }
-    const type   = document.getElementById('cpe-type').value;
+    // Session 151: pricelist moved to saveBilling. saveCustomerContact only writes
+    // identity + operational fields (route override + default site).
     const src    = document.getElementById('cpe-source').value;
     const routeOverride = document.getElementById('cpe-route-override').value || null;
     const defaultSite   = document.getElementById('cpe-default-site')?.value || null;
     const { data: c } = await db.from('customers').select('profile_id').eq('id',panelCustomerId).single();
     // Write null for blanks so profile never stores '' (which would get denormalised downstream).
     if (c?.profile_id) await db.from('profiles').update({ first_name: fn || null, last_name: ln || null, phone: phone || null, email: email || null }).eq('id', c.profile_id);
-    const { error } = await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, pricelist:type||'Delivery', referral_source:src||null, route_template_override_id:routeOverride, default_site_id:defaultSite }).eq('id', panelCustomerId);
+    const { error } = await db.from('customers').update({ first_name_cache:fn, last_name_cache:ln, email_cache:email, phone_cache:phone, referral_source:src||null, route_template_override_id:routeOverride, default_site_id:defaultSite }).eq('id', panelCustomerId);
     btn.disabled=false; btn.textContent=origText;
     if (error) { showToast('Error: ' + error.message, 'error'); return; }
     document.getElementById('cp-name').textContent = `${fn} ${ln}`.trim() || 'Unknown';
@@ -17924,6 +18420,9 @@ ${oneCopy}
     const btn = document.querySelector('#cptab-billing .cp-save-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     const billingType = document.getElementById('cpb-billing-type').value;
+    // Session 151: pricelist moved here from saveCustomerContact (the Price List
+    // field now lives in the Plan section at the top of the Billing tab).
+    const pricelist   = document.getElementById('cpe-type').value || 'Delivery';
     const patch = {
       billing_type:     billingType,
       payment_method:   document.getElementById('cpb-payment-method').value,
@@ -17932,6 +18431,7 @@ ${oneCopy}
       default_tip_type: _cpTipType,
       discount_id:      document.getElementById('cpb-discount').value || null,
       billing_group_id: billingType === 'on_account' ? (document.getElementById('cpb-billing-group').value || null) : null,
+      pricelist:        pricelist,
       updated_at:       new Date().toISOString(),
     };
     const { error } = await db.from('customers').update(patch).eq('id', panelCustomerId);
@@ -18929,11 +19429,28 @@ ${oneCopy}
     filterCpOrders('billing', document.getElementById('cpof-done'));
   }
 
-  function printInvoice() {
+  async function printInvoice() {
     if (!cpBillingSelection.size) return;
     const orders = cpAllOrders
       .filter(o => cpBillingSelection.has(o.id))
       .sort((a, b) => (a.pickup_window_start || a.created_at) < (b.pickup_window_start || b.created_at) ? -1 : 1);
+    // Session 150: fetch customer_transactions for the selected orders so the
+    // receipt can show a separate "Account credit applied" line and a PAID row
+    // that reflects what was actually charged to the card (gross total minus
+    // any credit applied). Without this, an order paid with $20 credit + $X
+    // on card showed "PAID (Card) -$gross" — incorrect.
+    const _orderIds = orders.map(o => o.id);
+    const _creditByOrder = {};
+    if (_orderIds.length) {
+      const { data: _txns } = await db.from('customer_transactions')
+        .select('order_id,type,amount')
+        .in('order_id', _orderIds);
+      (_txns || []).forEach(t => {
+        if (t.type === 'credit_use') {
+          _creditByOrder[t.order_id] = (_creditByOrder[t.order_id] || 0) + parseFloat(t.amount || 0);
+        }
+      });
+    }
     const c = _panelCustomerData;
     const customerName = esc([c?.first_name_cache, c?.last_name_cache].filter(Boolean).join(' ') || 'Customer');
     const defaultAddr  = c?.addresses?.find(a => a.is_default) || c?.addresses?.[0];
@@ -18998,13 +19515,26 @@ ${oneCopy}
               <td style="text-align:right;padding:2px 0;font-size:12px">${fmtInvMoney(tipDol)}</td>
             </tr>` : '';
       const chargedTotal = _orderChargedTotal(o);
+      // Session 150: split paid amount across "Account credit applied" + the
+      // payment-method line so receipts honestly reflect mixed-tender orders.
+      // Skip the split when the order was paid entirely from credit
+      // (billing_payment_method='credit') — that path already shows
+      // "(Account Credit)" as the single paid line and there's no card amount.
+      const fullyPaidViaCredit = (o.billing_payment_method === 'credit');
+      const creditFromTxn = fullyPaidViaCredit ? 0 : (_creditByOrder[o.id] || 0);
+      const cardPaid = Math.round((chargedTotal - creditFromTxn) * 100) / 100;
+      const creditAppliedRow = creditFromTxn > 0 ? `
+            <tr>
+              <td style="padding:2px 0 2px 24px;font-size:12px;color:#059669">Account credit applied</td>
+              <td style="text-align:right;padding:2px 0;font-size:12px;color:#059669">−${fmtInvMoney(creditFromTxn)}</td>
+            </tr>` : '';
       // Payment status row — uses charged total so the "PAID" amount matches
       // what Stripe actually collected (subtotal + tip), not the pre-tip subtotal.
       const paidMethodLabel = o.billing_payment_method === 'credit' ? ' (Account Credit)' : o.billing_payment_method === 'check' ? ' (Check)' : o.billing_payment_method === 'cash' ? ' (Cash)' : o.stripe_payment_intent_id ? ' (Card)' : '';
       const paidRow = isPaid ? `
             <tr>
               <td style="padding:4px 0 0 24px;font-size:12px;font-weight:600;color:#059669">✓ PAID${paidMethodLabel}</td>
-              <td style="text-align:right;font-size:12px;font-weight:600;color:#059669;padding:4px 0 0">−${fmtInvMoney(chargedTotal)}</td>
+              <td style="text-align:right;font-size:12px;font-weight:600;color:#059669;padding:4px 0 0">−${fmtInvMoney(cardPaid)}</td>
             </tr>
             <tr>
               <td style="padding:4px 0 0 24px;font-size:12px;font-weight:700">Balance</td>
@@ -19018,6 +19548,7 @@ ${oneCopy}
           <table style="width:100%;border-collapse:collapse">
             ${lineRows}
             ${creditRows}
+            ${creditAppliedRow}
             ${tipRow}
             ${o.weight_lbs ? `<tr><td style="padding:2px 0 2px 24px;font-size:12px;color:#777">Weight</td><td style="text-align:right;padding:2px 0;font-size:12px;color:#777">${o.weight_lbs} lbs</td></tr>` : ''}
             <tr>
@@ -19759,8 +20290,10 @@ ${oneCopy}
     document.getElementById('drv-password').value    = '';
     document.getElementById('drv-error').style.display = 'none';
 
-    // Password section only for new drivers; email locked once account exists
+    // Password section only for new drivers; email locked once account exists.
+    // Session 156: existing drivers get a Reset password section instead.
     document.getElementById('drv-password-section').style.display = d ? 'none' : 'block';
+    document.getElementById('drv-reset-pw-section').style.display  = d ? 'block' : 'none';
     const emailEl = document.getElementById('drv-email');
     emailEl.readOnly = !!d;
     emailEl.style.background = d ? 'var(--gray-50)' : '';
@@ -19786,6 +20319,45 @@ ${oneCopy}
   function closeDriverEditor() {
     document.getElementById('slideover-driver').classList.remove('open');
     document.getElementById('driver-slideover-backdrop').style.display = 'none';
+  }
+
+  // Session 156: admin/manager-gated driver password reset.
+  // Calls admin_reset_driver_password RPC which validates caller role,
+  // confirms target is a driver, enforces 8-char minimum, and writes a
+  // bcrypt hash to auth.users.encrypted_password.
+  async function resetDriverPasswordFromPanel() {
+    if (!currentDriverProfileId) {
+      showToast('No driver selected', 'error');
+      return;
+    }
+    const d = allDriversList.find(x => x.id === currentDriverId);
+    const name = d ? `${d.firstName} ${d.lastName}`.trim() : 'this driver';
+    const pw = prompt(
+      `Reset password for ${name}\n\nEnter a new password (min 8 characters).\nWrite it down — you'll need to share it with them.`,
+      ''
+    );
+    if (pw === null) return; // cancelled
+    const trimmed = pw.trim();
+    if (trimmed.length < 8) {
+      showToast('Password must be at least 8 characters', 'error');
+      return;
+    }
+    const btn = document.getElementById('drv-reset-pw-btn');
+    const origText = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Resetting…';
+    try {
+      const { error } = await db.rpc('admin_reset_driver_password', {
+        p_profile_id: currentDriverProfileId,
+        p_new_password: trimmed,
+      });
+      if (error) throw new Error(error.message);
+      showToast(`Password reset for ${name} — share it with them now`, 'success');
+    } catch (e) {
+      console.error('[admin] reset driver password:', e);
+      showToast(e.message || 'Reset failed', 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = origText;
+    }
   }
 
   async function saveDriver() {
@@ -23385,13 +23957,28 @@ ${oneCopy}
              title="Set a 4-digit POS PIN so this person can ring up sales" onclick="setLaunPin('${l.id}',${escAttrJSArg(l.name)})">
              + PIN
            </button>`;
-      // Grid template here MUST match the header above (1fr 48px 110px 32px).
+      // Square timecard-name override (session 157). Square labor hours are
+      // keyed by the worker's Square name (given + family). When the launderer
+      // display name is kept short (e.g. "Marcela P") it won't match Square, so
+      // the Launderers report shows blank hours/title. This chip lets an admin
+      // set the exact Square name without code. Empty = match by display name.
+      const squareChip = l.square_employee_name
+        ? `<button class="btn btn-ghost" style="padding:5px 10px;font-size:12px;flex-shrink:0;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+             title="Square timecard name: ${esc(l.square_employee_name)} — click to change or clear" onclick="setLaunSquareName('${l.id}',${escAttrJSArg(l.name)})">
+             ⏱ ${esc(l.square_employee_name)}
+           </button>`
+        : `<button class="btn btn-ghost" style="padding:5px 10px;font-size:12px;color:var(--gray-400);flex-shrink:0"
+             title="Set the name exactly as it appears on this person's Square timecard, so the Launderers report can match their hours" onclick="setLaunSquareName('${l.id}',${escAttrJSArg(l.name)})">
+             + Square
+           </button>`;
+      // Grid template here MUST match the header above (1fr 48px 110px 130px 32px).
       // justify-self:center on each cell keeps the buttons visually centered in
       // their column regardless of their natural button width.
-      return `<div class="laun-row" id="laun-row-${l.id}" style="display:grid;grid-template-columns:1fr 48px 110px 32px;gap:14px;align-items:center">
+      return `<div class="laun-row" id="laun-row-${l.id}" style="display:grid;grid-template-columns:1fr 48px 110px 130px 32px;gap:14px;align-items:center">
         <div class="laun-name">${esc(l.name)}</div>
         <button class="btn btn-ghost" style="padding:5px 10px;font-size:13px;justify-self:center" title="View packed orders" onclick="openLaunHistory('${l.id}',${escAttrJSArg(l.name)})">📋</button>
         <div style="justify-self:center">${pinChip}</div>
+        <div style="justify-self:center">${squareChip}</div>
         <button class="svc-del-btn" style="justify-self:center" onclick="deleteLaunderer('${l.id}',${escAttrJSArg(l.name)})" title="Remove">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
         </button>
@@ -23399,11 +23986,23 @@ ${oneCopy}
     }).join('');
   }
 
-  // ── PIN management (session 147 pt 14) ──
-  // PIN is a 4-digit string used at the POS to identify a cashier under the
-  // shared device account. Empty = clear (no POS access). Unique among
-  // active launderers — enforced by the partial UNIQUE index on (pin) WHERE
-  // pin IS NOT NULL.
+  // ── PIN management (session 147 pt 14, sync added session 156) ──
+  // PIN is a 4-digit string. The Launderers page calls this "POS PIN"
+  // because operationally a launderer with a PIN is also an attendant who
+  // signs into the POS. The actual POS auth (start_pos_shift RPC) checks
+  // `profiles.pos_pin`, not `launderers.pin` — they're separate columns
+  // by historical accident. Session 147 pt 14 added launderers.pin meaning
+  // to migrate POS auth there ("Phase 2"), but Phase 2 never shipped.
+  //
+  // Session 156: bridge the two systems. This function writes to BOTH
+  // launderers.pin AND profiles.pos_pin (matched by full name + role).
+  // Without the second write, the Launderers page silently no-ops on
+  // POS login — exactly the drift that caused Mayra Menjivar to be
+  // locked out of the POS today.
+  //
+  // Collision handling: both tables have a UNIQUE constraint on PIN.
+  // If profiles update fails after launderers succeeds, we roll the
+  // launderer back so the two stay consistent.
   async function setLaunPin(id, name) {
     const current = allLaunCache.find(l => l.id === id)?.pin || '';
     const v = prompt(`POS PIN for ${name}\n\nEnter a 4-digit PIN, or leave blank to clear.\n(Current: ${current ? '••••' + current.slice(-2) : 'not set'})`, current);
@@ -23414,18 +24013,76 @@ ${oneCopy}
       return;
     }
     const newPin = trimmed || null;
-    const { error } = await db.from('launderers').update({ pin: newPin }).eq('id', id);
-    if (error) {
-      if (error.code === '23505' || /unique/i.test(error.message)) {
+
+    // 1. Update launderers.pin
+    const { error: lErr } = await db.from('launderers').update({ pin: newPin }).eq('id', id);
+    if (lErr) {
+      if (lErr.code === '23505' || /unique/i.test(lErr.message)) {
         showToast(`That PIN is already in use — pick a different one`, 'error');
       } else {
-        showToast(error.message, 'error');
+        showToast(lErr.message, 'error');
       }
       return;
     }
+
+    // 2. Sync to profiles.pos_pin by exact name match (attendant only).
+    // If no matching attendant profile exists, that's fine — the
+    // launderer just isn't a POS user. If multiple matches (shouldn't
+    // happen in practice), updates them all.
+    const { data: profMatches, error: profSelErr } = await db
+      .from('profiles')
+      .select('id')
+      .eq('role', 'attendant')
+      .eq('first_name', name.split(' ')[0])
+      .eq('last_name', name.split(' ').slice(1).join(' '));
+    if (profSelErr) {
+      console.warn('[setLaunPin] profile lookup failed:', profSelErr.message);
+      // launderer.pin write succeeded; we'll re-render and toast the partial-success state below.
+    } else if (profMatches && profMatches.length > 0) {
+      const { error: pErr } = await db
+        .from('profiles')
+        .update({ pos_pin: newPin })
+        .in('id', profMatches.map(p => p.id));
+      if (pErr) {
+        // Roll back the launderer write so the two tables stay consistent.
+        await db.from('launderers').update({ pin: current || null }).eq('id', id);
+        if (pErr.code === '23505' || /unique/i.test(pErr.message)) {
+          showToast(`That PIN is already used by another team member — pick a different one`, 'error');
+        } else {
+          showToast(`POS login sync failed: ${pErr.message}`, 'error');
+        }
+        return;
+      }
+    }
+
     allLaunCache = allLaunCache.map(l => l.id === id ? { ...l, pin: newPin } : l);
     renderLaunList();
-    showToast(newPin ? `PIN updated for ${name}` : `PIN cleared for ${name}`, 'success');
+    showToast(newPin ? `POS PIN updated for ${name}` : `POS PIN cleared for ${name}`, 'success');
+  }
+
+  // ── Square timecard-name override (session 157) ──
+  // The Launderers report matches each row's Square labor hours by name.
+  // Square keys hours under the worker's given_name + family_name. When the
+  // launderer's display name differs (kept short for the POS folder dropdown,
+  // e.g. "Marcela P"), the match fails and hours/title show blank. This lets
+  // an admin set the exact Square name. Empty = match by the display name.
+  async function setLaunSquareName(id, name) {
+    const current = allLaunCache.find(l => l.id === id)?.square_employee_name || '';
+    const v = prompt(
+      `Square timecard name for ${name}\n\n` +
+      `Enter the name EXACTLY as it appears on this person's Square timecard ` +
+      `(first + last, e.g. "Marcela Piceno"). Leave blank to clear and match by ` +
+      `their launderer name instead.\n\n` +
+      `This only affects how their hours are matched in the Launderers report.`,
+      current
+    );
+    if (v === null) return; // user cancelled
+    const newVal = v.trim() || null;
+    const { error } = await db.from('launderers').update({ square_employee_name: newVal }).eq('id', id);
+    if (error) { showToast(error.message, 'error'); return; }
+    allLaunCache = allLaunCache.map(l => l.id === id ? { ...l, square_employee_name: newVal } : l);
+    renderLaunList();
+    showToast(newVal ? `Square name set for ${name}` : `Square name cleared for ${name}`, 'success');
   }
 
   async function addLaunderer() {
@@ -23550,19 +24207,83 @@ ${oneCopy}
     const start = new Date(new Date(dateVal + 'T00:00:00').getTime() + _ptOff * 60000).toISOString();
     const end   = new Date(new Date(dateVal + 'T23:59:59.999').getTime() + _ptOff * 60000).toISOString();
 
-    const { data: orders, error } = await db.from('orders')
-      .select(`id, order_number, status, total_bags, weight_lbs, total_amount, tip_amount, tip_type, folded_at,
-               customers(first_name_cache, last_name_cache)`)
-      .eq('folded_by_id', launHistLaunId)
-      .gte('folded_at', start)
-      .lte('folded_at', end)
-      .order('folded_at', { ascending: true });
+    // 1) Orders where this launderer is the PRIMARY (folded_by_id) — covers
+    //    both single-launderer orders AND orders where they're the first slot
+    //    of a split.
+    // 2) Orders where this launderer is a SECONDARY participant in a split
+    //    (slot 2 or 3) — folded_by_id points at someone else but they still
+    //    did part of the work.
+    // We need BOTH so this launderer's history reflects all the work they
+    // actually folded, not just the rows where they happen to be slot 1.
+    const [primaryRes, asgnRes] = await Promise.all([
+      db.from('orders')
+        .select(`id, order_number, status, total_bags, weight_lbs, total_amount, tip_amount, tip_type, folded_at, folded_by_id,
+                 customers(first_name_cache, last_name_cache)`)
+        .eq('folded_by_id', launHistLaunId)
+        .gte('folded_at', start)
+        .lte('folded_at', end),
+      db.from('order_folding_assignments')
+        .select('order_id, bags, weight_lbs')
+        .eq('launderer_id', launHistLaunId)
+    ]);
 
-    if (error) {
-      ordersEl.innerHTML = `<div style="padding:32px;text-align:center;color:var(--red);font-size:13px">${error.message}</div>`;
+    if (primaryRes.error) {
+      ordersEl.innerHTML = `<div style="padding:32px;text-align:center;color:var(--red);font-size:13px">${primaryRes.error.message}</div>`;
       return;
     }
-    renderLaunHistoryOrders(orders || []);
+
+    // Build this-launderer's share map: order_id → {bags, weight_lbs}
+    const myShareMap = {};
+    (asgnRes.data || []).forEach(a => { myShareMap[a.order_id] = a; });
+
+    // Find order IDs where this launderer was a SECONDARY participant
+    // (in myShareMap but not in primary results — i.e. someone else is folded_by_id).
+    const primaryIds = new Set((primaryRes.data || []).map(o => o.id));
+    const secondaryIds = Object.keys(myShareMap).filter(id => !primaryIds.has(id));
+
+    // Fetch the secondary orders' rows so we have customer/amount data.
+    let secondaryOrders = [];
+    if (secondaryIds.length) {
+      secondaryOrders = await pgInChunked(
+        () => db.from('orders').select(`id, order_number, status, total_bags, weight_lbs, total_amount, tip_amount, tip_type, folded_at, folded_by_id,
+                                        customers(first_name_cache, last_name_cache)`)
+          .gte('folded_at', start)
+          .lte('folded_at', end),
+        'id', secondaryIds
+      );
+    }
+
+    // Determine which orders are TRUE splits (>1 assignment row) so the
+    // history view shows the "Split share" tag only for actual splits — not
+    // for single-person assignments that the new RPC also writes to the
+    // assignments table for consistency.
+    const allOrderIds = [...(primaryRes.data || []), ...secondaryOrders].map(o => o.id);
+    const splitCountMap = {}; // order_id → total assignment rows
+    if (allOrderIds.length) {
+      const countsRows = await pgInChunked(
+        () => db.from('order_folding_assignments').select('order_id'),
+        'order_id', allOrderIds
+      );
+      countsRows.forEach(r => {
+        splitCountMap[r.order_id] = (splitCountMap[r.order_id] || 0) + 1;
+      });
+    }
+
+    // Tag every order with this launderer's actual share + a split flag.
+    // For real splits (>1 assigned), use the per-row share. Otherwise use
+    // the order's full totals (single-person fold).
+    const allOrders = [...(primaryRes.data || []), ...secondaryOrders].map(o => {
+      const share   = myShareMap[o.id];
+      const isSplit = (splitCountMap[o.id] || 0) > 1;
+      return {
+        ...o,
+        _myBags: (isSplit && share && share.bags != null) ? parseFloat(share.bags) : (o.total_bags || 0),
+        _myLbs:  (isSplit && share && share.weight_lbs != null) ? parseFloat(share.weight_lbs) : (parseFloat(o.weight_lbs) || 0),
+        _isSplit: isSplit
+      };
+    }).sort((a, b) => new Date(a.folded_at) - new Date(b.folded_at));
+
+    renderLaunHistoryOrders(allOrders);
   }
 
   function renderLaunHistoryOrders(orders) {
@@ -23579,11 +24300,15 @@ ${oneCopy}
       return;
     }
 
-    const totalBags    = orders.reduce((s,o) => s+(o.total_bags||0), 0);
-    const totalLbs     = orders.reduce((s,o) => s+(parseFloat(o.weight_lbs)||0), 0);
+    // Totals reflect THIS launderer's share, not the orders' full totals.
+    // For split orders, _myBags / _myLbs hold the per-person split share;
+    // for single-person folds they hold the full order amounts.
+    const totalBags    = orders.reduce((s,o) => s + (parseFloat(o._myBags ?? o.total_bags) || 0), 0);
+    const totalLbs     = orders.reduce((s,o) => s + (parseFloat(o._myLbs  ?? o.weight_lbs) || 0), 0);
     const totalRevenue = orders.reduce((s,o) => s + orderChargedTotal(o), 0);
+    const fmtCnt = n => Number.isInteger(n) ? n : Number(n).toFixed(1);
     document.getElementById('laun-hist-count').textContent   = orders.length;
-    document.getElementById('laun-hist-bags').textContent    = totalBags;
+    document.getElementById('laun-hist-bags').textContent    = fmtCnt(totalBags);
     document.getElementById('laun-hist-lbs').textContent     = totalLbs > 0 ? totalLbs.toFixed(1) : '—';
     document.getElementById('laun-hist-revenue').textContent = fmtMoney(totalRevenue);
     summaryEl.style.display = '';
@@ -23594,12 +24319,18 @@ ${oneCopy}
       const time = o.folded_at
         ? new Date(o.folded_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:BIZ_TZ})
         : '';
+      const myBags = parseFloat(o._myBags ?? o.total_bags) || 0;
+      const myLbs  = parseFloat(o._myLbs  ?? o.weight_lbs) || 0;
+      const bagLbl = `${fmtCnt(myBags)} bag${myBags !== 1 ? 's' : ''}${myLbs ? ` · ${myLbs.toFixed(1)} lbs` : ''}`;
+      const splitTag = o._isSplit
+        ? `<span style="font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-light);padding:1px 6px;border-radius:6px;margin-left:6px">👥 Split share</span>`
+        : '';
       return `<div class="laun-hist-order-row">
-        <div class="laun-hist-order-num">#${o.order_number}</div>
+        <div class="laun-hist-order-num">#${o.order_number}${splitTag}</div>
         <div class="laun-hist-order-cust">${name}</div>
         <div class="laun-hist-order-meta">
           <div class="laun-hist-order-amount">${fmtMoney(orderChargedTotal(o))}</div>
-          <div class="laun-hist-order-bags">${o.total_bags||0} bag${(o.total_bags||0)!==1?'s':''}${o.weight_lbs ? ` · ${Number(o.weight_lbs).toFixed(1)} lbs` : ''}</div>
+          <div class="laun-hist-order-bags">${bagLbl}</div>
           <div class="laun-hist-order-time">${time}</div>
         </div>
       </div>`;
@@ -23625,6 +24356,68 @@ ${oneCopy}
 
   // ── PROC TABS ──
   let procTabActive = 'intake';
+  // ── Processing Queue site filter (session 149) ──
+  // Lets the delivery crew default to seeing only their facility's work
+  // (23rd Ave). Foothill staff or admins peeking can flip to Foothill or All.
+  // Stores the site UUID, or '' for "all sites". Default resolves to the
+  // is_default site (23rd Ave) on first load.
+  let procSiteFilter = localStorage.getItem('wr-proc-site-filter'); // null on first load
+  function resolveProcSiteFilter() {
+    // Called when allSites has loaded. If we haven't stored a preference,
+    // adopt the default site (today: 23rd Ave). Stored '' (empty) means All.
+    if (procSiteFilter === null) {
+      const d = getDefaultSite();
+      procSiteFilter = d ? d.id : '';
+      return;
+    }
+    // Guard: if the stored filter points to a now-missing or deactivated
+    // site, fall back to the default — better than rendering an empty
+    // kanban with no obvious cause.
+    if (procSiteFilter) {
+      const stored = allSites.find(s => s.id === procSiteFilter);
+      if (!stored || !stored.is_active) {
+        const d = getDefaultSite();
+        procSiteFilter = d ? d.id : '';
+        localStorage.setItem('wr-proc-site-filter', procSiteFilter);
+      }
+    }
+  }
+  function _procSiteApply(query) {
+    // Apply the filter to a Supabase query builder. Empty string = All.
+    return procSiteFilter ? query.eq('site_id', procSiteFilter) : query;
+  }
+  function setProcSiteFilter(newVal) {
+    // newVal: site UUID, or '' for All. Persist + re-render + reload columns.
+    procSiteFilter = newVal;
+    localStorage.setItem('wr-proc-site-filter', newVal);
+    renderProcSiteFilterChips();
+    // Reload all four kanban columns with the new filter
+    loadIntakeCol();
+    reloadColumns('cleaning', 'folding', 'rack');
+  }
+  function renderProcSiteFilterChips() {
+    const el = document.getElementById('proc-site-filter-chips');
+    if (!el) return;
+    if (!allSites.length) { el.style.display = 'none'; return; }
+    resolveProcSiteFilter();
+    const activeSites = allSites.filter(s => s.is_active);
+    // Build chips: each site + an "All" option
+    const chip = (label, val, color) => {
+      const isActive = procSiteFilter === val;
+      const tint = color || 'var(--gray-400)';
+      return `<button onclick="setProcSiteFilter('${val}')"
+        style="padding:4px 10px;border-radius:14px;border:1.5px solid ${isActive ? tint : 'var(--gray-200)'};
+               background:${isActive ? tint + '15' : 'white'};
+               color:${isActive ? tint : 'var(--gray-600)'};
+               font-size:12px;font-weight:${isActive ? '700' : '500'};
+               font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .12s">
+        ${color ? `<span style="width:7px;height:7px;border-radius:50%;background:${tint};display:inline-block"></span>` : ''}
+        ${esc(label)}
+      </button>`;
+    };
+    el.style.display = 'flex';
+    el.innerHTML = activeSites.map(s => chip(s.name, s.id, s.color)).join('') + chip('All', '', null);
+  }
 
   function setProcTab(tab, btn) { /* replaced by 4-column kanban */ }
 
@@ -23910,15 +24703,15 @@ ${oneCopy}
       const { data } = await db.from('launderers').select('*').order('name');
       allLaunCache = data || [];
     }
-    const { data: orders } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, zone_id,
+    const { data: orders } = await _procSiteApply(db.from('orders')
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, zone_id, site_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, preferences, billing_type, addresses(id,label,line1,city)),
                services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, pricelist),
                service_zones(name, color),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
-      .eq('status', 'folding')
+      .eq('status', 'folding'))
       .order('updated_at', { ascending: true });
     allFoldOrders = orders || [];
     // Load split assignments for folding orders
@@ -23937,6 +24730,34 @@ ${oneCopy}
     const fb = document.getElementById('ptab-badge-folding');
     if (fb) fb.textContent = allFoldOrders.length;
     renderFoldQueue();
+  }
+
+  // ── Session 155: Retail cards on the admin Processing kanban are
+  //    display-only. The POS Retail Queue is the single writer for retail
+  //    mutations (launderer assignment, intake edits, status advances).
+  //    These helpers produce the attribute string and footer hint applied
+  //    to retail cards across all 4 columns (Intake / Cleaning / Folding /
+  //    Rack). For non-retail orders, they pass through the normal
+  //    interactive attributes (cursor:pointer + onclick + swipe handlers).
+  //
+  //    `openFn` is the panel opener for the column (e.g. "openFoldPanel").
+  //    For retail, the click is replaced with a non-destructive toast so
+  //    accidental taps don't open a panel that could edit the order. ──
+  function _procCardInteractiveAttrs(o, openFn) {
+    if (o && o.source === 'walk_in') {
+      return `style="cursor:default" onclick="event.stopPropagation();showToast('Retail orders are managed in the POS Retail Queue', 'info')"`;
+    }
+    return `style="cursor:pointer"
+        onclick="${openFn}('${o.id}')"
+        ontouchstart="touchStartOrder(event,'${o.id}')"
+        ontouchmove="touchMoveOrder(event)"
+        ontouchend="touchEndOrder(event)"`;
+  }
+  function _procCardRetailFooter(o) {
+    if (!o || o.source !== 'walk_in') return '';
+    return `<div style="margin-top:8px;font-size:11px;color:var(--gray-400);font-style:italic;border-top:1px dashed var(--gray-100);padding-top:6px;display:flex;align-items:center;gap:5px">
+      <span style="font-size:11px">🔒</span> Managed via POS
+    </div>`;
   }
 
   function renderFoldQueue() {
@@ -23959,11 +24780,16 @@ ${oneCopy}
       const folderName  = splitAsgn.length > 1
         ? null
         : (allLaunCache.find(l => l.id === o.folded_by_id)?.name || null);
-      const alreadyPaid = !!o.stripe_payment_intent_id;
+      // billing_status = 'paid' covers Stripe online charges AND POS cash/credit/check
+      // sales. Plain `!!o.stripe_payment_intent_id` mislabels every cash sale as
+      // unpaid because cash never produces a payment intent. (Same fix as racked kanban.)
+      const alreadyPaid = o.billing_status === 'paid';
       const zoneName  = o.service_zones?.name  || '';
       const zoneColor = o.service_zones?.color || '#94a3b8';
       const activeLaun  = allLaunCache.filter(l => l.is_active);
-      const noFolderBadge = !o.folded_by_id ? `
+      // Session 155: hide the inline launderer assignment dropdown for
+      // retail orders — POS owns launderer assignment.
+      const noFolderBadge = (!o.folded_by_id && o.source !== 'walk_in') ? `
         <div style="margin-top:8px;padding:7px 9px;background:#fef9c3;border:1.5px solid #f59e0b;border-radius:8px;display:flex;align-items:center;gap:7px" onclick="event.stopPropagation()">
           <span style="font-size:13px;flex-shrink:0">⚠️</span>
           <select style="flex:1;font-size:12px;padding:3px 6px;border:1px solid #f59e0b;border-radius:5px;background:white;font-family:inherit;cursor:pointer;color:#92400e;font-weight:600"
@@ -23973,11 +24799,7 @@ ${oneCopy}
           </select>
         </div>` : '';
       return `<div class="proc-card" id="fold-card-${o.id}"
-        style="cursor:pointer"
-        onclick="openRackPanel('${o.id}')"
-        ontouchstart="touchStartOrder(event,'${o.id}')"
-        ontouchmove="touchMoveOrder(event)"
-        ontouchend="touchEndOrder(event)">
+        ${_procCardInteractiveAttrs(o, 'openRackPanel')}>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
           <div>
             <div class="proc-card-order">#${o.order_number||'—'}</div>
@@ -24001,6 +24823,7 @@ ${oneCopy}
           : folderName ? `<div style="font-size:12px;color:var(--gray-500)">👤 Folded by <strong style="color:var(--gray-700)">${folderName}</strong></div>` : ''}
         ${noFolderBadge}
         ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${n}"</div>` : ''; })()}
+        ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
     filterKanbanCol('fold'); // re-apply search if active
@@ -24183,26 +25006,26 @@ ${oneCopy}
     const o    = foldActiveOrder;
     const bags = (o.total_bags || 1) / foldSplitCount;
     const lbs  = o.weight_lbs ? Number(o.weight_lbs) / foldSplitCount : null;
-    // Move order to folding, primary = first person
-    const { error } = await db.from('orders').update({
-      status: 'folding', folded_by_id: selected[0],
-      folded_at: new Date().toISOString(), updated_at: new Date().toISOString()
-    }).eq('id', o.id);
-    if (error) { showToast('Error saving: ' + error.message, 'error'); return; }
-    // Clear any previous split rows, then write new ones
-    await db.from('order_folding_assignments').delete().eq('order_id', o.id);
-    const rows = selected.map(launId => ({
-      order_id:     o.id,
+    // Route through assign_order_launderers RPC (the same door the POS uses).
+    // The RPC validates inputs, replaces split rows, updates orders.folded_by_id,
+    // stamps status='folding' + folded_at (via p_set_to_folding=true), and emits
+    // both the 'folded' assignment event and a 'status_change' event — all in
+    // one atomic transaction. Replaces the previous 3 separate raw writes.
+    const assignments = selected.map(launId => ({
       launderer_id: launId,
       bags:         Math.round(bags * 100) / 100,
-      weight_lbs:   lbs ? Math.round(lbs * 100) / 100 : null
+      weight_lbs:   lbs ? Math.round(lbs * 100) / 100 : null,
     }));
-    const { error: splErr } = await db.from('order_folding_assignments').insert(rows);
-    if (splErr) { showToast('Split save error: ' + splErr.message, 'error'); return; }
-    const names   = selected.map(id => allLaunCache.find(l => l.id === id)?.name || 'Launderer').join(', ');
-    const movedId = o.id;
+    const { error } = await db.rpc('assign_order_launderers', {
+      p_order_id:       o.id,
+      p_assignments:    assignments,
+      p_actor_name:     currentUserDisplayName || currentUserFirstName || 'Admin',
+      p_set_to_folding: true,
+    });
+    if (error) { showToast('Split save error: ' + error.message, 'error'); return; }
+    const names    = selected.map(id => allLaunCache.find(l => l.id === id)?.name || 'Launderer').join(', ');
+    const movedId  = o.id;
     const orderNum = o.order_number;
-    await logOrderEvent(o.id, 'folded', `Split between ${names}`, null, selected[0]);
     closeFoldPanel();
     ['proc-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
     allCleanOrders = allCleanOrders.filter(x => x.id !== movedId);
@@ -24224,23 +25047,29 @@ ${oneCopy}
 
   async function saveFolding() {
     if (!foldActiveOrder || !foldSelectedLaunId) return;
-    const _foldLaunName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
-    await logOrderEvent(foldActiveOrder.id, 'folded', `Assigned to ${_foldLaunName} for folding`, null, foldSelectedLaunId);
-    await logOrderEvent(foldActiveOrder.id, 'status_change', 'Folding', foldActiveOrder.status || 'processing', 'folding');
-    const { error } = await db.from('orders').update({
-      status: 'folding', folded_by_id: foldSelectedLaunId,
-      folded_at: new Date().toISOString(), updated_at: new Date().toISOString()
-    }).eq('id', foldActiveOrder.id);
+    const o = foldActiveOrder;
+    // Same RPC the split flow + the POS use. Single-person assignment is
+    // represented as a 1-entry array carrying the full order totals so the
+    // assignments table is always a complete record of who folded what.
+    const assignments = [{
+      launderer_id: foldSelectedLaunId,
+      bags:         o.total_bags != null ? Number(o.total_bags) : null,
+      weight_lbs:   o.weight_lbs != null ? Number(o.weight_lbs) : null,
+    }];
+    const { error } = await db.rpc('assign_order_launderers', {
+      p_order_id:       o.id,
+      p_assignments:    assignments,
+      p_actor_name:     currentUserDisplayName || currentUserFirstName || 'Admin',
+      p_set_to_folding: true,
+    });
     if (error) {
       const errEl = document.getElementById('fold-error');
       errEl.textContent = error.message; errEl.style.display = '';
       return;
     }
-    // Single-person assignment — clear any previous split rows
-    await db.from('order_folding_assignments').delete().eq('order_id', foldActiveOrder.id);
     const launName = allLaunCache.find(l => l.id === foldSelectedLaunId)?.name || 'Launderer';
-    const movedId  = foldActiveOrder.id;
-    const orderNum = foldActiveOrder.order_number; // capture before closeFoldPanel() nulls foldActiveOrder
+    const movedId  = o.id;
+    const orderNum = o.order_number; // capture before closeFoldPanel() nulls foldActiveOrder
     closeFoldPanel();
     // Instant removal from source column
     ['proc-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
@@ -24252,18 +25081,30 @@ ${oneCopy}
 
   async function assignFolderInline(orderId, launId) {
     if (!launId) return;
-    const _inlineLaunName = allLaunCache.find(l => l.id === launId)?.name || 'Launderer';
-    await logOrderEvent(orderId, 'folded', `Reassigned to ${_inlineLaunName} for folding`, null, launId);
-    const { error } = await db.from('orders').update({
-      folded_by_id: launId,
-      updated_at: new Date().toISOString()
-    }).eq('id', orderId);
-    if (error) { showToast('Could not assign: ' + error.message, 'error'); return; }
-    // Clear any split assignments — inline reassign always means single person
-    await db.from('order_folding_assignments').delete().eq('order_id', orderId);
-    foldAssignmentsMap[orderId] = [];
-    const launName = allLaunCache.find(l => l.id === launId)?.name || 'Launderer';
     const order = allFoldOrders.find(o => o.id === orderId);
+    // Inline reassign on a fold card — order is already in 'folding' status,
+    // so we DON'T pass p_set_to_folding=true (no need to bump folded_at).
+    // RPC clears existing split rows and writes a single 1-row assignment
+    // with the full order totals.
+    const assignments = [{
+      launderer_id: launId,
+      bags:         order?.total_bags != null ? Number(order.total_bags) : null,
+      weight_lbs:   order?.weight_lbs != null ? Number(order.weight_lbs) : null,
+    }];
+    const { error } = await db.rpc('assign_order_launderers', {
+      p_order_id:       orderId,
+      p_assignments:    assignments,
+      p_actor_name:     currentUserDisplayName || currentUserFirstName || 'Admin',
+      p_set_to_folding: false,
+    });
+    if (error) { showToast('Could not assign: ' + error.message, 'error'); return; }
+    // Keep local cache in sync — the RPC wrote a 1-row assignment, so
+    // mirror that here too (the kanban card render uses foldAssignmentsMap
+    // to decide split vs single-person display).
+    foldAssignmentsMap[orderId] = assignments.map(a => ({
+      order_id: orderId, launderer_id: a.launderer_id, bags: a.bags, weight_lbs: a.weight_lbs
+    }));
+    const launName = allLaunCache.find(l => l.id === launId)?.name || 'Launderer';
     if (order) order.folded_by_id = launId;
     showToast(`Assigned to ${launName}`, 'success');
     renderFoldQueue();
@@ -24281,14 +25122,14 @@ ${oneCopy}
       const { data } = await db.from('racks').select('*').eq('is_active', true).order('sort_order');
       allRacksCache = data || [];
     }
-    const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, billing_status, rack_id, folded_by_id, source, special_instructions,
+    const { data } = await _procSiteApply(db.from('orders')
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, billing_status, rack_id, folded_by_id, source, special_instructions, site_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, addresses(id,label,line1,city)),
                services(name),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
-      .eq('status', 'ready_for_delivery')
+      .eq('status', 'ready_for_delivery'))
       .order('racked_at', { ascending: false })
       .limit(20); // only show recently racked
     allRackOrders = data || [];
@@ -24309,8 +25150,15 @@ ${oneCopy}
     }
     wrap.innerHTML = allRackOrders.map(o => {
       const name = `${o.customers?.first_name_cache||''} ${o.customers?.last_name_cache||''}`.trim() || '—';
+      // Site substitution: orders processed at a non-default site (Foothill)
+      // don't go on a numbered rack — they sit at that facility. Show the
+      // site name + color where the rack pill would normally be.
+      const site = o.site_id ? getSiteById(o.site_id) : null;
+      const isOffsite = site && !site.is_default;
       const rack = allRacksCache.find(r => r.id === o.rack_id);
-      const rackLabel = rack ? rack.name : '—';
+      const rackLabel = isOffsite ? site.name : (rack ? rack.name : '—');
+      const rackTint  = isOffsite ? (site.color || 'var(--accent)') : 'var(--accent)';
+      const rackIcon  = isOffsite ? '📍' : '🗂️';
       // billing_status = 'paid' covers both Stripe online charges AND POS cash
       // sales. Earlier `!!o.stripe_payment_intent_id` mislabeled every cash sale
       // as ❌ Unpaid because cash never produces a payment intent.
@@ -24324,16 +25172,23 @@ ${oneCopy}
           : isOnAcct
             ? `<span style="font-size:11px;font-weight:600;color:#1e40af;display:inline-flex;align-items:center;gap:2px" title="On Account — added to balance">✔ Invoiced</span>`
             : `<span style="font-size:11px;font-weight:600;color:#dc2626;display:inline-flex;align-items:center;gap:2px" title="Not yet charged">❌ Unpaid</span>`;
-      return `<div class="proc-card" id="racked-card-${o.id}" style="cursor:pointer" onclick="openRackPanel('${o.id}')">
+      return `<div class="proc-card" id="racked-card-${o.id}"
+        ${o.source === 'walk_in'
+          ? `style="cursor:default" onclick="event.stopPropagation();showToast('Retail orders are managed in the POS Retail Queue', 'info')"`
+          : `style="cursor:pointer" onclick="openRackPanel('${o.id}')"`}>
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div class="proc-card-order">#${o.order_number||'—'}</div>
-          ${payBadge}
+          <div style="display:flex;align-items:center;gap:6px">
+            ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:var(--accent-light);color:var(--blue);padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Retail</span>`:''}
+            ${payBadge}
+          </div>
         </div>
         <div class="proc-card-name">${name}</div>
         <div class="proc-card-meta">
           <span>📦 ${o.total_bags||1} bag${(o.total_bags||1)!==1?'s':''}</span>
-          <span style="color:var(--accent);font-weight:600;text-decoration:underline;text-decoration-style:dotted">🗂️ ${rackLabel}</span>
+          <span style="color:${rackTint};font-weight:600;text-decoration:underline;text-decoration-style:dotted">${rackIcon} ${esc(rackLabel)}</span>
         </div>
+        ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
     filterKanbanCol('rack'); // re-apply search if active
@@ -24376,13 +25231,32 @@ ${oneCopy}
     const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
     const fn   = o.customers?.first_name_cache || '';
     const ln   = o.customers?.last_name_cache  || '';
+    // For orders processed at a non-default site (Foothill Blvd), there are
+    // no numbered racks — just a single "Mark Ready" button. The skip-rack
+    // path through the rack_order RPC handles billing + status advance the
+    // same way the rack-grid path does.
+    const site      = o.site_id ? getSiteById(o.site_id) : null;
+    const isOffsite = site && !site.is_default;
     const activeRacks = allRacksCache.filter(r => r.is_active);
-    const racksHTML = activeRacks.length
-      ? `<div class="rack-grid">${activeRacks.map(r =>
+    const sectionTitle = isOffsite ? `Ready at ${esc(site.name)}?` : 'Which rack?';
+    let racksHTML;
+    if (isOffsite) {
+      const tint = site.color || 'var(--accent)';
+      racksHTML = `<button class="rack-btn"
+        onclick="confirmOffsiteReady()"
+        style="width:100%;padding:14px;border-radius:10px;border:2px solid ${tint};background:${tint}15;color:${tint};font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+        <span style="width:9px;height:9px;border-radius:50%;background:${tint};display:inline-block"></span>
+        ✓ Mark Ready at ${esc(site.name)}
+      </button>
+      <div style="font-size:11.5px;color:var(--gray-400);margin-top:8px;text-align:center">Charges card · advances to Ready for Delivery · no rack assignment</div>`;
+    } else if (activeRacks.length) {
+      racksHTML = `<div class="rack-grid">${activeRacks.map(r =>
           `<button class="rack-btn${selectedRackId===r.id?' selected':''}" onclick="selectRack('${r.id}')">
             <span>${r.name}</span>
-          </button>`).join('')}</div>`
-      : `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No racks set up yet — add them in Settings → Racks.</div>`;
+          </button>`).join('')}</div>`;
+    } else {
+      racksHTML = `<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No racks set up yet — add them in Settings → Racks.</div>`;
+    }
     // Line items breakdown (deduped to remove stale "Name: Yes" entries)
     const lineItems = _dedupeLineItems(o.line_items);
     const liHTML = lineItems.filter(li => {
@@ -24415,7 +25289,7 @@ ${oneCopy}
       </div>
       ${_buildPickupDeliveryHTML(o)}
       <div class="intake-section">
-        <div class="intake-section-label">Which rack?</div>
+        <div class="intake-section-label">${sectionTitle}</div>
         ${racksHTML}
       </div>`;
   }
@@ -24427,13 +25301,27 @@ ${oneCopy}
     saveRacking();
   }
 
+  // Entry point for the Foothill "Mark Ready" button — same downstream
+  // behavior as selectRack(), just routes through saveRacking() with
+  // skip_rack=true so the rack_order RPC doesn't require a rack_id.
+  function confirmOffsiteReady() {
+    selectedRackId = null; // no rack to assign
+    saveRacking({ skipRack: true });
+  }
+
   function closeRackPanel() {
     document.getElementById('rack-panel').classList.remove('open');
     rackActiveOrder = null; selectedRackId = null;
   }
 
-  async function saveRacking() {
-    if (!rackActiveOrder || !selectedRackId) return;
+  async function saveRacking(opts = {}) {
+    // opts.skipRack=true (session 149) — used for orders processed at a
+    // non-default site (Foothill Blvd) where there's no numbered rack.
+    // Routes through the same rack_order RPC with p_skip_rack=true so the
+    // billing + status advance behavior is identical to the rack path.
+    const skipRack = !!opts.skipRack;
+    if (!rackActiveOrder) return;
+    if (!skipRack && !selectedRackId) return;
     const errEl = document.getElementById('rack-error');
     const chargingEl = document.getElementById('rack-charging');
     if (chargingEl) chargingEl.style.display = '';
@@ -24446,16 +25334,22 @@ ${oneCopy}
     // The Stripe charge call (charge-order edge function) stays in the client
     // because holding a DB transaction open across a Stripe round-trip is risky.
     // The RPC returns needs_card_charge=true so we know when to make the call.
-    const _rackLabel  = allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack';
+    // For skip_rack=true (Foothill), p_rack_name carries the site name so the
+    // RPC's "Ready at <X>" event description reads naturally.
+    const _site       = rackActiveOrder.site_id ? getSiteById(rackActiveOrder.site_id) : null;
+    const _rackLabel  = skipRack
+      ? (_site?.name || 'Offsite')
+      : (allRacksCache.find(r => r.id === selectedRackId)?.name || 'Rack');
     const _rackActor  = currentUserDisplayName || currentUserFirstName || 'Admin';
     const _orderId    = rackActiveOrder.id;
     const _orderNum   = rackActiveOrder.order_number;
 
     const { data: rpcRes, error } = await db.rpc('rack_order', {
       p_order_id:   _orderId,
-      p_rack_id:    selectedRackId,
+      p_rack_id:    skipRack ? null : selectedRackId,
       p_rack_name:  _rackLabel,
       p_actor_name: _rackActor,
+      p_skip_rack:  skipRack,
     });
     if (error) {
       errEl.textContent = error.message;
@@ -24519,7 +25413,7 @@ ${oneCopy}
 
     // Local state mirrors what the RPC just wrote.
     rackActiveOrder.status   = 'ready_for_delivery';
-    rackActiveOrder.rack_id  = selectedRackId;
+    rackActiveOrder.rack_id  = skipRack ? null : selectedRackId;
     const rackName   = _rackLabel;
     const movedId    = _orderId;
     const orderNum   = _orderNum;
@@ -24533,7 +25427,12 @@ ${oneCopy}
     ['fold-card-','clean-card-'].forEach(pfx => document.getElementById(pfx + movedId)?.remove());
     allFoldOrders  = allFoldOrders.filter(o => o.id !== movedId);
     allCleanOrders = allCleanOrders.filter(o => o.id !== movedId);
-    showToast(`Order #${orderNum} racked on ${rackName}! Ready for delivery.`, 'success');
+    showToast(
+      skipRack
+        ? `Order #${orderNum} ready at ${rackName}! Ready for delivery.`
+        : `Order #${orderNum} racked on ${rackName}! Ready for delivery.`,
+      'success'
+    );
     reloadColumns('folding', 'rack');
     // Auto-send email receipt — skip for on-account and failed charges (receipt sent when actually charged)
     if (!isOnAccount && !chargeFailed) {
@@ -24618,14 +25517,18 @@ ${oneCopy}
       .eq('is_active', true);
     if (freshSvcs) allAddonServicesCache = freshSvcs;
 
+    // Render the site filter chips (no-op if allSites not loaded yet)
+    renderProcSiteFilterChips();
+
     // Kick off all 4 columns in parallel
     const [{ data: pickedUp }] = await Promise.all([
-      db.from('orders')
-        .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
+      _procSiteApply(db.from('orders')
+        .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, site_id, customer_id,
                  stripe_payment_intent_id, pickup_window_start, delivery_window_start, total_amount, line_items,
-                 customers(id, first_name_cache, last_name_cache, pricelist, preferences, billing_type),
+                 pickup_address_id, delivery_address_id,
+                 customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, preferences, billing_type, address_cache, addresses(id, line1, city)),
                  services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id)`)
-        .eq('status', 'picked_up')
+        .eq('status', 'picked_up'))
         .order('actual_pickup_at', { ascending: true }),
     ]);
     allProcOrders = pickedUp || [];
@@ -24662,15 +25565,15 @@ ${oneCopy}
   }
 
   async function loadIntakeCol() {
-    const { data } = await db.from('orders')
-      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
+    const { data } = await _procSiteApply(db.from('orders')
+      .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id, site_id,
                stripe_payment_intent_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                actual_pickup_at, pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, pricelist, preferences, billing_type, addresses(id,label,line1,city)),
                services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
-      .eq('status', 'picked_up')
+      .eq('status', 'picked_up'))
       .order('actual_pickup_at', { ascending: true });
     allProcOrders = data || [];
     const b = document.getElementById('ptab-badge-intake');
@@ -24684,14 +25587,14 @@ ${oneCopy}
   async function loadCleaning() {
     const wrap = document.getElementById('clean-queue-wrap');
     if (wrap) wrap.innerHTML = '<div class="loading"><div class="spinner"></div> Loading…</div>';
-    const { data } = await db.from('orders')
-      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id,
+    const { data } = await _procSiteApply(db.from('orders')
+      .select(`id, order_number, total_bags, weight_lbs, total_amount, tip_amount, tip_type, line_items, stripe_payment_intent_id, special_instructions, source, rack_id, folded_by_id, site_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id,
                customers(id, first_name_cache, last_name_cache, phone_cache, pricelist, preferences, billing_type, addresses(id,label,line1,city)),
                services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, pricelist),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
-      .eq('status', 'processing')
+      .eq('status', 'processing'))
       .order('updated_at', { ascending: true });
     allCleanOrders = data || [];
     document.getElementById('ptab-badge-clean')?.textContent !== undefined &&
@@ -24715,13 +25618,11 @@ ${oneCopy}
       const name = `${fn} ${ln}`.trim() || 'Unknown Customer';
       const bags = o.total_bags || 1;
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : '—';
-      const alreadyPaid = !!o.stripe_payment_intent_id;
+      // billing_status='paid' covers Stripe + cash/credit/check (Stripe-only
+      // check missed POS cash sales — same fix as racked kanban).
+      const alreadyPaid = o.billing_status === 'paid';
       return `<div class="proc-card" id="clean-card-${o.id}"
-        style="cursor:pointer"
-        onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openFoldPanel('${o.id}')`}"
-        ontouchstart="touchStartOrder(event,'${o.id}')"
-        ontouchmove="touchMoveOrder(event)"
-        ontouchend="touchEndOrder(event)">
+        ${_procCardInteractiveAttrs(o, alreadyPaid ? 'openRackPanel' : 'openFoldPanel')}>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
           <div>
             <div class="proc-card-order">#${o.order_number||'—'}</div>
@@ -24736,6 +25637,7 @@ ${oneCopy}
           <span>${_serviceLabelForOrder(o)}</span>
         </div>
         ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${n}"</div>` : ''; })()}
+        ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
     filterKanbanCol('clean'); // re-apply search if active
@@ -24764,20 +25666,24 @@ ${oneCopy}
       const bags = o.total_bags || 1;
       const lbs  = o.weight_lbs ? Number(o.weight_lbs).toFixed(1) + ' lbs' : null;
       const svcName = o.services?.name || '—';
-      const alreadyPaid = !!o.stripe_payment_intent_id;
+      // billing_status='paid' covers Stripe + cash/credit/check (Stripe-only
+      // check missed POS cash sales — same fix as racked kanban).
+      const alreadyPaid = o.billing_status === 'paid';
       const prefs   = o.services?.preferences || [];
       // Show chips for pref options that have a price mod (non-standard selections)
       const premiumOpts = [];
       prefs.forEach(g => { const d = (g.options||[]).find(opt=>opt.is_default); if(d&&d.price_mod>0) premiumOpts.push(d.label); });
       return `<div class="proc-card no-drag" id="proc-card-${o.id}"
-        style="cursor:pointer"
-        onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openIntakePanel('${o.id}')`}">
+        ${o.source === 'walk_in'
+          ? `style="cursor:default" onclick="event.stopPropagation();showToast('Retail orders are managed in the POS Retail Queue', 'info')"`
+          : `style="cursor:pointer" onclick="${alreadyPaid ? `openRackPanel('${o.id}')` : `openIntakePanel('${o.id}')`}"`}>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
           <div>
             <div class="proc-card-order">#${o.order_number||'—'}</div>
             <div class="proc-card-name">${name}</div>
           </div>
           ${alreadyPaid?`<span style="font-size:10px;font-weight:700;color:#059669">✅ Paid</span>`:''}
+          ${o.source==='walk_in'?`<span style="font-size:10px;font-weight:700;background:var(--accent-light);color:var(--blue);padding:2px 7px;border-radius:20px;white-space:nowrap">🏪 Retail</span>`:''}
         </div>
         <div class="proc-card-meta">
           <span>📦 ${bags} bag${bags!==1?'s':''}</span>
@@ -24786,6 +25692,7 @@ ${oneCopy}
         </div>
         ${premiumOpts.length ? `<div class="proc-card-prefs">${premiumOpts.map(l=>`<span class="proc-card-pref-chip">${l}</span>`).join('')}</div>` : ''}
         ${(() => { const n = o.special_instructions || o.customers?.preferences?._notes; return n ? `<div style="font-size:12px;color:var(--gray-500);font-style:italic">"${n}"</div>` : ''; })()}
+        ${_procCardRetailFooter(o)}
       </div>`;
     }).join('');
     filterKanbanCol('intake'); // re-apply search if active
@@ -25533,9 +26440,22 @@ ${oneCopy}
   async function _autoPrintIntake(lineItems, bd, printWin) {
     const o = procActiveOrder;
     if (!o) return;
-    const cust = allCustomers.find(c => c.id === (procCustomerId || o.customer_id)) || {};
+    // Mirror printBagTag's fallback chain: allCustomers cache → o.customers
+    // nested object → empty. allCustomers may miss when (a) the customer was
+    // added after the page loaded or (b) procCustomerId hasn't been wired yet.
+    // o.customers (set by openIntakePanel's fresh fetch) reliably carries the
+    // nested addresses array used by the receipt-address resolver — without
+    // this fallback non-admin staff (manager / laundry_tech) silently printed
+    // receipts with a blank delivery address because RLS blocked the resolver's
+    // last-resort DB lookup on `addresses`.
+    const cust = allCustomers.find(c => c.id === (procCustomerId || o.customer_id || o.customers?.id))
+              || o.customers
+              || {};
     const custName = [cust.first_name_cache, cust.last_name_cache].filter(Boolean).join(' ').toUpperCase() || '—';
-    const custAddr = cust.address_cache || '';
+    // Receipt prints DELIVERY address always — so drivers can see where the
+    // bag is going even when the app is offline. Falls back to pickup
+    // address, then to the legacy customer.address_cache for safety.
+    const custAddr = await _resolveDeliveryAddrForReceipt(o, cust);
     const custPhone = cust.phone_cache || '';
     const orderNum = String(o.order_number || o.id.slice(-5).toUpperCase());
 
@@ -25608,6 +26528,7 @@ ${oneCopy}
   function runCurrentReport() {
     if (rptTab === 'revenue')            loadRevenueReport();
     else if (rptTab === 'items')         loadItemsReport();
+    else if (rptTab === 'possales')      loadPosSalesReport();
     else if (rptTab === 'launderer')     loadLaundererReport();
     else if (rptTab === 'drivers')       loadReports();
     else if (rptTab === 'onaccount')     loadOnAccountReport();
@@ -25618,7 +26539,7 @@ ${oneCopy}
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['drivers','revenue','items','launderer','onaccount','subscriptions','registrations'].forEach(t => {
+    ['drivers','revenue','items','possales','launderer','onaccount','subscriptions','registrations'].forEach(t => {
       const el = document.getElementById('rpttab-'+t);
       if (el) el.style.display = t === tab ? '' : 'none';
     });
@@ -27642,14 +28563,22 @@ ${oneCopy}
     // Session 146: only count orders that have actually been processed AND paid
     // — exclude scheduled / picked_up / cancelled / failed / refunded so the
     // report reflects real revenue, not booked-but-not-yet-realized work.
+    //
+    // Session 155: Retail (POS walk-in) orders need a different filter — they
+    // don't have a delivery_window_start (no pickup/delivery scheduling), and
+    // revenue is real the moment the customer pays at the counter, not when
+    // they come back for the bag. So we run a second query for source='walk_in'
+    // AND billing_status='paid' filtered by billed_at, then merge into the
+    // same aggregation map under the 'Retail' pricelist key.
     let itemsOrders = [], itemsFetchError = null;
     { const BATCH = 1000; let offset = 0;
       while (true) {
         const { data, error: e } = await db.from('orders')
-          .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status')
+          .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status, source, billed_at')
           .eq('status', 'delivered')
           .eq('billing_status', 'paid')
           .not('total_amount', 'is', null)
+          .neq('source', 'walk_in')  // walk-in handled by its own query below — keyed off billed_at, not delivery_window_start
           .gte('delivery_window_start', fromISO)
           .lte('delivery_window_start', toISO)
           .order('delivery_window_start')
@@ -27660,12 +28589,31 @@ ${oneCopy}
         offset += BATCH;
       }
     }
+    // Retail (POS walk-in) paid orders, keyed off billed_at.
+    let retailOrders = [];
+    if (!itemsFetchError) { const BATCH = 1000; let offset = 0;
+      while (true) {
+        const { data, error: e } = await db.from('orders')
+          .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status, source, billed_at')
+          .eq('source', 'walk_in')
+          .eq('billing_status', 'paid')
+          .not('total_amount', 'is', null)
+          .gte('billed_at', fromISO)
+          .lte('billed_at', toISO)
+          .order('billed_at')
+          .range(offset, offset + BATCH - 1);
+        if (e) { itemsFetchError = e; break; }
+        retailOrders.push(...(data || []));
+        if (!data || data.length < BATCH) break;
+        offset += BATCH;
+      }
+    }
     const [{ data: services }] = await Promise.all([
       db.from('services').select('id, name, pricelist, is_addon')
     ]);
 
     if (itemsFetchError) { body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${itemsFetchError.message}</div>`; return; }
-    if (!itemsOrders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
+    if (!itemsOrders.length && !retailOrders.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
     const orders = itemsOrders;
 
     // Build lookup: serviceId → { name, pricelist, is_addon }
@@ -27678,13 +28626,48 @@ ${oneCopy}
       const d = new Date(o.delivery_window_start).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
       return d >= selFrom && d <= selTo;
     });
+    // Retail uses billed_at instead of delivery_window_start
+    const filteredRetail = retailOrders.filter(o => {
+      if (!o.billed_at) return false;
+      const d = new Date(o.billed_at).toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+      return d >= selFrom && d <= selTo;
+    });
 
-    if (!filtered.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
+    if (!filtered.length && !filteredRetail.length) { body.innerHTML = '<div class="rev-empty">No orders found for this date range.</div>'; return; }
 
     // Group by pricelist
     // pricelists: { [name]: { orders: N, lbs: N, addons: { [addonName]: { bags: N, revenue: N } } } }
     const byPricelist = {};
     const UNKNOWN = 'Unknown';
+
+    // Shared add-on parser — handles both taxonomies (delivery/customer-app and POS).
+    // Delivery/customer-app writes add-ons as type='pref_service'|'addon'|'addon_service'.
+    // POS writes them as type='service' + kind='addon' (session 155: dual taxonomy
+    // documented; unifying is tech debt for a future pass).
+    const ADDON_BLOCKLIST = new Set([
+      'Air Dry (per item · billed at processing)',
+      'Yes',
+      'Oxiclean',
+    ]);
+    const _accumulateAddons = (lineItems, plData) => {
+      if (!Array.isArray(lineItems)) return;
+      lineItems.forEach(item => {
+        const isAddonType  = item.type === 'pref_service' || item.type === 'addon' || item.type === 'addon_service';
+        const isAddonKind  = item.kind === 'addon';
+        if (item.type === 'base') return;
+        if (!isAddonType && !isAddonKind) return;
+        // Extract add-on name (e.g. "Oxi × 2 bags" → "Oxi", "  + Oxi" → "Oxi")
+        const label = (item.label || item.name || '').replace(/^\s*\+\s*/, '').trim();
+        const addonName = label.split('×')[0].trim() || label;
+        if (ADDON_BLOCKLIST.has(addonName)) return;
+        const qtyMatch = label.match(/×\s*(\d+)/);
+        const qty = qtyMatch ? parseInt(qtyMatch[1]) : (parseInt(item.qty) || 1);
+        const rev = parseFloat(item.amount || 0);
+        if (!plData.addons[addonName]) plData.addons[addonName] = { bags: 0, revenue: 0 };
+        plData.addons[addonName].bags    += qty;
+        plData.addons[addonName].revenue += rev;
+      });
+    };
 
     filtered.forEach(o => {
       const svc = svcMap[o.service_id];
@@ -27699,31 +28682,22 @@ ${oneCopy}
       plData.lbs      += parseFloat(o.weight_lbs   || 0);
       plData.bags     += parseInt(o.total_bags      || 0);
       plData.grossRev += parseFloat(o.total_amount  || 0);
+      _accumulateAddons(o.line_items, plData);
+    });
 
-      // Parse line items for add-ons (base is already counted in grossRev)
-      if (Array.isArray(o.line_items)) {
-        o.line_items.forEach(item => {
-          if (item.type === 'base') return;
-          if (item.type !== 'pref_service' && item.type !== 'addon' && item.type !== 'addon_service') return;
-          // Extract add-on name (e.g. "Oxi × 2 bags" → "Oxi")
-          const label = item.label || '';
-          const addonName = label.split('×')[0].trim() || label;
-          // Skip legacy/junk add-on labels
-          const ADDON_BLOCKLIST = new Set([
-            'Air Dry (per item · billed at processing)',
-            'Yes',
-            'Oxiclean',
-          ]);
-          if (ADDON_BLOCKLIST.has(addonName)) return;
-          // Extract bag quantity from label (e.g. "Oxi × 2 bags" → 2)
-          const qtyMatch = label.match(/×\s*(\d+)/);
-          const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
-          const rev = parseFloat(item.amount || 0);
-          if (!plData.addons[addonName]) plData.addons[addonName] = { bags: 0, revenue: 0 };
-          plData.addons[addonName].bags    += qty;
-          plData.addons[addonName].revenue += rev;
-        });
-      }
+    // Retail aggregation — all retail orders land in byPricelist['Retail'] regardless
+    // of which service was used (POS has 'Wash & Dry' / 'Wash & Fold' / merchandise).
+    // This is the simplest mental model for the report: one Retail bucket for the
+    // whole POS funnel. If we ever split sites here, we'd key by site_id instead.
+    filteredRetail.forEach(o => {
+      const pl = 'Retail';
+      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, grossRev: 0, addons: {} };
+      const plData = byPricelist[pl];
+      plData.orders++;
+      plData.lbs      += parseFloat(o.weight_lbs   || 0);
+      plData.bags     += parseInt(o.total_bags      || 0);
+      plData.grossRev += parseFloat(o.total_amount  || 0);
+      _accumulateAddons(o.line_items, plData);
     });
 
     // Render — preferred order of price lists
@@ -27854,6 +28828,566 @@ ${oneCopy}
   window.loadItemsReport = loadItemsReport;
   window.exportItemsCSV  = exportItemsCSV;
 
+  // ──────────────────────────────────────────────────────────────
+  // POS SALES REPORT (session 154)
+  // ──────────────────────────────────────────────────────────────
+  // Aggregates paid POS / retail orders (source='walk_in', billing_status='paid')
+  // in the selected date window, grouped by item name. Tax is allocated to
+  // taxable items proportionally to their share of the order's taxable subtotal.
+  // Refunded orders are excluded entirely (billing_status='refunded'); partial
+  // refunds on still-paid orders are not subtracted from item revenue (v1
+  // simplification — refund data lives on the order, not per-line-item).
+  let _posSalesData = { items: [], totals: { tx:0, units:0, rev:0, tax:0 }, from:'', to:'', site:'' };
+  let _posSalesOrders = []; // paid + refunded orders with hydrated customer/cashier names (used by By Order tab)
+  let _posSalesSitesPopulated = false;
+  let _psSubTab = 'byitem'; // 'byitem' | 'byorder'
+
+  async function populatePosSalesSiteOptions() {
+    if (_posSalesSitesPopulated) return;
+    const sel = document.getElementById('ps-site-filter');
+    if (!sel) return;
+    const { data, error } = await db.from('sites').select('id, name').order('name');
+    if (error || !data) return;
+    const currentVal = sel.value;
+    sel.innerHTML = '<option value="">All sites</option>' +
+      data.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+    if (currentVal) sel.value = currentVal;
+    _posSalesSitesPopulated = true;
+  }
+
+  function setPosSalesPreset(preset, btn) {
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    if (!fromEl || !toEl) return;
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    const [Y, M] = today.split('-').map(Number);
+    let from = today, to = today;
+
+    if (preset === 'today') {
+      from = to = today;
+    } else if (preset === 'yesterday') {
+      const y = addDaysPacific(today, -1);
+      from = to = y;
+    } else if (preset === '7d') {
+      from = addDaysPacific(today, -6);
+      to   = today;
+    } else if (preset === 'month') {
+      from = `${Y}-${String(M).padStart(2,'0')}-01`;
+      to   = today;
+    } else if (preset === 'lastmonth') {
+      const lastM = M === 1 ? 12 : M - 1;
+      const lastY = M === 1 ? Y - 1 : Y;
+      from = `${lastY}-${String(lastM).padStart(2,'0')}-01`;
+      // Last day of last month = day 0 of "this month" (UTC math is fine for day-of-month
+      // because we're only consuming the date number)
+      const lastDay = new Date(Date.UTC(Y, M - 1, 0)).getUTCDate();
+      to = `${lastY}-${String(lastM).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+    }
+
+    fromEl.value = from;
+    toEl.value   = to;
+
+    document.querySelectorAll('#rpttab-possales .ps-preset').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+
+    loadPosSalesReport();
+  }
+
+  // Detect which preset (if any) matches the current From/To values, so the
+  // chip auto-highlights when the user opens the tab.
+  function _refreshPosSalesPresetHighlight() {
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    if (!fromEl?.value || !toEl?.value) return;
+    const from = fromEl.value, to = toEl.value;
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    const [Y, M] = today.split('-').map(Number);
+
+    const matches = (() => {
+      if (from === today && to === today) return 'today';
+      if (from === to && from === addDaysPacific(today, -1)) return 'yesterday';
+      if (from === addDaysPacific(today, -6) && to === today) return '7d';
+      if (from === `${Y}-${String(M).padStart(2,'0')}-01` && to === today) return 'month';
+      const lastM = M === 1 ? 12 : M - 1;
+      const lastY = M === 1 ? Y - 1 : Y;
+      const lastDay = new Date(Date.UTC(Y, M - 1, 0)).getUTCDate();
+      if (from === `${lastY}-${String(lastM).padStart(2,'0')}-01` &&
+          to   === `${lastY}-${String(lastM).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`) {
+        return 'lastmonth';
+      }
+      return null;
+    })();
+
+    document.querySelectorAll('#rpttab-possales .ps-preset').forEach(b => b.classList.remove('active'));
+    if (matches) {
+      const el = document.getElementById('ps-preset-' + matches);
+      if (el) el.classList.add('active');
+    }
+  }
+
+  async function loadPosSalesReport() {
+    const fromEl    = document.getElementById('rpt-from');
+    const toEl      = document.getElementById('rpt-to');
+    const body      = document.getElementById('ps-rpt-body');
+    const exportBtn = document.getElementById('possales-export-btn');
+    if (!fromEl?.value || !toEl?.value) {
+      showToast('Please select a date range', 'error');
+      return;
+    }
+    if (exportBtn) exportBtn.style.display = 'none';
+
+    await populatePosSalesSiteOptions();
+    _refreshPosSalesPresetHighlight();
+
+    const siteFilter = document.getElementById('ps-site-filter')?.value || '';
+    const selFrom    = fromEl.value;
+    const selTo      = toEl.value;
+
+    body.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
+    const byOrderBodyEl = document.getElementById('ps-by-order-body');
+    if (byOrderBodyEl) byOrderBodyEl.innerHTML = '<div class="rev-empty"><div class="spinner" style="margin:0 auto 10px"></div>Loading…</div>';
+    _setPosSalesSummary('—', '—', '—', '—');
+
+    // Pacific-anchored bounds — keeps the window right whether the admin is in
+    // PT or anywhere else.
+    const fromISO = pacificDayStart(selFrom).toISOString();
+    const toISO   = pacificDayEnd(selTo).toISOString();
+
+    // Paginate; supabase-js .range() needs a fresh query each call.
+    // We pull paid + refunded together — paid feeds the By Item aggregation
+    // and the headline (refunded would inflate "Gross" for stuff that came
+    // back), while the By Order tab uses both for audit visibility.
+    // We hydrate customer + cashier (via pos_shifts→profiles) so the By Order
+    // table doesn't have to do a second round trip.
+    const BATCH = 1000;
+    let allOrders = [];
+    let fetchError = null;
+    let offset = 0;
+    while (true) {
+      let q = db.from('orders')
+        .select('id, order_number, customer_id, total_amount, tax_amount, tip_amount, amount_refunded, billing_status, billing_payment_method, site_id, pos_shift_id, line_items, created_at, customers(id, first_name_cache, last_name_cache), pos_shifts(id, cashier_profile_id, profiles:cashier_profile_id(id, first_name, last_name))')
+        .eq('source', 'walk_in')
+        .in('billing_status', ['paid', 'refunded'])
+        .gte('created_at', fromISO)
+        .lte('created_at', toISO)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + BATCH - 1);
+      if (siteFilter) q = q.eq('site_id', siteFilter);
+      const { data, error } = await q;
+      if (error) { fetchError = error; break; }
+      allOrders.push(...(data || []));
+      if (!data || data.length < BATCH) break;
+      offset += BATCH;
+    }
+
+    if (fetchError) {
+      body.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${esc(fetchError.message)}</div>`;
+      const byOrderBody = document.getElementById('ps-by-order-body');
+      if (byOrderBody) byOrderBody.innerHTML = `<div class="rev-empty" style="color:var(--red)">Error: ${esc(fetchError.message)}</div>`;
+      return;
+    }
+
+    // Paid-only subset feeds the By Item aggregation + the headline.
+    const orders = allOrders.filter(o => o.billing_status === 'paid');
+    _posSalesOrders = allOrders;
+
+    // Fetch Stripe processing fees for paid card orders in this window.
+    // Only call out if at least one order has a payment intent — pure-cash
+    // windows skip the round trip entirely. Same auth + 12s timeout + estimate
+    // fallback pattern as the Daily Revenue report (admin line 27509).
+    let feesByPI = {};
+    let feesEstimated = false;
+    const hasStripeOrders = allOrders.some(o => !!o.stripe_payment_intent_id);
+    if (hasStripeOrders) {
+      const controller = new AbortController();
+      const timeoutId  = setTimeout(() => controller.abort(), 12000);
+      try {
+        const { data: { session } } = await db.auth.getSession();
+        const feeRes = await fetch(`${SUPA_URL}/functions/v1/get-stripe-fees`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || SUPA_ANON_KEY}` },
+          body:   JSON.stringify({ from: selFrom, to: selTo }),
+          signal: controller.signal,
+        });
+        if (feeRes.ok) {
+          const payload = await feeRes.json();
+          feesByPI = payload.feesByPI || {};
+        } else {
+          feesEstimated = true;
+          console.warn('[possales] get-stripe-fees non-ok:', await feeRes.text());
+        }
+      } catch (err) {
+        feesEstimated = true;
+        if (err?.name === 'AbortError') console.warn('[possales] get-stripe-fees timed out >12s — falling back to estimate');
+        else console.warn('[possales] get-stripe-fees failed, falling back to estimate:', err?.message);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+
+    _renderPosByOrder(allOrders, feesByPI, feesEstimated);
+
+    if (!orders.length) {
+      body.innerHTML = '<div class="rev-empty">No paid POS transactions in this date range.</div>';
+      _setPosSalesSummary(0, 0, '$0.00', '$0.00');
+      _posSalesData = { items: [], totals: { tx:0, units:0, rev:0, tax:0 }, from:selFrom, to:selTo, site:siteFilter };
+      return;
+    }
+
+    // Aggregate by item name. We key on the cleaned-up name so "Caprisun"
+    // sold yesterday and today merge into one row.
+    const itemMap = new Map();
+    let totalUnits = 0;
+    let totalRev   = 0;
+    let totalTax   = 0;
+
+    orders.forEach(o => {
+      if (!Array.isArray(o.line_items)) return;
+
+      // Sum taxable portion of this order so we can prorate tax_amount
+      // among only the taxable line items.
+      const orderTax = parseFloat(o.tax_amount || 0);
+      const taxableSubtotal = o.line_items
+        .filter(li => li && li.taxable)
+        .reduce((s, li) => s + parseFloat(li.amount ?? li.subtotal ?? 0), 0);
+
+      o.line_items.forEach(li => {
+        if (!li) return;
+        const name   = (li.name || li.label || 'Unknown').toString().trim() || 'Unknown';
+        const kind   = (li.kind || li.type || 'other').toString();
+        const qty    = parseInt(li.qty || 1) || 1;
+        const lbs    = parseFloat(li.weight_lbs || 0);
+        const amount = parseFloat(li.amount ?? li.subtotal ?? 0);
+        const isPerLb = li.pricing_type === 'per_lb' || lbs > 0;
+
+        let taxShare = 0;
+        if (li.taxable && taxableSubtotal > 0 && orderTax > 0) {
+          taxShare = (amount / taxableSubtotal) * orderTax;
+        }
+
+        if (!itemMap.has(name)) {
+          itemMap.set(name, {
+            name, kind,
+            units: 0, lbs: 0,
+            transactions: new Set(),
+            revenue: 0, tax: 0,
+            anyPerLb: false,
+          });
+        }
+        const e = itemMap.get(name);
+        if (isPerLb) { e.lbs += lbs; e.anyPerLb = true; }
+        e.units += qty;
+        e.transactions.add(o.id);
+        e.revenue += amount;
+        e.tax     += taxShare;
+
+        totalUnits += qty;
+        totalRev   += amount;
+      });
+
+      totalTax += orderTax;
+    });
+
+    const items = Array.from(itemMap.values()).sort((a, b) => b.revenue - a.revenue);
+    const totals = { tx: orders.length, units: totalUnits, rev: totalRev, tax: totalTax };
+    _posSalesData = { items, totals, from: selFrom, to: selTo, site: siteFilter };
+
+    // Render summary headline
+    _setPosSalesSummary(
+      totals.tx.toLocaleString(),
+      totals.units.toLocaleString(),
+      fmtMoney(totals.rev),
+      fmtMoney(totals.tax)
+    );
+
+    // Render table
+    const rows = items.map(it => {
+      const qtyDisplay = it.anyPerLb
+        ? (it.lbs > 0 ? `${(it.lbs % 1 === 0 ? it.lbs : it.lbs.toFixed(1))} lbs` : `${it.units}`)
+        : `${it.units.toLocaleString()}`;
+      const kindLabel = it.kind === 'service' ? 'Service'
+                      : it.kind === 'merchandise' ? 'Merchandise'
+                      : it.kind.charAt(0).toUpperCase() + it.kind.slice(1);
+      const kindClass = (it.kind === 'service' || it.kind === 'merchandise') ? it.kind : 'service';
+      return `<tr>
+        <td>${esc(it.name)}<span class="ps-kind-tag ${kindClass}">${esc(kindLabel)}</span></td>
+        <td>${qtyDisplay}</td>
+        <td>${it.transactions.size.toLocaleString()}</td>
+        <td>${fmtMoney(it.revenue)}</td>
+        <td>${it.tax > 0 ? fmtMoney(it.tax) : '<span class="rev-zero">—</span>'}</td>
+      </tr>`;
+    }).join('');
+
+    body.innerHTML = `
+      <table class="items-tbl">
+        <thead>
+          <tr>
+            <th style="text-align:left">Item</th>
+            <th>Qty Sold</th>
+            <th>Transactions</th>
+            <th>Gross Revenue</th>
+            <th>Tax Collected</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr>
+            <td>Total</td>
+            <td>${totalUnits.toLocaleString()}</td>
+            <td>${totals.tx.toLocaleString()}</td>
+            <td>${fmtMoney(totalRev)}</td>
+            <td>${fmtMoney(totalTax)}</td>
+          </tr>
+        </tfoot>
+      </table>`;
+
+    if (exportBtn) exportBtn.style.display = '';
+  }
+
+  function _setPosSalesSummary(tx, items, rev, tax) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('ps-summary-tx',    tx);
+    set('ps-summary-items', items);
+    set('ps-summary-rev',   rev);
+    set('ps-summary-tax',   tax);
+  }
+
+  function exportPosSalesCSV() {
+    const { items, totals, from, to, site } = _posSalesData;
+    if (!items.length) return;
+    const escCsv = v => `"${String(v).replace(/"/g, '""')}"`;
+    const rows = [];
+    rows.push(['Item','Kind','Qty Sold','Unit','Transactions','Gross Revenue','Tax Collected'].map(escCsv).join(','));
+    items.forEach(it => {
+      const isLb = it.anyPerLb;
+      rows.push([
+        it.name,
+        it.kind,
+        isLb ? it.lbs.toFixed(1) : it.units,
+        isLb ? 'lbs' : 'units',
+        it.transactions.size,
+        it.revenue.toFixed(2),
+        it.tax.toFixed(2),
+      ].map(escCsv).join(','));
+    });
+    rows.push([
+      'TOTAL','',
+      '',
+      '',
+      totals.tx,
+      totals.rev.toFixed(2),
+      totals.tax.toFixed(2),
+    ].map(escCsv).join(','));
+
+    const siteLabel = site
+      ? (document.querySelector(`#ps-site-filter option[value="${site}"]`)?.textContent || 'site').replace(/\s+/g,'-')
+      : 'all-sites';
+    const csv = rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `pos-sales-${siteLabel}-${from}-to-${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // (uses the global fmtMoney helper defined earlier in this file)
+
+  function setPsSubTab(sub) {
+    _psSubTab = sub;
+    document.querySelectorAll('#rpttab-possales .ps-subtab').forEach(b => b.classList.remove('active'));
+    const activeBtn = document.getElementById('ps-subtab-' + sub);
+    if (activeBtn) activeBtn.classList.add('active');
+    const itemView  = document.getElementById('ps-by-item-view');
+    const orderView = document.getElementById('ps-by-order-view');
+    if (itemView)  itemView.style.display  = sub === 'byitem'  ? '' : 'none';
+    if (orderView) orderView.style.display = sub === 'byorder' ? '' : 'none';
+  }
+
+  // Build the compact items snippet shown under the customer name —
+  // e.g. "Wash & Dry 31lb · Caprisun ×2". Cap at 3 items + "+N more".
+  function _buildOrderItemsSnippet(o) {
+    if (!Array.isArray(o.line_items) || !o.line_items.length) return '<span class="rev-zero">—</span>';
+    const parts = [];
+    o.line_items.forEach(li => {
+      if (!li) return;
+      const name = (li.name || li.label || 'item').toString().trim();
+      const lbs = parseFloat(li.weight_lbs || 0);
+      const qty = parseInt(li.qty || 1) || 1;
+      const isPerLb = li.pricing_type === 'per_lb' || lbs > 0;
+      if (isPerLb && lbs > 0) {
+        const lbsLabel = lbs % 1 === 0 ? `${lbs}` : lbs.toFixed(1);
+        parts.push(`${name} ${lbsLabel}lb`);
+      } else if (qty > 1) {
+        parts.push(`${name} ×${qty}`);
+      } else {
+        parts.push(name);
+      }
+    });
+    const shown = parts.slice(0, 3).map(esc).join(' · ');
+    const more  = parts.length > 3 ? ` <span style="color:var(--gray-400)">+${parts.length - 3} more</span>` : '';
+    return shown + more;
+  }
+
+  // Fallback fee estimate matching the Daily Revenue report's pattern.
+  // 2.9% + $0.30 is the US online rate — POS Terminal is actually 2.6% + $0.10,
+  // so this estimate slightly over-estimates POS fees. Only used when the live
+  // Stripe lookup times out or fails; the live values from balanceTransactions
+  // are the truth.
+  function _estPosFee(chargeDollars) { return chargeDollars * 0.029 + 0.30; }
+
+  function _renderPosByOrder(orders, feesByPI, feesGloballyEstimated) {
+    feesByPI = feesByPI || {};
+    const body = document.getElementById('ps-by-order-body');
+    if (!body) return;
+    if (!orders.length) {
+      body.innerHTML = '<div class="rev-empty">No POS transactions in this date range.</div>';
+      return;
+    }
+
+    // Aggregated footer totals across every visible row.
+    let tGross = 0, tTax = 0, tTip = 0, tRefund = 0, tFees = 0, tNet = 0;
+    let anyFeeEstimated = !!feesGloballyEstimated;
+
+    const rows = orders.map(o => {
+      const total   = parseFloat(o.total_amount    || 0);
+      const tax     = parseFloat(o.tax_amount      || 0);
+      const tip     = parseFloat(o.tip_amount      || 0);
+      const refund  = parseFloat(o.amount_refunded || 0);
+      const gross   = total - tax;
+      const net     = gross + tax + tip - refund;
+
+      // Stripe processing fee for THIS order. Matches Daily Revenue policy:
+      // only paid card orders carry a fee. Refunded card orders skip — Stripe
+      // refunds the fee on full refunds in the US, so net fee = $0.
+      let fee = 0;
+      let feeEstimated = false;
+      let feeApplicable = false;
+      if (o.stripe_payment_intent_id && o.billing_status === 'paid') {
+        feeApplicable = true;
+        const cents = feesByPI[o.stripe_payment_intent_id]?.fee_cents;
+        if (cents !== undefined) {
+          fee = cents / 100;
+        } else {
+          // No live data for this PI — estimate from charge total
+          fee = _estPosFee(total + tip);
+          feeEstimated = true;
+          anyFeeEstimated = true;
+        }
+      }
+
+      tGross  += gross;
+      tTax    += tax;
+      tTip    += tip;
+      tRefund += refund;
+      tFees   += fee;
+      tNet    += net;
+
+      const c = o.customers;
+      const customerName = c
+        ? esc(((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() || 'Customer')
+        : '<span style="color:var(--gray-400);font-style:italic">Walk-in</span>';
+
+      const cashierProfile = o.pos_shifts?.profiles;
+      const cashierName = cashierProfile
+        ? esc(((cashierProfile.first_name || '') + ' ' + (cashierProfile.last_name || '')).trim() || '—')
+        : '<span class="rev-zero">—</span>';
+
+      const pmRaw   = (o.billing_payment_method || '').toString().toLowerCase();
+      const pmClass = ['card','cash','credit'].includes(pmRaw) ? pmRaw : '';
+      const pmLabel = pmRaw ? pmRaw.charAt(0).toUpperCase() + pmRaw.slice(1) : '—';
+      const pmCell  = pmRaw
+        ? `<span class="ps-pm-tag ${pmClass}">${esc(pmLabel)}</span>`
+        : '<span class="rev-zero">—</span>';
+
+      const dt = new Date(o.created_at);
+      const dStr = dt.toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' });
+      const tStr = dt.toLocaleTimeString('en-US', { timeZone: BIZ_TZ, hour: 'numeric', minute: '2-digit' });
+
+      const isRefunded = o.billing_status === 'refunded';
+      const rowClass = 'clickable' + (isRefunded ? ' refunded' : '');
+      const statusPill = isRefunded
+        ? '<span class="ps-status-pill refunded">Refunded</span>'
+        : '';
+
+      // Use event.stopPropagation so the inner button-style click on the order
+      // # cell doesn't double-fire with the whole-row click.
+      const openOrderAttr = `onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
+
+      // Fees column display: '—' for non-card (no PI) or refunded orders,
+      // italic value if we fell back to estimate, plain $X.XX from Stripe otherwise.
+      let feesCell;
+      if (!feeApplicable) {
+        feesCell = '<span class="rev-zero">—</span>';
+      } else if (feeEstimated) {
+        feesCell = `<span style="color:var(--red);font-style:italic" title="Estimated — live Stripe fee unavailable">~${fmtMoney(fee)}</span>`;
+      } else {
+        feesCell = `<span style="color:var(--red)">−${fmtMoney(fee)}</span>`;
+      }
+
+      return `<tr class="${rowClass}" ${openOrderAttr}>
+        <td class="left"><div>${esc(dStr)}</div><div style="font-size:11.5px;color:var(--gray-500)">${esc(tStr)}</div></td>
+        <td class="left"><span class="ps-order-num">#${o.order_number}</span>${statusPill}</td>
+        <td class="left"><div>${customerName}</div><div class="ps-items-snippet">${_buildOrderItemsSnippet(o)}</div></td>
+        <td class="left">${pmCell}</td>
+        <td class="left">${cashierName}</td>
+        <td>${fmtMoney(gross)}</td>
+        <td>${tax > 0 ? fmtMoney(tax) : '<span class="rev-zero">—</span>'}</td>
+        <td>${tip > 0 ? fmtMoney(tip) : '<span class="rev-zero">—</span>'}</td>
+        <td>${refund > 0 ? '<span style="color:var(--red)">−' + fmtMoney(refund) + '</span>' : '<span class="rev-zero">—</span>'}</td>
+        <td>${feesCell}</td>
+        <td><strong>${fmtMoney(net)}</strong></td>
+      </tr>`;
+    }).join('');
+
+    // Footer fees cell: italic-tinted hint if any estimates were used in the visible set.
+    const feesFooter = tFees > 0
+      ? (anyFeeEstimated
+          ? `<span style="color:var(--red);font-style:italic" title="Includes estimated fees — live Stripe data unavailable for some orders">~${fmtMoney(tFees)}</span>`
+          : `<span style="color:var(--red)">−${fmtMoney(tFees)}</span>`)
+      : '<span class="rev-zero">—</span>';
+
+    body.innerHTML = `
+      <div class="ps-by-order-wrap">
+        <table class="ps-by-order-tbl">
+          <thead>
+            <tr>
+              <th class="left">When</th>
+              <th class="left">Order</th>
+              <th class="left">Customer / Items</th>
+              <th class="left">Payment</th>
+              <th class="left">Cashier</th>
+              <th>Gross</th>
+              <th>Tax</th>
+              <th>Tip</th>
+              <th>Refund</th>
+              <th>Fees</th>
+              <th>Net</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr>
+              <td class="left" colspan="5">${orders.length} ${orders.length === 1 ? 'transaction' : 'transactions'}</td>
+              <td>${fmtMoney(tGross)}</td>
+              <td>${fmtMoney(tTax)}</td>
+              <td>${fmtMoney(tTip)}</td>
+              <td>${tRefund > 0 ? '<span style="color:var(--red)">−' + fmtMoney(tRefund) + '</span>' : fmtMoney(0)}</td>
+              <td>${feesFooter}</td>
+              <td>${fmtMoney(tNet)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`;
+  }
+
+  window.loadPosSalesReport  = loadPosSalesReport;
+  window.setPosSalesPreset   = setPosSalesPreset;
+  window.setPsSubTab         = setPsSubTab;
+  window.exportPosSalesCSV   = exportPosSalesCSV;
+
   let _laundererReportData = [];
 
   async function loadLaundererReport() {
@@ -27897,7 +29431,7 @@ ${oneCopy}
     }
 
     const [{ data: launderers }, { data: orders, error }, laborData] = await Promise.all([
-      db.from('launderers').select('id, name').eq('is_active', true).order('name'),
+      db.from('launderers').select('id, name, square_employee_name').eq('is_active', true).order('name'),
       fetchAllLaundererOrders(),
       fetchSquareLaborHours(fromEl.value, toEl.value)
     ]);
@@ -27911,10 +29445,45 @@ ${oneCopy}
       return d >= selFrom && d <= selTo;
     });
 
+    // Load split-fold assignments for the in-range orders so we credit each
+    // participating launderer their actual share when an order was split
+    // between 2-3 people. `folded_by_id` on orders is just the "primary"
+    // (first-picked) launderer — the full per-person breakdown lives in
+    // order_folding_assignments. Without this join, the primary gets credit
+    // for the whole order and the secondary/tertiary launderers get zero.
+    const splitMap = {}; // order_id → [{launderer_id, bags, weight_lbs}, ...] (>1 row = real split)
+    if (filtered.length) {
+      const asgnRows = await pgInChunked(
+        () => db.from('order_folding_assignments').select('order_id, launderer_id, bags, weight_lbs'),
+        'order_id', filtered.map(o => o.id)
+      );
+      asgnRows.forEach(a => {
+        (splitMap[a.order_id] = splitMap[a.order_id] || []).push(a);
+      });
+      // Only keep entries with >1 row — a single-row assignment is the same as
+      // crediting folded_by_id, so we let the fallback path handle it.
+      Object.keys(splitMap).forEach(k => { if (splitMap[k].length <= 1) delete splitMap[k]; });
+    }
+
     // Split into assigned and unassigned
     const unassigned = { orders: 0, bags: 0, lbs: 0 };
     const statsMap = {};
     filtered.forEach(o => {
+      const splitRows = splitMap[o.id];
+      if (splitRows) {
+        // Order was split — credit each participant their actual share.
+        // Orders count is fractional (1/n per participant) so the TOTAL row
+        // still reflects real order count, not inflated by # participants.
+        const share = 1 / splitRows.length;
+        splitRows.forEach(a => {
+          const lid = a.launderer_id;
+          if (!statsMap[lid]) statsMap[lid] = { orders: 0, bags: 0, lbs: 0 };
+          statsMap[lid].orders += share;
+          statsMap[lid].bags   += parseFloat(a.bags || 0);
+          statsMap[lid].lbs    += parseFloat(a.weight_lbs || 0);
+        });
+        return;
+      }
       if (!o.folded_by_id) {
         unassigned.orders++;
         unassigned.bags += parseInt(o.total_bags || 0);
@@ -27929,13 +29498,20 @@ ${oneCopy}
     });
 
     const laundererMap = {};
-    (launderers || []).forEach(l => { laundererMap[l.id] = l.name; });
+    (launderers || []).forEach(l => { laundererMap[l.id] = l; });
 
     const rows = Object.entries(statsMap)
       .map(([id, s]) => {
-        const name = laundererMap[id] || 'Unknown';
-        const hrs  = laborData.laundry_hours[name] ?? null;
-        const title = laborData.laundry_titles?.[name] || '—';
+        const l = laundererMap[id];
+        const name = l?.name || 'Unknown';
+        // Square labor hours + titles are keyed by the worker's Square name
+        // (given_name + family_name). When the display name is kept short for
+        // the POS folder dropdown / kanban (e.g. "Marcela P"), the
+        // square_employee_name override holds the exact Square name to match
+        // on. NULL override → fall back to the display name (default).
+        const squareName = l?.square_employee_name || name;
+        const hrs  = laborData.laundry_hours[squareName] ?? null;
+        const title = laborData.laundry_titles?.[squareName] || '—';
         return { name, title, hrs, ...s };
       })
       .sort((a, b) => b.orders - a.orders);
@@ -27981,6 +29557,9 @@ ${oneCopy}
       if (t2El) t2El.textContent = (t2Hrs > 0) ? (t2Lbs / t2Hrs).toFixed(1) : '—';
     }
 
+    // Bags & orders can be fractional (e.g. 0.5 of a 2-way split).
+    // Display at most 1 decimal place; hide ".0" for clean integers.
+    const fmtCount  = n => Number.isInteger(n) ? n.toLocaleString() : n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
     const fmtLbs    = n => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
     const fmtHrs    = h => h != null
       ? `<span style="font-weight:600">${h.toFixed(1)}</span><span style="color:var(--gray-400);font-size:12px"> hrs</span>`
@@ -28006,8 +29585,8 @@ ${oneCopy}
           ${rows.map(r => `<tr>
             <td>${r.name}</td>
             <td style="font-size:12px;color:var(--gray-600);white-space:nowrap;width:1%">${esc(r.title)}</td>
-            <td>${r.orders.toLocaleString()}</td>
-            <td>${r.bags.toLocaleString()}</td>
+            <td>${fmtCount(r.orders)}</td>
+            <td>${fmtCount(r.bags)}</td>
             <td>${fmtLbs(r.lbs)}</td>
             <td>${fmtHrs(r.hrs)}</td>
             <td>${fmtLbsHr(r.lbs, r.hrs)}</td>
@@ -28026,8 +29605,8 @@ ${oneCopy}
           <tr>
             <td>Total</td>
             <td></td>
-            <td>${tot.orders.toLocaleString()}</td>
-            <td>${tot.bags.toLocaleString()}</td>
+            <td>${fmtCount(tot.orders)}</td>
+            <td>${fmtCount(tot.bags)}</td>
             <td>${fmtLbs(tot.lbs)}</td>
             <td>${tot.hrs != null ? fmtHrs(tot.hrs) : '—'}</td>
             <td>${fmtLbsHr(tot.lbs, tot.hrs)}</td>
@@ -28043,9 +29622,11 @@ ${oneCopy}
     if (!rows?.length && !unassigned?.orders) return;
     const esc = v => `"${String(v).replace(/"/g, '""')}"`;
     const headers = ['Folder','Orders','Bags','Pounds','Hours Worked','Lbs/Hr'];
+    // Orders & bags can be fractional (when participating in a split fold).
+    const fmtNum  = n => Number.isInteger(n) ? n : Number(n).toFixed(1);
     const csvRows = (rows || []).map(r => {
       const lbsHr = (r.hrs != null && r.hrs > 0 && r.lbs > 0) ? (r.lbs / r.hrs).toFixed(1) : '';
-      return [r.name, r.orders, r.bags, r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr].map(esc).join(',');
+      return [r.name, fmtNum(r.orders), fmtNum(r.bags), r.lbs.toFixed(1), r.hrs != null ? r.hrs.toFixed(1) : '', lbsHr].map(esc).join(',');
     });
     if (unassigned?.orders > 0) {
       csvRows.push(['Unassigned', unassigned.orders, unassigned.bags, unassigned.lbs.toFixed(1), '', ''].map(esc).join(','));
@@ -28437,6 +30018,207 @@ ${oneCopy}
     }
   }
   window.openSelectedInvoiceModal = openSelectedInvoiceModal;
+
+  // ── RECORD PAYMENT (On Account) ─────────────────────────────────
+  // Posts a real-world payment (check / ACH / wire) against an on-account
+  // group or standalone customer. Records the payment in the `payments`
+  // ledger and marks the ticked unpaid orders paid via record_account_payment.
+  let _oapState = null; // { type:'group'|'standalone', id, name, orders:[] }
+
+  const OAP_STATUSES = ['delivered','ready_for_delivery','out_for_delivery','picked_up','processing','folding','scheduled'];
+
+  function openOAPaymentModal() {
+    const checked = [...document.querySelectorAll('.oa-select-cb:checked')];
+    if (!checked.length) { showToast('Select an account first', 'error'); return; }
+    if (checked.length > 1) { showToast('Select one account to record a payment', 'error'); return; }
+    const cb = checked[0];
+    _oapState = { type: cb.dataset.type, id: cb.dataset.id, name: cb.dataset.name, orders: [] };
+    document.getElementById('oap-account-label').textContent = cb.dataset.name;
+    document.getElementById('oap-from').value = document.getElementById('rpt-from').value || '';
+    document.getElementById('oap-to').value = document.getElementById('rpt-to').value || '';
+    document.getElementById('oap-received').value = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    document.getElementById('oap-reference').value = '';
+    document.getElementById('oap-method').value = 'check';
+    document.getElementById('oap-mismatch').style.display = 'none';
+    document.getElementById('oa-payment-modal').style.display = 'flex';
+    oaPaymentLoadOrders();
+    oaPaymentRenderHistory();
+  }
+  window.openOAPaymentModal = openOAPaymentModal;
+
+  function closeOAPaymentModal() {
+    document.getElementById('oa-payment-modal').style.display = 'none';
+    _oapState = null;
+  }
+  window.closeOAPaymentModal = closeOAPaymentModal;
+
+  async function oaPaymentLoadOrders() {
+    const st = _oapState; if (!st) return;
+    const fromVal = document.getElementById('oap-from').value;
+    const toVal   = document.getElementById('oap-to').value;
+    const listEl  = document.getElementById('oap-orders-list');
+    listEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">Loading…</div>';
+
+    let q = db.from('orders')
+      .select('id, order_number, total_amount, tip_amount, tip_type, billing_status, pickup_window_start, customer_id, customers!inner(first_name_cache, last_name_cache, billing_group_id, billing_type)')
+      .eq('customers.billing_type', 'on_account')
+      .in('status', OAP_STATUSES)
+      .or('billing_status.is.null,billing_status.not.in.(paid,refunded)')
+      .order('pickup_window_start', { ascending: true });
+    if (st.type === 'group') q = q.eq('customers.billing_group_id', st.id);
+    else q = q.eq('customer_id', st.id);
+    if (fromVal) q = q.gte('pickup_window_start', pacificDayStart(fromVal).toISOString());
+    if (toVal)   q = q.lte('pickup_window_start', pacificDayEnd(toVal).toISOString());
+
+    const { data, error } = await q;
+    if (error) { listEl.innerHTML = '<div style="padding:16px;color:var(--red);font-size:13px">Error loading orders: ' + esc(error.message) + '</div>'; return; }
+    st.orders = (data || []).map(o => ({ ...o, _amt: orderChargedTotal(o) }));
+    oaPaymentRenderOrders();
+  }
+  window.oaPaymentLoadOrders = oaPaymentLoadOrders;
+
+  function oaPaymentRenderOrders() {
+    const st = _oapState; if (!st) return;
+    const listEl = document.getElementById('oap-orders-list');
+    const isGroup = st.type === 'group';
+    if (!st.orders.length) {
+      listEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">No unpaid orders in this date range</div>';
+    } else {
+      listEl.innerHTML = st.orders.map(o => {
+        const nm = ((o.customers?.first_name_cache || '') + ' ' + (o.customers?.last_name_cache || '')).trim();
+        return `<label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--gray-100);cursor:pointer;font-size:13px">
+          <input type="checkbox" class="oap-order-cb" data-id="${esc(o.id)}" data-amt="${o._amt}" checked onchange="oaPaymentRecalc()">
+          <span style="flex:1;min-width:0">
+            <span style="font-weight:600">#${esc(String(o.order_number || '—'))}</span>
+            ${isGroup ? `<span style="color:var(--gray-500)"> · ${esc(nm)}</span>` : ''}
+            <span style="color:var(--gray-400)"> · ${fmtDate(o.pickup_window_start)}</span>
+          </span>
+          <span style="font-weight:600">${fmtMoney(o._amt)}</span>
+        </label>`;
+      }).join('');
+    }
+    const outstanding = st.orders.reduce((s, o) => s + o._amt, 0);
+    document.getElementById('oap-outstanding').textContent = fmtMoney(outstanding);
+    document.getElementById('oap-orders-count').textContent = st.orders.length + ' order' + (st.orders.length === 1 ? '' : 's');
+    document.getElementById('oap-select-all').checked = st.orders.length > 0;
+    const amtEl = document.getElementById('oap-amount');
+    amtEl.value = outstanding ? outstanding.toFixed(2) : '';
+    oaPaymentRecalc();
+  }
+
+  function oaPaymentToggleAll(checked) {
+    document.querySelectorAll('.oap-order-cb').forEach(cb => { cb.checked = checked; });
+    oaPaymentRecalc();
+  }
+  window.oaPaymentToggleAll = oaPaymentToggleAll;
+
+  function oaPaymentRecalc() {
+    const cbs = [...document.querySelectorAll('.oap-order-cb')];
+    const checked = cbs.filter(c => c.checked);
+    const applyTotal = checked.reduce((s, c) => s + parseFloat(c.dataset.amt || 0), 0);
+    document.getElementById('oap-apply-count').textContent = checked.length;
+    document.getElementById('oap-apply-total').textContent = fmtMoney(applyTotal);
+    document.getElementById('oap-select-all').checked = cbs.length > 0 && checked.length === cbs.length;
+
+    const amt = parseFloat(document.getElementById('oap-amount').value || 0);
+    const mm = document.getElementById('oap-mismatch');
+    const diff = Math.round((amt - applyTotal) * 100) / 100;
+    if (amt > 0 && Math.abs(diff) >= 0.01) {
+      const more = diff > 0;
+      mm.style.display = '';
+      mm.style.background = more ? '#fef3c7' : '#fee2e2';
+      mm.style.border = '1px solid ' + (more ? '#fcd34d' : '#fca5a5');
+      mm.style.color = more ? '#92400e' : '#991b1b';
+      mm.textContent = more
+        ? `Check is ${fmtMoney(diff)} more than the ${checked.length} selected order(s). The extra is recorded on the payment but not applied to any order.`
+        : `Check is ${fmtMoney(-diff)} less than the ${checked.length} selected order(s). Untick orders until the totals match, or record this as a partial payment.`;
+    } else {
+      mm.style.display = 'none';
+    }
+    document.getElementById('oap-submit-btn').disabled = checked.length === 0;
+  }
+  window.oaPaymentRecalc = oaPaymentRecalc;
+
+  async function oaPaymentRenderHistory() {
+    const st = _oapState; if (!st) return;
+    const wrap = document.getElementById('oap-history-wrap');
+    const listEl = document.getElementById('oap-history-list');
+    const col = st.type === 'group' ? 'billing_group_id' : 'customer_id';
+    const { data, error } = await db.from('payments').select('*').eq(col, st.id)
+      .order('received_date', { ascending: false }).order('created_at', { ascending: false });
+    if (error || !data || !data.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    const methodLabels = { check: 'Check', ach: 'ACH', wire: 'Wire', other: 'Other' };
+    listEl.innerHTML = data.map(p => {
+      const voided = !!p.voided_at;
+      const ml = methodLabels[p.method] || p.method;
+      return `<div style="display:flex;align-items:center;gap:10px;border:1px solid var(--gray-200);border-radius:8px;padding:8px 12px;font-size:13px;${voided ? 'opacity:.55' : ''}">
+        <span style="flex:1;min-width:0">
+          <strong>${fmtMoney(p.amount)}</strong> · ${ml}${p.reference ? ` · ${esc(p.reference)}` : ''}
+          <span style="color:var(--gray-400)"> · ${fmtDate(p.received_date)}</span>
+          ${voided ? '<span style="color:var(--red);font-weight:600"> · VOIDED</span>' : ''}
+          <br><span style="font-size:11.5px;color:var(--gray-500)">Applied ${fmtMoney(p.applied_amount)}</span>
+        </span>
+        ${voided ? '' : `<button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="oaVoidPayment('${escJS(p.id)}', this)">Void</button>`}
+      </div>`;
+    }).join('');
+  }
+
+  async function submitOAPayment() {
+    const st = _oapState; if (!st) return;
+    const checked = [...document.querySelectorAll('.oap-order-cb:checked')];
+    if (!checked.length) { showToast('Select at least one order', 'error'); return; }
+    const ids = checked.map(c => c.dataset.id);
+    const amt = parseFloat(document.getElementById('oap-amount').value || 0);
+    if (!(amt > 0)) { showToast('Enter the amount received', 'error'); return; }
+    const method    = document.getElementById('oap-method').value;
+    const reference = document.getElementById('oap-reference').value.trim();
+    const received  = document.getElementById('oap-received').value || null;
+    const applyTotal = checked.reduce((s, c) => s + parseFloat(c.dataset.amt || 0), 0);
+
+    const ok = confirm(`Record a ${method.toUpperCase()} payment of ${fmtMoney(amt)} for ${st.name}?\n\nThis marks ${ids.length} order(s) (${fmtMoney(applyTotal)}) as paid.`);
+    if (!ok) return;
+
+    const btn = document.getElementById('oap-submit-btn');
+    btn.disabled = true; btn.textContent = 'Recording…';
+    const { data, error } = await db.rpc('record_account_payment', {
+      p_order_ids:        ids,
+      p_amount:           amt,
+      p_method:           method,
+      p_reference:        reference || null,
+      p_received_date:    received,
+      p_notes:            null,
+      p_actor_name:       currentUserDisplayName || currentUserFirstName || 'Admin',
+      p_billing_group_id: st.type === 'group' ? st.id : null,
+      p_customer_id:      st.type === 'standalone' ? st.id : null,
+    });
+    btn.disabled = false; btn.textContent = 'Record Payment';
+    if (error) { showToast('Failed to record payment: ' + error.message, 'error'); return; }
+    showToast(`Payment recorded — ${data.settled_count} order(s) marked paid ✓`, 'success');
+    await oaPaymentLoadOrders();
+    await oaPaymentRenderHistory();
+    loadOnAccountReport();
+  }
+  window.submitOAPayment = submitOAPayment;
+
+  async function oaVoidPayment(paymentId, btn) {
+    if (!confirm('Void this payment? The orders it settled will return to outstanding (unpaid).')) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Voiding…'; }
+    const { data, error } = await db.rpc('void_account_payment', {
+      p_payment_id: paymentId,
+      p_actor_name: currentUserDisplayName || currentUserFirstName || 'Admin',
+    });
+    if (error) {
+      showToast('Failed to void: ' + error.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Void'; }
+      return;
+    }
+    showToast(`Payment voided — ${data.reverted_count} order(s) returned to outstanding`, 'success');
+    await oaPaymentLoadOrders();
+    await oaPaymentRenderHistory();
+    loadOnAccountReport();
+  }
+  window.oaVoidPayment = oaVoidPayment;
 
   // ── STANDALONE INVOICE SUPPORT ──────────────────────────────────
   function getInvoiceForStandalone(customerId) {

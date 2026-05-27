@@ -1,5 +1,1103 @@
 # WashRoute — Project Notes
-*Last updated: May 10, 2026 — Session 147. **Admin Map view: show all planned stops regardless of order processing status.** Direct follow-up to Session 145's Kidango Thu→Mon move. David opened tomorrow's Map view to verify the 16 Kidango deliveries and saw "0 stops" on the Kidango chip + "No active stops" in the route panel — but the DB had all 16 stops correctly attached to the Monday route. Root cause: the admin Map view filters out delivery stops whose order is still in `picked_up`/`processing`/`folding` ("the bags aren't folded yet, don't show them to the driver"). For Bay Area same-day pipelines that hides bags-not-ready noise; for Kidango (commercial, multi-day turnaround, no per-bag kanban) it hides the entire route. Fix is two-layer: data fix for today, code fix so it never recurs.*
+*Last updated: May 26, 2026 — Session 160 — Morning audit + auth orphan cleanup + charge retries + card-linkage repair sweep + POS "Ready Nd ago" fix. A multi-part operational session. **(1) Morning rounds (23 checks):** mostly clean. Check 3 surfaced 20 delivered-unpaid orders (~$1,972, billing_status='failed'); Check 12 found 1 blocked customer (Jenny Rodriguez); Check 13 found 1 stuck phone-OTP orphan (T. Richard Parenteau); Check 16 found 4 small zone-polygon overlaps (<1 sq km each — Berkeley/Alameda, Concord/Oakland, Hayward/Alameda, Hayward/Concord); Check 20 = 85 POS walk-ins without launderer (known pre-June gap); Check 6 = Nit Pixies double-booked #5479/#5480 (left for David); Check 5 dupes all on skip list; Check 23 (subscription charge hazard) clean — session-157 gate holding. Check 1's 7 "unrouted" hits were all POS walk-ins (no pickup stop expected — false positives; audit query could filter `source='walk_in'`). **(2) Two locked-out customers cleared:** deleted orphan auth `6a9bb0d1` (Jenny Rodriguez, email orphan shadowing her real account) and `b4fea7dc` (T. Richard Parenteau, phone-only OTP orphan). Both verified zero linked rows (customers/orders/addresses/sms/drivers) before delete; profiles+identities cascaded. They re-attach on next magic-link / phone-code login. **(3) Charge retries (David-authorized, preflighted):** of the 20 failed-billing orders, only 5 had a real saved payment method (verified via `customer_payment_methods`, NOT the proxy `stripe_customer_id` — Anais #4337 would've been missed using the legacy column alone). Retried all 5 via `charge-order` (pg_net). **1 succeeded: Kierstan Streber #5343 $68.95.** 4 declined (Anne Williams #3190, Kristen Blouse #3591, Andrew Chamberlain #4669, Anais Wilson #4337) → each got the automatic `payment_failed` SMS+email (templates confirmed enabled). Remaining unpaid backlog: 4 declines + 15 no-card = 19 orders ~$1,503, route via outreach-SMS not retries. **(4) Card-linkage data repair (the big one):** Anais #4337's charge failed with "PaymentMethod does not belong to the Customer" — her saved card's Stripe PM was attached to a different Stripe customer than her record's `stripe_customer_id`. She had ONLY that broken card → cleared it (snapshot `_archive._broken_card_anais_wilson_20260526`); she now shows no-card and must re-add. Then swept ALL 989 saved cards via a one-off read-only edge function `audit-card-linkage` (deployed `verify_jwt:false` + body shared-secret, reached via pg_net, **retired same-day to a 410 stub w/ verify_jwt:true** per lesson A). **First sweep run was a false alarm — 680/989 "mismatches" were 99% Stripe rate-limit errors** (ran 4 pages × concurrency 20 = ~80 simultaneous Stripe calls). Widespread-issue rule caught it: re-ran with concurrency 5 + exponential backoff, pages sequential → clean, **17 genuine broken linkages (~1.7%)**, all `belongs_to_other_customer`. Classified all 17 via Stripe (compared the card's real Stripe-customer email to the WashRoute email): **all 17 SAFE — same person, duplicate Stripe customer objects.** BUT each of the 17 already had a WORKING card (13 were exact-duplicate rows of the same card; 4 had a newer working default), so re-pointing would've BROKEN the good card. Correct fix = delete the 17 dead duplicate rows (snapshot `_archive._dup_cards_repaired_20260526`); every customer kept a working card, zero friction. Root cause: duplicates almost all created Mar 23–28 2026 (Starchup migration/launch window) when the save-card flow spun up a second Stripe customer; cards added after that window are clean, so it looks self-corrected. **(5) POS "Ready Nd ago" fix (committed `e0d54af`, migration `session_160_ready_for_delivery_at`):** David's POS Orders list looked full of already-done orders. Root cause: the queue card's elapsed-time used `order.created_at` regardless of status, so commercial recurring orders (created days before pickup) read "Ready 9d ago" when freshly folded. Added `orders.ready_for_delivery_at` (nullable TIMESTAMPTZ) stamped by a BEFORE INSERT/UPDATE trigger `trg_stamp_ready_for_delivery_at` on every transition into ready_for_delivery (covers all code paths — RPC, raw update, rack, charge trigger); backfilled 3,397 orders from the latest `status_change→ready_for_delivery` order_event. POS `loadWalkInQueue` select + `renderQueueCard` now anchor the "Ready" time to `ready_for_delivery_at` (fallback created_at). Verified: Extended Stay #4764 read "9d ago" but actually became ready May 25 → now "1d ago". Also made the retail **"Mark Picked Up" button** solid/larger/shadowed (was a thin outline cashiers skipped, which is why counter pickups pile up at ready_for_delivery). Migration passed review (additive, reversible, no fan-out — no DB trigger sends SMS, `log_order_change` ignores this column, window-enforcer only fires on window changes). Pushed to main; Vercel auto-deploys (could NOT verify deploy from here — Vercel API connector 403 for this team + pos.familylaundry.com not on egress allowlist; David confirms via the register's "Refresh now" banner). **(6) Klaviyo email-marketing integration kicked off (revived from deprioritized backlog; the "alternative to ActiveCampaign" David couldn't recall = Klaviyo).** Decisions: data-sync-FIRST; SendGrid stays transactional (receipts); Klaviyo = marketing layer; all CURRENT customers treated as opted-in, opt-in capture added for NEW customers only. **Phase A (migration `session_160_email_marketing_consent`):** added `customers.email_marketing_consent_at` (`email_marketing_opt_out_at` already existed); backfilled all emailable customers as consented EXCEPT prior opt-outs. ⚠️ **Discovered the email column carried the SAME bogus 2026-03-26 01:44:52.187261 UTC bulk opt-out (2,538 rows, identical microsecond) that session 139 reversed for SMS but never for email.** David pushed back on the suppression; investigation (incl. session-139 note) confirmed it bogus → reversed it (snapshot `_archive._email_optout_bulk_reversal_20260526`) and consented them. Final: **5,206 marketable, 23 genuine individual opt-outs honored, 411 no-email.** Source script for that bulk write still unidentified (session-139 open question) — watch for re-fire. **Phase B:** `sync-klaviyo` edge function (verify_jwt:false + body shared secret `wr-klaviyo-sync-9x2`; reads `KLAVIYO_API_KEY` from Supabase secrets — David created a fresh full-access key AFTER the first was exposed in a chat screenshot; recommend the exposed one stays revoked). Modes verify/jobstatus/backfill/fullsync; pushes profiles via Klaviyo `profile-bulk-import-jobs` (REVISION 2024-10-15) with properties LTV/total_orders/last_order_at/customer_since/billing_type/customer_type/credits + `wr_marketing_status` (subscribed/suppressed from consent fields) + `wr_email_placeholder` (starchup `+app.starchup.com@` aliases). **PROFILES ONLY — never sends or subscribes; the native email-subscription flip is deliberately deferred to send-time behind a preflight.** Backfilled all 5,229 emailable customers (sampled jobs complete 500/500, 0 failed). Function committed to repo `supabase/functions/sync-klaviyo/index.ts` (NOT deploy-only — session-157 lesson). **Nightly sync:** pg_cron `wr-klaviyo-nightly-sync` (`0 10 * * *` = 3am PDT, clear of reminder crons) → `sync-klaviyo` mode=fullsync (self-paginates 500/page, paces 1.5s + 429 retry; manual full run = 11 pages / 5,229 / 0 errors). Safe per Check 22 (single edge-fn call, no WashRoute DB writes, no customer contact). **Phase C (commit `1847cdd`):** customer-app signup adds optional email opt-in checkbox `s-email-consent` (**DEFAULT CHECKED — flip to unchecked is a 1-line change if David wants true opt-in**), threaded via signUp metadata `email_consent` + `m.email_consent` into ALL customer-creation paths (ensureProfile fresh insert + claim-update, both metadata-driven inserts ~line 2843/4835), setting `email_marketing_consent_at`; never re-consents an opted-out customer. JS validated (node --check). Klaviyo MCP connector exists in registry but is NOT needed for the sync (data path uses the API key); connecting it kept bouncing David through Cowork onboarding — deferred to send-time. **Open items:** (a) 6 retail orders stuck at ready_for_delivery at Foothill (#4970 Jennifer Kirchhofer, #5063 Juan Guitz, #5071 Adrien Booker, #5161 Jay Tate, #5499 Marilyn Freedberg, #5524 Hamdan Alshujaa) — corrected timestamp makes their real age visible but does NOT clear them; **no data signal of collection exists** (payment is at drop-off not pickup; zero events after ready), so Foothill staff must clear via the Mark Picked Up button as they verify each bag is physically gone. The two from May 25 (Marilyn, Hamdan) are likely still on the shelf. (b) Save-card flow tech debt: verify the customer-app/admin card-save path can't create a duplicate Stripe customer (looks fixed post-March but unconfirmed). (c) audit Check 1 could filter `source='walk_in'` to stop false-flagging POS counter orders. (d) **Klaviyo send-time milestone (NOT yet done — required before any campaign):** (1) connect the Klaviyo MCP card; (2) PREFLIGHT — confirm the target list is SINGLE opt-in + no stray flows, because bulk-subscribing 5,206 profiles on a double-opt-in list would blast 5,206 confirmation emails; (3) flip native email subscription for the `wr_marketing_status='subscribed'` segment, excluding `wr_email_placeholder=true`; (4) build the first campaign/flow; (5) add a REVERSE opt-out sync (Klaviyo unsubscribes → WashRoute `email_marketing_opt_out_at`) so opt-outs are honored everywhere; (6) decide whether the opt-in checkbox stays checked-by-default. (e) `sync-klaviyo` shares the bearer-token + shared-secret pattern of other pg_net-invoked functions; the secret `wr-klaviyo-sync-9x2` is in chat history — low harm (only triggers a profile push to David's own Klaviyo) but rotate if ever concerned.*
+
+*🔜 **QUEUED FOR NEXT SESSION (May 27 morning) — POS → separate Stripe account cutover.** David created a SECOND Stripe account ("FAMILY LAUNDRY POS", statement descriptor `FAMILY LAUNDRY POS`) so retail (POS) vs delivery payouts can be distinguished in the books. **Decision rationale (settled with David):** bank account is SHARED, so the goal is per-channel attribution for **Xero accounting** — two Stripe accounts produce two separately-labeled payout streams into the one bank, which reconcile cleanly to different Xero accounts/tracking categories instead of having to decompose one blended payout. Dovetails with pending Xero sync (backlog #12). **The split is automatic by design:** POS in-person card payments run through the `stripe-terminal` edge function; delivery is charged later via `charge-order` (card on file). Delivery is NEVER paid in person at the reader (confirmed by David), so re-keying ONLY `stripe-terminal` to the new account cleanly routes retail→new, delivery→existing, with zero branching logic. **Already done:** new account created; statement descriptor set; `STRIPE_POS_SECRET_KEY` (new account secret) added to Supabase secrets. **David's remaining steps (tomorrow AM, Stripe-side, physical):** (1) old account → Terminal → Readers → remove the S700; (2) on the reader → Settings → factory reset → note the registration code (needs the admin passcode — the common snag); (3) new account → create Foothill Location → register reader with the code; (4) grab the new `tmr_…` reader ID and paste it to Claude. **Claude's steps (coordinated ~5-min cutover, ATOMIC — do back-to-back with the reader move at a low-traffic moment):** (a) re-key `stripe-terminal` to read `STRIPE_POS_SECRET_KEY` instead of `STRIPE_SECRET_KEY` (this re-routes ALL its actions incl. refunds to the new account); (b) update `pos_devices.stripe_reader_id` for Foothill Register to the new `tmr_…`; (c) teach `get-stripe-fees` to pick the account key by order (`source='walk_in'`→POS key, else existing); (d) **pre-cutover refund fallback** — refund_pos_payment/delete_pos_order should try the new account then fall back to the old key, because retail sales made BEFORE cutover live in the OLD account and would otherwise fail to refund for ~2 weeks; (e) live test: one small charge + refund on the reader, confirm it lands in FAMILY LAUNDRY POS. **⚠️ Rollback is NOT just reverting code** — once the reader is physically registered to the new account, the old account no longer has it, so going back means re-registering the reader to the old account. Hence the coordinated one-shot cutover + immediate test. Everything delivery (`charge-order`, `create-checkout`, subs, `refund-charge`, `stripe-webhook`) stays on `STRIPE_SECRET_KEY` — unchanged. Historical POS charges stay in the old account (Stripe can't migrate charges); clean separation is forward-looking from cutover.*
+
+*Previously: May 25, 2026 — Session 159 — Two drivers locked out of the driver app — root-caused to login-method mismatches + an orphan-account fix. David reported Francisco Cobos (Android) and Randy Harrison (iPhone 17) couldn't get into the driver app. Neither was a data problem — both were auth-method mismatches. **Francisco:** his auth user is phone-only (`+15105900692`, no email identity) yet the driver app defaults to the email/password tab, so signing in with his email always fails. Per David: leave his account as-is; he uses the **Phone Code** tab with 510-590-0692. **Randy:** had TWO accounts. His real driver account is email-based (`starboyhustler213@gmail.com`, profile `b4310d38`, driver `0e6f64c6`, role driver) and had NEVER been signed into. He'd been using the Phone Code tab, which logged him into a SEPARATE older phone-only account (`9c41e69f`, created May 15 — before his real account existed on May 23) for which the driver app had auto-created an empty `role='customer'` driver record (`dc9be21e`); he kept landing in an empty app with no routes. **Fix:** reset his real account password to a temporary `abcd1234` (via `auth.users.encrypted_password = crypt(...)`, verified it validates) so he uses the **Password** tab. **Orphan deleted:** confirmed `9c41e69f`/`dc9be21e` had zero references (route_stops, routes, driver_locations, driver_messages, orders, sms_messages, addresses, customer_transactions all 0), then deleted driver row + profile + auth user (identities cascaded). **Root-cause code fix (commit `7dcdfe9`):** the driver app's first-login fallback (`_loadDriverDataInner`) auto-created a brand-new active driver record for ANY authenticated user with no driver row — including phone/customer logins that default to `role='customer'`. That's exactly what minted Randy's orphan. Added a guard: only auto-create when the profile role is in `['driver','manager','admin']`; otherwise show "No driver account is set up for this login. Please contact your admin." and sign out (mirrors the existing `MULTIPLE_MATCHES` early-return pattern). Admin-side driver provisioning (admin-dashboard line 6431 upsert) is the intended path and is unchanged. QA blast-radius confirmed the login auto-create was unique to the driver app. The session-111 `profile_id` UPSERT only stopped duplicate rows for the SAME profile — it never stopped a wrong-role profile from getting a driver row at all; this closes that remaining gap.*
+
+*Previously: May 23, 2026 — Session 158 — Admin "Recall to Route" fix. David reported the Recall to Route action on delivered orders had "stopped working last night" — clicking **Recall to Route** in the modal showed the spurious error "No order is open. Close this modal, reopen the order, and try again." even though the order was clearly open (modal subtitle correctly read "Order #5164 — Yvonne Mckimens"). **Root cause: a z-index layering inversion.** The recall modal (`#recall-order-modal`) was at `z-index:1002`, but the order detail panel sits at `z-index:1101` and its click-to-close backdrop (`#order-panel-backdrop`, whose only handler is `onclick="closeOrderPanel()"`) is at `z-index:1099`. So when recall was launched from inside the open order panel, the panel's backdrop covered the modal; a stray click in the modal area landed on the backdrop instead, fired `closeOrderPanel()`, and nulled the `opCurrentOrderId` global. `confirmRecallOrder()` then read that now-null global → the "No order is open" guard tripped. Recall was uniquely affected because it's the only order-panel-launched overlay that BOTH layered over the open panel AND read the live global at confirm time — the sibling status picker (`openSingleStatusPicker`) already captures its id into `_singleStatusOrderId`, and the reschedule pickers are inline panel sections (panel stays on top, global stays valid). **Two-layer fix (commit `3b20218`):** (1) raised `#recall-order-modal` to `z-index:1102` so modal clicks no longer fall through to the panel backdrop; (2) `opRecallOrder()` now captures the order id into a modal-scoped `_recallOrderId` and `confirmRecallOrder()` uses that instead of the live `opCurrentOrderId`, matching the established `_singleStatusOrderId` pattern — durable even if the panel ever closes mid-flow. No DB change: the `recall_delivered_order` RPC was verified intact with its exact 4-arg signature. Lesson: any modal launched from inside the order panel (z-index 1101) must sit above it AND capture its target id rather than reading the live `opCurrentOrderId` global.*
+
+*— **Session 158 (also): On Account "Record Payment" — B2B payment ledger.** David receives a single consolidated check from B2B accounts (e.g. Kidango Group — $6,682.30 across 16 subaccounts / 78 April orders) and needed a way to post that payment against all of an account's subaccounts from the Reports → On Account view. Before this, the only On-Account actions were Preview PDF + Send Invoice; "paid" was a binary flag (`orders.billing_status='paid'`) with no record of the actual check. **New: a real payments ledger.** Migration `session_157_payments_ledger` (NOTE: applied during session 158 — name is one behind, cosmetic only) adds: (1) `public.payments` table (id, billing_group_id, customer_id, amount, applied_amount, method check/ach/wire/other, reference, received_date, notes, actor_name, voided_at, voided_by) — RLS enabled, `is_admin()`-only (stricter than billing_groups since these are financial records); (2) nullable `orders.payment_id` FK → payments (ON DELETE SET NULL); (3) extended `mark_orders_paid` with an optional trailing `p_payment_id` param (all 3 existing named-arg callers unaffected — verified no positional callers, no other pg_proc references before DROP+recreate) that links each settled order to its payment row; (4) `record_account_payment(p_order_ids[], p_amount, p_method, p_reference, p_received_date, p_notes, p_actor_name, p_billing_group_id, p_customer_id)` — inserts the payment, snapshot-then-applies (settles ONLY orders still unpaid right now), calls mark_orders_paid to flip them + log attributed `billing` events, stores `applied_amount` = sum of settled charged-totals; (5) `void_account_payment(p_payment_id, p_actor_name)` — reverses a payment, restoring its orders to `billing_status=NULL` (the confirmed outstanding state) ONLY where still-paid + still-attached, logs void events, stamps `voided_at`. Both RPCs SECURITY DEFINER with an `auth.uid() IS NOT NULL AND NOT is_admin()` guard (blocks authenticated non-admins; trusted backend / service_role passes; anon REVOKEd) + REVOKE PUBLIC/anon + GRANT authenticated/service_role per the lesson-F checklist. **UI (admin commit `5a05d1e`):** a Record Payment button on the On-Account account action bar opens a modal — editable date range (prefilled from the report pickers), a checklist of unpaid orders in range with a live "Applying" total + select-all, amount/method/reference/date-received fields, an over/under mismatch warning vs the ticked total, and a recorded-payments history list with one-click Void. SMS-safe: verified no order trigger fires on `billing_status` change and no edge-function/SMS call is in the path (marking paid was already the production behavior of mark_orders_paid). Verified end-to-end via a transactional round-trip on 2 real Kidango orders (record → settled + linked → void → restored to NULL) that rolled back, leaving production untouched. **David is testing the live posting of the real Kidango check himself** — not posted by Claude.*
+
+*Previously: May 20, 2026 — Session 157 (6 parts) — Morning audit + duplicate-customer root cause + Launderers report fixes + subscription-charge incident. Daily audit surfaced 5 duplicate customer pairs sharing the same shape: an older record with real order history + a brand-new shell created in the last 3 days with exactly 1 walk-in order. The smoking gun: POS walk-in lookups were silently missing existing customers whose `phone_cache` was stored in formatted form (`(510) 368-5368`) — the `phone_cache ILIKE '%<last7>%'` filter fails because the hyphen splits the last 7 digits. Merged the 5 pairs (snapshots in `_archive._merge_session157_*`), then root-causing fix: new SECURITY INVOKER RPC `pos_lookup_customer_by_phone` that normalizes digits server-side; POS JS swapped to call it. Also unblocked Jennifer Stahl (82-order customer) by deleting her stuck phone-OTP orphan auth user. Then two Launderers-report items: (Pt 4) `square_employee_name` override column so a launderer's short display name ("Marcela P") can match their full Square timecard name ("Marcela Piceno") — her blank hours now populate; (Pt 5) audited Angelica Ortiz's 63.9 lbs/hr — found it's commercial-bulk composition + sole-credit on big orders, verified via Square she was at 23rd Ave (not Foothill as believed) on a 12-person floor where co-presence can't reconstruct who folded what, so history left as-is per David. Then (Pt 6) a subscription-charge incident: the in-development $260/mo plan was left `is_active=true` with a live Stripe price and only a client-side flag hiding it, so 2 customers (Ashley Thompson + Sandeep Vadivel — the 2nd previously unknown) got real recurring Stripe subscriptions that survived their refunds; cancelled both subs, added a server-side gate to `create-checkout`, and deactivated the plan. 4 commits + 2 DB migrations + 1 plan deactivation + 2 Stripe cancellations + 2 one-off diagnostic edge functions (deployed then retired) + 5 customer merges + 1 launderer backfill. Lessons banked.*
+
+*— **Pt 1: Jennifer Stahl phone-OTP orphan deleted** (audit Check 13). Daily audit flagged a stuck OTP — Jennifer Stahl (82 orders, real customer) had a phone-only auth user `b2dd1e84-...` sitting on a `confirmation_token` with `last_sign_in_at = 2026-03-30` and zero linked customer rows. Every time she tapped Send Code on the customer-app, supabase-js created a fresh OTP for this dead user instead of routing to her real (email-auth) account. Verified: phone-only, no linked customer, distinct from her real `profile_id`. Deleted via `DELETE FROM auth.users WHERE id = '<orphan>'` (cascades to profiles + identities). Next OTP request from her phone will land cleanly via session-110's `prepare-phone-otp` flow.*
+
+*— **Pt 2: 5 duplicate customer pairs merged** (audit Check 5). Pairs flagged: Juan Gonzalez (old: 16 orders since Jun 2025 / new: 1 walk-in May 19), Bobby Carver (shell since Apr / 1 walk-in May 20), Jennifer Kirchhofer (6 orders since Nov 2025 / 1 walk-in May 19), Joel Archaga / Joel Zelaya (10 orders since Feb 2023 / shell May 19), Tyrone Anderson (email-dup, both 2026, old has Stripe + card on file, new has 1 walk-in May 18). Same shape every time: old record with real order history + new shell created in the last 3 days carrying exactly 1 walk-in order. Snapshotted all 10 customer rows + 4 orders + 5 sms_messages to `_archive._merge_session157_20260520_customers / _orders / _sms`. Then in one transaction: UPDATE orders SET customer_id = old WHERE customer_id = new (4 rows), UPDATE sms_messages SET customer_id = old (5 rows), verified all 5 shells had zero child rows across all 14 FK-referencing tables (only orders + sms_messages had any), DELETE FROM customers (5 rows). All 5 merges fully reversible from the `_archive` snapshots if any was misidentified.*
+
+*— **Pt 3: POS phone lookup — root-cause fix via server-side normalization RPC** (commit `6c89a66`, migration `session_157_pos_lookup_customer_by_phone`). The bug pattern: existing customers were imported/migrated with formatted phones like `(510) 368-5368`; POS-created customers get raw `5103685368`. The POS lookup helper `lookupCustomerByPhone` filtered with `phone_cache ILIKE '%${last7}%'` — broad server-side filter then exact match client-side after normalizing. The hyphen between digit 3 and digit 4 of the last 7 (e.g. `368-5368` in `(510) 368-5368`) made the ILIKE pattern miss. Verified against all 4 phone-dup customers we just merged — every one had a formatted phone_cache whose last-7-substring was split by a hyphen. The lookup returned empty, the POS showed "no customer found", and the attendant created a duplicate. (`saveNewCustomer` already has a defensive double-check at line 3876 that calls lookupCustomerByPhone before insert — but the dependency itself was broken, so the defense never fired.) Cleanest path: new SECURITY INVOKER RPC `pos_lookup_customer_by_phone(p_digits TEXT)` that compares `RIGHT(REGEXP_REPLACE(phone_cache, '[^0-9]', '', 'g'), 10) = RIGHT(REGEXP_REPLACE(p_digits, '[^0-9]', '', 'g'), 10)`, returns up to 20 matches ordered oldest-first (so any future shell-survivor is below the OG in the result list). REVOKE PUBLIC + REVOKE anon + GRANT to authenticated + service_role per session 148 lesson F. POS JS dropped from broken-filter-chain to a single `db.rpc('pos_lookup_customer_by_phone', { p_digits })` call. The existing `saveNewCustomer` defensive check now works correctly because it routes through the fixed helper. Verified the RPC against all 4 phone-dup pairs we merged: all 4 match. Format variations (parens, `+1` prefix) also match. Too-short input returns 0 correctly.*
+
+*— **Pt 4: Launderers report — `square_employee_name` override so display name can differ from Square timecard name** (commit `a0dc572`, migration `session_157_launderers_square_employee_name`). David spotted "Marcela P" showing blank Hours Worked + Title on the Launderers report while everyone else populated. Root cause: the report keys each launderer's Square labor hours by name (`laborData.laundry_hours[name]`), and the `square-labor` edge function keys hours under the worker's Square `given_name + family_name` ("Marcela Piceno"). Her launderer record is named "Marcela P" (kept short for the POS folder dropdown + kanban badges) with no linked profile, so the match silently failed → both hours AND title came back empty. Same name-match fragility class flagged repeatedly. Fix mirrors the existing `profiles.square_employee_name` mechanism the Drivers report already uses: new nullable `launderers.square_employee_name` column; report matches `laborData.laundry_hours[square_employee_name || name]`; display name stays "Marcela P" everywhere. Added a "Square Name" column + `setLaunSquareName` chip to the Launderers admin screen so David can set it for any launderer without code. Backfilled Marcela's override to "Marcela Piceno" — her hours now populate. JS syntax verified (node --check on extracted scripts).*
+
+*— **Pt 5: Angelica Ortiz lbs/hr audit — investigated, history left as-is (no mutation)** (no commit; one-off diagnostic edge function deployed then retired). David flagged Angelica Ortiz at 63.9 lbs/hr (vs ~25 avg) on the Launderers report and asked how it's possible. Audit found: (1) she folds the heavy commercial/shelter accounts (Kasa Hotels La Monarca, Extended Stay, Soul Sanctuary, Homebase) — commercial bulk (uniform hotel/shelter linens) folds far faster per pound than residential mixed laundry, so a high lbs/hr for the commercial folder is expected; the metric is biased by order composition. (2) Her heaviest orders (#3395 414lb, #3914 406lb, #1417 362lb, #3839 220lb, #3220 201lb, #1432 201lb, #3316 200lb, #3406 161lb) are credited 100% to her via `folded_by_id` with NO `order_folding_assignments` split rows — so if those were team efforts she's over-credited (and teammates under-credited). David's plan: she was (he believed) at Foothill pre-POS where splitting was hard, so reconstruct who was on-site and split equally. **The premise didn't survive verification.** To get per-day/per-location presence (the `square-labor` function only totals by name, no location/day; sandbox can't reach Square directly), deployed a one-off read-only diagnostic edge function `square-foothill-detail` and invoked it via `net.http_post` (pg_net), reading the async response from `net._http_response`. Square confirmed it distinguishes "Foothill Ave" from "23rd Ave" as separate locations — but Angelica's timecards for the whole window are 100% **23rd Ave**, zero Foothill shifts. The orders are tagged 23rd Ave in the DB too (so that tag was correct, not the pre-May-13 mis-tag bug). At 23rd Ave she worked on a 10–12 person laundry floor daily — co-presence there can't identify who folded a specific order (unlike a small Foothill crew), so an equal split would smear each order across people folding entirely different work, no more accurate than the current sole-credit. One genuine data error surfaced: #1432 (Extended Stay, 201lb, fold date May 2) is credited to Angelica on a day she didn't clock in at all (worked Apr 30, next May 4). Per David's call, **history left as-is** (including #1432). Clean per-person numbers begin in June once the POS captures splits at fold time. The diagnostic function was neutralized afterward (redeployed with `verify_jwt: true` + a 410 stub, no Square access) so no anon-callable payroll endpoint lingers — per session 148 lesson A (disable one-off infrastructure same-day).*
+
+*— **Pt 6: Subscription-charge incident — non-live $260 plan charged 2 customers; gate was client-side only** (commit `37a1e4e` create-checkout v29; plan `is_active=false`; 2 Stripe subs cancelled). David: a customer (Ashley Thompson) complained of a $260 subscription charge for a program that "was never supposed to be public while we worked on it." **Root cause:** the in-development "Wash & Fold Monthly" plan ($260/mo, plan id `fd2b5a64-…`, `stripe_price_id price_1TMrkW…`) was left `is_active=true` with a live recurring Stripe price. Before the `SUBSCRIPTIONS_ENABLED` client flag was added (`b5aeeb3`, Apr 16 14:48 PT), the customer-app plan picker (`.eq('is_active', true)`) showed it and `create-checkout` (type='subscription') created a real Stripe Checkout subscription. The flag added in b5aeeb3 is **client-side only** — it hides the UI but `create-checkout` never checked plan liveness, so the server door stayed open (cached/old app build or direct call bypasses the flag entirely). **Blast radius (verified directly against Stripe via a one-off `stripe-sub-audit` edge function invoked through pg_net):** TWO live subscriptions on the price, both created Apr 16, both `active`, both set to recharge Jun 16 — Ashley Thompson (`sub_1TMuhZ…`: charged Apr 16 + May 16, both refunded, net $0) and **Sandeep Vadivel** (`sub_1TMrkv…`: charged Apr 16 [refunded] + May 16 [was unrefunded — David refunded during this session]). The recurring subscriptions had survived the refunds and would have billed again Jun 16. The local `subscriptions` table is **empty** — the webhook's `customer.subscription.created` upsert was failing on a `status` CHECK-constraint (the original reason for b5aeeb3's "expand status check constraint"), so neither sub was ever tracked locally or visible in admin; Stripe was the only source of truth. **Remediation:** (1) both Stripe subscriptions cancelled immediately (confirmed `canceled`); (2) Sandeep's outstanding $260 refunded by David; (3) plan set `is_active=false`; (4) **`create-checkout` v29 server-side gate** — subscription checkouts now return 403 unless `plan.is_active` (added `is_active` to the plan SELECT); (5) added `create-checkout` to version control (it was deployed-only, unlike its 18 siblings in `supabase/functions/`); (6) retired the `stripe-sub-audit` diagnostic (verify_jwt back on + 410 stub). **To launch subscriptions later, BOTH are required:** set the plan `is_active=true` AND flip `SUBSCRIPTIONS_ENABLED=true` in the customer app. **Tech debt for launch prep:** the empty-`subscriptions`-table webhook bug must be fixed before go-live or live subscriptions won't appear in admin — the `subscriptions.status` CHECK constraint needs to admit every value `mapStripeStatus()` can emit (active/past_due/cancelled/incomplete/paused/…); verify the upsert succeeds end-to-end with a test subscription before launch.*
+
+*— **Lessons banked from session 157:** (A) **Defensive double-checks are only as good as the dependency they call.** `saveNewCustomer` at POS line 3876 had a `// Defensive: one more check for an existing customer with this phone before we insert` that called `lookupCustomerByPhone(phoneDigitsOnly)` — which was broken. A defensive guard with a broken backing query is worse than no guard at all because it provides false confidence in code review. When code calls a helper for a critical safety check, the test for the safe side has to verify the dependency end-to-end, not just confirm "we called the helper". (B) **Phone-format storage inconsistency is silent corruption.** The customers table has phone_cache in mixed formats: formatted ('(510) 368-5368') for Starchup-migration + admin-created accounts, raw ('5103685368') for POS-created. Every lookup site that doesn't normalize on both sides is silently broken for one format or the other. Long-term fix: either (a) trigger on customers that normalizes phone_cache on INSERT/UPDATE, or (b) generated `phone_normalized` column + expression index for lookups. Either eliminates the format-divergence class of bug entirely. (C) **Substring search across a delimiter-prone field is a footgun.** `ILIKE '%${last7}%'` was clever in concept (last 7 digits is unique enough, last 4 is not) but it's *character*-substring matching, not *digit*-substring matching. Any field stored in human-formatted form (phones, SSNs, credit cards) needs digit-normalized comparison via `REGEXP_REPLACE` server-side. The ILIKE pattern is suitable only for fields stored in canonical form. (D) **Server-side normalization beats round-trip filter-then-normalize-client-side.** The old pattern: broad SQL filter (ILIKE) → client-side exact match (after normalizing). Two places where the format assumption lives. The RPC version puts both sides of the normalization in one SQL function with one contract — any caller (POS, admin, future driver-app, future RPC) gets the same answer. The `find_customer_by_phone` helper already did this (returns id only); we extended the pattern to return full rows for the POS UI. (E) **Snapshot-then-merge is the only safe pattern for duplicate-customer pairs.** Always snapshot both rows + all FK children to `_archive` before repointing or deleting. Cost is ~100ms of SQL; benefit is full reversibility if the wrong record was identified as the shell. Sessions 134 / 135 / 154 / 157 all used this pattern; codifying it as the standard. (F) **Audit findings often reveal both symptom and root cause when the duplicates share a shape.** 5 customer pairs all having the same shape (old + new-with-1-walk-in) was the smoking gun for "POS isn't matching existing customers". If the duplicates had been heterogeneous (some app signups, some admin manual, some POS), the structural pattern wouldn't have jumped out. Pay attention to shared shape across audit-flagged rows. (G) **Name-matching against an external system (Square) is the same fragility as internal name-matching — give it a structural override field, not a rename.** Marcela P's blank report row (Pt 4) is the same class as the launderers/profiles PIN drift (session 156 pt 12). The fix is never "rename the record to match" (that leaks the external name into every UI and re-breaks on the next drift); it's a dedicated override column (`square_employee_name`) that decouples display from match. Drivers already had this; launderers didn't. When you find one matching surface lacking the override another surface has, port it. (H) **Verify the human-supplied premise before mutating on it.** David's plan for Pt 5 rested on "Angelica was at Foothill." Square flatly contradicted it (100% 23rd Ave). Had I equal-split the orders on the stated premise without checking timecards, I'd have corrupted 10+ people's metrics based on a false assumption — and the "fix" would have looked authoritative. A premise that determines a data mutation must be checked against ground truth first, even when it comes from the person who knows the business best. Memory is fallible; timecards aren't. (I) **pg_net + `net._http_response` is the way to reach an edge function (and thus an external API like Square) from a context that can't make outbound HTTP.** The sandbox proxy blocks direct calls to `*.supabase.co/functions`, but `SELECT net.http_post(url, body, headers)` from `execute_sql` invokes the function server-side; the JSON response lands in `net._http_response.content` (async, poll after a few seconds). Copy the anon-key Authorization header pattern from the reminder crons. Reusable any time analysis needs live data behind an edge function. (Note: this works for `verify_jwt:false` functions; the platform JWT gateway on `verify_jwt:true` functions rejected the pg_net call with "Missing authorization header," so a one-off function reached via pg_net should be `verify_jwt:false` + an in-body shared-secret guard, then retired.) (J) **A client-side feature flag is NEVER a security or billing boundary.** `SUBSCRIPTIONS_ENABLED=false` (Pt 6) hid the subscribe button but did nothing server-side — `create-checkout` happily created live Stripe subscriptions for anyone who reached it (cached app build, old bookmark, direct API call). Any operation that can charge a customer, send a message, or mutate protected data MUST be gated where the action actually happens (the edge function / RPC / RLS), not only in the UI. The UI flag is UX; the server check is the boundary. This is the billing-side twin of the washroute-preflight golden rule. (K) **A non-live priced plan/product is a loaded gun.** A `subscription_plans` row with `is_active=true` + a real `stripe_price_id` is chargeable the moment any path reaches it, regardless of launch intent. Don't create the live Stripe price (or set is_active) until the feature is actually launching; a plan in development should have `is_active=false` and ideally no live price attached. "We haven't turned it on in the UI yet" is not protection. (L) **Refunding a recurring charge does NOT stop the recurrence.** Stripe subscriptions keep billing every period until the *subscription* is cancelled; a refund only reverses one invoice. When a customer reports an erroneous subscription charge, the fix is two parts: refund the charge(s) AND cancel the Stripe subscription. Ashley's two refunds had left her subscription `active` and due to recharge Jun 16. Always check for the live subscription, not just the disputed charge. (M) **Skills have two homes that drift — the editor's installed copy is the one that runs.** Editing/committing the repo `.skill` zip files does NOT update the live skill Cowork loads at session start; that lives in a separate store edited via the Cowork skill editor's "Save skill" button (which Claude cannot click — it's a user UI action). When a skill change must take effect, hand David the COMPLETE updated `SKILL.md` (not fragments) to replace-all + Save in the editor, or import-from-file via the editor's "…" menu. Treat the editor as the source of truth; the repo `.skill` files are at most a backup. Don't report a skill change as "done" on a repo commit alone.*
+
+*— **Outstanding tech debt from session 157:** (i) phone_cache format storage drift across the customers table — formatted vs raw — is the root architectural issue. The RPC is a robust workaround but the storage format itself is inconsistent. Recommended fix: trigger `trg_normalize_customer_phone_cache` on customers that strips non-digits on INSERT/UPDATE (would also let us re-add a UNIQUE constraint on normalized phone). Alternative: generated column `phone_normalized TEXT GENERATED ALWAYS AS (RIGHT(REGEXP_REPLACE(phone_cache,'[^0-9]','','g'), 10)) STORED` + UNIQUE index for fast format-agnostic lookups. (ii) Expression index for `find_customer_by_phone` + `pos_lookup_customer_by_phone` — currently both seq-scan customers on every call. At <10k rows this is ~10-50ms; at 50k+ it'll start to feel slow. Add `CREATE INDEX customers_phone_normalized_idx ON customers (RIGHT(REGEXP_REPLACE(phone_cache,'[^0-9]','','g'), 10))` when convenient. (iii) Audit pass on remaining ILIKE-on-phone patterns. `admin-dashboard/index.html:22893` uses `phone_cache.ilike.%${q}%` for the multi-field customer search — same digit-normalization principle applies but it's a wide-net fuzzy search by design, so lower-priority than the POS exact-lookup case. (iv) Check 3 from morning rounds (12 orders with `billing_status='failed'`, ~$1,286) left as-is per David. Worth a separate session to triage Bucket A (3 orders, cards on file, retry-eligible: $198.85) vs Bucket B (9 orders, no card, already received outreach SMS: $1,087.55).*
+
+*Previously: May 20, 2026 — Session 156 (13 parts) — POS field-testing feedback + critical bug fixes. David's first full day operating the POS at Foothill surfaced a batch of issues that wouldn't have shown up in staging: receipts missing attendant/payment context, no auto-print so cashier had to tap Print on every sale, no shift report for till reconciliation, no auto-refresh after deploys (force-quit was the only way to update), 'folding' status silently disappearing bags from the queue, per_lb services pricing as per_bag (worth $93 of mis-pricing on one order), reprint blocked on commercial bags. 9 commits + 1 DB migration + 1 edge function deploy + 2 data backfills. Lessons banked at the bottom.*
+
+*— **Pt 1: POS receipts + auto-print + Print Transactions batch** (commit `d5c1a6c`, plus migration `session_156_orders_card_brand_last4` and `stripe-terminal` v16). Four field-feedback items landed together because they all touched the same receipt/payment surface. (a) Attendant name now prints on every receipt — hydrated from `shift.cashier_first_name + cashier_last_name` onto `order._cashierFirstName/_cashierLastName` right after createPosOrder. Reprints from the queue hydrate the same fields via a new `pos_shifts → profiles` join in loadWalkInQueue, so reprints always show the ORIGINAL cashier (not whoever's currently signed in). (b) Payment method line: 'Paid in cash' or 'Paid by Visa ····4242'. Migration added `orders.card_brand` + `card_last4` (both nullable TEXT). `stripe-terminal` v16's `get_payment` action now expands `latest_charge` so the success poll returns `card_brand` + `card_last4` alongside status. POS pollPaymentStatus → chargeAndFinish → createPosOrder stores them on the order at INSERT time; receipt builder renders the new payLineXml block. (c) Auto-print 2 copies after every sale via `queuePosPrintJob(order, 2)` in chargeAndFinish — fire-and-forget so a printer hiccup never blocks the success modal. Cashier no longer needs to tap Print. (d) New 🧾 Print Transactions pill in the topbar next to cashier badge. Prints shift-scoped report: header (cashier, site, first sale time), summary (cash N sales / $X · card N sales / $Y · grand total), detail per-row (time / order# / customer / NET amount / payment method with card last 4, refund tag if applicable). Refunds subtract from bucket totals so cash-drawer reconciliation matches reality. Net 273/-7 in pos/index.html.*
+
+*— **Pt 2: POS auto-update detection + non-blocking Refresh banner** (commit `b460345`). David: 'I had to remove the App from the iPad and log in again' after every deploy. Implementation: capture the ETag of `/pos/index.html` at page load. Every 5 minutes + on visibility change, HEAD-request the same file with cache-busting + `cache: 'no-store'` and compare. If ETag differs, show a non-blocking blue banner at the top with a 'Refresh now' button. NO auto-reload — the cashier might be mid-sale, mid-modal, or mid-customer-lookup. Banner sits until tapped. The HTML file's own ETag IS the version — no manual version bumping needed; each Vercel deploy changes it.*
+
+*— **Pt 3: Spanish translation for 'Detergents' merchandise category** (commit `d5e8c0b`). One-line addition to TRANSLATIONS_ES: 'Detergents' → 'Detergentes'. The merchandise-category render code at loadRetailServices already passes the DB category name through `t()`, so adding the translation key was sufficient — no other code change.*
+
+*— **Pt 4: Foothill site backfill — Kasa Hotel Addison + Kasa Hotels La Monarca** (data fix, no commit). David flagged that Extended Stay (#4610) showed on the Foothill POS but Kasa orders didn't. Audit revealed Kasa orders #4528 + #4529 had `orders.site_id = 23rd Ave` even though their customers' `default_site_id = Foothill`. Pattern: customers' defaults were set AFTER 5/13 when the orders were created; `set_order_site_on_insert` trigger only fires on INSERT, not retroactively. Confirmed Foothill account list with David (Meg Lamberton, Kasa Addison, Kasa Monarca, Erika VanHarken, Kidango, Extended Stay) — all six already have correct `customer.default_site_id`. Only 2 in-flight orders (the Kasa pair) needed `orders.site_id` re-tagged to Foothill. No 23rd Ave commercial accounts were mis-tagged.*
+
+*— **Pt 5: POS intake pricing fix — honor `service.pricing_type`** (commit `3a8776f`). David at counter: '$1.75 per bag instead of per lb on Commercial.' `recalcPosIntake()` and `confirmPosIntake()` hardcoded per-bag math (`bags × base_price + overage`) regardless of `service.pricing_type`. So Kasa Hotel Addison (Commercial W&F, $1.75/lb) showed '2 bags × $1.75 = $3.50' instead of '55 lbs × $1.75/lb = $96.25'. Extracted `_computeIntakePrice(svc, weight, bags)` helper that branches: `per_lb` → `weight × base_price`, no overage; `per_bag` → existing math. Both recalc + confirm now use the helper so live preview and persisted line_items always match. Net +40/-20.*
+
+*— **Pt 6: Backfill #4529 Kasa Addison pricing** (data fix). One order was already saved with the buggy total. Audit query (any per_lb-service order with per-bag-shaped base label) found exactly one hit: #4529. Manual UPDATE: total $18.50 → $96.25 (55 lbs × $1.75/lb), line_items rewritten to single base entry, overage line removed (per_lb doesn't have overage). `billing_status=null` + `on_account` so no Stripe/invoice reconciliation needed. Extended Stay #4610 verified as correct (admin-intaked, the hybrid label "2 bags · 34 lbs × $1.70/lb" identifies admin's intake function vs POS's).*
+
+*— **Pt 7: POS queue includes `folding` status + badge count fix** (commit `25d3a09`). David: 'where did Extended Stay go?!' #4610 was at status='folding' (admin assigned a launderer). The POS query at `loadWalkInQueue` filtered to `['picked_up', 'processing', 'ready_for_delivery']` — missing folding. RLS already admits folding orders at the device's site (session 150 pt 4); only the client query was the bottleneck. Added 'folding'. Also caught and fixed a related bug while in there: the 30-second badge auto-refresh in `startQueueRefresh` had a stale filter chain `.eq('source', 'walk_in').in('status', [...])` from before the multi-site work — undercounted delivery orders at Foothill every 30s, overwriting the correct count set by renderQueue. Rewrote to mirror the loadWalkInQueue filter (same 4 statuses, same site scope).*
+
+*— **Pt 8: POS queue renders `folding` bin + Mark Ready action** (commit `2015ce1`). After Pt 7, badge said 3 but only 2 cards visible. `renderQueue` had bins for `picked_up` / `processing` / `ready_for_delivery` — no bin for folding. Added: new '👕 Folding (N)' section between Washing and Ready. Spanish 'Doblando'. New status='folding' branch in renderQueueCard renders a green 'Mark Ready' action — advances to `ready_for_delivery`, lets the Foothill team complete the cycle from POS without bouncing to admin. Time-label string added so folding cards read 'Folding'/'Doblando' instead of the catch-all 'Ready'.*
+
+*— **Pt 9: POS reprint enabled for commercial delivery orders** (commit `9ddaf52`). David: 'no way to print out a receipt for reassigned orders.' Looking at Kasa Hotels La Monarca #4528 (commercial, folding). The cardActions render gate was `(isSelected && !isDelivery && status !== 'picked_up')` — the `!isDelivery` exclusion came from the original walk-in-only reprint intent. But at Foothill the laundry team uses the printed copy as a bag tag for commercial bags too. Dropped the !isDelivery condition; picked_up exclusion stays (no line_items yet at that status, would print a useless receipt). After deploy: any commercial card in processing/folding/ready_for_delivery — tap to select, then green Reprint Receipt button appears. Same single-copy reprint flow.*
+
+*— **Pt 10: Admin shows 'Paid' icon for cash orders + audit Check 3 fix** (commit `1cca1e6`). David: 'Jennifer Kirchhofer shows "no card on file" but she paid $236 in cash.' `_payStatusIcon`'s 'Already charged' branch required `stripe_payment_intent_id`; cash sales never have a PI (Stripe is only involved on cards), so they fell through every branch and landed on the 'No card on file' warning. Same taxonomy mistake session 154 pt 4 fixed on the 3 kanban cards — the lesson didn't propagate to the Orders list cell. Fix: branch on `billing_status === 'paid'` first, with method-aware tooltip ('Paid in cash' / 'Paid by Visa ····4242' / 'Paid by account credit' / 'Paid by check'). Also added `billing_payment_method`, `card_brand`, `card_last4` to `_orderSelectCols` so the tooltip has data. Daily audit Check 3 had the same bug — filter `!PI || status!=paid` false-flagged cash retail sales that reached delivered. Simplified to `billing_status !== 'paid'`.*
+
+*— **Pt 11: Admin Orders stale list on Delivery/Retail toggle** (commit `3758394`). David: 'toggling between retail and delivery, the list doesn't refresh.' `setOrdersSource` called `renderOrders()` with no argument, but `renderOrders(data)` reads `data.length` on the first line. The undefined throws silently inside the onclick handler, the DOM stays unchanged, the prior list persists. Tab counts and stat-card numbers were updating correctly because their handlers don't need arguments — which is why the badges read right but the rows didn't. Fixed: `renderOrders(getFilteredOrders())`. One-line fix; my session 155 setOrdersSource was the outlier — every other call site passes the filtered data correctly.*
+
+*— **Pt 12: Launderers/profiles PIN sync (POS PIN bridge)** (commit `fd41807`, plus manual backfill of Mayra Menjivar's profile.pos_pin to 4780). David: 'Mayra can't log into POS with 4780, audit this and others.' Two PIN systems with the same label: `launderers.pin` (what the Launderers admin page writes) and `profiles.pos_pin` (what the POS server actually checks at login via `start_pos_shift` RPC). The Launderers UI column was labeled 'POS PIN' but updates didn't authenticate POS login — the code comment at line 23622 admitted 'Phase 2 wiring pending'. Audit showed 8 of 9 attendant-launderers had matching values across both tables (someone had set them in lockstep at some historical point), but Mayra had drifted — launderer=4780, profile=8426. Fix: modified `setLaunPin` to write to BOTH columns atomically — updates launderers.pin first, then looks up the matching attendant profile by full-name split + role='attendant', updates profile.pos_pin, and rolls back launderers.pin on any profile-update conflict so the two tables stay consistent. Backfilled Mayra's profile.pos_pin manually so she can log in tomorrow. Tech debt: name-match is fragile (accents, whitespace, multi-part names like 'José María') — long-term Phase 2 should add `linked_profile_id` FK to launderers OR drop `launderers.pin` entirely and read POS PIN through the joined profile.*
+
+*— **Pt 13: Print Transactions captures full Pacific day, not single shift** (commit `ad1a63f`). David: 'attendants PIN in/out many times a day — each PIN session is a separate pos_shifts row, but a shift in the operator's mental model is the whole working day. Make Print Transactions capture ALL of that.' Old query: `.eq('pos_shift_id', shift.shift_id)` — single PIN session only. New flow: (1) compute today's Pacific window [00:00, 23:59:59.999] with DST-aware UTC-offset detection via Intl; (2) find every `pos_shifts` row started today by this cashier (`cashier_profile_id` match, `started_at` in today's window); (3) union all orders tied to those shift IDs with billing_status in (paid, refunded). Cashier rings up 4 sales in the morning, PINs out for lunch, PINs back in for the afternoon, rings 6 more → tap Print Transactions at 5 PM → all 10 print. Cash-drawer reconciliation matches the operator's mental model. Empty-state toast updated 'No transactions yet on this shift' → 'No transactions yet today' (with matching Spanish 'Aún no hay transacciones hoy').*
+
+*— **Lessons banked from session 156:** (A) **Field-testing > staging — every time.** A single day at the counter surfaced 9 issues we wouldn't have found in dev. The 'auto-print' issue, the 'folding disappearance', the 'per_lb mis-pricing', the 'reprint blocked' — every one of these only shows up when you're actually running a shift with real bags. Block out a 'sit at the counter and use it' day for any future operational app changes. (B) **Filter consistency between badge counters and panel contents matters more than either does alone.** Pt 7's stale source='walk_in' filter on the badge counter undercounted by 1 every 30 seconds. The badge says one number, the panel shows another, and operator trust evaporates. When adding a query that supports a UI count, make it identical to the panel's filter — or have the count derive from the panel's data directly. (C) **Status pipeline additions need consumer audits across all three layers — query, RLS, render.** When 'folding' became a status, queries needed it in their `.in()`, RLS needed it in its policy, and renderers needed bins for it. RLS got it in session 150 pt 4, but the POS query and renderer didn't until today. For any future status addition, check all three layers — and check the admin kanban + POS queue + dashboard tile + customer profile order list, every consumer that filters by status. (D) **Pricing_type duality is exactly the same shape as the line-item taxonomy duality from session 155.** Services have `pricing_type ∈ {per_lb, per_bag}`; consumer code must branch. Hardcoding one path silently corrupts the other. The fix is a shared helper (`_computeIntakePrice`) — extracting it forces the branching to live in one place where it's reviewable, not scattered across recalc + confirm + render. Apply the same pattern wherever else a service-config field has two distinct shapes. (E) **The ETag IS the version** — POS auto-update detection needs no manual version bumping. The HTML file's own ETag changes with every deploy. Capture once at load, compare periodically. Pattern is reusable for the customer-app + driver-app whenever we want them to auto-refresh too. (F) **Never auto-reload in mid-task contexts.** A POS in mid-sale has cart state in memory. A driver app mid-stop has photo upload queue state. Show a banner, let the user pick the moment. (G) **Reprint is the bag-tag use case in disguise.** The printed receipt does double duty as the customer's paper trail AND the laundry team's bag identification. That bridges the retail (walk-in) and commercial (delivery) workflows — same artifact, same need. Don't gate reprint by source unless there's a hard reason (and 'we wrote it originally for walk-ins' isn't a hard reason). (H) **'Paid' is `billing_status='paid'`, NOT `!!stripe_payment_intent_id`.** This pattern has now bitten in 3 distinct places: session 154 pt 4 (3 kanban cards), session 156 pt 10 (Orders list cell + audit Check 3). Card sales have both true; cash/credit/check sales have only `billing_status` set. Cash sales never produce a PI because Stripe isn't involved. Every paid-status check in the codebase should use billing_status as the source of truth. There may be more sites that still use the old PI-only check — worth a dedicated audit pass to find them. (I) **Name-matching between tables is fragile.** Pt 12's `setLaunPin` syncs `launderers.pin` ↔ `profiles.pos_pin` by full-name split. Works for plain ASCII names, breaks on accents, trailing whitespace, hyphenated last names, or capitalization variance. When two systems should be linked, use a structural FK (`linked_profile_id` column), not a name-match. Acceptable as a temporary bridge here because the alternative (Phase 2 full migration) is bigger surface area than today's bug warranted, but it's tech debt to retire. (J) **Operator's 'shift' ≠ technical `pos_shifts.id`.** Cashiers think a shift = a working day. The database thinks a shift = a single PIN session. Any user-facing reporting that says 'shift' must scope to the operator's mental model (today's Pacific window for this cashier), not the technical session. Same shape will likely apply to driver-app reports, courier reports, etc. when those ship.*
+
+*— **Outstanding tech debt from session 156:** (i) Pricing_type branching exists in two places now — admin's saveIntake (which always worked correctly) and POS's _computeIntakePrice. If a third intake surface ever ships (e.g. driver-app), make sure the helper migrates with it. Better long-term: move the math into a SECURITY DEFINER RPC like `compute_intake_line_items(p_service_id, p_weight, p_bags)` so all callers go through one door. (ii) loadWalkInQueue's RLS-aware client query is approaching the complexity threshold where it should become a server-side function. Currently has site filter + status filter + customer-hydration join + shift-hydration join. If a 4th hydration arrives, RPC-ify it. (iii) Launderers/profiles dual PIN system (session 156 pt 12). Today `setLaunPin` bridges the two via name-match — works but fragile. Phase 2 should add `launderers.linked_profile_id` FK and either drop `launderers.pin` (read POS PIN through joined profile) OR have a DB trigger keep them in lockstep automatically. Either eliminates the silent-drift class of bug. (iv) Audit pass for remaining `!!stripe_payment_intent_id` 'paid' checks. Sessions 154 pt 4 and 156 pt 10 fixed the kanbans + Orders cell + audit Check 3 sites; there may be more (admin's customer profile billing tab, monthly statements, reports). Worth a dedicated grep + audit sweep when convenient — search for `stripe_payment_intent_id` and check each is either correctly OR'd with `billing_status='paid'` or is intentionally narrow (e.g. 'has a Stripe charge to refund').*
+
+*Earlier: May 19, 2026 — Session 155 (10 parts) — Retail/Delivery separation + POS hardening sweep. The theme of the day: POS Retail orders had been intermingled with Delivery orders across multiple surfaces (admin Orders list, admin Processing kanban, Items report) with no visible distinction, and the POS itself had accumulated UX drift (Delete button as a destructive footgun, dual-source confusion, multiple silent breakages in the SMS pipeline). One end-to-end pass cleaned all of it up. 12 commits + 2 edge function deploys + 4 message-template edits + 1 stripe-terminal action removal. Lessons banked at the bottom of the entry.*
+
+*— **Pt 1: POS Delete-order button removed** (root-cause fix for the session 154 pt 6 #4861 incident). Rather than soft-delete via `archived_at` (the tech debt option from yesterday), David chose to remove the destructive cashier path entirely — refunds already exist via the dedicated ↩ topbar flow, and attendants were tapping Delete thinking it meant "get this card off my screen." Removed: queue-card Delete button, `deleteOrderModal` markup, `openDeletePosOrderModal` + `executeDeletePosOrder` JS, `_deletePosOrderTarget` state, `.queue-card-delete-btn` CSS, 17 orphan Spanish translations. Net 30/-215 in `pos/index.html`. Commit `81c6a3d`. (Pt 7 below also removed the `delete_pos_order` action in `stripe-terminal` v15 so there's no anon-key-callable hard-delete door anywhere.)*
+
+*— **Pt 2: POS topbar site selector removed + "Orders" label added.** Closes the localStorage source-of-truth tech debt logged in session 150 pt 4. `currentSiteId` now comes from `pos_devices.site_id` (NOT NULL) at sign-in. Device row is authoritative. Removed: site-badge topbar button, first-sign-in `siteSelectorModal` (defined but never called since session 111), `showSiteSelectorModal` / `selectSite` / `updateSiteBadge` / `toggleSiteDropdown` / `switchSite` JS, `.site-selector-dropdown` + `.site-selector-item*` CSS, 3 orphan translations, all `wr-pos-site-id` localStorage writes. Added: `Orders` label on queue-badge pill + `Órdenes` translation + `.queue-badge-label` CSS. Net 55/-184. Commit `a4e363d`.*
+
+*— **Pt 3: POS "Continue as retail" button removed.** Redundant with the modal's × close button. For merchandise-only carts it duplicated ×; for laundry carts it was blocked (toast: "Laundry needs a customer"). Removed button, `continueAsWalkIn()` JS, `.walk-in-btn` CSS, `'Continue as retail'` translation. `setWalkIn()` retained — `newSale()` still uses it for post-sale state reset, which is the semantically correct caller. Net 11/-31. Commit `395195e`.*
+
+*— **Pt 4: POS "Retail Queue" header title removed** from the queue panel. The blue Orders pill in the topbar (active when the panel is open) is sufficient signal. Header still hosts the "← Back to cart" link, right-aligned via new `.cart-header.queue-header { justify-content: flex-end; }` rule. Net 11/-3. Commit `447d7b0`.*
+
+*— **Pt 5: POS Spanish translations for queue section labels.** David spotted "READY" rendering in English when ES was selected. Three section-header strings missed translation — only `🧼 Washing` had been done. Added `📥 Just dropped off` → `📥 Recién entregado` and `✅ Ready` → `✅ Listo`. CSS uppercases via text-transform so they read RECIÉN ENTREGADO / LAVANDO / LISTO on screen. Commit `6aff4a6`.*
+
+*— **Pt 6: POS walk-in SMS rerouted through send-order-notification (10-day silent breakage fix).** David: "the SMS confirmations when placing a POS order (Order placed) and when it is ready (Your order is ready for pickup) are not firing." Diagnosis: on 2026-05-09, `send-sms` was hardened to reject anon-key auth — only signed-in staff JWTs in `STAFF_SMS_ROLES = {admin, manager, driver, attendant}` accepted. The POS helper `sendPosTemplateSms` called `send-sms` with `Authorization: Bearer ${ANON_KEY}`, which returned 401 every time, swallowed by fire-and-forget. The device account's role is `pos_device` — explicitly excluded — so even passing the device session JWT wouldn't have helped. Cleanest path taken: reroute through `send-order-notification`, the same orchestrator every other SMS path uses (driver SMS, billing SMS, on-the-way SMS — all live and firing fine). That function is anon-key-callable (verify_jwt=false, uses SERVICE_ROLE_KEY internally), already supports arbitrary trigger keys via its `EVENT_TO_TRIGGER[event] ?? event` fallback, and handles template lookup + phone resolution + interpolation + Twilio + sms_messages logging server-side. The POS helper dropped from ~60 lines to ~20 — just `{ orderId, event }` payload. Both call sites updated. Same session also fixed the **Text receipt button** which had the identical bug — `handleReceiptText` was calling `send-sms` directly. Rerouted through `send-order-notification` with a new `walkin_receipt_text` template (now editable in admin Notifications). Also fixed the **email receipt's "Wash & Fold service" generic label** — `send-receipt`'s `DISPLAY_TYPES` set knew about delivery taxonomy (`type='base'|'overage'|...`) but not POS taxonomy (`type='service'|'merchandise'`), so every POS line item got filtered out and the fallback string printed. Deployed `send-receipt` v32 with `'service' + 'merchandise'` added to the set + comment flagging the dual-taxonomy tech debt. Commits `487bc8a`, `f8dc348`.*
+
+*— **Pt 7: QA pass — 5 housekeeping items** from the post-Pt 6 review. (a) Removed the dead "Select a site to view orders" empty state in `loadWalkInQueue` — unreachable since site comes from a NOT NULL device column; replaced with a console.warn for the defensive-impossible case. (b) Neutralized the "Order #N" text color on the POS success modal — was `var(--accent-dark)` (link-blue) which read tappable but wasn't; changed to `var(--gray-700)`. (c) Polished `walkin_receipt_text` body to match the "Hi {{first_name}}" voice of the other two walk-in templates. (d) Deployed `stripe-terminal` v15 — removed the `delete_pos_order` action's destructive logic (it was no longer reachable from UI but still callable with anon key + open shift_id); action now returns HTTP 410 Gone pointing to `refund_pos_payment`. (e) Added header note to `outreach-sms.js` documenting the post-May-9 auth requirement (must run as admin; anon-key auth will silently 401) — prevents the same silent-breakage class of bug. Commit `fb91aa5`.*
+
+*Also in Pt 6/7: all three walk-in SMS template bodies rewritten for consistent brand voice — exclamation marks removed across `walkin_order_placed`, `walkin_order_ready`, `walkin_receipt_text`. Operating hours corrected to 7am-8pm in `walkin_order_ready`.*
+
+*— **Pt 8: Admin Orders page — Delivery/Retail source filter + context-aware rows + Items report Retail section.** David: "We need to do something about how Retail orders are listed on the admin Orders page. Right now there doesn't seem to be a distinction between Delivery and Retail." Five sub-changes: (1) Added `source` to `_orderSelectCols` so client-side filtering has the data. New `_ordersSourceFilter` state (default `'delivery'`) + `_orderMatchesSource()` applied first in `getFilteredOrders` so search, tab counts, stat tiles, and render all respect the segment. (2) Pill toggle in card header (initially 3-way Delivery/Retail/All; simplified to 2-way in Pt 10). Scheduled tab auto-hides in Retail mode — walk-ins are never future-dated; auto-falls to In Process if Scheduled was active. (3) Context-aware row labels via `statusBadge(status, source)`: `'Ready for Delivery' → 'Ready for Pickup'`, `'Delivered' → 'Picked Up by Customer'`, `'Picked Up' → 'Dropped Off'` when source=walk_in. `pickupCombinedCell` renders "Walk-in · 9:14a" (using created_at). `deliveryCombinedCell` renders "Counter pickup" or "Picked up by customer · 9:44a". `+ Assign driver` button never shown on retail rows. `🏪 Retail` pill beside the status badge. (4) Stat tiles gain a subtitle showing the split: e.g. `48 delivery · 4 retail` or `$1,130.75 delivery · $3.00 retail`. Big number stays the combined total so at-a-glance summary is unchanged; subtitle hides when retail is 0 to avoid sleepy-day noise. New `splitCount` / `splitSum` helpers. `.stat-sub` CSS rule. (5) Items report — new Retail section. Existing aggregator filtered by `status='delivered'` AND `delivery_window_start`; retail orders have neither (no scheduling, revenue real at billed_at). Added a parallel query keyed on `source='walk_in' + billing_status='paid' + billed_at` range. Retail orders aggregate under `byPricelist['Retail']` regardless of `services.pricelist`. Extracted `_accumulateAddons()` shared helper that handles both add-on taxonomies (delivery/customer-app `type=pref_service|addon|addon_service` AND POS `kind=addon` with `type=service`). Net 261/-67. Commit `3cac183`. Customer profile order history intentionally NOT filtered by source — that's the unified-relationship view by spec.*
+
+*— **Pt 9: Admin Processing kanban — Retail orders made display-only.** David: "I noticed that I could move forward a retail order from the admin processing queue and that assigning an order to a folder made the order disappear on the POS display... I'm leaning towards making the processing queue specifically for Retail display-only." The bug class: two surfaces (admin Processing kanban + POS Retail Queue) both writing to the same order, with different assumptions about pricing and status. Admin's folder-assignment overwrote POS's `line_items` with Delivery-pricelist values, and the POS lost track of the order. Fix per single-writer-per-mutation principle: POS Retail Queue is the only writer for retail; admin Processing shows them for awareness only. New `_procCardInteractiveAttrs(o, openFn)` helper returns interactive attributes for non-retail orders (cursor:pointer + onclick + swipe handlers) and passive attributes for retail (cursor:default + non-destructive onclick toast). New `_procCardRetailFooter(o)` renders a 🔒 Managed via POS footer line. Applied to all four kanban columns: Intake, Cleaning, Folding, Rack. Rack also gets the 🏪 Retail badge in its top-right (it didn't have one before). Folding column's inline "No launderer assigned — assign now" dropdown is hidden for retail. Drag/swipe between columns is impossible for retail since they have no touch handlers. No admin Override button per David's spec — fix the POS, don't add a parallel write path. Net 49/-15. Commit `245fab3`.*
+
+*— **Pt 10: Admin Orders source toggle simplified (2-way) + Delivered/Archived tabs hidden.** David: "I find the toggling between Delivery/Retail/All messy. Let's simplify and toggle only between Delivery and Retail (no all). Place the toggle above Orders list options on the right." Removed the All segment — the two segments don't share enough operational vocabulary for a combined list to be useful, and customer profile already provides unified history when needed. Moved toggle to its own row inside the card header, right-aligned, so its position stays put when the Scheduled tab is hidden in Retail mode. Also hid Delivered and Archived tabs (display:none) from the primary filter row — data still loads, search bypasses tab filter, so historical reference stays one search away while the operational view stays focused on active work. Commits `7411aed`, `6a8d94b`.*
+
+*— **Lessons banked from session 155** (the meta-pattern arc): (A) **Single writer per mutation.** Two surfaces writing to the same entity is data corruption waiting to happen. Identify who logically owns the entity (POS owns retail orders), make that the only writer, every other surface is read-only. Pt 9 was the concrete fix; this is the principle to apply elsewhere. (B) **Anon-key auth divergence is silent breakage.** When an auth check is added to a shared endpoint (`send-sms` on 2026-05-09), audit ALL callers. Admin/driver pass session JWTs naturally; POS device account is `pos_device` (excluded role); browser-console scripts rely on the admin's session. Cross-caller compatibility is part of the deploy checklist for any auth tightening. Outreach-sms.js still uses send-sms with the same vulnerability — header note added documenting the requirement; long-term that script should reroute too. (C) **Use one orchestrator for one capability.** All SMS in WashRoute flows through `send-order-notification`. POS calling `send-sms` directly was divergent. Closing this divergence eliminated both the auth bug AND made walk-in receipt SMS editable in the admin Notifications tab like every other customer-facing template. When you spot two paths doing the same logical work, the answer is to converge on one. (D) **Line-item taxonomy duality (tech debt).** Admin/customer-app writes line items with `type='base'|'overage'|'addon_service'|...`; POS writes `type='service'|'merchandise'` and `kind='addon'` (with `type='service'` for add-ons too — confusing). Every consumer that reads `line_items` must handle both taxonomies. `send-receipt` v32 and the Items report were patched in Pt 6/8. Future work: unify the taxonomy in a single migration + writer-side migration pass. (E) **Dead-code-on-disabled-features is a footgun.** Pt 1 removed the POS Delete UI but initially left the `delete_pos_order` server action live (gated by validateOpenShift but still callable with anon key + a known shift_id). Pt 7 closed it. Always pair UI removal with server endpoint removal/gating when killing a feature. (F) **Stat tile subtitle pattern.** Combined-total-with-segment-breakdown surfaces multi-source data cheaply without doubling visual weight: big number = total, subtitle = "X delivery · Y retail". Subtitle hides when one segment is 0. Reusable for any future split-by-source need (e.g. by-site, by-driver, by-cashier). (G) **Stale comments mislead future readers.** Pt 2 found "pos_devices has no site_id column (yet)" — that comment was outdated since session 150 pt 4. When a tech-debt gap closes, sweep comments referring to it.*
+
+*— **Outstanding tech debt from session 155** (added to Pending list below): (i) `outreach-sms.js` still calls `send-sms` directly; reroute through `send-order-notification` or document the requirement more permanently. (ii) Line-item taxonomy duality — schedule a unification pass. (iii) The admin Orders order-detail panel (not the Processing kanban) still allows edit on retail orders with Delivery pricing — David's spec scoped today's work to the kanban; the detail panel needs the same display-only gating in a future session.*
+
+*Prior: May 18, 2026 — Session 154 (6 parts). **Pt 1 — POS Sales report tab (By Item).** New tab on the Reports page between Items and Drivers. Quick-range chips (Today / Yesterday / 7d / This month / Last month) + site filter (All / 23rd Ave / Foothill, populated dynamically from `sites`) + summary headline (Transactions / Items Sold / Gross Revenue / Tax Collected) + sortable item table with Service/Merchandise badge, Qty Sold (lbs for per-lb / units otherwise), Transactions, Gross Revenue, Tax Collected + CSV export. Data: `source='walk_in' AND billing_status='paid'`; Pacific-anchored via `pacificDayStart`/`pacificDayEnd`; tax allocated proportionally to taxable items in the order; 1000-row pagination; verified against a SQL mirror. Commit `5f655aa`. **Pt 2 — Orphan ⭐ Subscriptions button removed** from inside `#pos-subtab-laundry` in the POS Pricelist UI (pre-existing April 14 copy/paste leftover; surfaced incidentally during the blast-radius search in Pt 1's QA pass). Commit `584b028`. **Pt 3 — By Order sub-tab.** Pill-style sub-tab switcher (By Item / By Order) per the session 152 style rule (secondary nav = pills). Per-transaction table: When (date+time PT), Order # (clickable → opens Orders page panel via `showPage('orders')+openOrderPanel`), Customer (or italic "Walk-in") with compact items snippet under the name, Payment method (card/cash/credit colored pill), Cashier (via `pos_shifts.cashier_profile_id → profiles` PostgREST nested select), Gross / Tax / Tip / Refund / Net. Fully-refunded rows tinted red with a Refunded pill. Query now pulls paid + refunded in one round-trip; paid subset still feeds the By Item aggregation and the headline. Commit `caa17c2`. **Pt 4 — Cash-paid badge fix on 3 kanbans + Fees column.** David spotted #4866 Germa Raxtun showing un-paid on the Cleaning kanban while two card sales next to it showed ✅ Paid — DB confirmed all 3 were `billing_status='paid'`. Root cause: the Folding / Cleaning / Processing kanban card renders all used `!!o.stripe_payment_intent_id` which is true for card sales (Stripe creates a PI) but false for cash / credit / check. The SAME bug had been fixed once before at the racked kanban (with an explanatory comment), but the fix never propagated. Classic blast-radius miss. Switched all three sites to `o.billing_status === 'paid'`. Commit `2a2b46b`. Same session also added a **Processing Fees** column to the By Order table — live Stripe `balance_transactions.fee` per card sale via the existing `get-stripe-fees` edge function; `—` for cash / refunded; italic `~$X.XX` fallback to a 2.9% + $0.30 estimate when Stripe times out (12s ceiling, matches Daily Revenue pattern); pure-cash windows skip the Stripe round-trip entirely. Commit `b35990a`. **Pt 5 — Receipt blank-address fix (staged, not yet pushed).** 4 receipts at Foothill printed without delivery addresses. Three-layer fix: added `pickup_address_id, delivery_address_id, customer_id, customers.address_cache, customers.addresses(id, line1, city)` to `loadProcessing`'s SELECT (Cleaning + Folding already had them); added `|| o.customers || {}` fallback to `_autoPrintIntake` to match `printBagTag`; hardened `_resolveDeliveryAddrForReceipt` to check BOTH `cust.addresses` and `o.customers.addresses` and fall back to `o.customers.address_cache`. Root cause traced to admin-only RLS gating the resolver's last-resort DB lookup — manager-role staff silently got empty addresses. Changes on disk; commit pending due to recurring sandbox lock-file issue. **Pt 6 — Missing POS order audit + duplicate customer merge.** Order #4861 (Kyja Jewelweed, $43.13 W&D card sale) was hard-deleted via the session-139 POS delete flow at 6:01 PM today, auto-refunded to her card. The cashier had earlier created a duplicate Kyja customer record at 11:56 AM (phone format mismatch caused the lookup-by-phone to miss the existing Feb-1 record). Merged the duplicate onto the original: snapshotted both rows to `_archive._merge_backup_kyja_20260518` and `_archive._merge_backup_kyja_transactions_20260518`, re-pointed the refund `customer_transactions` row, deleted the duplicate. Tech debt logged: POS `delete_pos_order` hard-deletes orders with only a `customer_transactions` refund row as audit trail. Recommend soft-delete via existing `archived_at` infrastructure instead of `DELETE` — preserves line_items and reasoning for "where did that order go" questions.*
+
+*Before that: May 18, 2026 — Session 153. **Lost & Found permissions toggle fix.** David reported the Manager checkbox for Lost & Found wouldn't persist — click it, navigate away, come back, unchecked again. Two stacked bugs: (a) cosmetic — `PAGE_LABELS` had no entry for `lostfound`, so the permissions table row rendered the raw page id ("lostfound") instead of "Lost & Found"; (b) functional — `togglePermission()` used `.update().eq(role).eq(page_id)` which silently affects 0 rows when no row exists, and `role_permissions` had ZERO rows for `page_id='lostfound'` for any role (the page was added to `ALL_PAGE_IDS` + nav but never seeded into the table). Three-layer fix per cleanest-path principle: (1) added `lostfound:'Lost & Found'` to PAGE_LABELS; (2) switched `togglePermission()` to `.upsert({role,page_id,allowed}, {onConflict:'role,page_id'})` so any page missing a seeded row self-heals on first toggle — removes the foot-cannon for all future pages too; (3) backfilled 4 missing rows in `role_permissions` (admin/manager/laundry_tech/attendant for `page_id='lostfound'`) so today's data is consistent. Commit `23b7e7d`. Lesson banked: any client-side list of page ids that must round-trip to a DB table needs either pre-seeding on migration OR an upsert pattern at the toggle site — `.update().eq()` against a possibly-missing row is silent failure waiting to happen.*
+
+*Earlier still: May 15, 2026 — Sessions 151 + 152 (same day). **Session 151:** Morning rounds + customer profile cleanup. Audit surfaced Kathryn Culp #4552 stuck in `picked_up` 2 days post-pickup with `routing_error: delivery_orphaned` already fired — bag never advanced through processing/folding/ready, no delivery happened, customer ~21h overdue. Flagged for live action. Two POS-walk-in-without-launderer audit rows (#4606 Sabritas, #3556 Soda) are pure merchandise sales — Check 20 audit query should be tightened to exclude all-merchandise orders. Customer profile cleanup (admin-dashboard): Contact tab → 3 cards (Name & Contact, Addresses, Operations); Billing tab → 3 sections (Plan, Payment, Balance & Adjustments); Price List moved Contact→Billing. Commit `7d6a5f9`. **Session 152 (3 parts):** **Pt 1** Billing tab gets sub-tabs (Plan / Payment / Balance). One shared Save Billing button still saves all sub-tabs in a single UPDATE. Last-used sub-tab remembered in localStorage. Commit `32fc221`. **Pt 2** Style unification: converted Billing sub-tabs from underline to the existing `.filter-tab` pill style. Codified rule: primary tabs = underline (`.cp-tab`), everything secondary (filters / view switchers / sub-tabs) = pill (`.filter-tab`). Commit `f10faa8`. **Pt 3** Customer-app Confirm Order screen: collapsed 4 detail cards into 1-2 line summaries with Edit→ links each jumping back to the relevant step via `goOrderStep(n)`. Sticky Place Order bar pinned above the bottom nav, always visible during scroll. Total lives in its own element above the button (`#confirm-cta-total`) so existing `btn.textContent` assignments in `placeOrder()` / `renderConfirmAuth()` don't disturb it. Commit `225dfe0`.*
+
+*Prior: May 14, 2026 — Session 150 (7 parts). **Pt 1:** Morning audit + 3 cleanup fixes (Iyngkarran orphan auth, Joyce phone-OTP orphan, Baby Lee #4026 stop status drift), Lawanda Malone shell deleted. **Pt 2:** System-wide receipt audit — found + patched 3 paths where account-credit applications were hidden from receipts (admin printInvoice, send-receipt edge fn v31, POS thermal + HTML). Wanda BoldenRoss #4069 ($20 credit + $140.95 card) now correctly shows the credit applied + actual card amount on all surfaces. **Pt 3:** Pricing-model exercise on Allister Lindamood's email (April-only data: Option 1 flat $65/bag = +8% revenue; Option 2 $69/bag + $275/100lb subscription = +5% but 81% rational uptake). **Pt 4:** POS multi-site unlock — order #4602 (David's test) tagged to Foothill site but RLS blocked POS from reading it. Migration `session_150_pos_device_site_id_and_rls` added `pos_devices.site_id` (NOT NULL, FK), backfilled Foothill Register → Foothill, replaced `pos_order_read` to allow walk-in-on-this-shift (existing) OR any active-processing order at the device's site (new). **Pt 5:** POS intake panel for delivery orders — replaces session-149 placeholder. Weight + bag count + auto base/overage + preserved line items + notes → `record_order_intake` RPC (same door admin uses). v1 deferred: add-ons, discounts, credit-at-intake, same-day surcharge UI. **Pt 6:** Receipt now prints DELIVERY address from the order (not `customers.address_cache`) so drivers can read the destination off the bag tag even when the app is offline. Fixes Gina Ecolino #4480 blank-address receipt — same gap was hitting 54/377 active-order customers (~14%) whose `address_cache` was NULL. New `_resolveDeliveryAddrForReceipt` helper used by both `printBagTag` + `_autoPrintIntake`; template also tightened to skip the line entirely if no address resolves. Also clarified for David that the Foothill kanban filter is working as intended — pre-May-13 Kasa/Kidango/etc orders still tagged 23rd Ave because their customers' `default_site_id` wasn't set yet at INSERT time; new cycles auto-tag correctly via existing trigger; no backfill per David's call. **Pt 7:** Permanent fix for the underlying denormalization. New `addresses` AFTER INSERT/UPDATE/DELETE trigger (`trg_sync_customer_address_cache`) keeps `customers.address_cache` in lockstep with the customer's best address (default first, otherwise most recent). One-time backfill healed 185 of 308 NULL-cache customers; the remaining 123 are leads with no addresses on file (correctly NULL). Now every read path — receipts, admin panels, exports, future SMS templates — sees a guaranteed-fresh cache value. Migration: `session_150_pt7_sync_customer_address_cache`. Commits: 649d38a, ebb23c6, 71a5819, a17105e, 035d625, c9ed974, 6aac089, 8f6533b.*
+
+## Session 154 — POS Sales report (4 parts) (May 18, 2026)
+
+David: "create a report tab for transactions/sales at POS/retail. My priority: a summary of transactions by item (e.g Wash & Fold, coke, chips, bags, etc) in a given timeframe."
+
+### Pt 1 — POS Sales tab (By Item summary)
+
+**Decisions captured up front via AskUserQuestion:**
+- Scope = POS / retail only (`source='walk_in'`)
+- Columns = Quantity sold, # Transactions, Gross Revenue, Tax Collected (all four)
+- Timeframe = preset chips + the existing From/To custom range
+- Site filter = dropdown (All / 23rd Ave / Foothill), not split-columns
+
+**UI placement.** New tab "POS Sales" inserted between the existing "Items" and "Drivers" tabs on the Reports page. The existing Items tab is pricelist-bucket-oriented (Delivery / Retail / Commercial) and doesn't break items out by name — POS Sales is the item-level breakdown.
+
+**Layout inside the tab:**
+- **Quick-range chip row** at the top: Today / Yesterday / Last 7 days / This month / Last month. Each chip writes to the page's existing `#rpt-from` and `#rpt-to` inputs and triggers `loadPosSalesReport()`. The chip auto-highlights when the current From/To matches its preset (via `_refreshPosSalesPresetHighlight()`).
+- **Site filter dropdown** on the right: populated dynamically from `SELECT id, name FROM sites ORDER BY name` via `populatePosSalesSiteOptions()` so a third site auto-appears without code changes. `All sites` is the default.
+- **Summary headline** (`.items-summary-row` reused for visual consistency with the Items tab): Transactions / Items Sold / Gross Revenue / Tax Collected.
+- **Item table** (`.items-tbl` reused): Item name (with a `.ps-kind-tag service|merchandise` badge), Qty Sold, Transactions, Gross Revenue, Tax Collected. Sorted by gross revenue desc. Total row in the tfoot.
+- **CSV export** button appears once a report is loaded.
+- **Footnote** explains the filters and the partial-refund caveat (see below).
+
+**Data path.**
+- Query: `orders WHERE source='walk_in' AND billing_status='paid' AND created_at BETWEEN pacificDayStart(from) AND pacificDayEnd(to)`, optionally `AND site_id = <selected>`.
+- Pacific-anchored bounds via the helper library (per the TIMEZONE RULES in this file). Anything else silently drifts the window for non-Pacific admins.
+- Pagination at 1000 rows per batch via `.range(offset, offset+BATCH-1)` — supabase-js needs a fresh query per call, so the chain is rebuilt inside the loop (not reused).
+- Refunded orders (`billing_status='refunded'`) excluded entirely — they're the negative side of a transaction history, not a sale.
+
+**Tax allocation.** `orders.tax_amount` is per-order, not per-line-item. For each order, compute the sum of `amount` across `line_items WHERE taxable=true` (`taxable_subtotal`). For each taxable line item, allocate `tax_share = (item.amount / taxable_subtotal) * order.tax_amount`. Non-taxable items get 0. Handles mixed taxable + non-taxable carts correctly (e.g. W&D not taxable + Bolsa taxable in the same order — all tax goes to Bolsa). Verified against today's data: 2 paid W&D orders, $0 tax (W&D isn't taxable), allocation correctly produces $0 per-item tax.
+
+**Quantity display.** Per-lb services (W&D) display lbs (`56.0 lbs`); per-item things (Sabritas, Caprisun) display unit count (`47`). The aggregation tracks both `units` and `lbs` per row; display picks whichever applies based on `anyPerLb`.
+
+**SQL mirror verification.** Before commit, built a CTE in SQL that replicated the JS aggregation byte-for-byte and ran it against the same dataset the JS would see. Numbers matched: Wash & Dry — 2 transactions, 56.0 lbs, $84.00 gross, $0.00 tax. All 5 refunded merchandise orders (Caprisun / Bolsa / Sabritas etc) correctly excluded.
+
+**Tech debt (v2 follow-up) — flagged in the in-tab footnote and the Pending list:** Partial refunds on still-paid orders are not subtracted from per-item revenue. The refund schema lives on the order (`orders.amount_refunded`) and on `customer_transactions`, not per-line-item, so accurate per-item refund tracking would need a per-line-item refund schema. Acceptable for v1 — fully refunded orders are already excluded, partial refunds on POS sales are rare today, and the receipt-level total stays accurate.
+
+**Records touched.** 1 file modified (`admin-dashboard/index.html`, +368/-2 including build-version bump). 0 DB migrations. 0 edge functions. New CSS classes: `.ps-preset`, `.ps-filter-row`, `.ps-filter-label`, `.ps-kind-tag.service`, `.ps-kind-tag.merchandise`. New JS: `loadPosSalesReport`, `setPosSalesPreset`, `_refreshPosSalesPresetHighlight`, `populatePosSalesSiteOptions`, `_setPosSalesSummary`, `exportPosSalesCSV`, plus the module-level state `_posSalesData` and `_posSalesSitesPopulated`. Tab wired into `runCurrentReport()` and `setRptTab()`. Commit `5f655aa`.
+
+**Pattern banked.** When adding a new sub-tab to the Reports page: (1) add the button to `.rpt-page-tabs`, (2) add the `#rpttab-<name>` div alongside the others, (3) add an `else if (rptTab === '<name>')` branch in `runCurrentReport()`, (4) add the tab id to the array in `setRptTab()` that toggles display. The shared `#rpt-from`/`#rpt-to` inputs already call `runCurrentReport()` on change, so the report auto-loads. Keep tab-specific filter controls (like the site dropdown here) inside the tab body, not in the shared date-range card.
+
+### Pt 2 — Orphan ⭐ Subscriptions button removed from POS Pricelist UI
+
+Surfaced during Pt 1's QA blast-radius scan: an orphan `<button class="rpt-page-tab" onclick="setRptTab('subscriptions',this)">⭐ Subscriptions</button>` was sitting inside `#pos-subtab-laundry` (admin-dashboard line 2217). Committed April 14, 2026 (`56070798`) — clearly a copy/paste leftover from when the Subscriptions Report tab was added. It clicked through to the Reports → Subscriptions tab from the wrong screen. One-line deletion. Commit `584b028`.
+
+### Pt 3 — By Order sub-tab (per-transaction breakdown)
+
+David: "I'd like to see a breakdown of each order by customer (similar to the Daily Revenue report), where revenue, tips, refunds, taxes, etc are broken out. Clicking on the order should bring me to a orders details"
+
+Sub-tab pill switcher added inside the POS Sales tab between the filter card and the body. The existing item summary became the **By Item** view; a new **By Order** view ships alongside. Pills (`.ps-subtab` with `.ps-subtabs` pill-bar container) per the session 152 pt 2 style rule (primary tabs = underline, secondary nav = pills).
+
+**Per-order columns:** When (date + time, Pacific) / Order # (clickable — opens the Orders page panel via the existing `showPage('orders')+openOrderPanel` pattern, same as Overview / Customer panel / etc) / Customer (or italic "Walk-in" when `customer_id` is NULL) with a compact items snippet underneath ("W&D 31lb · Sabritas ×2 · Caprisun" — capped at 3 items + "+N more") / Payment method (Card/Cash/Credit colored pill) / Cashier / Gross / Tax / Tip / Refund / Net. Fully-refunded rows tinted red (`tr.refunded`) with a Refunded pill next to the order # for at-a-glance auditing. Footer row totals each money column. Net per row = `Gross + Tax + Tip − Refund`.
+
+**Query shape change.** Now pulls `billing_status IN ('paid','refunded')` in one round trip and hydrates two FK chains: `customers(...)` (FK already in the orders schema) and `pos_shifts(..., profiles:cashier_profile_id(first_name, last_name))` (FK chain `orders.pos_shift_id → pos_shifts.id → pos_shifts.cashier_profile_id → profiles.id` — both FKs verified). The paid subset still feeds the By Item aggregation + the headline (refunded would inflate "Gross" for stuff that came back).
+
+**Headline-vs-row-count discrepancy explained in the footnote.** The headline still reflects paid sales only; the By Order rows include refunded orders for audit visibility. Documented inline in the tab so the user doesn't think it's a bug.
+
+**New state.** `_psSubTab` (module-level, 'byitem' | 'byorder'), `_posSalesOrders` (full all-status set used by the By Order tab). New helpers `setPsSubTab`, `_renderPosByOrder`, `_buildOrderItemsSnippet`. New CSS: `.ps-subtabs-row`, `.ps-subtabs`, `.ps-subtab[.active]`, `.ps-by-order-wrap`, `.ps-by-order-tbl` (with min-width:1200px and horizontal scroll wrap), `.ps-order-num`, `.ps-pm-tag.card/.cash/.credit`, `.ps-status-pill.refunded`, `.ps-items-snippet`. Commit `caa17c2`.
+
+### Pt 4 — Cash-paid badge fix (3 kanban views) + Processing Fees column
+
+**4a — Cash-paid badge.** David checked the live kanban after the POS Sales work landed and spotted that #4866 Germa Raxtun (a cash sale) was missing the ✅ Paid badge while the two card sales adjacent to it had it. DB confirmed all three had `billing_status='paid'`. Display bug.
+
+Root cause: three kanban card render sites used `const alreadyPaid = !!o.stripe_payment_intent_id` — true for card sales (Stripe creates a PI) but false for cash / credit / check sales. The SAME bug had been fixed once before at the racked kanban (admin line 24539, with an explanatory comment: *"billing_status = 'paid' covers both Stripe online charges AND POS cash sales. Earlier `!!o.stripe_payment_intent_id` mislabeled every cash sale as ❌ Unpaid because cash never produces a payment intent."*) — but the fix never propagated.
+
+Patched the 3 remaining sites (Folding kanban line 24159, Cleaning kanban line 24987, Processing kanban line 25036) to `const alreadyPaid = o.billing_status === 'paid'` and copied the explanatory comment so future readers don't reintroduce the bug. Blast-radius search confirmed all other `!!o.stripe_payment_intent_id` usages are in correct contexts (bill-orders view uses the OR fallback; refundability checks legitimately require a PI). Commit `2a2b46b`.
+
+**Lesson banked (added to PROJECT-NOTES via this entry): "Paid" status is `billing_status === 'paid'`, not `!!stripe_payment_intent_id`.** Card sales have both true; cash / credit / check sales have only `billing_status` set. Any new render path that needs to know "did the customer pay yet" should check `billing_status`. The PI check is for the narrower question "was a Stripe charge created" — which is what refundability needs, not paid-status.
+
+**4b — Processing Fees column.** David: "add one more column, Processing Fees (Stripe data)". Added a Fees column between Refund and Net in the By Order table. Live data from the existing `get-stripe-fees` edge function (returns `balance_transactions.fee` keyed by payment_intent_id; matches Daily Revenue's data source).
+
+- **Card sale (paid):** live fee from Stripe — e.g. `−$1.39` in red.
+- **Cash / credit / check sale:** `—` (no Stripe involvement, no fee).
+- **Refunded card sale:** `—` (Stripe refunds the fee on full US refunds — same policy as Daily Revenue).
+- **Live data unavailable / 12s timeout:** italic `~$X.XX` fallback to 2.9% + $0.30 estimate (same fallback as Daily Revenue, calls it out visually so admins know it's not the truth).
+- **Pure-cash windows:** skip the Stripe round-trip entirely (`hasStripeOrders` guard).
+
+Footer fees total propagates the italic tint if any visible row was estimated. Updated the footnote to explain `—` vs `~` semantics. Auth + 12s abort timeout pattern mirrors `loadRevenueReport`'s fee fetch (admin line 27509). Commit `b35990a`.
+
+**Records touched (Pt 4 only).** `admin-dashboard/index.html`: +91/-6 lines for the Fees column, +11/-4 lines for the kanban fix. 0 DB migrations. 0 edge function changes (reused existing `get-stripe-fees` v3).
+
+### Pt 5 — Receipt blank-address bug (Foothill kanban) — STAGED, NOT YET PUSHED
+
+David: "some receipts at 23rd are not showing customer addresses again". Four receipts (#4749 Christine Cooper 5/16, #4774 Jedediah Goddard 5/18, #4768 Trinette Henry 5/18, #4761 Ken Schmdit 5/18) printed with customer name + phone but no delivery address. DB confirmed all 4 orders had valid `delivery_address_id` and the linked addresses had `line1` + `city` populated — pure display bug.
+
+**Three stacked causes (cleanest-path fixes for each):**
+
+1. **`loadProcessing`'s SELECT was missing fields.** Where Cleaning and Folding loaders included `pickup_address_id, delivery_address_id` AND nested `customers(..., address_cache, addresses(id, line1, city))`, the Processing loader had none of them. So orders rendered from the Intake kanban handed the receipt code an order object with no address info at all. Patched to match the Cleaning/Folding shape.
+
+2. **`_autoPrintIntake` was missing the `o.customers` fallback** that `printBagTag` already had. Code was `cust = allCustomers.find(...) || {}` — if `allCustomers` missed, `cust` became empty `{}` with no addresses and no `address_cache` to fall back to. Patched to `cust = allCustomers.find(...) || o.customers || {}`.
+
+3. **The resolver's last-resort DB lookup is gated by admin-only RLS.** `admin_all_addresses` policy admits `role='admin'` only. A manager-role cashier at the counter silently gets `data:null` (no error thrown — PostgREST returns empty), then the resolver falls through to `cust.address_cache || ''` which is empty when cust is `{}`. This is why the bug manifested for non-admin staff specifically. The cached-data paths above were always supposed to render this DB fallback unnecessary on the print critical path.
+
+**Resolver hardening (defense in depth):** `_resolveDeliveryAddrForReceipt` now checks BOTH `cust.addresses` AND `o.customers.addresses` (no longer cares which one the caller hands in), and falls back to `o.customers.address_cache` too. DB fallback now carries a comment explaining the RLS gate so the next reader doesn't think it works for non-admins.
+
+**Lesson banked: any new receipt-related data needs to be loaded into BOTH `_orderSelectCols` (for allOrders) AND every kanban loader (loadProcessing / loadCleaning / loadFolding) AND every fresh-fetch in print flows (openIntakePanel)** — the print critical path crosses several caches and any single one being incomplete creates a silent display bug. The session 150 pt 6 fix was correct in spirit but only completed for two of those layers; the cached fallbacks were the missing piece.
+
+**Status:** Changes are saved to disk in `admin-dashboard/index.html` + `build-version.txt` but commit blocked by recurring sandbox lock-file issue. Need to commit from a real terminal — see the chat history for the exact commands. Once pushed, next intake auto-print at Foothill should include the delivery address line.
+
+### Pt 6 — Kyja Jewelweed duplicate merge + missing-order audit
+
+David spotted only 2 POS orders in the By Order tab after seeing 3 earlier in the day. Investigated:
+
+- **Order #4861** (25-lb Wash & Dry, $37.50 + $5.63 tip = $43.13 on card) was rung up at Foothill at 11:56 AM PT today by cashier **Odixci Abiles**.
+- At **6:01 PM PT today** someone deleted it from the POS Retail Queue via the session-139 delete-order flow. That auto-refunded $43.13 to her card via Stripe and hard-deleted the order row (FK cascades cleaned up events / line items / folding records).
+- The only surviving breadcrumb is the `customer_transactions` row with `type='refund'`, `amount=43.13`, `description='Refund (deleted): Order #4861'`.
+
+**Duplicate-customer side issue.** The cashier had created a brand-new Kyja Jewelweed customer record at 11:56:20 (one minute before the order at 11:56:55) instead of looking up the existing record by phone. Two records side-by-side:
+
+| Record | Created | Phone | Address | LTV | Orders |
+|---|---|---|---|---|---|
+| Original | 2026-02-01 | `(510) 697-6776` | 553 30th Street, Oakland | $93.95 | 7 |
+| Duplicate (dropped) | 2026-05-18 11:56 | `5106976776` raw | NULL | $0.00 | 1 (now deleted) |
+
+The phone format mismatch (`(510) 697-6776` formatted vs `5106976776` raw) is almost certainly why the POS lookup-by-phone didn't catch the existing record.
+
+**Merge executed** following the session 124/135 pattern:
+1. Snapshotted the duplicate row + the refund transaction to `_archive._merge_backup_kyja_20260518` and `_archive._merge_backup_kyja_transactions_20260518`.
+2. Re-pointed the `customer_transactions` refund row from the duplicate's id to the original's id, appended `[merged from duplicate cust 05156555 on 2026-05-18]` to the description so the audit trail is self-documenting.
+3. Deleted the duplicate `customers` row.
+
+After merge: 1 Kyja Jewelweed record (the original, with her real history), 1 refund row attached to her, both snapshots in `_archive` for recovery.
+
+**Tech debt logged from this incident — soft-delete or audit log for POS order deletion.** The session 139 `delete_pos_order` edge action hard-deletes the order row. The only post-hoc trail is the `customer_transactions` refund row, which doesn't carry enough metadata to reconstruct what was sold, what was paid, who deleted it, or why. **Two options for v2:**
+- **(a) Soft-delete the order:** add `archived_at`, `archived_reason='pos_delete'`, `archived_by` to the order instead of `DELETE`. Existing By Order / kanban queries auto-filter out archived rows; a new "Deleted Orders" view can include `archived_at IS NOT NULL`. Pro: trivial schema change, preserves full order data, integrates with the existing `archived_at` infrastructure already on orders. Con: row count grows over time; downstream queries that assume "if you can see this row, it's live" need an audit pass.
+- **(b) Dedicated `pos_audit_log` table:** every POS destructive op writes a JSON snapshot of the affected row(s) plus actor + reason. Pro: zero impact on existing query patterns, can capture richer context (the cashier_profile_id, device_id, reason text). Con: another table to maintain, no automatic dedup of revived-then-deleted orders.
+
+Recommendation: option (a). The `archived_at` column already exists on orders; the delete edge action just needs to swap `DELETE FROM orders` for `UPDATE orders SET archived_at=now(), archived_reason='pos_delete', archived_by=<auth.uid()>`. The FK cascades that currently kill events/line_items/folding rows would NOT fire, which is what we want — the line_items are needed to reconstruct what was sold.
+
+**Lesson banked: when adding a destructive POS / counter action, default to soft-delete + an audit reason field, not hard-delete.** The "what just happened to this order?" question comes up often enough that the marginal cost of preserving the row pays for itself within a week. Hard-delete is appropriate for true throwaway data (e.g. abandoned carts that never charged a card), but for any row that touched money or customer state, soft-delete with `archived_at` is the cleaner default.
+
+---
+
+## Session 153 — Lost & Found permissions toggle fix (May 18, 2026)
+
+David: "I can't enable Lost & Found page for Managers. When I click it and leave the page, I come back and it is unclicked. What's happening?"
+
+**Diagnosis.** Two stacked bugs revealed by a single symptom. The breadcrumb was in the screenshot itself: every other row in the permissions table read properly ("Overview", "Customers", etc.) but the row in question read "lostfound" — lowercase, no space, raw page id. That cosmetic anomaly was the clue.
+
+**Bug 1 (cosmetic).** `PAGE_LABELS` (admin-dashboard line 5801) maps page ids to display labels for the permissions table render. Every page id had an entry except `lostfound`. Render code: `${PAGE_LABELS[pageId] || pageId}` — so the fallback served the raw page id.
+
+**Bug 2 (functional, the real one).** `togglePermission(role, pageId, allowed)` (admin-dashboard line 5967) wrote with:
+```js
+await db.from('role_permissions').update({ allowed }).eq('role', role).eq('page_id', pageId);
+```
+This is "find row matching (role, page_id) and update it" — when no row matches, PostgREST returns success + 0 affected rows. No error thrown, no toast triggered, nothing in the console. DB query confirmed: `SELECT FROM role_permissions WHERE page_id='lostfound'` returned 0 rows for every role. The page was in `ALL_PAGE_IDS` (line 5761) + the nav element (line 1392) but never seeded into `role_permissions` when the Lost & Found page was originally added.
+
+So: click → toggle UI to checked → update affects 0 rows → reload → DB read returns nothing → UI renders unchecked. Silent no-op loop.
+
+**Fix (three layers, cleanest-path principle).**
+
+1. **Cosmetic — `PAGE_LABELS` entry.** Added `lostfound:'Lost & Found'` so the row renders properly. One-line change.
+
+2. **Architectural — upsert instead of update.** Switched `togglePermission()` to:
+   ```js
+   await db.from('role_permissions').upsert(
+     { role, page_id: pageId, allowed },
+     { onConflict: 'role,page_id' }
+   );
+   ```
+   Unique constraint `role_permissions_role_page_id_key` already exists on `(role, page_id)` so upsert resolves cleanly. This is the durable fix — any page added to `ALL_PAGE_IDS` in the future without a corresponding DB seed will self-heal on first toggle instead of silently failing.
+
+3. **Data — backfill the 4 missing rows.** Inserted `(admin/manager/laundry_tech/attendant, 'lostfound', allowed)` so today's data is consistent. Admin = true (admins always have full access anyway), the other three = false (matches the default-restricted pattern of other admin-only pages like Services and Notifications).
+
+**Audit of the rest of `role_permissions`.** Ran `SELECT page_id, COUNT(*) FROM role_permissions GROUP BY page_id` — all other 16 page ids have 3 rows (manager/laundry_tech/attendant), `lostfound` and `pos` now have 4 (with admin too — a cosmetic inconsistency but the `canAccessPage` shortcut returns true for admin regardless of the DB row, so this doesn't cause any behavioral drift). No other page ids are missing rows.
+
+**Lesson banked (added to top-of-file summary).** Any client-side list of page ids that must round-trip to a DB table needs either pre-seeding on migration OR an upsert pattern at the toggle site — `.update().eq()` against a possibly-missing row is silent failure waiting to happen. The audit query is cheap: `SELECT id FROM ALL_PAGE_IDS_TABLE EXCEPT SELECT DISTINCT page_id FROM role_permissions` would catch it pre-deploy. Worth wiring into the migration-review skill as a future enhancement, though the upsert-at-write-site fix removes the dependency anyway.
+
+**Records touched.** 1 file modified (`admin-dashboard/index.html`, +7/-5 including build-version bump). 0 DB migrations (just data inserts). 0 edge functions. Commit `23b7e7d`.
+
+**Verification path.** Hard-refresh admin dashboard → Team → Permissions → toggle Manager checkbox for Lost & Found → navigate to another page → return to Permissions → checkbox should remain checked and row label should read "Lost & Found".
+
+---
+
+## Session 152 pt 3 — Customer-app Confirm Order cleanup (May 15, 2026)
+
+David flagged that the customer-app Confirm Order screen was long enough that customers might not realize to scroll all the way to Place Order. The page was doing three jobs at once — *review* of prior choices, *final inputs* (tip / promo), and the *commit* — which stacked into ~7 cards plus a hidden auth section before the CTA.
+
+Picked the recommended path: collapse the review sections + sticky CTA bar (no new step in the funnel — adding a Next button right before payment is exactly the wrong moment to add friction).
+
+**Two structural changes:**
+
+1. **Compact summary cards.** The Service Details, Preferences, Pickup, and Delivery cards each collapse to a 1-2 line summary inside `.confirm-summary-card`:
+   - Service: `Wash & Fold · 1 bag` (+ frequency if recurring)
+   - Preferences: comma-list of paid add-ons, or "Standard preferences" if none
+   - Pickup: `Fri, May 15 · 9am–11am` + address as a `.sub` line below
+   - Delivery: `Sat, May 16 · 9am–11am`
+   Each card has an Edit→ link that calls `goOrderStep(n)` — the existing step-jump pattern. Pricing card stays fully expanded (the line-item breakdown is what informs the decision to pay).
+
+2. **Sticky Place Order bar.** New `.confirm-cta-bar` lives outside `#screen-new-order` as a sibling of `#bottom-nav`. Always visible while scrolling, only shown when `body.confirm-active` (toggled in `goOrderStep` when entering step 4, removed in `showScreen` when navigating elsewhere). Layout: Total row on top (`Total · $73.95`), Place Order button below, small "← Edit details" link beneath. The Total updates dynamically via `buildConfirmSummary()` whenever tip changes or promo is applied.
+
+**Critical design decision after a near-miss.** First attempt put the total *inside* the Place Order button as `<span id="btn-place-total">`. QA pass found `placeOrder()` and `renderConfirmAuth()` set `btn.textContent = 'Place Order' / 'Processing…' / 'Create Account & Place Order'` across ~17 sites, which would wipe the inner span every time the button state changed. Tried to fix by rewriting all 17 sites via a regex script — script's function-boundary detection was too greedy and accidentally rewrote `btn.textContent` calls in 13 unrelated functions (Save Changes, Pay Now, Choose Plan, etc.). Reverted via `git checkout` and took the cleaner path: **move the total OUTSIDE the button entirely** into its own `<span id="confirm-cta-total">` sibling. Now `btn.textContent` operations are completely isolated from the total display, no helper function needed, zero unrelated code touched. Lesson banked: when a regex script edits more than a handful of sites, verify the diff manually before trusting the count. Easier to revert + restructure than to chase down 30+ collateral changes.
+
+**Why no NEXT button.** David's other idea was splitting the page into 2 steps with a Next button between review and pricing. Pushed back: customers have already tapped through 5 steps to get here, adding a 6th right before payment introduces friction at the worst moment in the funnel. The sticky CTA achieves the underlying goal (don't make people guess whether they need to scroll) without adding a step.
+
+**Multi-tab gotcha (acceptable).** During placeOrder's transient states ("Processing…", "Placing order…"), the Total above the button is still visible. Reads fine — "Total · $73.95 / Placing order…" is unambiguous. No need to hide the total mid-flow.
+
+**Records touched.** 1 file modified (`customer-app/index.html`, +103/-48). 0 DB migrations. 0 edge functions. 0 save handlers. 0 DOM IDs renamed. 1 commit (`225dfe0`).
+
+**Pattern banked.** When pinning a CTA bar above an existing fixed bottom nav, set `bottom: <nav-height>px` on the bar and bump `.main-content { padding-bottom }` via a body class so content scrolls cleanly past both. Use a sibling element (not a child of the screen) so the bar stays fixed regardless of which screen-level container is active; toggle visibility via a body class managed by the screen-change and step-change handlers.
+
+---
+
+## Session 152 — Billing sub-tabs (May 15, 2026)
+
+David reviewed the session 151 cleanup and felt the Billing tab still had too much on one page (3 stacked sections × multiple sub-headers each = a long scroll). Asked about sub-tabs. We agreed on:
+
+- **Scope:** Billing only. Contact already only has 3 simple cards — sub-tabs there would add a click to look up a phone number, net negative. Worth revisiting if Contact grows again.
+- **Style:** Underline tabs (smaller, uppercase, tracked typography) to differentiate from the primary `.cp-tab` pill row visually. Reads clearly as secondary nav, not parallel.
+
+**Implementation.** Each of the 3 Billing sections wraps in a `.cpb-pane` div (`#cpb-pane-plan`, `#cpb-pane-payment`, `#cpb-pane-balance`). A small `.cp-subtabs` strip sits at the top of `#cptab-billing` with 3 buttons calling new `cpBillingSubtab(name, btn)`. The function toggles pane visibility, sets the active button, and writes the chosen sub-tab to `localStorage('wr-cpb-subtab')`. On every customer-panel open AND every entry into the Billing parent tab, the last-used sub-tab is restored — so cross-customer reviews don't keep flipping back to Plan.
+
+**Save is still one button.** `saveBilling()` reads by element ID (`getElementById`), which finds the fields whether their parent pane is visible or hidden. So editing Plan, switching to Balance, editing Credit, then clicking Save Billing persists everything in one UPDATE. No risk of losing a sub-tab's changes when switching.
+
+**CSS:** New `.cp-subtabs` + `.cp-subtab` rules near the existing `.cp-tab` definitions (~line 447). Active sub-tab gets a 2px accent underline + dark-gray text; inactive is muted gray. Sub-tab font is 11.5px uppercase with `.06em` letter-spacing — visually subordinate to the 13px sentence-case primary tabs.
+
+**Why this didn't need more.** No DOM IDs renamed, no schema changes, no Stripe touches, no DB triggers, no edge fns, no realtime subscriptions. The whole change is pure DOM rearrangement + visibility toggling + a small localStorage state. Reverting would be a single revert commit.
+
+**Records touched.** 1 file modified (`admin-dashboard/index.html`, +48/−1). 1 commit (`32fc221`).
+
+**Style unification (same-day follow-up, commit `f10faa8`).** David noticed the new underline sub-tabs looked inconsistent with the rest of the admin, which uses pill-style `.filter-tab` chips for every other secondary-nav strip (~15 places: Orders status filters, Drivers Messages/Manage, Settings Invoice/Printer/Reviews, Customers List/Map/Groups, Transactions date ranges, Engagement SMS/Email, Inbox tabs, etc.). Converted the Billing sub-tabs to the same pill style and dropped the `.cp-subtab` CSS additions. The codified rule now is: **primary tabs at the top of a page/panel = underline (`.cp-tab`); everything secondary = pill (`.filter-tab`)**. Selector for `cpBillingSubtab()` is scoped to `#cptab-billing .filter-tab[data-subtab]` so it doesn't pick up other filter rows on the page.
+
+**Pattern banked.** Future parent tabs that grow too big should reuse the same shape: wrap each section in a `.cpb-pane`-style div, add a `<div class="filter-tabs">` pill strip with `data-subtab` attributes on each button, write a `cpXxxSubtab(name, btn)` switcher scoped to its parent (e.g. `#cptab-engagement .filter-tab[data-subtab]`). Engagement and Preferences are candidates if either grows.
+
+---
+
+## Session 151 — Customer profile UX cleanup (May 15, 2026)
+
+**Morning audit findings.**
+- 🔴 **Kathryn Culp #4552** — bag picked up Tue May 13 7:22 PM by Aracely on Alameda PM route. Order never advanced past `picked_up`. Delivery was scheduled for Wed May 14 6 PM on Alameda PM but never happened. As of Fri May 15 morning, customer is ~21 hours overdue and `routing_error: delivery_orphaned` is correctly set on the order. Same class of bug as session 150's #3516 Covenant House (pickup completes, but the order never gets intaked the next morning, so it stays invisible to driver app + admin RCC filters). Flagged for David to: call customer, locate physical bag, intake it, reschedule delivery for tonight/tomorrow, apply credit for the delay.
+- 📋 **Check 20 false positives.** POS walk-in orders #4606 (Sabritas) and #3556 (Soda) are pure merchandise sales with no laundering line items — they correctly have no launderer assignment. The Check 20 query should be tightened on next audit-skill maintenance pass to exclude orders where every line item is `kind='merchandise'`. Low priority — easy to recognize at-a-glance for now.
+- All other 19 audit checks clean (incl. Check 18 silent reschedules — no false positives now that the bulk-sweep guard is in place).
+
+**Customer profile cleanup (admin-dashboard).** David asked to declutter the customer-profile Contact + Billing tabs. The Contact tab was mixing identity (name/phone/email/addresses) with operational rules (Price List, Route Override, Default Processing Site) in a single dense card; the Billing tab was 6 stacked cards of roughly equal visual weight with no information hierarchy.
+
+**Contact tab — 3 cards:**
+1. **Name & Contact** — name, phone, email, app status, How They Found Us (now full-width since Price List moved out).
+2. **Addresses** — unchanged.
+3. **Operations** (NEW) — Route Override + Default Processing Site. Lives on the Contact tab so Save Contact Info still writes them, but visually separated from identity.
+
+**Billing tab — regrouped into 3 logical sections (was 6 cards):**
+1. **Plan** — Price List (moved from Contact) + Subscription. Reads as "what plan is this customer on."
+2. **Payment** — Billing Type, Payment Method, Billing Group, Card on file, Default Tip. Sub-sections within the card use a small uppercase grey header + horizontal divider instead of separate `.cp-card` boxes — that's how 4 things fit cleanly into one card.
+3. **Balance & Adjustments** — Account Credit (+ Add/Remove), Outstanding Balance, Discount + Fee/Min Exempt, Apply Promo Code. Reads as "what they owe + what reduces what they owe."
+
+**Save handlers:**
+- `saveCustomerContact` no longer writes `pricelist` (leftover from Price List's old location).
+- `saveBilling` now writes `pricelist: type || 'Delivery'`. Matches the visual model — Price List lives on Billing now.
+
+**Why this is a clean refactor (not just cosmetic):**
+- Zero DOM IDs renamed. `cpe-type`, `cpe-route-override`, `cpe-default-site`, `cpb-billing-type`, `cp-payment-info`, `cpb-sub-content`, etc. all preserved. Load functions look up by ID via `getElementById`, so moving markup between cards doesn't require any rewiring.
+- Zero DB schema changes. The `pricelist` column on `customers` is unchanged.
+- Zero Stripe integration touches. `cp-card-form`, `cp-card-element`, `cp-card-errors`, `adminSubmitCard()` all in place.
+- Removed the `cpb-subscription-card` wrapper div (zero JS references — was dead structural markup).
+- Tag balance verified post-edit: 92 opening `<div>` = 92 closing `</div>` in the Contact+Billing panel section.
+
+**Multi-tab unsaved-changes gotcha (acceptable).** If a user edits Price List on Billing, switches to Contact, then clicks Save Contact, the Price List change is not persisted — Save Contact's patch no longer includes `pricelist`. This is consistent with every other tab in the panel (Save Billing doesn't save Contact changes either) and doesn't warrant a pre-emptive "unsaved changes" guard. Worth noting only because Price List moved.
+
+**Records touched.** 1 file modified (`admin-dashboard/index.html`, +131/−104). 0 DB migrations, 0 edge functions, 0 cron changes, 0 customer-facing data changes. 1 commit (`7d6a5f9`).
+
+---
+
+## Session 150 — Morning rounds (May 14, 2026)
+
+**Audit fixes applied:**
+- **Iyngkarran Kumar** — deleted orphan auth user `33e00a81-...` (email iyngkarrankumar@gmail.com). Real account is phone-auth `d24c36a3-...`. Next magic-link request will attach his email cleanly via `send-magic-link` v17.
+- **Joyce Lee** — deleted orphan phone-OTP auth `9055c7e4-...` (phone +1 510-926-5142). Real account is email-auth `b45cf0d9-...` (joycelywrites@gmail.com). Next OTP request will attach via `prepare-phone-otp`.
+- **Baby Lee #4026** — flipped delivery `route_stop.status` from `en_route` → `complete`. `completed_at` was already stamped; the status column simply never synced.
+
+**Tech debt opened:**
+
+1. ⚠️ **Commercial orders can advance past pickup without a `route_stops` row.** Order #3516 (Covenant House) was created Apr 30, pickup window May 7 12-3pm, currently `ready_for_delivery` with a valid delivery stop on COMMERCIAL route May 14 12-3pm — but **no pickup `route_stops` row exists** and `actual_pickup_at` is NULL. The order advanced through pickup → processing → ready without anyone capturing who/when/which driver did the pickup. David's rule: "even commercial orders require scheduled pickups and deliveries." There is a code path (likely the recurring-order trigger, intake flow, or admin manual-advance) that lets a pickup leg skip route_stop creation. **Next-session work:** trace the create path on Covenant House's most recent recurring chain, find the missing INSERT, add a NOT EXISTS guard or require an explicit route_id at pickup-advance time. Order's delivery is fine for today — fix is structural, not data-cleanup.
+
+2. ⚠️ **Stop `status` can drift from `completed_at`.** Baby Lee #4026's delivery stop had `completed_at` stamped (matching the order's `actual_delivery_at`) but its `status` was stuck at `en_route`. The driver-app's `completeStop` flow does multiple non-atomic writes (`route_stops` update + `orders` update + `routes` update — see RPC #3 `complete_route_stop` in `RPC-REFACTOR-AUDIT.md`). Either a network blip dropped the status leg specifically, or there's a race in the driver app. **Highest daily-volume path in the system; this is the RPC #3 we already had queued.** Today's incident is one more reason to ship it.
+
+**Lawanda Malone shell deleted.** Phone `(510) 913-4480` was shared with active customer Craig Griffin. Lawanda had 0 orders / 0 LTV / 0 addresses / 0 transactions / 0 SMS / 0 subscriptions — completely empty since Apr 1. `DELETE FROM auth.users WHERE id = 'fed741b0-...'` cascaded through profiles + customers cleanly. The phone is now unclaimed at the auth layer; next OTP into `(510) 913-4480` will attach to Craig's email-auth user via `prepare-phone-otp`.
+
+**Other audit findings noted, not actioned this session:**
+- Service-zone polygon overlaps (Hayward ↔ Concord 0.87 sq km, Concord ↔ Oakland 0.29, Berkeley ↔ Alameda 0.02, Hayward ↔ Alameda 0.02) — non-blocking, scheduled for a future zone-tightening session.
+- 16 unpaid delivered orders with `billing_status='failed'` and no Stripe card on file — pre-existing recovery candidates from session 83's batch retry; no change.
+- 2 oddities in Check 3: #2387 Katie Guadagno ($46.90) and #3841 Azucena Valencia ($9.95) both show `billing_status='paid'` with no Stripe payment intent — likely credit/cash, but worth confirming.
+
+---
+
+## Session 150 pt 7 — Permanent fix: trigger keeps customers.address_cache in sync
+
+**Why a trigger after pt 6 already fixed the receipt.** Pt 6 made the receipt path resilient, but the underlying denormalization was still broken. `customers.address_cache` had no canonical writer — admin's `saveNewAddress` flow happened to set it at create time, but no path updated it when a customer's default address changed, when line1 was edited, or when the address was deleted. 308 of 5,565 customers had drifted into NULL; 185 of those had real addresses on file. Other read paths (admin customer list, search, customer cards, future SMS templates) still trusted the cache. David asked for a strong permanent solution — this closes it.
+
+**Design.** Single trigger on `addresses` (AFTER INSERT/UPDATE/DELETE) that recomputes the cache for the affected customer. The recompute logic lives in a separate helper `_refresh_customer_address_cache(p_customer_id)` so the trigger and the one-time backfill share the same formatting (and any future admin "recompute all" tool can call the same function).
+
+**Address-selection rule.** `is_default = TRUE` wins; ties broken by `created_at DESC`. Matches the existing default-address convention used everywhere else in the app.
+
+**Format.** `<line1>[ Apt <line2>], <city>, <state> <zip>` — identical to the existing JS-side format at `admin-dashboard:16922` so downstream consumers see the same shape they always did.
+
+**Edge cases handled.**
+- Address moved to a different customer (rare but possible via admin re-parent): trigger refreshes BOTH the old customer (drops the moved address) and the new one (acquires it).
+- Last address deleted: cache is set to NULL (correct — there's nothing to cache).
+- No-op updates: the inner UPDATE has `IS DISTINCT FROM` guard so a label or lat/lng change that doesn't affect the formatted output skips the write entirely.
+- 122 leads + Emily Hoff's cancelled-#2678 customer: no addresses → backfill leaves their cache as NULL (correct).
+
+**Recursion check.** Trigger UPDATEs `customers`. The two existing `customers` triggers (`sync_customer_card_to_payment_methods`, `sync_customer_type_pricelist_fn`) don't write back to `addresses`. No loop.
+
+**Security hardening (post-session 148 pt F principle).** Both functions are `SECURITY DEFINER` with explicit `search_path = public, pg_temp`. `EXECUTE` revoked from PUBLIC AND anon; granted to `authenticated, service_role`. Closes the silent Supabase anon-leak gap.
+
+**Backfill scoped to NULL-cache-with-addresses customers only.** Did not recompute caches for already-populated customers — protects any historical hand-edits and is idempotent if someone re-runs the migration block.
+
+**Verification.**
+- Pre-migration: 308 customers had NULL cache (185 with addresses, 123 without).
+- Post-migration: 123 customers still NULL — exactly the lead/cancelled accounts with no addresses. Zero customers with addresses remain unhealed.
+- Gina Ecolino: `1755 Trinity Avenue Apt 39, Walnut Creek, CA 94596` ✅.
+
+**Why this is the cleanest path (session 134/143 principle).** The pt 6 receipt fix was layer-2 (read-time defense). Pt 7 is layer-3 (DB invariant enforcement). Now any future code path that reads `customers.address_cache` — admin panels, exports, statements, batch SMS, anything — gets a fresh value automatically. The bug class becomes architecturally unrepresentable. No future call site needs to "remember to update the cache" because the DB does it.
+
+**Records touched.** 1 migration. 2 new functions (`_refresh_customer_address_cache`, `sync_customer_address_cache`). 1 new trigger (`trg_sync_customer_address_cache`). 185 customer rows backfilled. 0 file changes (DB-only).
+
+**Tech debt opened.** None new. The pt 6 follow-up about the POS receipt path (`pos/index.html` ~6001/6067) is now LOWER priority because the underlying cache is no longer prone to drift — even the current POS read path will produce correct addresses once the customer has any address record. Still worth eventually switching POS to source from the order's delivery_address (for offline driver-read parity) but no longer urgent.
+
+---
+
+## Session 150 pt 6 — Receipt prints DELIVERY address from order (not customer cache)
+
+**The bug.** Gina Ecolino #4480 printed at 23rd Ave with a blank address line. Root cause: both admin print paths (`printBagTag` manual reprint and `_autoPrintIntake` auto-print on Save & Start Processing) read `cust.address_cache` — a denormalized field on the customer record that's `NULL` for 54 of 377 active-order customers (~14%). When the cache is empty, the Star markup template still emitted an empty `<text-line/>` for the address row, producing the visible gap on the printed slip.
+
+**The fix.** New helper `_resolveDeliveryAddrForReceipt(o, cust)` (admin-dashboard `~10789`). Resolves the address through a three-step fallback chain:
+
+1. `o.delivery_address_id` → look up in `cust.addresses` cache → format as `line1, city`.
+2. If not in cached addresses, hit `addresses` table directly by id.
+3. Last resort: fall back to legacy `cust.address_cache`.
+
+Both intake-print paths now `await _resolveDeliveryAddrForReceipt(o, cust)` instead of reading the cache. The popup window (browser transport only) is still opened synchronously before any await, so popup blockers are still bypassed.
+
+**Why delivery, not pickup.** David's call. The printed slip doubles as a bag tag on the rack — when a driver picks the bag at end of day, they want to see WHERE THE BAG IS GOING, not where it came from. Especially helpful when the driver app is offline or for visual sanity-checking before the route loads.
+
+**Template fix.** The Star markup line for the address used to be unconditional (always emitted `<text-line>${custAddr || ''}</text-line>`), which is what produced Gina's blank gap. Replaced with `${custAddr ? '<text-line>...</text-line>' : ''}` — if the fallback chain still yields nothing, the line is dropped from the receipt entirely instead of leaving an empty row.
+
+**Foothill-filter clarification (same session).** David flagged that the admin Processing → Foothill chip "sometimes shows just David Macquart, then suddenly shows Kasa/Nourish/Kidango." Investigated and confirmed the filter + auto-tag trigger are working correctly. The pre-May-13 Kasa/Kidango/etc orders are tagged `site_id = 23rd Ave` because their `customers.default_site_id` wasn't backfilled until session 149 pt 3 (May 13) — so when those May-11 orders inserted, the `set_order_site_on_insert` trigger correctly fell through to the default site. The next cycle's recurring orders (Kasa #4XXX coming this week, all 16 Kidango locations) will auto-tag Foothill as expected via the existing trigger. David chose not to backfill historical orders — they'll work through the pipeline naturally in 1-2 weeks and the inconsistency self-resolves.
+
+**Records touched.** 1 file (`admin-dashboard/index.html`, +39/-3). 0 DB migrations. 0 edge functions. 1 commit (`6aac089`).
+
+**Tech debt opened.**
+
+1. **POS receipt has the same address-cache pattern.** `pos/index.html` ~lines 6001 + 6067 source receipt address from `order._customerAddress || currentCustomer?.address`, where `currentCustomer.address = c.address_cache`. Same blank-address bug would print for a returning customer with NULL `address_cache` who gets attached at POS. Lower priority — most POS sales are anonymous walk-ins with no address — but worth the same `_resolveDeliveryAddrForReceipt`-style treatment when convenient.
+
+2. **No structural prevention against NULL `address_cache`.** Future customers created via flows that don't populate the cache will still hit this. The fix here is defensive (read from order); a stronger fix would be a trigger that auto-populates `customers.address_cache` from the customer's default address on INSERT/UPDATE of `addresses`. Not urgent now that receipts no longer depend on the cache.
+
+---
+
+## Session 150 pt 5 — POS intake panel for delivery orders
+
+Replaces the session-149 placeholder (`openPosIntakePlaceholder` → toast). The Foothill attendant can now intake a dropped-off delivery order entirely from the POS, instead of bouncing to the admin Processing tab.
+
+**The flow.** Queue card's `✏️ Intake` button → `openPosIntake(orderId)` → fetches the order's service config → `posIntakeModal` opens prepopulated with customer name, "Customer estimate: N bags," and the customer-app bag count. Attendant types weight + (optionally) corrects bag count. The summary block recomputes live: `service.name · bags × base_price` + `lbs_overage × overage_rate` + preserved-from-booking line items (`delivery_fee`, `same_day_surcharge`, any customer-app addons) + Total. Optional notes textarea. Confirm → calls `record_order_intake` RPC (same transactional door admin uses) → advances status to `processing`, writes the new line_items + total_amount, logs attributed event. Toast → queue reloads → card disappears (now in processing) → also surfaces in admin kanban's Cleaning column.
+
+**Line-items rule.** `record_order_intake` replaces the order's `line_items` array wholesale, so the POS panel rebuilds the full list: new base + new overage (if any) + everything else preserved verbatim from `orders.line_items` (filtered by `type !== 'base' && type !== 'overage'`). Same convention admin's saveIntake follows by rebuilding from its `procAddons` state. Different surfaces, same downstream shape — receipt renderer and billing logic don't care which app entered the data.
+
+**Actor attribution.** Uses `shift.cashier_first_name + last_name + ' (POS)'` if PIN-locked, else `shift.cashier_first_name + ' (POS)'`, else `device.name`, else `'POS'`. Surfaces in `order_events` so admin can see who intaked what at which terminal.
+
+**v1 scope intentionally minimal:** no add-on prefs (Vinegar, Oxi at counter), no discount application, no credit-at-intake, no same-day-surcharge UI. Those belong to v2 once we know which Foothill attendants actually need at the counter vs admin tab. The generated `orders.is_same_day` column (session 148 pt 4) still drives the boolean — the RPC's `p_is_same_day` arg is passed for honesty but ignored on write (generated columns reject).
+
+**Bug caught in the same session:** initial deploy crashed on every Intake tap with "Service config missing" because `loadWalkInQueue`'s SELECT didn't include `service_id` (or `is_same_day`). Fix in `c9ed974` — added both columns to the select list. Both audits (Audit 1 DB-functions and Audit 2 client-side grep) only catch column drops, not missing-from-select bugs — worth adding a "new feature reads column X — does the query that loads X actually select it?" check to the QA skill.
+
+**Records touched.** 1 file modified (`pos/index.html`, +235/-10 then +1/-1 fix). 0 DB migrations (RPC already existed). 1 edge function deploy → none (no edge function changes). 2 commits (`035d625` + `c9ed974`).
+
+**Tech debt opened.**
+1. **POS intake v2 backlog** — add-ons / discount / credit-at-intake / same-day surcharge UI. Wait for operational signal from David before building.
+2. **Queue load select audit pattern** — when a new feature reads a column, verify the load query selects it. Worth a checklist item in `washroute-qa` skill.
+
+---
+
+## Session 150 pt 4 — POS multi-site unlock: device site_id + RLS broaden
+
+Session 149 pt 3 lit up the dormant multi-site foundation: customers get a `default_site_id`, the `set_order_site_on_insert` trigger auto-tags orders, and the admin kanban filter chip works. But when David tested it today by routing order #4602 to Foothill and looking at the POS, the order **showed in the admin kanban (Foothill filter) but not in the POS Retail Queue**. Three-layer alignment check: data tag ✓, UI filter ✓, RLS ✗.
+
+**Root cause.** `pos_order_read` RLS policy restricted POS reads to `source = 'walk_in'` only. The POS UI was broadened in commit `91b8e87` to include delivery orders, but the RLS policy was never updated to match — classic "ship the code, forget the DB layer" gap. RLS stripped #4602 (source=`customer_app`) before the POS query saw it.
+
+**Cleanest-path decision.** Three options surfaced:
+- (A) Add `pos_devices.site_id NOT NULL`, scope RLS to device's site.
+- (B) Add `pos_shifts.site_id`, scope per-shift (more flexibility).
+- (C) Pass site as JWT claim (non-standard).
+
+Picked (A). One POS device exists today (Foothill Register) and physical terminals don't move between locations. Adding site_id at the device level matches operational reality and keeps RLS simple. (B) would be overkill.
+
+**Migration `session_150_pos_device_site_id_and_rls`** (applied 2026-05-14 18:55ish UTC). Two parts:
+
+1. `ALTER TABLE pos_devices ADD COLUMN site_id UUID REFERENCES sites(id)` → backfill Foothill Register to Foothill Blvd site → `ALTER COLUMN ... SET NOT NULL`. Future POS devices MUST declare their site at creation.
+
+2. `DROP POLICY pos_order_read` → `CREATE POLICY pos_order_read` with two OR branches:
+   - **(a) Original walk-in-on-shift** (preserved verbatim): `source='walk_in' AND pos_shift_id IN (this device's shifts)`. No regression for existing retail flow.
+   - **(b) NEW site-scoped active processing**: `site_id IN (this device's site) AND status IN ('picked_up','processing','folding','ready_for_delivery')`. Allows reading any order — walk-in or delivery — sitting at this device's site in active processing states. Other sites' orders stay invisible.
+
+   Wrapped under `pos_session_active() AND (a OR b)`. Updates still flow through SECURITY DEFINER RPCs (`record_order_intake`, `rack_order`, etc.) so no UPDATE policy change needed.
+
+**Verification.** Post-migration: `(select site_id from pos_devices where name='Foothill Register') = (select site_id from orders where order_number=4602)` → TRUE. Status check → TRUE. David hard-refreshed POS → #4602 surfaced with "🚚 For delivery" badge + "Awaiting intake" status. End-to-end works.
+
+**Tech debt opened.**
+1. **POS `currentSiteId` still localStorage-driven.** The UI dropdown lets a Foothill terminal claim it's at 23rd Ave (or vice versa). Today's RLS catches that — server-side reads only honor the device's stored site, regardless of UI. But the UI is now inconsistent with the DB truth. Should read currentSiteId from `pos_devices.site_id` and remove the dropdown when a device is permanently assigned. Low priority — single device, no second site live yet.
+2. **Pattern for next code-broadening change:** when a UI query is broadened, audit the matching RLS policy in the same commit. This was a hidden 3-layer gap; we got lucky the test caught it before production. The QA skill should add a "did you broaden any UI query? did the RLS policy match?" check.
+
+**Records touched.** 1 migration applied. 1 RLS policy replaced (original snapshotted in the migration body for rollback). 0 file changes (this was a pure DB unlock — the POS code was already correct). Verified via mock JWT and live test.
+
+---
+
+## Session 150 pt 3 — Pricing-model exercise (Allister Lindamood reply)
+
+David's customer Allister wrote a thoughtful note about the subscription pause + per-bag pricing structure. David drafted two options for the reply:
+- **Option 1:** flat $65/bag (10% increase from current $59) for everyone, no subscription.
+- **Option 2:** $69/bag + bring back a $275/month subscription with weight allowance.
+
+Modeled both against April 2026 data (top 200 customers by revenue, normalized to per-month). Key inputs:
+- Top 200 average: 8.73 bags/mo, 185.2 lbs/mo, $529 monthly revenue
+- Median top-200: 125.5 lbs/mo
+- Total current monthly revenue (all 662 active customers): $170,291
+
+Results:
+
+| Scenario | Total monthly | Δ vs today |
+|---|---|---|
+| Today ($59/bag) | $170,291 | — |
+| Option 1 ($65/bag) | $184,409 | +$14K (+8%) |
+| Option 2 — 80 lb subscription | $189,634 | +$19K (+11%) |
+| Option 2 — 100 lb subscription | $179,041 | +$8.7K (+5%) |
+| Option 2 — 130 lb subscription | $167,752 | **−$2.5K (−1.5%)** |
+
+Rational-uptake check (subscribers for whom the sub is cheaper than $69/bag): 36% at 80 lb, **81% at 100 lb**, 99% at 130 lb.
+
+**Recommendation:** Option 1 if pure revenue + simplicity. Option 2 at 100 lb if retention story matters — 81% would save money, trades ~$5K/mo of Option 1's upside for a real "loyal-customer benefit" pitch. Avoid 130 lb (revenue loss) and 80 lb (perceived trap, only 36% benefit).
+
+Email reply not drafted yet — David held the decision pending more thought. Pricing exercise captured in chat for future reference.
+
+---
+
+## Session 150 pt 2 — Receipt audit: account-credit applications now show on every receipt
+
+**The trigger.** Wanda BoldenRoss #4069 paid $160.95 with $20 from her account credit + $140.95 on card (Mastercard ····1026). The admin invoice rendered "✓ PAID (Card) −$160.95" — wrong. Card only saw $140.95; the $20 credit deduction was invisible. David spotted it and asked for a system-wide audit.
+
+**The pattern.** `apply_customer_credit_to_order` RPC (session 134) inserts a `customer_transactions` row with `type='credit_use'` and an attributed `charge` row for the remaining card amount. The order's `total_amount` is the GROSS pre-credit value. Every receipt renderer that looked only at `order.total_amount` and `order.stripe_payment_intent_id` and not at `customer_transactions` showed the gross total as if it had hit the card.
+
+**Audit scope — all receipt/invoice render paths system-wide:**
+
+| Path | File / fn | Status |
+|---|---|---|
+| Admin HTML receipt | `admin/printInvoice` | ✅ Fixed (commit `649d38a`) |
+| Customer email receipt | `supabase/functions/send-receipt` v31 | ✅ Fixed (commit `ebb23c6`) |
+| POS thermal markup + HTML fallback | `pos/queuePosPrintJob`, `buildPosReceiptMarkup`, `buildPosReceiptHtml` | ✅ Fixed (commit `71a5819`) — future-proofing only (0 POS orders have ever had credit_use applied) |
+| Admin monthly INVOICE (HTML) | `admin/generateInvoiceHTML` | ⏳ Deferred — invoice-only path with no PAID line; risk only if credited orders appear on next-month statements |
+| Admin monthly INVOICE (jsPDF) | `admin/buildInvoicePdfBase64` | ⏳ Deferred — same caveat as above |
+| Customer-app order detail | `customer-app/index.html` ~5450 | ✅ OK — only shows "✓ Payment received" badge, no specific payment-method claim |
+| Driver app | `driver-app/index.html` | ✅ OK — doesn't display payment info |
+
+**The fix shape (consistent across all three patched paths):**
+1. Query `customer_transactions` for `order_id=X AND type='credit_use'`, sum amounts → `creditApplied`.
+2. Compute `cardPaid = chargedTotal - creditApplied`.
+3. Render a green "Account credit applied −$X" row between the line items and the tip/total block.
+4. Adjust the final paid amount to `cardPaid` (so it matches the customer's bank statement).
+5. Special-case `billing_payment_method='credit'` (already-handled fully-credit path) — skip the split, keep the existing single "(Account Credit)" label.
+
+**Verified balance invariant:** Grand Total = creditApplied + cardPaid (within rounding). For Wanda's #4069: $160.95 = $20.00 + $140.95 ✓
+
+**send-receipt v31 changes:**
+- `buildEmailHtml(order, customer, creditApplied = 0)` — new third arg
+- New `accountCreditHtml` row appended to creditItemsHtml in the totals block
+- Final total label flips to "Paid by Card" with `cardPaid` amount when mixed-tender
+- Deno handler fetches transactions before calling buildEmailHtml, non-fatal on error
+
+**POS changes (`pos/index.html`):**
+- `queuePosPrintJob` does one extra SELECT for credit_use, sets `order._creditApplied`
+- Both `buildPosReceiptMarkup` (Star thermal XML) and `buildPosReceiptHtml` (fallback) render a "Credit applied / Paid by card" block after TOTAL when > 0
+- POS bag-tag wiring (session 149 WIP for printing customer address under name) was also completed in the same commit since it was sitting unstaged in pos/index.html
+
+**Allister Lindamood pricing-model exercise (April 2026 baseline):** modeled current $59/bag against two proposed options for his thoughtful-customer reply. Top 200 customers in April: 8.73 bags/mo avg, 185.2 lbs/mo avg, $529/mo revenue avg. Headline: Option 1 (flat $65/bag) = +$14K/mo (+8%) clean revenue uplift, simple message. Option 2 ($69/bag + $275/100lb subscription) = +$8.7K/mo (+5%), 81% of top 200 would rationally subscribe (saving an avg $11/mo) — meaningful retention story but ~$5K/mo less revenue than Option 1. Worst variant: Option 2 at 130 lb allowance LOSES money (-1.5%) — would be a giveaway. Recommended Option 2 at 100 lb if retention matters; Option 1 if pure revenue / simplicity. Conversation captured in chat; no email drafted yet.
+
+---
+
+## Session 149 — Split-order feature audit + reporting fix
+
+**The question.** David: "We shipped split-order in session 106. I have no way to know if it's working. Audit recent split orders and assess."
+
+**Investigation.** 54 orders split since the feature shipped Apr 11, 53 in the last 30 days, 15 in the last 7. Split data writes are correct: per-person bags/lbs in `order_folding_assignments` sum back to the order's total within ±0.01 across all 54 orders. **But:** the reporting layer never joined the assignments table. `loadLaundererReport()` and `loadLaunHistory()` both query only `orders.folded_by_id`, which is the "primary" (first-picked) launderer in a split. So the primary got credited the full order weight, the 2nd/3rd participants got zero. PROJECT-NOTES.md from session 106 explicitly flagged this as a follow-up ("When building launderer stats/reports, JOIN this table") but it was never done.
+
+**Concrete impact (past 30 days, split orders only).** Top over-credited launderers: Benita Juarez +253 lbs phantom (564 reported vs 311 actual), Juana Olivar Casiano +170 lbs, Angelica Sanchez +122 lbs, Kelly Villalobos Rodriguez +66 lbs. Top under-credited (work missing from report): Odixci Abiles 166 lbs missing (report says 0), Maria Guadalupe Castellanos 151 lbs missing, Fernanda Hernandez Delgado 110 lbs missing (report says 0), Ofir Sanchez 85 lbs, Mayra Menjivar 74 lbs, Martha Cruz 30 lbs missing (report says 0). Three launderers showed zero work in the report despite real folding because they only ever appear as the 2nd or 3rd slot of a split.
+
+**Fix — Reports → Launderers** (`admin-dashboard/index.html` line 27795+). After fetching the in-range orders, batch-fetch their `order_folding_assignments` rows. Build `splitMap[order_id]` → assignment rows; skip entries with ≤ 1 row (those are equivalent to folded_by_id and use the fallback). For split orders, credit each participant their stored `bags` / `weight_lbs` and `1/n` of the order count (so the TOTAL row stays exact — splits redistribute, they don't inflate). Display formatter (`fmtCount`) renders fractional values with 1 decimal place, integers unchanged. CSV export uses the same fractional rendering. **Verified:** new logic summed across all launderers = 1,643 orders / 2,778 bags / 61,206 lbs, exactly matching the in-range orders table.
+
+**Fix — per-launderer History view** (`admin-dashboard/index.html` line 23377+). The history panel previously only queried `folded_by_id = launId`, missing every order where this launderer was a 2nd/3rd-slot participant. Now: (a) runs the original primary-only query, (b) queries `order_folding_assignments` for all rows where `launderer_id = launId` to find secondary participations, (c) fetches those secondary orders' rows, (d) merges and tags each order with this launderer's actual `_myBags` / `_myLbs` share and a `_isSplit` flag. Render: shows the per-launderer share (not the full order total) on split rows with a small 👥 "Split share" tag so the breakdown is obvious. Summary header bags/lbs totals reflect this launderer's actual work, not the orders' full totals.
+
+**Data bug caught — order #3407 dupes.** Audit surfaced 1 order with 4 split rows (Maria del Rocio + Mayra each inserted twice, 127ms apart). Root cause: rapid double-tap on "Confirm Split" — admin's `confirmFoldSplit` does `delete + insert` without a uniqueness guard, so two concurrent submissions both see "nothing to delete" and both insert. Cleaned the 2 dupes (kept the earliest row per (order, launderer) pair). Order #3407 now correctly shows 2 bags / 54 lbs total across the 2 participants.
+
+**Root-cause fix — UNIQUE constraint** (migration `session_144_unique_split_assignment_pair`, applied 2026-05-13). `ADD CONSTRAINT order_folding_assignments_order_launderer_unique UNIQUE (order_id, launderer_id)`. Future double-taps will hit a clean DB error instead of silently doubling credit. Verified no other dupes existed before applying.
+
+**Records touched.** 1 file modified (`admin-dashboard/index.html`, +117/−20 lines). 1 DB migration applied. 1 data fix (2 rows deleted in `order_folding_assignments`). 1 commit (`b0cb72c`). 0 edge functions, 0 cron changes, 0 customer-facing data changes.
+
+**Tech debt opened (and then closed in pt 2 below).**
+1. ✅ **CLOSED in pt 2** — admin's split flow now routes through the `assign_order_launderers` RPC.
+2. **`folded_by_id` is still a dual-write field** that requires app code to remember to delete split rows when reassigning. Cleaner: a generated column or trigger that keeps `folded_by_id` in sync with whichever assignment row is first. Out of scope for this session — the UNIQUE constraint + RPC consolidation block the worst footgun. Scheduled for a later session.
+
+---
+
+## Session 149 pt 3 — Sites: filter chip + rack-label substitution + Foothill skip-rack RPC
+
+**Goal.** Light up the dormant `sites` foundation (built in sessions 110 + 138 but never finished) so the delivery crew has a clean view of just 23rd Ave's work, Foothill orders surface visibly when needed, and the rack-assignment step is gracefully bypassed for orders processed at a facility that doesn't have numbered racks. Closes the session-149 sites design discussion in full.
+
+**1. Site renames + activation + addresses.** "Main" → "23rd Ave" (2015 23rd Ave, Oakland CA), teal `#14b8a6`. "Secondary" → "Foothill Blvd" (2609 Foothill Blvd, Oakland CA), coral `#f97316`, `is_active=true`. Color pair chosen as true complementaries on the wheel — neither collides with the existing app accent (admin blue, customer/driver purple) or status palette (green/amber/red). Foothill picker dropdown is now a real two-option chooser instead of single-option-with-stub.
+
+**2. Commercial customer backfill — 21 accounts, default to Foothill.** Meg Lamberton, Kasa Hotel Addison, Kasa Hotels La Monarca, Erika VanHarken, Extended Stay America - Emeryville/Oakland, plus the full 16-location Kidango block (Bay, CCELC, Cesar Chavez, Colonial Acres, Coyote Hills, Dayton, Hillside, Hubbard Center, Kitayama, Lorenzo Manor, Meadowfair, Ryan, Searles, Shilling Center, Toyon Center, Unidos). `customers.default_site_id` set on each; future orders auto-tag to Foothill via the existing `set_order_site_on_insert` trigger. Existing orders untouched — their `site_id` stays whatever it was at intake (mostly 23rd Ave; flip manually via the order-panel site picker if any specific one needs to move).
+
+**3. POS translation cleanup.** Removed the orphan `'Main': 'Principal'` Spanish translation entry in `pos/index.html` since the site is no longer named Main. Site names are proper nouns (street names) and don't get translated; the `t()` helper falls through to English for unknown keys.
+
+**4. Admin Processing Queue site filter chip.** Three-pill filter strip at the top of the Processing Queue header: 23rd Ave (teal), Foothill Blvd (coral), All. Defaults to the `is_default` site (23rd Ave today) on first load. Persisted per tablet in `localStorage('wr-proc-site-filter')`. Stored value falls back to default gracefully if the chosen site is later deactivated. All five processing-queue load paths now include `site_id` in their SELECT and apply the filter through a single `_procSiteApply(query)` helper (loadIntakeCol, loadCleaning, loadFolding, loadRacking, plus the inline intake load inside loadProcessing).
+
+**5. Rack-label substitution on kanban cards.** The Racked column card render now detects non-default site and substitutes the site name + color for the rack pill — e.g. Foothill orders show `📍 Foothill Blvd` in coral instead of `🗂️ Rack 3` or `🗂️ —`. Driven by `getSiteById(o.site_id)` lookup + `!site.is_default` check. Display-only — the underlying `rack_id` column remains the storage truth.
+
+**6. `rack_order` RPC v2 — `p_skip_rack` flag.** Migration `session_149_rack_order_skip_rack_for_foothill`. Adds `p_skip_rack boolean DEFAULT false` parameter. When TRUE:
+- `p_rack_id` may be NULL (validation tightened accordingly: required only when `NOT p_skip_rack`)
+- The "always-runs" UPDATE writes `rack_id = NULL` (clearing any stale rack assignment from a prior 23rd-Ave pass)
+- The `racked` event description reads "Ready at <site_name>" instead of "Racked on <rack>"; new_value is NULL instead of rack_id
+- All other behavior is identical: status advances to `ready_for_delivery`, racked_at stamped, billing branch logic runs unchanged, status_change event logged when status actually transitions
+
+Old 4-arg overload dropped so there's exactly one canonical signature. Prior function body snapshotted to `_archive._backup_function_defs`. Smoke-tested end-to-end against a real folding order: returned expected jsonb shape (`{rack_id: null, skip_rack: true, billing_branch: 'needs_card_charge', needs_card_charge: true, ...}`); production data untouched after rollback. Validation also verified: calling with `p_skip_rack=false` and `p_rack_id=null` correctly raises `invalid_parameter_value` exception.
+
+**7. Admin rack panel — single "Mark Ready at Foothill" button for offsite orders.** `renderRackPanel()` detects non-default site and replaces the "Which rack?" rack-grid with a single full-width button in the site's color: "✓ Mark Ready at Foothill Blvd". Subtitle: "Charges card · advances to Ready for Delivery · no rack assignment." Tap → new `confirmOffsiteReady()` entry point → `saveRacking({ skipRack: true })` → RPC call with `p_skip_rack=true`, `p_rack_id=null`. `saveRacking` accepts the new opts object, gates the `selectedRackId` requirement on `!skipRack`, sources `_rackLabel` from the site name when skipping, and flips the toast wording ("ready at X" vs "racked on X"). Local cache assignment (`rackActiveOrder.rack_id`) is set to null when skipping so the kanban re-renders correctly.
+
+**8. Cleanest-path principle observed.** The minimum patch was the display substitution alone — that would have shipped 90% of user-visible value with zero risk. The cleanest path was extending the RPC: it makes the workflow match operational reality (Foothill has no numbered racks), keeps all billing + status + event invariants inside one transactional door, and means future callers (POS, mobile admin, etc.) don't need to re-implement the no-rack path. Took an extra 30 minutes; saved an indefinite amount of "I forgot to also do X" follow-up.
+
+**9. Records touched.**
+- 4 DB migrations applied (rename Main, rename Secondary + activate, rack_order v2, drop old 4-arg overload — last two in the same `session_149_rack_order_skip_rack_for_foothill` migration).
+- 1 RPC body snapshotted to `_archive._backup_function_defs`.
+- 21 customer rows updated (`default_site_id`).
+- 2 site rows updated (names, colors, addresses, Foothill `is_active`).
+- 2 files modified (`admin-dashboard/index.html` — filter chip, query plumbing, rack-card display, rack-panel UI, saveRacking; `pos/index.html` — orphan translation cleanup).
+- 0 edge functions, 0 cron changes, 0 SMS implications, 0 customer-facing data changes.
+
+**10. What's NOT shipped this session** (queued for follow-up):
+- **POS-side `🚚 For Delivery` badge** on commercial-delivery orders that appear in the Foothill POS Retail Queue. Verify the walk-in-ready SMS template only fires for `source='walk_in'` before activating (most likely already true).
+- **Driver "Load from Foothill" banner** at the top of route screens when any of the driver's delivery stops point to orders with `site_id = Foothill`. Includes a "✓ Loaded" button that stamps `loaded_from_foothill_at` on those orders.
+- **Site dot indicator on kanban cards in "All" mode** — small colored dot on each card so the folder can tell a 23rd Ave bag from a Foothill bag at a glance when filter = All. Low priority since filtering by site is the primary UX.
+- **Pickup-shift drop-off question** — when a driver picks up from a commercial customer whose order is destined for Foothill, where do they drop the bag? Option 1 (runner moves bags from 23rd → Foothill mornings) vs option 2 (driver drops at correct facility, pickup stop UI shows "Drop at Foothill"). Defer until operational pattern stabilizes.
+
+---
+
+## Session 149 pt 2 — Admin fold flows routed through RPC
+
+**Goal.** Close tech-debt item #1 from pt 1: admin's three fold-assignment paths (`confirmFoldSplit`, `saveFolding`, `assignFolderInline`) were doing 2–3 separate raw writes per flow (`orders.update` + `order_folding_assignments.delete` + `insert`, plus 1–2 `logOrderEvent` calls) with no transaction wrapper. The POS path went through one sealed RPC (`assign_order_launderers`). Aligning admin on the same door closes the consistency gap and matches the session-135 mutation-RPC pattern.
+
+**1. RPC v2** (migration `session_149_assign_order_launderers_v2_with_status`, applied 2026-05-13). Extended the existing `assign_order_launderers` with one new optional parameter, `p_set_to_folding boolean DEFAULT false`. When TRUE, the RPC also stamps `status='folding'` + `folded_at=NOW()` and emits a `status_change` event — all atomic with the assignment writes. When FALSE (POS default), behavior is unchanged. Followup migration `session_149_drop_old_assign_order_launderers_3arg` drops the residual 3-arg overload that `CREATE OR REPLACE` left behind (PostgreSQL function overloading matches by full signature, so the old 3-arg version stuck around alongside the new 4-arg one). Prior function body snapshotted to `_archive._backup_function_defs` for rollback.
+
+**2. Event-type consolidation.** Changed the emitted launderer-assignment event from `launderer_assigned` to `folded`. The admin had logged ~2,888 `folded` events historically and the order-history UI's icon map (line 9059) renders `folded` as the 👕 icon; POS had only ever emitted 1 `launderer_assigned` row. Consolidating on `folded` means both apps' assignment events render with the right icon and consumers don't need to know about two different names for the same operation.
+
+**3. Admin JS rewrite** (`admin-dashboard/index.html`):
+- **`confirmFoldSplit`** — builds an N-entry `assignments` array with per-person bag/lb shares, calls the RPC with `p_set_to_folding=true`. Drops the previous 3 raw writes + 1 `logOrderEvent`. Net: 1 RPC call instead of 4 sequential round-trips.
+- **`saveFolding`** (single-person tap from Cleaning column) — builds a 1-entry `assignments` array carrying the full order totals, calls the RPC with `p_set_to_folding=true`. Drops 2 `logOrderEvent` calls + the `orders.update` + the `assignments.delete`. The RPC always writes a row even for single-person assignments now, which keeps the assignments table a complete record of who folded what (matches POS behavior). Downstream display thresholds (`splitAsgn.length > 1`) already filter single-row entries out of the "Split" UI, so no rendering changes needed in the kanban.
+- **`assignFolderInline`** (inline dropdown on fold cards) — same shape, calls the RPC with `p_set_to_folding=false` (order is already in `'folding'`, no need to bump `folded_at`). Drops the `orders.update` + `assignments.delete` + `logOrderEvent`. Local cache (`foldAssignmentsMap`) mirrors the 1-row insert so kanban re-render stays in sync.
+
+**4. Launderer history view tweak** (`loadLaunHistory`). Single-person admin assignments now write to the assignments table too, so `_isSplit` could no longer be inferred from "this launderer has an assignment row." Replaced with a small batched query that counts assignment rows per order; `_isSplit = (count > 1)`. The "👥 Split share" tag and per-launderer share number now appear only on actual multi-person splits.
+
+**5. End-to-end smoke test.** Called the new RPC against a real recent delivered order (#3295) inside a `BEGIN ... ROLLBACK` block. Returned the expected jsonb `{count, primary_id, names, set_to_folding}`. Post-rollback verification confirmed the order's `folded_by_id` and assignment-row count were unchanged — production data intact.
+
+**6. Records touched.** 2 DB migrations applied (function v2 + drop-of-3-arg-overload). 1 function definition snapshotted. 1 file modified (`admin-dashboard/index.html`, ~50 lines net). 0 edge functions, 0 cron changes, 0 customer-facing data changes. POS continues to work unchanged because the new 4-arg signature is back-compat with the 3-arg call site via DEFAULT.
+
+**7. Tech debt remaining.** Item #2 from pt 1 — `folded_by_id` as a dual-write field — still open. Both admin and POS write it via the RPC now, so the immediate inconsistency risk is much lower; but the column itself is still derivable from `order_folding_assignments` (first inserted row by created_at). Replacing it with a generated column or a computed view would eliminate the drift bug class entirely. Scheduled for a later session.
+
+---
+
+## Session 148 pt 10 — Driver SMS "Could not send" misdiagnosis (Axel incident)
+
+**The incident.** Axel (driver `e0684cea-...`, Villafana-Gonzalez, profile.role='driver', active) reported customer SMS in the driver app stopped working. Symptom on his iPhone Safari at `driver.familylaundry.com`: tapping a customer thread (Ishaq El-Amin, on his active SF route) and hitting Send produced a toast "Could not send — check your connection." His connection was visibly fine (5G+, app loaded normally, On My Way button still worked).
+
+**Investigation summary.**
+1. `send-sms` edge function v27 is correct — `STAFF_SMS_ROLES = {'admin','manager','driver','attendant'}`, driver role is present.
+2. Other drivers were successfully sending customer SMS within the same hour (014aa82a, cd00a0ef both sent ~7:21–7:26 PM PT). System-wide, send-sms is healthy.
+3. Axel's DB record was clean — role='driver', is_active=true, signed in fresh at 4:52 PM PT today, assigned to today's San Francisco route (20 open stops).
+4. **Key signal: Axel hadn't successfully sent customer SMS since May 9 (3 days), and there were ZERO failed-send rows in `sms_messages` for him.** No DB row means the function never accepted the request — but the customer info shown in the app proved the data WAS loaded. The fetch was firing and being rejected; we just didn't know why because the toast hid the real reason.
+
+**Root cause.** Two layers stacked:
+1. `_staffJwt()` in driver-app silently fell back to `SUPA_KEY` (anon) whenever `db.auth.getSession()` returned no session OR threw. Supabase JWTs last ~1 hour. On iPhone Safari, when the PWA sits backgrounded between sends, the auto-refresh timer can stop firing. Session quietly lapses; `_staffJwt()` returns anon.
+2. The hardened `send-sms` v22+ correctly rejects the anon key with HTTP 401 "Anon key not accepted; staff login required". The driver-app's `if (!res.ok) throw new Error(...)` collapsed that 401 into the generic `catch` block, which produced "Could not send — check your connection." Drivers (and Claude) assumed wifi was the problem.
+
+Axel signing out + signing back in via the Profile tab restored the working state. But the underlying fragility affects every driver: every ~hour of idle time, the next customer SMS send would fail and look like a wifi outage.
+
+**Cleanest-path fix shipped tonight.** Three layers in driver-app/index.html:
+
+1. **`_staffJwt()` rewritten** (line 1101+). Now: (a) returns `null` instead of `SUPA_KEY` when no usable session is available — eliminates the silent anon-fallback class of bug forever; (b) proactively calls `db.auth.refreshSession()` when the current token is within 60s of expiry, so calls during a long shift don't silently fail as the JWT ages out; (c) on refresh failure, falls through with the original near-expiry token rather than blocking — the server will issue a clean 401 that the call site now handles correctly.
+
+2. **`sendMessageInThread()` updated** (line 3540+). Two new branches before the fetch and after a non-OK response. Null-token branch → toast "Your sign-in expired. Open Profile and sign in again." (5s duration). 401/403 response branch → same toast. Inline checks happen before the generic `throw`, so the misleading wifi toast can no longer fire on an auth failure.
+
+3. **5xx server-error branch added to the catch block** (line 3651+). Strict regex `/^Server error 5\d\d$/` separates genuine server errors from network errors, so a 500 from send-sms also no longer gets blamed on the driver's wifi.
+
+**What's NOT in this fix (deferred tech debt — flagged in code comment at `_staffJwt()`):**
+
+1. **admin-dashboard has its own `_staffJwt()` with the identical bug** at line 4864: `return session?.access_token || SUPA_ANON_KEY`. It's called from 9 sites in admin-dashboard (charge-order, refund-charge, send-sms, etc.). When David or John Roi's admin session lapses, admin actions on hardened endpoints will fail the same way drivers did — generic toast, no indication that re-login is needed. Mechanically identical fix. Plus 6 inline `session?.access_token || SUPA_ANON_KEY` patterns elsewhere in admin-dashboard that bypass `_staffJwt()` entirely. **High-priority follow-up for next session.**
+
+2. **Driver app `reoptimizeRoute()` (line 1456) and `sendOnMyWay()` (line 2811)** still use the inline `session?.access_token || SUPA_KEY` fallback. Their endpoints (optimize-route, notify-on-my-way) currently accept anon so they aren't broken, but the pattern is a regression-waiting-to-happen if those endpoints are tightened. Low priority; route them through the new `_staffJwt()` next time those areas are touched.
+
+3. **No interactive sign-in CTA on the auth-expired toast.** Today the toast says "Open Profile and sign in again" and the driver has to manually navigate. A small follow-up could auto-route to Profile or surface a Sign In button. Non-blocking — wording is clear enough.
+
+**Cleanest-path principle applied.** The minimum patch was just updating the toast wording so drivers knew to sign in again. The cleanest path was three layers — fixing `_staffJwt()` itself so the bad state can't be silently entered (returning null instead of anon-key fallback), proactive session refresh so the bad state is rarer in the first place, AND fixing the call-site error handling so when the bad state does occur it's reported correctly. All three shipped together. The pattern (helper returns null on auth failure; callers must explicitly handle) becomes the canonical shape for staff-protected edge-function calls.
+
+**Records touched.** 1 file modified (driver-app/index.html, 72 insertions / 9 deletions). 0 DB migrations, 0 edge function deploys, 0 customer-facing data changes. Tech-debt items banked: admin-dashboard `_staffJwt()` mirror fix (HIGH), driver-app `sendOnMyWay` + `reoptimizeRoute` migration (LOW), interactive auth-expired CTA (LOW).
+
+---
+
+## Session 148 — Same-day pickup/delivery prevention (Kalen Gleeson #4238)
+
+**Note on migration naming:** the two DB migrations applied this session are named `session_143_trg_enforce_pickup_before_delivery` and `session_143_reschedule_order_rpc` — a numbering mistake. They are session 148 work. Functional behavior is unaffected; the names stay as-applied because renaming applied migrations is messy.
+
+**1. The incident.** Order #4238 (Kalen Gleeson, customer `16dcab7b`). Original booking Sun May 10 7:01 PM PT: pickup Mon May 11 Berkeley AM 7-9 AM → delivery Tue May 12 Berkeley AM 7-9 AM. Mon May 11 3:42 AM PT, customer edited via app: bag count went up ($139.95 → $149.90), pickup moved forward one day (Mon → Tue), delivery NOT moved. Result: pickup AND delivery both Tue May 12 7-9 AM on the same Berkeley AM route. John Roi T noticed Tue 8:40 AM and rescheduled delivery to Berkeley PM (6-8 PM same day) — the rescue. Driver would otherwise have arrived to deliver laundry that hadn't been picked up yet.
+
+**2. Root cause — three failures stacked.** (a) Customer-app `saveEditOrder` (line 6220) called `reschedule_order_leg` twice in sequence, once per leg — no atomic transaction, no cross-leg view. (b) `reschedule_order_leg` validated only its own leg's sub-window alignment, never compared against the other leg's state. (c) No database trigger enforced `delivery_window_start > pickup_window_end`. The system had no layer that knew the rule.
+
+**3. Cleanest-path principle applied.** The minimum patch was a DB trigger alone. The cleanest path was three layers — UI prevention (so the bad state is unrepresentable), RPC validation (so the bad input can't be processed), DB trigger (so no path can persist it). All three shipped this session per David's explicit "we're past MVP, always pick the cleanest architectural path" directive (this is now a hard rule in `washroute.skill` — strengthened from guideline to hard rule).
+
+**4. Layer 1 — DB trigger `trg_enforce_pickup_before_delivery`** (migration `session_143_trg_enforce_pickup_before_delivery`, applied 2026-05-12 17:49 UTC). BEFORE INSERT OR UPDATE OF the four window columns on `orders`. Rejects any row state where `pickup_window_end IS NOT NULL AND delivery_window_start IS NOT NULL AND delivery_window_start <= pickup_window_end` with `RAISE EXCEPTION` using ERRCODE `check_violation` and a user-facing message that names the offending values. Fires alphabetically before the existing template-window triggers; coexists cleanly with them (orthogonal invariants). Verified against existing data — zero active orders violate the new invariant (6 historic cases in past 90 days, all in terminal status, untouched).
+
+**5. Layer 2 — new `reschedule_order` RPC** (migration `session_143_reschedule_order_rpc`, applied 2026-05-12 17:52 UTC). Canonical two-leg reschedule mutation. Both legs in one call, locked once, validated once (per-leg sub-window alignment + cross-leg invariant), single atomic UPDATE for both legs. No temporary-inconsistent-state window. Returns jsonb with `pickup_changed` / `delivery_changed` flags so callers know which legs moved. `reschedule_order_leg` rewritten as a thin wrapper that forwards to `reschedule_order` and re-shapes the return to v1 JSONB structure — every existing admin call site continues working unchanged (single-leg API preserved). The v1 body is snapshotted in `_archive._backup_function_defs` for rollback.
+
+Test coverage:
+- Synthetic INSERT with `delivery_window_start = pickup_window_end` correctly rejected (DO block test with rollback).
+- Cross-leg violation via RPC against order #3942 correctly rejected with `check_violation` (DO block test with rollback).
+- Valid two-leg reschedule via RPC against order #3942 correctly succeeds with both legs atomically updated (DO block test with rollback).
+- `reschedule_order` with no leg args correctly raises "no changes" error.
+- Kalen's order #4238 verified untouched throughout.
+
+**6. Layer 3 — customer-app `saveEditOrder` refactor.** Three sub-fixes in one commit:
+- **Atomic call.** Replaced two sequential `reschedule_order_leg` calls with one `reschedule_order` call. Eliminates the temporary-inconsistent-state window between the two writes that caused Kalen's exact bug. `_pickupArgs` and `_deliveryArgs` are built independently and spread into the single RPC call.
+- **`routeId` on original windows.** Modal init now does one extra query: `SELECT id, template_id FROM routes WHERE id IN (pickup_run_id, delivery_run_id)` and attaches `template_id` as `routeId` on the original pickup and delivery window objects. Without this, a pickup-only edit would have skipped delivery args (because `dw.routeId` was undefined) and the cross-leg check would have rejected the save — confusing user error. Now the original delivery template is known, so a pickup-only edit pushes BOTH legs to the RPC (delivery uses original template + auto-derived date + original time-of-day).
+- **Change detection.** New `_pickupChanged` / `_deliveryChanged` flags compare final state against originals captured at modal init (`_origPickupDate`, `_origDeliveryDate`, `_origPickupIso`, `_origDeliveryIso` stored on `_editSchedule`). Bag-only edits no longer fire noisy `rescheduled` order_events with old=new (regression fix in addition to the main change).
+
+`openEditOrder` is now async (was sync) to support the route template lookup. Onclick handlers don't await it; the promise is discarded, which is fine for fire-and-forget modal rendering. Lookup is a PK query — sub-50ms, no visible delay.
+
+**7. Cleanest-Path Principle strengthened in washroute.skill.** Previously a guideline; now a hard rule. Key additions per David's directive:
+- "WashRoute is past MVP. It serves real, paying customers. It needs to scale." Always pick the clean architecture even if it costs 30-60 extra minutes or a full session.
+- Six pre-commit checks (where does the invariant belong, is the inconsistent state representable, leg-scoped vs order-scoped mutation, hide multi-field sync inside RPCs/triggers, can future call sites bypass the safety net, are we storing a fact that's derivable).
+- "If you catch yourself reaching for 'good enough' — stop and propose the cleanest path instead. That is the work now."
+- Surface both paths to David before defaulting to the quick one — never silently take the shortcut.
+
+Skill rebuild via the standard unpack → edit SKILL.md → rezip → `present_files` pattern.
+
+**8. Records touched.** 2 migrations applied, 2 function definitions snapshotted to `_archive._backup_function_defs`, 1 trigger created, 1 RPC created (`reschedule_order`), 1 RPC rewritten as wrapper (`reschedule_order_leg`). 1 customer-app file modified (141 lines net +99/-42). 1 skill file rebuilt. 1 commit (`6962cf4`). 0 edge functions, 0 cron changes. 0 customer-facing data changes (Kalen's #4238 was already fine after John's rescue).
+
+**9. Tech debt opened.** `orders.is_same_day` is a stored boolean that drifts on edits (Kalen's #4238 had `is_same_day=false` even when it briefly became same-day). It's derivable from windows (`pickup_window_start::date = delivery_window_start::date`). Should be replaced with a generated column or a computed view to eliminate the drift bug class entirely. Out of scope for this session.
+
+---
+
+## Session 148 pt 2 — RPC blast-radius audit + security harden
+
+After David asked "let's get some tech debt off our plate," ran a comprehensive scan of every raw `db.from(...).update()` site on the five critical tables (`orders`, `route_stops`, `customers`, `routes`, `addresses`) across all three apps and edge functions. 52 sites total. The architectural discipline turned out to be mostly in place: 31 SAFE (cache columns, `updated_at`, `is_default` toggles, etc.) + 16 RPC-WRAPPED (legitimate edge-function service-role writes, Stripe webhook backups) + 5 GAPS.
+
+**1. Credit ledger discipline confirmed.** The only place writing `customers.credits` outside an RPC is the legitimate stripe-webhook signup-credit migration (`credits: 20` for new customers). All other credit writes route through `apply_customer_credit_to_order` or `adjust_customer_credits`. Session 128's audit work has held.
+
+**2. Two migrations shipped.**
+- **customer-app `skipPickup`** (line ~6437) — was raw `{ status: 'skipped', cancelled_by: 'customer' }` UPDATE; now routes through `advance_order_status` with `p_actor_name='Customer'`, `p_cancelled_by='customer'`. Gains attributed `order_events` entry + defense against re-advance from terminal status.
+- **customer-app `cancelOrder`** (line ~6452) — same migration. Same gains.
+
+**3. Three remaining gaps documented as tech debt** (`RPC-REFACTOR-AUDIT.md` refreshed end-to-end):
+- `admin-dashboard opToggleDiffDeliveryAddr` — writes `delivery_address_id = NULL` directly because `save_order_address` requires `p_address_id NOT NULL`. Fix: extend the RPC with `p_clear bool DEFAULT false`. P2 (currently safe — no correlated fields).
+- `admin-dashboard opSaveRecurring` — writes `recurring_interval` directly; no subscription RPC exists yet. Defer until subscription automation lands.
+- `driver-app cantCompleteStop` — marks `route_stops.status='skipped'` BEFORE calling the order-advance RPC. Sub-second orphan window if the order RPC fails. P1, needs new `skip_route_stop(p_stop_id, p_reason, p_actor_name)` RPC for atomic skip + order-advance.
+
+**4. Security harden — anon/PUBLIC GRANT leak on the new `reschedule_order` RPC.** Postgres defaults to `EXECUTE` granted to `PUBLIC` (and Supabase's anon role is in PUBLIC) for new SECURITY DEFINER functions. Session 136 had applied `REVOKE` discipline to existing mutation RPCs but I didn't follow the same pattern when I shipped `reschedule_order` earlier today. Anyone with the anon key could have called it. Migration `session_148_revoke_anon_from_reschedule_order` applied — now authenticated + service_role + postgres only, matching every other mutation RPC. Added a verification SQL snippet to `RPC-REFACTOR-AUDIT.md` so the next session-148-style miss can be caught proactively.
+
+**5. ⚠️ Bigger architectural gap surfaced (deferred to next session): caller-ownership checks.** While auditing GRANTs, found that **none of the customer-callable mutation RPCs verify caller ownership.** `advance_order_status`, `reschedule_order`, `reschedule_order_leg`, `save_order_address` all trust the caller's `p_order_id` parameter. Because SECURITY DEFINER bypasses RLS, a signed-in customer could craft a direct RPC call against another customer's order and the RPC would happily process it. The customer-app's UI only exposes the user's own order IDs, but a malicious browser is not bound by the UI. `create_order_for_customer` (session 147) does this right with an internal `is_admin() OR caller.profile_id = customer.profile_id` check. The fix is a SQL helper `enforce_caller_owns_order(p_order_id)` that bypasses for `auth.uid() IS NULL` (service_role) or `is_admin()`, applied to every customer-reachable mutation RPC. **High-priority follow-up for the next tech-debt session** — pre-existing latent gap, not caused by today's work, but surfaced today.
+
+**6. Audit doc refresh.** `RPC-REFACTOR-AUDIT.md` was written session 135 as a "9 RPCs proposed to ship" roadmap. All 9 (plus 6 more) have shipped since. Rewrote the doc to reflect current state: complete RPC inventory, remaining migration gaps with severity, the ownership-check architectural debt, and a re-audit SQL snippet for future sessions.
+
+**Records affected:** 2 customer-app function bodies migrated (10 net lines of code change). 1 DB migration applied (`session_148_revoke_anon_from_reschedule_order`). 1 audit doc rewritten end-to-end. 1 commit (`574b97e`). 0 edge functions, 0 cron, 0 customer-facing data changes. 3 tech-debt items newly tracked.
+
+---
+
+## Session 148 pt 3 — Caller-ownership checks on customer-callable mutation RPCs
+
+Closed the architectural gap surfaced in pt 2: SECURITY DEFINER functions bypass RLS, so a signed-in customer could craft direct RPC calls (`advance_order_status`, `reschedule_order`, `save_order_address`) against any order — the UI doesn't expose other customers' IDs, but a malicious browser isn't bound by the UI. `create_order_for_customer` had this protection (session 147 added `is_admin() OR profile_match` checks); the others didn't.
+
+**1. New helper `enforce_caller_owns_order(p_order_id uuid)`** (migration `session_148_enforce_caller_owns_order`). SECURITY DEFINER, STABLE. Logic:
+- `auth.role() = 'service_role'` → bypass (edge functions are trusted)
+- `is_admin()` → bypass (admin / manager / laundry_tech)
+- Otherwise: SELECT order.customer_id, verify `EXISTS (SELECT 1 FROM customers c WHERE c.id = customer_id AND c.profile_id = auth.uid())`. Reject with `insufficient_privilege` (ERRCODE 42501) if not.
+- Walk-in orders (`customer_id IS NULL`) reject all non-admin/service callers — they should only be touched via admin/POS paths.
+
+GRANT-locked to `authenticated, service_role` only (no anon, no PUBLIC).
+
+**2. Patched three RPCs** to call `PERFORM public.enforce_caller_owns_order(p_order_id);` as the first action inside `BEGIN`:
+- `advance_order_status` (migration `session_148_advance_order_status_ownership_check`)
+- `reschedule_order` (migration `session_148_reschedule_order_ownership_check`) — `reschedule_order_leg` inherits via the wrapper pattern
+- `save_order_address` (migration `session_148_save_order_address_ownership_check`)
+
+Existing function bodies snapshotted to `_archive._backup_function_defs` before replacement.
+
+**3. Test coverage.** All 6 scenarios verified via `set_config('request.jwt.claims', ..., true)` to mock different JWT contexts:
+
+| Test | Caller | Expected | Result |
+|---|---|---|---|
+| Helper direct, order owner | Owner's profile | Pass | ✅ |
+| Helper direct, different customer | Another profile | Reject 42501 | ✅ |
+| Helper direct, admin profile | Admin | Bypass | ✅ |
+| Helper direct, service_role | Service | Bypass | ✅ |
+| End-to-end `advance_order_status` wrong customer | Another profile | Reject (CONTEXT chain shows guard fired) | ✅ |
+| End-to-end `advance_order_status` owner | Owner's profile | Succeed (DO block rollback) | ✅ |
+
+**4. Why the admin app isn't affected.** Admin dashboard users are logged in as admin / manager / laundry_tech profiles → `is_admin()` returns true → guard bypasses. All existing admin call sites continue to work. Verified via test #3.
+
+**5. Why the customer app isn't affected (for legitimate calls).** Customer-app users are signed in with their own profile JWT. When they call `advance_order_status` or `reschedule_order` for their own order (which is all the UI exposes), `auth.uid() = customer.profile_id` → guard passes. Test #6 confirmed this end-to-end.
+
+**6. Architectural lesson banked.** When SECURITY DEFINER is the door, RLS is irrelevant. Three layers of authorization now:
+- Layer 1 — GRANT: anon revoked, only `authenticated + service_role + postgres + admin`.
+- Layer 2 — internal ownership check: `enforce_caller_owns_order` (this commit).
+- Layer 3 — DB-level invariants: triggers like `trg_enforce_pickup_before_delivery` ensure data integrity regardless of caller.
+
+**Records affected:** 4 DB migrations applied (`session_148_enforce_caller_owns_order` + 3 RPC patches). 3 function bodies snapshotted to `_archive._backup_function_defs`. 0 app code changes (the apps already pass `p_order_id` correctly; the guard just verifies it). 0 customer-facing changes (legit calls continue to work).
+
+---
+
+## Session 148 pt 4 — `is_same_day` → generated column
+
+Closed the tech-debt item opened in pt 1: `orders.is_same_day` was a stored boolean set at INSERT time and never maintained on edits. Kalen Gleeson #4238 had `is_same_day=false` even after her order briefly became same-day. **Audit found zero readers in app code or DB functions** — the column was write-only — but the drift was a footgun waiting for the first feature that wanted to read it.
+
+**1. Pre-migration drift snapshot.** Of 3,883 orders, 148 had stored `is_same_day` differing from the Pacific-date-derived value (3.8% drift). 138 were stored `false` but should have been `true` (Kalen-class — pickup moved forward to match delivery's date). 10 were stored `true` but should have been `false` (admin rescheduled delivery to a different day after booking). All 148 snapshotted to `_archive._is_same_day_snapshot_20260512` before the column rebuild.
+
+**2. Column rebuilt as `GENERATED ALWAYS AS ... STORED`.**
+
+```sql
+COALESCE(
+  (pickup_window_start AT TIME ZONE 'America/Los_Angeles')::date
+    = (delivery_window_start AT TIME ZONE 'America/Los_Angeles')::date,
+  false
+)
+```
+
+Postgres recomputes on every INSERT/UPDATE that touches either window column. Result is now correct by construction — drift bug class eliminated. Verified: post-migration drift = 0; Kalen #4238 now correctly reads `true`.
+
+**3. Three RPCs patched** to stop writing the column (generated columns reject writes):
+- `create_order_for_customer` — removed `is_same_day` from INSERT column list + values
+- `record_order_intake` — removed `is_same_day` line from UPDATE
+- `place_pickup_order_for_customer` — removed `is_same_day` from INSERT
+
+All three keep their `p_is_same_day` / `p_same_day_delivery` parameters for back-compat — silently ignored. **No client code changes needed today.** The 3 client sites (`customer-app:5155`, `admin-dashboard:17049`, `admin-dashboard:25324`) continue to pass the param; the RPCs accept and discard it.
+
+**4. Why this matters.** This is the canonical example of the cleanest-path principle (washroute.skill, pt 6 of the principle's checks): "Are we storing a fact that's derivable from other columns? If yes, consider a generated column or computed view." Storing `is_same_day` redundantly required every code path that mutates windows to remember to also mutate `is_same_day`. Generated column = derivable fact = single source of truth = no drift possible.
+
+**5. Migration was atomic.** First attempt failed because I removed parameter defaults from the function signature (Postgres rejects `CREATE OR REPLACE` that changes defaults). Second attempt with exact signature match succeeded. Lesson: always re-fetch `pg_get_function_arguments(p.oid)` before patching a function body and match the signature byte-for-byte. Defaults are part of the signature.
+
+**6. Tech debt opened.**
+- The 3 `p_is_same_day` params are now dead. Cleanest follow-up is to drop them from the RPC signatures + remove the 3 client passes. Deferred because it requires coordinating client + DB deploys (intermediate state of "DB drops param" while "client still passes it" would crash). Either: ship together (one commit + immediate migration), or version the RPCs (`create_order_for_customer_v2` etc.). Not blocking.
+
+**Records affected:** 1 DB migration (`session_148_is_same_day_generated_column`). 3 RPC bodies + the column structure changed. 148-row drift snapshot in `_archive`. 0 app code changes. 0 customer-facing changes.
+
+---
+
+## ⚠️ Session 148 pt 5 — INCIDENT: pt 3 ownership guard blocked drivers
+
+**~30 minutes after pt 3 shipped**, David surfaced that driver Javier (Francisco Cobos, fjaviercobos@gmail.com, role='driver') reported his app "stopped working" mid-route on the COMMERCIAL run. Diagnosed and fixed in ~5 minutes; root cause was my pt 3 work.
+
+**Root cause:** pt 3's `enforce_caller_owns_order` only bypassed for `is_admin()` (admin/manager/laundry_tech) and `service_role`. Drivers have `profile.role='driver'` — separate role, not in is_admin(). They aren't the order's customer either. So every driver action that flowed through `advance_order_status` was rejected with `42501 insufficient_privilege`.
+
+**The trap:** the surface I knew was guarded — `advance_order_status` direct calls — only fires from driver-app `cantCompleteStop` (skip/fail a stop). The MORE common driver path is `completeStop → complete_route_stop`, and `complete_route_stop` has no guard ITSELF, but it calls `advance_order_status` internally via `PERFORM`. The inner call inherits the caller's auth context and gets blocked. The whole transaction rolls back: `route_stops` not marked complete, order not advanced. Driver sees a generic save error.
+
+**Symptom on Javier's commercial route:** 3 stops `en_route` (he tapped On My Way — that's a service_role edge function, unaffected by the guard), 0 complete, 9 pending. Hours of work that didn't save.
+
+**Fix (`session_148_enforce_caller_owns_order_allow_drivers`):** added `role='driver'` to the bypass list in `enforce_caller_owns_order`. The driver-app's existing RLS policies (driver_rls_policies migration) already scope what stops/orders drivers can see — the RPC ownership check was meant to stop customers from mutating other customers' orders, not drivers from doing their job. Verified via mock JWT test against Javier's profile_id.
+
+**How this slipped past testing.** Pt 3's test suite covered admin / customer / service_role / anon — not driver. The audit doc earlier in pt 2 listed `advance_order_status` as "customer-callable" because the migrations were customer-app skip/cancel. I didn't account for it being **transitively driver-callable** via `complete_route_stop`'s internal `PERFORM`. App-side grep doesn't surface that — only reading the DB function source does.
+
+**Tech debt opened from this incident (3 items):**
+
+1. **Add non-customer role tests to ownership-guard suite.** Currently tests cover admin, customer, service_role, anon. Need to add `driver`, `laundry_tech`, `manager`, `attendant`, `pos_device`, `staff`. Every role that exists should be explicitly tested for both pass and reject paths.
+
+2. **Tighten driver bypass to be order-scoped.** The current driver bypass is role-only — any driver could call `advance_order_status` against any order, not just orders they have route_stops assigned for. Same threat model as before the guard existed (the driver-app's UI only exposes their own assigned stops), but architecturally inconsistent with the customer's profile-match check. Cleanest fix: bypass if `EXISTS (SELECT 1 FROM route_stops rs WHERE rs.order_id = p_order_id AND rs.driver_id IN (SELECT id FROM drivers WHERE profile_id = auth.uid()))`.
+
+3. **Audit transitive PERFORM calls across guarded RPCs.** `complete_route_stop` calls `advance_order_status` via PERFORM, which is invisible to app-side grep. Any other RPC that PERFORMs a guarded RPC needs the SAME callers' permissions audited. SQL to find candidates:
+   ```sql
+   SELECT proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+   WHERE n.nspname='public'
+     AND prosrc ~ 'PERFORM\s+(public\.)?(advance_order_status|reschedule_order|save_order_address)';
+   ```
+   Whoever calls a guarded RPC needs to satisfy the guard too. Document and verify.
+
+**Lesson banked.** Whenever I add a guard to a function, the test suite must cover **every distinct role in `profiles.role`**, plus look for **transitive callers via `pg_proc.prosrc` regex search**. App-level grep is necessary but not sufficient for DB function audits.
+
+**Records affected:** 1 DB migration applied (`session_148_enforce_caller_owns_order_allow_drivers`). 1 incident, 1 driver impacted (Javier), 3 stops stuck `en_route` until he retries (no data corruption — the rolled-back transactions left the DB in a clean pre-action state). 0 customer-facing data damage. 3 tech-debt items opened.
+
+---
+
+## Session 148 pt 6 — three small tech-debt fixes batched
+
+After the incident, kept going on the tech-debt list. Three more items shipped:
+
+**1. `profiles.email` auto-sync trigger** (`session_148_sync_profile_email_on_auth_change`). Closes session 139 pt 6 tech debt where a renamed `auth.users.email` left `profiles.email` stale. The trigger:
+- Fires AFTER UPDATE OF email ON auth.users.
+- WHEN clause: `NEW.email IS NOT NULL AND NEW.email IS DISTINCT FROM OLD.email` — only on actual non-null changes.
+- SECURITY DEFINER so it can write to public.profiles from the auth.users trigger context.
+
+Carefully NOT-firing on email-to-NULL is critical: the audit found **1,007 phone-auth-only customers** with `auth.users.email IS NULL` but `profiles.email` set (admin or customer added it post-signup). A naive sync would have wiped all 1,007 emails. Verified with both positive (rename syncs) and negative (NULL doesn't clear) tests against real profiles, rolled back via DO block.
+
+**2. Audit skill UUID-based exclusion list** (`washroute-audit.skill`). Closes session 139 pt 6 tech debt. Check 12 (orphan auth users) had a hard-coded email exclusion list for staff accounts. When Foothill device's email was renamed in session 139, the rename would have leaked through and false-flagged the renamed account as an orphan. Replaced email-based exclusion with a UUID list (rename-proof). All 6 staff UUIDs captured in the SKILL.md with email + role as a comment so future onboarding is clear.
+
+Note: the `role='customer'` JOIN added in session 144 does most of the heavy lifting; the UUID list is belt-and-suspenders for any future staff onboarded with role NULL or role='customer' by mistake.
+
+**3. New `skip_route_stop` RPC** (`session_148_skip_route_stop_rpc`). Closes P1 from the blast-radius audit. The driver-app's `cantCompleteStop` was the last remaining non-atomic write in the system: `route_stops.update({status: 'skipped'})` direct, then `advance_order_status` RPC. If step 2 failed (network blip, ownership reject, anything), the stop sat skipped while the order's status remained — driver-visible orphan, no recovery action queued.
+
+The new RPC wraps both writes in one transaction:
+- Locks route_stops row, validates non-terminal status + supported stop_type
+- Ownership check via `enforce_caller_owns_order` (driver bypass from pt 5 satisfies)
+- UPDATE route_stops set status='skipped' + appended note
+- PERFORM advance_order_status with `cancelled_by='driver'` + `driver_skip_reason`
+- Returns combined state for client cache sync
+
+Driver-app `cantCompleteStop` patched to call this single RPC. Local cache now updated from RPC response rather than independently. The SMS notification stays fire-and-forget (post-mutation, doesn't gate the user flow).
+
+Tested end-to-end via mock driver JWT against a real pending pickup stop, rolled back. Zero artifacts.
+
+**4. Tech debt closed this session.** Five items from the audit + session 139 list shipped today:
+- ✅ Same-day pickup/delivery prevention (Kalen #4238 root-cause) — pt 1
+- ✅ Two app-side RPC migrations + GRANT hardening — pt 2
+- ✅ Caller-ownership checks on customer-callable mutation RPCs — pt 3 (+ pt 5 driver fix)
+- ✅ `is_same_day` → generated column — pt 4
+- ✅ `profiles.email` auto-sync trigger — pt 6
+- ✅ Audit skill UUID-based exclusion list — pt 6
+- ✅ New `skip_route_stop` RPC + driver-app patch — pt 6
+
+**Remaining tech-debt for future sessions:**
+- TD-1 (P2): admin `opToggleDiffDeliveryAddr` needs `save_order_address` extended with `p_clear bool DEFAULT false` flag. Current code writes `delivery_address_id = NULL` directly — safe single-field write but architecturally inconsistent.
+- TD-2 (P2): admin `opSaveRecurring` writes `recurring_interval` directly. Defer until subscription automation work establishes the canonical mutation pattern.
+- TD-3 (P1 architectural): POS refund/delete edge actions are not fully transactional (session 139 tech debt). Stripe refund + DB writes happen sequentially; partial failure leaves books inconsistent. Needs SECURITY DEFINER RPC the edge function calls after Stripe clears.
+- TD-4 (P1 from pt 5): tighten driver bypass in `enforce_caller_owns_order` to be order-scoped (EXISTS check on route_stops). Currently role-only.
+- TD-5 (P1 from pt 5): audit every SECURITY DEFINER RPC for transitive PERFORM calls to guarded RPCs.
+- TD-6 (P2 from pt 5): expand ownership-guard test suite to cover every distinct role in profiles.role.
+- TD-7 (P2 from pt 4): drop the `p_is_same_day` params from the 3 RPC signatures + remove client passes. Needs coordinated client+DB deploy.
+
+**Records affected:** 3 DB migrations applied (`session_148_sync_profile_email_on_auth_change`, `session_148_skip_route_stop_rpc`, audit skill rebuild). 1 trigger function + 1 RPC created. 1 driver-app function refactored. 1 skill archive rebuilt. 0 customer-facing changes.
+
+---
+
+## Session 148 pt 7 — Transitive-PERFORM audit + SECOND INCIDENT (POS blocked)
+
+Continuing the tech-debt list, ran the transitive-PERFORM audit (TD-5). Surfaced a SECOND ownership-guard regression — same root cause as Javier, different role.
+
+**Audit query** added to `RPC-REFACTOR-AUDIT.md` for future re-runs:
+
+```sql
+SELECT p.proname AS caller,
+  CASE WHEN p.prosecdef THEN 'SECURITY DEFINER' ELSE 'INVOKER' END AS sec,
+  array_agg(DISTINCT target) AS calls
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+CROSS JOIN LATERAL (VALUES
+  ('advance_order_status'),('reschedule_order'),('reschedule_order_leg'),
+  ('save_order_address'),('skip_route_stop')
+) AS guarded(target)
+WHERE n.nspname='public'
+  AND p.proname <> guarded.target
+  AND p.prosrc ~* ('\m' || target || '\M')
+GROUP BY p.proname, p.prosecdef
+ORDER BY p.proname;
+```
+
+**Five matches; three were false positives** (regex matched comment text or error-message text — `pg_proc.prosrc` includes those):
+- `enforce_caller_owns_order` (comment mentions advance_order_status)
+- `enforce_pickup_before_delivery` (error message says "call reschedule_order() with both legs")
+- `sync_order_status_from_stops` (comment says "set by advance_order_status or a manual admin edit"; actual writes are direct UPDATEs)
+
+**Two real transitive callers:**
+1. `complete_route_stop` → `advance_order_status` — already mitigated by pt 5's driver bypass. Verified.
+2. `reschedule_order_to_window` → `reschedule_order_leg` — admin-only entry (`IF NOT is_admin() THEN forbidden`), so the inner call's guard is always satisfied. Safe.
+
+**Then I greppped app code for `advance_order_status`** and **found a SECOND incident.** `pos/index.html:4675` calls `advance_order_status` to advance walk-in orders' status from POS terminals. POS uses the `pos_device` role account. Same bug class as Javier:
+
+- `pos_device` was NOT in the bypass list (is_admin = admin/manager/laundry_tech only).
+- Walk-in orders have `customer_id IS NULL` → guard rejects non-admin callers with "insufficient_privilege."
+- **Double-blocked since pt 3 shipped.** Every POS "Move to Ready" / "Mark Delivered" tap has been silently failing.
+
+**Root cause meta-issue:** I kept fragmenting the bypass logic by role (is_admin handles 3 roles, driver added explicitly in pt 5, pos_device & attendant missed both times). The fragmented approach was always going to keep missing roles until I unified it.
+
+**Fix (`session_148_is_staff_helper_and_unified_bypass`):**
+
+1. New helper `is_staff()` — STABLE SECURITY DEFINER, returns true for ALL internal roles: `admin / manager / laundry_tech / driver / attendant / pos_device`. Superset of `is_admin()`.
+
+2. Rewrote `enforce_caller_owns_order` to use `is_staff()` instead of fragmented checks. Also removed the early "customer_id IS NULL → reject" branch (was redundant; customer EXISTS check naturally fails when customer_id IS NULL, and staff already bypassed).
+
+**Test coverage finally complete** — verified all 7 distinct profile.role values + service_role + anon:
+
+| Role | Expected | Result |
+|---|---|---|
+| admin | pass | ✅ |
+| manager | pass | ✅ |
+| laundry_tech | pass | ✅ |
+| driver | pass | ✅ |
+| attendant | pass | ✅ |
+| pos_device | pass | ✅ |
+| customer (other) | reject 42501 | ✅ |
+| customer (owner) | pass | ✅ |
+
+All driver / admin / POS / attendant flows unblocked. Customer-cross-order protection preserved.
+
+**Two lessons banked:**
+1. **`pg_proc.prosrc` regex hits comment text + error-message text.** Audits need manual triage of every match. Document in the audit doc.
+2. **Don't fragment authorization bypass lists by role.** Use a single `is_staff()`-style helper covering every internal role at once. Adding a new role becomes a one-line change in one place. The pt 3 + pt 5 + pt 7 cascade (3 incidents from the same architectural mistake) is the case study.
+
+**Tech debt closed:** TD-5 (transitive PERFORM audit) ✅. TD-6 (role-coverage test expansion) ✅ — every role now in the test set. TD-4 (order-scoped driver bypass) **deferred consciously** — the unified `is_staff()` model treats all internal roles as trusted at the function layer; per-stop scope still relies on RLS at the table layer (driver_rls_policies). Tightening to order-scoped would require introducing a different model just for drivers; not worth it today.
+
+**Records affected:** 1 DB migration applied (`session_148_is_staff_helper_and_unified_bypass`). 1 new helper (`is_staff()`). 1 existing helper rewritten (`enforce_caller_owns_order`). 1 incident affecting POS (no GPS / location data shows it's been unused today, so impact was zero — but the structural break existed since pt 3). 2 tech-debt items closed. 0 customer-facing data damage.
+
+---
+
+## Session 148 pt 8 — QA + security + architectural review passes
+
+David asked for triple review before signing off the day. Ran QA, security, and an independent architectural design review.
+
+**QA pass:** no High or Medium issues. 3 Low non-blocking items:
+- saveEditOrder's `if (es?.deliveryDate && dw?.routeId && deliveryRunId)` is redundant after the change-detection refactor; could simplify to `if (_deliveryRpcNeeded && deliveryRunId)`.
+- `openEditOrder` is now async; rapid double-clicks could fire parallel calls (idempotent in practice — modal is removed first, DB query is read-only — but worth a `_openEditInFlight` lock if we touch it again).
+- Step 1 of saveEditOrder always writes the orders row even when nothing changed; bumps `updated_at` on every modal-save click. Cosmetic.
+
+**Security pass — found and fixed one High.** Audited GRANT discipline on every new function. 5 functions inherited Supabase's automatic anon EXECUTE despite my migrations including `REVOKE PUBLIC`. **The lesson: Supabase grants anon separately from PUBLIC, so REVOKE PUBLIC is NOT sufficient.** Must explicitly REVOKE anon too.
+
+Patched in `session_148_harden_grants_on_new_functions` — explicit REVOKE on anon + PUBLIC for: `skip_route_stop`, `is_staff`, `enforce_caller_owns_order`, `sync_profile_email_on_auth_change`, `enforce_pickup_before_delivery`. Re-verified — all 9 session-148 functions now show only `authenticated / postgres / service_role`.
+
+Defense-in-depth context: `skip_route_stop` was the only mutation RPC with the gap. Anon callers would have hit `enforce_caller_owns_order` and been rejected (no role match, no profile match). So no exploit was possible. But GRANT-layer should block earlier; this restores that.
+
+Other security surfaces audited and clean: SQL injection (all params via PL/pgSQL bind, no string concat), search_path (explicit on all functions), privilege escalation (every SECURITY DEFINER has an auth check inside), generated column expression (literal timezone, no user input), trigger on auth.users (SECURITY DEFINER + WHEN clause + writes only to caller's profile), `_archive` schema visibility (not exposed via PostgREST per convention), error message data leakage (generic "no permission" — doesn't disclose existence/ownership).
+
+**Architectural design review (Explore agent, independent).** Validated the strong choices: three-layer prevention pattern, `reschedule_order` atomicity, `is_staff()` unification, generated column. Flagged 4 architectural smells worth tracking:
+
+1. **Ownership checks remain reactive, not proactive.** The next session that adds a new customer-callable RPC could forget to add the guard. No structural enforcement that "all customer-reachable RPCs have ownership checks." → suggests a generic `enforce_ownership(p_table_name, p_row_id, ...)` framework.
+2. **Driver bypass is role-only, not order-scoped** (TD-4, already banked). Asymmetric vs the customer profile-match check. Should close before scaling.
+3. **Transitive PERFORM audit underspecified.** Manual regex with no comment-stripping. Three false positives caught by human inspection in pt 7; the next session might not catch them. → write a filtering script or move to a code-review checklist.
+4. **Test coverage is snapshot-based, not continuous.** Pt 5 and pt 7 both discovered missing roles. The 8-scenario test matrix in pt 7 is a one-time check. No ongoing enforcement when a new role lands. → reusable test SQL that auto-covers every `profiles.role` value.
+
+**Migration-review skill updated** with a new "SECURITY DEFINER function checklist" mandatory section covering 6 items: GRANT discipline (REVOKE anon + PUBLIC explicitly), ownership check requirement, role-coverage testing (all 7 distinct values), transitive PERFORM audit, parameter-defaults byte-match, explicit search_path. Pre-flight for every future SECURITY DEFINER migration. Skill rebuilt + delivered to `~/Projects/WashRoute/washroute-migration-review.skill`.
+
+**RPC-REFACTOR-AUDIT.md updated** with the "REVOKE anon AND PUBLIC explicitly" lesson under the GRANT verification query.
+
+**4 new tech-debt items banked from the architectural review:**
+- TD-8 (P1, prerequisite to next feature ship): Generic `enforce_ownership` helper covering any (table, row_id) pair, not just orders. Replaces per-RPC ownership wiring.
+- TD-9 (P2): Filtering script or code-review checklist for the transitive PERFORM regex — strip comments + error message strings before matching.
+- TD-10 (P2): Reusable role-coverage test SQL that auto-iterates every `profiles.role` value for any new guarded RPC.
+- TD-11 (P3, scale-only): Authorization matrix DSL — single source of truth for role × RPC × context → allow/deny, with tooling to generate GRANTs, test expectations, and code stubs. Only worth investing when we're approaching 100+ RPCs.
+
+**Tech debt closed today:** 10 items (Kalen prevention, blast-radius migrations, GRANT harden ×2 — pt 2 reschedule_order + pt 8 the missed five, ownership checks, is_same_day generated, email sync, audit-skill UUIDs, skip_route_stop, transitive PERFORM audit, role-coverage tests, is_staff unification, migration-review checklist update).
+
+**Tech debt still open** (priority order — pick up next session):
+- TD-3 (P1): POS refund/delete transactional wrapper — real money at risk on partial failure.
+- TD-4 (P1, deferred consciously): order-scoped driver bypass — close before scaling.
+- TD-8 (P1): generic enforce_ownership helper.
+- TD-9 (P2), TD-10 (P2), TD-11 (P3): audit tooling improvements.
+- TD-1 (P2): `save_order_address` p_clear flag.
+- TD-2 (P2 blocked): opSaveRecurring needs subscription RPC.
+- TD-7 (P2): drop dead `p_is_same_day` params.
+
+**Records affected this pt:** 1 DB migration (`session_148_harden_grants_on_new_functions`). 1 audit doc updated. 1 skill rebuilt (washroute-migration-review). 4 new TD items banked. 1 architectural review delivered. 0 customer-facing changes.
+
+---
+
+## Session 148 final scorecard
+
+| Pt | Theme | Outcome |
+|----|-------|---------|
+| 1 | Kalen Gleeson same-day prevention | 3-layer fix shipped |
+| 2 | Blast-radius audit + skip/cancel migrations | 31 SAFE + 16 RPC-wrapped + 5 gaps; 2 migrated; anon-revoke on `reschedule_order` |
+| 3 | Caller-ownership checks on 3 mutation RPCs | Helper + 3 patches + tests |
+| 4 | `is_same_day` → generated column | 148 drift rows snapshotted, column rebuilt, 3 RPCs patched |
+| 5 | INCIDENT 1 (Javier blocked) | Driver bypass added in 5 minutes |
+| 6 | profiles.email sync + audit UUIDs + skip_route_stop RPC | 3 items batched |
+| 7 | Transitive-PERFORM audit + INCIDENT 2 (POS blocked) | is_staff() unification |
+| 8 | QA + security + architectural review | 1 security High fixed (GRANT discipline); migration-review skill hardened; 4 TD banked |
+
+**13 commits. 14 DB migrations. 2 production regressions found + fixed in <10 minutes each. 10 tech-debt items closed. 11 new TD items banked. Cleanest-Path principle promoted to hard rule and applied throughout.**
+
+---
+
+## Session 148 pt 9 — Credit-ledger silent-drain bug (Cindy Downing report)
+
+After pt 8 wrapped, Cindy Downing emailed: order #4295 charged her $412.95 to card but her $201.30 credit balance was supposed to be applied first per her note. Investigation surfaced a structural bug bigger than her one case.
+
+**Root cause: `expire-migration-credits` cron silently drained `customers.credits`** without inserting a `customer_transactions` row. Direct violation of the session 128 invariant that every credits write must pair with a ledger entry. The cron ran every morning at 1 AM PT zeroing any row where `credit_expires_at < now()` — but the original intent was a ONE-TIME launch promo (March 27 2026 deadline). The promo ended 6+ weeks ago but the cron kept running, draining 4-17 customers/day. Some upstream process (TBD — likely Starchup migration script or admin form bug) was still setting `credit_expires_at` to the old March 27 date on new credit additions.
+
+**Scale of impact.** Audit query (`(stored - sum_of_ledger_signed) <> 0`) surfaced:
+- 19 customers shorted, $684.20 total: Cindy $201.30, Randolph $100, Sarah Bseiso $68.95, 14 × $20 signup-promo, Acacia $19.95, Christine $15.
+- 318 customers with EXCESS stored (column > ledger sum), ~$10K total — likely pre-session-128 history where migration credit was added directly without ledger entries. Not actively harming customers; just a bookkeeping drift.
+- 2 customers actively at risk RIGHT NOW: Sarah Wheeler ($1,020) and Anne Silver ($20) — both had `credit_expires_at` = March 27 set TODAY (May 12), would have been silently wiped by tomorrow's cron run.
+
+**Decision (David):** remove credit expiration entirely. The launch promo is done; resurrecting it as a real feature later is cleaner than keeping a stale cron alive that's actively destroying credit.
+
+**Actions taken:**
+1. **Disabled the cron** (`session_148_disable_credit_expiration`): `cron.unschedule(jobid)` + `DROP FUNCTION public.expire_migration_credits()` (built earlier this session to log paired transactions — now obsolete since the cron itself is gone). Cleared `credit_expires_at` on the 2 at-risk customers.
+2. **Restored credit to 18 customers** via `adjust_customer_credits(amount, 'credit_add', note='Restored — silently drained by expire-migration-credits cron')`. Each got their original credit back, paired transaction logged.
+3. **Cindy's case was special — race condition with David.** During the ~2 minutes between my audit and my batch-restore, David refunded $201.30 to Cindy's card via admin (he'd seen her email and acted in parallel). My batch restore then over-compensated her by $201.30. Caught it 30 seconds later by checking which restore-recipients also had a same-day refund transaction. Reversed Cindy's restore via `adjust_customer_credits(201.30, 'credit_remove', note='Reversed session 148 auto-restore — David refunded equivalent $ to card')`. Cindy now whole at the card level, $0 credit.
+4. **Sarah Wheeler + Anne Silver preserved.** Their credits stay ($1,020 + $20). The cron is gone so the past-dated `credit_expires_at` no longer matters.
+
+**Known bookkeeping artifact:** the audit query still reports the 18 restored customers as "still short" because the original silent-drain events were NEVER logged — adding a credit_add today doubles the expected balance without offsetting the historical drain. The customers are WHOLE (their stored balance is correct); the ledger has 2 credit_add entries (original + restoration) but no credit_remove for the drain. Not worth backfilling fake credit_remove entries with made-up dates.
+
+**Architectural lessons banked:**
+1. **Cron jobs are invisible writers.** The blast-radius audit (pt 2) checked app code for raw `.update()` patterns but didn't enumerate cron commands. A cron with an inline UPDATE is just as much a writer as app code — needs to follow the same paired-transaction discipline. Should be checked by the audit tooling.
+2. **Dead features destroy data silently.** This cron should have been disabled after the March 28 launch sweep completed. Keeping it alive "just in case" for 6+ weeks let it silently destroy customer credit. **New principle: when a one-time campaign mechanism ends, DISABLE the supporting infrastructure same-day.**
+3. **Race conditions between batch auto-corrections and human admin actions are real.** When running a batch correction, snapshot the state at start of the run, then apply changes only to rows that match the snapshot. My batch didn't — David's parallel refund came in and I double-credited Cindy. Would have been worse if I'd been refunding cards via Stripe.
+
+**Tech debt opened:**
+- TD-12 (P1): Find and fix whoever is still setting `credit_expires_at` to the old March 27 date on new customer records. Sarah Wheeler had $1,020 added TODAY with that stale date — that means an admin form, import script, or other code path still has the old constant hardcoded. Likely a launch-era migration script that's still being run for new Starchup customer imports. Track down + fix.
+- TD-13 (P2): Reconcile the 318 customers with excess stored credit (~$10K total). They have more on the column than the ledger says. Probably pre-session-128 historical drift. Backfill credit_add transactions for each so the ledger matches reality. Low priority — customers benefit, no customer harm.
+- TD-14 (P3): DROP the `customers.credit_expires_at` column entirely after a soak period. Currently kept as historical metadata but it's no longer functional.
+- TD-15 (P2): Extend the daily audit / blast-radius tooling to enumerate `cron.job` commands and flag inline UPDATEs on critical tables (customers, orders, etc.). Cron jobs were invisible to pt 2's audit — this caught us today.
+
+**Records affected:** 1 DB migration applied (`session_148_disable_credit_expiration`). 1 cron job removed. 1 helper function dropped. 19 customers' credits adjusted (18 restored + 1 reconciled). 4 new tech debt items opened. 0 customer-facing data damage — all 19 are whole at card or credit level.
+
+---
+
+*Prior: May 10, 2026 — Session 147. **Admin Map view: show all planned stops regardless of order processing status.** Direct follow-up to Session 145's Kidango Thu→Mon move. David opened tomorrow's Map view to verify the 16 Kidango deliveries and saw "0 stops" on the Kidango chip + "No active stops" in the route panel — but the DB had all 16 stops correctly attached to the Monday route. Root cause: the admin Map view filters out delivery stops whose order is still in `picked_up`/`processing`/`folding` ("the bags aren't folded yet, don't show them to the driver"). For Bay Area same-day pipelines that hides bags-not-ready noise; for Kidango (commercial, multi-day turnaround, no per-bag kanban) it hides the entire route. Fix is two-layer: data fix for today, code fix so it never recurs.*
 
 ## Session 147 — Admin Map planning view shows all alive stops + Items report cleanup
 
@@ -862,6 +1960,20 @@ Twilio credentials are stored in **Supabase Secrets** (rotated session 8 — no 
 ---
 
 ## Driver App — Completed Features
+
+> ⚠️ **GUARDRAIL (session 151) — never react to the echo of the driver's OWN writes.**
+> `routes`, `route_stops`, and `orders` are all in the `supabase_realtime` publication, so
+> every write `complete_route_stop()` / `skip_route_stop()` make echoes straight back to the
+> same driver's subscription. Realtime handlers MUST reconcile against local state first, not
+> blindly react. Concretely: (1) the `routes` UPDATE handler only does a full `loadDriverData()`
+> on a genuine reassignment (route taken from / given to us, or cancelled) — a
+> completed_stops/status/started_at bump is the driver's own completion and is patched in place;
+> (2) `loadDriverData()` is the login-time loader and may `signOut()` on a missing driver/profile
+> — it must NEVER do so on a background refresh (guarded by `_isBackgroundRefresh`), or a transient
+> blip on the hot completion path logs the driver out and wipes the route (the Eve & Angel bug);
+> (3) the `orders` UPDATE handler keeps a stop the driver already finished (`complete`/`skipped`)
+> visible instead of splicing it out when the order flips to `delivered`. Do not regress these.
+
 - Daily route loads automatically by driver login
 - Per-stop detail view: address, customer name, order info, special instructions
 - One-tap Google Maps navigation
@@ -1215,6 +2327,26 @@ Running registry of every customer-record merge performed. Each row captures the
 ---
 
 ## Session Log
+
+### May 25, 2026 (session 151) — Driver app: route disappears + driver logged out on every stop completion
+
+**Trigger:** Eve Piñon and Angel Rodriguez both reported that their route vanished and they were kicked back to the login screen *every time they completed a stop* this afternoon. One noted it had also happened the previous week. Both log in via **phone OTP** (auth_email null, auth_phone set), each with a single, correctly-linked driver record.
+
+**Root cause — the driver app was reacting to the echo of its OWN writes.** `complete_route_stop()` (the RPC behind tap-to-complete) writes to three tables that are all in the `supabase_realtime` publication: `route_stops` (stop → complete), `orders` (status → picked_up/delivered), and `routes` (completed_stops / status / started_at bump). Those writes echo straight back to the same driver's realtime subscription. Three compounding defects:
+
+1. **(High) `routes` UPDATE handler reloaded on every completion.** It treated any change to a route it owned as a possible reassignment and fired a full `loadDriverData()`. So every single stop completion ran the heavy login-time loader on a hot path.
+2. **(High) `loadDriverData()` signs the driver out on a transient failure.** Its profile fetch uses `.single()`; a momentary null/error set `currentProfile = null`, hit the "No driver account is set up" branch, and called `db.auth.signOut()`. Harmless at login, but once #1 made it run after every completion, a single network blip logged the driver out and wiped the route. This is the "logged out" symptom.
+3. **(Medium) `orders` UPDATE handler removed the driver's own just-completed delivery.** On a delivery, the order flips to `delivered`; the echo arrived and the handler spliced the stop out of `allStops` — completed work visibly disappeared from the route.
+
+**Fix (driver-app/index.html only, no DB migration):**
+- `routes` UPDATE realtime handler: if the route is still ours (`wasMyRoute && isNowMine` and not cancelled), patch `status`/`completed_stops`/`started_at` on the local route object in place and re-render — **no reload**. Only a genuine reassignment (taken away, given to us, or cancelled) triggers `loadDriverData()`.
+- `loadDriverData()`: added `_isBackgroundRefresh = appReady && !!currentDriver`. On a background refresh a transient null profile or empty driver fetch now **bails / reuses the known-good record instead of signing out**. The sign-out paths are initial-login-only now.
+- Phone→driver link RPC (`link_phone_auth_driver`, incl. its `MULTIPLE_MATCHES` sign-out) is now **skipped on background refresh** — linking is a one-time login repoint, no reason to re-run it (and risk its sign-out) on the hot path.
+- `orders` UPDATE handler: when the order flips to `delivered` but the local stop is already `complete`/`skipped` (the driver's own action), keep the finished stop visible and just sync the order status.
+
+**Structural prevention / guardrail (see ⚠️ section below):** the driver app must reconcile realtime events against local truth, not blindly react to its own writes. All affected handlers now check local state first.
+
+**Verification:** JS parse check passed (`node --check` on extracted inline script). washroute-qa blast-radius audit: confirmed the only self-echo reload was the routes handler; all other `loadDriverData()` call sites (manual refresh, stop-became-mine, INSERT, SUBSCRIBED, initial/cached load) and all three `signOut()` paths are now safe. Customer app is not affected (customers don't complete stops, so no counter-echo loop). Commit `a70e2fe`.
 
 ### May 1, 2026 (session 140, pt 1) — Per-lb pricing fix on Confirm screen + admin Add Order modal
 
