@@ -7610,7 +7610,7 @@
     const unpaidBadge = document.getElementById('unpaid-count-badge');
     if (unpaidBadge) { unpaidBadge.textContent = `${data.length} orders · ${fmtMoney(totalOwed)}`; unpaidBadge.style.display = ''; }
 
-    el.innerHTML = `<table><thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Billing</th><th style="text-align:right">Amount</th><th style="text-align:right">Action</th></tr></thead><tbody>
+    el.innerHTML = `<table><thead><tr><th>Order</th><th>Date</th><th>Customer</th><th>Status</th><th>Billing</th><th style="text-align:right">Amount</th><th style="text-align:right">Action</th></tr></thead><tbody>
       ${data.map(o => {
         const cust = o.customers;
         const name = cust ? `${cust.first_name_cache || ''} ${cust.last_name_cache || ''}`.trim() : 'Unknown';
@@ -7621,6 +7621,7 @@
         const clickable = `style="cursor:pointer" onclick="showPage('orders',document.getElementById('nav-orders'));setTimeout(()=>openOrderPanel('${o.id}'),150)"`;
         return `<tr ${clickable}>
           <td class="td-mono">#${o.order_number}</td>
+          <td style="white-space:nowrap;color:var(--gray-600)">${fmtDate(o.created_at)}</td>
           <td class="td-name">${esc(name)}</td>
           <td>${statusBadge(o.status)}</td>
           <td>${billingBadge}</td>
