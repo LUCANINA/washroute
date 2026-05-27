@@ -673,6 +673,36 @@
   .tab-icon { display:inline-flex; vertical-align:middle; margin-right:4px; }
   .tab-icon svg { width:18px; height:18px; }
 
+  /* Refund modal day-picker chips (session 162) */
+  .refund-day-chip {
+    padding: 7px 14px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gray-600);
+    background: white;
+    border: 1.5px solid var(--gray-200);
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .refund-day-chip:hover { background: var(--gray-100); }
+  .refund-day-chip.active {
+    background: var(--brand-navy);
+    border-color: var(--brand-navy);
+    color: white;
+  }
+  #refundDateInput {
+    padding: 6px 10px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray-700);
+    border: 1.5px solid var(--gray-200);
+    background: white;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
   /* Product tile grid */
   .tile-grid {
     display: grid;
@@ -2319,13 +2349,24 @@
           <div class="modal-header">
             <div>
               <div class="modal-title" data-i18n>Refund a sale</div>
-              <div class="modal-sub" data-i18n>Recent POS sales · card &amp; cash</div>
+              <div class="modal-sub" data-i18n>Pick a day, then a sale · card &amp; cash</div>
             </div>
             <button class="modal-close" onclick="closeAll()">×</button>
           </div>
-          <div class="modal-body" style="padding: 0; max-height: 400px; overflow-y: auto;">
+          <!-- Day picker (session 162): Today / Yesterday quick chips +
+               a calendar control for any older day. Sales below load for
+               the chosen Pacific day, scoped server-side to this store. -->
+          <div id="refundDayPicker" style="padding: 12px 20px 10px; border-bottom: 1px solid var(--gray-100);">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button type="button" class="refund-day-chip" id="refundChipToday" onclick="selectRefundDay('today')" data-i18n>Today</button>
+              <button type="button" class="refund-day-chip" id="refundChipYesterday" onclick="selectRefundDay('yesterday')" data-i18n>Yesterday</button>
+              <input type="date" id="refundDateInput" onchange="selectRefundDay(this.value)" />
+            </div>
+            <div id="refundDaySummary" style="margin-top:8px;font-size:12px;color:var(--gray-500);min-height:16px;"></div>
+          </div>
+          <div class="modal-body" style="padding: 0; max-height: 360px; overflow-y: auto;">
             <div id="refundList" style="padding: 12px 20px;">
-              <div style="text-align:center;padding:30px;color:var(--gray-400);" data-i18n>Loading recent sales…</div>
+              <div style="text-align:center;padding:30px;color:var(--gray-400);" data-i18n>Loading sales…</div>
             </div>
           </div>
         </div>
@@ -2563,8 +2604,17 @@
     // Refund modals
     'Refund a sale': 'Reembolsar venta',
     'Recent POS sales · card & cash': 'Ventas recientes · tarjeta y efectivo',
+    'Pick a day, then a sale · card & cash': 'Elige un día, luego una venta · tarjeta y efectivo',
+    'Today': 'Hoy',
+    'Yesterday': 'Ayer',
+    'Loading sales…': 'Cargando ventas…',
     'Loading recent sales…': 'Cargando ventas recientes…',
+    'No sales on this day': 'No hay ventas este día',
     'No recent POS sales available to refund': 'No hay ventas recientes para reembolsar',
+    'sale': 'venta',
+    'sales': 'ventas',
+    'refunded': 'reembolsado',
+    'Refunded': 'Reembolsado',
     'Failed to load sales: ': 'No se pudieron cargar las ventas: ',
     'Confirm refund': 'Confirmar reembolso',
     'Refund order #': 'Reembolsar orden #',
@@ -5208,42 +5258,98 @@
        amount + pos_shift_id (validated server-side as an open shift)
      ───────────────────────────────────────────────────────────── */
   let _refundTarget = null; // { order_id, order_number, description, payment_method, customer_name, max_refundable }
+  let _refundDay = null;    // YYYY-MM-DD (Pacific) currently being viewed
+
+  // YYYY-MM-DD in Pacific time, offset by `daysAgo` days (0 = today).
+  function _pacificDateStr(daysAgo = 0) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - daysAgo);
+    return d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  }
 
   async function openRefundModal() {
     if (!shift || !shift.shift_id) {
       showToast(t('Sign in to a shift first.'), 'error');
       return;
     }
-
     closeAll();
+    // Default to today; cap the calendar at today (no future sales to refund).
+    _refundDay = _pacificDateStr(0);
+    const dateInput = document.getElementById('refundDateInput');
+    if (dateInput) { dateInput.value = _refundDay; dateInput.max = _refundDay; }
     setTimeout(() => showModal('refundModal'), 100);
-    document.getElementById('refundList').innerHTML =
-      '<div style="text-align:center;padding:30px;color:var(--gray-400);">' + t('Loading recent sales…') + '</div>';
+    loadRefundSales();
+  }
+
+  // Switch the viewed day. `which` is 'today', 'yesterday', or a YYYY-MM-DD
+  // string from the calendar input. Reloads the list for that day.
+  function selectRefundDay(which) {
+    if (which === 'today')          _refundDay = _pacificDateStr(0);
+    else if (which === 'yesterday') _refundDay = _pacificDateStr(1);
+    else if (typeof which === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(which)) _refundDay = which;
+    else return;
+    const dateInput = document.getElementById('refundDateInput');
+    if (dateInput) dateInput.value = _refundDay;
+    loadRefundSales();
+  }
+
+  // Highlight whichever quick-chip matches the current day (neither when a
+  // custom calendar date is chosen).
+  function _syncRefundDayChips() {
+    const today = _pacificDateStr(0), yday = _pacificDateStr(1);
+    const cToday = document.getElementById('refundChipToday');
+    const cYday  = document.getElementById('refundChipYesterday');
+    if (cToday) cToday.classList.toggle('active', _refundDay === today);
+    if (cYday)  cYday.classList.toggle('active', _refundDay === yday);
+  }
+
+  async function loadRefundSales() {
+    _syncRefundDayChips();
+    const listEl = document.getElementById('refundList');
+    const sumEl  = document.getElementById('refundDaySummary');
+    listEl.innerHTML =
+      '<div style="text-align:center;padding:30px;color:var(--gray-400);">' + t('Loading sales…') + '</div>';
+    if (sumEl) sumEl.textContent = '';
 
     try {
       const data = await callEdge('stripe-terminal', {
         action: 'list_recent_pos_sales',
         pos_shift_id: shift.shift_id,
-        limit: 30,
+        date: _refundDay,
       });
 
       const sales = data.sales || [];
+      const summary = data.summary || { count: sales.length, total: 0 };
+
+      // Day summary line: "8 sales · $214.50" (+ refunded note if any).
+      if (sumEl) {
+        if (summary.count > 0) {
+          const noun = summary.count === 1 ? t('sale') : t('sales');
+          let line = `${summary.count} ${noun} · $${Number(summary.total).toFixed(2)}`;
+          if (Number(summary.refunded) > 0) line += ` · $${Number(summary.refunded).toFixed(2)} ${t('refunded')}`;
+          sumEl.textContent = line;
+        } else {
+          sumEl.textContent = '';
+        }
+      }
+
       if (sales.length === 0) {
-        document.getElementById('refundList').innerHTML =
-          '<div style="text-align:center;padding:30px;color:var(--gray-400);">' + t('No recent POS sales available to refund') + '</div>';
+        listEl.innerHTML =
+          '<div style="text-align:center;padding:30px;color:var(--gray-400);">' + t('No sales on this day') + '</div>';
         return;
       }
 
-      document.getElementById('refundList').innerHTML = sales.map(s => {
+      listEl.innerHTML = sales.map(s => {
         const chargeable = '$' + Number(s.chargeable).toFixed(2);
         const remaining  = '$' + Number(s.remaining_refundable).toFixed(2);
-        const refunded   = Number(s.already_refunded) > 0;
+        const partlyRefunded = Number(s.already_refunded) > 0 && !s.is_fully_refunded;
+        const fullyRefunded  = !!s.is_fully_refunded;
         const date = s.billed_at ? new Date(s.billed_at) : null;
+        // Time only — the day is already chosen via the picker.
         const timeStr = date
-          ? date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+          ? date.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' })
           : '';
 
-        // Payment method badge
         const isCard = s.payment_method === 'card' || s.payment_method === 'credit_card';
         const methodBadge = isCard
           ? `<span style="font-size:11px;font-weight:600;background:var(--accent-light);color:var(--accent-dark);padding:2px 6px;border-radius:6px;">${t('CARD')}</span>`
@@ -5256,10 +5362,30 @@
         const orderNum = '#' + s.order_number;
         const desc = esc(s.description || t('POS sale'));
 
-        // Build a partial-refund-aware label
-        const amountLine = refunded
-          ? `<span style="font-weight:600;">${chargeable}</span> <span style="font-size:12px;color:var(--amber);">· ${remaining} ${t('left')}</span>`
-          : `<span style="font-weight:600;">${chargeable}</span>`;
+        // Amount label varies by refund state.
+        const amountLine = fullyRefunded
+          ? `<span style="font-weight:600;text-decoration:line-through;color:var(--gray-400);">${chargeable}</span>`
+          : partlyRefunded
+            ? `<span style="font-weight:600;">${chargeable}</span> <span style="font-size:12px;color:var(--amber);">· ${remaining} ${t('left')}</span>`
+            : `<span style="font-weight:600;">${chargeable}</span>`;
+
+        // Fully-refunded rows are shown for context but greyed out and not
+        // tappable — there's nothing left to refund (session 162 decision).
+        if (fullyRefunded) {
+          return `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--gray-100);opacity:0.55;cursor:default;">
+              <div style="min-width:0;flex:1;">
+                <div style="font-size:14px;display:flex;align-items:center;gap:8px;">
+                  ${methodBadge}
+                  <span style="font-weight:700;color:var(--gray-500);">${orderNum}</span>
+                  <span>${amountLine}</span>
+                </div>
+                <div style="font-size:12px;color:var(--gray-400);margin-top:3px;">${customerLine} · ${timeStr}</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${desc}</div>
+              </div>
+              <div style="color:var(--gray-400);font-size:13px;font-weight:600;margin-left:8px;white-space:nowrap;">${t('Refunded')}</div>
+            </div>`;
+        }
 
         // Encode the sale for the onclick handler. The attribute uses single
         // quotes (so JSON's double quotes need no escaping); only the rare
@@ -5283,7 +5409,7 @@
 
     } catch (err) {
       console.error('[Refund] Failed to load sales:', err);
-      document.getElementById('refundList').innerHTML =
+      listEl.innerHTML =
         `<div style="text-align:center;padding:30px;color:#dc2626;">${t('Failed to load sales: ')}${err.message || t('Unknown error')}</div>`;
     }
   }

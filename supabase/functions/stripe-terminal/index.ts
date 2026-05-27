@@ -39,6 +39,45 @@ function json(data: unknown, status = 200) {
   })
 }
 
+const BIZ_TZ = 'America/Los_Angeles'
+
+// Minutes that LA local time is offset from UTC at a given instant
+// (e.g. -420 during PDT, -480 during PST). Computed via Intl so it's
+// always DST-correct without hardcoding offsets — see TIMEZONE RULES.
+function laOffsetMinutes(date: Date): number {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: BIZ_TZ, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+  const map: Record<string, string> = {}
+  for (const p of dtf.formatToParts(date)) map[p.type] = p.value
+  const asUTC = Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second)
+  return Math.round((asUTC - date.getTime()) / 60000)
+}
+
+// Today's date as YYYY-MM-DD in Pacific time.
+function pacificToday(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: BIZ_TZ }).format(new Date())
+}
+
+// Given a Pacific calendar day (YYYY-MM-DD), return the UTC instants for
+// 00:00 of that day (gte) and 00:00 of the next day (lt), so a timestamptz
+// `billed_at` filter captures exactly that Pacific day. DST transitions
+// happen at 02:00, never at midnight, so the midnight boundary is safe.
+function pacificDayRangeUtc(dateStr: string): { gte: string; lt: string } {
+  const midnightUtc = (d: string) => {
+    const naive = Date.parse(`${d}T00:00:00Z`)        // wall-clock as-if-UTC
+    const off = laOffsetMinutes(new Date(naive))      // LA offset that day
+    return new Date(naive - off * 60000).toISOString()
+  }
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const nextNaive = new Date(Date.UTC(y, m - 1, d))
+  nextNaive.setUTCDate(nextNaive.getUTCDate() + 1)
+  const nextStr = nextNaive.toISOString().slice(0, 10)
+  return { gte: midnightUtc(dateStr), lt: midnightUtc(nextStr) }
+}
+
 // Open-shift validation. Refund actions can only proceed if the caller
 // passes a pos_shift_id that has not yet been ended.
 async function validateOpenShift(shiftId: string) {
@@ -48,13 +87,16 @@ async function validateOpenShift(shiftId: string) {
   const db = createClient(supabaseUrl, supabaseSrv)
   const { data, error } = await db
     .from('pos_shifts')
-    .select('id, cashier_profile_id, ended_at')
+    .select('id, cashier_profile_id, ended_at, device_id, pos_devices(site_id)')
     .eq('id', shiftId)
     .maybeSingle()
   if (error) throw new Error('Could not validate POS shift: ' + error.message)
   if (!data) throw new Error('POS shift not found')
   if (data.ended_at !== null) throw new Error('POS shift is closed — sign in again to refund')
-  return data
+  // Resolve the device's store so refund listing can be scoped to this site.
+  // Derived server-side from the shift's device — never trusts a client value.
+  const site_id = (data as any).pos_devices?.site_id ?? null
+  return { ...data, site_id }
 }
 
 Deno.serve(async (req) => {
@@ -149,60 +191,92 @@ Deno.serve(async (req) => {
       return json({ reader_status: reader.status })
     }
 
-    /* ── 7. List recent POS sales (refund flow) ─────────────────
-       Returns the last ~30 walk-in (POS) orders that have a non-zero
-       remaining-refundable amount. Both card and cash sales included.
-       Already-fully-refunded sales are not returned (no point listing).
+    /* ── 7. List POS sales for one Pacific day, one store (refund flow) ─
+       Returns walk-in (POS) orders billed on the given Pacific calendar
+       day at the shift's store. Both card and cash sales included.
+       Already-fully-refunded sales ARE included (flagged is_fully_refunded)
+       so the day's list mirrors what actually happened — the UI greys them
+       out and blocks re-refund. Also returns a `summary` (count + totals).
        Auth: pos_shift_id required (open shift).
        ────────────────────────────────────────────────────────── */
     if (action === 'list_recent_pos_sales') {
-      const { pos_shift_id, limit = 30 } = body
-      await validateOpenShift(pos_shift_id)
+      // Day-scoped POS sales for a single store (session 162 rework).
+      //  - `date` (YYYY-MM-DD, Pacific): the calendar day to list. Defaults
+      //    to today Pacific when omitted.
+      //  - Scoped to the shift's device's site_id — derived server-side, so
+      //    Foothill never sees 23rd Ave sales and vice versa.
+      //  - Already-fully-refunded sales are INCLUDED (flagged
+      //    is_fully_refunded) so the day's list mirrors what actually
+      //    happened; the UI greys them out and blocks re-refund.
+      const { pos_shift_id, date } = body
+      const shift = await validateOpenShift(pos_shift_id)
       const db = createClient(supabaseUrl, supabaseSrv)
-      const lim = Math.min(Math.max(Number(limit) || 30, 1), 100)
-      const { data: rows, error } = await db
+
+      const day = (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date))
+        ? date
+        : pacificToday()
+      const { gte, lt } = pacificDayRangeUtc(day)
+
+      let q = db
         .from('orders')
-        .select('id, order_number, total_amount, tip_amount, amount_refunded, billed_at, billing_payment_method, billing_status, stripe_payment_intent_id, customer_id, line_items, customers(first_name_cache, last_name_cache)')
+        .select('id, order_number, total_amount, tip_amount, amount_refunded, billed_at, billing_payment_method, billing_status, stripe_payment_intent_id, customer_id, site_id, line_items, customers(first_name_cache, last_name_cache)')
         .eq('source', 'walk_in')
         .not('billed_at', 'is', null)
         .in('billing_status', ['paid', 'refunded'])
+        .gte('billed_at', gte)
+        .lt('billed_at', lt)
         .order('billed_at', { ascending: false })
-        .limit(lim * 2)
+        .limit(200)
+      // Scope to this device's store. (All walk-in orders carry site_id; the
+      // guard keeps us safe if a legacy null ever appears — it simply won't
+      // match, rather than leaking another store's sales.)
+      if (shift.site_id) q = q.eq('site_id', shift.site_id)
+
+      const { data: rows, error } = await q
       if (error) return json({ error: 'Failed to load recent sales: ' + error.message }, 500)
 
-      const sales = (rows || [])
-        .map((r: any) => {
-          const total = Number(r.total_amount || 0)
-          const tip = Number(r.tip_amount || 0)
-          const refunded = Number(r.amount_refunded || 0)
-          const chargeable = +(total + tip).toFixed(2)
-          const remaining = +(chargeable - refunded).toFixed(2)
-          let desc = 'POS sale'
-          if (Array.isArray(r.line_items)) {
-            const first = r.line_items.find((l: any) => l && l.type !== 'tax')
-            if (first) desc = first.label || first.name || desc
-          }
-          const cust = r.customers
-            ? `${r.customers.first_name_cache || ''} ${r.customers.last_name_cache || ''}`.trim()
-            : null
-          return {
-            order_id: r.id,
-            order_number: r.order_number,
-            billed_at: r.billed_at,
-            chargeable,
-            already_refunded: refunded,
-            remaining_refundable: remaining,
-            payment_method: r.billing_payment_method,
-            stripe_payment_intent_id: r.stripe_payment_intent_id,
-            description: desc,
-            customer_name: cust,
-            is_fully_refunded: remaining < 0.01,
-          }
-        })
-        .filter((s: any) => !s.is_fully_refunded)
-        .slice(0, lim)
+      let dayTotal = 0
+      let dayRefunded = 0
+      const sales = (rows || []).map((r: any) => {
+        const total = Number(r.total_amount || 0)
+        const tip = Number(r.tip_amount || 0)
+        const refunded = Number(r.amount_refunded || 0)
+        const chargeable = +(total + tip).toFixed(2)
+        const remaining = +(chargeable - refunded).toFixed(2)
+        dayTotal += chargeable
+        dayRefunded += refunded
+        let desc = 'POS sale'
+        if (Array.isArray(r.line_items)) {
+          const first = r.line_items.find((l: any) => l && l.type !== 'tax')
+          if (first) desc = first.label || first.name || desc
+        }
+        const cust = r.customers
+          ? `${r.customers.first_name_cache || ''} ${r.customers.last_name_cache || ''}`.trim()
+          : null
+        return {
+          order_id: r.id,
+          order_number: r.order_number,
+          billed_at: r.billed_at,
+          chargeable,
+          already_refunded: refunded,
+          remaining_refundable: remaining,
+          payment_method: r.billing_payment_method,
+          stripe_payment_intent_id: r.stripe_payment_intent_id,
+          description: desc,
+          customer_name: cust,
+          is_fully_refunded: remaining < 0.01,
+        }
+      })
 
-      return json({ sales })
+      return json({
+        sales,
+        date: day,
+        summary: {
+          count: sales.length,
+          total: +dayTotal.toFixed(2),
+          refunded: +dayRefunded.toFixed(2),
+        },
+      })
     }
 
     /* ── 8. Refund a POS payment (full or partial) ──────────────
