@@ -2345,7 +2345,7 @@
 
       <!-- ─── Refund modal ──────────────────────────────────── -->
       <div class="modal-overlay" id="refundModal">
-        <div class="modal" style="max-width: 480px;">
+        <div class="modal" style="max-width: 640px;">
           <div class="modal-header">
             <div>
               <div class="modal-title" data-i18n>Refund a sale</div>
@@ -2364,7 +2364,7 @@
             </div>
             <div id="refundDaySummary" style="margin-top:8px;font-size:12px;color:var(--gray-500);min-height:16px;"></div>
           </div>
-          <div class="modal-body" style="padding: 0; height: 360px; overflow-y: auto;">
+          <div class="modal-body" style="padding: 0; height: min(620px, 72vh); overflow-y: auto;">
             <div id="refundList" style="padding: 12px 20px;">
               <div style="text-align:center;padding:30px;color:var(--gray-400);" data-i18n>Loading sales…</div>
             </div>
@@ -5313,7 +5313,7 @@
     // day's sales arrive a moment later.
     if (!listEl.childElementCount || listEl.querySelector('[data-refund-msg]')) {
       listEl.innerHTML =
-        '<div data-refund-msg style="display:flex;align-items:center;justify-content:center;height:320px;text-align:center;color:var(--gray-400);">' + t('Loading sales…') + '</div>';
+        '<div data-refund-msg style="display:flex;align-items:center;justify-content:center;min-height:calc(min(620px, 72vh) - 24px);text-align:center;color:var(--gray-400);">' + t('Loading sales…') + '</div>';
     }
     if (sumEl) sumEl.textContent = '';
 
@@ -5341,7 +5341,7 @@
 
       if (sales.length === 0) {
         listEl.innerHTML =
-          '<div data-refund-msg style="display:flex;align-items:center;justify-content:center;height:320px;text-align:center;color:var(--gray-400);">' + t('No sales on this day') + '</div>';
+          '<div data-refund-msg style="display:flex;align-items:center;justify-content:center;min-height:calc(min(620px, 72vh) - 24px);text-align:center;color:var(--gray-400);">' + t('No sales on this day') + '</div>';
         return;
       }
 
@@ -5416,7 +5416,7 @@
     } catch (err) {
       console.error('[Refund] Failed to load sales:', err);
       listEl.innerHTML =
-        `<div data-refund-msg style="display:flex;align-items:center;justify-content:center;height:320px;text-align:center;padding:0 24px;color:#dc2626;">${t('Failed to load sales: ')}${err.message || t('Unknown error')}</div>`;
+        `<div data-refund-msg style="display:flex;align-items:center;justify-content:center;min-height:calc(min(620px, 72vh) - 24px);text-align:center;padding:0 24px;color:#dc2626;">${t('Failed to load sales: ')}${err.message || t('Unknown error')}</div>`;
     }
   }
 
