@@ -1984,7 +1984,7 @@ async function _loadDriverDataInner() {
     s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY.includes(s.orders?.status);
 
   // ── Group 2: today's routes + messages in parallel ──
-  const [{ data: routes }] = await Promise.all([
+  const [{ data: routes, error: routesErr }] = await Promise.all([
     db.from('routes')
       .select('id, name, status, run_date, template_id, route_templates(window_start, window_end)')
       .eq('driver_id', currentDriver.id)
@@ -1992,6 +1992,21 @@ async function _loadDriverDataInner() {
       .neq('status', 'cancelled'),
     loadDriverMessages()
   ]);
+
+  // ⚠️ Session 161 — extends the session-151 transient-failure guard to the ROUTE
+  // fetch. On a BACKGROUND refresh (driver already has a loaded route), a momentary
+  // empty/errored routes result — a network blip out in the field, or the documented
+  // JWT/RLS evaluation race (see the get_driver_stop_addresses note further down) —
+  // must NOT overwrite a known-good route with "nothing". That blanks the driver's
+  // screen mid-shift WITHOUT signing them out (Angel Rodriguez, recurring). Keep the
+  // in-memory route and let the next refresh cycle recover. Genuine route
+  // reassignment/removal is handled by the realtime route/stop handlers and by the
+  // next full (non-background) reload, so preserving here is safe.
+  if (_isBackgroundRefresh && (allStops.length > 0 || todayRoutes.length > 0)
+      && (routesErr || !routes || routes.length === 0)) {
+    if (routesErr) console.warn('[driver] routes refresh blip — keeping known-good route:', routesErr.message);
+    return;
+  }
   const allRoutesForToday = routes || [];
 
   // ── Time-window filter: only show routes that are relevant right now ──
@@ -2037,11 +2052,20 @@ async function _loadDriverDataInner() {
     // Include stops explicitly assigned to this driver OR stops with NULL driver_id
     // (NULL = inherit from route's default driver, which is this driver since we
     //  already filtered routes by driver_id above)
-    const { data: rs } = await db.from('route_stops')
+    const { data: rs, error: rsErr } = await db.from('route_stops')
       .select(stopFields)
       .in('route_id', routeIds)
       .or(`driver_id.eq.${currentDriver.id},driver_id.is.null`)
       .order('stop_number', { ascending: true });
+    // Session 161: same guard as the routes fetch above, for the stops query. We
+    // gate on an actual error (not a zero-row result) here — routes already came
+    // back healthy, so an empty stop list is far more likely legitimate (all stops
+    // complete / filtered) than a blip. An outright error during a background
+    // refresh while we hold known-good stops is the transient case → keep them.
+    if (_isBackgroundRefresh && rsErr && allStops.length > 0) {
+      console.warn('[driver] stops refresh blip — keeping known-good stops:', rsErr.message);
+      return;
+    }
     routeStops = rs || [];
   }
 
