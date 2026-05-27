@@ -312,6 +312,33 @@
   }
   .customer-chip-name { font-size: 13px; font-weight: 700; line-height: 1; }
 
+  /* Clear-customer button — sits next to the chip, only shown when a
+     customer is attached. Lets the attendant reset the sale's customer
+     without ringing up a transaction (e.g. walk-in changes their mind). */
+  .customer-clear {
+    height: 40px;
+    width: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--gray-200);
+    background: white;
+    color: var(--gray-500);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    display: none;            /* shown via JS when a customer is attached */
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+  .customer-clear:hover,
+  .customer-clear:active {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: var(--red);
+  }
+
   /* Queue badge — inherits .pill, with state-driven accent colours */
   .queue-badge.has-items {
     background: var(--accent-light);
@@ -1820,6 +1847,8 @@
           <div class="customer-avatar" id="custAvatar">+</div>
           <div class="customer-chip-name" id="custName" data-i18n>Customer</div>
         </button>
+        <button class="customer-clear" id="customerClearBtn" onclick="setWalkIn()"
+                title="Clear customer" data-i18n-title="Clear customer" aria-label="Clear customer">×</button>
 
         <!-- Session 155: site selector removed from topbar. The device row
              (pos_devices.site_id) is the authoritative location; the cashier
@@ -2446,6 +2475,7 @@
   const TRANSLATIONS_ES = {
     // Topbar / navigation
     'Customer': 'Cliente',
+    'Clear customer': 'Quitar cliente',
     'Connect reader': 'Conectar lector',
     'Reader connected': 'Lector conectado',
     'Reader offline': 'Lector desconectado',
@@ -4004,6 +4034,8 @@
     };
     const chip = document.getElementById('customerChip');
     chip.classList.add('attached');
+    const clearBtn = document.getElementById('customerClearBtn');
+    if (clearBtn) clearBtn.style.display = 'flex';
     const initials = name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
     document.getElementById('custAvatar').textContent = initials;
     document.getElementById('custName').textContent = name;
@@ -4023,6 +4055,8 @@
     currentCustomer = null;
     const chip = document.getElementById('customerChip');
     chip.classList.remove('attached');
+    const clearBtn = document.getElementById('customerClearBtn');
+    if (clearBtn) clearBtn.style.display = 'none';
     document.getElementById('custAvatar').textContent = '+';
     document.getElementById('custName').textContent = t('Customer');
     chip.title = t('Tap to find customer');
