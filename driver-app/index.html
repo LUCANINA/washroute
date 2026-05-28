@@ -1967,11 +1967,6 @@ async function _loadDriverDataInner() {
     throw new Error('Could not load or create driver record');
   }
 
-  const stopFields = `
-    *,
-    orders(*, customers(*), services(*))
-  `;
-
   // Hide delivery stops whose parent order hasn't been marked ready yet.
   // These are "ghost deliveries" — the bag was picked up but never progressed
   // through processing in software (often because intake happened off-site).
@@ -1984,7 +1979,7 @@ async function _loadDriverDataInner() {
     s.stop_type === 'delivery' && NOT_READY_FOR_DELIVERY.includes(s.orders?.status);
 
   // ── Group 2: today's routes + messages in parallel ──
-  const [{ data: routes }] = await Promise.all([
+  const [{ data: routes, error: routesErr }] = await Promise.all([
     db.from('routes')
       .select('id, name, status, run_date, template_id, route_templates(window_start, window_end)')
       .eq('driver_id', currentDriver.id)
@@ -1992,6 +1987,21 @@ async function _loadDriverDataInner() {
       .neq('status', 'cancelled'),
     loadDriverMessages()
   ]);
+
+  // ⚠️ Session 161 — extends the session-151 transient-failure guard to the ROUTE
+  // fetch. On a BACKGROUND refresh (driver already has a loaded route), a momentary
+  // empty/errored routes result — a network blip out in the field, or the documented
+  // JWT/RLS evaluation race (see the get_driver_stop_addresses note further down) —
+  // must NOT overwrite a known-good route with "nothing". That blanks the driver's
+  // screen mid-shift WITHOUT signing them out (Angel Rodriguez, recurring). Keep the
+  // in-memory route and let the next refresh cycle recover. Genuine route
+  // reassignment/removal is handled by the realtime route/stop handlers and by the
+  // next full (non-background) reload, so preserving here is safe.
+  if (_isBackgroundRefresh && (allStops.length > 0 || todayRoutes.length > 0)
+      && (routesErr || !routes || routes.length === 0)) {
+    if (routesErr) console.warn('[driver] routes refresh blip — keeping known-good route:', routesErr.message);
+    return;
+  }
   const allRoutesForToday = routes || [];
 
   // ── Time-window filter: only show routes that are relevant right now ──
@@ -2037,11 +2047,23 @@ async function _loadDriverDataInner() {
     // Include stops explicitly assigned to this driver OR stops with NULL driver_id
     // (NULL = inherit from route's default driver, which is this driver since we
     //  already filtered routes by driver_id above)
-    const { data: rs } = await db.from('route_stops')
-      .select(stopFields)
-      .in('route_id', routeIds)
-      .or(`driver_id.eq.${currentDriver.id},driver_id.is.null`)
-      .order('stop_number', { ascending: true });
+    // Session 161: read stops through the SECURITY DEFINER RPC instead of a direct
+    // PostgREST embed. The RPC joins orders/customers/services server-side, bypassing
+    // the fragile per-table driver RLS policies (driver_read_assigned_orders /
+    // driver_read_stop_customers) whose evaluation intermittently raced to a NULL
+    // embed — which the s.orders filter below then dropped, silently emptying the
+    // route (Angel Rodriguez, recurring). Same driver-ownership authorization,
+    // identical nested shape, ordered by stop_number server-side.
+    const { data: rs, error: rsErr } = await db.rpc('get_driver_route_stops', { p_route_ids: routeIds });
+    // Session 161: same guard as the routes fetch above, for the stops query. We
+    // gate on an actual error (not a zero-row result) here — routes already came
+    // back healthy, so an empty stop list is far more likely legitimate (all stops
+    // complete / filtered) than a blip. An outright error during a background
+    // refresh while we hold known-good stops is the transient case → keep them.
+    if (_isBackgroundRefresh && rsErr && allStops.length > 0) {
+      console.warn('[driver] stops refresh blip — keeping known-good stops:', rsErr.message);
+      return;
+    }
     routeStops = rs || [];
   }
 
@@ -2052,12 +2074,10 @@ async function _loadDriverDataInner() {
   const hiddenRoutes = allRoutesForToday.filter(r => !isRouteVisible(r) && !isUpcomingRoute(r));
   if (hiddenRoutes.length > 0) {
     const hiddenIds = hiddenRoutes.map(r => r.id);
-    const { data: carryStops } = await db.from('route_stops')
-      .select(stopFields)
-      .in('route_id', hiddenIds)
-      .or(`driver_id.eq.${currentDriver.id},driver_id.is.null`)
-      .in('status', ['pending', 'en_route'])   // only incomplete stops
-      .order('stop_number', { ascending: true });
+    // Session 161: via the same stops RPC (see main fetch). The pending/en_route
+    // status filter is applied client-side since the RPC returns the route's full set.
+    const { data: carryAll } = await db.rpc('get_driver_route_stops', { p_route_ids: hiddenIds });
+    const carryStops = (carryAll || []).filter(s => ['pending', 'en_route'].includes(s.status));
     if (carryStops?.length) {
       // Add those routes back to todayRoutes so they render with a section header
       carryStops.forEach(s => {
@@ -2075,12 +2095,12 @@ async function _loadDriverDataInner() {
   let overrideStops = [];
   {
     // Find today's routes belonging to OTHER drivers that have stops assigned to me
-    const { data: otherStops } = await db.from('route_stops')
-      .select(`${stopFields}, routes!inner(id, name, run_date)`)
-      .eq('driver_id', currentDriver.id)
-      .eq('routes.run_date', today())
-      .not('route_id', 'in', `(${myRouteIds.length ? myRouteIds.join(',') : '00000000-0000-0000-0000-000000000000'})`)
-      .order('stop_number', { ascending: true });
+    // Session 161: via the override RPC — same server-side joins + driver-ownership
+    // gate, returns the parent route {id,name,run_date} to match the prior embed shape.
+    const { data: otherStops } = await db.rpc('get_driver_override_stops', {
+      p_run_date: today(),
+      p_exclude_route_ids: myRouteIds
+    });
     overrideStops = (otherStops || []).filter(s =>
       s.orders && !['delivered','cancelled'].includes(s.orders.status)
       && !['skipped','failed'].includes(s.status)
@@ -2106,11 +2126,8 @@ async function _loadDriverDataInner() {
   // These stops are tagged _upcoming:true so renderRoute() can show a "planning only" banner.
   if (upcomingRoutes.length > 0) {
     const upcomingIds = upcomingRoutes.map(r => r.id);
-    const { data: uStops } = await db.from('route_stops')
-      .select(stopFields)
-      .in('route_id', upcomingIds)
-      .or(`driver_id.eq.${currentDriver.id},driver_id.is.null`)
-      .order('stop_number', { ascending: true });
+    // Session 161: via the same stops RPC (see main fetch).
+    const { data: uStops } = await db.rpc('get_driver_route_stops', { p_route_ids: upcomingIds });
     const taggedUpcoming = (uStops || [])
       .filter(s => s.orders && !['delivered','cancelled'].includes(s.orders.status)
         && !['skipped','failed'].includes(s.status)
