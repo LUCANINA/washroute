@@ -1377,10 +1377,20 @@
     <div class="acct-hero">
       <div class="acct-top">
         <div class="acct-avatar" id="acct-avatar">?</div>
-        <div>
+        <div style="flex:1;min-width:0">
           <div class="acct-name"  id="acct-name">—</div>
           <div class="acct-email" id="acct-email">—</div>
+          <div class="acct-phone" id="acct-phone" style="font-size:13px;color:rgba(255,255,255,.55);margin-top:2px"></div>
         </div>
+        <!--
+          "Not you?" affordance — added after Anais Wilson reported the billing-update
+          link sent her to an account "not under her name." Root cause: the link is
+          generic and the app shows whichever auth session is cached. This button
+          makes wrong-account state immediately actionable without scrolling. Kept
+          subtle (low-weight on the dark hero) so it doesn't add anxiety for the
+          common case.
+        -->
+        <button onclick="handleSignOut()" style="flex-shrink:0;background:rgba(255,255,255,.12);color:white;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;line-height:1.2;text-align:right" title="Sign out and switch accounts">Not you?<br><span style="font-weight:500;opacity:.85">Sign out</span></button>
       </div>
       <div id="acct-plan-badge"></div>
     </div>
@@ -7573,6 +7583,17 @@ async function loadAccount() {
   document.getElementById('acct-avatar').textContent = ((first[0] || '') + (last[0] || '') || '?').toUpperCase();
   document.getElementById('acct-name').textContent   = `${first} ${last}`.trim() || 'You';
   document.getElementById('acct-email').textContent  = currentProfile?.email || currentUser?.email || currentCustomer?.email_cache || '';
+  // Show the phone we authenticated with — this is the unique identifier that
+  // distinguishes WHICH auth session is active, so a wrong-account state is
+  // visible at a glance. Format as (XXX) XXX-XXXX.
+  {
+    const rawPhone = currentProfile?.phone || currentUser?.phone || currentCustomer?.phone_cache || '';
+    const digits = String(rawPhone).replace(/\D/g, '').slice(-10);
+    const formatted = digits.length === 10
+      ? `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`
+      : (rawPhone || '');
+    document.getElementById('acct-phone').textContent = formatted;
+  }
 
   // Load plans from DB
   const { data: plans } = await db.from('subscription_plans')
