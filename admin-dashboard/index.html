@@ -29111,9 +29111,14 @@ ${oneCopy}
       tNet    += net;
 
       const c = o.customers;
+      const rawName = c
+        ? (((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() || 'Customer')
+        : '';
+      // Customer name is a click-through to the customer panel; stopPropagation so
+      // the row's "open order" click doesn't also fire.
       const customerName = c
-        ? esc(((c.first_name_cache || '') + ' ' + (c.last_name_cache || '')).trim() || 'Customer')
-        : '<span style="color:var(--gray-400);font-style:italic">Walk-in</span>';
+        ? `<a href="#" onclick="event.preventDefault();event.stopPropagation();openCustomerPanel('${c.id}','billing')" style="color:var(--gray-900);text-decoration:none" onmouseover="this.style.color='var(--accent)';this.style.textDecoration='underline'" onmouseout="this.style.color='var(--gray-900)';this.style.textDecoration='none'">${esc(rawName)}</a>`
+        : '<span style="color:var(--gray-400);font-style:italic">Retail</span>';
 
       const cashierProfile = o.pos_shifts?.profiles;
       const cashierName = cashierProfile
@@ -29670,9 +29675,12 @@ ${oneCopy}
       const cbCell = selectable
         ? `<td style="width:32px;padding:8px 6px" onclick="event.stopPropagation()"><input type="checkbox" class="oa-select-cb" data-type="standalone" data-id="${cid}" data-name="${esc(r.name)}" onchange="updateOABatchBar()"></td>`
         : `<td style="width:32px;padding:8px 6px"></td>`;
+      // Customer name is a click-through to the customer panel's Billing tab — fastest
+      // path from an AR row to the customer's full order/payment history.
+      const nameLink = `<a href="#" onclick="event.preventDefault();event.stopPropagation();openCustomerPanel('${cid}','billing')" style="color:var(--gray-900);text-decoration:none;font-weight:${indent ? '500' : '700'}" onmouseover="this.style.color='var(--accent)';this.style.textDecoration='underline'" onmouseout="this.style.color='var(--gray-900)';this.style.textDecoration='none'">${esc(r.name)}</a>`;
       return `<tr ${memberClass}>
         ${cbCell}
-        <td style="${pad}">${indent ? '' : '<strong>'}${esc(r.name)}${indent ? '' : '</strong>'}</td>
+        <td style="${pad}">${nameLink}</td>
         <td style="text-align:right">${r.orders}</td>
         <td style="text-align:right">${fmtMoney(r.invoiced)}</td>
         <td style="text-align:right">${fmtMoney(r.paid)}</td>
