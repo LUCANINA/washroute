@@ -6153,7 +6153,15 @@ async function openEditOrder() {
     _origPickupDate:    _esPickupDate,
     _origDeliveryDate:  _esDelivDate,
     _origPickupIso:     o.pickup_window_start   || null,
-    _origDeliveryIso:   o.delivery_window_start || null
+    _origDeliveryIso:   o.delivery_window_start || null,
+    // Intent flags (Jeff Scheur #5953 defense-in-depth): only flip true when
+    // the user actively selects a new pickup/delivery date or window. saveEditOrder
+    // refuses to fire a reschedule for any leg whose flag is still false, even if
+    // values appear to have changed. This makes silent-mutation bugs (a future
+    // code path quietly setting es.deliveryDate behind the user's back) unable
+    // to trigger an unintended customer-facing reschedule.
+    _pickupUserTouched:   false,
+    _deliveryUserTouched: false
   };
 
   const chevSvg = `<svg class="sched-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>`;
@@ -6371,8 +6379,16 @@ async function saveEditOrder() {
         (es?.deliveryDate && es.deliveryDate !== es?._origDeliveryDate)
      || (es?.deliveryWindow?.slotStart && es.deliveryWindow.slotStart !== es?._origDeliveryIso);
 
-  const _pickupRpcNeeded = _pickupChanged && !!(pw?.slotStart && pw?.routeId && es?.pickupDate);
-  const _deliveryRpcNeeded = _deliveryChanged && !!(es?.deliveryDate && dw?.routeId);
+  // Defense-in-depth (Jeff Scheur #5953): a leg's reschedule RPC only fires when
+  // the user *actively touched* that leg in this modal session. The original
+  // bug shipped a silent es.deliveryDate mutation on modal open; if a future
+  // bug introduces another silent mutation, this gate stops it from ever
+  // reaching the customer. _pickupChanged / _deliveryChanged catch the value
+  // drift; the touched flag confirms the customer intended it.
+  const _pickupRpcNeeded = es?._pickupUserTouched && _pickupChanged
+    && !!(pw?.slotStart && pw?.routeId && es?.pickupDate);
+  const _deliveryRpcNeeded = es?._deliveryUserTouched && _deliveryChanged
+    && !!(es?.deliveryDate && dw?.routeId);
 
   // Session 135: pre-resolve route runs so we can fail early with a clear message
   // before any DB write happens. window objects from computeSubWindows carry
@@ -6729,6 +6745,10 @@ async function editSelectPickupDate(iso) {
   if (chevEl)   chevEl.classList.remove('open');
   const es = window._editSchedule;
   es.pickupDate = iso; es.pickupWindow = null; es.deliveryDate = null; es.deliveryWindow = null;
+  // User actively moved pickup; delivery follows automatically (cross-leg invariant)
+  // so we mark both legs as user-touched.
+  es._pickupUserTouched   = true;
+  es._deliveryUserTouched = true;
   const valDate = document.getElementById('edit-val-pickup-date');
   if (valDate) valDate.textContent = _schedDateLabel(iso);
   await fetchEditWindows(iso);
@@ -6748,6 +6768,7 @@ function editSelectDeliveryDate(iso) {
   if (chevEl)   chevEl.classList.remove('open');
   const es = window._editSchedule;
   es.deliveryDate = iso; es.deliveryWindow = null;
+  es._deliveryUserTouched = true;
   const valDate = document.getElementById('edit-val-delivery-date');
   if (valDate) valDate.textContent = _schedDateLabel(iso);
   _editUpdateWindowDisplay('delivery');
@@ -6763,11 +6784,17 @@ async function editSelectWindow(which, idx) {
   if (chevEl)   chevEl.classList.remove('open');
   if (which === 'pickup') {
     es.pickupWindow = win; es.deliveryWindow = null;
+    // Window change on pickup may shift the delivery template via
+    // _computeEditDeliveryOptions; treat both as touched (same rationale as
+    // editSelectPickupDate).
+    es._pickupUserTouched   = true;
+    es._deliveryUserTouched = true;
     const el = document.getElementById('edit-val-pickup-window');
     if (el) el.textContent = win.label;
     await _computeEditDeliveryOptions();
   } else {
     es.deliveryWindow = win;
+    es._deliveryUserTouched = true;
     const el = document.getElementById('edit-val-delivery-window');
     if (el) el.textContent = win.label;
   }
