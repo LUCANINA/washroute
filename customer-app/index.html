@@ -6605,8 +6605,31 @@ async function _computeEditDeliveryOptions() {
       dates.push(walk.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}));
     walk.setDate(walk.getDate() + 1);
   }
+  // Preserve the order's ORIGINAL delivery date even if it falls outside the
+  // turnaround-derived options list. Same-day delivery orders (Jeff Scheur #5953,
+  // May 30 2026) were getting silently snapped from Sat → Mon every time the
+  // owner opened the Edit modal, because the original same-day delivery date
+  // wasn't a member of `pickup + turnaround_days`-based `dates`. The snap
+  // turned a benign modal-open (peek at bags/notes) into an unintended
+  // reschedule the moment the customer tapped Save.
+  //
+  // Two states matter:
+  //   - pickupDate UNCHANGED from original → keep the original delivery date
+  //     intact (it was the customer's actual choice; could be same-day, could
+  //     be anything the admin set). Include it in the calendar options so it
+  //     remains re-selectable.
+  //   - pickupDate CHANGED → user explicitly moved the pickup; the original
+  //     delivery is no longer correlated. Compute fresh from pickup+turnaround.
+  //     (editSelectPickupDate already nulls deliveryDate before calling here.)
+  const pickupUnchanged = es._origPickupDate && es.pickupDate === es._origPickupDate;
+  if (pickupUnchanged && es._origDeliveryDate && !dates.includes(es._origDeliveryDate)) {
+    dates.unshift(es._origDeliveryDate);
+  }
   es.deliveryOptions = dates;
-  if (!es.deliveryDate || !dates.includes(es.deliveryDate)) es.deliveryDate = dates[0] || null;
+  if (!es.deliveryDate) {
+    // Prefer original when pickup hasn't moved; otherwise first turnaround-valid date.
+    es.deliveryDate = (pickupUnchanged && es._origDeliveryDate) || dates[0] || null;
+  }
   const el = document.getElementById('edit-val-delivery-date');
   if (el) el.textContent = _schedDateLabel(es.deliveryDate);
   _editUpdateWindowDisplay('delivery');
