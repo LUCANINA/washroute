@@ -2762,47 +2762,134 @@
 
           <!-- ── TAB: REGISTRATIONS ── -->
           <div id="rpttab-registrations" style="display:none">
-            <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
-              <div class="stat-card">
-                <div class="stat-label">New Registrations</div>
-                <div class="stat-value" id="rpt-reg-count">—</div>
+            <!-- Sub-tabs: Acquisitions (new signups this period) / Conversions (retail → delivery) -->
+            <div style="display:flex;gap:8px;margin-bottom:16px">
+              <button class="btn btn-ghost rpt-reg-subtab active" onclick="switchRegSubtab('acq',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px">Acquisitions</button>
+              <button class="btn btn-ghost rpt-reg-subtab" onclick="switchRegSubtab('conv',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px">Retail → Delivery</button>
+            </div>
+
+            <!-- ── Sub-tab: Acquisitions (period-bounded new signups, split by channel) ── -->
+            <div id="rpt-reg-acq">
+              <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr))">
+                <div class="stat-card">
+                  <div class="stat-label">New Delivery</div>
+                  <div class="stat-value" id="rpt-reg-new-delivery">—</div>
+                  <div style="font-size:11px;color:var(--gray-400);margin-top:2px">self-signup via app</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-label">New Retail</div>
+                  <div class="stat-value" id="rpt-reg-new-retail">—</div>
+                  <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-reg-new-retail-sub">—</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-label">Commercial / Manual</div>
+                  <div class="stat-value" id="rpt-reg-new-manual">—</div>
+                  <div style="font-size:11px;color:var(--gray-400);margin-top:2px">admin-created</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-label">Delivery 1st-Order %</div>
+                  <div class="stat-value" id="rpt-reg-conv-rate">—</div>
+                  <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-reg-conv-rate-sub">— of —</div>
+                </div>
               </div>
-              <div class="stat-card">
-                <div class="stat-label">Converted (1+ order)</div>
-                <div class="stat-value" id="rpt-reg-converted">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Conversion Rate</div>
-                <div class="stat-value" id="rpt-reg-conv-rate">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Total Spend</div>
-                <div class="stat-value" id="rpt-reg-spend">—</div>
+              <div class="card" style="margin-bottom:0">
+                <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <div class="card-title">New Customers</div>
+                  <div class="card-sub" id="rpt-reg-period-label" style="flex:1"></div>
+                  <label style="font-size:12px;color:var(--gray-600);display:flex;align-items:center;gap:6px">
+                    Channel:
+                    <select id="rpt-reg-channel-filter" class="form-input" style="padding:4px 8px;font-size:12px;min-width:140px" onchange="renderRegistrationsTable()">
+                      <option value="">All channels</option>
+                      <option value="delivery">Delivery</option>
+                      <option value="retail">Retail (all sites)</option>
+                      <option value="retail_foothill">Retail — Foothill</option>
+                      <option value="retail_23rd">Retail — 23rd Ave</option>
+                      <option value="manual">Commercial / Manual</option>
+                    </select>
+                  </label>
+                  <button class="rev-export-btn" id="reg-export-btn" style="display:none" onclick="exportRegistrationsCSV()">Export CSV</button>
+                </div>
+                <div class="rpt-table-wrap">
+                  <table class="rpt-drv-tbl">
+                    <thead>
+                      <tr>
+                        <th style="cursor:pointer;user-select:none" onclick="sortRegReport('name')">Name <span id="reg-sort-name" style="font-size:10px;color:var(--gray-400)"></span></th>
+                        <th>Channel</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Referral</th>
+                        <th style="cursor:pointer;user-select:none" onclick="sortRegReport('signup')">Signed Up <span id="reg-sort-signup" style="font-size:10px;color:var(--gray-400)">▼</span></th>
+                        <th style="cursor:pointer;user-select:none" onclick="sortRegReport('firstOrder')">First Order <span id="reg-sort-firstOrder" style="font-size:10px;color:var(--gray-400)"></span></th>
+                        <th style="cursor:pointer;user-select:none;text-align:right" onclick="sortRegReport('spend')">Spend to Date <span id="reg-sort-spend" style="font-size:10px;color:var(--gray-400)"></span></th>
+                      </tr>
+                    </thead>
+                    <tbody id="rpt-reg-tbody">
+                      <tr><td colspan="8"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-            <div class="card" style="margin-bottom:0">
-              <div class="card-header">
-                <div class="card-title">Registrations</div>
-                <div class="card-sub" id="rpt-reg-period-label"></div>
-                <button class="rev-export-btn" id="reg-export-btn" style="display:none" onclick="exportRegistrationsCSV()">Export CSV</button>
+
+            <!-- ── Sub-tab: Retail → Delivery Conversions ── -->
+            <div id="rpt-reg-conv" style="display:none">
+              <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(190px,1fr))">
+                <div class="stat-card">
+                  <div class="stat-label">Retail → Delivery</div>
+                  <div class="stat-value" id="rpt-conv-period">—</div>
+                  <div style="font-size:11px;color:var(--gray-400);margin-top:2px">crossovers this period</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-label">Eligible Retail</div>
+                  <div class="stat-value" id="rpt-conv-eligible">—</div>
+                  <div style="font-size:11px;color:var(--gray-400);margin-top:2px">2+ visits, no delivery yet</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-label">Avg Days to Convert</div>
+                  <div class="stat-value" id="rpt-conv-avg-days">—</div>
+                  <div style="font-size:11px;color:var(--gray-400);margin-top:2px">first retail → first delivery</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-label">Crossover Revenue</div>
+                  <div class="stat-value" id="rpt-conv-revenue">—</div>
+                  <div style="font-size:11px;color:var(--gray-400);margin-top:2px">lifetime delivery $ from crossovers</div>
+                </div>
               </div>
-              <div class="rpt-table-wrap">
-                <table class="rpt-drv-tbl">
-                  <thead>
-                    <tr>
-                      <th style="cursor:pointer;user-select:none" onclick="sortRegReport('name')">Name <span id="reg-sort-name" style="font-size:10px;color:var(--gray-400)"></span></th>
-                      <th>Email</th>
-                      <th>Phone</th>
-                      <th>Referral</th>
-                      <th style="cursor:pointer;user-select:none" onclick="sortRegReport('signup')">Signed Up <span id="reg-sort-signup" style="font-size:10px;color:var(--gray-400)">▼</span></th>
-                      <th style="cursor:pointer;user-select:none" onclick="sortRegReport('firstOrder')">First Order <span id="reg-sort-firstOrder" style="font-size:10px;color:var(--gray-400)"></span></th>
-                      <th style="cursor:pointer;user-select:none;text-align:right" onclick="sortRegReport('spend')">Spend to Date <span id="reg-sort-spend" style="font-size:10px;color:var(--gray-400)"></span></th>
-                    </tr>
-                  </thead>
-                  <tbody id="rpt-reg-tbody">
-                    <tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
-                  </tbody>
-                </table>
+              <div class="card" style="margin-bottom:0">
+                <div class="card-header" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <div class="card-title">Retail Customers</div>
+                  <div class="card-sub" id="rpt-conv-period-label" style="flex:1"></div>
+                  <label style="font-size:12px;color:var(--gray-600);display:flex;align-items:center;gap:6px">
+                    Status:
+                    <select id="rpt-conv-status-filter" class="form-input" style="padding:4px 8px;font-size:12px;min-width:140px" onchange="renderConversionsTable()">
+                      <option value="">All retail</option>
+                      <option value="converted">Converted (in period)</option>
+                      <option value="eligible">Eligible (target list)</option>
+                      <option value="new">New (1 visit)</option>
+                      <option value="converted_all">Converted (lifetime)</option>
+                      <option value="already_delivering">Already delivering</option>
+                    </select>
+                  </label>
+                  <button class="rev-export-btn" id="conv-export-btn" style="display:none" onclick="exportConversionsCSV()">Export CSV</button>
+                </div>
+                <div class="rpt-table-wrap">
+                  <table class="rpt-drv-tbl">
+                    <thead>
+                      <tr>
+                        <th style="cursor:pointer;user-select:none" onclick="sortConvReport('name')">Name <span id="conv-sort-name" style="font-size:10px;color:var(--gray-400)"></span></th>
+                        <th>Site</th>
+                        <th>Status</th>
+                        <th style="cursor:pointer;user-select:none;text-align:right" onclick="sortConvReport('visits')">Retail Visits <span id="conv-sort-visits" style="font-size:10px;color:var(--gray-400)"></span></th>
+                        <th style="cursor:pointer;user-select:none" onclick="sortConvReport('lastVisit')">Last Visit <span id="conv-sort-lastVisit" style="font-size:10px;color:var(--gray-400)">▼</span></th>
+                        <th style="cursor:pointer;user-select:none" onclick="sortConvReport('firstDelivery')">First Delivery <span id="conv-sort-firstDelivery" style="font-size:10px;color:var(--gray-400)"></span></th>
+                        <th style="cursor:pointer;user-select:none;text-align:right" onclick="sortConvReport('deliveryRev')">Delivery Rev. <span id="conv-sort-deliveryRev" style="font-size:10px;color:var(--gray-400)"></span></th>
+                      </tr>
+                    </thead>
+                    <tbody id="rpt-conv-tbody">
+                      <tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
@@ -26378,8 +26465,68 @@ ${oneCopy}
   }
 
   // ── REGISTRATIONS REPORT ──
-  let _regRows = [];
+  // Two sub-tabs share this report:
+  //   - Acquisitions: customers who registered in the period, classified by channel
+  //     (Delivery / Retail-Foothill / Retail-23rd / Manual).
+  //   - Retail → Delivery: lifetime retail customers, showing which ones have
+  //     crossed over to delivery (in the period or ever), which are eligible for
+  //     an outreach nudge, and which are still new.
+  //
+  // Channel classification (matches the SQL audit from session this-was-built):
+  //   1. customers.referral_source = 'pos_walkin' OR first-order source = 'walk_in' → Retail
+  //   2. otherwise, profile_id is set → Delivery (self-signed up via customer app)
+  //   3. otherwise → Manual (admin created the row; usually commercial accounts)
+  //
+  // Retail customers further split by customers.default_site_id (Foothill / 23rd Ave).
+  let _regRows = [];               // Acquisitions rows
   let _regSort = { col: 'signup', dir: 'desc' };
+  let _convRows = [];              // Retail crossover rows (lifetime)
+  let _convSort = { col: 'lastVisit', dir: 'desc' };
+  let _convLoaded = false;
+  let _convPeriod = { fromISO: null, toISO: null }; // bounds the "in period" crossover bucket
+  let _regSubtab = 'acq';
+
+  // Channel pill styling — single source of truth used in table + filter logic.
+  function _channelPill(channel, siteId) {
+    if (channel === 'delivery') {
+      return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:#dbeafe;color:#1e40af">Delivery</span>`;
+    }
+    if (channel === 'retail') {
+      const site = (typeof allSites !== 'undefined' && Array.isArray(allSites)) ? allSites.find(s => s.id === siteId) : null;
+      // Use the site's own brand color for the pill if known; fall back to generic gray.
+      const color = site?.color || '#6b7280';
+      const label = site ? `Retail · ${site.name}` : 'Retail';
+      return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:${color};color:white">${esc(label)}</span>`;
+    }
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:var(--gray-100);color:var(--gray-700)">Manual</span>`;
+  }
+
+  // Channel filter match — keeps the table-render logic compact.
+  function _channelMatchesFilter(r, filter) {
+    if (!filter) return true;
+    if (filter === 'delivery') return r.channel === 'delivery';
+    if (filter === 'retail') return r.channel === 'retail';
+    if (filter === 'manual') return r.channel === 'manual';
+    if (filter === 'retail_foothill') {
+      const s = (typeof allSites !== 'undefined' && Array.isArray(allSites)) ? allSites.find(x => x.id === r.siteId) : null;
+      return r.channel === 'retail' && /foothill/i.test(s?.name || '');
+    }
+    if (filter === 'retail_23rd') {
+      const s = (typeof allSites !== 'undefined' && Array.isArray(allSites)) ? allSites.find(x => x.id === r.siteId) : null;
+      return r.channel === 'retail' && /23rd/i.test(s?.name || '');
+    }
+    return true;
+  }
+
+  function switchRegSubtab(name, btn) {
+    _regSubtab = name;
+    document.querySelectorAll('.rpt-reg-subtab').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    document.getElementById('rpt-reg-acq').style.display = name === 'acq' ? '' : 'none';
+    document.getElementById('rpt-reg-conv').style.display = name === 'conv' ? '' : 'none';
+    if (name === 'conv' && !_convLoaded) loadConversionsView();
+  }
+  window.switchRegSubtab = switchRegSubtab;
 
   async function loadRegistrationsReport() {
     const fromEl = document.getElementById('rpt-from');
@@ -26390,66 +26537,117 @@ ${oneCopy}
     // instead of midnight-midnight, missing 3 hours of orders at each end).
     const fromISO = pacificDayStart(fromEl.value).toISOString();
     const toISO   = pacificDayEnd(toEl.value).toISOString();
+    _convPeriod = { fromISO, toISO };
+    // Reset conversions cache so the new period recomputes "in period" crossovers.
+    _convLoaded = false;
     const tbody = document.getElementById('rpt-reg-tbody');
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>`;
 
-    // 1) Customers who registered in the window
+    // 1) Customers who registered in the window. profile_id and default_site_id are
+    //    needed for channel classification + site sub-split.
     const { data: custs, error } = await db.from('customers')
-      .select('id, first_name_cache, last_name_cache, email_cache, phone_cache, referral_source, created_at, lifetime_value')
+      .select('id, first_name_cache, last_name_cache, email_cache, phone_cache, referral_source, created_at, lifetime_value, profile_id, default_site_id')
       .gte('created_at', fromISO)
       .lte('created_at', toISO)
       .order('created_at', { ascending: false });
     if (error) { console.error('loadRegistrationsReport:', error); return; }
 
     const rows = custs || [];
-    // 2) Earliest order per customer (for "First Order" column)
+    // 2) Earliest order per customer + source + site_id. We need site_id because
+    //    customers.default_site_id is not populated by the POS new-customer flow
+    //    today (tech debt — see PROJECT-NOTES #4) so the cleanest path is to fall
+    //    back to the first walk-in order's site. Otherwise every fresh retail
+    //    customer would render with no site, defeating the Foothill/23rd split.
     const custIds = rows.map(c => c.id);
-    const firstOrderByCust = {};
+    const firstOrderByCust = {}; // id -> { created_at, source }
+    const firstWalkinSiteByCust = {}; // id -> site_id (the acquisition site)
     if (custIds.length) {
-      const orderRows = await batchedIn('orders', 'customer_id, created_at', 'customer_id', custIds, q => q.order('created_at', { ascending: true }));
+      const orderRows = await batchedIn('orders', 'customer_id, created_at, source, site_id', 'customer_id', custIds, q => q.order('created_at', { ascending: true }));
       orderRows.forEach(o => {
-        if (!firstOrderByCust[o.customer_id]) firstOrderByCust[o.customer_id] = o.created_at;
+        if (!firstOrderByCust[o.customer_id]) {
+          firstOrderByCust[o.customer_id] = { created_at: o.created_at, source: o.source };
+        }
+        if (o.source === 'walk_in' && !firstWalkinSiteByCust[o.customer_id] && o.site_id) {
+          firstWalkinSiteByCust[o.customer_id] = o.site_id;
+        }
       });
     }
 
-    // Shape final rows
-    _regRows = rows.map(c => ({
-      id: c.id,
-      name: `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || '—',
-      email: c.email_cache || '',
-      phone: c.phone_cache || '',
-      referral: c.referral_source || '',
-      signup: c.created_at,
-      firstOrder: firstOrderByCust[c.id] || null,
-      spend: Number(c.lifetime_value || 0),
-    }));
+    // Classify + shape final rows
+    _regRows = rows.map(c => {
+      const fo = firstOrderByCust[c.id] || null;
+      // Tier 1: explicit POS signup OR first-order walk-in => Retail.
+      const isRetail = c.referral_source === 'pos_walkin' || fo?.source === 'walk_in';
+      const channel = isRetail ? 'retail' : (c.profile_id ? 'delivery' : 'manual');
+      // For retail customers, prefer first walk-in order's site over the
+      // (often-null) customers.default_site_id.
+      const siteId = (isRetail && firstWalkinSiteByCust[c.id]) || c.default_site_id || null;
+      return {
+        id: c.id,
+        name: `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || '—',
+        email: c.email_cache || '',
+        phone: c.phone_cache || '',
+        referral: c.referral_source || '',
+        signup: c.created_at,
+        firstOrder: fo?.created_at || null,
+        firstOrderSource: fo?.source || null,
+        spend: Number(c.lifetime_value || 0),
+        channel,
+        siteId,
+      };
+    });
 
-    // KPIs
-    const converted = _regRows.filter(r => r.firstOrder).length;
-    const totalSpend = _regRows.reduce((s, r) => s + r.spend, 0);
-    const convRate = _regRows.length ? Math.round((converted / _regRows.length) * 100) : 0;
-    document.getElementById('rpt-reg-count').textContent     = _regRows.length.toLocaleString();
-    document.getElementById('rpt-reg-converted').textContent = converted.toLocaleString();
-    document.getElementById('rpt-reg-conv-rate').textContent = _regRows.length ? convRate + '%' : '—';
-    document.getElementById('rpt-reg-spend').textContent     = fmtMoney(totalSpend);
-    document.getElementById('rpt-reg-period-label').textContent =
-      `${fromEl.value} to ${toEl.value}`;
+    // KPIs — split by channel.
+    const delivery = _regRows.filter(r => r.channel === 'delivery');
+    const retail   = _regRows.filter(r => r.channel === 'retail');
+    const manual   = _regRows.filter(r => r.channel === 'manual');
+    const delivConverted = delivery.filter(r => r.firstOrder).length;
+    const delivConvRate  = delivery.length ? Math.round((delivConverted / delivery.length) * 100) : 0;
+
+    // Retail site sub-split — small text under the tile.
+    const sitesById = {};
+    (typeof allSites !== 'undefined' && Array.isArray(allSites) ? allSites : []).forEach(s => { sitesById[s.id] = s; });
+    const retailBySite = {};
+    retail.forEach(r => {
+      const s = sitesById[r.siteId];
+      const key = s?.name || 'Other';
+      retailBySite[key] = (retailBySite[key] || 0) + 1;
+    });
+    const retailSubLine = Object.keys(retailBySite).length
+      ? Object.entries(retailBySite).map(([n,c]) => `${c} ${n}`).join(' · ')
+      : 'no site tagged';
+
+    document.getElementById('rpt-reg-new-delivery').textContent = delivery.length.toLocaleString();
+    document.getElementById('rpt-reg-new-retail').textContent   = retail.length.toLocaleString();
+    document.getElementById('rpt-reg-new-retail-sub').textContent = retailSubLine;
+    document.getElementById('rpt-reg-new-manual').textContent   = manual.length.toLocaleString();
+    document.getElementById('rpt-reg-conv-rate').textContent    = delivery.length ? delivConvRate + '%' : '—';
+    document.getElementById('rpt-reg-conv-rate-sub').textContent = `${delivConverted} of ${delivery.length} placed an order`;
+    document.getElementById('rpt-reg-period-label').textContent  = `${fromEl.value} to ${toEl.value}`;
+
     const exportBtn = document.getElementById('reg-export-btn');
     if (exportBtn) exportBtn.style.display = _regRows.length ? '' : 'none';
 
     renderRegistrationsTable();
+    // If user is currently on the Conversions sub-tab, recompute it for the new window.
+    if (_regSubtab === 'conv') loadConversionsView();
   }
 
   function renderRegistrationsTable() {
     const tbody = document.getElementById('rpt-reg-tbody');
     if (!tbody) return;
-    if (!_regRows.length) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--gray-400)">No registrations in this period</td></tr>`;
+    const filter = document.getElementById('rpt-reg-channel-filter')?.value || '';
+    const filtered = _regRows.filter(r => _channelMatchesFilter(r, filter));
+    if (!filtered.length) {
+      const msg = _regRows.length
+        ? 'No registrations match this channel filter'
+        : 'No registrations in this period';
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--gray-400)">${msg}</td></tr>`;
       return;
     }
     // Sort
     const { col, dir } = _regSort;
-    const sorted = [..._regRows].sort((a, b) => {
+    const sorted = [...filtered].sort((a, b) => {
       let av = a[col], bv = b[col];
       if (col === 'signup' || col === 'firstOrder') { av = av || ''; bv = bv || ''; }
       if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toLowerCase(); }
@@ -26476,10 +26674,11 @@ ${oneCopy}
     };
     tbody.innerHTML = sorted.map(r => {
       const nameCell = r.id
-        ? `<a href="#" onclick="event.preventDefault();openCustomerPanel('${r.id}')" style="color:var(--accent);text-decoration:none;font-weight:600">${_escHtml(r.name)}</a>`
+        ? `<a href="#" onclick="event.preventDefault();openCustomerPanel('${r.id}','billing')" style="color:var(--accent);text-decoration:none;font-weight:600">${_escHtml(r.name)}</a>`
         : _escHtml(r.name);
       return `<tr>
         <td>${nameCell}</td>
+        <td>${_channelPill(r.channel, r.siteId)}</td>
         <td style="color:var(--gray-700)">${_escHtml(r.email) || '<span style="color:var(--gray-300)">—</span>'}</td>
         <td style="color:var(--gray-700);white-space:nowrap">${r.phone ? _escHtml(fmtPhone(r.phone)) : '<span style="color:var(--gray-300)">—</span>'}</td>
         <td style="color:var(--gray-600)">${_escHtml(r.referral) || '<span style="color:var(--gray-300)">—</span>'}</td>
@@ -26489,6 +26688,7 @@ ${oneCopy}
       </tr>`;
     }).join('');
   }
+  window.renderRegistrationsTable = renderRegistrationsTable;
 
   function sortRegReport(col) {
     if (_regSort.col === col) {
@@ -26502,18 +26702,28 @@ ${oneCopy}
 
   function exportRegistrationsCSV() {
     if (!_regRows.length) return;
-    const header = ['Name','Email','Phone','Referral','Signed Up','First Order','Spend to Date'];
+    const header = ['Name','Channel','Site','Email','Phone','Referral','Signed Up','First Order','First Order Source','Spend to Date'];
     const fmtPhoneCSV = raw => {
       const d = String(raw || '').replace(/\D/g, '').slice(-10);
       return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : (raw || '');
     };
-    const rows = _regRows.map(r => [
-      r.name, r.email, fmtPhoneCSV(r.phone), r.referral,
-      // Pacific date — toISOString().slice(0,10) returns UTC date, off by 1 day for evening signups.
-      r.signup ? new Date(r.signup).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '',
-      r.firstOrder ? new Date(r.firstOrder).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '',
-      r.spend.toFixed(2),
-    ]);
+    const filter = document.getElementById('rpt-reg-channel-filter')?.value || '';
+    const rows = _regRows.filter(r => _channelMatchesFilter(r, filter)).map(r => {
+      const site = (typeof allSites !== 'undefined' && Array.isArray(allSites)) ? allSites.find(s => s.id === r.siteId) : null;
+      return [
+        r.name,
+        r.channel,
+        site?.name || '',
+        r.email,
+        fmtPhoneCSV(r.phone),
+        r.referral,
+        // Pacific date — toISOString().slice(0,10) returns UTC date, off by 1 day for evening signups.
+        r.signup ? new Date(r.signup).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '',
+        r.firstOrder ? new Date(r.firstOrder).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '',
+        r.firstOrderSource || '',
+        r.spend.toFixed(2),
+      ];
+    });
     const csv = [header, ...rows].map(row =>
       row.map(v => {
         const s = String(v ?? '');
@@ -26529,6 +26739,281 @@ ${oneCopy}
     a.href = url; a.download = fname; a.click();
     URL.revokeObjectURL(url);
   }
+
+  // ── Retail → Delivery Conversions (lazy-loaded sub-tab) ──
+  //
+  // For every customer who has ever placed a walk-in order, classify their
+  // crossover status:
+  //   - converted (lifetime): has placed any non-walk-in order after their first walk-in
+  //   - converted (in period): first delivery date falls inside the report window
+  //   - eligible: 2+ walk-in visits, no delivery yet (the outreach target list)
+  //   - new: 1 walk-in visit, no delivery yet (not yet ready for nudge)
+  async function loadConversionsView() {
+    const tbody = document.getElementById('rpt-conv-tbody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>`;
+
+    // Step 1: find every customer that has ever placed a walk-in order.
+    //         Page through in case the result set grows large enough to hit the row limit.
+    let retailCustIds = new Set();
+    {
+      const BATCH = 1000;
+      let off = 0;
+      while (true) {
+        const { data, error } = await db.from('orders')
+          .select('customer_id')
+          .eq('source', 'walk_in')
+          .not('customer_id', 'is', null)
+          .range(off, off + BATCH - 1);
+        if (error) { console.error('loadConversionsView retail ids:', error); break; }
+        if (!data || !data.length) break;
+        data.forEach(r => retailCustIds.add(r.customer_id));
+        if (data.length < BATCH) break;
+        off += BATCH;
+      }
+    }
+    const ids = [...retailCustIds];
+    if (!ids.length) {
+      _convRows = [];
+      _convLoaded = true;
+      _renderConvKpis({ inPeriod: 0, eligible: 0, avgDays: null, revenue: 0 });
+      _renderConvTable();
+      return;
+    }
+
+    // Step 2: pull all orders for these customers, plus the customer rows themselves.
+    const [orderRows, custRows] = await Promise.all([
+      batchedIn('orders', 'customer_id, source, created_at, total_amount, tip_amount, amount_refunded, billing_status, site_id', 'customer_id', ids),
+      batchedIn('customers', 'id, first_name_cache, last_name_cache, email_cache, phone_cache, default_site_id, lifetime_value', 'id', ids),
+    ]);
+
+    // Step 3: bucket orders by customer + by walk-in vs delivery. Capture each
+    // customer's first walk-in site so we can fall back when default_site_id
+    // is null (POS doesn't populate it today — see PROJECT-NOTES #4).
+    const byCust = {};
+    const firstWalkinSite = {};
+    orderRows.forEach(o => {
+      if (!byCust[o.customer_id]) byCust[o.customer_id] = { walkin: [], delivery: [] };
+      const bucket = o.source === 'walk_in' ? 'walkin' : 'delivery';
+      byCust[o.customer_id][bucket].push(o);
+      if (o.source === 'walk_in' && o.site_id && !firstWalkinSite[o.customer_id]) {
+        firstWalkinSite[o.customer_id] = { at: o.created_at, site_id: o.site_id };
+      } else if (o.source === 'walk_in' && o.site_id && firstWalkinSite[o.customer_id] && o.created_at < firstWalkinSite[o.customer_id].at) {
+        firstWalkinSite[o.customer_id] = { at: o.created_at, site_id: o.site_id };
+      }
+    });
+
+    const { fromISO, toISO } = _convPeriod;
+    _convRows = custRows.map(c => {
+      const d = byCust[c.id] || { walkin: [], delivery: [] };
+      d.walkin.sort((a,b) => a.created_at.localeCompare(b.created_at));
+      d.delivery.sort((a,b) => a.created_at.localeCompare(b.created_at));
+      const firstWalkin   = d.walkin[0]?.created_at || null;
+      const lastWalkin    = d.walkin[d.walkin.length - 1]?.created_at || null;
+      const firstDelivery = d.delivery[0]?.created_at || null;
+      // Three crossover shapes:
+      //   - retail-then-delivery: firstDelivery >= firstWalkin  → true crossover (the win)
+      //   - delivery-then-retail: firstDelivery < firstWalkin   → already a delivery customer,
+      //                                                            no nudge needed; treat as
+      //                                                            "Already delivering" so they
+      //                                                            don't pollute the eligible list
+      //   - retail-only:          firstDelivery is null         → eligible/new for nudge
+      const isCrossover         = !!(firstDelivery && firstWalkin && firstDelivery >= firstWalkin);
+      const isAlreadyDelivering = !!(firstDelivery && firstWalkin && firstDelivery < firstWalkin);
+      const inPeriod            = !!(isCrossover && fromISO && toISO && firstDelivery >= fromISO && firstDelivery <= toISO);
+      const daysToCross         = isCrossover
+        ? Math.max(0, Math.round((new Date(firstDelivery) - new Date(firstWalkin)) / 86400000))
+        : null;
+      // Delivery revenue = paid delivery orders net of refunds. Drops zeroed-out orders cleanly.
+      const deliveryRev = d.delivery.reduce((s, o) => {
+        if (o.billing_status === 'refunded') return s; // fully refunded contributes nothing
+        const gross  = Number(o.total_amount || 0) + Number(o.tip_amount || 0);
+        const refund = Number(o.amount_refunded || 0);
+        return s + Math.max(0, gross - refund);
+      }, 0);
+      // Status priority: a converted-in-period customer is the most actionable bucket.
+      const status = inPeriod ? 'converted_in_period'
+                  : isCrossover ? 'converted_lifetime'
+                  : isAlreadyDelivering ? 'already_delivering'
+                  : d.walkin.length >= 2 ? 'eligible'
+                  : 'new';
+      return {
+        id: c.id,
+        name: `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || '—',
+        email: c.email_cache || '',
+        phone: c.phone_cache || '',
+        siteId: c.default_site_id || firstWalkinSite[c.id]?.site_id || null,
+        visits: d.walkin.length,
+        firstWalkin,
+        lastVisit: lastWalkin,
+        firstDelivery,
+        daysToCross,
+        deliveryRev,
+        status,
+      };
+    });
+
+    // KPIs
+    const inPeriod   = _convRows.filter(r => r.status === 'converted_in_period').length;
+    const eligible   = _convRows.filter(r => r.status === 'eligible').length;
+    const crossovers = _convRows.filter(r => r.status === 'converted_in_period' || r.status === 'converted_lifetime');
+    const avgDays    = crossovers.length
+      ? Math.round(crossovers.reduce((s, r) => s + (r.daysToCross || 0), 0) / crossovers.length)
+      : null;
+    const revenue    = crossovers.reduce((s, r) => s + r.deliveryRev, 0);
+
+    _convLoaded = true;
+    _renderConvKpis({ inPeriod, eligible, avgDays, revenue });
+    _renderConvTable();
+
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    document.getElementById('rpt-conv-period-label').textContent =
+      `${_convRows.length} lifetime retail customers · period ${fromEl?.value || ''} to ${toEl?.value || ''}`;
+    const exportBtn = document.getElementById('conv-export-btn');
+    if (exportBtn) exportBtn.style.display = _convRows.length ? '' : 'none';
+  }
+  window.loadConversionsView = loadConversionsView;
+
+  function _renderConvKpis({ inPeriod, eligible, avgDays, revenue }) {
+    document.getElementById('rpt-conv-period').textContent   = inPeriod.toLocaleString();
+    document.getElementById('rpt-conv-eligible').textContent = eligible.toLocaleString();
+    document.getElementById('rpt-conv-avg-days').textContent = avgDays == null ? '—' : `${avgDays}d`;
+    document.getElementById('rpt-conv-revenue').textContent  = fmtMoney(revenue);
+  }
+
+  function renderConversionsTable() {
+    _renderConvTable();
+  }
+  window.renderConversionsTable = renderConversionsTable;
+
+  function _renderConvTable() {
+    const tbody = document.getElementById('rpt-conv-tbody');
+    if (!tbody) return;
+    const filter = document.getElementById('rpt-conv-status-filter')?.value || '';
+    const filtered = _convRows.filter(r => {
+      if (!filter) return true;
+      if (filter === 'converted') return r.status === 'converted_in_period';
+      if (filter === 'converted_all') return r.status === 'converted_in_period' || r.status === 'converted_lifetime';
+      if (filter === 'eligible')  return r.status === 'eligible';
+      if (filter === 'new')       return r.status === 'new';
+      if (filter === 'already_delivering') return r.status === 'already_delivering';
+      return true;
+    });
+    if (!filtered.length) {
+      const msg = _convRows.length
+        ? 'No retail customers match this status filter'
+        : 'No retail customers yet';
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--gray-400)">${msg}</td></tr>`;
+      return;
+    }
+    const { col, dir } = _convSort;
+    const sorted = [...filtered].sort((a, b) => {
+      let av = a[col], bv = b[col];
+      if (col === 'lastVisit' || col === 'firstDelivery') { av = av || ''; bv = bv || ''; }
+      if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toLowerCase(); }
+      if (av == null) av = -Infinity;
+      if (bv == null) bv = -Infinity;
+      if (av < bv) return dir === 'asc' ? -1 : 1;
+      if (av > bv) return dir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    ['name','visits','lastVisit','firstDelivery','deliveryRev'].forEach(c => {
+      const el = document.getElementById('conv-sort-' + c);
+      if (el) el.textContent = col === c ? (dir === 'asc' ? '▲' : '▼') : '';
+    });
+
+    const fmtD = iso => iso ? new Date(iso).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+    const sitesById = {};
+    (typeof allSites !== 'undefined' && Array.isArray(allSites) ? allSites : []).forEach(s => { sitesById[s.id] = s; });
+
+    const statusPill = s => {
+      if (s === 'converted_in_period') return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:#d1fae5;color:#065f46">Converted (period)</span>`;
+      if (s === 'converted_lifetime')  return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:#dbeafe;color:#1e40af">Converted</span>`;
+      if (s === 'already_delivering')  return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:#e0e7ff;color:#3730a3">Already delivering</span>`;
+      if (s === 'eligible')            return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:#fef3c7;color:#92400e">Eligible</span>`;
+      return `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:var(--gray-100);color:var(--gray-500)">New</span>`;
+    };
+
+    tbody.innerHTML = sorted.map(r => {
+      const nameCell = r.id
+        ? `<a href="#" onclick="event.preventDefault();openCustomerPanel('${r.id}','billing')" style="color:var(--accent);text-decoration:none;font-weight:600">${_escHtml(r.name)}</a>`
+        : _escHtml(r.name);
+      const site = sitesById[r.siteId];
+      const siteCell = site
+        ? `<span style="display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:${site.color || '#6b7280'};color:white">${esc(site.name)}</span>`
+        : '<span style="color:var(--gray-300)">—</span>';
+      return `<tr>
+        <td>${nameCell}</td>
+        <td>${siteCell}</td>
+        <td>${statusPill(r.status)}</td>
+        <td style="text-align:right;font-weight:600">${r.visits}</td>
+        <td style="color:var(--gray-700);white-space:nowrap">${fmtD(r.lastVisit)}</td>
+        <td style="color:var(--gray-700);white-space:nowrap">${r.firstDelivery ? fmtD(r.firstDelivery) + (r.daysToCross != null ? ` <span style="color:var(--gray-400);font-size:11px">(${r.daysToCross}d)</span>` : '') : '<span style="color:var(--gray-300)">—</span>'}</td>
+        <td style="text-align:right;font-weight:600;color:var(--gray-800)">${r.deliveryRev > 0 ? fmtMoney(r.deliveryRev) : '<span style="color:var(--gray-300)">—</span>'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function sortConvReport(col) {
+    if (_convSort.col === col) {
+      _convSort.dir = _convSort.dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      _convSort.col = col;
+      _convSort.dir = (col === 'visits' || col === 'lastVisit' || col === 'firstDelivery' || col === 'deliveryRev') ? 'desc' : 'asc';
+    }
+    _renderConvTable();
+  }
+  window.sortConvReport = sortConvReport;
+
+  function exportConversionsCSV() {
+    if (!_convRows.length) return;
+    const header = ['Name','Email','Phone','Site','Status','Retail Visits','First Visit','Last Visit','First Delivery','Days To Convert','Delivery Revenue'];
+    const fmtPhoneCSV = raw => {
+      const d = String(raw || '').replace(/\D/g, '').slice(-10);
+      return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : (raw || '');
+    };
+    const sitesById = {};
+    (typeof allSites !== 'undefined' && Array.isArray(allSites) ? allSites : []).forEach(s => { sitesById[s.id] = s; });
+    const filter = document.getElementById('rpt-conv-status-filter')?.value || '';
+    const rows = _convRows
+      .filter(r => {
+        if (!filter) return true;
+        if (filter === 'converted') return r.status === 'converted_in_period';
+        if (filter === 'converted_all') return r.status === 'converted_in_period' || r.status === 'converted_lifetime';
+        if (filter === 'eligible')  return r.status === 'eligible';
+        if (filter === 'new')       return r.status === 'new';
+        if (filter === 'already_delivering') return r.status === 'already_delivering';
+        return true;
+      })
+      .map(r => [
+        r.name,
+        r.email,
+        fmtPhoneCSV(r.phone),
+        sitesById[r.siteId]?.name || '',
+        r.status,
+        r.visits,
+        r.firstWalkin ? new Date(r.firstWalkin).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '',
+        r.lastVisit   ? new Date(r.lastVisit).toLocaleDateString('en-CA', { timeZone: BIZ_TZ })   : '',
+        r.firstDelivery ? new Date(r.firstDelivery).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '',
+        r.daysToCross == null ? '' : r.daysToCross,
+        r.deliveryRev.toFixed(2),
+      ]);
+    const csv = [header, ...rows].map(row =>
+      row.map(v => {
+        const s = String(v ?? '');
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }).join(',')
+    ).join('\n');
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    const fname = `retail-conversions-${fromEl?.value || 'from'}-${toEl?.value || 'to'}.csv`;
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname; a.click();
+    URL.revokeObjectURL(url);
+  }
+  window.exportConversionsCSV = exportConversionsCSV;
 
   function rptDateRange(period) {
     // Anchor everything in Pacific dates — the previous browser-local approach
