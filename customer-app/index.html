@@ -1017,10 +1017,6 @@
           <div class="field"><label>Phone</label><input type="tel" id="s-phone" placeholder="(415) 555-0100" required></div>
           <div class="field"><label>Password</label><input type="password" id="s-pass" placeholder="Min. 8 characters" autocomplete="new-password" minlength="8" required></div>
           <label class="sms-consent-row">
-            <input type="checkbox" id="s-sms-consent" required>
-            <span>I agree to receive SMS updates from Family Laundry. Msg &amp; data rates may apply. Reply STOP to opt out.</span>
-          </label>
-          <label class="sms-consent-row">
             <input type="checkbox" id="s-email-consent" checked>
             <span>I'd like to receive occasional emails for deals and updates from Family Laundry. Unsubscribe anytime.</span>
           </label>
@@ -1041,6 +1037,10 @@
             </select>
           </div>
           <button class="btn-primary" type="submit" id="btn-signup">Create Account</button>
+          <p style="font-size:11px;color:var(--gray-500);line-height:1.5;margin:10px 2px 0;text-align:center">
+            By creating an account you agree to receive operational SMS from Family Laundry (order updates, driver ETAs).
+            Msg &amp; data rates may apply. Reply STOP to opt out.
+          </p>
         </form>
         <div id="signup-success" style="display:none; text-align:center; padding: 32px 16px;">
           <div style="font-size: 40px; margin-bottom: 16px">✉️</div>
@@ -2388,7 +2388,11 @@ async function handleSignup(e) {
   const email = document.getElementById('s-email').value.trim();
   const phone = document.getElementById('s-phone').value.trim();
   const pass  = document.getElementById('s-pass').value;
-  const smsConsent = document.getElementById('s-sms-consent').checked;
+  // Operational SMS consent is granted implicitly by clicking Create Account —
+  // see the fine-print disclosure below the button. TCPA-compliant for
+  // transactional messages (order updates, driver ETAs). Marketing SMS would
+  // need its own explicit checkbox.
+  const smsConsent = true;
   const emailConsent = document.getElementById('s-email-consent')?.checked ?? false;
   const referralSource = document.getElementById('s-source')?.value || null;
   const btn = document.getElementById('btn-signup');
@@ -2401,11 +2405,6 @@ async function handleSignup(e) {
   }
   if (!phone || phone.replace(/\D/g,'').length < 10) {
     errEl.textContent = 'Please enter a valid phone number.';
-    errEl.classList.add('show');
-    return;
-  }
-  if (!smsConsent) {
-    errEl.textContent = 'Please agree to receive SMS updates to continue.';
     errEl.classList.add('show');
     return;
   }
