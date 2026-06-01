@@ -2433,6 +2433,14 @@ async function handleSignup(e) {
   const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { first_name: first, last_name: last, phone, sms_consent: smsConsent, email_consent: emailConsent, referral_source: referralSource }, emailRedirectTo: redirectUrl } });
   btn.disabled = false; btn.textContent = 'Create Account';
   if (error) { errEl.textContent = error.message; errEl.classList.add('show'); return; }
+  // ── Klaviyo welcome subscribe (fire-and-forget, gated on email consent) ──
+  // Adds the new signup to "Email List" so the "Email Welcome Series" flow
+  // fires. Done here (before email confirmation) so the welcome arrives
+  // promptly; subscribe is idempotent on Klaviyo's side so a duplicate from
+  // loadUserData() post-confirm is harmless.
+  if (emailConsent && data?.user) {
+    subscribeKlaviyoWelcome({ email, first_name: first, last_name: last, phone });
+  }
   if (data.user) {
     // Only call ensureProfile when we have an active session (email auto-confirmed
     // or instant login). Without a session, RLS blocks the writes and the data is
@@ -2451,6 +2459,30 @@ async function handleSignup(e) {
       }
     }
     // If there IS a session, onAuthStateChange fires and navigates automatically
+  }
+}
+
+// Adds a fresh signup to Klaviyo's "Email List" (id VDLwxj), which is the
+// trigger for the "Email Welcome Series" flow. Fire-and-forget — caller MUST
+// NOT await. Klaviyo errors are logged for debugging only and never delay or
+// fail the signup UI. Only called when the customer explicitly opted into
+// email marketing via the s-email-consent checkbox.
+function subscribeKlaviyoWelcome({ email, first_name, last_name, phone }) {
+  if (!email) return;
+  try {
+    fetch(`${SUPA_URL}/functions/v1/klaviyo-subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_KEY}` },
+      body: JSON.stringify({
+        email,
+        first_name: first_name || null,
+        last_name:  last_name  || null,
+        phone:      phone      || null,
+      })
+    }).then(r => { if (!r.ok) console.warn('[klaviyo-subscribe] HTTP', r.status); })
+      .catch(e => console.warn('[klaviyo-subscribe] fetch error:', e?.message || e));
+  } catch (e) {
+    console.warn('[klaviyo-subscribe] thrown:', e?.message || e);
   }
 }
 
@@ -2866,6 +2898,13 @@ async function loadUserData() {
       }).then(() => {});
       const { data } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
       currentCustomer = data;
+      // ── Klaviyo welcome subscribe (fresh customer post-email-confirm path) ──
+      // Covers the case where handleSignup couldn't fire (no session yet) and
+      // the customer first lands here after clicking the email confirm link.
+      // Gated on m.email_consent so we honor the same checkbox semantics.
+      if (m.email_consent && custEmail) {
+        subscribeKlaviyoWelcome({ email: custEmail, first_name: custFirst, last_name: custLast, phone: custPhone });
+      }
     }
   }
   // Load payment cards so the home screen banner is accurate immediately
