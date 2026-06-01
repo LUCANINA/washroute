@@ -1,17 +1,20 @@
-// klaviyo-subscribe — server-side subscribe to Klaviyo's "Email List" (id VDLwxj),
-// which is the trigger list for the "Email Welcome Series" flow.
+// klaviyo-subscribe v2 — server-side subscribe to Klaviyo's "Email List"
+// (id VDLwxj), trigger list for the "Email Welcome Series" flow.
+//
+// v2 (June 1 2026): dropped phone_number from the subscribe payload. Klaviyo's
+// profile-subscription-bulk-create-jobs endpoint silently rejects profiles that
+// include phone_number unless SMS consent is also included — v1 was sending
+// phone with email-only consent, so every real signup was failing while the
+// function still returned 200 (non-fatal pattern hid it). Phone still reaches
+// Klaviyo via the nightly sync-klaviyo profile upsert; this call exists only to
+// fire the Welcome Series.
 //
 // Called by customer-app's handleSignup() and loadUserData() (post-email-confirm
 // path) right after a fresh customer record is created with email marketing
 // consent. Failure is intentionally non-fatal: this function logs warnings and
-// returns 200 so that a Klaviyo outage can never break signup.
+// returns 200 so a Klaviyo outage can't break signup.
 //
-// verify_jwt:false matches the WashRoute project convention. No customer-PII
-// trust boundary is crossed here — the function only writes to Klaviyo using
-// the server-side KLAVIYO_API_KEY secret and only ever subscribes to one
-// hardcoded list. The worst-case abuse is unsolicited welcome emails to
-// attacker-supplied addresses, which is the same risk profile as any public
-// newsletter embed form.
+// verify_jwt:false matches the WashRoute project convention.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 
@@ -23,13 +26,6 @@ const corsHeaders = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
-
-function normPhone(raw: string): string | null {
-  const d = (raw || '').replace(/\D/g, '')
-  if (d.length === 10) return '+1' + d
-  if (d.length === 11 && d.startsWith('1')) return '+' + d
-  return null
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -45,7 +41,6 @@ Deno.serve(async (req) => {
 
   if (!KLAVIYO_KEY) {
     console.error('[klaviyo-subscribe] KLAVIYO_API_KEY not set in environment')
-    // Non-fatal — return ok:false so callers don't break signup
     return jsonResponse({ ok: false, error: 'klaviyo_key_not_set' })
   }
 
@@ -55,19 +50,18 @@ Deno.serve(async (req) => {
   const email     = String(body.email || '').trim().toLowerCase()
   const firstName = String(body.first_name || '').trim() || null
   const lastName  = String(body.last_name  || '').trim() || null
-  const phoneE164 = normPhone(String(body.phone || ''))
 
   if (!email || !email.includes('@')) {
     return jsonResponse({ ok: false, error: 'invalid_email' }, 400)
   }
 
+  // NOTE: phone_number is intentionally NOT included. See file header.
   const profileAttrs: Record<string, unknown> = {
     email,
     subscriptions: { email: { marketing: { consent: 'SUBSCRIBED' } } },
   }
-  if (firstName) profileAttrs.first_name   = firstName
-  if (lastName)  profileAttrs.last_name    = lastName
-  if (phoneE164) profileAttrs.phone_number = phoneE164
+  if (firstName) profileAttrs.first_name = firstName
+  if (lastName)  profileAttrs.last_name  = lastName
 
   const payload = {
     data: {
@@ -94,11 +88,13 @@ Deno.serve(async (req) => {
 
     if (!r.ok) {
       const errBody = await r.text().catch(() => '')
-      console.warn(`[klaviyo-subscribe] Klaviyo ${r.status} for ${email}: ${errBody.slice(0, 500)}`)
-      // Non-fatal — caller (signup flow) should not see this as a failure
-      return jsonResponse({ ok: false, status: r.status, error: errBody.slice(0, 500) })
+      // Log BOTH the email and the full Klaviyo error so this is debuggable next time
+      console.warn(`[klaviyo-subscribe] FAIL Klaviyo ${r.status} for ${email}: ${errBody}`)
+      console.warn(`[klaviyo-subscribe] sent payload: ${JSON.stringify(payload)}`)
+      return jsonResponse({ ok: false, status: r.status, error: errBody.slice(0, 1000) })
     }
 
+    console.log(`[klaviyo-subscribe] OK ${email}`)
     return jsonResponse({ ok: true, email })
   } catch (e: any) {
     console.warn('[klaviyo-subscribe] fetch error:', e?.message || String(e))
