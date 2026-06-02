@@ -7756,15 +7756,15 @@ async function loadAccount() {
   const activePlanId = currentCustomer?.subscription_plan_id;
   const activePlan = dbPlans.find(p => p.id === activePlanId);
   let planBadgeText = activePlan?.name || 'Pay As You Go';
-  let dotColor = '#94a3b8';
+  // Default to green — a Pay-As-You-Go customer is an active customer in
+  // good standing. The dot conveys account health, not plan type.
+  let dotColor = '#34d399';
   if (_activeSub && ['active','paused','past_due'].includes(_activeSub.status)) {
     const subPlan = _activeSub.subscription_plans || activePlan;
     planBadgeText = (subPlan?.name || 'Subscriber');
     if (_activeSub.status === 'paused') planBadgeText += ' (Paused)';
     if (_activeSub.status === 'past_due') planBadgeText += ' (Past Due)';
     dotColor = _activeSub.status === 'active' ? '#34d399' : _activeSub.status === 'paused' ? '#fbbf24' : '#f87171';
-  } else if (activePlan?.price_monthly > 0) {
-    dotColor = '#2a6fc9';
   }
   document.getElementById('acct-plan-badge').innerHTML = SUBSCRIPTIONS_ENABLED() ? `
     <div class="plan-badge" style="margin-top:12px">
