@@ -10,19 +10,15 @@ This is the step-by-step for flipping the subscription live. Every step is rever
 
 ## Pre-flight (do this BEFORE launch day)
 
-### 1. Decide the same-day surcharge rate
+### 1. Same-day surcharge — *decision made: leave at $10 for launch*
 
-The announcement says **"Same-day delivery $14.95"**. The current `service_fees` row "Same-Day Surcharge" is **$10**. Three options:
+David's call (June 2): keep `service_fees.Same-Day Surcharge` at **$10** for the launch. He will manually raise it to **$14.95** the following week via Services & Pricing → Fees tab.
 
-| Option | What it does | Trade-off |
-|---|---|---|
-| A. Raise to $14.95 globally | Every customer pays $14.95 for same-day (subscribers + non-subscribers) | Non-subscribers see a $4.95 increase with no warning. |
-| B. Add subscriber-specific row at $14.95 | Subscribers pay $14.95, non-subscribers stay at $10 | Requires customer-app code change to pick by sub status (~30 min). |
-| C. Keep $10, update marketing copy | No code/data change; marketing flyers + the customer-app plan card features array drop "$14.95" | Easiest, but you've already announced $14.95 publicly. |
+**Implication for the plan card copy:** the inactive plan row currently lists "Same-day delivery $14.95" in its features array. For launch week the actual charged amount will be $10 — customers who book same-day will see the line item at $10 on their order, not $14.95. Decide before activating the plan whether to:
+- (a) Leave the feature line as-is — minor wording mismatch for a week, $10 charged is a positive surprise vs the marketing
+- (b) Edit the plan's `features` array via the admin Subscriptions tab → change to "Same-day delivery $10" → flip back to "$14.95" the day the fee is raised
 
-**Recommendation:** Option A is simplest and cleanest. Same-day is a premium service; a small rate bump is normal. Communicate to existing customers if helpful.
-
-To execute A: Services & Pricing → Fees tab → Same-Day Surcharge → change $10 → $14.95 → save.
+Recommend (a) for simplicity unless the mismatch is uncomfortable.
 
 ---
 
