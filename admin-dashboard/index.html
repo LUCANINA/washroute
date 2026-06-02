@@ -2666,22 +2666,29 @@
                 <div class="stat-value" id="rpt-sub-active">—</div>
               </div>
               <div class="stat-card">
-                <div class="stat-label">Monthly Recurring</div>
-                <div class="stat-value" id="rpt-sub-mrr">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Cancelled (30d)</div>
+                <div class="stat-label">Cancelled Subscribers</div>
                 <div class="stat-value" id="rpt-sub-cancelled">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">in period</div>
               </div>
               <div class="stat-card">
-                <div class="stat-label">Avg Usage</div>
-                <div class="stat-value" id="rpt-sub-avg-usage">—</div>
-                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">lbs / 100 limit</div>
+                <div class="stat-label">Recurring Revenue</div>
+                <div class="stat-value" id="rpt-sub-mrr">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">period</div>
               </div>
               <div class="stat-card">
-                <div class="stat-label">Overage Spend</div>
+                <div class="stat-label">Overage Revenue</div>
                 <div class="stat-value" id="rpt-sub-overage-rev">—</div>
-                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-sub-overage-sub">this period</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-sub-overage-sub">period</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Average Usage</div>
+                <div class="stat-value" id="rpt-sub-avg-usage">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">lbs / per customer</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Average Revenue</div>
+                <div class="stat-value" id="rpt-sub-avg-rev">—</div>
+                <div style="font-size:11px;color:var(--gray-400);margin-top:2px">per subscriber · period</div>
               </div>
             </div>
             <!-- Analytics sub-tabs -->
@@ -26678,6 +26685,7 @@ ${oneCopy}
     else if (rptTab === 'drivers')       loadReports();
     else if (rptTab === 'onaccount')     loadOnAccountReport();
     else if (rptTab === 'registrations') loadRegistrationsReport();
+    else if (rptTab === 'subscriptions') loadSubscriptionReport();
   }
 
   function setRptTab(tab, btn) {
@@ -26693,7 +26701,19 @@ ${oneCopy}
       const oaBar = document.getElementById('oa-action-bar');
       if (oaBar) oaBar.classList.remove('visible');
     }
-    if (tab === 'subscriptions') loadSubscriptionReport();
+    if (tab === 'subscriptions') {
+      // Subscription metrics need at least a month-long window to be meaningful.
+      // If picker is at today-only (the global default), bump it to Last 30 days.
+      const fromEl = document.getElementById('rpt-from');
+      const toEl   = document.getElementById('rpt-to');
+      if (fromEl && toEl && fromEl.value === toEl.value) {
+        const todayPT = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+        const d = new Date(todayPT + 'T12:00:00');
+        d.setDate(d.getDate() - 30);
+        fromEl.value = d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+        toEl.value   = todayPT;
+      }
+    }
     runCurrentReport();
   }
 
@@ -27269,29 +27289,78 @@ ${oneCopy}
     }
 
     const allSubs = subs || [];
-    const active    = allSubs.filter(s => s.status === 'active');
-    const paused    = allSubs.filter(s => s.status === 'paused');
-    const pastDue   = allSubs.filter(s => s.status === 'past_due');
-    const thirtyAgo = new Date(); thirtyAgo.setDate(thirtyAgo.getDate() - 30);
-    const cancelled = allSubs.filter(s => s.status === 'cancelled' && s.cancelled_at && new Date(s.cancelled_at) >= thirtyAgo);
+    const active    = allSubs.filter(s => s.status === 'active' || s.status === 'past_due');
 
-    const mrr = active.reduce((sum, s) => sum + Number(s.subscription_plans?.price_monthly || 0), 0);
+    // ── Period bounds from the report date picker (Pacific-anchored) ──
+    const fromVal = document.getElementById('rpt-from')?.value;
+    const toVal   = document.getElementById('rpt-to')?.value;
+    const periodStartUtc = fromVal ? new Date(fromVal + 'T00:00:00-07:00') : null;  // Pacific midnight start
+    const periodEndUtc   = toVal   ? new Date(toVal   + 'T23:59:59-07:00') : null;  // Pacific end-of-day
+    const periodDays = (periodStartUtc && periodEndUtc)
+      ? Math.max(1, Math.round((periodEndUtc - periodStartUtc) / 86400000))
+      : 30;
+    const inPeriod = (d) => {
+      if (!d || !periodStartUtc || !periodEndUtc) return false;
+      const t = new Date(d);
+      return t >= periodStartUtc && t <= periodEndUtc;
+    };
+
+    // ── Cancelled Subscribers (in selected period) ──
+    const cancelled = allSubs.filter(s => s.cancelled_at && inPeriod(s.cancelled_at));
+
+    // ── Recurring Revenue (Period) ──
+    // Pro-rated estimate: for each active sub, plan.price_monthly × (periodDays / 30).
+    // Until we record Stripe subscription invoice events to customer_transactions,
+    // this is a close-enough proxy; refine in a follow-up by joining to
+    // Stripe invoice webhook events for exact per-period revenue.
+    const recurringRev = active.reduce((sum, s) => {
+      const monthly = Number(s.subscription_plans?.price_monthly || 0);
+      return sum + monthly * (periodDays / 30);
+    }, 0);
+
+    // ── Overage Revenue (Period) — current-cycle proxy ──
+    // The bill-split (session 165) charges lb-overage at ready_for_delivery
+    // per-order, not accumulated. We don't yet store the per-order lb overage
+    // amount on a column, so we use the subscriptions.overage_amount_due
+    // running total which IS still maintained by apply_subscription_usage_fn.
+    // For active subs in the current cycle this is the lb-overage charged so
+    // far this period. Follow-up: add orders.lb_overage_dollars column for
+    // exact period filtering.
+    const overageRev = active.reduce((sum, s) => sum + Number(s.overage_amount_due || 0), 0);
+
+    // ── Average Usage (lbs per active subscriber) ──
     const avgUsage = active.length
       ? (active.reduce((sum, s) => sum + Number(s.usage_lbs_this_period || 0), 0) / active.length).toFixed(1)
       : '0';
-    const overageRev = allSubs.reduce((sum, s) => sum + Number(s.overage_amount_due || 0), 0);
 
-    document.getElementById('rpt-sub-active').textContent   = active.length;
-    document.getElementById('rpt-sub-mrr').textContent      = fmtMoney(mrr);
-    // Session 165 — Paused + Past Due KPI tiles removed by David's call.
-    // Optional-chained writes so if either element is missing this doesn't
-    // throw (and so a future restore needs no JS change).
-    document.getElementById('rpt-sub-paused')?.replaceChildren(document.createTextNode(String(paused.length)));
-    document.getElementById('rpt-sub-cancelled').textContent = cancelled.length;
-    document.getElementById('rpt-sub-pastdue')?.replaceChildren(document.createTextNode(String(pastDue.length)));
-    document.getElementById('rpt-sub-avg-usage').textContent = avgUsage;
-    document.getElementById('rpt-sub-overage-rev').textContent = fmtMoney(overageRev);
-    document.getElementById('rpt-sub-count-label').textContent = `${allSubs.length} total`;
+    // ── Average Revenue per Subscriber (period) ──
+    // = (Recurring Rev in period + Card charges on subscriber orders in period) / # active
+    // The card-charges portion captures add-ons + tips + same-day + lb-overage
+    // charged via charge-order (recorded in customer_transactions as type='charge').
+    let cardChargesInPeriod = 0;
+    if (active.length && periodStartUtc && periodEndUtc) {
+      const subCustIds = active.map(s => s.customer_id).filter(Boolean);
+      if (subCustIds.length) {
+        const { data: tx } = await db.from('customer_transactions')
+          .select('amount, customer_id, created_at, type')
+          .in('customer_id', subCustIds)
+          .eq('type', 'charge')
+          .gte('created_at', periodStartUtc.toISOString())
+          .lte('created_at', periodEndUtc.toISOString());
+        cardChargesInPeriod = (tx || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+      }
+    }
+    const avgRev = active.length
+      ? (recurringRev + cardChargesInPeriod) / active.length
+      : 0;
+
+    document.getElementById('rpt-sub-active').textContent       = active.length;
+    document.getElementById('rpt-sub-cancelled').textContent    = cancelled.length;
+    document.getElementById('rpt-sub-mrr').textContent          = fmtMoney(recurringRev);
+    document.getElementById('rpt-sub-overage-rev').textContent  = fmtMoney(overageRev);
+    document.getElementById('rpt-sub-avg-usage').textContent    = avgUsage;
+    document.getElementById('rpt-sub-avg-rev').textContent      = fmtMoney(avgRev);
+    document.getElementById('rpt-sub-count-label').textContent  = `${allSubs.length} total`;
 
     const tbody = document.getElementById('rpt-sub-tbody');
     if (!allSubs.length) {
