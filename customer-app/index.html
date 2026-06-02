@@ -408,16 +408,24 @@
     .plan-perks { font-size: 12.5px; color: var(--gray-600); line-height: 1.7; }
     .plan-perks li { list-style: none; display: flex; align-items: center; gap: 6px; }
     .plan-perks li::before { content: '✓'; color: var(--success); font-weight: 700; }
-    .plan-select-btn { margin-top: 12px; width: 100%; padding: 10px; border-radius: 8px; font-size: 13.5px; font-weight: 600; border: 2px solid var(--navy); background: white; color: var(--navy); cursor: pointer; transition: all .15s; }
-    .plan-select-btn:hover { background: var(--navy); color: white; }
+    /* -webkit-tap-highlight-color: transparent kills iOS Safari's gray
+       overlay on tap; it was layering over our button + leaving the text
+       washed out after the confirm() dismissed. */
+    .plan-select-btn { margin-top: 12px; width: 100%; padding: 10px; border-radius: 8px; font-size: 13.5px; font-weight: 600; border: 2px solid var(--navy); background: white; color: var(--navy); cursor: pointer; transition: all .15s; -webkit-tap-highlight-color: transparent; }
     .plan-card.current .plan-select-btn { background: var(--navy); color: white; }
-    /* Variants for the Subscription panel's action buttons. Self-contained
-       so the hover/active state can't get stuck with mismatched bg/text
-       (the inline-color + base-hover-bg combo made Cancel invisible on tap). */
+    /* Variants for the Subscription panel's action buttons. */
     .plan-select-btn.muted  { border-color: var(--gray-300); color: var(--gray-600); }
-    .plan-select-btn.muted:hover { background: var(--gray-100); color: var(--gray-700); }
     .plan-select-btn.danger { border-color: var(--red); color: var(--red); }
-    .plan-select-btn.danger:hover { background: var(--red); color: white; }
+    /* Gate :hover styles to devices with a true pointer (mouse). On touch
+       devices iOS Safari "sticks" the :hover state after a tap until the
+       user taps elsewhere — which made the Cancel button stay in its
+       red-bg + white-text state (or in the danger variant: red text on
+       a stuck-red bg) and read as invisible. */
+    @media (hover: hover) {
+      .plan-select-btn:hover { background: var(--navy); color: white; }
+      .plan-select-btn.muted:hover  { background: var(--gray-100); color: var(--gray-700); }
+      .plan-select-btn.danger:hover { background: var(--red); color: white; }
+    }
 
     /* Preferences */
     .pref-section { padding: 0 18px 18px; }
