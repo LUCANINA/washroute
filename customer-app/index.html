@@ -1821,11 +1821,36 @@ let globalPrefs     = []; // global service preferences from preferences table
 let _activeSub      = null; // cached active subscription for this customer
 
 /* ── FEATURE FLAG: Subscriptions ──────────────────────────────
-   Set to true when ready to launch subscriptions to customers.
-   When false, the My Plan menu item, home subscription card,
-   and checkout flow are all hidden from customers.
+   Session 165 — beta-test mode: return true only for emails on the
+   allowlist below. This lets David fully test the $275 Wash & Fold
+   Monthly flow end-to-end (signup → Stripe Checkout → bill-split →
+   pause/cancel) WITHOUT exposing the plan card to real customers.
+
+   ON LAUNCH DAY (June 8): replace the body with `return true;` to
+   make subscriptions available to every customer. See
+   LAUNCH-RUNBOOK-275-SUBSCRIPTION.md for the full sequence.
+
+   Why a function instead of a constant? The check needs the current
+   user's email, which isn't known at script load. Every call site
+   that previously read `SUBSCRIPTIONS_ENABLED` now calls
+   `SUBSCRIPTIONS_ENABLED()` — same boolean semantics, just lazy.
    ──────────────────────────────────────────────────────────── */
-const SUBSCRIPTIONS_ENABLED = false;
+const SUBSCRIPTIONS_ALLOWLIST = [
+  'dmacquart@gmail.com',
+  'dmacquart+wrsignup1@gmail.com',
+];
+function SUBSCRIPTIONS_ENABLED() {
+  // Globals currentUser / currentProfile / currentCustomer are populated
+  // by loadUserData(); fall back gracefully if none are set yet.
+  const email = String(
+    currentUser?.email ||
+    currentProfile?.email ||
+    currentCustomer?.email_cache ||
+    ''
+  ).toLowerCase();
+  if (!email) return false;
+  return SUBSCRIPTIONS_ALLOWLIST.includes(email);
+}
 
 /* ── USER DATA CACHE ── */
 // Stores profile + customer + cards in localStorage so returning users see the app instantly.
@@ -2724,7 +2749,7 @@ async function _handleCustomerSession(event, session) {
     document.getElementById('bottom-nav').style.display = 'flex';
 
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('subscribed') === 'true' && SUBSCRIPTIONS_ENABLED) {
+    if (urlParams.get('subscribed') === 'true' && SUBSCRIPTIONS_ENABLED()) {
       // Subscription post-checkout redirect — session 118: show pickup day picker
       history.replaceState({}, '', window.location.pathname);
       try { await loadUserData(); } catch (_) {}
@@ -3081,7 +3106,7 @@ function buildProgressTrack(status) {
 /* ── Subscription home card ──────────────────────────────────── */
 async function renderHomeSubscriptionCard() {
   const card = document.getElementById('home-sub-card');
-  if (!SUBSCRIPTIONS_ENABLED) { if (card) card.style.display = 'none'; return; }
+  if (!SUBSCRIPTIONS_ENABLED()) { if (card) card.style.display = 'none'; return; }
   if (!card || !currentCustomer?.id) { if (card) card.style.display = 'none'; return; }
 
   // Fetch the customer's active subscription (active, paused, or past_due — not cancelled)
@@ -6907,7 +6932,7 @@ async function startOrderPayment(orderId) {
 }
 
 async function startSubscription(planId) {
-  if (!SUBSCRIPTIONS_ENABLED) { toast('Subscriptions coming soon!'); return; }
+  if (!SUBSCRIPTIONS_ENABLED()) { toast('Subscriptions coming soon!'); return; }
   const btn = document.querySelector(`[data-plan-id="${planId}"] .plan-select-btn`);
   if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
   try {
@@ -7741,7 +7766,7 @@ async function loadAccount() {
   } else if (activePlan?.price_monthly > 0) {
     dotColor = '#2a6fc9';
   }
-  document.getElementById('acct-plan-badge').innerHTML = SUBSCRIPTIONS_ENABLED ? `
+  document.getElementById('acct-plan-badge').innerHTML = SUBSCRIPTIONS_ENABLED() ? `
     <div class="plan-badge" style="margin-top:12px">
       <div class="plan-dot" style="background:${dotColor}"></div>
       ${planBadgeText}
@@ -7823,10 +7848,10 @@ async function loadAccount() {
       planMenuValue.textContent = 'Not subscribed · tap to browse plans';
     }
   }
-  if (planMenuItem) planMenuItem.style.display = SUBSCRIPTIONS_ENABLED ? '' : 'none';
+  if (planMenuItem) planMenuItem.style.display = SUBSCRIPTIONS_ENABLED() ? '' : 'none';
 
   // Plan cards (shows subscription detail if subscriber, otherwise plan picker)
-  if (SUBSCRIPTIONS_ENABLED) renderPlanCards(activePlanId);
+  if (SUBSCRIPTIONS_ENABLED()) renderPlanCards(activePlanId);
 
   // Payment method card
   renderPaymentSection();
