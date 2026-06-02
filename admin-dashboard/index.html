@@ -2670,16 +2670,8 @@
                 <div class="stat-value" id="rpt-sub-mrr">—</div>
               </div>
               <div class="stat-card">
-                <div class="stat-label">Paused</div>
-                <div class="stat-value" id="rpt-sub-paused">—</div>
-              </div>
-              <div class="stat-card">
                 <div class="stat-label">Cancelled (30d)</div>
                 <div class="stat-value" id="rpt-sub-cancelled">—</div>
-              </div>
-              <div class="stat-card">
-                <div class="stat-label">Past Due</div>
-                <div class="stat-value" id="rpt-sub-pastdue">—</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Avg Usage</div>
@@ -27291,9 +27283,12 @@ ${oneCopy}
 
     document.getElementById('rpt-sub-active').textContent   = active.length;
     document.getElementById('rpt-sub-mrr').textContent      = fmtMoney(mrr);
-    document.getElementById('rpt-sub-paused').textContent   = paused.length;
+    // Session 165 — Paused + Past Due KPI tiles removed by David's call.
+    // Optional-chained writes so if either element is missing this doesn't
+    // throw (and so a future restore needs no JS change).
+    document.getElementById('rpt-sub-paused')?.replaceChildren(document.createTextNode(String(paused.length)));
     document.getElementById('rpt-sub-cancelled').textContent = cancelled.length;
-    document.getElementById('rpt-sub-pastdue').textContent   = pastDue.length;
+    document.getElementById('rpt-sub-pastdue')?.replaceChildren(document.createTextNode(String(pastDue.length)));
     document.getElementById('rpt-sub-avg-usage').textContent = avgUsage;
     document.getElementById('rpt-sub-overage-rev').textContent = fmtMoney(overageRev);
     document.getElementById('rpt-sub-count-label').textContent = `${allSubs.length} total`;
