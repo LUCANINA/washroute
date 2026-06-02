@@ -1389,14 +1389,12 @@
           <div class="acct-phone" id="acct-phone" style="font-size:13px;color:rgba(255,255,255,.55);margin-top:2px"></div>
         </div>
         <!--
-          "Not you?" affordance — added after Anais Wilson reported the billing-update
-          link sent her to an account "not under her name." Root cause: the link is
-          generic and the app shows whichever auth session is cached. This button
-          makes wrong-account state immediately actionable without scrolling. Kept
-          subtle (low-weight on the dark hero) so it doesn't add anxiety for the
-          common case.
+          "Not you?" affordance removed session 165: the avatar/name/email/phone
+          already make identity obvious, and the red "Sign Out" button at the
+          bottom of the Account screen (.signout-btn) is the canonical exit.
+          Two sign-out buttons on the same screen added visual noise + planted
+          doubt for the 99% of customers who are in the right account.
         -->
-        <button onclick="handleSignOut()" style="flex-shrink:0;background:rgba(255,255,255,.12);color:white;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;line-height:1.2;text-align:right" title="Sign out and switch accounts">Not you?<br><span style="font-weight:500;opacity:.85">Sign out</span></button>
       </div>
       <div id="acct-plan-badge"></div>
     </div>
