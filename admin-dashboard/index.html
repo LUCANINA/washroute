@@ -2687,7 +2687,7 @@
                 <div style="font-size:11px;color:var(--gray-400);margin-top:2px">lbs / 100 limit</div>
               </div>
               <div class="stat-card">
-                <div class="stat-label">Overage Revenue</div>
+                <div class="stat-label">Overage Spend</div>
                 <div class="stat-value" id="rpt-sub-overage-rev">—</div>
                 <div style="font-size:11px;color:var(--gray-400);margin-top:2px" id="rpt-sub-overage-sub">this period</div>
               </div>
@@ -2695,8 +2695,6 @@
             <!-- Analytics sub-tabs -->
             <div style="display:flex;gap:8px;margin-bottom:16px">
               <button class="btn btn-ghost rpt-sub-subtab active" onclick="switchSubAnalyticsTab('overview',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px">Overview</button>
-              <button class="btn btn-ghost rpt-sub-subtab" onclick="switchSubAnalyticsTab('risk',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px">At-Risk</button>
-              <button class="btn btn-ghost rpt-sub-subtab" onclick="switchSubAnalyticsTab('upgrade',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px">Upgrade Candidates</button>
               <button class="btn btn-ghost rpt-sub-subtab" onclick="switchSubAnalyticsTab('trends',this)" style="padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px">Usage Trends</button>
             </div>
 
@@ -2717,7 +2715,7 @@
                         <th>Usage (lbs)</th>
                         <th>Lbs Left</th>
                         <th>Pickups</th>
-                        <th>Overage Due</th>
+                        <th>Overage Spend</th>
                         <th>Renews</th>
                         <th>Signed Up</th>
                         <th style="text-align:right">Actions</th>
@@ -27385,9 +27383,18 @@ ${oneCopy}
     _subAnalyticsTab = tab;
     document.querySelectorAll('.rpt-sub-subtab').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
-    ['overview','risk','upgrade','trends'].forEach(t => {
+    // Session 165 — At-Risk and Upgrade Candidates sub-tabs removed by David's
+    // call; their DOM panels stay in markup but are kept permanently hidden
+    // so the underlying renderChurnRisk / renderUpgradeCandidates helpers
+    // don't need to be deleted (in case we revisit).
+    ['overview','trends'].forEach(t => {
       const el = document.getElementById('sub-analytics-' + t);
       if (el) el.style.display = t === tab ? '' : 'none';
+    });
+    // Force-hide the retired panels
+    ['risk','upgrade'].forEach(t => {
+      const el = document.getElementById('sub-analytics-' + t);
+      if (el) el.style.display = 'none';
     });
     // Lazy-render charts when Trends tab is first shown
     if (tab === 'trends' && !_subTrendsChartsRendered && _cachedActiveSubs) {
@@ -27406,13 +27413,8 @@ ${oneCopy}
     _cachedActiveSubs = active;
     _subTrendsChartsRendered = false; // Reset so charts re-render on next tab open
 
-    // ── At-Risk Subscribers ──
-    renderChurnRisk(allSubs, active);
-
-    // ── Upgrade Candidates ──
-    renderUpgradeCandidates(active);
-
-    // ── Usage Trends ──
+    // Session 165 — At-Risk + Upgrade-Candidates rendering skipped; sub-tabs hidden.
+    // Usage Trends still rendered (sub-tab kept).
     renderUsageTrends(active);
   }
 
