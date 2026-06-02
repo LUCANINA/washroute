@@ -2193,6 +2193,7 @@
               <button class="svc-page-tab"        id="svctab-btn-fees"         onclick="svcPageTab('fees',this)">Fees</button>
               <button class="svc-page-tab"        id="svctab-btn-preferences"  onclick="svcPageTab('preferences',this)">Preferences</button>
               <button class="svc-page-tab"        id="svctab-btn-pos"          onclick="svcPageTab('pos',this)">Point of Sale</button>
+              <button class="svc-page-tab"        id="svctab-btn-subscriptions" onclick="svcPageTab('subscriptions',this)">Subscriptions</button>
             </div>
             <!-- Services tab -->
             <div id="svctab-services">
@@ -2302,6 +2303,76 @@
                     <input class="svc-add-input" id="nm-price" type="number" step="0.01" min="0" placeholder="0.00" style="width:72px;padding-left:4px" />
                   </div>
                   <button class="btn btn-primary" onclick="saveNewMerch()" style="font-size:12.5px;padding:6px 14px">+ Add</button>
+                </div>
+              </div>
+            </div>
+            <!-- Subscriptions tab (session 165 — plan editor for the $275 launch) -->
+            <div id="svctab-subscriptions" style="display:none">
+              <div style="padding:18px 20px 8px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+                <div>
+                  <div style="font-size:13px;color:var(--gray-500);max-width:560px;line-height:1.5">
+                    Subscription plans define the monthly recurring offer customers can sign up for. Toggle <strong>Active</strong> to make a plan available; deactivate to hide it from new signups (existing subscribers keep their plan).
+                  </div>
+                </div>
+                <button class="btn btn-primary" id="sub-plan-new-btn" onclick="openSubPlanEditor(null)" style="padding:7px 14px;font-size:13px">+ New Plan</button>
+              </div>
+              <div id="sub-plans-body" style="padding:6px 20px 20px">
+                <div class="loading" style="padding:24px"><div class="spinner"></div> Loading plans…</div>
+              </div>
+            </div>
+            <!-- Plan editor modal -->
+            <div id="sub-plan-modal" class="modal-overlay" style="z-index:1102">
+              <div class="modal" style="max-width:560px">
+                <div class="modal-header">
+                  <div class="modal-title" id="sub-plan-modal-title">New Subscription Plan</div>
+                  <button class="modal-close" onclick="closeSubPlanEditor()">×</button>
+                </div>
+                <div class="modal-body" style="padding:18px 22px 8px">
+                  <div class="cp-field" style="margin-bottom:12px">
+                    <div class="cp-field-label">Plan name</div>
+                    <input class="cp-input" id="sub-plan-name" placeholder="e.g. Wash &amp; Fold Monthly" maxlength="80" />
+                  </div>
+                  <div class="cp-field" style="margin-bottom:12px">
+                    <div class="cp-field-label">Description (shown on customer app plan card)</div>
+                    <textarea class="cp-input" id="sub-plan-desc" rows="2" placeholder="$275/month for 100 lbs of Wash &amp; Fold…" style="resize:vertical"></textarea>
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+                    <div class="cp-field" style="margin:0">
+                      <div class="cp-field-label">Price ($/month)</div>
+                      <input class="cp-input" id="sub-plan-price" type="number" step="0.01" min="0" placeholder="275.00" />
+                    </div>
+                    <div class="cp-field" style="margin:0">
+                      <div class="cp-field-label">Included lbs/month</div>
+                      <input class="cp-input" id="sub-plan-lbs" type="number" step="1" min="0" placeholder="100" />
+                    </div>
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+                    <div class="cp-field" style="margin:0">
+                      <div class="cp-field-label">Overage $/lb above included</div>
+                      <input class="cp-input" id="sub-plan-overage" type="number" step="0.01" min="0" placeholder="2.75" />
+                    </div>
+                    <div class="cp-field" style="margin:0">
+                      <div class="cp-field-label">Pickup limit (blank = unlimited)</div>
+                      <input class="cp-input" id="sub-plan-pickups" type="number" step="1" min="0" placeholder="Leave blank for unlimited" />
+                    </div>
+                  </div>
+                  <div class="cp-field" style="margin-bottom:12px">
+                    <div class="cp-field-label">Stripe price ID (auto-generated on first activation — leave blank for new plans)</div>
+                    <input class="cp-input" id="sub-plan-stripe-price" placeholder="price_1TMrk…" readonly style="background:var(--gray-50);color:var(--gray-500)" />
+                  </div>
+                  <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;font-size:12.5px;color:#92400e;line-height:1.5;margin-bottom:6px" id="sub-plan-activate-warning" style="display:none">
+                    <strong>⚠ Activating this plan</strong> exposes it to customers in the app's subscription picker. Make sure the price, lbs, and overage are correct — customers can subscribe immediately after this save.
+                  </div>
+                </div>
+                <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center;padding:14px 22px 18px;gap:10px;border-top:1px solid var(--gray-100)">
+                  <label style="display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:var(--gray-700);cursor:pointer">
+                    <input type="checkbox" id="sub-plan-active" onchange="_subPlanToggleActiveWarning()" style="width:16px;height:16px;cursor:pointer">
+                    <span>Active <span style="font-weight:400;color:var(--gray-500);font-size:12px">(available to customers)</span></span>
+                  </label>
+                  <div style="display:flex;gap:8px">
+                    <button class="btn btn-ghost" onclick="closeSubPlanEditor()" style="padding:7px 14px;font-size:13px">Cancel</button>
+                    <button class="btn btn-primary" id="sub-plan-save-btn" onclick="saveSubPlan()" style="padding:7px 14px;font-size:13px">Save</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -12241,6 +12312,200 @@ ${oneCopy}
     }
   }
 
+  // ============================================================
+  // Subscription plan editor (Services & Pricing → Subscriptions)
+  // Session 165 — admin-side plan management ahead of the $275 launch.
+  // RLS on subscription_plans already restricts writes to admins.
+  // The plan.is_active flag is the SERVER-SIDE gate honored by
+  // create-checkout — toggling it here is the same authoritative
+  // launch flip as the SQL path.
+  // ============================================================
+  let _editingPlanId = null;  // null = creating, uuid = editing
+  let _editingPlanOriginallyActive = false;
+
+  async function renderSubscriptionPlans() {
+    const el = document.getElementById('sub-plans-body');
+    if (!el) return;
+    el.innerHTML = '<div class="loading" style="padding:24px"><div class="spinner"></div> Loading plans…</div>';
+    try {
+      // List ALL plans (active + inactive) so admin can revive an archived plan if needed.
+      const { data: plans, error } = await db.from('subscription_plans')
+        .select('id, name, description, price_monthly, weight_limit_lbs, overage_price_per_lb, pickup_limit, stripe_price_id, is_active, created_at')
+        .order('is_active', { ascending: false })
+        .order('price_monthly', { ascending: true });
+      if (error) throw error;
+      // Live subscriber counts per plan (so the admin can see what's at stake before deactivating).
+      const { data: counts } = await db.from('subscriptions')
+        .select('plan_id, status')
+        .in('status', ['active','paused','past_due']);
+      const subsByPlan = {};
+      (counts || []).forEach(r => { subsByPlan[r.plan_id] = (subsByPlan[r.plan_id] || 0) + 1; });
+      if (!plans?.length) {
+        el.innerHTML = '<div style="color:var(--gray-400);padding:18px 0">No subscription plans defined yet. Click <strong>+ New Plan</strong> to create one.</div>';
+        return;
+      }
+      el.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="text-align:left;color:var(--gray-500);border-bottom:1px solid var(--gray-100)">
+              <th style="padding:8px 10px 8px 0;font-weight:600">Plan</th>
+              <th style="padding:8px 10px;font-weight:600;text-align:right">Price</th>
+              <th style="padding:8px 10px;font-weight:600;text-align:right">Included</th>
+              <th style="padding:8px 10px;font-weight:600;text-align:right">Overage</th>
+              <th style="padding:8px 10px;font-weight:600;text-align:right">Pickups</th>
+              <th style="padding:8px 10px;font-weight:600">Subscribers</th>
+              <th style="padding:8px 10px;font-weight:600">Status</th>
+              <th style="padding:8px 0 8px 10px;font-weight:600;text-align:right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${plans.map(p => {
+              const liveCount = subsByPlan[p.id] || 0;
+              const lbs = p.weight_limit_lbs ? p.weight_limit_lbs + ' lbs' : '—';
+              const over = p.overage_price_per_lb ? '$' + Number(p.overage_price_per_lb).toFixed(2) + '/lb' : '—';
+              const pickups = p.pickup_limit == null
+                ? '<span style="color:var(--gray-400)">unlimited</span>'
+                : p.pickup_limit;
+              const status = p.is_active
+                ? '<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">ACTIVE</span>'
+                : '<span style="background:var(--gray-100);color:var(--gray-500);padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700">INACTIVE</span>';
+              return `<tr style="border-bottom:1px solid var(--gray-100)">
+                <td style="padding:10px 10px 10px 0">
+                  <div style="font-weight:600;color:var(--gray-900)">${esc(p.name || '—')}</div>
+                  ${p.description ? `<div style="font-size:11.5px;color:var(--gray-500);margin-top:2px;line-height:1.4;max-width:380px">${esc(p.description)}</div>` : ''}
+                </td>
+                <td style="padding:10px;text-align:right;font-weight:600">$${Number(p.price_monthly||0).toFixed(0)}</td>
+                <td style="padding:10px;text-align:right">${lbs}</td>
+                <td style="padding:10px;text-align:right">${over}</td>
+                <td style="padding:10px;text-align:right">${pickups}</td>
+                <td style="padding:10px">${liveCount > 0 ? `<strong>${liveCount}</strong>` : '<span style="color:var(--gray-400)">0</span>'}</td>
+                <td style="padding:10px">${status}</td>
+                <td style="padding:10px 0 10px 10px;text-align:right;white-space:nowrap">
+                  <button class="btn btn-ghost" style="padding:5px 10px;font-size:12px" onclick="openSubPlanEditor('${p.id}')">Edit</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    } catch (e) {
+      console.error('[renderSubscriptionPlans]', e);
+      el.innerHTML = `<div style="color:var(--red);padding:18px 0">Error loading plans: ${esc(e.message || '')}</div>`;
+    }
+  }
+
+  async function openSubPlanEditor(planId) {
+    _editingPlanId = planId || null;
+    const modal = document.getElementById('sub-plan-modal');
+    const title = document.getElementById('sub-plan-modal-title');
+    // Reset form first
+    document.getElementById('sub-plan-name').value = '';
+    document.getElementById('sub-plan-desc').value = '';
+    document.getElementById('sub-plan-price').value = '';
+    document.getElementById('sub-plan-lbs').value = '';
+    document.getElementById('sub-plan-overage').value = '';
+    document.getElementById('sub-plan-pickups').value = '';
+    document.getElementById('sub-plan-stripe-price').value = '';
+    document.getElementById('sub-plan-active').checked = false;
+    _editingPlanOriginallyActive = false;
+    _subPlanToggleActiveWarning();
+
+    if (planId) {
+      title.textContent = 'Edit Subscription Plan';
+      const { data: p, error } = await db.from('subscription_plans')
+        .select('*').eq('id', planId).single();
+      if (error || !p) { showToast('Could not load plan: ' + (error?.message || 'not found'), 'error'); return; }
+      document.getElementById('sub-plan-name').value = p.name || '';
+      document.getElementById('sub-plan-desc').value = p.description || '';
+      document.getElementById('sub-plan-price').value = p.price_monthly ?? '';
+      document.getElementById('sub-plan-lbs').value = p.weight_limit_lbs ?? '';
+      document.getElementById('sub-plan-overage').value = p.overage_price_per_lb ?? '';
+      document.getElementById('sub-plan-pickups').value = p.pickup_limit ?? '';
+      document.getElementById('sub-plan-stripe-price').value = p.stripe_price_id || '';
+      document.getElementById('sub-plan-active').checked = !!p.is_active;
+      _editingPlanOriginallyActive = !!p.is_active;
+      _subPlanToggleActiveWarning();
+    } else {
+      title.textContent = 'New Subscription Plan';
+    }
+    // Use the .open class pattern so the global click-outside + Escape handlers
+    // (admin-dashboard line 18022 + 18035) work without per-modal wiring.
+    modal.classList.add('open');
+  }
+
+  function closeSubPlanEditor() {
+    document.getElementById('sub-plan-modal').classList.remove('open');
+    _editingPlanId = null;
+  }
+
+  function _subPlanToggleActiveWarning() {
+    // Show the yellow "this exposes the plan to customers" banner ONLY when the
+    // admin is FLIPPING ON a previously inactive plan. Editing an already-active
+    // plan or leaving it off doesn't need the warning.
+    const checked = document.getElementById('sub-plan-active')?.checked;
+    const warn = document.getElementById('sub-plan-activate-warning');
+    if (!warn) return;
+    warn.style.display = (checked && !_editingPlanOriginallyActive) ? '' : 'none';
+  }
+
+  async function saveSubPlan() {
+    const btn = document.getElementById('sub-plan-save-btn');
+    const name = document.getElementById('sub-plan-name').value.trim();
+    const desc = document.getElementById('sub-plan-desc').value.trim() || null;
+    const priceRaw = document.getElementById('sub-plan-price').value;
+    const lbsRaw   = document.getElementById('sub-plan-lbs').value;
+    const overRaw  = document.getElementById('sub-plan-overage').value;
+    const pickRaw  = document.getElementById('sub-plan-pickups').value;
+    const active   = document.getElementById('sub-plan-active').checked;
+    const price = Number(priceRaw);
+
+    if (!name) { showToast('Plan name is required', 'error'); return; }
+    if (!Number.isFinite(price) || price < 0) { showToast('Price must be a non-negative number', 'error'); return; }
+
+    const patch = {
+      name,
+      description: desc,
+      price_monthly: price,
+      weight_limit_lbs: lbsRaw === '' ? null : Number(lbsRaw),
+      overage_price_per_lb: overRaw === '' ? null : Number(overRaw),
+      pickup_limit: pickRaw === '' ? null : Number(pickRaw),
+      is_active: active,
+    };
+
+    // Activation confirmation — second checkpoint before flipping the server-side gate.
+    if (active && !_editingPlanOriginallyActive) {
+      const sub = priceRaw && lbsRaw
+        ? `$${Number(priceRaw).toFixed(0)}/mo · ${lbsRaw} lbs included · $${Number(overRaw||0).toFixed(2)}/lb overage`
+        : 'this plan';
+      if (!confirm(`Activate "${name}"?\n\n${sub}\n\nCustomers will be able to subscribe immediately. Continue?`)) return;
+    }
+
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      if (_editingPlanId) {
+        const { error } = await db.from('subscription_plans').update(patch).eq('id', _editingPlanId);
+        if (error) throw error;
+      } else {
+        const { error } = await db.from('subscription_plans').insert(patch);
+        if (error) throw error;
+      }
+      showToast(_editingPlanId ? 'Plan updated' : 'Plan created', 'success');
+      closeSubPlanEditor();
+      renderSubscriptionPlans();
+    } catch (e) {
+      console.error('[saveSubPlan]', e);
+      showToast('Error: ' + (e.message || 'save failed'), 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save';
+    }
+  }
+
+  window.openSubPlanEditor = openSubPlanEditor;
+  window.closeSubPlanEditor = closeSubPlanEditor;
+  window.saveSubPlan = saveSubPlan;
+  window._subPlanToggleActiveWarning = _subPlanToggleActiveWarning;
+  window.renderSubscriptionPlans = renderSubscriptionPlans;
+
   async function adminSubmitCard() {
     const formEl    = document.getElementById('cp-card-form');
     const errEl     = document.getElementById('cp-card-errors');
@@ -14962,7 +15227,7 @@ ${oneCopy}
   }
 
   function svcPageTab(name, btn) {
-    ['services','display','fees','preferences','categories','pos'].forEach(n => {
+    ['services','display','fees','preferences','categories','pos','subscriptions'].forEach(n => {
       const el = document.getElementById('svctab-'+n);
       if (el) el.style.display = n===name ? '' : 'none';
       const b = document.getElementById('svctab-btn-'+n);
@@ -14977,6 +15242,7 @@ ${oneCopy}
     //   - Edit/lock button now drives Services + App Display + Fees + POS
     //     (consistent lock pattern across editable tabs).
     //   - Categories + Preferences keep their own UIs and hide both.
+    //   - Subscriptions (session 165) has its own per-plan Edit buttons.
     const showControls = ['services','display','fees','pos'].includes(name);
     const showDropdown = ['services','display'].includes(name);
     const showEdit     = ['services','display','fees','pos'].includes(name);
@@ -14984,11 +15250,12 @@ ${oneCopy}
     if (dropdownLbl) dropdownLbl.style.display  = showDropdown ? '' : 'none';
     if (dropdownSel) dropdownSel.style.display  = showDropdown ? '' : 'none';
     if (editBtn)     editBtn.style.display      = showEdit     ? '' : 'none';
-    if (name==='preferences') loadGlobalPrefs();
-    if (name==='categories')  renderCategoryManager();
-    if (name==='fees')        renderFees();
-    if (name==='display')     renderPrices();
-    if (name==='pos')         loadPosTab();
+    if (name==='preferences')   loadGlobalPrefs();
+    if (name==='categories')    renderCategoryManager();
+    if (name==='fees')          renderFees();
+    if (name==='display')       renderPrices();
+    if (name==='pos')           loadPosTab();
+    if (name==='subscriptions') renderSubscriptionPlans();
   }
 
   function toggleSvcEditMode() {
