@@ -965,6 +965,10 @@
           <input type="tel" id="name-phone-input" placeholder="(415) 555-0100" autocomplete="tel" required
                  onkeydown="if(event.key==='Enter') handleNameSubmit()">
         </div>
+        <label class="sms-consent-row">
+          <input type="checkbox" id="name-email-consent" checked>
+          <span>Subscribe to Family Laundry's newsletter for occasional deals and updates.</span>
+        </label>
         <button class="btn-primary" style="margin-top:14px" id="btn-name" onclick="handleNameSubmit()">Let's go →</button>
       </div>
     </div>
@@ -2185,6 +2189,9 @@ async function handleNameSubmit() {
   const phoneInput = (document.getElementById('name-phone-input')?.value || '').trim();
   const phoneDigits = phoneInput.replace(/\D/g, '');
   if (!phoneInput || phoneDigits.length < 10) { toast('Please enter a valid phone number'); return; }
+  // Email marketing consent — phone-OTP path's equivalent of s-email-consent.
+  // Default-checked; if the user unticks it we honor the no.
+  const emailConsent = document.getElementById('name-email-consent')?.checked ?? false;
 
   const btn = document.getElementById('btn-name');
   btn.disabled = true; btn.textContent = 'Setting up…';
@@ -2219,14 +2226,21 @@ async function handleNameSubmit() {
     const existing = (claimedName && claimedName.length > 0) ? claimedName[0] : null;
 
     if (existing) {
-      // Update the claimed record with the freshly collected name/email/phone
-      await db.from('customers').update({
+      // Update the claimed record with the freshly collected name/email/phone.
+      // Mirror email_marketing_consent_at only when the checkbox was ticked AND
+      // the customer hasn't already been recorded as opted-in or opted-out
+      // (never re-consent someone who opted out; never overwrite an earlier yes).
+      const updatePatch = {
         first_name_cache: firstName,
         last_name_cache:  lastName,
         email_cache:      email,
         phone_cache:      phoneVal,
         sms_consent_at:   new Date().toISOString()
-      }).eq('id', existing.id);
+      };
+      if (emailConsent && !existing.email_marketing_consent_at && !existing.email_marketing_opt_out_at) {
+        updatePatch.email_marketing_consent_at = new Date().toISOString();
+      }
+      await db.from('customers').update(updatePatch).eq('id', existing.id);
     } else {
       await db.from('customers').insert({
         profile_id:       user.id,
@@ -2234,8 +2248,16 @@ async function handleNameSubmit() {
         last_name_cache:  lastName,
         email_cache:      email,
         phone_cache:      phoneVal,
-        sms_consent_at:   new Date().toISOString()
+        sms_consent_at:   new Date().toISOString(),
+        email_marketing_consent_at: emailConsent ? new Date().toISOString() : null
       });
+    }
+    // ── Klaviyo welcome subscribe (phone-OTP signup path) ──
+    // Mirrors handleSignup's behavior so OTP-registered users also land in the
+    // "Email List" and receive the Welcome Series. Fire-and-forget; failure is
+    // non-fatal and logged inside the helper / edge function.
+    if (emailConsent && email) {
+      subscribeKlaviyoWelcome({ email, first_name: firstName, last_name: lastName, phone: phoneVal });
     }
     _awaitingName = false;
     // Trigger loadUserData so currentCustomer is populated, then go home
@@ -4897,6 +4919,13 @@ async function renderConfirmAuth() {
       });
       const { data: newCust } = await db.from('customers').select('*').eq('profile_id', currentUser.id).maybeSingle();
       currentCustomer = newCust;
+      // ── Klaviyo welcome subscribe (fresh customer at order-confirm path) ──
+      // Symmetric with handleSignup + loadUserData + handleNameSubmit. Same
+      // gating semantics: only when the user opted in via the email-consent
+      // checkbox during signup.
+      if (m.email_consent && email) {
+        subscribeKlaviyoWelcome({ email, first_name: first, last_name: last, phone });
+      }
     }
   }
 
