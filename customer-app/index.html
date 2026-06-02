@@ -411,6 +411,13 @@
     .plan-select-btn { margin-top: 12px; width: 100%; padding: 10px; border-radius: 8px; font-size: 13.5px; font-weight: 600; border: 2px solid var(--navy); background: white; color: var(--navy); cursor: pointer; transition: all .15s; }
     .plan-select-btn:hover { background: var(--navy); color: white; }
     .plan-card.current .plan-select-btn { background: var(--navy); color: white; }
+    /* Variants for the Subscription panel's action buttons. Self-contained
+       so the hover/active state can't get stuck with mismatched bg/text
+       (the inline-color + base-hover-bg combo made Cancel invisible on tap). */
+    .plan-select-btn.muted  { border-color: var(--gray-300); color: var(--gray-600); }
+    .plan-select-btn.muted:hover { background: var(--gray-100); color: var(--gray-700); }
+    .plan-select-btn.danger { border-color: var(--red); color: var(--red); }
+    .plan-select-btn.danger:hover { background: var(--red); color: white; }
 
     /* Preferences */
     .pref-section { padding: 0 18px 18px; }
@@ -7920,16 +7927,24 @@ function renderPlanCards(activePlanId) {
       overEl.style.display = 'none';
     }
 
-    // Action buttons
+    // Action buttons. Use proper CSS variants (.muted / .danger) instead of
+    // inline color overrides — inline color + the base .plan-select-btn:hover
+    // background made Cancel invisible on tap (red text on navy bg).
+    // Hint text below each button clarifies the distinction between Pause
+    // (keeps the plan, no billing) and Cancel (ends the plan at period end).
     const actionsEl = document.getElementById('plan-detail-actions');
     if (_activeSub.status === 'active') {
       actionsEl.innerHTML = `
-        <button class="plan-select-btn" style="border-color:var(--gray-300);color:var(--gray-600)" onclick="pauseSubscription()">Pause Subscription</button>
-        <button class="plan-select-btn" style="border-color:var(--red);color:var(--red)" onclick="cancelSubscription()">Cancel Subscription</button>`;
+        <button class="plan-select-btn muted" onclick="pauseSubscription()">Pause Subscription</button>
+        <div style="font-size:11.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">Stops billing — your plan stays so you can resume any time.</div>
+        <button class="plan-select-btn danger" onclick="cancelSubscription()">Cancel Subscription</button>
+        <div style="font-size:11.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">Ends the subscription at the end of this billing period.</div>`;
     } else if (_activeSub.status === 'paused') {
       actionsEl.innerHTML = `
-        <button class="plan-select-btn" style="border-color:var(--navy);background:var(--navy);color:white" onclick="resumeSubscription()">Resume Subscription</button>
-        <button class="plan-select-btn" style="border-color:var(--red);color:var(--red)" onclick="cancelSubscription()">Cancel Subscription</button>`;
+        <button class="plan-select-btn" style="background:var(--navy);color:white" onclick="resumeSubscription()">Resume Subscription</button>
+        <div style="font-size:11.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">Restart billing — next charge on the renewal date.</div>
+        <button class="plan-select-btn danger" onclick="cancelSubscription()">Cancel Subscription</button>
+        <div style="font-size:11.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">Ends the subscription permanently.</div>`;
     } else if (_activeSub.status === 'past_due') {
       actionsEl.innerHTML = `
         <div style="background:#fee2e2;color:#991b1b;padding:12px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;margin-bottom:6px">
