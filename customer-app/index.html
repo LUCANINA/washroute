@@ -1083,10 +1083,12 @@
           <div class="sub-usage-item">
             <div class="sub-usage-label">Weight Used</div>
             <div><span class="sub-usage-value" id="home-sub-lbs">0</span> <span class="sub-usage-limit" id="home-sub-lbs-limit">/ 100 lbs</span></div>
+            <div class="sub-usage-sublabel" id="home-sub-lbs-left" style="font-size:12px;color:var(--gray-500);margin-top:2px">100 lbs left</div>
           </div>
           <div class="sub-usage-item">
             <div class="sub-usage-label">Pickups</div>
             <div><span class="sub-usage-value" id="home-sub-pickups">0</span> <span class="sub-usage-limit" id="home-sub-pickups-limit">/ 4</span></div>
+            <div class="sub-usage-sublabel" id="home-sub-pickups-sub" style="font-size:12px;color:var(--gray-500);margin-top:2px">this cycle</div>
           </div>
         </div>
         <div class="sub-progress-bar">
@@ -3097,10 +3099,13 @@ async function renderHomeSubscriptionCard() {
   _activeSub = sub;
   const plan = sub.subscription_plans || {};
   const weightLimit = plan.weight_limit_lbs || 100;
-  const pickupLimit = plan.pickup_limit || 4;
+  // pickup_limit = NULL on the plan means UNLIMITED — we hide the denominator + show "this cycle" instead.
+  const pickupLimit = plan.pickup_limit;  // may be null/undefined
+  const pickupUnlimited = pickupLimit == null;
   const usageLbs = Number(sub.usage_lbs_this_period || 0);
   const pickups  = sub.pickups_this_period || 0;
   const pct = Math.min(100, Math.round((usageLbs / weightLimit) * 100));
+  const lbsLeft = Math.max(0, weightLimit - usageLbs);
 
   // Plan name
   document.getElementById('home-sub-plan').textContent = plan.name || 'Subscription';
@@ -3113,8 +3118,13 @@ async function renderHomeSubscriptionCard() {
   // Usage numbers
   document.getElementById('home-sub-lbs').textContent = usageLbs % 1 === 0 ? usageLbs : usageLbs.toFixed(1);
   document.getElementById('home-sub-lbs-limit').textContent = '/ ' + weightLimit + ' lbs';
+  // "X lbs left" — explicit remaining figure so the customer doesn't have to do the math.
+  // When over the cap we show 0 left + the overage line below covers the dollar impact.
+  document.getElementById('home-sub-lbs-left').textContent =
+    (lbsLeft % 1 === 0 ? lbsLeft : lbsLeft.toFixed(1)) + ' lbs left';
   document.getElementById('home-sub-pickups').textContent = pickups;
-  document.getElementById('home-sub-pickups-limit').textContent = '/ ' + pickupLimit;
+  // Unlimited pickup plans hide the "/ N" denominator; show "this cycle" sublabel instead.
+  document.getElementById('home-sub-pickups-limit').textContent = pickupUnlimited ? '' : ('/ ' + pickupLimit);
 
   // Progress bar
   const bar = document.getElementById('home-sub-bar');
@@ -3122,11 +3132,11 @@ async function renderHomeSubscriptionCard() {
   bar.style.width = pct + '%';
   bar.style.background = barColor;
 
-  // Renewal date
+  // Renewal date — "Renews on Jul 8" per David's preferred wording (session 165 launch prep).
   const renewEl = document.getElementById('home-sub-renew');
   if (sub.current_period_end) {
     const d = new Date(sub.current_period_end);
-    renewEl.textContent = 'Renews ' + d.toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' });
+    renewEl.textContent = 'Renews on ' + d.toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' });
   } else {
     renewEl.textContent = '';
   }
@@ -7841,11 +7851,15 @@ function renderPlanCards(activePlanId) {
   if (_activeSub && ['active','paused','past_due'].includes(_activeSub.status)) {
     const plan = _activeSub.subscription_plans || {};
     const weightLimit = plan.weight_limit_lbs || 100;
-    const pickupLimit = plan.pickup_limit || 4;
+    // pickup_limit = NULL on the plan means UNLIMITED (per the $275 plan announcement).
+    const pickupLimit = plan.pickup_limit;
+    const pickupUnlimited = pickupLimit == null;
     const usageLbs = Number(_activeSub.usage_lbs_this_period || 0);
     const pickups  = _activeSub.pickups_this_period || 0;
     const pct = Math.min(100, Math.round((usageLbs / weightLimit) * 100));
     const barColor = pct >= 100 ? 'var(--red)' : pct >= 80 ? '#f59e0b' : 'var(--success)';
+    const lbsLeft = Math.max(0, weightLimit - usageLbs);
+    const lbsLeftStr = lbsLeft % 1 === 0 ? String(lbsLeft) : lbsLeft.toFixed(1);
 
     document.getElementById('plan-detail-name').textContent = plan.name || 'Subscription';
     document.getElementById('plan-detail-price').textContent = '$' + Number(plan.price_monthly || 0).toFixed(0) + '/month';
@@ -7854,9 +7868,12 @@ function renderPlanCards(activePlanId) {
     document.getElementById('plan-detail-features').innerHTML = features.map(f => '✓ ' + f).join('<br>');
 
     document.getElementById('plan-detail-lbs').textContent = usageLbs % 1 === 0 ? usageLbs : usageLbs.toFixed(1);
-    document.getElementById('plan-detail-lbs-label').textContent = 'of ' + weightLimit + ' lbs used';
+    // Surface remaining lbs explicitly — "of 100 lbs used · 52.5 lbs left"
+    document.getElementById('plan-detail-lbs-label').textContent = 'of ' + weightLimit + ' lbs used · ' + lbsLeftStr + ' lbs left';
     document.getElementById('plan-detail-pickups').textContent = pickups;
-    document.getElementById('plan-detail-pickups-label').textContent = 'of ' + pickupLimit + ' pickups';
+    document.getElementById('plan-detail-pickups-label').textContent = pickupUnlimited
+      ? 'pickups this cycle'
+      : ('of ' + pickupLimit + ' pickups');
 
     const bar = document.getElementById('plan-detail-bar');
     bar.style.width = pct + '%';
