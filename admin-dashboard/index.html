@@ -12100,24 +12100,17 @@ ${oneCopy}
     }
   }
 
-  // Phase 3: wired row actions. Pause/Resume/Cancel hit the existing
-  // edge functions (which handle Stripe + DB state). Adjust usage is
-  // an admin-only manual override for edge cases (printer jammed, order
-  // re-weighed, etc.) — writes directly to the subscription row and
-  // appends an 'adjustment' event to subscription_usage_log.
+  // Session 165 — Pause feature dropped (see PROJECT-NOTES). Pause/Resume
+  // buttons removed; Cancel + Adjust Usage remain. The Pause/Resume edge
+  // functions stay deployed in case we want to revive a properly-distinct
+  // pause feature later. Any legacy 'paused' status from prior tests still
+  // renders Cancel + Adjust Usage so admin can clean them up.
   function renderCpSubscriptionActions(sub) {
     const el = document.getElementById('cpb-sub-actions');
     if (!el) return;
     const id = sub.id;
-    const paused    = sub.status === 'paused';
     const cancelled = sub.status === 'cancelled';
     el.innerHTML = `
-      ${paused
-        ? `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="adminResumeSubscription('${id}')">▶ Resume</button>`
-        : cancelled
-          ? ''
-          : `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="adminPauseSubscription('${id}')">⏸ Pause</button>`
-      }
       ${cancelled
         ? '<span style="font-size:12px;color:var(--gray-400);padding:6px 0">Subscription cancelled</span>'
         : `<button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;color:var(--red)" onclick="adminCancelSubscription('${id}')">✕ Cancel</button>`
