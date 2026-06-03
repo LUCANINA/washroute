@@ -11478,7 +11478,17 @@ ${oneCopy}
         p_actor_name:   _actor,
         p_cancelled_by: _cancel,
       });
-      if (!error) succeeded++;
+      if (!error) {
+        succeeded++;
+        // Session 167: fire SMS for customer-facing status milestones (best-effort)
+        if (['picked_up','out_for_delivery','delivered'].includes(newStatus)) {
+          fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+            body: JSON.stringify({ orderId: s.id, event: newStatus })
+          }).catch(() => {});
+        }
+      }
     }
     const extra = chargeCount > 0 ? ` · ${chargeCount} charged` : '';
     showToast(`✓ ${succeeded} order${succeeded>1?'s':''} → ${label}${extra}`);
@@ -11723,6 +11733,16 @@ ${oneCopy}
       });
       if (error) { showToast('Error: ' + error.message, 'error'); return; }
       showToast(`✓ Order #${orderNum} → ${label}`);
+      // Session 167: fire SMS for customer-facing status milestones (best-effort).
+      // Mirrors advanceOrderStatus at line 12800 — without this, manual admin
+      // status changes via the Set-Status modal silently skipped notifications.
+      if (['picked_up','out_for_delivery','delivered'].includes(newStatus)) {
+        fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
+          body: JSON.stringify({ orderId, event: newStatus })
+        }).catch(() => {});
+      }
     }
     setTimeout(() => loadOrders(currentOrderFilter), 400);
   }
