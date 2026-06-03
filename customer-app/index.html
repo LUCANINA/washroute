@@ -1971,14 +1971,41 @@ function $m(n) { return '$' + (+(n || 0)).toFixed(2); }
 // Use everywhere a customer sees an order amount so the My Orders cards agree
 // with what was actually billed. Falls back to total_amount when tip fields are
 // missing on the row.
+// Session 165 — subscription-aware order math. For orders linked to an
+// active subscription, the subscription absorbs the wash-and-fold base +
+// line-item bag overage + delivery_fee line items; the CARD only pays the
+// remainder (add-ons + same-day surcharge + lb-overage + tip). These two
+// helpers mirror the server-side compute_subscription_residual RPC so the
+// numbers shown anywhere in the app match what Stripe actually charged.
+//
+// IMPORTANT: every place that displays an order total needs to SELECT
+// `subscription_id, line_items` for the math to be subscription-aware.
+// Without those columns these helpers fall back to the PAYG total.
+function orderSubscriptionAbsorbed(o) {
+  if (!o?.subscription_id) return 0;
+  const items = Array.isArray(o.line_items) ? o.line_items : [];
+  let absorbed = 0;
+  for (const li of items) {
+    const t = li?.type;
+    if (t === 'base' || t === 'overage' || t === 'delivery_fee') {
+      absorbed += Number(li.amount || 0);
+    }
+  }
+  return Math.round(absorbed * 100) / 100;
+}
 function orderChargedTotal(o) {
-  const sub = Number(o?.total_amount || 0);
-  const tip = Number(o?.tip_amount || 0);
-  if (!tip) return Math.round(sub * 100) / 100;
+  // Card-side amount (subtotal residual + tip).
+  const total    = Number(o?.total_amount || 0);
+  const absorbed = orderSubscriptionAbsorbed(o);
+  const residual = Math.max(0, total - absorbed);
+  const tip      = Number(o?.tip_amount || 0);
+  if (!tip) return Math.round(residual * 100) / 100;
+  // Tip-pct math stays anchored to total_amount (matches charge-order +
+  // matches what the customer saw when they entered the % tip).
   const tipDol = (o.tip_type === 'pct')
-    ? Math.round(sub * tip) / 100
+    ? Math.round(total * tip) / 100
     : Math.round(tip * 100) / 100;
-  return Math.round((sub + tipDol) * 100) / 100;
+  return Math.round((residual + tipDol) * 100) / 100;
 }
 function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ }) : '—'; }
 function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:BIZ_TZ}).toLowerCase() : ''; }
@@ -5676,8 +5703,27 @@ async function openDetail(orderId) {
     <div class="d-row"><span class="d-key">Delivery</span><span class="d-val">${deliveryDisplay}</span></div>
     ${!sameAddr && dAddr ? `<div class="d-row"><span class="d-key">Delivery address</span><span class="d-val" style="font-size:13px">${escHtml(fmtAddrOneLiner(dAddr))}<br><span style="font-size:11px;color:var(--gray-400);font-weight:400">Updated by your service team · SMS us to change</span></span></div>` : ''}
     ${o.special_instructions ? `<div class="d-row"><span class="d-key">Notes</span><span class="d-val" style="font-weight:400;color:var(--gray-600)">${escHtml(o.special_instructions)}</span></div>` : ''}
-    ${(() => { const ta = parseFloat(o.tip_amount || 0); if (ta <= 0) return ''; const td = o.tip_type === 'pct' ? Math.round(Number(o.total_amount || 0) * ta) / 100 : ta; const tl = o.tip_type === 'pct' ? `Team Tip (${ta}%)` : 'Team Tip'; return `<div class="d-row"><span class="d-key">${tl}</span><span class="d-val" style="color:var(--green);font-weight:600">+${$m(td)}</span></div>`; })()}
-    <div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${o.total_amount ? (() => { const ta = parseFloat(o.tip_amount || 0); const td = ta > 0 ? (o.tip_type === 'pct' ? Math.round(Number(o.total_amount) * ta) / 100 : ta) : 0; return $m(Number(o.total_amount) + td); })() : 'Confirmed at pickup'}</span></div>`;
+    ${(() => {
+      // Session 165 — subscription-aware breakdown. Subscriber orders show base + delivery
+      // as "Included" (covered by subscription) + only card-charged lines (add-ons aren't
+      // collected on this app screen yet; just the tip surface here) + the card-side Total.
+      const isSub = !!o.subscription_id;
+      const absorbed = orderSubscriptionAbsorbed(o);
+      const ta = parseFloat(o.tip_amount || 0);
+      const td = ta > 0 ? (o.tip_type === 'pct' ? Math.round(Number(o.total_amount || 0) * ta) / 100 : ta) : 0;
+      const tipRow = ta > 0
+        ? `<div class="d-row"><span class="d-key">${o.tip_type === 'pct' ? `Team Tip (${ta}%)` : 'Team Tip'}</span><span class="d-val" style="color:var(--green);font-weight:600">+${$m(td)}</span></div>`
+        : '';
+      const subInfoRow = (isSub && absorbed > 0)
+        ? `<div class="d-row"><span class="d-key" style="color:var(--gray-500)">Subscription</span><span class="d-val" style="color:var(--gray-500);font-style:italic">Covers ${$m(absorbed)} (Wash &amp; Fold + delivery)</span></div>`
+        : '';
+      const totalAmt = o.total_amount ? orderChargedTotal(o) : null;
+      const totalLabel = isSub ? 'Charged to card' : 'Total';
+      const totalRow = totalAmt !== null
+        ? `<div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">${totalLabel}</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">${$m(totalAmt)}</span></div>`
+        : `<div class="d-row"><span class="d-key" style="font-weight:700;font-size:15px">Total</span><span class="d-val" style="font-size:18px;font-weight:800;color:var(--navy)">Confirmed at pickup</span></div>`;
+      return subInfoRow + tipRow + totalRow;
+    })()}`;
 
   // Payment status
   const payEl = document.getElementById('d-pay-section');
