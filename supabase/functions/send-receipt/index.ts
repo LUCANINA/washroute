@@ -321,15 +321,24 @@ Deno.serve(async (req: Request) => {
     // receipt can split mixed-tender payments. Without this, an order paid
     // with $20 credit + $X card showed "Total Paid: $gross" — the gross total
     // didn't match what hit the customer's bank statement.
+    //
+    // Session 167 fix: NET credit_use against credit_refund. When admin re-saves
+    // an intake, the prior credit_use is reversed via a matching credit_refund
+    // row (both keyed by order_id). Without netting, a subscriber order that
+    // was re-saved twice and ended up at $0 still shows "$0 (paid with credits)"
+    // on the receipt because the gross credit_use sum was nonzero.
     let creditApplied = 0;
     try {
       const { data: txns } = await supabase
         .from('customer_transactions')
-        .select('amount')
+        .select('amount, type')
         .eq('order_id', order_id)
-        .eq('type', 'credit_use');
-      creditApplied = (txns ?? []).reduce((s: number, t: any) => s + Number(t.amount ?? 0), 0);
-      creditApplied = Math.round(creditApplied * 100) / 100;
+        .in('type', ['credit_use', 'credit_refund']);
+      const net = (txns ?? []).reduce((s: number, t: any) => {
+        const amt = Number(t.amount ?? 0);
+        return t.type === 'credit_use' ? s + amt : s - amt;
+      }, 0);
+      creditApplied = Math.max(0, Math.round(net * 100) / 100);
     } catch (_e) { /* non-fatal — email still goes without the credit breakdown */ }
 
     const html = buildEmailHtml(order, customer, creditApplied);
