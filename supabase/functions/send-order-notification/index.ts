@@ -113,6 +113,35 @@ function computeChargedTotal(totalAmount: number | string | null | undefined,
   return Math.round((total + tipDollars) * 100) / 100;
 }
 
+// Session 165 — subscription-aware version. Mirrors orderChargedTotal() in
+// customer-app + admin-dashboard + the compute_subscription_residual RPC.
+// For subscriber orders the subscription absorbs base + bag-overage +
+// delivery_fee line items; the card pays the residual + tip.
+const SUB_ABSORBED_TYPES = new Set(['base', 'overage', 'delivery_fee']);
+function subscriptionAbsorbed(order: any): number {
+  if (!order?.subscription_id) return 0;
+  const items = Array.isArray(order.line_items) ? order.line_items : [];
+  let absorbed = 0;
+  for (const li of items) {
+    if (li && SUB_ABSORBED_TYPES.has(li.type)) {
+      absorbed += Number(li.amount || 0);
+    }
+  }
+  return Math.round(absorbed * 100) / 100;
+}
+function orderCardCharge(order: any): number {
+  const total    = Number(order?.total_amount || 0);
+  const absorbed = subscriptionAbsorbed(order);
+  const residual = Math.max(0, total - absorbed);
+  const tip      = Number(order?.tip_amount || 0);
+  if (!tip) return Math.round(residual * 100) / 100;
+  // tip-pct stays anchored to original total_amount (matches charge-order)
+  const tipDol = (order.tip_type === 'pct')
+    ? Math.round(total * tip) / 100
+    : Math.round(tip * 100) / 100;
+  return Math.round((residual + tipDol) * 100) / 100;
+}
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': '*',
@@ -139,7 +168,7 @@ Deno.serve(async (req: Request) => {
     // session 137: include tip_amount + tip_type so {{amount}} matches the
     // actual Stripe-charged total.
     const orders = await dbGet(
-      `orders?id=eq.${orderId}&select=id,order_number,pickup_window_start,pickup_window_end,delivery_window_start,delivery_window_end,status,total_amount,tip_amount,tip_type,total_bags,customer_id,pickup_address_id,delivery_address_id&limit=1`
+      `orders?id=eq.${orderId}&select=id,order_number,pickup_window_start,pickup_window_end,delivery_window_start,delivery_window_end,status,total_amount,tip_amount,tip_type,total_bags,customer_id,pickup_address_id,delivery_address_id,subscription_id,line_items&limit=1`
     );
     const order = Array.isArray(orders) ? orders[0] : null;
     console.log(`[send-order-notification] Order lookup: orderId=${orderId} found=${!!order}`);
@@ -168,7 +197,10 @@ Deno.serve(async (req: Request) => {
     // whether the order_confirmed SMS template is enabled or whether the
     // customer has a phone on file.
     if (event === 'confirmed' && customer.email_cache && KLAVIYO_KEY) {
-      const klviTotal = computeChargedTotal(order.total_amount, order.tip_amount, order.tip_type);
+      // Session 165 — for subscriber orders, OrderValue reflects what the card
+      // was actually charged (residual + tip), not the PAYG-equivalent total.
+      // Keeps Klaviyo conversion metrics + LTV reporting in sync with Stripe.
+      const klviTotal = orderCardCharge(order);
       try {
         const r = await fetch('https://a.klaviyo.com/api/events/', {
           method: 'POST',
@@ -286,7 +318,9 @@ Deno.serve(async (req: Request) => {
 
     // Session 137: {{amount}} = actual charged total (subtotal + tip), not subtotal alone.
     // Same math as charge-order/index.ts so SMS receipts match Stripe.
-    const chargedTotal = computeChargedTotal(order.total_amount, order.tip_amount, order.tip_type);
+    // Session 165: orderCardCharge subtracts subscription-absorbed line items
+    // for subscriber orders so the SMS amount matches the actual card charge.
+    const chargedTotal = orderCardCharge(order);
 
     const vars: Record<string, string> = {
       first_name: customer.first_name_cache || 'there',
