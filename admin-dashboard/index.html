@@ -11478,17 +11478,8 @@ ${oneCopy}
         p_actor_name:   _actor,
         p_cancelled_by: _cancel,
       });
-      if (!error) {
-        succeeded++;
-        // Session 167: fire SMS for customer-facing status milestones (best-effort)
-        if (['picked_up','out_for_delivery','delivered'].includes(newStatus)) {
-          fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
-            body: JSON.stringify({ orderId: s.id, event: newStatus })
-          }).catch(() => {});
-        }
-      }
+      if (!error) succeeded++;
+      // Session 167: admin batch Set-Status is an override tool — no customer SMS.
     }
     const extra = chargeCount > 0 ? ` · ${chargeCount} charged` : '';
     showToast(`✓ ${succeeded} order${succeeded>1?'s':''} → ${label}${extra}`);
@@ -11733,16 +11724,9 @@ ${oneCopy}
       });
       if (error) { showToast('Error: ' + error.message, 'error'); return; }
       showToast(`✓ Order #${orderNum} → ${label}`);
-      // Session 167: fire SMS for customer-facing status milestones (best-effort).
-      // Mirrors advanceOrderStatus at line 12800 — without this, manual admin
-      // status changes via the Set-Status modal silently skipped notifications.
-      if (['picked_up','out_for_delivery','delivered'].includes(newStatus)) {
-        fetch(`${SUPA_URL}/functions/v1/send-order-notification`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPA_ANON_KEY}` },
-          body: JSON.stringify({ orderId, event: newStatus })
-        }).catch(() => {});
-      }
+      // Session 167: admin Set-Status is an override tool — no customer SMS.
+      // SMS for picked_up/out_for_delivery/delivered fires from the driver-app
+      // when the actual driver action occurs (correct time, location, identity).
     }
     setTimeout(() => loadOrders(currentOrderFilter), 400);
   }
