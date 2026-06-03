@@ -18781,7 +18781,12 @@ ${oneCopy}
         <tbody>
           ${rows.map(t => {
             const alreadyRefunded = t.stripe_payment_intent_id ? (refundedByPI[t.stripe_payment_intent_id] || 0) : 0;
-            const refundable = t.type === 'charge' && t.stripe_payment_intent_id && alreadyRefunded < parseFloat(t.amount || 0);
+            // Session 167: subscription_invoice rows are also refundable. Backfilled rows
+            // may have a NULL stripe_payment_intent_id — the edge function resolves it via
+            // Stripe customer lookup, so allow the button even without a payment_intent for that type.
+            const isRefundableType = t.type === 'charge' || t.type === 'subscription_invoice';
+            const hasIdentifier = !!t.stripe_payment_intent_id || t.type === 'subscription_invoice';
+            const refundable = isRefundableType && hasIdentifier && alreadyRefunded < parseFloat(t.amount || 0);
             const maxRefund = parseFloat(t.amount || 0) - alreadyRefunded;
             const amountColor = t.type === 'charge' ? 'var(--gray-900)' : t.type === 'credit_add' ? '#059669' : 'var(--accent)';
             const amountPrefix = (t.type === 'credit_add' || t.type === 'refund') ? '+' : '';
