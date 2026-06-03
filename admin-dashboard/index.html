@@ -10557,44 +10557,28 @@
     const discountItems = lineItems.filter(li => li.type === 'discount' && Number(li.amount || 0) < 0);
     const discountTotal = discountItems.reduce((s, d) => s + Math.abs(parseFloat(d.amount || 0)), 0);
 
-    // Session 165 — subscription-aware. Base + bag-overage + delivery_fee
-    // render as 'Included' for subscriber orders; the Total reflects card-charged amount.
-    const isSub = !!o.subscription_id;
     let html = '';
     let total = 0;
-    const includedCell = '<span style="color:var(--gray-500);font-style:italic">Included</span>';
 
     if (baseTotal > 0) {
+      // Session 141 pt 9: enriched base label = ServiceName · N bags · weight × rate
       const _svcPrefix = svc?.name ? `${svc.name} · ` : '';
       const _bagsPart  = bags > 0 ? `${bags} bag${bags!==1?'s':''} · ` : '';
       const baseLabel = isPerLb
         ? `${_svcPrefix}${_bagsPart}${weight} lbs × ${fmtMoney(basePrice)}/lb`
         : `${_svcPrefix}${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`;
-      if (isSub) {
-        html += `<div style="display:flex;justify-content:space-between;color:var(--gray-500)"><span>${baseLabel}</span>${includedCell}</div>`;
-      } else {
-        html += `<div style="display:flex;justify-content:space-between"><span>${baseLabel}</span><span>${fmtMoney(baseTotal)}</span></div>`;
-        total += baseTotal;
-      }
+      html += `<div style="display:flex;justify-content:space-between"><span>${baseLabel}</span><span>${fmtMoney(baseTotal)}</span></div>`;
+      total += baseTotal;
     }
     if (overageAmt > 0) {
-      if (isSub) {
-        html += `<div style="display:flex;justify-content:space-between;color:var(--gray-500)"><span>${overageLbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb</span>${includedCell}</div>`;
-      } else {
-        html += `<div style="display:flex;justify-content:space-between"><span>${overageLbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb</span><span>${fmtMoney(overageAmt)}</span></div>`;
-        total += overageAmt;
-      }
+      html += `<div style="display:flex;justify-content:space-between"><span>${overageLbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb</span><span>${fmtMoney(overageAmt)}</span></div>`;
+      total += overageAmt;
     }
     if (deliveryFee > 0) {
-      if (isSub) {
-        html += `<div style="display:flex;justify-content:space-between;color:var(--gray-500)"><span>Delivery fee</span>${includedCell}</div>`;
-      } else {
-        html += `<div style="display:flex;justify-content:space-between"><span>Delivery fee</span><span>${fmtMoney(deliveryFee)}</span></div>`;
-        total += deliveryFee;
-      }
+      html += `<div style="display:flex;justify-content:space-between"><span>Delivery fee</span><span>${fmtMoney(deliveryFee)}</span></div>`;
+      total += deliveryFee;
     }
     if (sameDaySurcharge > 0) {
-      // Same-day stays on the card even for subscribers ($14.95 in the announcement)
       html += `<div style="display:flex;justify-content:space-between"><span>⚡ Same-day surcharge</span><span>${fmtMoney(sameDaySurcharge)}</span></div>`;
       total += sameDaySurcharge;
     }
@@ -10617,9 +10601,7 @@
 
     total = Math.max(0, total);
     const hasWeight = weight > 0;
-    const totalLabel = isSub
-      ? (hasWeight ? 'Charged to card' : 'Estimated card charge')
-      : (hasWeight ? 'Total' : 'Estimated Total');
+    const totalLabel = hasWeight ? 'Total' : 'Estimated Total';
     html += `<div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--gray-200);padding-top:4px;margin-top:4px;font-size:13.5px;color:var(--gray-800)"><span>${totalLabel}</span><span>${fmtMoney(total)}</span></div>`;
     el.innerHTML = html;
   }
@@ -10721,10 +10703,8 @@
 
   // ── BILLING TAB ──
   function opPopulateBilling(o) {
-    // Session 165 — use orderChargedTotal() so subscriber orders show
-    // the card-side residual (add-ons + same-day + tip + lb-overage),
-    // not the full PAYG total. _orderTipBreakdown returns PAYG-equivalent.
-    const billTotal = orderChargedTotal(o);
+    // Show tip-inclusive total so what admin sees matches what charge-order will charge.
+    const billTotal = _orderTipBreakdown(o).totalWithTip;
     document.getElementById('op-bill-total').textContent = fmtMoney(billTotal);
     // Card info: customer table may have card_last4/card_brand as legacy columns
     const cust = allCustomers.find(c => c.id === opCurrentCustId);
@@ -10744,13 +10724,8 @@
   async function opChargeOrder() {
     const o = allOrders.find(x => x.id === opCurrentOrderId);
     if (!o) return;
-    // Session 165 — show the subscription-aware card-charge amount in the
-    // confirm dialog. Matches what charge-order will actually bill.
-    const chargeTotal = orderChargedTotal(o);
-    const subNote = o.subscription_id
-      ? `\n(Subscription covers Wash & Fold + delivery; this is the add-on/tip/overage residual.)`
-      : '';
-    if (!confirm(`Charge ${fmtMoney(chargeTotal)} for Order #${o.order_number}?${subNote}`)) return;
+    const chargeTotal = _orderTipBreakdown(o).totalWithTip;
+    if (!confirm(`Charge ${fmtMoney(chargeTotal)} for Order #${o.order_number}?`)) return;
     const { data: { session } } = await db.auth.getSession();
     const res = await fetch(`${SUPA_URL}/functions/v1/charge-order`, {
       method: 'POST',
@@ -10765,9 +10740,7 @@
     // billing_status to NULL right after the charge, silently overwriting the just-written
     // 'paid' value. Caused Dana Ross #3045 + Craig Griffin #3260 to look unpaid in the system
     // even though Stripe collected. Fixed by removing the post-charge UPDATE.)
-    // Session 165 — use orderChargedTotal so the logged amount matches the
-    // actual card charge for subscriber orders (not the PAYG-equivalent).
-    const chargedAmt = orderChargedTotal(o);
+    const chargedAmt = _orderTipBreakdown(o).totalWithTip;
     await logOrderEvent(o.id, 'billing', `Charged ${fmtMoney(chargedAmt)}`, null, 'paid');
     showToast('Payment charged ✓', 'success');
     opPopulateBilling(o);
@@ -25912,7 +25885,6 @@ ${oneCopy}
       .select(`id, order_number, status, total_bags, weight_lbs, special_instructions, service_id,
                pickup_window_start, pickup_window_end, delivery_window_start, delivery_window_end,
                pickup_address_id, delivery_address_id, total_amount, line_items, tip_amount, tip_type,
-               subscription_id, is_subscription_order,
                customers(id, first_name_cache, last_name_cache, pricelist, preferences, addresses(id,label,line1,city)),
                services(id, name, base_price, pricing_type, lbs_per_bag, overage_rate_per_lb, preferences, pricelist, linked_preference_id),
                pickup_run:pickup_run_id(id, name), delivery_run:delivery_run_id(id, name)`)
@@ -26196,26 +26168,15 @@ ${oneCopy}
   function renderBreakdownRows(bd, pricePerBag) {
     const ovgRate = parseFloat(procSvc?.overage_rate_per_lb || 3);
     const isPerLb = procSvc?.pricing_type === 'per_lb';
-    // Session 165 — subscription absorbs the wash & fold base + per-bag-weight
-    // overage + delivery_fee. Launderer sees those lines as 'Included' so the
-    // visible Total matches what the card will actually be charged.
-    const isSub = !!procActiveOrder?.subscription_id;
     let rows = [];
-    const baseAmtCell = isSub
-      ? `<span class="amount" style="color:var(--gray-500);font-style:italic">Included</span>`
-      : `<span class="amount">${fmtMoney(bd.base)}</span>`;
     if (isPerLb) {
       const wtLabel = bd.weight > 0 ? `${bd.weight} lbs` : 'Pending weight';
-      rows.push(`<div class="proc-breakdown-row"><span>${wtLabel} × ${fmtMoney(pricePerBag)}/lb</span>${baseAmtCell}</div>`);
+      rows.push(`<div class="proc-breakdown-row"><span>${wtLabel} × ${fmtMoney(pricePerBag)}/lb</span><span class="amount">${fmtMoney(bd.base)}</span></div>`);
     } else {
-      rows.push(`<div class="proc-breakdown-row"><span>${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}</span>${baseAmtCell}</div>`);
+      rows.push(`<div class="proc-breakdown-row"><span>${bd.bags} bag${bd.bags!==1?'s':''} × ${fmtMoney(pricePerBag)}</span><span class="amount">${fmtMoney(bd.base)}</span></div>`);
     }
-    if (bd.overage_charge > 0) {
-      const ovgCell = isSub
-        ? `<span class="amount" style="color:var(--gray-500);font-style:italic">Included</span>`
-        : `<span class="amount">+${fmtMoney(bd.overage_charge)}</span>`;
-      rows.push(`<div class="proc-breakdown-row overage-row"><span>⚠️ ${bd.overage_lbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}</span>${ovgCell}</div>`);
-    }
+    if (bd.overage_charge > 0)
+      rows.push(`<div class="proc-breakdown-row overage-row"><span>⚠️ ${bd.overage_lbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}</span><span class="amount">+${fmtMoney(bd.overage_charge)}</span></div>`);
     Object.entries(procAddons).forEach(([groupId, a]) => {
       if (a.price_mod <= 0) return;
       // Skip if this preference has a linked service — it will appear below as "Vinegar × N bags"
@@ -26256,16 +26217,10 @@ ${oneCopy}
     if (procFeeExempt) {
       rows.push(`<div class="proc-breakdown-row" style="color:var(--green)"><span>✓ Delivery fee exempt</span><span class="amount">—</span></div>`);
     } else {
-      if (bd.deliveryFee > 0) {
-        const dfCell = isSub
-          ? `<span class="amount" style="color:var(--gray-500);font-style:italic">Included</span>`
-          : `<span class="amount">+${fmtMoney(bd.deliveryFee)}</span>`;
-        rows.push(`<div class="proc-breakdown-row"><span>Delivery fee</span>${dfCell}</div>`);
-      }
-      if (bd.sameDaySurcharge > 0) {
-        // Same-day is NOT absorbed (per the $275 plan announcement — same-day is $14.95 extra)
+      if (bd.deliveryFee > 0)
+        rows.push(`<div class="proc-breakdown-row"><span>Delivery fee</span><span class="amount">+${fmtMoney(bd.deliveryFee)}</span></div>`);
+      if (bd.sameDaySurcharge > 0)
         rows.push(`<div class="proc-breakdown-row"><span>Same-day surcharge</span><span class="amount">+${fmtMoney(bd.sameDaySurcharge)}</span></div>`);
-      }
     }
     // Credits
     if (bd.creditApplied > 0) {
@@ -26276,18 +26231,8 @@ ${oneCopy}
       const tipLabel = bd.tipType === 'pct' ? `Team Tip (${bd.tipRaw}%)` : 'Team Tip';
       rows.push(`<div class="proc-breakdown-row"><span>${tipLabel}</span><span class="amount">+${fmtMoney(bd.tipDollars)}</span></div>`);
     }
-    // Total — for subscribers, show ONLY the card-side residual.
-    // bd.total includes base + bag-overage + deliveryFee which the
-    // subscription absorbs; subtract them so the visible Total matches
-    // what the card will be charged (and matches the 'Included' lines above).
-    let displayTotal = bd.total;
-    let totalLabel = bd.weight > 0 ? 'Total' : 'Total (pending weight)';
-    if (isSub) {
-      const absorbedBd = (bd.base || 0) + (bd.overage_charge || 0) + (procFeeExempt ? 0 : (bd.deliveryFee || 0));
-      displayTotal = Math.max(0, bd.total - absorbedBd);
-      totalLabel = bd.weight > 0 ? 'Charged to card' : 'Charged to card (pending weight)';
-    }
-    rows.push(`<div class="proc-breakdown-row total-row"><span>${totalLabel}</span><span class="amount">${fmtMoney(displayTotal)}</span></div>`);
+    const totalLabel = bd.weight > 0 ? 'Total' : 'Total (pending weight)';
+    rows.push(`<div class="proc-breakdown-row total-row"><span>${totalLabel}</span><span class="amount">${fmtMoney(bd.total)}</span></div>`);
     return rows.join('');
   }
 

@@ -75,31 +75,15 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
   // (line items + tip) and Total Paid (e.g. SENIORS 5% off — Dorothy, May 2026).
   const creditItems  = allItems.filter((i: any) => (i.type === 'credit' || i.type === 'discount') && Number(i.amount ?? 0) < 0);
 
-  // ── Session 165: subscription-aware split ──
-  // For subscriber orders the subscription absorbs base + bag-overage +
-  // delivery_fee. Those line items show as 'Included' on the receipt
-  // (no dollar amount); they're excluded from the subtotal and total so
-  // the "Total Paid" matches the customer's actual card statement.
-  const SUB_ABSORBED_TYPES = new Set(['base', 'overage', 'delivery_fee']);
-  const isSub = !!(order as any).subscription_id;
-  const subscriptionAbsorbed = isSub
-    ? displayItems.filter((i: any) => SUB_ABSORBED_TYPES.has(i.type))
-                  .reduce((s: number, i: any) => s + Number(i.amount ?? 0), 0)
-    : 0;
-
-  const subtotal = displayItems.reduce((sum: number, i: any) => sum + Number(i.amount ?? 0), 0)
-                 - subscriptionAbsorbed;
-  const total    = Number(order.total_amount ?? 0) - subscriptionAbsorbed;
+  const subtotal = displayItems.reduce((sum: number, i: any) => sum + Number(i.amount ?? 0), 0);
+  const total    = Number(order.total_amount ?? 0);
   const bags     = order.total_bags ?? null;
   const weightLbs = order.weight_lbs ? Number(order.weight_lbs) : null;
 
   // ── Tip calculation ──
-  // Tip-pct math stays anchored to the FULL pre-absorption total so the
-  // percentage matches what the customer entered at booking. Tip dollars
-  // always go on the card.
   const tipAmt = parseFloat(order.tip_amount || 0);
   const tipDollars = tipAmt > 0
-    ? (order.tip_type === 'pct' ? Math.round(Number(order.total_amount ?? 0) * tipAmt) / 100 : tipAmt)
+    ? (order.tip_type === 'pct' ? Math.round(subtotal * tipAmt) / 100 : tipAmt)
     : 0;
   const tipLabel = tipAmt > 0
     ? (order.tip_type === 'pct' ? `Team Tip (${tipAmt}%)` : 'Team Tip')
@@ -169,18 +153,11 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
     </table>` : '';
 
   const displayItemsHtml = displayItems.length > 0
-    ? displayItems.map((i: any) => {
-        const absorbed = isSub && SUB_ABSORBED_TYPES.has(i.type);
-        const amountCell = absorbed
-          ? `<span style="color:#9ca3af;font-style:italic;font-weight:500;">Included</span>`
-          : fmt(i.amount ?? 0);
-        const labelColor = absorbed ? '#6b7280' : '#374151';
-        return `
+    ? displayItems.map((i: any) => `
         <tr>
-          <td style="padding:7px 0;border-bottom:1px solid #f3f4f6;font-size:14px;color:${labelColor};">${i.label ?? 'Service'}</td>
-          <td style="padding:7px 0;border-bottom:1px solid #f3f4f6;font-size:14px;font-weight:600;text-align:right;width:80px;">${amountCell}</td>
-        </tr>`;
-      }).join('')
+          <td style="padding:7px 0;border-bottom:1px solid #f3f4f6;font-size:14px;color:#374151;">${i.label ?? 'Service'}</td>
+          <td style="padding:7px 0;border-bottom:1px solid #f3f4f6;font-size:14px;font-weight:600;text-align:right;width:80px;">${fmt(i.amount ?? 0)}</td>
+        </tr>`).join('')
     : `<tr><td colspan="2" style="padding:10px 0;font-size:13px;color:#9ca3af;">Wash &amp; Fold service</td></tr>`;
 
   const creditItemsHtml = creditItems.map((i: any) => `
@@ -320,8 +297,6 @@ Deno.serve(async (req: Request) => {
     );
 
     // Fetch order + customer + address + schedule windows + tip fields
-    // Session 165 — include subscription_id so the receipt can split
-    // line items between subscription-absorbed and card-paid.
     const { data: order, error: orderErr } = await supabase
       .from('orders')
       .select(`
@@ -330,7 +305,6 @@ Deno.serve(async (req: Request) => {
         delivery_window_start, delivery_window_end,
         actual_pickup_at, actual_delivery_at,
         tip_amount, tip_type, tax_amount,
-        subscription_id,
         pickup_address:pickup_address_id ( line1, city, state, zip ),
         customers ( first_name_cache, last_name_cache, email_cache )
       `)
