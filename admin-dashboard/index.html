@@ -5341,33 +5341,14 @@
   // matching charge-order's chargeAmount math. Use everywhere a customer-facing
   // amount needs to reflect what Stripe actually billed (receipts, lists, totals).
   // Falls back to total_amount when tip fields are missing on the row.
-  // Session 165 — subscription-aware order math. Mirrors customer-app helper
-  // + the server-side compute_subscription_residual RPC. For subscriber orders
-  // the subscription absorbs base + line-item bag overage + delivery_fee; the
-  // card pays the residual (add-ons + same-day + lb-overage) + tip.
-  // Requires that order queries SELECT `subscription_id, line_items`.
-  function orderSubscriptionAbsorbed(o) {
-    if (!o?.subscription_id) return 0;
-    const items = Array.isArray(o.line_items) ? o.line_items : [];
-    let absorbed = 0;
-    for (const li of items) {
-      const t = li?.type;
-      if (t === 'base' || t === 'overage' || t === 'delivery_fee') {
-        absorbed += Number(li.amount || 0);
-      }
-    }
-    return Math.round(absorbed * 100) / 100;
-  }
   function orderChargedTotal(o) {
-    const total    = Number(o?.total_amount || 0);
-    const absorbed = orderSubscriptionAbsorbed(o);
-    const residual = Math.max(0, total - absorbed);
-    const tip      = Number(o?.tip_amount || 0);
-    if (!tip) return Math.round(residual * 100) / 100;
+    const sub = Number(o?.total_amount || 0);
+    const tip = Number(o?.tip_amount || 0);
+    if (!tip) return Math.round(sub * 100) / 100;
     const tipDol = (o.tip_type === 'pct')
-      ? Math.round(total * tip) / 100        // tip% stays anchored to total_amount
+      ? Math.round(sub * tip) / 100
       : Math.round(tip * 100) / 100;
-    return Math.round((residual + tipDol) * 100) / 100;
+    return Math.round((sub + tipDol) * 100) / 100;
   }
   // Date-only strings ('2026-02-26') are UTC midnight by default, which shows as the previous
   // day in Pacific time. Appending T00:00:00 forces local-midnight parsing instead.
@@ -10382,12 +10363,7 @@
           </div>
         </div>` : '';
 
-    // Cost breakdown — session 165: subscription-aware.
-    // For subscriber orders, line items that the subscription absorbs
-    // (base + bag-overage + delivery_fee) render as "Included" instead
-    // of a dollar amount; the visible total is the card-side residual.
-    const isSub = !!o.subscription_id;
-    const SUB_ABSORBED_TYPES = new Set(['base', 'overage', 'delivery_fee']);
+    // Cost breakdown
     let breakdownHTML = '';
     let total = 0;
     lineItems.forEach(li => {
@@ -10395,9 +10371,6 @@
       if (li.type === 'credit') {
         breakdownHTML += `<div style="display:flex;justify-content:space-between;font-size:12.5px;color:#059669"><span>${li.label||'Credit'}</span><span>−${fmtMoney(Math.abs(amt))}</span></div>`;
         total -= Math.abs(amt);
-      } else if (isSub && SUB_ABSORBED_TYPES.has(li.type)) {
-        breakdownHTML += `<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--gray-500)"><span>${li.label}</span><span style="font-style:italic">Included</span></div>`;
-        // Total intentionally NOT incremented — subscription absorbs this line.
       } else if (li.type !== 'addon' || amt > 0) {
         breakdownHTML += `<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--gray-600)"><span>${li.label}</span><span>${fmtMoney(amt)}</span></div>`;
         total += amt;
@@ -10405,7 +10378,7 @@
     });
     // Fallback if no line_items but has total_amount
     if (!lineItems.length && Number(o.total_amount) > 0) {
-      total = isSub ? Math.max(0, Number(o.total_amount) - orderSubscriptionAbsorbed(o)) : Number(o.total_amount);
+      total = Number(o.total_amount);
     }
     total = Math.max(0, total);
     // Tip line (between line items and total)
@@ -10414,8 +10387,7 @@
       breakdownHTML += `<div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--gray-600)"><span>${tipInfo.label}</span><span>+${fmtMoney(tipInfo.dollars)}</span></div>`;
       total += tipInfo.dollars;
     }
-    const totalLabel = isSub ? 'Charged to card' : 'Total';
-    const totalLine = `<div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--gray-200);padding-top:4px;margin-top:4px;font-size:14px;color:var(--gray-800)"><span>${totalLabel}</span><span>${fmtMoney(total)}</span></div>`;
+    const totalLine = `<div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--gray-200);padding-top:4px;margin-top:4px;font-size:14px;color:var(--gray-800)"><span>Total</span><span>${fmtMoney(total)}</span></div>`;
 
     el.innerHTML = `
       <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:var(--gray-700)">
