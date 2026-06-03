@@ -404,6 +404,14 @@ Deno.serve(async (req) => {
         const now = new Date().toISOString()
         const subStatus = mapStripeStatus(sub)
 
+        // Session 166 (v2 rebuild) — pricelist auto-switch.
+        // Snapshot the customer's current pricelist so we can restore it on
+        // cancellation. Re-fetch customers to get the live pricelist field
+        // (the earlier .select('id') call didn't include it).
+        const { data: custForSnapshot } = await db.from('customers')
+          .select('pricelist').eq('id', customer.id).single()
+        const previousPricelist = custForSnapshot?.pricelist ?? 'Delivery'
+
         const { error: upsertErr } = await db.from('subscriptions')
           .upsert({
             customer_id: customer.id,
@@ -415,12 +423,28 @@ Deno.serve(async (req) => {
             signup_date: now,
             last_stripe_event_at: now,
             updated_at: now,
+            previous_pricelist: previousPricelist,
           }, { onConflict: 'stripe_subscription_id' })
 
         if (upsertErr) {
           console.error('subscription.created upsert failed:', upsertErr.message, upsertErr.code)
         } else {
-          console.log('Subscription created:', sub.id, 'customer:', customer.id, 'status:', subStatus)
+          console.log('Subscription created:', sub.id, 'customer:', customer.id, 'status:', subStatus,
+                      'previous_pricelist:', previousPricelist)
+
+          // Flip the customer to the Subscription pricelist so subsequent
+          // bookings/intake/charges resolve to Subscription-priced services
+          // (Wash & Fold $0/bag + Delivery $0). The order data carries the
+          // correct card-side amount natively — no display-layer derivation
+          // needed anywhere.
+          const { error: pricelistErr } = await db.from('customers')
+            .update({ pricelist: 'Subscription', updated_at: now })
+            .eq('id', customer.id)
+          if (pricelistErr) {
+            console.error('subscription.created pricelist switch failed:', pricelistErr.message)
+          } else {
+            console.log('Customer pricelist switched to Subscription:', customer.id)
+          }
         }
       }
     }
@@ -458,8 +482,10 @@ Deno.serve(async (req) => {
       // v31 (session 118): Bill outstanding overage before marking cancelled
       // When a subscriber cancels mid-cycle, there's no next renewal invoice to attach
       // the overage to. Create a standalone invoice for the remaining amount.
+      // Session 166 (v2 rebuild): also fetch previous_pricelist so we can
+      // restore the customer's original pricelist after cancellation.
       const { data: localSub } = await db.from('subscriptions')
-        .select('id, overage_amount_due')
+        .select('id, overage_amount_due, previous_pricelist')
         .eq('stripe_subscription_id', sub.id)
         .single()
 
@@ -533,11 +559,17 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Clear subscription_plan_id from customers (existing logic)
+      // Clear subscription_plan_id from customers + restore previous pricelist
+      // (session 166 v2 rebuild). previous_pricelist was snapshotted on
+      // subscription.created. Fallback to 'Delivery' for old subs that
+      // pre-date this column.
+      const restorePricelist = localSub?.previous_pricelist ?? 'Delivery'
       await db.from('customers').update({
         subscription_plan_id: null,
+        pricelist: restorePricelist,
         updated_at: now,
       }).eq('stripe_customer_id', stripeCustomerId)
+      console.log('Customer pricelist restored to:', restorePricelist, 'for Stripe customer:', stripeCustomerId)
 
       // v29: Also mark subscription as cancelled + clear dunning
       const { error: updateErr } = await db.from('subscriptions')
