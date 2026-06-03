@@ -25672,7 +25672,7 @@ ${oneCopy}
     if (_procPollTimer) { clearInterval(_procPollTimer); _procPollTimer = null; }
     if (_procSub) { db.removeChannel(_procSub); _procSub = null; }
   }
-  let procActiveOrder = null, procSvc = null;
+  let procActiveOrder = null, procSvc = null, procSubscription = null;  // session 167: procSubscription holds {plan, usage_lbs_this_period} for subscriber orders
   let procBags = 1, procWeight = '', procAddons = {}, procNotes = '';
   let procAddonServices = {}; // { [serviceId]: { selected: bool, service: {...} } }
   let procAddonPrefQty  = {}; // { [prefGroupId]: qty } — per-item qty for preference-linked services (Shirt Service, Air Dry)
@@ -25903,6 +25903,21 @@ ${oneCopy}
     procActiveOrder = order;
     procSvc         = order.services;
     procBags        = order.total_bags || 1;
+
+    // Session 167: load subscription + plan for subscriber orders so the
+    // intake UI computes overage from the plan (100 lbs cap, $2.75/lb) rather
+    // than the service defaults (25 lbs/bag, $3/lb). Mirrors the DB trigger.
+    procSubscription = null;
+    if (order.customers?.pricelist === 'Subscription') {
+      const { data: subRow } = await db.from('subscriptions')
+        .select('id, usage_lbs_this_period, status, current_period_end, subscription_plans(name, weight_limit_lbs, overage_price_per_lb, pickup_limit)')
+        .eq('customer_id', order.customers.id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (subRow?.subscription_plans) procSubscription = subRow;
+    }
     // Prefill weight if the order already has one (e.g. moved back from Cleaning);
     // blank only for brand-new intake where the order hasn't been weighed yet.
     procWeight      = order.weight_lbs ? String(order.weight_lbs) : '';
@@ -26142,7 +26157,9 @@ ${oneCopy}
             </div>
           </div>
         </div>
-        ${isPerLb ? '' : `<div style="font-size:12px;color:var(--gray-400);margin-top:6px">Up to ${lbsPerBag} lbs/bag — overage billed at ${fmtMoney(ovgRate)}/lb</div>`}
+        ${isPerLb ? '' : (bd.isSubscription
+            ? `<div style="font-size:12px;color:var(--gray-400);margin-top:6px">${bd.planEffCap} lbs left this cycle — overage billed at ${fmtMoney(bd.planOvgRate)}/lb</div>`
+            : `<div style="font-size:12px;color:var(--gray-400);margin-top:6px">Up to ${lbsPerBag} lbs/bag — overage billed at ${fmtMoney(ovgRate)}/lb</div>`)}
         <div id="proc-overage-wrap" style="display:${bd.overage_lbs>0?'':'none'};margin-top:8px">
           <div class="proc-overage">⚠️ <span id="proc-overage-text">${bd.overage_lbs.toFixed(1)} lbs over limit · +${fmtMoney(bd.overage_charge)}</span></div>
         </div>
@@ -26163,7 +26180,8 @@ ${oneCopy}
   }
 
   function renderBreakdownRows(bd, pricePerBag) {
-    const ovgRate = parseFloat(procSvc?.overage_rate_per_lb || 3);
+    // Session 167: subscriber overage uses plan rate, not service rate.
+    const ovgRate = bd.isSubscription ? bd.planOvgRate : parseFloat(procSvc?.overage_rate_per_lb || 3);
     const isPerLb = procSvc?.pricing_type === 'per_lb';
     let rows = [];
     if (isPerLb) {
@@ -26255,9 +26273,23 @@ ${oneCopy}
     const weight      = parseFloat(procWeight) || 0;
     // Per-lb services (Commercial): charge weight × rate, no overage concept.
     // Per-bag services (Delivery): charge bags × rate + overage for weight over limit.
+    // Session 167: Subscription path — use plan cap minus current-cycle usage,
+    // and the plan's overage rate. Mirrors the lb_overage trigger formula so
+    // the launderer's preview matches what gets billed.
     const base           = isPerLb ? weight * pricePerBag : bags * pricePerBag;
-    const overage_lbs    = isPerLb ? 0 : Math.max(0, weight - bags * lbsPerBag);
-    const overage_charge = isPerLb ? 0 : overage_lbs * ovgRate;
+    let overage_lbs, overage_charge, planEffCap, planOvgRate;
+    if (procSubscription?.subscription_plans) {
+      const plan = procSubscription.subscription_plans;
+      const planCap = parseFloat(plan.weight_limit_lbs || 0);
+      const usagePre = parseFloat(procSubscription.usage_lbs_this_period || 0);
+      planEffCap = Math.max(0, planCap - usagePre);
+      planOvgRate = parseFloat(plan.overage_price_per_lb || 0);
+      overage_lbs = Math.max(0, weight - planEffCap);
+      overage_charge = overage_lbs * planOvgRate;
+    } else {
+      overage_lbs    = isPerLb ? 0 : Math.max(0, weight - bags * lbsPerBag);
+      overage_charge = isPerLb ? 0 : overage_lbs * ovgRate;
+    }
     // Sum price_mod for prefs WITHOUT a linked service only — prefs with linked services
     // are billed via prefLinkedSvc_total below (otherwise they'd be counted twice)
     const addons_total = Object.entries(procAddons).reduce((s, [groupId, a]) => {
@@ -26314,6 +26346,7 @@ ${oneCopy}
       : 0;
     const total = preTipTotal + tipDollars;
     return { bags, weight, base, overage_lbs, overage_charge, addons_total, addonSvc_total, prefLinkedSvc_total,
+             planEffCap, planOvgRate, isSubscription: !!procSubscription,
              deliveryFee, sameDaySurcharge, deliveryTotal, discountAmt, subtotal, creditApplied,
              preTipTotal, tipDollars, tipType, tipRaw,
              total };
@@ -26400,7 +26433,7 @@ ${oneCopy}
 
   function closeIntakePanel() {
     document.getElementById('intake-panel').classList.remove('open');
-    procActiveOrder = null; procSvc = null;
+    procActiveOrder = null; procSvc = null; procSubscription = null;
     procFeeExempt = false; procIsSameDay = false;
     procAddonPrefQty = {};
   }
