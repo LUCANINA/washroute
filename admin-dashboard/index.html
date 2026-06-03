@@ -12807,6 +12807,18 @@ ${oneCopy}
           body: JSON.stringify({ orderId, event: newStatus })
         }).catch(() => {});
       }
+      // Session 167: fire receipt when we hit ready_for_delivery (after the charge step).
+      // The auto-receipt that fires from the racking flow doesn't run when admin advances
+      // straight from processing to ready_for_delivery, so subscriber/$0 orders never got
+      // a receipt. Mirror the rack flow's receipt fire here so every ready_for_delivery
+      // transition produces one regardless of which admin path took us there.
+      if (newStatus === 'ready_for_delivery') {
+        fetch(`${SUPA_URL}/functions/v1/send-receipt`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': SUPA_ANON_KEY },
+          body: JSON.stringify({ order_id: orderId }),
+        }).catch(() => {});
+      }
       // Re-render after short delay so badge + button update cleanly
       setTimeout(() => {
         loadOrders(currentOrderFilter); // preserve active filter tab
