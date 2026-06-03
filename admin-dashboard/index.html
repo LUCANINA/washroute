@@ -8300,7 +8300,7 @@
                created_at, updated_at, billed_at, charge_failed_at, recurring_interval, routing_error, overcap_booking, cancelled_by, driver_skip_reason, site_id, source,
                archived_at, archived_reason, archived_by,
                services(name),
-               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type),
+               customers(id, first_name_cache, last_name_cache, phone_cache, billing_type, pricelist),
                pickup_run:pickup_run_id(id, name),
                delivery_run:delivery_run_id(id, name)`;
 
@@ -10507,7 +10507,10 @@
     const isPerLb    = svc?.pricing_type === 'per_lb';
     const hasOverage = svc?.has_weight_overage && !isPerLb;
 
-    const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
+    // Session 167: pricelist-aware fee lookup
+    const _custPL = o.customers?.pricelist || allCustomers.find(c => c.id === o.customer_id)?.pricelist || 'Delivery';
+    const _custFees = getFeesForPricelist(_custPL);
+    const deliveryFeeObj = _custFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     const sameDayFeeObj = allFees.find(f => (f.category === 'Surcharge' || f.category === 'surcharge') && (f.name || '').toLowerCase().includes('same'));
     const sameDaySurcharge = opIsSameDay ? (sameDayFeeObj ? parseFloat(sameDayFeeObj.amount || 0) : 10) : 0;
@@ -10593,7 +10596,10 @@
     const isPerLb    = svc?.pricing_type === 'per_lb';
     const hasOverage = svc?.has_weight_overage && !isPerLb;
 
-    const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
+    // Session 167: pricelist-aware fee lookup
+    const _custPL2 = o.customers?.pricelist || allCustomers.find(c => c.id === o.customer_id)?.pricelist || 'Delivery';
+    const _custFees2 = getFeesForPricelist(_custPL2);
+    const deliveryFeeObj = _custFees2.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     // Per-lb pricing: weight × rate, no bags, no overage
     // Per-bag pricing: bags × rate + weight overage (if enabled)
@@ -15791,6 +15797,22 @@ ${oneCopy}
     allFees = data || [];
   }
 
+  // Session 167: pricelist-aware fee filter.
+  // Returns one row per fee NAME, preferring the pricelist-specific row for the
+  // given customer pricelist over the global (pricelist=null) row. Rows for
+  // other pricelists are dropped. Mirrors customer-app's getCustomerFees().
+  function getFeesForPricelist(pricelist) {
+    const pl = pricelist || 'Delivery';
+    const byName = {};
+    (allFees || []).forEach(f => {
+      if (f.pricelist && f.pricelist !== pl) return;
+      const existing = byName[f.name];
+      if (!existing) { byName[f.name] = f; return; }
+      if (f.pricelist === pl && existing.pricelist == null) byName[f.name] = f;
+    });
+    return Object.values(byName);
+  }
+
   const FEE_CATEGORY_ORDER = ['Delivery','Surcharge','Penalty','Reward','Other'];
 
   function renderFees() {
@@ -17772,7 +17794,10 @@ ${oneCopy}
     const baseLabel = isPerLb
       ? `${_svcPrefix3}${_bagsPart3}Est. ${estLbs} lbs × ${fmtMoney(basePrice)}/lb`
       : `${_svcPrefix3}${bags} bag${bags!==1?'s':''} × ${fmtMoney(basePrice)}`;
-    const deliveryFeeObj = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
+    // Session 167: pricelist-aware fee lookup
+    const _custPL3 = allCustomers.find(c => c.id === customerId)?.pricelist || 'Delivery';
+    const _custFees3 = getFeesForPricelist(_custPL3);
+    const deliveryFeeObj = _custFees3.find(f => f.name === 'Delivery Fee' && f.is_active);
     const deliveryFee = deliveryFeeObj ? parseFloat(deliveryFeeObj.amount || 0) : 0;
     const sameDaySurcharge = _noIsSameDay ? (_noSameDaySurcharge || 0) : 0;
     const sameDayFeeObj    = allFees.find(f => /same.*day/i.test(f.name || '') && f.is_active);
@@ -26210,7 +26235,10 @@ ${oneCopy}
 
   function getDeliveryFees() {
     if (procFeeExempt) return { deliveryFee: 0, sameDaySurcharge: 0, deliveryTotal: 0 };
-    const deliveryFeeRec  = allFees.find(f => f.name === 'Delivery Fee' && f.is_active);
+    // Session 167: pricelist-aware Delivery Fee lookup
+    const _procPL = allCustomers.find(c => c.id === procCustomerId)?.pricelist || 'Delivery';
+    const _procFees = getFeesForPricelist(_procPL);
+    const deliveryFeeRec  = _procFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const sameDayRec      = allFees.find(f => f.name === 'Same-Day Surcharge' && f.is_active);
     const deliveryFee     = parseFloat(deliveryFeeRec?.amount || 0);
     const sameDaySurcharge = procIsSameDay ? parseFloat(sameDayRec?.amount || 0) : 0;

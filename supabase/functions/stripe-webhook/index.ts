@@ -621,6 +621,71 @@ Deno.serve(async (req) => {
           console.log('Invoice payment succeeded, subscription recovered:', subscriptionId)
         }
 
+        // ── Session 167: record subscription invoice payment to customer_transactions ──
+        // This is what makes customers.lifetime_value accurate for subscribers.
+        // Without this, only order-charges flow through LTV — the monthly $275
+        // (and overage true-ups) would be invisible to all revenue reports.
+        if (localSub?.customer_id) {
+          const amountPaid = (invoice.amount_paid || 0) / 100
+          const paymentIntentId = typeof invoice.payment_intent === 'string'
+            ? invoice.payment_intent
+            : (invoice.payment_intent as any)?.id || null
+
+          if (amountPaid > 0) {
+            // Idempotency: skip if we already recorded this payment intent
+            let alreadyRecorded = false
+            if (paymentIntentId) {
+              const { data: existing } = await db.from('customer_transactions')
+                .select('id')
+                .eq('stripe_payment_intent_id', paymentIntentId)
+                .maybeSingle()
+              alreadyRecorded = !!existing
+            }
+
+            if (!alreadyRecorded) {
+              // Get card info from default payment method (best-effort, for receipt parity)
+              const { data: custCard } = await db.from('customers')
+                .select('card_brand, card_last4')
+                .eq('id', localSub.customer_id)
+                .maybeSingle()
+
+              const periodEndIso = invoice.period_end
+                ? new Date(invoice.period_end * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                : ''
+              const desc = invoice.billing_reason === 'subscription_create'
+                ? `Subscription · ${periodEndIso || 'initial'}`
+                : `Subscription · ${periodEndIso || 'monthly'}`
+
+              const { error: txInsertErr } = await db.from('customer_transactions').insert({
+                customer_id: localSub.customer_id,
+                type: 'subscription_invoice',
+                amount: amountPaid,
+                description: desc,
+                stripe_payment_intent_id: paymentIntentId,
+                payment_method: 'credit_card',
+                card_brand: custCard?.card_brand || null,
+                card_last4: custCard?.card_last4 || null,
+              })
+
+              if (txInsertErr) {
+                console.error('customer_transactions insert error:', txInsertErr.message)
+              } else {
+                // Bump lifetime_value
+                const { data: custCur } = await db.from('customers')
+                  .select('lifetime_value')
+                  .eq('id', localSub.customer_id)
+                  .single()
+                const newLtv = parseFloat(custCur?.lifetime_value || '0') + amountPaid
+                await db.from('customers').update({ lifetime_value: newLtv })
+                  .eq('id', localSub.customer_id)
+                console.log(`Recorded subscription invoice $${amountPaid} for customer ${localSub.customer_id}, new LTV $${newLtv}`)
+              }
+            } else {
+              console.log('Subscription invoice already recorded (idempotency hit):', paymentIntentId)
+            }
+          }
+        }
+
         // v33: If was dunning, remove dunning-set cancel_at from Stripe and send recovery notification
         if (wasDunning && localSub) {
           // Only clear cancel_at if it was set by dunning (not a voluntary cancel).

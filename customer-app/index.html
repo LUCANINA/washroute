@@ -3033,7 +3033,7 @@ async function loadServices() {
   const [{ data: svcs }, { data: prefs }, { data: fees }, { data: settings }] = await Promise.all([
     db.from('services').select('*').eq('is_active', true).eq('show_in_app', true).order('sort_order'),
     db.from('preferences').select('*').order('sort_order'),
-    db.from('service_fees').select('id,name,amount,fee_type,category,taxable').eq('show_in_app', true).order('sort_order'),
+    db.from('service_fees').select('id,name,amount,fee_type,category,taxable,pricelist').eq('show_in_app', true).order('sort_order'),
     // session 140 pt 3: settings is a singleton (id=1).
     db.from('settings').select('sales_tax_rate').eq('id', 1).maybeSingle()
   ]);
@@ -3069,6 +3069,25 @@ function getCustomerService() {
     return _pricelistServices[pl];
   }
   return defaultService;
+}
+
+// Session 167: pricelist-aware service_fees filter.
+// Returns one row per fee NAME, preferring the pricelist-specific row for the
+// current customer over the global (pricelist=null) row. Rows for OTHER
+// pricelists are dropped. Without this, a Subscription customer would see
+// both the global $9.95 Delivery Fee row AND their $0 Subscription-specific
+// row when summing route fees, double-charging them.
+function getCustomerFees() {
+  const pl = currentCustomer?.pricelist || 'Delivery';
+  const byName = {};
+  (allServiceFees || []).forEach(f => {
+    if (f.pricelist && f.pricelist !== pl) return; // skip other pricelists
+    const existing = byName[f.name];
+    if (!existing) { byName[f.name] = f; return; }
+    // Prefer pricelist-specific row over global (NULL pricelist)
+    if (f.pricelist === pl && existing.pricelist == null) byName[f.name] = f;
+  });
+  return Object.values(byName);
 }
 
 /* ── HOME ── */
@@ -3656,7 +3675,8 @@ function updateEstimate() {
   const base        = isPerLb ? (estLbs * basePrice) : (bags * basePrice);
 
   // Only include fees explicitly categorized as Delivery or Pickup — never Penalty/Reward/Surcharge
-  const routeFees     = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
+  // Session 167: getCustomerFees() picks pricelist-specific row over global.
+  const routeFees     = getCustomerFees().filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const routeFeeTotal = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
 
   // Same-day surcharge if the toggle is on
@@ -4680,7 +4700,8 @@ function buildConfirmSummary() {
     return s+(grp?.pricing_type==='per_item'?0:p.priceMod*bags);
   },0);
   const sameDayFee     = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
-  const routeFees      = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
+  // Session 167: pricelist-aware
+  const routeFees      = getCustomerFees().filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const routeFeeTotal  = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
   const total          = Math.round((baseTotal + addonsTotal + routeFeeTotal + sameDayFee)*100)/100;
 
@@ -5143,7 +5164,8 @@ async function placeOrder() {
     return s+(grp?.pricing_type==='per_item'?0:(p.priceMod||0)*bags);
   },0);
   const sameDayFee    = (draft.isSameDay && draft._sameDaySurcharge > 0) ? draft._sameDaySurcharge : 0;
-  const routeFees     = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
+  // Session 167: pricelist-aware
+  const routeFees     = getCustomerFees().filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const routeFeeTotal = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
   const subtotal      = Math.round((baseTotal + addonsTotal + routeFeeTotal + sameDayFee)*100)/100;
 
@@ -6462,7 +6484,8 @@ async function saveEditOrder() {
   const isPerLb        = svc?.pricing_type === 'per_lb';
   const estLbs         = isPerLb ? bags * (parseFloat(svc?.lbs_per_bag) || 25) : 0;
   const baseTotal      = isPerLb ? (estLbs * basePrice) : (bags * basePrice);
-  const editRouteFees  = allServiceFees.filter(f => f.category === 'Delivery' || f.category === 'Pickup');
+  // Session 167: pricelist-aware
+  const editRouteFees  = getCustomerFees().filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const editRouteFeeTotal = editRouteFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
   const total          = Math.round((baseTotal + addonTotal + editRouteFeeTotal) * 100) / 100;
   const editBaseLabel  = isPerLb
@@ -8457,13 +8480,22 @@ async function openPricingPanel() {
   const _custPricelist = currentCustomer?.pricelist || 'Delivery';
   const [svcRes, feeRes] = await Promise.all([
     db.from('services').select('id,name,base_price,pricing_type,is_addon,show_in_app,pricelist').eq('show_in_app', true).eq('pricelist', _custPricelist).order('sort_order'),
-    db.from('service_fees').select('id,name,amount,fee_type,unit_label,category,show_in_app').eq('show_in_app', true).order('sort_order')
+    db.from('service_fees').select('id,name,amount,fee_type,unit_label,category,show_in_app,pricelist').eq('show_in_app', true).order('sort_order')
   ]);
 
   if (svcRes.error || feeRes.error) throw svcRes.error || feeRes.error;
 
   const services = svcRes.data || [];
-  const fees     = feeRes.data || [];
+  // Session 167: dedup fees by name, preferring pricelist-specific row over global.
+  const _allFees = feeRes.data || [];
+  const _feeByName = {};
+  _allFees.forEach(f => {
+    if (f.pricelist && f.pricelist !== _custPricelist) return;
+    const existing = _feeByName[f.name];
+    if (!existing) { _feeByName[f.name] = f; return; }
+    if (f.pricelist === _custPricelist && existing.pricelist == null) _feeByName[f.name] = f;
+  });
+  const fees = Object.values(_feeByName);
 
   function fmtSvcPrice(s) {
     const raw  = parseFloat(s.base_price) || 0;
