@@ -510,6 +510,8 @@
     .loading-overlay.show { display: flex; }
     .spinner { width: 36px; height: 36px; border: 3px solid var(--gray-200); border-top-color: var(--navy); border-radius: 50%; animation: spin .7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    /* Inline button spinner — for use inside buttons during async operations (Session 167 phase 7) */
+    .sub-spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation: spin .7s linear infinite; vertical-align:-2px; margin-right:6px; }
     .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(16px); background: #1a1a2e; color: white; padding: 11px 20px; border-radius: 999px; font-size: 14px; font-weight: 500; opacity: 0; transition: all .28s; z-index: 999; white-space: nowrap; max-width: 340px; text-align: center; }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
     .toast.toast-error   { background: #c0392b; }
@@ -7072,7 +7074,7 @@ async function confirmSubscribe(planId) {
   const btn = document.getElementById('subconfirm-go');
   const errEl = document.getElementById('subconfirm-err');
   if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
-  if (btn) { btn.disabled = true; btn.textContent = 'Processing…'; btn.style.opacity = '0.7'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="sub-spinner"></span> Processing…'; btn.style.opacity = '0.85'; }
 
   try {
     const { data: { session } } = await db.auth.getSession();
@@ -8267,6 +8269,10 @@ async function cancelSubscription() {
   if (!_activeSub) return;
   if (!confirm('Cancel your subscription? You\'ll still have access until the end of your current billing period.')) return;
 
+  const btn = document.querySelector('#plan-detail-actions button');
+  const origText = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="sub-spinner"></span> Cancelling…'; btn.style.opacity = '0.85'; }
+
   try {
     const { data: { session } } = await db.auth.getSession();
     if (!session) throw new Error('Not authenticated');
@@ -8283,18 +8289,12 @@ async function cancelSubscription() {
     const result = await res.json();
     if (result.error) throw new Error(result.error);
 
-    // Refetch subscription so the panel + home card pick up cancel_at_period_end=true
-    // (session 167 phase 7 fix — previously the UI re-rendered identically because
-    // the renderers didn't read cancel_at_period_end at all).
     await loadUserData();
-    // Session 167 phase 7 fix: re-render the Subscription panel + home card.
-    // (Earlier attempt called renderAccount which doesn't exist; the actual function
-    // is loadAccount, which re-fetches + re-renders the whole account view including
-    // the plan panel via renderPlanCards.)
     if (typeof loadAccount === 'function') await loadAccount();
     if (typeof renderHomeSubscriptionCard === 'function') await renderHomeSubscriptionCard();
     toast('Subscription will be cancelled at the end of your current billing period ✓', '');
   } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = origText || 'Cancel Subscription'; btn.style.opacity = '1'; }
     toast('Error cancelling subscription: ' + e.message, '');
   }
 }
@@ -8305,6 +8305,10 @@ async function cancelSubscription() {
 async function reactivateSubscription() {
   if (!_activeSub) return;
   if (!confirm('Reactivate your subscription? You\'ll continue to be billed monthly after the current period ends.')) return;
+
+  const btn = document.querySelector('#plan-detail-actions button');
+  const origText = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="sub-spinner"></span> Reactivating…'; btn.style.opacity = '0.85'; }
 
   try {
     const { data: { session } } = await db.auth.getSession();
@@ -8323,14 +8327,11 @@ async function reactivateSubscription() {
     if (result.error) throw new Error(result.error);
 
     await loadUserData();
-    // Session 167 phase 7 fix: re-render the Subscription panel + home card.
-    // (Earlier attempt called renderAccount which doesn't exist; the actual function
-    // is loadAccount, which re-fetches + re-renders the whole account view including
-    // the plan panel via renderPlanCards.)
     if (typeof loadAccount === 'function') await loadAccount();
     if (typeof renderHomeSubscriptionCard === 'function') await renderHomeSubscriptionCard();
     toast('Subscription reactivated ✓', '');
   } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = origText || 'Reactivate Subscription'; btn.style.opacity = '1'; }
     toast('Error reactivating subscription: ' + e.message, '');
   }
 }
