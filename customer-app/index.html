@@ -3038,7 +3038,11 @@ async function loadServices() {
     db.from('settings').select('sales_tax_rate').eq('id', 1).maybeSingle()
   ]);
   allServices    = svcs  || [];
-  defaultService = allServices.find(s => !s.is_addon) || null;
+  // Session 167 HOTFIX: defaultService must be a Delivery-pricelist service.
+  // Without this filter, when the Subscription Wash & Fold ($0/bag) is also
+  // show_in_app=true, .find() can pick it first and EVERY Delivery customer
+  // gets basePrice=$0 → RPC rejects with "Base line item amount must be > 0".
+  defaultService = allServices.find(s => !s.is_addon && (!s.pricelist || s.pricelist === 'Delivery')) || null;
   globalPrefs    = _buildGlobalPrefs(svcs, prefs);
   allServiceFees = fees  || [];
   if (settings?.sales_tax_rate != null) BIZ_TAX_RATE = Number(settings.sales_tax_rate);
