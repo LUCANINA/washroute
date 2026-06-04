@@ -1114,9 +1114,9 @@
           <button class="sub-home-manage-btn" onclick="goTo('account');setTimeout(()=>openSubPanel('sub-plan'),200)">Manage →</button>
         </div>
         <div class="sub-dunning-banner" id="home-sub-dunning">
-          <div class="dunning-title">Payment failed</div>
-          <div class="dunning-text">Please update your card to keep your subscription active. Your service is still running while we sort this out.</div>
-          <button class="dunning-btn" onclick="goTo('account');setTimeout(()=>openSubPanel('sub-plan'),200)">Update Payment Method</button>
+          <div class="dunning-title">⚠️ Payment failed</div>
+          <div class="dunning-text">Please update your card within 7 days to keep your subscription active. Your service is still running while we retry.</div>
+          <button class="dunning-btn" onclick="goTo('account');setTimeout(()=>openSubPanel('sub-payment'),200)">Update Card →</button>
         </div>
       </div>
 
@@ -5653,7 +5653,7 @@ async function openDetail(orderId) {
 
   document.getElementById('d-rows').innerHTML = `
     <div class="d-row"><span class="d-key">Bags</span><span class="d-val">${bags} bag${bags !== 1 ? 's' : ''}</span></div>
-    ${o.weight_lbs ? `<div class="d-row"><span class="d-key">Weight</span><span class="d-val">${parseFloat(o.weight_lbs).toFixed(1)} lbs</span></div>` : ''}
+    ${parseFloat(o.weight_lbs || 0) > 0 ? `<div class="d-row"><span class="d-key">Weight</span><span class="d-val">${parseFloat(o.weight_lbs).toFixed(1)} lbs</span></div>` : ''}
     <div class="d-row"><span class="d-key">Schedule</span><span class="d-val">${o.recurring_interval ? RLABELS[o.recurring_interval] : 'One-time'}</span></div>
     <div class="d-row"><span class="d-key">Pickup address</span><span class="d-val">${escHtml(pickupAddrLine)}</span></div>
     <div class="d-row"><span class="d-key">Pickup</span><span class="d-val">${o.pickup_window_start ? fmtDate(o.pickup_window_start) + (o.pickup_window_end ? ' · ' + fmtSlot(o.pickup_window_start, o.pickup_window_end) : '') : '—'}</span></div>
@@ -6983,6 +6983,128 @@ async function startOrderPayment(orderId) {
 
 async function startSubscription(planId) {
   if (!SUBSCRIPTIONS_ENABLED()) { toast('Subscriptions coming soon!'); return; }
+  // Session 167 Phase 7: dispatch on saved-card presence.
+  //   - Customer has a default card on file → show in-app confirm modal,
+  //     call create-subscription (no Stripe-hosted handoff).
+  //   - Customer has NO saved card → fall through to existing create-checkout
+  //     redirect (Phase 8 will replace this with an embedded Payment Element).
+  if (currentCustomer?.stripe_default_payment_method_id && currentCustomer?.card_last4) {
+    return showSubscribeConfirm(planId);
+  }
+  return _startSubscriptionViaCheckout(planId);
+}
+
+// Saved-card path: in-app confirm modal, server-side subscription creation.
+async function showSubscribeConfirm(planId) {
+  // Look up the plan for display copy.
+  const { data: plan } = await db.from('subscription_plans')
+    .select('id, name, price_monthly, weight_limit_lbs, overage_price_per_lb, pickup_limit')
+    .eq('id', planId).eq('is_active', true).single();
+  if (!plan) { toast('Plan not available'); return; }
+
+  const brand = (currentCustomer.card_brand || 'Card');
+  const brandLabel = brand.charAt(0).toUpperCase() + brand.slice(1);
+  const last4 = currentCustomer.card_last4 || '••••';
+  const price = `$${Number(plan.price_monthly).toFixed(2)}`;
+  const lbs = plan.weight_limit_lbs;
+  const ovgRate = `$${Number(plan.overage_price_per_lb).toFixed(2)}/lb`;
+  const pickups = plan.pickup_limit ? `${plan.pickup_limit} pickups/mo` : 'Unlimited pickups';
+
+  // Build the overlay if it doesn't exist.
+  let ov = document.getElementById('subconfirm-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'subconfirm-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:flex-end;justify-content:center;-webkit-tap-highlight-color:transparent;';
+    ov.onclick = (e) => { if (e.target === ov) closeSubscribeConfirm(); };
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML = `
+    <div style="background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:520px;padding:28px 22px 28px;box-shadow:0 -8px 32px rgba(0,0,0,.18);">
+      <div style="text-align:center;margin-bottom:18px;">
+        <div style="font-size:13px;color:var(--gray-500);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Confirm Subscription</div>
+        <div style="font-size:22px;font-weight:800;color:var(--navy);">${escHtml(plan.name)}</div>
+        <div style="font-size:32px;font-weight:900;color:var(--navy);margin-top:6px;">${price}<span style="font-size:14px;font-weight:600;color:var(--gray-500);">/mo</span></div>
+      </div>
+      <div style="background:var(--gray-50);border-radius:12px;padding:14px 16px;margin-bottom:16px;font-size:13px;color:var(--gray-700);line-height:1.7;">
+        ✓ ${lbs} lbs of Wash &amp; Fold included<br>
+        ✓ ${escHtml(pickups)}<br>
+        ✓ Free next-day delivery<br>
+        ✓ Overage at ${ovgRate} above ${lbs} lbs
+      </div>
+      <div style="background:var(--gray-50);border-radius:12px;padding:14px 16px;margin-bottom:18px;display:flex;align-items:center;gap:10px;">
+        <div style="font-size:22px;">💳</div>
+        <div style="flex:1;">
+          <div style="font-size:11px;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;font-weight:600;">Billed to</div>
+          <div style="font-size:14px;font-weight:600;color:var(--gray-900);margin-top:2px;">${escHtml(brandLabel)} •••• ${escHtml(last4)}</div>
+        </div>
+      </div>
+      <div id="subconfirm-err" style="display:none;color:#dc2626;font-size:13px;margin-bottom:12px;padding:10px 12px;background:#fef2f2;border-radius:8px;"></div>
+      <button id="subconfirm-go" onclick="confirmSubscribe('${planId}')" style="width:100%;background:var(--navy);color:#fff;border:none;padding:16px;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;">Subscribe — ${price}/mo</button>
+      <button onclick="closeSubscribeConfirm()" style="width:100%;background:transparent;color:var(--gray-500);border:none;padding:12px;margin-top:6px;font-size:14px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent;">Cancel</button>
+      <div style="font-size:11px;color:var(--gray-400);text-align:center;margin-top:14px;line-height:1.5;">First month charged immediately. Renews monthly. Cancel anytime.</div>
+    </div>`;
+  ov.style.display = 'flex';
+}
+
+function closeSubscribeConfirm() {
+  const ov = document.getElementById('subconfirm-overlay');
+  if (ov) ov.style.display = 'none';
+}
+
+async function confirmSubscribe(planId) {
+  const btn = document.getElementById('subconfirm-go');
+  const errEl = document.getElementById('subconfirm-err');
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Processing…'; btn.style.opacity = '0.7'; }
+
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) throw new Error('Please sign in');
+
+    const res = await fetch(`${SUPA_URL}/functions/v1/create-subscription`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ planId, customerId: currentCustomer.id }),
+    });
+    const result = await res.json();
+    if (!res.ok || result.error) {
+      // payment_failed / card_declined → suggest update card
+      const suggestUpdate = result.code === 'payment_failed' || result.code === 'card_declined' || result.code === 'no_saved_card' || result.code === 'no_stripe_customer';
+      throw Object.assign(new Error(result.error || 'Subscribe failed'), { suggestUpdate });
+    }
+
+    // Success. Webhook is racing to upsert the subscriptions row + flip pricelist.
+    // Close the modal, refresh user data, and run the pickup-day picker (post-Checkout flow).
+    closeSubscribeConfirm();
+    toast('Subscription active 🎉', '');
+
+    // Small delay so the webhook has time to insert the subscriptions row.
+    await new Promise(r => setTimeout(r, 1500));
+    await loadUserData();
+    // Refresh pricelist so getCustomerService picks up Subscription
+    if (currentCustomer) currentCustomer.pricelist = 'Subscription';
+    if (typeof showSubscriptionPickupPicker === 'function') {
+      await showSubscriptionPickupPicker();
+    } else {
+      goTo('home');
+    }
+  } catch (e) {
+    if (errEl) {
+      errEl.textContent = e.message + (e.suggestUpdate ? ' Tap Account → Payment to update your card, then try again.' : '');
+      errEl.style.display = 'block';
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Try Again'; btn.style.opacity = '1'; }
+  }
+}
+
+// Fallback for customers without a saved card — keeps the existing Stripe Checkout
+// redirect. Phase 8 will replace this with an embedded Payment Element for parity
+// with the in-app subscribe experience.
+async function _startSubscriptionViaCheckout(planId) {
   const btn = document.querySelector(`[data-plan-id="${planId}"] .plan-select-btn`);
   if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
   try {
@@ -8608,6 +8730,9 @@ window.afterSuccess      = afterSuccess;
 window.openDetail        = openDetail;
 window.startOrderPayment = startOrderPayment;
 window.startSubscription = startSubscription;
+window.showSubscribeConfirm = showSubscribeConfirm;
+window.closeSubscribeConfirm = closeSubscribeConfirm;
+window.confirmSubscribe = confirmSubscribe;
 window.startCardSetup    = startCardSetup;
 window.removeCard        = removeCard;
 window.selectPlan        = selectPlan;
