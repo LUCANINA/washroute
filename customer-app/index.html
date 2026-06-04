@@ -1771,6 +1771,9 @@
 /* ── SUPABASE ── */
 const SUPA_URL = 'https://umjpbuxrdydwejqtensq.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanBidXhyZHlkd2VqcXRlbnNxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NjgzMDQsImV4cCI6MjA4NzU0NDMwNH0.22WyUfBsqPaaza_HiDo1f_tQE3sGUDEJYYyV29XUSeY';
+// Session 167 phase 8: Stripe publishable key for in-app Payment Element subscribe flow.
+// Same live key used by admin-dashboard. Publishable keys are SAFE to embed client-side.
+const STRIPE_PK = 'pk_live_51MPrRDGACgbvEugHGytTpDLIrnbKOQAwyQgwwCSIhWGyNUJldcM1G6GCTCQWiiENL2X5p8osfkSMgN26HOwPMJBB00LRQz172B';
 const BIZ_TZ = 'America/Los_Angeles';
 // session 140 pt 3: cached sales tax rate (decimal). Loaded from
 // settings.sales_tax_rate inside loadServices(); defaults to Oakland CA
@@ -7009,7 +7012,8 @@ async function startSubscription(planId) {
   if (currentCustomer?.stripe_default_payment_method_id && currentCustomer?.card_last4) {
     return showSubscribeConfirm(planId);
   }
-  return _startSubscriptionViaCheckout(planId);
+  // Phase 8: customer has no saved card → embedded Stripe Payment Element modal.
+  return showSubscribeNewCardModal(planId);
 }
 
 // Saved-card path: in-app confirm modal, server-side subscription creation.
@@ -7119,34 +7123,189 @@ async function confirmSubscribe(planId) {
   }
 }
 
-// Fallback for customers without a saved card — keeps the existing Stripe Checkout
-// redirect. Phase 8 will replace this with an embedded Payment Element for parity
-// with the in-app subscribe experience.
-async function _startSubscriptionViaCheckout(planId) {
-  const btn = document.querySelector(`[data-plan-id="${planId}"] .plan-select-btn`);
-  if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
+// ─────────────────────────────────────────────────────────────
+// Phase 8: New-card subscribe path — embedded Stripe Payment Element.
+// Replaces the previous Stripe-hosted Checkout fallback so new customers
+// (those without a saved card) can subscribe end-to-end without leaving the app.
+// ─────────────────────────────────────────────────────────────
+
+let _stripeJsPromise = null;
+let _stripeInstance = null;
+let _peElements = null;        // Stripe Elements instance for the active modal
+let _peElement = null;         // The mounted Payment Element
+let _peClientSecret = null;    // SetupIntent client secret for the active modal
+
+// Lazy-load Stripe.js. Only fetched the first time a customer without a saved
+// card tries to subscribe — keeps the rest of the customer-app payload light.
+function _loadStripeJs() {
+  if (_stripeJsPromise) return _stripeJsPromise;
+  _stripeJsPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[src*="js.stripe.com/v3"]');
+    if (existing) { existing.addEventListener('load', () => resolve(window.Stripe)); existing.addEventListener('error', reject); if (window.Stripe) resolve(window.Stripe); return; }
+    const s = document.createElement('script');
+    s.src = 'https://js.stripe.com/v3/';
+    s.onload = () => resolve(window.Stripe);
+    s.onerror = () => reject(new Error('Could not load Stripe.js'));
+    document.head.appendChild(s);
+  });
+  return _stripeJsPromise;
+}
+
+// Build (once) and show the new-card subscribe modal.
+async function showSubscribeNewCardModal(planId) {
+  // Fetch the plan for display.
+  const { data: plan } = await db.from('subscription_plans')
+    .select('id, name, price_monthly, weight_limit_lbs, overage_price_per_lb, pickup_limit')
+    .eq('id', planId).eq('is_active', true).single();
+  if (!plan) { toast('Plan not available'); return; }
+
+  const price = `$${Number(plan.price_monthly).toFixed(2)}`;
+  const lbs = plan.weight_limit_lbs;
+  const ovgRate = `$${Number(plan.overage_price_per_lb).toFixed(2)}/lb`;
+  const pickups = plan.pickup_limit ? `${plan.pickup_limit} pickups/mo` : 'Unlimited pickups';
+
+  // Build or reset the overlay.
+  let ov = document.getElementById('subnewcard-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'subnewcard-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:flex-end;justify-content:center;-webkit-tap-highlight-color:transparent;';
+    ov.onclick = (e) => { if (e.target === ov) closeSubscribeNewCardModal(); };
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML = `
+    <div style="background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:520px;padding:24px 22px 28px;box-shadow:0 -8px 32px rgba(0,0,0,.18);max-height:90vh;overflow-y:auto;">
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="font-size:13px;color:var(--gray-500);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Confirm Subscription</div>
+        <div style="font-size:22px;font-weight:800;color:var(--navy);">${escHtml(plan.name)}</div>
+        <div style="font-size:32px;font-weight:900;color:var(--navy);margin-top:6px;">${price}<span style="font-size:14px;font-weight:600;color:var(--gray-500);">/mo</span></div>
+      </div>
+      <div style="background:var(--gray-50);border-radius:12px;padding:14px 16px;margin-bottom:18px;font-size:13px;color:var(--gray-700);line-height:1.7;">
+        ✓ ${lbs} lbs of Wash &amp; Fold included<br>
+        ✓ ${escHtml(pickups)}<br>
+        ✓ Free next-day delivery<br>
+        ✓ Overage at ${ovgRate} above ${lbs} lbs
+      </div>
+      <div style="font-size:11px;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;font-weight:600;margin-bottom:8px;">Payment</div>
+      <div id="subnewcard-payment-element" style="border:1.5px solid var(--gray-200);border-radius:12px;padding:14px;margin-bottom:14px;min-height:60px;"></div>
+      <div id="subnewcard-err" style="display:none;color:#dc2626;font-size:13px;margin-bottom:12px;padding:10px 12px;background:#fef2f2;border-radius:8px;"></div>
+      <button id="subnewcard-go" onclick="confirmSubscribeNewCard('${planId}')" disabled style="width:100%;background:var(--navy);color:#fff;border:none;padding:16px;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;opacity:0.6;">
+        <span class="sub-spinner"></span> Loading payment…
+      </button>
+      <button onclick="closeSubscribeNewCardModal()" style="width:100%;background:transparent;color:var(--gray-500);border:none;padding:12px;margin-top:6px;font-size:14px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent;">Cancel</button>
+      <div style="font-size:11px;color:var(--gray-400);text-align:center;margin-top:14px;line-height:1.5;">First month charged immediately on confirmation. Renews monthly. Cancel anytime.</div>
+    </div>`;
+  ov.style.display = 'flex';
+
+  // Initialize Stripe.js + create SetupIntent + mount Payment Element.
   try {
+    const errEl = document.getElementById('subnewcard-err');
+    const StripeFactory = await _loadStripeJs();
+    if (!StripeFactory) throw new Error('Stripe.js failed to load');
+    _stripeInstance = StripeFactory(STRIPE_PK);
+
     const { data: { session } } = await db.auth.getSession();
-    const res = await fetch(`${SUPA_URL}/functions/v1/create-checkout`, {
+    if (!session) throw new Error('Please sign in');
+    const res = await fetch(`${SUPA_URL}/functions/v1/create-setup-intent`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        type: 'subscription',
-        planId,
-        userId: currentUser.id,
-        successUrl: window.location.origin + window.location.pathname + '?subscribed=true',
-        cancelUrl:  window.location.origin + window.location.pathname,
-      }),
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+      body: JSON.stringify({ customerId: currentCustomer.id }),
     });
-    const { url, error } = await res.json();
+    const { clientSecret, error } = await res.json();
     if (error) throw new Error(error);
-    window.location.href = url;
+    _peClientSecret = clientSecret;
+
+    _peElements = _stripeInstance.elements({ clientSecret, appearance: { theme: 'stripe' } });
+    _peElement = _peElements.create('payment', { layout: 'tabs' });
+    _peElement.mount('#subnewcard-payment-element');
+
+    _peElement.on('ready', () => {
+      const goBtn = document.getElementById('subnewcard-go');
+      if (goBtn) { goBtn.disabled = false; goBtn.style.opacity = '1'; goBtn.innerHTML = `Subscribe — ${price}/mo`; }
+    });
   } catch (e) {
-    toast('Subscription error: ' + e.message);
-    if (btn) { btn.disabled = false; btn.textContent = 'Choose Plan'; }
+    const errEl = document.getElementById('subnewcard-err');
+    if (errEl) { errEl.textContent = e.message; errEl.style.display = 'block'; }
+    const goBtn = document.getElementById('subnewcard-go');
+    if (goBtn) { goBtn.disabled = true; goBtn.style.opacity = '0.6'; goBtn.textContent = 'Unavailable'; }
+  }
+}
+
+function closeSubscribeNewCardModal() {
+  const ov = document.getElementById('subnewcard-overlay');
+  if (ov) ov.style.display = 'none';
+  if (_peElement) { try { _peElement.unmount(); } catch (_) {} }
+  _peElement = null; _peElements = null; _peClientSecret = null;
+}
+
+async function confirmSubscribeNewCard(planId) {
+  const btn = document.getElementById('subnewcard-go');
+  const errEl = document.getElementById('subnewcard-err');
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="sub-spinner"></span> Processing…'; btn.style.opacity = '0.85'; }
+
+  try {
+    if (!_stripeInstance || !_peElements || !_peClientSecret) throw new Error('Payment form not ready');
+
+    // Step 1: Confirm the SetupIntent with the entered card. This validates the card,
+    // saves the payment method to Stripe, and returns the payment_method_id.
+    const { setupIntent, error: confirmErr } = await _stripeInstance.confirmSetup({
+      elements: _peElements,
+      redirect: 'if_required',  // US-only: SCA almost never required; keep customer in-app
+    });
+    if (confirmErr) throw new Error(confirmErr.message || 'Card could not be verified');
+    if (!setupIntent || setupIntent.status !== 'succeeded') {
+      throw new Error('Card setup did not complete. Please try again.');
+    }
+    const paymentMethodId = typeof setupIntent.payment_method === 'string'
+      ? setupIntent.payment_method
+      : setupIntent.payment_method?.id;
+    if (!paymentMethodId) throw new Error('No payment method returned by Stripe');
+
+    // Step 2: Save the payment method on our side (attaches + sets as default if first card).
+    const { data: { session } } = await db.auth.getSession();
+    const saveRes = await fetch(`${SUPA_URL}/functions/v1/save-payment-method`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+      body: JSON.stringify({ customerId: currentCustomer.id, paymentMethodId }),
+    });
+    const saveResult = await saveRes.json();
+    if (!saveRes.ok || saveResult.error) throw new Error(saveResult.error || 'Could not save card');
+
+    // Step 3: Refresh currentCustomer's flat columns so create-subscription sees the new default card.
+    currentCustomer.stripe_default_payment_method_id = paymentMethodId;
+    currentCustomer.card_brand = saveResult.card?.brand;
+    currentCustomer.card_last4 = saveResult.card?.last4;
+
+    // Step 4: Create the subscription (same endpoint the saved-card path uses).
+    const subRes = await fetch(`${SUPA_URL}/functions/v1/create-subscription`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+      body: JSON.stringify({ planId, customerId: currentCustomer.id }),
+    });
+    const subResult = await subRes.json();
+    if (!subRes.ok || subResult.error) {
+      const suggestUpdate = subResult.code === 'payment_failed' || subResult.code === 'card_declined';
+      throw Object.assign(new Error(subResult.error || 'Subscribe failed'), { suggestUpdate });
+    }
+
+    closeSubscribeNewCardModal();
+    toast('Subscription active 🎉', '');
+
+    await new Promise(r => setTimeout(r, 1500));
+    await loadUserData();
+    if (currentCustomer) currentCustomer.pricelist = 'Subscription';
+    if (typeof showSubscriptionPickupPicker === 'function') {
+      await showSubscriptionPickupPicker();
+    } else {
+      goTo('home');
+    }
+  } catch (e) {
+    if (errEl) {
+      errEl.textContent = e.message + (e.suggestUpdate ? ' Please try a different card.' : '');
+      errEl.style.display = 'block';
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Try Again'; btn.style.opacity = '1'; }
   }
 }
 
@@ -8809,6 +8968,9 @@ window.showSubscribeConfirm = showSubscribeConfirm;
 window.closeSubscribeConfirm = closeSubscribeConfirm;
 window.confirmSubscribe = confirmSubscribe;
 window.reactivateSubscription = reactivateSubscription;
+window.showSubscribeNewCardModal = showSubscribeNewCardModal;
+window.closeSubscribeNewCardModal = closeSubscribeNewCardModal;
+window.confirmSubscribeNewCard = confirmSubscribeNewCard;
 window.startCardSetup    = startCardSetup;
 window.removeCard        = removeCard;
 window.selectPlan        = selectPlan;
