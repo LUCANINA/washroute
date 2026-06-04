@@ -3193,13 +3193,29 @@ async function renderHomeSubscriptionCard() {
   bar.style.width = pct + '%';
   bar.style.background = barColor;
 
-  // Renewal date — "Renews on Jul 8" per David's preferred wording (session 165 launch prep).
+  // Renewal date / cancellation-scheduled label (session 167 phase 7 fix).
+  // When `cancel_at_period_end=true`, Stripe keeps the sub active through the
+  // paid period then auto-deletes. Surface this clearly — without it, the cancel
+  // button looked like it did nothing because the page rendered identically.
   const renewEl = document.getElementById('home-sub-renew');
   if (sub.current_period_end) {
     const d = new Date(sub.current_period_end);
-    renewEl.textContent = 'Renews on ' + d.toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' });
+    const dateLabel = d.toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'short', day: 'numeric' });
+    if (sub.cancel_at_period_end) {
+      renewEl.textContent = 'Cancels on ' + dateLabel;
+      renewEl.style.color = '#f87171';
+    } else {
+      renewEl.textContent = 'Renews on ' + dateLabel;
+      renewEl.style.color = '';
+    }
   } else {
     renewEl.textContent = '';
+  }
+
+  // Status badge — "Cancelling" when scheduled, otherwise normal status
+  if (sub.cancel_at_period_end) {
+    statusEl.textContent = 'Cancelling';
+    statusEl.className = 'sub-home-status past_due';  // reuse red color
   }
 
   // Overage warning
@@ -8011,7 +8027,9 @@ async function loadAccount() {
   if (planMenuValue) {
     if (_activeSub) {
       const pname = _activeSub.subscription_plans?.name || 'Subscriber';
-      const statusSuffix = _activeSub.status === 'active' ? '' :
+      // Session 167 phase 7 fix: surface scheduled cancellation in the menu sub-label.
+      const statusSuffix = _activeSub.cancel_at_period_end ? ' · cancelling' :
+                           _activeSub.status === 'active' ? '' :
                            _activeSub.status === 'paused' ? ' · paused' :
                            _activeSub.status === 'past_due' ? ' · past due' :
                            _activeSub.status === 'cancelled' ? ' · cancelled' : '';
@@ -8100,7 +8118,20 @@ function renderPlanCards(activePlanId) {
     // pause edge function + DB column in place in case we want to revive a
     // properly-distinct pause feature later (see PROJECT-NOTES).
     const actionsEl = document.getElementById('plan-detail-actions');
-    if (_activeSub.status === 'active' || _activeSub.status === 'paused') {
+    // Session 167 phase 7 fix: when cancel_at_period_end is true, swap the Cancel
+    // button for a Reactivate button that calls Stripe to clear the schedule.
+    if (_activeSub.cancel_at_period_end) {
+      const endDateLabel = _activeSub.current_period_end
+        ? new Date(_activeSub.current_period_end).toLocaleDateString('en-US', { timeZone: BIZ_TZ, month: 'long', day: 'numeric' })
+        : 'the end of your billing period';
+      actionsEl.innerHTML = `
+        <div style="background:#fef3c7;color:#92400e;padding:12px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;margin-bottom:10px;line-height:1.4">
+          ⏳ Cancellation scheduled<br>
+          <span style="font-weight:500">Your subscription will end on ${endDateLabel}.</span>
+        </div>
+        <button class="plan-select-btn" style="border-color:var(--navy);background:var(--navy);color:white" onclick="reactivateSubscription()">Reactivate Subscription</button>
+        <div style="font-size:11.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">Reactivate to continue your subscription past ${endDateLabel}.</div>`;
+    } else if (_activeSub.status === 'active' || _activeSub.status === 'paused') {
       actionsEl.innerHTML = `
         <button class="plan-select-btn danger" onclick="cancelSubscription()">Cancel Subscription</button>
         <div style="font-size:11.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">You'll keep service through the end of this billing period, then your subscription will end.</div>`;
@@ -8252,12 +8283,47 @@ async function cancelSubscription() {
     const result = await res.json();
     if (result.error) throw new Error(result.error);
 
-    // Refetch subscription and re-render
+    // Refetch subscription so the panel + home card pick up cancel_at_period_end=true
+    // (session 167 phase 7 fix — previously the UI re-rendered identically because
+    // the renderers didn't read cancel_at_period_end at all).
     await loadUserData();
-    renderSubscriptionCard();
+    if (typeof renderAccount === 'function') await renderAccount();
+    if (typeof renderHomeSubscriptionCard === 'function') await renderHomeSubscriptionCard();
     toast('Subscription will be cancelled at the end of your current billing period ✓', '');
   } catch (e) {
     toast('Error cancelling subscription: ' + e.message, '');
+  }
+}
+
+// Session 167 phase 7: reactivate a subscription that's scheduled to cancel.
+// Calls Stripe via the existing resume-subscription edge function which sets
+// cancel_at_period_end=false (effectively the inverse of cancelSubscription).
+async function reactivateSubscription() {
+  if (!_activeSub) return;
+  if (!confirm('Reactivate your subscription? You\'ll continue to be billed monthly after the current period ends.')) return;
+
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+
+    const res = await fetch(`${SUPA_URL}/functions/v1/resume-subscription`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ subscription_id: _activeSub.id }),
+    });
+
+    const result = await res.json();
+    if (result.error) throw new Error(result.error);
+
+    await loadUserData();
+    if (typeof renderAccount === 'function') await renderAccount();
+    if (typeof renderHomeSubscriptionCard === 'function') await renderHomeSubscriptionCard();
+    toast('Subscription reactivated ✓', '');
+  } catch (e) {
+    toast('Error reactivating subscription: ' + e.message, '');
   }
 }
 
@@ -8733,6 +8799,7 @@ window.startSubscription = startSubscription;
 window.showSubscribeConfirm = showSubscribeConfirm;
 window.closeSubscribeConfirm = closeSubscribeConfirm;
 window.confirmSubscribe = confirmSubscribe;
+window.reactivateSubscription = reactivateSubscription;
 window.startCardSetup    = startCardSetup;
 window.removeCard        = removeCard;
 window.selectPlan        = selectPlan;
