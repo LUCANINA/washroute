@@ -8287,7 +8287,11 @@ async function cancelSubscription() {
     // (session 167 phase 7 fix — previously the UI re-rendered identically because
     // the renderers didn't read cancel_at_period_end at all).
     await loadUserData();
-    if (typeof renderAccount === 'function') await renderAccount();
+    // Session 167 phase 7 fix: re-render the Subscription panel + home card.
+    // (Earlier attempt called renderAccount which doesn't exist; the actual function
+    // is loadAccount, which re-fetches + re-renders the whole account view including
+    // the plan panel via renderPlanCards.)
+    if (typeof loadAccount === 'function') await loadAccount();
     if (typeof renderHomeSubscriptionCard === 'function') await renderHomeSubscriptionCard();
     toast('Subscription will be cancelled at the end of your current billing period ✓', '');
   } catch (e) {
@@ -8319,7 +8323,11 @@ async function reactivateSubscription() {
     if (result.error) throw new Error(result.error);
 
     await loadUserData();
-    if (typeof renderAccount === 'function') await renderAccount();
+    // Session 167 phase 7 fix: re-render the Subscription panel + home card.
+    // (Earlier attempt called renderAccount which doesn't exist; the actual function
+    // is loadAccount, which re-fetches + re-renders the whole account view including
+    // the plan panel via renderPlanCards.)
+    if (typeof loadAccount === 'function') await loadAccount();
     if (typeof renderHomeSubscriptionCard === 'function') await renderHomeSubscriptionCard();
     toast('Subscription reactivated ✓', '');
   } catch (e) {
