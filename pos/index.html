@@ -2090,6 +2090,14 @@
                 · <a href="#" onclick="event.preventDefault();reopenTipFromPay()" style="color:var(--accent);font-weight:600;text-decoration:none" data-i18n>change</a>
               </div>
             </div>
+            <!-- Session 168: on-account banner — shown for billing_type='on_account' customers -->
+            <div id="payAccountBanner" style="display:none; margin-bottom:12px; padding:10px 12px; background:var(--accent-light, #dbeafe); color:var(--accent-dark, #1d4ed8); border-radius:8px; font-size:13px; font-weight:600; text-align:center;">
+              🏢 <span id="payAccountName">This customer</span> is billed on account
+            </div>
+            <!-- Session 168: charge-to-account is the primary action for on_account customers -->
+            <button id="payAccountBtn" onclick="payOnAccount()" style="display:none; width:100%; margin-bottom:12px; padding:18px; background:var(--brand-navy, #0f2744); color:white; border:none; border-radius:12px; font-size:16px; font-weight:800; cursor:pointer;">
+              🏢 <span data-i18n>Charge to Account</span>
+            </button>
             <div class="pay-methods">
               <button class="pay-method" onclick="payWithCard()">
                 <div class="pay-method-icon">💳</div>
@@ -3308,6 +3316,12 @@
 
   /* State */
   let currentTab = 'services';
+  // Session 168: pricelist repricing state. Retail is the default; attaching a
+  // customer with a non-Retail pricelist (Commercial, HCEB) reprices the laundry
+  // service tiles + cart lines to that pricelist. Merchandise is never repriced.
+  let _retailServicesBaseline = null;  // immutable Retail laundry tiles (set in loadRetailServices)
+  let _activePricelist = 'Retail';
+  let _plPriceMap = null;              // {lowerName: {id, price, pricing_type}} for the active non-Retail pricelist
   let cart = [];
   let currentCustomer = null; // null = walk-in
   let activeWeightService = null;
@@ -3605,10 +3619,13 @@
     }
     // session 132: Tip prompt for laundry drop-offs only. Merchandise-only
     // carts (drinks, snacks, detergent) skip straight to pay-method picker.
-    if (cartHasLaundry()) {
+    // Session 168: on-account commercial customers skip the tip prompt too —
+    // they're invoiced, not tipped at the counter.
+    const isOnAccount = currentCustomer && currentCustomer.billing_type === 'on_account';
+    if (cartHasLaundry() && !isOnAccount) {
       openTipModal();
     } else {
-      _currentTip = 0; // reset — merch-only sales never carry a tip forward
+      _currentTip = 0; // reset — merch-only + on-account sales never carry a tip
       openPay();
     }
   }
@@ -3907,6 +3924,8 @@
       id: c.id,
       email: c.email_cache || '',
       address: c.address_cache || '',
+      pricelist: c.pricelist || 'Retail',     // session 168
+      billing_type: c.billing_type || null,   // session 168
     });
   }
 
@@ -4031,7 +4050,11 @@
       id:      (extras && extras.id)      || null,
       email:   (extras && extras.email)   || '',
       address: (extras && extras.address) || '',  // session 149: prints on the receipt as a bag tag
+      pricelist:    (extras && extras.pricelist)    || 'Retail',  // session 168
+      billing_type: (extras && extras.billing_type) || null,      // session 168
     };
+    // Session 168: reprice laundry to this customer's pricelist (Commercial etc.)
+    applyCustomerPricelist(currentCustomer.pricelist);
     const chip = document.getElementById('customerChip');
     chip.classList.add('attached');
     const clearBtn = document.getElementById('customerClearBtn');
@@ -4051,8 +4074,65 @@
     updateTotals();
   }
 
+  // Session 168: reprice laundry tiles + cart to an attached customer's pricelist.
+  // Commercial Wash & Fold is $1.75/lb vs Retail $2.00/lb, etc. Looks up each
+  // laundry service by NAME in the customer's pricelist; only reprices when the
+  // pricing_type matches (so a per-bag Delivery price never corrupts the POS's
+  // per-lb weight model). Merchandise + add-ons are untouched. Passing 'Retail'
+  // (or null) restores the baseline.
+  async function applyCustomerPricelist(pricelist) {
+    _activePricelist = pricelist || 'Retail';
+    if (!_retailServicesBaseline) return;
+    if (_activePricelist === 'Retail') {
+      _plPriceMap = null;
+    } else {
+      try {
+        const { data } = await db.from('services')
+          .select('id, name, base_price, pricing_type')
+          .eq('pricelist', _activePricelist).eq('is_active', true).eq('is_addon', false);
+        _plPriceMap = {};
+        (data || []).forEach(r => {
+          _plPriceMap[(r.name || '').toLowerCase()] = { id: r.id, price: Number(r.base_price), pricing_type: r.pricing_type };
+        });
+      } catch (e) {
+        console.warn('[POS] pricelist load failed, keeping Retail:', e && e.message);
+        _plPriceMap = null;
+      }
+    }
+    // Rebuild the laundry tiles from the Retail baseline + pricelist override.
+    SERVICES.services = _retailServicesBaseline.map(t => {
+      const o = _plPriceMap && _plPriceMap[(t.name || '').toLowerCase()];
+      if (o && o.pricing_type === t.type) {
+        return { ...t, id: o.id, price: o.price, _pl: _activePricelist };
+      }
+      return { ...t };
+    });
+    if (currentTab === 'services') renderTiles();
+    _repriceCartToPricelist();
+  }
+
+  // Reprice any laundry lines already in the cart to the active pricelist
+  // (or back to Retail). Merchandise lines are left alone.
+  function _repriceCartToPricelist() {
+    let changed = false;
+    cart.forEach(line => {
+      const isLaundry = line.type === 'per_lb' || line.service === true;
+      if (!isLaundry) return;
+      const nameKey = (line.name || '').toLowerCase();
+      if (_plPriceMap) {
+        const o = _plPriceMap[nameKey];
+        if (o && o.pricing_type === line.type) { line.price = o.price; line.id = o.id; changed = true; }
+      } else if (_retailServicesBaseline) {
+        const base = _retailServicesBaseline.find(t => (t.name || '').toLowerCase() === nameKey);
+        if (base && base.type === line.type) { line.price = base.price; line.id = base.id; changed = true; }
+      }
+    });
+    if (changed) { renderCart(); updateTotals(); }
+  }
+
   function setWalkIn() {
     currentCustomer = null;
+    applyCustomerPricelist('Retail');  // session 168: restore Retail prices
     const chip = document.getElementById('customerChip');
     chip.classList.remove('attached');
     const clearBtn = document.getElementById('customerClearBtn');
@@ -5056,7 +5136,32 @@
     } else {
       tipRow.style.display = 'none';
     }
+    // Session 168: on-account customers get a "Charge to Account" button (primary)
+    // and the on-account banner; Card/Cash remain available as an override.
+    const isOnAccount = currentCustomer && currentCustomer.billing_type === 'on_account';
+    const acctBtn = document.getElementById('payAccountBtn');
+    const acctBanner = document.getElementById('payAccountBanner');
+    if (acctBtn) acctBtn.style.display = isOnAccount ? '' : 'none';
+    if (acctBanner) {
+      acctBanner.style.display = isOnAccount ? '' : 'none';
+      if (isOnAccount) {
+        const nm = document.getElementById('payAccountName');
+        if (nm) nm.textContent = currentCustomer.name || 'This customer';
+      }
+    }
     showModal('payModal');
+  }
+
+  // Session 168: create an unpaid order billed to the customer's account
+  // (billing_status/method left NULL — picked up by the on-account balance +
+  // monthly invoicing, exactly like admin-created commercial orders). No Stripe,
+  // no cash collected at the counter.
+  function payOnAccount() {
+    if (!(currentCustomer && currentCustomer.billing_type === 'on_account')) {
+      showToast(t('This customer is not set up for account billing.'), 'error');
+      return;
+    }
+    chargeAndFinish('account');
   }
 
   // ── Cash numpad state ──────────────────────────────────────
@@ -5655,7 +5760,7 @@
     // defense; this just keeps the UI honest. #cashCompleteBtn is the
     // cash modal's Complete-sale button (was missing pre-fix).
     const methodButtons = document.querySelectorAll(
-      '#payModal .pay-method, #terminalModal .btn, #cashModal #cashCompleteBtn'
+      '#payModal .pay-method, #payModal #payAccountBtn, #terminalModal .btn, #cashModal #cashCompleteBtn'
     );
     methodButtons.forEach(b => b.disabled = true);
 
@@ -5692,7 +5797,9 @@
         // Update success screen copy with real order number
         const sub = document.getElementById('successSub');
         const num = document.getElementById('successOrderNum');
-        sub.textContent = method === 'cash' ? t('Paid in cash · Thank you!') : t('Paid by card · Thank you!');
+        sub.textContent = method === 'account' ? t('Charged to account · Thank you!')
+                        : method === 'cash'    ? t('Paid in cash · Thank you!')
+                        :                        t('Paid by card · Thank you!');
         if (order?.order_number) {
           num.textContent = `${t('Order #')}${order.order_number}`;
           num.style.display = 'block';
@@ -6567,12 +6674,17 @@ ${tenderRows ? `<table>${tenderRows}</table>` : ''}
       site_id:               currentSiteId,
       // session 114: required by RLS policy pos_order_insert
       pos_shift_id:          shift.shift_id,
-      // Payment bookkeeping — POS transactions are paid at time of sale.
+      // Payment bookkeeping — POS card/cash sales are paid at time of sale.
       // billed_at is the single source of truth for payment timestamp
       // (paid_at column dropped session 134 — see PROJECT-NOTES).
-      billed_at:             nowIso,
-      billing_status:        'paid',
-      billing_payment_method: paymentMethod, // 'cash' or 'card'
+      // Session 168: 'account' = on-account commercial drop-off — NOT paid at the
+      // counter. Leave billing_status/method/billed_at NULL so the order is
+      // counted as owed by the on-account balance + monthly invoicing (same
+      // convention as admin-created commercial orders). charge-order already
+      // excludes on_account customers, so it won't try to charge a card.
+      ...(paymentMethod === 'account'
+        ? { billed_at: null, billing_status: null, billing_payment_method: null }
+        : { billed_at: nowIso, billing_status: 'paid', billing_payment_method: paymentMethod }),
       // Stripe Terminal payment reference (card payments only)
       ...(stripePaymentIntentId ? { stripe_payment_intent_id: stripePaymentIntentId } : {}),
       // Session 156: card brand + last4 from the Terminal payment (null
@@ -6666,6 +6778,10 @@ ${tenderRows ? `<table>${tenderRows}</table>` : ''}
       }
       SERVICES.services = services;
       WEIGHT_ADDONS = addons;
+      // Session 168: keep an immutable Retail baseline so we can reprice the
+      // laundry tiles to an attached customer's pricelist (Commercial, etc.)
+      // and restore Retail when the customer is removed.
+      _retailServicesBaseline = services.map(t => ({ ...t }));
 
       // Map merchandise → POS tile shape, grouped by category
       const merchByCategory = {};
