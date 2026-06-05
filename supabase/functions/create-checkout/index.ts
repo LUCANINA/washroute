@@ -15,6 +15,27 @@ const cors = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Session 168 — SERVER-SIDE SOFT-LAUNCH ALLOWLIST (mirrors customer-app
+// SUBSCRIPTIONS_ALLOWLIST + create-subscription). The UI flag is NOT a billing
+// boundary (session-157 lesson). While this list is NON-EMPTY, a SUBSCRIPTION
+// checkout may only be created for these emails — even though the plan is active
+// for the soft-launch window. EMPTY this array (set to []) and redeploy on
+// Monday's public launch to open subscriptions to everyone. This function is
+// the legacy Stripe-hosted Checkout path (the in-app flows use
+// create-subscription); gating it too closes the back door.
+const SUBSCRIPTION_ALLOWLIST = [
+  'dmacquart@gmail.com',
+  'dmacquart+wrsignup1@gmail.com',
+  'dmacquart+sub4@gmail.com',
+].map(e => e.toLowerCase())
+
+function emailAllowed(email: string | null | undefined): boolean {
+  if (SUBSCRIPTION_ALLOWLIST.length === 0) return true  // launch mode: open to all
+  return !!email && SUBSCRIPTION_ALLOWLIST.includes(String(email).toLowerCase())
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
@@ -100,6 +121,16 @@ Deno.serve(async (req) => {
       // is_active=true AND flip SUBSCRIPTIONS_ENABLED=true in the customer app.
       if (!plan.is_active) {
         return new Response(JSON.stringify({ error: 'This subscription plan is not currently available.' }), {
+          status: 403,
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        })
+      }
+
+      // Session 168 — soft-launch allowlist gate (see note at top). While the
+      // allowlist is non-empty, only those emails may create a subscription
+      // checkout, even though the plan is active for the soft-launch window.
+      if (!emailAllowed(customer.email_cache)) {
+        return new Response(JSON.stringify({ error: 'Subscriptions aren’t available for your account yet.', code: 'not_allowlisted' }), {
           status: 403,
           headers: { ...cors, 'Content-Type': 'application/json' },
         })
