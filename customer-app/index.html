@@ -8028,23 +8028,13 @@ function renderConfirmPromoSection() {
 }
 
 /* ── ACCOUNT ── */
-const PLANS = [
-  {
-    key: 'paygo', name: 'Pay As You Go', price: 'No monthly fee',
-    perks: ['Standard per-order pricing', 'No commitment', 'Full service access'],
-    dotColor: '#94a3b8'
-  },
-  {
-    key: 'standard', name: 'Standard', price: '$39', period: '/month',
-    perks: ['Up to 6 bags/month included', '10% off additional bags', 'Priority scheduling'],
-    dotColor: '#2a6fc9', popular: true
-  },
-  {
-    key: 'premium', name: 'Premium', price: '$69', period: '/month',
-    perks: ['Up to 12 bags/month included', '15% off additional bags', 'Priority pickup & delivery', 'Free express turnaround'],
-    dotColor: '#f59e0b'
-  }
-];
+/* Session 168: removed the hardcoded legacy PLANS array (old $39 Standard /
+   $69 Premium / Free PAYG plans deleted from the DB in session 165). It was
+   only used as a fallback in renderPlanCards when no active DB plan loaded,
+   which meant a launch-day misconfig or a plan-load hiccup would show
+   customers three fabricated plans that don't exist in Stripe and fail on
+   tap. Plan cards now render exclusively from active subscription_plans rows;
+   when none are active the picker shows a clean empty state. */
 
 async function loadAccount() {
   if (!currentProfile) return;
@@ -8314,12 +8304,19 @@ function renderPlanCards(activePlanId) {
   detailEl.style.display = 'none';
   cardsWrap.style.display = '';
 
-  // Use DB plans if loaded, otherwise fall back to hardcoded
-  const source = dbPlans.length ? dbPlans : PLANS.map(p => ({
-    id: p.key, name: p.name,
-    price_monthly: p.key === 'paygo' ? 0 : p.key === 'standard' ? 39 : 69,
-    features: p.perks, description: ''
-  }));
+  // Render ONLY real, active plans from the DB. No hardcoded fallback —
+  // showing fabricated plans is worse than showing an empty state.
+  const source = dbPlans;
+
+  // Empty state: no active plans available (e.g. plan not yet activated for launch)
+  if (!source.length) {
+    document.getElementById('plan-cards').innerHTML = `
+      <div style="text-align:center;padding:32px 20px;color:var(--gray-500)">
+        <div style="font-size:15px;font-weight:600;color:var(--navy);margin-bottom:6px">No subscription plans available yet</div>
+        <div style="font-size:13px;line-height:1.5">Check back soon — we're putting the finishing touches on our subscription.</div>
+      </div>`;
+    return;
+  }
 
   document.getElementById('plan-cards').innerHTML = source.map(p => {
     const isCurrent = p.id === activePlanId;
