@@ -1,0 +1,21 @@
+-- A1 (session 168, APPLIED): narrow the recurring-trigger carry-forward.
+--
+-- This is a CREATE OR REPLACE of trg_create_recurring_order_fn — identical to
+-- session_168b EXCEPT the Subscription-branch carry-forward loop's WHERE clause:
+--
+--   BEFORE (168b):  WHERE elem->>'type' NOT IN ('base', 'delivery_fee')
+--   AFTER  (this):  WHERE elem->>'type' IN ('addon', 'pref_service', 'same_day_surcharge')
+--
+-- Why: 168b carried EVERY non-base/delivery line into the recurring child, which
+-- wrongly included per-order `overage`/`lb_overage` and one-time `credit`/
+-- `discount` lines. In practice these were neutralized (admin intake rebuilds
+-- line_items at weigh-in; the overage trigger strips inherited overage), but
+-- carrying them is semantically wrong and confusing. Now only STANDING recurring
+-- extras carry forward: add-ons (Vinegar/Oxi) + same-day surcharge.
+--
+-- Full function body: see session_168b_recurring_subscription_carry_all_extras.sql
+-- with the single WHERE-clause change above. Reversible by re-applying 168b.
+-- Verified: subscription_billing_invariants.sql passes after this change.
+--
+-- (Companion A1 change in the same session: DROP compute_subscription_residual —
+-- see session_168_drop_orphaned_compute_subscription_residual.sql.)
