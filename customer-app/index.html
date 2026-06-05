@@ -6047,6 +6047,15 @@ async function saveAddressForm(existingId) {
   toast('Address saved ✓');
   document.getElementById('addr-form-modal')?.remove();
   const fresh = await loadAddresses();
+  // Session 168: if a caller (e.g. the subscription pickup picker) is waiting on
+  // a freshly-added address, hand off to it instead of re-rendering the account
+  // address list (whose DOM may not be present in that context).
+  if (typeof window._afOnSaved === 'function') {
+    const cb = window._afOnSaved;
+    window._afOnSaved = null;
+    cb(fresh);
+    return;
+  }
   renderAddressList(fresh);
 }
 
@@ -7315,6 +7324,33 @@ async function confirmSubscribeNewCard(planId) {
 // Saves to subscriptions table, then creates the first recurring order automatically.
 const _dayNames = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
+// Session 168: shown by the pickup picker when a brand-new subscriber has no
+// address on file. Collects the pickup address (reusing the standard address
+// modal), then reopens the picker — which can now scope windows to their zone.
+function showSubscriptionAddressPrompt() {
+  document.querySelector('.sub-daypicker-overlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.className = 'sub-daypicker-overlay';
+  overlay.innerHTML = `
+    <div class="sub-daypicker-sheet">
+      <div class="sub-daypicker-title">Subscription active 🎉</div>
+      <div class="sub-daypicker-desc">First, add your pickup address. We use it to show the pickup days and times available in your neighborhood.</div>
+      <button class="sub-daypicker-btn" id="sub-addr-btn">Add Pickup Address</button>
+      <div class="sub-daypicker-skip" id="sub-addr-skip">I'll do this later</div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#sub-addr-btn').onclick = () => {
+    // When the address saves, drop this prompt and reopen the (now zone-aware) picker.
+    window._afOnSaved = () => { overlay.remove(); showSubscriptionPickupPicker(); };
+    openAddressFormModal(null);
+  };
+  overlay.querySelector('#sub-addr-skip').onclick = () => {
+    overlay.remove();
+    goTo('home');
+    toast('Subscription active! Add your address anytime to schedule pickups.', '');
+  };
+}
+
 async function showSubscriptionPickupPicker() {
   if (!currentCustomer) return;
 
@@ -7327,9 +7363,20 @@ async function showSubscriptionPickupPicker() {
   const sub = subs?.[0];
   if (!sub) { toast('Subscription active 🎉', ''); goTo('home'); return; }
 
-  // Find the customer's zone from their default address
+  // Resolve the customer's pickup zone from their default address. The window
+  // list MUST be scoped to their zone — otherwise we'd show every route's
+  // windows across all zones (the bug David hit on a brand-new subscriber with
+  // no address on file). Session 168.
   await loadAddresses();
   const defaultAddr = _savedAddresses.find(a => a.is_default) || _savedAddresses[0];
+
+  // No address yet — common for new subscribers who subscribed before booking.
+  // Collect the address first, then reopen this picker (now zone-aware).
+  if (!defaultAddr) {
+    showSubscriptionAddressPrompt();
+    return;
+  }
+
   let zoneId = null;
   if (defaultAddr?.lat && defaultAddr?.lng) {
     const { data: zId } = await db.rpc('get_zone_for_point', {
@@ -7338,12 +7385,19 @@ async function showSubscriptionPickupPicker() {
     zoneId = zId;
   }
 
-  // Fetch active pickup templates for this zone (or all zones if no zone match)
-  let tq = db.from('route_templates')
+  // Address present but it doesn't map to a serviced pickup zone (or is missing
+  // coords). Don't show an irrelevant grab-bag of windows — let them book manually.
+  if (!zoneId) {
+    toast("We couldn't match your address to a pickup area yet — you can book pickups manually anytime.", '');
+    goTo('home');
+    return;
+  }
+
+  // Fetch active pickup templates for THIS zone only.
+  const { data: templates } = await db.from('route_templates')
     .select('id, name, schedule_days, window_start, window_end, arrival_window_hours')
-    .eq('is_active', true);
-  if (zoneId) tq = tq.eq('zone_id', zoneId);
-  const { data: templates } = await tq;
+    .eq('is_active', true)
+    .eq('zone_id', zoneId);
 
   // Build set of available ISO weekdays (0=Mon..6=Sun) and their windows
   const dayWindowMap = {}; // { isoDay: [{ templateId, windowStart, windowEnd, label }] }
@@ -8284,7 +8338,19 @@ function renderPlanCards(activePlanId) {
         <button class="plan-select-btn" style="border-color:var(--navy);background:var(--navy);color:white" onclick="reactivateSubscription()">Reactivate Subscription</button>
         <div style="font-size:11.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">Reactivate to continue your subscription past ${endDateLabel}.</div>`;
     } else if (_activeSub.status === 'active' || _activeSub.status === 'paused') {
+      // Session 168: let a subscriber who skipped the weekly-pickup setup get
+      // back into the picker. Shown ONLY when no preference is set yet — the
+      // picker CREATES a recurring order, so re-running it for an existing
+      // schedule would spawn a duplicate chain. Changing an existing pickup
+      // needs an update-not-create path (tracked as tech debt); until then we
+      // just show the current schedule read-only.
+      const hasPref = _activeSub.preferred_pickup_day != null;
+      const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+      const pickupBlock = hasPref
+        ? `<div style="background:var(--gray-50);color:var(--gray-700);padding:11px 12px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;margin-bottom:10px;line-height:1.4">📅 Weekly pickup: ${cap(_activeSub.preferred_pickup_day)}s${_activeSub.preferred_pickup_window ? ' · ' + _activeSub.preferred_pickup_window : ''}</div>`
+        : `<button class="plan-select-btn" style="border-color:var(--navy);background:var(--navy);color:white;margin-bottom:10px" onclick="showSubscriptionPickupPicker()">📅 Schedule weekly pickup</button>`;
       actionsEl.innerHTML = `
+        ${pickupBlock}
         <button class="plan-select-btn danger" onclick="cancelSubscription()">Cancel Subscription</button>
         <div style="font-size:11.5px;color:var(--gray-500);text-align:center;margin-top:4px;line-height:1.4">You'll keep service through the end of this billing period, then your subscription will end.</div>`;
     } else if (_activeSub.status === 'past_due') {
