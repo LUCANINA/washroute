@@ -113,3 +113,21 @@ The keystone "one pricing authority" rewrite was deliberately NOT attempted at t
 4. **Document the line-item ownership table** (who writes base / delivery / overage / addon / same_day / discount / credit, and when) in PROJECT-NOTES so the 4-writers model is explicit and new code can't violate it.
 
 **Sequencing:** A2 (shared resolver) first — highest value, lowest risk, additive. Then #3 (intake merge). #1 (N1) is a verification, do it before the first recurring cycle. Run `subscription_billing_invariants.sql` after each step.
+
+## 8. `orders.line_items` ownership table (the model, made explicit)
+
+The single most useful artifact for the 4-writers problem: a definitive table of **who writes each line type and when**. Any new code touching `line_items` must conform; the A4 invariants enforce the key rules. **N1 verified safe** (June 5): `openIntakePanel` sets `procIsSameDay` from the Pacific pickup-vs-delivery date, so `_buildIntakeLineItems` re-adds same-day at weigh-in — same-day surcharge survives intake on recurring orders.
+
+| line type | Authoritative writer | When | Rules / invariants |
+|---|---|---|---|
+| `base` | order-create (picker/booking) → **rebuilt by admin intake** | create, then intake weigh-in | **$0 for Subscription pricelist** (INV5). Per-lb for Commercial, per-bag for Delivery/Retail. |
+| `delivery_fee` | order-create → rebuilt by intake | create, intake | $0 for Subscription. Pricelist-aware (`getCustomerFees`/`getFeesForPricelist`). |
+| `pref_service` / `addon` | admin intake re-derives from `customers.preferences`; picker sets the standing-extras initial set | create (picker), then intake rebuild | Re-derived at intake — picker's `addon` lines are transient. Recurring carry-forward may carry these. |
+| `same_day_surcharge` | order-create; **re-added by intake** when `procIsSameDay` (delivery date == pickup date, Pacific) | create, intake | Survives intake (N1). Recurring carry-forward may carry it. |
+| `lb_overage` | **`apply_subscription_usage_fn` trigger — SOLE writer** | `ready_for_delivery` | Subscription overage ONLY here. Intake must NOT write overage for subscription orders (fixed §2.k). Recurring carry-forward must NOT carry it (fixed §6). Trigger strips any pre-existing `lb_overage` before recomputing. |
+| `overage` | admin intake — **NON-subscription only** | intake | Subscription overage is `lb_overage` via the trigger, never `overage`. INV1/INV2 forbid coexistence. |
+| `discount` / `credit` | admin intake | intake rebuild | One-time; **never** carried to recurring children (fixed §6). |
+
+**Global invariants** (enforced by `subscription_billing_invariants.sql`): a subscription order has ≤1 overage line, never both `overage`+`lb_overage`, `total_amount == sum(line_items)`, base == $0. `charge-order` is the sole charger and bills `total_amount` (+ tip); it never re-derives pricing.
+
+This table is the contract the future A2 resolver should formalize, not replace.
