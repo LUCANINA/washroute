@@ -7324,6 +7324,31 @@ async function confirmSubscribeNewCard(planId) {
 // Saves to subscriptions table, then creates the first recurring order automatically.
 const _dayNames = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
+// Session 168: first pickup date for a recurring weekly subscription.
+// isoDay = 0(Mon)..6(Sun). If the chosen weekday is TODAY and the window start
+// is still far enough out to clear the booking cutoff, schedule TODAY; otherwise
+// the next occurrence next week. Previously this always pushed today → next week
+// even when there was room this evening.
+function _subFirstPickupIso(isoDay, winStartMins, cutoffMins) {
+  const pad2 = n => String(n).padStart(2, '0');
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+  const todayJsDay = new Date(todayStr + 'T12:00:00').getDay(); // 0=Sun..6=Sat
+  const targetJsDay = isoDay === 6 ? 0 : isoDay + 1;
+  let daysUntil = (targetJsDay - todayJsDay + 7) % 7;
+  if (daysUntil === 0) {
+    // Today is the chosen weekday — eligible only if the window start is still
+    // at least `cutoff` minutes in the future (Pacific).
+    const hm = new Date().toLocaleTimeString('en-GB', { timeZone: BIZ_TZ, hour12: false }); // "HH:MM:SS"
+    const [nh, nm] = hm.split(':').map(Number);
+    const nowMins = nh * 60 + nm;
+    const cutoff = cutoffMins ?? 30;
+    daysUntil = (nowMins + cutoff <= winStartMins) ? 0 : 7;
+  }
+  const base = new Date(todayStr + 'T12:00:00');
+  base.setDate(base.getDate() + daysUntil);
+  return `${base.getFullYear()}-${pad2(base.getMonth() + 1)}-${pad2(base.getDate())}`;
+}
+
 // Session 168: shown by the pickup picker when a brand-new subscriber has no
 // address on file. Collects the pickup address (reusing the standard address
 // modal), then reopens the picker — which can now scope windows to their zone.
@@ -7395,7 +7420,7 @@ async function showSubscriptionPickupPicker() {
 
   // Fetch active pickup templates for THIS zone only.
   const { data: templates } = await db.from('route_templates')
-    .select('id, name, schedule_days, window_start, window_end, arrival_window_hours')
+    .select('id, name, schedule_days, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
     .eq('is_active', true)
     .eq('zone_id', zoneId);
 
@@ -7423,7 +7448,12 @@ async function showSubscriptionPickupPicker() {
         const label = `${fmtHourMin(from)} – ${fmtHourMin(to)}`;
         // Avoid duplicate sub-windows on the same day across overlapping templates
         if (!dayWindowMap[isoDay].some(w => w.label === label)) {
-          dayWindowMap[isoDay].push({ templateId: t.id, windowStart: ws, windowEnd: we, label, name: t.name, startMins: from });
+          dayWindowMap[isoDay].push({
+            templateId: t.id, windowStart: ws, windowEnd: we, label, name: t.name,
+            startMins: from, endMins: to,
+            cutoffMins: (t.booking_cutoff_minutes ?? 30),
+            turnaroundHours: (t.turnaround_hours || 0)
+          });
         }
       }
     });
@@ -7442,6 +7472,10 @@ async function showSubscriptionPickupPicker() {
   // Build modal DOM
   let _selectedDay = null;
   let _selectedWin = null;
+  // Session 168: same-day delivery state (⚡ get it back tonight, +surcharge)
+  let _sameDayOn        = false;
+  let _sameDayWindows   = [];   // qualifying same-day delivery sub-windows for the chosen pickup
+  let _sameDaySurcharge = 0;    // $ surcharge (e.g. $10) — charged to card, not absorbed by sub
 
   const overlay = document.createElement('div');
   overlay.className = 'sub-daypicker-overlay';
@@ -7455,6 +7489,7 @@ async function showSubscriptionPickupPicker() {
         <div class="sub-daypicker-label">Time window</div>
         <div class="sub-daypicker-windows" id="sub-dp-wins"></div>
       </div>
+      <div id="sub-dp-sameday" style="display:none;margin:4px 0 10px"></div>
       <div id="sub-dp-delivery" style="display:none;background:var(--gray-50);border-radius:10px;padding:12px 14px;margin:4px 0 12px;font-size:13.5px;color:var(--gray-700);line-height:1.5"></div>
       <div class="sub-daypicker-err" id="sub-dp-err"></div>
       <button class="sub-daypicker-btn" id="sub-dp-btn" disabled>Set Weekly Pickup</button>
@@ -7475,6 +7510,7 @@ async function showSubscriptionPickupPicker() {
       chip.classList.add('selected');
       _selectedDay = isoDay;
       _selectedWin = null;
+      _sameDayOn = false; _sameDayWindows = [];
       renderWindows(isoDay);
       overlay.querySelector('#sub-dp-btn').disabled = !_selectedWin;
       updateDeliveryPreview();
@@ -7482,33 +7518,78 @@ async function showSubscriptionPickupPicker() {
     daysContainer.appendChild(chip);
   });
 
-  // Session 168: show the customer when their laundry comes back. Delivery day
-  // is the next serviced day after pickup (getNextDeliveryDay); the delivery
-  // window mirrors the pickup window time-of-day (same logic the saved order uses).
-  function nextOccurrenceIso(isoDay) {
-    const pad2 = n => String(n).padStart(2, '0');
-    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-    const todayJsDay = new Date(todayStr + 'T12:00:00').getDay();
-    const targetJsDay = isoDay === 6 ? 0 : isoDay + 1;
-    let daysUntil = (targetJsDay - todayJsDay + 7) % 7;
-    if (daysUntil === 0) daysUntil = 7;
-    const base = new Date(todayStr + 'T12:00:00');
-    base.setDate(base.getDate() + daysUntil);
-    return `${base.getFullYear()}-${pad2(base.getMonth() + 1)}-${pad2(base.getDate())}`;
+  // Session 168: same-day delivery availability for the chosen pickup — mirrors
+  // the booking flow's _checkSameDayAvailable (sub-windows on the SAME date that
+  // start >= pickup end + turnaround_hours).
+  async function computeSameDayWindows(pickupIso, selWin) {
+    if (!selWin || !selWin.turnaroundHours) return [];
+    const offsetStr  = pacificOffsetStr(pickupIso);
+    const pwEndMs    = new Date(`${pickupIso}T${selWin.windowEnd}${offsetStr}`).getTime();
+    const earliestMs = pwEndMs + selWin.turnaroundHours * 3600000;
+    const dow = (new Date(pickupIso + 'T12:00:00').getDay() + 6) % 7;
+    const { data: tmpls } = await db.from('route_templates')
+      .select('id, name, window_start, window_end, arrival_window_hours, booking_cutoff_minutes, turnaround_hours')
+      .eq('zone_id', zoneId).eq('is_active', true).contains('schedule_days', [dow]);
+    if (!tmpls?.length) return [];
+    const out = [];
+    tmpls.forEach(t => computeSubWindows(pickupIso, t, t.id, t.name).forEach(w => {
+      if (new Date(w.slotStart).getTime() >= earliestMs && w.label !== selWin.label) out.push(w);
+    }));
+    return out.sort((a, b) => a.slotStart < b.slotStart ? -1 : 1);
   }
 
+  function renderSameDayToggle() {
+    const el = overlay.querySelector('#sub-dp-sameday');
+    if (!el) return;
+    if (!_sameDayWindows.length) { el.style.display = 'none'; el.innerHTML = ''; _sameDayOn = false; return; }
+    const sd = _sameDayWindows[0];
+    const feeLabel = _sameDaySurcharge > 0 ? ` (+$${_sameDaySurcharge.toFixed(2)})` : '';
+    el.style.display = '';
+    el.innerHTML = `
+      <label style="display:flex;align-items:center;gap:10px;background:${_sameDayOn ? '#eef2ff' : 'var(--gray-50)'};border:1.5px solid ${_sameDayOn ? 'var(--accent)' : 'var(--gray-200)'};border-radius:10px;padding:12px 14px;cursor:pointer">
+        <input type="checkbox" id="sub-dp-sameday-cb" ${_sameDayOn ? 'checked' : ''} style="accent-color:var(--accent);width:18px;height:18px">
+        <span style="font-size:13.5px;line-height:1.4"><strong>⚡ Same-day delivery${feeLabel}</strong><br><span style="color:var(--gray-500)">Get it back tonight · ${sd.label}</span></span>
+      </label>`;
+    el.querySelector('#sub-dp-sameday-cb').onchange = (e) => {
+      _sameDayOn = e.target.checked;
+      renderSameDayToggle();
+      updateDeliveryPreview();
+    };
+  }
+
+  // Show the customer their first pickup AND when laundry comes back. The first
+  // pickup can be TODAY if the cutoff allows (_subFirstPickupIso); delivery is
+  // either same-day (if toggled) or the next serviced day (getNextDeliveryDay).
   async function updateDeliveryPreview() {
     const el = overlay.querySelector('#sub-dp-delivery');
     if (!el) return;
-    if (_selectedDay === null || !_selectedWin) { el.style.display = 'none'; return; }
+    if (_selectedDay === null || !_selectedWin) {
+      el.style.display = 'none';
+      const sdEl = overlay.querySelector('#sub-dp-sameday'); if (sdEl) sdEl.style.display = 'none';
+      return;
+    }
     el.style.display = '';
     el.innerHTML = '⏳ Calculating delivery…';
     try {
-      const pickupIso = nextOccurrenceIso(_selectedDay);
-      const delIso = await getNextDeliveryDay(pickupIso, zoneId);
-      const delDayName = new Date(delIso + 'T12:00:00').toLocaleDateString('en-US', { timeZone: BIZ_TZ, weekday: 'long', month: 'short', day: 'numeric' });
+      const pickupIso = _subFirstPickupIso(_selectedDay, _selectedWin.startMins, _selectedWin.cutoffMins);
       const pickDayName = new Date(pickupIso + 'T12:00:00').toLocaleDateString('en-US', { timeZone: BIZ_TZ, weekday: 'long', month: 'short', day: 'numeric' });
-      el.innerHTML = `🧺 <strong>Pickup:</strong> ${pickDayName} · ${_selectedWin.label}<br>🚚 <strong>Delivered back:</strong> ${delDayName} · ${_selectedWin.label}`;
+
+      // Recompute same-day availability for the resolved pickup date.
+      _sameDayWindows = await computeSameDayWindows(pickupIso, _selectedWin);
+      if (_sameDayWindows.length && _sameDaySurcharge === 0) {
+        try { _sameDaySurcharge = await _fetchSameDaySurcharge(); } catch (_) {}
+      }
+      if (!_sameDayWindows.length) _sameDayOn = false;
+      renderSameDayToggle();
+
+      if (_sameDayOn && _sameDayWindows.length) {
+        const sd = _sameDayWindows[0];
+        el.innerHTML = `🧺 <strong>Pickup:</strong> ${pickDayName} · ${_selectedWin.label}<br>⚡ <strong>Same-day delivery:</strong> ${pickDayName} · ${sd.label}`;
+      } else {
+        const delIso = await getNextDeliveryDay(pickupIso, zoneId);
+        const delDayName = new Date(delIso + 'T12:00:00').toLocaleDateString('en-US', { timeZone: BIZ_TZ, weekday: 'long', month: 'short', day: 'numeric' });
+        el.innerHTML = `🧺 <strong>Pickup:</strong> ${pickDayName} · ${_selectedWin.label}<br>🚚 <strong>Delivered back:</strong> ${delDayName} · ${_selectedWin.label}`;
+      }
     } catch (_) {
       el.style.display = 'none';
     }
@@ -7538,6 +7619,7 @@ async function showSubscriptionPickupPicker() {
         winContainer.querySelectorAll('.sub-daypicker-win').forEach(c => c.classList.remove('selected'));
         card.classList.add('selected');
         _selectedWin = w;
+        _sameDayOn = false;
         overlay.querySelector('#sub-dp-btn').disabled = false;
         updateDeliveryPreview();
       };
@@ -7553,7 +7635,10 @@ async function showSubscriptionPickupPicker() {
     btn.disabled = true; btn.textContent = 'Setting up…';
     errEl.classList.remove('show');
     try {
-      await saveSubscriptionPickupPreference(sub.id, _selectedDay, _selectedWin, zoneId);
+      await saveSubscriptionPickupPreference(sub.id, _selectedDay, _selectedWin, zoneId, {
+        sameDayWindow:    (_sameDayOn && _sameDayWindows.length) ? _sameDayWindows[0] : null,
+        sameDaySurcharge: (_sameDayOn && _sameDayWindows.length) ? _sameDaySurcharge : 0,
+      });
       overlay.remove();
       goTo('home');
       setTimeout(() => toast('Weekly pickup scheduled! 🎉', ''), 300);
@@ -7572,7 +7657,7 @@ async function showSubscriptionPickupPicker() {
   };
 }
 
-async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId) {
+async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId, opts = {}) {
   const dayName = _dayNames[isoDay].toLowerCase();
   const windowLabel = win.label;
 
@@ -7584,21 +7669,11 @@ async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId) {
   }).eq('id', subId);
   if (upErr) throw new Error('Could not save preference: ' + upErr.message);
 
-  // 2. Calculate the next occurrence of the chosen day (all in BIZ_TZ)
+  // 2. First pickup date — TODAY if the booking cutoff still allows, otherwise
+  //    the next occurrence next week. Uses the shared cutoff-aware helper so the
+  //    saved order matches the picker's delivery preview exactly.
   const pad2 = n => String(n).padStart(2, '0');
-  const now = new Date();
-  // Get today's date string in Pacific time (YYYY-MM-DD)
-  const todayStr = now.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
-  // Get today's JS weekday from the Pacific date (noon parse avoids DST edge)
-  const todayJsDay = new Date(todayStr + 'T12:00:00').getDay(); // 0=Sun..6=Sat
-  // Convert isoDay (0=Mon..6=Sun) to JS day (0=Sun..6=Sat)
-  const targetJsDay = isoDay === 6 ? 0 : isoDay + 1;
-  let daysUntil = (targetJsDay - todayJsDay + 7) % 7;
-  if (daysUntil === 0) daysUntil = 7; // always next week, not today
-  // Build the pickup date by adding days to today's Pacific date
-  const baseDate = new Date(todayStr + 'T12:00:00');
-  baseDate.setDate(baseDate.getDate() + daysUntil);
-  const pickupDateStr = `${baseDate.getFullYear()}-${pad2(baseDate.getMonth()+1)}-${pad2(baseDate.getDate())}`;
+  const pickupDateStr = _subFirstPickupIso(isoDay, win.startMins, win.cutoffMins);
 
   // 3. Parse window times and build timezone-correct ISO strings
   // Compute the current Pacific UTC offset dynamically (handles PST vs PDT)
@@ -7645,16 +7720,22 @@ async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId) {
   const routeFees     = getCustomerFees().filter(f => f.category === 'Delivery' || f.category === 'Pickup');
   const deliveryFee   = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
 
-  const total = baseAmount + deliveryFee;
+  // Same-day delivery surcharge (session 168). Charged to the card at
+  // ready_for_delivery — charge-order bills total_amount regardless of subscription.
+  const sameDayWin       = opts.sameDayWindow || null;
+  const sameDaySurcharge = sameDayWin ? (parseFloat(opts.sameDaySurcharge || 0) || 0) : 0;
+
+  const total = baseAmount + deliveryFee + sameDaySurcharge;
 
   // 5. Fetch subscription row to get the subscription_id for the order
   // (sub.id is the DB row id we already have)
 
-  // 6. Get delivery day estimate
-  const deliveryDate = await getNextDeliveryDay(pickupDateStr, zoneId);
+  // 6. Delivery date — same pickup day if same-day was chosen, else next serviced day
+  const deliveryDate = sameDayWin ? pickupDateStr : await getNextDeliveryDay(pickupDateStr, zoneId);
 
   // 7. Build line items — base + delivery fee (both $0 for subscribers),
-  //    mirroring the recurring-order trigger's Subscription branch.
+  //    mirroring the recurring-order trigger's Subscription branch. Same-day
+  //    surcharge added as its own card-billed line when chosen.
   const lineItems = [{
     type: 'base',
     label: `${svc?.name ? svc.name + ' · ' : ''}` + (svc?.pricing_type === 'per_lb'
@@ -7666,6 +7747,9 @@ async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId) {
     label: 'Delivery',
     amount: deliveryFee
   }];
+  if (sameDaySurcharge > 0) {
+    lineItems.push({ type: 'same_day_surcharge', label: 'Same-day delivery', amount: sameDaySurcharge });
+  }
 
   // 8. Get customer's default address
   const defaultAddr = _savedAddresses.find(a => a.is_default) || _savedAddresses[0];
@@ -7682,8 +7766,8 @@ async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId) {
     p_delivery_address_id:   defaultAddr?.id || null,
     p_pickup_window_start:   pickupStart,
     p_pickup_window_end:     pickupEnd,
-    p_delivery_window_start: deliveryDate ? new Date(`${deliveryDate}T${pad2(wsH)}:${pad2(wsM)}:00${_offsetStr}`).toISOString() : null,
-    p_delivery_window_end:   deliveryDate ? new Date(`${deliveryDate}T${pad2(weH)}:${pad2(weM)}:00${_offsetStr}`).toISOString() : null,
+    p_delivery_window_start: sameDayWin ? sameDayWin.slotStart : (deliveryDate ? new Date(`${deliveryDate}T${pad2(wsH)}:${pad2(wsM)}:00${_offsetStr}`).toISOString() : null),
+    p_delivery_window_end:   sameDayWin ? sameDayWin.slotEnd   : (deliveryDate ? new Date(`${deliveryDate}T${pad2(weH)}:${pad2(weM)}:00${_offsetStr}`).toISOString() : null),
     p_service_id:            svc?.id || null, // RPC resolves via pricelist fallback if NULL
     p_zone_id:               zoneId,
     p_subscription_id:       subId,
