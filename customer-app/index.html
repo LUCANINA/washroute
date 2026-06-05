@@ -7399,26 +7399,37 @@ async function showSubscriptionPickupPicker() {
     .eq('is_active', true)
     .eq('zone_id', zoneId);
 
-  // Build set of available ISO weekdays (0=Mon..6=Sun) and their windows
-  const dayWindowMap = {}; // { isoDay: [{ templateId, windowStart, windowEnd, label }] }
+  // Build set of available ISO weekdays (0=Mon..6=Sun) and their windows.
+  // Session 168: split each template's full window into arrival_window_hours
+  // sub-windows (e.g. a 7–11 AM template with arrival_window_hours=2 yields
+  // "7am – 9am" and "9am – 11am"), matching the bookable slots the normal
+  // booking flow shows via computeSubWindows. Previously this showed the raw
+  // full template band, which over-promised a 4-hour arrival window.
+  const pad2 = n => String(n).padStart(2, '0');
+  const minsToHHMMSS = m => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}:00`;
+  const dayWindowMap = {}; // { isoDay: [{ templateId, windowStart, windowEnd, label, name, startMins }] }
   (templates || []).forEach(t => {
+    const [sh, sm] = (t.window_start || '07:00:00').split(':').map(Number);
+    const [eh, em] = (t.window_end || '22:00:00').split(':').map(Number);
+    const sMins = sh * 60 + (sm || 0);
+    const eMins = eh * 60 + (em || 0);
+    const step  = (t.arrival_window_hours || 2) * 60;
     (t.schedule_days || []).forEach(isoDay => {
       if (!dayWindowMap[isoDay]) dayWindowMap[isoDay] = [];
-      const ws = t.window_start || '07:00:00';
-      const we = t.window_end || '22:00:00';
-      const fmtTime = ts => {
-        const [h] = ts.split(':').map(Number);
-        const ampm = h >= 12 ? 'PM' : 'AM';
-        const hr = h === 0 ? 12 : h > 12 ? h - 12 : h;
-        return `${hr} ${ampm}`;
-      };
-      const label = `${fmtTime(ws)} – ${fmtTime(we)}`;
-      // Avoid duplicate windows on the same day
-      if (!dayWindowMap[isoDay].some(w => w.label === label)) {
-        dayWindowMap[isoDay].push({ templateId: t.id, windowStart: ws, windowEnd: we, label, name: t.name });
+      for (let from = sMins; from + step <= eMins; from += step) {
+        const to = from + step;
+        const ws = minsToHHMMSS(from);
+        const we = minsToHHMMSS(to);
+        const label = `${fmtHourMin(from)} – ${fmtHourMin(to)}`;
+        // Avoid duplicate sub-windows on the same day across overlapping templates
+        if (!dayWindowMap[isoDay].some(w => w.label === label)) {
+          dayWindowMap[isoDay].push({ templateId: t.id, windowStart: ws, windowEnd: we, label, name: t.name, startMins: from });
+        }
       }
     });
   });
+  // Order sub-windows chronologically within each day
+  Object.values(dayWindowMap).forEach(arr => arr.sort((a, b) => a.startMins - b.startMins));
 
   const availableDays = Object.keys(dayWindowMap).map(Number).sort();
   if (!availableDays.length) {
