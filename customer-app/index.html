@@ -7476,6 +7476,23 @@ async function showSubscriptionPickupPicker() {
   let _sameDayOn        = false;
   let _sameDayWindows   = [];   // qualifying same-day delivery sub-windows for the chosen pickup
   let _sameDaySurcharge = 0;    // $ surcharge (e.g. $10) — charged to card, not absorbed by sub
+  // Session 168: standing paid extras (Vinegar/Oxi) — added to every weekly
+  // pickup as addon line items, billed to the card per pickup.
+  let _selectedExtras   = [];   // [{ prefId, name, optionId, label, priceMod }]
+
+  // Load the featured paid extras (curated to Vinegar + Oxi). Each pref's "Yes"
+  // option carries the price_mod. Failure is non-fatal — section just hides.
+  let _extrasCatalog = [];
+  try {
+    const { data: prefRows } = await db.from('preferences')
+      .select('id, name, options')
+      .in('name', ['Vinegar', 'Oxi']);
+    (prefRows || []).forEach(p => {
+      const yes = (p.options || []).find(o => Number(o.price_mod) > 0);
+      if (yes) _extrasCatalog.push({ prefId: p.id, name: p.name, optionId: yes.id, label: yes.label || 'Yes', priceMod: Number(yes.price_mod) });
+    });
+    _extrasCatalog.sort((a, b) => a.name.localeCompare(b.name));
+  } catch (_) {}
 
   const overlay = document.createElement('div');
   overlay.className = 'sub-daypicker-overlay';
@@ -7490,6 +7507,7 @@ async function showSubscriptionPickupPicker() {
         <div class="sub-daypicker-windows" id="sub-dp-wins"></div>
       </div>
       <div id="sub-dp-sameday" style="display:none;margin:4px 0 10px"></div>
+      <div id="sub-dp-extras" style="display:none;margin:4px 0 10px"></div>
       <div id="sub-dp-delivery" style="display:none;background:var(--gray-50);border-radius:10px;padding:12px 14px;margin:4px 0 12px;font-size:13.5px;color:var(--gray-700);line-height:1.5"></div>
       <div class="sub-daypicker-err" id="sub-dp-err"></div>
       <button class="sub-daypicker-btn" id="sub-dp-btn" disabled>Set Weekly Pickup</button>
@@ -7557,6 +7575,38 @@ async function showSubscriptionPickupPicker() {
     };
   }
 
+  // Session 168: standing paid extras upsell (Vinegar/Oxi). Selections are
+  // applied to every weekly pickup (carried forward by the recurring trigger)
+  // and billed to the card per pickup.
+  function renderExtras() {
+    const el = overlay.querySelector('#sub-dp-extras');
+    if (!el) return;
+    if (!_extrasCatalog.length) { el.style.display = 'none'; return; }
+    el.style.display = '';
+    el.innerHTML = `<div class="sub-daypicker-label">Add extras to every pickup (optional)</div>` +
+      _extrasCatalog.map(x => {
+        const on = _selectedExtras.some(s => s.prefId === x.prefId);
+        return `<label style="display:flex;align-items:center;gap:10px;background:${on ? '#eef2ff' : 'var(--gray-50)'};border:1.5px solid ${on ? 'var(--accent)' : 'var(--gray-200)'};border-radius:10px;padding:11px 14px;margin-bottom:8px;cursor:pointer">
+          <input type="checkbox" data-pref="${x.prefId}" ${on ? 'checked' : ''} style="accent-color:var(--accent);width:18px;height:18px">
+          <span style="font-size:13.5px"><strong>${x.name}</strong> <span style="color:var(--gray-500)">+$${x.priceMod.toFixed(2)} / pickup</span></span>
+        </label>`;
+      }).join('') +
+      `<div style="font-size:11.5px;color:var(--gray-500);margin-top:-2px;line-height:1.4">Billed to your card each pickup, on top of your plan.</div>`;
+    el.querySelectorAll('input[data-pref]').forEach(cb => {
+      cb.onchange = (e) => {
+        const x = _extrasCatalog.find(c => c.prefId === e.target.dataset.pref);
+        if (!x) return;
+        if (e.target.checked) {
+          if (!_selectedExtras.some(s => s.prefId === x.prefId)) _selectedExtras.push(x);
+        } else {
+          _selectedExtras = _selectedExtras.filter(s => s.prefId !== x.prefId);
+        }
+        renderExtras();
+        updateDeliveryPreview();
+      };
+    });
+  }
+
   // Show the customer their first pickup AND when laundry comes back. The first
   // pickup can be TODAY if the cutoff allows (_subFirstPickupIso); delivery is
   // either same-day (if toggled) or the next serviced day (getNextDeliveryDay).
@@ -7566,8 +7616,10 @@ async function showSubscriptionPickupPicker() {
     if (_selectedDay === null || !_selectedWin) {
       el.style.display = 'none';
       const sdEl = overlay.querySelector('#sub-dp-sameday'); if (sdEl) sdEl.style.display = 'none';
+      const exEl = overlay.querySelector('#sub-dp-extras'); if (exEl) exEl.style.display = 'none';
       return;
     }
+    renderExtras();
     el.style.display = '';
     el.innerHTML = '⏳ Calculating delivery…';
     try {
@@ -7582,14 +7634,27 @@ async function showSubscriptionPickupPicker() {
       if (!_sameDayWindows.length) _sameDayOn = false;
       renderSameDayToggle();
 
+      let html;
       if (_sameDayOn && _sameDayWindows.length) {
         const sd = _sameDayWindows[0];
-        el.innerHTML = `🧺 <strong>Pickup:</strong> ${pickDayName} · ${_selectedWin.label}<br>⚡ <strong>Same-day delivery:</strong> ${pickDayName} · ${sd.label}`;
+        html = `🧺 <strong>Pickup:</strong> ${pickDayName} · ${_selectedWin.label}<br>⚡ <strong>Same-day delivery:</strong> ${pickDayName} · ${sd.label}`;
       } else {
         const delIso = await getNextDeliveryDay(pickupIso, zoneId);
         const delDayName = new Date(delIso + 'T12:00:00').toLocaleDateString('en-US', { timeZone: BIZ_TZ, weekday: 'long', month: 'short', day: 'numeric' });
-        el.innerHTML = `🧺 <strong>Pickup:</strong> ${pickDayName} · ${_selectedWin.label}<br>🚚 <strong>Delivered back:</strong> ${delDayName} · ${_selectedWin.label}`;
+        html = `🧺 <strong>Pickup:</strong> ${pickDayName} · ${_selectedWin.label}<br>🚚 <strong>Delivered back:</strong> ${delDayName} · ${_selectedWin.label}`;
       }
+
+      // Extras + card-charged total summary (same-day surcharge + standing extras)
+      const extrasTotal = _selectedExtras.reduce((s, x) => s + (x.priceMod || 0), 0);
+      const sdFee = (_sameDayOn && _sameDayWindows.length) ? _sameDaySurcharge : 0;
+      const cardTotal = extrasTotal + sdFee;
+      if (_selectedExtras.length) {
+        html += `<br>✨ <strong>Extras:</strong> ${_selectedExtras.map(x => x.name).join(', ')} · +$${extrasTotal.toFixed(2)}/pickup`;
+      }
+      if (cardTotal > 0) {
+        html += `<br><span style="color:var(--gray-500)">Charged to your card each pickup: <strong>$${cardTotal.toFixed(2)}</strong> (plan covers wash &amp; fold + delivery)</span>`;
+      }
+      el.innerHTML = html;
     } catch (_) {
       el.style.display = 'none';
     }
@@ -7638,6 +7703,7 @@ async function showSubscriptionPickupPicker() {
       await saveSubscriptionPickupPreference(sub.id, _selectedDay, _selectedWin, zoneId, {
         sameDayWindow:    (_sameDayOn && _sameDayWindows.length) ? _sameDayWindows[0] : null,
         sameDaySurcharge: (_sameDayOn && _sameDayWindows.length) ? _sameDaySurcharge : 0,
+        extras:           _selectedExtras.slice(),
       });
       overlay.remove();
       goTo('home');
@@ -7725,7 +7791,7 @@ async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId, opts
   const sameDayWin       = opts.sameDayWindow || null;
   const sameDaySurcharge = sameDayWin ? (parseFloat(opts.sameDaySurcharge || 0) || 0) : 0;
 
-  const total = baseAmount + deliveryFee + sameDaySurcharge;
+  let total = baseAmount + deliveryFee + sameDaySurcharge;
 
   // 5. Fetch subscription row to get the subscription_id for the order
   // (sub.id is the DB row id we already have)
@@ -7750,6 +7816,18 @@ async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId, opts
   if (sameDaySurcharge > 0) {
     lineItems.push({ type: 'same_day_surcharge', label: 'Same-day delivery', amount: sameDaySurcharge });
   }
+  // Session 168: standing paid extras (Vinegar/Oxi). Stored as addon line items
+  // — the laundry team reads these to apply the preference, and charge-order
+  // bills them to the card. The recurring trigger carries them forward each cycle.
+  const extras = Array.isArray(opts.extras) ? opts.extras : [];
+  let extrasTotal = 0;
+  extras.forEach(x => {
+    const amt = parseFloat(x.priceMod || 0) || 0;
+    if (amt <= 0) return;
+    extrasTotal += amt;
+    lineItems.push({ type: 'addon', label: x.name, amount: amt, taxable: false });
+  });
+  total += extrasTotal;
 
   // 8. Get customer's default address
   const defaultAddr = _savedAddresses.find(a => a.is_default) || _savedAddresses[0];
