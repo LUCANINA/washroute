@@ -44,6 +44,12 @@ const SUBSCRIPTION_ALLOWLIST = [
   'dmacquart@gmail.com',
   'dmacquart+wrsignup1@gmail.com',
   'dmacquart+sub4@gmail.com',
+  // Soft-launch trusted group (session 168):
+  'devgrigg3@gmail.com',
+  'elizabeth.gettinger@gmail.com',
+  'natasha31105@gmail.com',
+  'caitlinjoneill@gmail.com',
+  'rachel@sfbla.com',
 ].map(e => e.toLowerCase())
 
 function emailAllowed(email: string | null | undefined): boolean {
