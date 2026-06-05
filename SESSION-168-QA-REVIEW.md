@@ -87,3 +87,29 @@ The webhook signing-secret mismatch silently rejected *every* Stripe event (400s
 7. L1 Monday deploy reminder; then M4, A2, A3, A5 as steady-state hardening.
 
 *Today's shipped fixes (webhook secret, $59→$0 pricing, overage double-charge, admin address, POS commercial/on-account) all verified correct under this review.*
+
+---
+
+## 6. Architectural work IMPLEMENTED (session 168 continuation)
+
+Done, in order, behind the net:
+
+- **A4 — billing regression net (DONE).** `database/tests/subscription_billing_invariants.sql` — 5 read-only invariants (no >1 overage line; never both `overage`+`lb_overage`; `total_amount == sum(line_items)`; no negative usage; base must be $0). Passes on current data; RAISEs on violation.
+- **A5 — Stripe→DB seam monitoring (DONE).** `audit_subscriptions_missing_invoice()` flags active subs with no invoice for the current period (the webhook-secret-drift signature). Wired into `nightly-smoke-test` (v4, SMS-alerts) + `daily_audit.sql` Check 9 + MONITORING.md. Verified: smoke test passes with the new check.
+- **A1 (footguns removed, DONE).**
+  - **Dropped `compute_subscription_residual`** — orphaned + double-counts overage on the v2 architecture (would have double-charged if anyone wired it into charge-order). Zero callers verified.
+  - **Narrowed the recurring carry-forward** to standing extras only (`addon`/`pref_service`/`same_day_surcharge`); it no longer carries per-order `overage` or one-time `credit`/`discount`.
+
+## 7. A1/A2 — remaining consolidation (PLAN for a fresh, tested effort)
+
+The keystone "one pricing authority" rewrite was deliberately NOT attempted at the tail of this long session — it touches every billing surface and must be scenario-tested. With the A4 net + A5 monitor now guarding it, here is the plan:
+
+**Decision already made by the code:** the de-facto single authority today is the pair **(admin intake `record_order_intake`/`_buildIntakeLineItems` rebuilds line_items) + (apply_subscription_usage_fn trigger owns overage at ready_for_delivery)**, and `charge-order` charges the resulting `total_amount`. That works. So the consolidation should *formalize* this model, not introduce a competing one (we just deleted the competing `compute_subscription_residual`).
+
+**Steps:**
+1. **N1 — verify same-day survives intake.** Confirm `openIntakePanel` sets `procIsSameDay` from the order's delivery==pickup date so `_buildIntakeLineItems` re-adds the $14.95 surcharge for a recurring same-day order. If it doesn't, same-day recurring leaks revenue. *Test before the first recurring cycle (~1 week post-launch).*
+2. **A2 — shared pricing resolver.** Extract one server-side `resolve_service_price(customer_id, service_name) → {price, pricing_type, service_id}` and have the picker, booking flow, admin intake, recurring trigger, and POS all call it (replacing the 5 parallel pricelist lookups). This is what makes the $59-vs-$0 and POS-retail bugs structurally impossible. Adopt surface-by-surface behind the A4 invariants.
+3. **Make `record_order_intake` MERGE, not blind-rebuild.** It should preserve lines it doesn't own (e.g. `same_day_surcharge`) instead of dropping + re-deriving, so the "what survives intake" question disappears.
+4. **Document the line-item ownership table** (who writes base / delivery / overage / addon / same_day / discount / credit, and when) in PROJECT-NOTES so the 4-writers model is explicit and new code can't violate it.
+
+**Sequencing:** A2 (shared resolver) first — highest value, lowest risk, additive. Then #3 (intake merge). #1 (N1) is a verification, do it before the first recurring cycle. Run `subscription_billing_invariants.sql` after each step.
