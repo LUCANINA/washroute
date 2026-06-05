@@ -128,3 +128,51 @@ Reference: session 167 PROJECT-NOTES entry, sub-section (q) HOTFIX.
 Open each `~/.claude/skills/<name>/SKILL.md` in your text editor and paste the
 sections in at the indicated locations. Or, in a future Claude session, ask:
 "Use cowork-plugin-customizer to apply the skill updates from SKILL-UPDATES-SESSION-167.md."
+
+---
+
+## 4. `washroute-audit` — point at MONITORING.md + use the new SQL helper
+
+**Where to add:** near the top of the skill, just under the "## Overview" section.
+
+```markdown
+## Production monitoring is now automated
+
+Three live monitors run continuously in production — see `MONITORING.md` at the
+repo root for the full inventory + diagnostics for each alert:
+- `wr-health-monitor` — pg_cron every 15min, alerts on order-rate anomalies
+- `wr-nightly-smoke-test` — pg_cron at 3am PT, alerts on broken booking flow
+- `database/audits/daily_audit.sql` — 8 manual integrity checks
+
+When David says "morning rounds" or "load up", FIRST read MONITORING.md to
+understand what's already being watched automatically, then run any of the
+checks in `database/audits/daily_audit.sql` that aren't covered by the
+automated monitors. Don't duplicate work the automation already does.
+
+## SQL helpers available
+
+| Function | Returns |
+|---|---|
+| `audit_duplicate_services()` | Rows where (name, sort_order) collides in `services` AND both are show_in_app=true + is_addon=false + is_active=true. Catches the HOTFIX class (Session 167) where `.find()` callers can pick the wrong row. |
+
+Always call this BEFORE inserting a new row into `services` to confirm you're
+not creating a collision.
+```
+
+---
+
+## 5. `washroute-changelog` — note the MONITORING.md change-log convention
+
+**Where to add:** as a new section near the end.
+
+```markdown
+## After deploying monitoring changes
+
+If the session shipped a new automated monitor, audit, or cron job:
+1. Add an entry to the `## Live monitors` or `## SQL helpers` section of
+   `MONITORING.md` at the repo root.
+2. Add a row to the change log table at the bottom of MONITORING.md with the
+   date + a one-line description.
+3. PROJECT-NOTES.md gets its own paragraph as usual (high-level story); the
+   MONITORING.md row is the operational reference David checks during incidents.
+```
