@@ -7508,7 +7508,7 @@ async function showSubscriptionPickupPicker() {
   // Preferences screen writes. So the two stay in sync: prefilled here if
   // already chosen there, and toggling here writes back. The featured subset is
   // curated to Vinegar + Oxi, but the SAVED order honors ALL paid add-on prefs
-  // (see _subPaidAddons) so nothing the customer set elsewhere is dropped.
+  // (see _subPaidAddonsFromPrefs) so nothing the customer set elsewhere is dropped.
   let _extrasCatalog = [];
   try {
     const { data: prefRows } = await db.from('preferences')
