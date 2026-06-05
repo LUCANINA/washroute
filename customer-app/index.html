@@ -7455,6 +7455,7 @@ async function showSubscriptionPickupPicker() {
         <div class="sub-daypicker-label">Time window</div>
         <div class="sub-daypicker-windows" id="sub-dp-wins"></div>
       </div>
+      <div id="sub-dp-delivery" style="display:none;background:var(--gray-50);border-radius:10px;padding:12px 14px;margin:4px 0 12px;font-size:13.5px;color:var(--gray-700);line-height:1.5"></div>
       <div class="sub-daypicker-err" id="sub-dp-err"></div>
       <button class="sub-daypicker-btn" id="sub-dp-btn" disabled>Set Weekly Pickup</button>
       <div class="sub-daypicker-skip" id="sub-dp-skip">I'll book pickups manually</div>
@@ -7475,10 +7476,43 @@ async function showSubscriptionPickupPicker() {
       _selectedDay = isoDay;
       _selectedWin = null;
       renderWindows(isoDay);
-      overlay.querySelector('#sub-dp-btn').disabled = true;
+      overlay.querySelector('#sub-dp-btn').disabled = !_selectedWin;
+      updateDeliveryPreview();
     };
     daysContainer.appendChild(chip);
   });
+
+  // Session 168: show the customer when their laundry comes back. Delivery day
+  // is the next serviced day after pickup (getNextDeliveryDay); the delivery
+  // window mirrors the pickup window time-of-day (same logic the saved order uses).
+  function nextOccurrenceIso(isoDay) {
+    const pad2 = n => String(n).padStart(2, '0');
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
+    const todayJsDay = new Date(todayStr + 'T12:00:00').getDay();
+    const targetJsDay = isoDay === 6 ? 0 : isoDay + 1;
+    let daysUntil = (targetJsDay - todayJsDay + 7) % 7;
+    if (daysUntil === 0) daysUntil = 7;
+    const base = new Date(todayStr + 'T12:00:00');
+    base.setDate(base.getDate() + daysUntil);
+    return `${base.getFullYear()}-${pad2(base.getMonth() + 1)}-${pad2(base.getDate())}`;
+  }
+
+  async function updateDeliveryPreview() {
+    const el = overlay.querySelector('#sub-dp-delivery');
+    if (!el) return;
+    if (_selectedDay === null || !_selectedWin) { el.style.display = 'none'; return; }
+    el.style.display = '';
+    el.innerHTML = '⏳ Calculating delivery…';
+    try {
+      const pickupIso = nextOccurrenceIso(_selectedDay);
+      const delIso = await getNextDeliveryDay(pickupIso, zoneId);
+      const delDayName = new Date(delIso + 'T12:00:00').toLocaleDateString('en-US', { timeZone: BIZ_TZ, weekday: 'long', month: 'short', day: 'numeric' });
+      const pickDayName = new Date(pickupIso + 'T12:00:00').toLocaleDateString('en-US', { timeZone: BIZ_TZ, weekday: 'long', month: 'short', day: 'numeric' });
+      el.innerHTML = `🧺 <strong>Pickup:</strong> ${pickDayName} · ${_selectedWin.label}<br>🚚 <strong>Delivered back:</strong> ${delDayName} · ${_selectedWin.label}`;
+    } catch (_) {
+      el.style.display = 'none';
+    }
+  }
 
   function renderWindows(isoDay) {
     const wins = dayWindowMap[isoDay] || [];
@@ -7491,6 +7525,7 @@ async function showSubscriptionPickupPicker() {
       _selectedWin = wins[0];
       overlay.querySelector('#sub-dp-btn').disabled = false;
       winSection.style.display = 'none';
+      updateDeliveryPreview();
       return;
     }
     winSection.style.display = '';
@@ -7504,6 +7539,7 @@ async function showSubscriptionPickupPicker() {
         card.classList.add('selected');
         _selectedWin = w;
         overlay.querySelector('#sub-dp-btn').disabled = false;
+        updateDeliveryPreview();
       };
       winContainer.appendChild(card);
     });
@@ -7577,19 +7613,39 @@ async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId) {
   const pickupStart = new Date(`${pickupDateStr}T${pad2(wsH)}:${pad2(wsM)}:00${_offsetStr}`).toISOString();
   const pickupEnd   = new Date(`${pickupDateStr}T${pad2(weH)}:${pad2(weM)}:00${_offsetStr}`).toISOString();
 
-  // 4. Get the default service (Wash & Fold)
-  if (!defaultService) {
+  // 4. Resolve the base Wash & Fold service for THIS customer's pricelist.
+  //    Session 168 fix: this previously hardcoded the 'Delivery' pricelist, so a
+  //    subscriber's recurring pickup was priced at $59 instead of $0. The picker
+  //    is only reached by subscribers, so resolve by the customer's pricelist
+  //    (Subscription → $0). Query directly so we don't depend on a warm
+  //    _pricelistServices cache.
+  const pricelist = currentCustomer?.pricelist || 'Delivery';
+  let svc = null;
+  {
     const { data: svcs } = await db.from('services')
       .select('id, name, base_price, pricing_type, lbs_per_bag')
-      .eq('pricelist', 'Delivery').eq('is_active', true)
-      .order('display_order').limit(1);
-    if (svcs?.length) defaultService = svcs[0];
+      .eq('pricelist', pricelist).eq('is_active', true)
+      .eq('is_addon', false).limit(1);
+    svc = svcs?.[0] || null;
+    if (!svc) {
+      // Fallback only if no pricelist-specific service exists.
+      const { data: d } = await db.from('services')
+        .select('id, name, base_price, pricing_type, lbs_per_bag')
+        .eq('pricelist', 'Delivery').eq('is_active', true).eq('is_addon', false).limit(1);
+      svc = d?.[0] || null;
+    }
   }
-  const svc = defaultService;
   const bags = 1;
   const basePrice = parseFloat(svc?.base_price || 0);
   const estLbs = svc?.pricing_type === 'per_lb' ? bags * (parseFloat(svc?.lbs_per_bag) || 25) : 0;
-  const total = svc?.pricing_type === 'per_lb' ? estLbs * basePrice : bags * basePrice;
+  const baseAmount = svc?.pricing_type === 'per_lb' ? estLbs * basePrice : bags * basePrice;
+
+  // Delivery fee for this pricelist (subscribers resolve to the $0 Subscription
+  // Delivery Fee row via getCustomerFees). Mirrors the booking flow.
+  const routeFees     = getCustomerFees().filter(f => f.category === 'Delivery' || f.category === 'Pickup');
+  const deliveryFee   = routeFees.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+
+  const total = baseAmount + deliveryFee;
 
   // 5. Fetch subscription row to get the subscription_id for the order
   // (sub.id is the DB row id we already have)
@@ -7597,13 +7653,18 @@ async function saveSubscriptionPickupPreference(subId, isoDay, win, zoneId) {
   // 6. Get delivery day estimate
   const deliveryDate = await getNextDeliveryDay(pickupDateStr, zoneId);
 
-  // 7. Build line items
+  // 7. Build line items — base + delivery fee (both $0 for subscribers),
+  //    mirroring the recurring-order trigger's Subscription branch.
   const lineItems = [{
     type: 'base',
-    label: svc?.pricing_type === 'per_lb'
+    label: `${svc?.name ? svc.name + ' · ' : ''}` + (svc?.pricing_type === 'per_lb'
       ? `Est. ${estLbs} lbs × $${basePrice.toFixed(2)}/lb`
-      : `${bags} bag × $${basePrice.toFixed(2)}`,
-    amount: total
+      : `${bags} bag × $${basePrice.toFixed(2)}`),
+    amount: baseAmount
+  }, {
+    type: 'delivery_fee',
+    label: 'Delivery',
+    amount: deliveryFee
   }];
 
   // 8. Get customer's default address
