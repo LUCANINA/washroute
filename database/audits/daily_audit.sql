@@ -101,3 +101,12 @@ WHERE stripe_customer_id IS NOT NULL
   AND stripe_default_payment_method_id IS NULL
   AND last_order_at < NOW() - INTERVAL '60 days'
 LIMIT 20;
+
+
+-- 9. Stripe→DB seam health (session 168, A5)
+-- Expected: 0 rows. Any output = an active subscription has NO invoice recorded
+-- for its current period — the signature of stripe-webhook signing-secret drift
+-- (the class that forced the June 2 backfill). The nightly-smoke-test runs this
+-- same check and SMS-alerts on any rows.
+SELECT 'CHECK 9 — active subscription missing invoice (Stripe seam)' AS check_name;
+SELECT * FROM audit_subscriptions_missing_invoice();

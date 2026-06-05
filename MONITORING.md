@@ -72,6 +72,7 @@ UPDATE cron.job SET active = false WHERE jobname = 'wr-health-monitor';
 6. Order INSERT succeeds with all required columns (catches schema drift)
 7. Order total matches sent value (catches trigger interference)
 8. Order cleanup deletes successfully (catches policy/permission breaks)
+9. **Stripe→DB seam (session 168, A5):** `audit_subscriptions_missing_invoice()` returns 0 rows — catches stripe-webhook signing-secret drift (an active subscription with no invoice recorded for its current period, the class that forced the June 2 backfill). Also exposed as Check 9 in `daily_audit.sql`.
 
 **Run time:** ~800ms
 
@@ -179,6 +180,7 @@ Or pull the Twilio plug entirely by clearing the env var in Supabase Dashboard �
 | Date | Change |
 |---|---|
 | 2026-06-04 | Initial v1: `wr-health-monitor` + `wr-nightly-smoke-test` + `daily_audit.sql` (Session 167 Phase 8 PM) |
+| 2026-06-05 | A5 (Session 168): added Stripe→DB seam check `audit_subscriptions_missing_invoice()` to nightly-smoke-test (v4) + daily_audit Check 9. Catches webhook signing-secret drift. |
 
 Add a row every time you ship a new check, change a threshold, or retire an alert.
 

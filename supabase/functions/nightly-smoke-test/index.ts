@@ -101,6 +101,14 @@ Deno.serve(async (req) => {
       .select('id, amount, pricelist').eq('name', 'Delivery Fee').is('pricelist', null).maybeSingle()
     if (!deliveryFee) return fail('delivery fee', new Error('Global Delivery Fee row missing'))
 
+    // 4b. Stripe→DB seam health (session 168, A5) — any active subscription with
+    // no invoice recorded for its current period is the signature of the
+    // webhook signing-secret drift that forced the June 2 backfill. Alert on it.
+    const { data: missingInv } = await db.rpc('audit_subscriptions_missing_invoice')
+    if (missingInv && missingInv.length > 0) {
+      return fail('stripe seam — subscription invoice missing', new Error(`${missingInv.length} active subscription(s) have no recorded invoice for the current period — possible stripe-webhook signature/secret drift: ${JSON.stringify(missingInv)}`))
+    }
+
     const tomorrow = new Date(startedAt.getTime() + 24 * 60 * 60 * 1000)
     const pickupStart = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 20, 0, 0)
     const pickupEnd   = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 22, 0, 0)
