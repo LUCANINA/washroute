@@ -26484,7 +26484,12 @@ ${oneCopy}
     const lineItems = [
       { type:'base', label: baseLabel, amount: bd.base }
     ];
-    if (bd.overage_charge > 0)
+    // Session 168: for SUBSCRIPTION orders the lb_overage trigger
+    // (apply_subscription_usage_fn) writes the overage line + bumps total_amount
+    // at ready_for_delivery. Persisting an 'overage' line here too double-charges
+    // the customer (the $55 + $55 bug). Non-subscription orders still persist it
+    // here (no trigger involved). The breakdown still PREVIEWS it either way.
+    if (bd.overage_charge > 0 && !bd.isSubscription)
       lineItems.push({ type:'overage', label:`${bd.overage_lbs.toFixed(1)} lbs overage × ${fmtMoney(ovgRate)}/lb`, amount: bd.overage_charge });
     // Preference selections: only include as line items if they have a price > $0,
     // and label them with the preference group name (not just "Yes"/"No").
@@ -26625,7 +26630,19 @@ ${oneCopy}
     // IMPORTANT: orders.total_amount is the pre-tip, post-credit subtotal.
     // charge-order v33 adds the tip on top at charge time using
     // orders.tip_amount/tip_type. Storing bd.total here would double-tip.
-    const savedTotal = (bd.preTipTotal !== undefined) ? bd.preTipTotal : bd.total;
+    let savedTotal = (bd.preTipTotal !== undefined) ? bd.preTipTotal : bd.total;
+    // Session 168: subscription lb-overage is written + added to total_amount by
+    // the lb_overage trigger at ready_for_delivery. The breakdown PREVIEWS it
+    // (included in bd.total above so the launderer sees the full figure), but it
+    // must NOT be persisted at intake or it's charged twice. Subtract its
+    // contribution from the persisted subtotal; the trigger restores it later.
+    let _intakeCredit = bd.creditApplied || 0;
+    if (bd.isSubscription && bd.overage_charge > 0) {
+      const _discPct = (procCustomerDiscount?.type === 'percent') ? parseFloat(procCustomerDiscount.value) / 100 : 0;
+      const _overageContribution = Math.round(bd.overage_charge * (1 - _discPct) * 100) / 100;
+      savedTotal = Math.round(Math.max(0, savedTotal - _overageContribution) * 100) / 100;
+      _intakeCredit = Math.min(_intakeCredit, savedTotal); // don't over-apply credit against the smaller persisted total
+    }
 
     // Session 136: single transactional RPC — record_order_intake. Replaces 4
     // separate writes (4× logOrderEvent + 1× orders update + 1× apply_customer_credit_to_order).
@@ -26646,7 +26663,7 @@ ${oneCopy}
       p_discount_id:    procCustomerDiscount?.id || null,
       p_is_same_day:    procIsSameDay,
       p_notes:          procNotes || null,
-      p_credit_applied: bd.creditApplied || 0,
+      p_credit_applied: _intakeCredit,
       p_customer_id:    procCustomerId || null,
       p_actor_name:     actorName,
     });
