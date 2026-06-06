@@ -631,7 +631,24 @@ Deno.serve(async (req) => {
         // This is what makes customers.lifetime_value accurate for subscribers.
         // Without this, only order-charges flow through LTV — the monthly $275
         // (and overage true-ups) would be invisible to all revenue reports.
-        if (localSub?.customer_id) {
+        // Session 169: don't gate recording on the local subscriptions row existing.
+        // customer.subscription.created and invoice.payment_succeeded can process
+        // out of order; if the sub row isn't written yet, localSub is null and the
+        // $275 was silently dropped (Micha Mokrani — no transaction, no LTV bump).
+        // Fall back to the invoice's Stripe customer so recording never depends on
+        // webhook event ordering. Idempotency (payment-intent check) still applies.
+        let txCustId: string | null = localSub?.customer_id || null
+        if (!txCustId) {
+          const invStripeCustId = typeof invoice.customer === 'string'
+            ? invoice.customer
+            : (invoice.customer as any)?.id
+          if (invStripeCustId) {
+            const { data: fbCust } = await db.from('customers')
+              .select('id').eq('stripe_customer_id', invStripeCustId).maybeSingle()
+            txCustId = fbCust?.id || null
+          }
+        }
+        if (txCustId) {
           const amountPaid = (invoice.amount_paid || 0) / 100
           const paymentIntentId = typeof invoice.payment_intent === 'string'
             ? invoice.payment_intent
@@ -652,7 +669,7 @@ Deno.serve(async (req) => {
               // Get card info from default payment method (best-effort, for receipt parity)
               const { data: custCard } = await db.from('customers')
                 .select('card_brand, card_last4')
-                .eq('id', localSub.customer_id)
+                .eq('id', txCustId)
                 .maybeSingle()
 
               const periodEndIso = invoice.period_end
@@ -663,7 +680,7 @@ Deno.serve(async (req) => {
                 : `Subscription · ${periodEndIso || 'monthly'}`
 
               const { error: txInsertErr } = await db.from('customer_transactions').insert({
-                customer_id: localSub.customer_id,
+                customer_id: txCustId,
                 type: 'subscription_invoice',
                 amount: amountPaid,
                 description: desc,
@@ -679,12 +696,12 @@ Deno.serve(async (req) => {
                 // Bump lifetime_value
                 const { data: custCur } = await db.from('customers')
                   .select('lifetime_value')
-                  .eq('id', localSub.customer_id)
+                  .eq('id', txCustId)
                   .single()
                 const newLtv = parseFloat(custCur?.lifetime_value || '0') + amountPaid
                 await db.from('customers').update({ lifetime_value: newLtv })
-                  .eq('id', localSub.customer_id)
-                console.log(`Recorded subscription invoice $${amountPaid} for customer ${localSub.customer_id}, new LTV $${newLtv}`)
+                  .eq('id', txCustId)
+                console.log(`Recorded subscription invoice $${amountPaid} for customer ${txCustId}, new LTV $${newLtv}`)
               }
             } else {
               console.log('Subscription invoice already recorded (idempotency hit):', paymentIntentId)
