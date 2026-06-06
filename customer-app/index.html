@@ -1853,18 +1853,17 @@ let _activeSub      = null; // cached active subscription for this customer
    that previously read `SUBSCRIPTIONS_ENABLED` now calls
    `SUBSCRIPTIONS_ENABLED()` — same boolean semantics, just lazy.
    ──────────────────────────────────────────────────────────── */
-const SUBSCRIPTIONS_ALLOWLIST = [
-  'dmacquart@gmail.com',
-  'dmacquart+wrsignup1@gmail.com',
-  'dmacquart+sub4@gmail.com',
-  // Soft-launch trusted group (session 168):
-  'devgrigg3@gmail.com',
-  'elizabeth.gettinger@gmail.com',
-  'natasha31105@gmail.com',
-  'caitlinjoneill@gmail.com',
-  'rachel@sfbla.com',
-];
+// LAUNCH (session 168 part 4 — June 5): allowlist EMPTIED to open subscriptions
+// to ALL customers. Empty array => SUBSCRIPTIONS_ENABLED() returns true for
+// everyone (mirrors the create-subscription / create-checkout edge-function gate).
+// To ROLL BACK to the soft-launch group, restore these emails into the array:
+//   dmacquart@gmail.com, dmacquart+wrsignup1@gmail.com, dmacquart+sub4@gmail.com,
+//   devgrigg3@gmail.com, elizabeth.gettinger@gmail.com, natasha31105@gmail.com,
+//   caitlinjoneill@gmail.com, rachel@sfbla.com
+const SUBSCRIPTIONS_ALLOWLIST = [];
 function SUBSCRIPTIONS_ENABLED() {
+  // Empty allowlist = open to all (launch mode), matching the server-side gate.
+  if (SUBSCRIPTIONS_ALLOWLIST.length === 0) return true;
   // Globals currentUser / currentProfile / currentCustomer are populated
   // by loadUserData(); fall back gracefully if none are set yet.
   const email = String(

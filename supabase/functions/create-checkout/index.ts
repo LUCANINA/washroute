@@ -24,17 +24,12 @@ const cors = {
 // Monday's public launch to open subscriptions to everyone. This function is
 // the legacy Stripe-hosted Checkout path (the in-app flows use
 // create-subscription); gating it too closes the back door.
-const SUBSCRIPTION_ALLOWLIST = [
-  'dmacquart@gmail.com',
-  'dmacquart+wrsignup1@gmail.com',
-  'dmacquart+sub4@gmail.com',
-  // Soft-launch trusted group (session 168):
-  'devgrigg3@gmail.com',
-  'elizabeth.gettinger@gmail.com',
-  'natasha31105@gmail.com',
-  'caitlinjoneill@gmail.com',
-  'rachel@sfbla.com',
-].map(e => e.toLowerCase())
+// LAUNCH (session 168 part 4 — June 5): allowlist EMPTIED → emailAllowed()
+// returns true for everyone. ROLL BACK to soft-launch by restoring these emails:
+//   dmacquart@gmail.com, dmacquart+wrsignup1@gmail.com, dmacquart+sub4@gmail.com,
+//   devgrigg3@gmail.com, elizabeth.gettinger@gmail.com, natasha31105@gmail.com,
+//   caitlinjoneill@gmail.com, rachel@sfbla.com
+const SUBSCRIPTION_ALLOWLIST: string[] = []
 
 function emailAllowed(email: string | null | undefined): boolean {
   if (SUBSCRIPTION_ALLOWLIST.length === 0) return true  // launch mode: open to all
