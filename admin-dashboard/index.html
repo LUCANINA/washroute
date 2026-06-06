@@ -2714,15 +2714,17 @@
                         <th>Usage (lbs)</th>
                         <th>Lbs Left</th>
                         <th>Pickups</th>
-                        <th>Overage Spend</th>
-                        <th>Total Spend</th>
+                        <th>Subscription Rev</th>
+                        <th>Overage Rev</th>
+                        <th>Add-on Rev</th>
+                        <th>Tips Rev</th>
+                        <th>Total</th>
                         <th>Renews</th>
                         <th>Signed Up</th>
-                        <th style="text-align:right">Actions</th>
                       </tr>
                     </thead>
                     <tbody id="rpt-sub-tbody">
-                      <tr><td colspan="11"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
+                      <tr><td colspan="13"><div class="loading"><div class="spinner"></div> Loading…</div></td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -27476,28 +27478,53 @@ ${oneCopy}
 
     const tbody = document.getElementById('rpt-sub-tbody');
     if (!allSubs.length) {
-      tbody.innerHTML = '<tr><td colspan="11" class="rpt-no-data">No subscriptions yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13" class="rpt-no-data">No subscriptions yet.</td></tr>';
       return;
     }
 
-    // ── Total Spend per subscriber (during the report period) ──
-    // Session 169: real money charged in [period] = subscription fees
-    // (type 'subscription_invoice') + all card charges (type 'charge' — overage
-    // is billed inside the order total via charge-order, so it's captured here),
-    // net of refunds. Credit ledger moves (credit_use/add/remove) are NOT spend.
-    const spendByCust = {};
+    // ── Per-subscriber period REVENUE BREAKDOWN (session 169) ──
+    //   Subscription = subscription_invoice transactions in period.
+    //   Overage / Add-on / Tips = parsed from subscriber orders BILLED in period:
+    //     overage = lb_overage line items; add-on = addon + same_day_surcharge
+    //     lines; tips = order tip (pct resolved against the order's pre-tip
+    //     subtotal). Base + delivery are $0 for subscribers so they don't appear.
+    //   Total = sub + overage + add-on + tips.
+    const revByCust = {};
+    const _rb = (id) => {
+      if (!revByCust[id]) revByCust[id] = { sub: 0, overage: 0, addon: 0, tips: 0 };
+      return revByCust[id];
+    };
     if (periodStartUtc && periodEndUtc) {
       const allCustIds = allSubs.map(s => s.customer_id).filter(Boolean);
       if (allCustIds.length) {
-        const { data: spendTx } = await db.from('customer_transactions')
-          .select('amount, customer_id, type')
+        // Subscription fees (period)
+        const { data: subTx } = await db.from('customer_transactions')
+          .select('amount, customer_id')
           .in('customer_id', allCustIds)
-          .in('type', ['subscription_invoice', 'charge', 'refund'])
+          .eq('type', 'subscription_invoice')
           .gte('created_at', periodStartUtc.toISOString())
           .lte('created_at', periodEndUtc.toISOString());
-        (spendTx || []).forEach(r => {
-          const sign = r.type === 'refund' ? -1 : 1;
-          spendByCust[r.customer_id] = (spendByCust[r.customer_id] || 0) + sign * Number(r.amount || 0);
+        (subTx || []).forEach(r => { _rb(r.customer_id).sub += Number(r.amount || 0); });
+
+        // Order-level components (overage / add-on / tips) for orders billed in period
+        const { data: revOrders } = await db.from('orders')
+          .select('customer_id, line_items, tip_amount, tip_type')
+          .in('customer_id', allCustIds)
+          .eq('billing_status', 'paid')
+          .gte('billed_at', periodStartUtc.toISOString())
+          .lte('billed_at', periodEndUtc.toISOString());
+        (revOrders || []).forEach(o => {
+          const b = _rb(o.customer_id);
+          const items = Array.isArray(o.line_items) ? o.line_items : [];
+          let preTip = 0;
+          items.forEach(li => {
+            const amt = Number(li.amount || 0);
+            preTip += amt;
+            if (li.type === 'lb_overage') b.overage += amt;
+            else if (li.type === 'addon' || li.type === 'same_day_surcharge') b.addon += amt;
+          });
+          const tipRaw = Number(o.tip_amount || 0);
+          if (tipRaw > 0) b.tips += (o.tip_type === 'pct' ? Math.round(preTip * tipRaw) / 100 : tipRaw);
         });
       }
     }
@@ -27545,6 +27572,9 @@ ${oneCopy}
       const lbsLeftCell = lbsLeft <= 0
         ? `<span style="color:var(--red);font-weight:600">0</span>`
         : lbsLeftStr;
+      // Session 169: period revenue breakdown for this subscriber.
+      const _subRev = revByCust[s.customer_id] || { sub: 0, overage: 0, addon: 0, tips: 0 };
+      const _subRevTotal = _subRev.sub + _subRev.overage + _subRev.addon + _subRev.tips;
       return `<tr ${rowClick}>
         <td style="font-weight:600">${custName}</td>
         <td>${planName}</td>
@@ -27559,13 +27589,13 @@ ${oneCopy}
         </td>
         <td>${lbsLeftCell}</td>
         <td>${pickupCell}</td>
-        <td style="color:${overage > 0 ? 'var(--red)' : 'var(--gray-400)'};font-weight:${overage > 0 ? '600' : '400'}">${overage > 0 ? fmtMoney(overage) : '—'}</td>
-        <td style="font-weight:600">${(spendByCust[s.customer_id] || 0) > 0 ? fmtMoney(spendByCust[s.customer_id]) : '—'}</td>
+        <td>${_subRev.sub   > 0 ? fmtMoney(_subRev.sub)     : '—'}</td>
+        <td style="color:${_subRev.overage > 0 ? 'var(--red)' : 'var(--gray-400)'}">${_subRev.overage > 0 ? fmtMoney(_subRev.overage) : '—'}</td>
+        <td>${_subRev.addon > 0 ? fmtMoney(_subRev.addon)   : '—'}</td>
+        <td>${_subRev.tips  > 0 ? fmtMoney(_subRev.tips)    : '—'}</td>
+        <td style="font-weight:700">${_subRevTotal > 0 ? fmtMoney(_subRevTotal) : '—'}</td>
         <td>${renewDate}</td>
         <td style="color:var(--gray-500)">${signupDate}</td>
-        <td style="text-align:right;white-space:nowrap">
-          ${custId ? `<button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="event.stopPropagation();_openCustomerOnBillingTab('${custId}')">Manage →</button>` : ''}
-        </td>
       </tr>`;
     }).join('');
 
