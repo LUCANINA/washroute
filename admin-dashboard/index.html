@@ -27506,10 +27506,14 @@ ${oneCopy}
           .lte('created_at', periodEndUtc.toISOString());
         (subTx || []).forEach(r => { _rb(r.customer_id).sub += Number(r.amount || 0); });
 
-        // Order-level components (overage / add-on / tips) for orders billed in period
+        // Order-level components (overage / add-on / tips) for SUBSCRIPTION orders
+        // billed in period. is_subscription_order filter (session 169) restricts
+        // this to revenue from subscription activity only — a subscriber's
+        // pre-subscription / regular paid orders don't count here.
         const { data: revOrders } = await db.from('orders')
           .select('customer_id, line_items, tip_amount, tip_type')
           .in('customer_id', allCustIds)
+          .eq('is_subscription_order', true)
           .eq('billing_status', 'paid')
           .gte('billed_at', periodStartUtc.toISOString())
           .lte('billed_at', periodEndUtc.toISOString());
