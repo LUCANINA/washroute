@@ -410,7 +410,13 @@ Deno.serve(async (req) => {
         // (the earlier .select('id') call didn't include it).
         const { data: custForSnapshot } = await db.from('customers')
           .select('pricelist').eq('id', customer.id).single()
-        const previousPricelist = custForSnapshot?.pricelist ?? 'Delivery'
+        // Session 168: NEVER snapshot 'Subscription' as previous_pricelist — it's
+        // self-referential and would make the cancel→revert a no-op (customer
+        // stuck on $0 Subscription pricing after their sub ends). Happens when the
+        // created event fires while the customer is already a subscriber (a
+        // re-subscribe, or an event resend). Fall back to 'Delivery'.
+        const _snapPl = custForSnapshot?.pricelist
+        const previousPricelist = (_snapPl && _snapPl !== 'Subscription') ? _snapPl : 'Delivery'
 
         const { error: upsertErr } = await db.from('subscriptions')
           .upsert({

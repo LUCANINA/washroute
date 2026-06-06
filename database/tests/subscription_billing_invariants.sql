@@ -67,5 +67,23 @@ BEGIN
             FROM jsonb_array_elements(o.line_items) li);
   IF v_bad > 0 THEN RAISE EXCEPTION 'INV5 FAIL: % subscription order(s) have a non-zero base line (pricelist not applied)', v_bad; END IF;
 
+  -- INV6 — a subscription's previous_pricelist must never be 'Subscription'.
+  -- That snapshot is what the cancel→revert restores at period end; if it's
+  -- 'Subscription' the restore is self-referential (a no-op) and the customer
+  -- stays on $0 free service after cancelling. (Root cause: stripe-webhook
+  -- snapshotted the current pricelist without guarding it during a Test 1.1
+  -- event resend. Guarded in source; this invariant locks it in.)
+  SELECT count(*) INTO v_bad FROM subscriptions WHERE previous_pricelist = 'Subscription';
+  IF v_bad > 0 THEN RAISE EXCEPTION 'INV6 FAIL: % subscription(s) have previous_pricelist=''Subscription'' (cancel→revert would be a no-op)', v_bad; END IF;
+
+  -- INV7 — no customer may sit on the $0 'Subscription' pricelist without an
+  -- active/past_due/paused subscription paying for it (the cancel→revert
+  -- failure surfaced as free service). Mirrors daily_audit CHECK 10.
+  SELECT count(*) INTO v_bad FROM customers c
+   WHERE c.pricelist = 'Subscription'
+     AND NOT EXISTS (SELECT 1 FROM subscriptions s
+                      WHERE s.customer_id = c.id AND s.status IN ('active','past_due','paused'));
+  IF v_bad > 0 THEN RAISE EXCEPTION 'INV7 FAIL: % customer(s) on Subscription pricelist with no active subscription', v_bad; END IF;
+
   RAISE NOTICE 'All subscription billing invariants PASS';
 END $$;

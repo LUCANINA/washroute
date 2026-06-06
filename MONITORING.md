@@ -73,10 +73,11 @@ UPDATE cron.job SET active = false WHERE jobname = 'wr-health-monitor';
 7. Order total matches sent value (catches trigger interference)
 8. Order cleanup deletes successfully (catches policy/permission breaks)
 9. **Stripe→DB seam (session 168, A5):** `audit_subscriptions_missing_invoice()` returns 0 rows — catches stripe-webhook signing-secret drift (an active subscription with no invoice recorded for its current period, the class that forced the June 2 backfill). Also exposed as Check 9 in `daily_audit.sql`.
+10. **Cancel→revert health (session 168):** `audit_subscription_pricelist_orphans()` returns 0 rows — catches a customer left on the $0 `Subscription` pricelist with no active subscription (free service). Signature of a missed `customer.subscription.deleted` webhook at period end, or a self-referential `previous_pricelist` snapshot. Also exposed as Check 10 in `daily_audit.sql` and as INV6/INV7 in `subscription_billing_invariants.sql`.
 
-**Run time:** ~800ms
+**Run time:** ~870ms (v5)
 
-**Last verified passing:** June 4, 2026 (manual test)
+**Last verified passing:** June 5, 2026 (manual test)
 
 **Source:** `supabase/functions/nightly-smoke-test/index.ts`
 **pg_cron job:** id 18, schedule `0 10 * * *` (10am UTC = 3am PT year-round)
@@ -181,6 +182,7 @@ Or pull the Twilio plug entirely by clearing the env var in Supabase Dashboard �
 |---|---|
 | 2026-06-04 | Initial v1: `wr-health-monitor` + `wr-nightly-smoke-test` + `daily_audit.sql` (Session 167 Phase 8 PM) |
 | 2026-06-05 | A5 (Session 168): added Stripe→DB seam check `audit_subscriptions_missing_invoice()` to nightly-smoke-test (v4) + daily_audit Check 9. Catches webhook signing-secret drift. |
+| 2026-06-05 | Session 168: added cancel→revert check `audit_subscription_pricelist_orphans()` to nightly-smoke-test (v5) + daily_audit Check 10 + invariants INV6/INV7. Catches a customer stuck on $0 Subscription pricing with no active sub. ⚠️ Paired prevention (`stripe-webhook` previous_pricelist guard) is committed in source but NOT yet deployed — deploy `stripe-webhook` via a clean method before relying on prevention; monitor catches it meanwhile. |
 
 Add a row every time you ship a new check, change a threshold, or retire an alert.
 

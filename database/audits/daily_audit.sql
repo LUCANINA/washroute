@@ -110,3 +110,14 @@ LIMIT 20;
 -- same check and SMS-alerts on any rows.
 SELECT 'CHECK 9 — active subscription missing invoice (Stripe seam)' AS check_name;
 SELECT * FROM audit_subscriptions_missing_invoice();
+
+
+-- 10. Subscription-pricelist orphans — cancel→revert health (session 168)
+-- Expected: 0 rows. Any output = a customer is on the $0 'Subscription' pricelist
+-- with NO active/past_due/paused subscription paying for it. Signature of a
+-- cancel→revert failure: either the customer.subscription.deleted webhook was
+-- missed at period end, or previous_pricelist was wrongly snapshotted as
+-- 'Subscription' (self-referential restore → no-op → stuck on free service).
+-- The nightly-smoke-test runs this same check and SMS-alerts on any rows.
+SELECT 'CHECK 10 — subscription-pricelist orphans (free service, no sub)' AS check_name;
+SELECT * FROM audit_subscription_pricelist_orphans();

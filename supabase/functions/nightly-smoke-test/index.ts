@@ -109,6 +109,15 @@ Deno.serve(async (req) => {
       return fail('stripe seam — subscription invoice missing', new Error(`${missingInv.length} active subscription(s) have no recorded invoice for the current period — possible stripe-webhook signature/secret drift: ${JSON.stringify(missingInv)}`))
     }
 
+    // 4c. Cancel→revert health (session 168) — any customer left on the $0
+    // 'Subscription' pricelist with NO active subscription is getting free
+    // service. Signature of a missed customer.subscription.deleted webhook at
+    // period end, or a self-referential previous_pricelist snapshot. Alert on it.
+    const { data: plOrphans } = await db.rpc('audit_subscription_pricelist_orphans')
+    if (plOrphans && plOrphans.length > 0) {
+      return fail('subscription pricelist orphan', new Error(`${plOrphans.length} customer(s) on the $0 Subscription pricelist with no active subscription — cancel→revert failure (free service): ${JSON.stringify(plOrphans)}`))
+    }
+
     const tomorrow = new Date(startedAt.getTime() + 24 * 60 * 60 * 1000)
     const pickupStart = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 20, 0, 0)
     const pickupEnd   = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 22, 0, 0)
