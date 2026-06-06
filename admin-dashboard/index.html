@@ -25707,6 +25707,7 @@ ${oneCopy}
   let procIsSameDay = false;  // true when pickup date === delivery date
   let procCustomerCredits = 0;   // customer's available credit balance
   let procCustomerId = null;     // customer ID for credit deduction
+  let procPricelist = 'Delivery'; // session 169: customer's FRESH pricelist at intake (set in openIntakePanel). getDeliveryFees uses this, NOT the allCustomers cache, so the delivery fee matches the base (both resolve to the same pricelist). Fixes the stale-cache bug where a just-subscribed customer's base went $0 but delivery stayed $9.95.
   let procCustomerDiscount = null; // { id, name, type:'percent'|'fixed', value } or null
   // _intakeEditMode removed — intake panel is only used for Intake column now
   let allAddonServicesCache = []; // active is_addon services with pricelist + linked_preference_id
@@ -26000,6 +26001,7 @@ ${oneCopy}
     // Session 141 pt 8: was hardcoded to Commercial-or-Delivery; now generalised
     // so any admin-created pricelist (HCEB, etc.) resolves to its own service.
     const pricelist = customerPricelist || 'Delivery';
+    procPricelist = pricelist; // session 169: stash the fresh pricelist for getDeliveryFees so base + delivery fee use the same source
 
     // Orders are always created with the default Delivery service (saveOrder
     // picks pricelist === 'Delivery'). For any non-Delivery pricelist, look up
@@ -26280,8 +26282,11 @@ ${oneCopy}
 
   function getDeliveryFees() {
     if (procFeeExempt) return { deliveryFee: 0, sameDaySurcharge: 0, deliveryTotal: 0 };
-    // Session 167: pricelist-aware Delivery Fee lookup
-    const _procPL = allCustomers.find(c => c.id === procCustomerId)?.pricelist || 'Delivery';
+    // Session 167: pricelist-aware Delivery Fee lookup.
+    // Session 169: use procPricelist (FRESH-fetched in openIntakePanel), NOT the
+    // allCustomers cache — the cache can be stale for a just-subscribed customer,
+    // which made the base resolve to $0 (fresh) but the delivery fee to $9.95 (stale).
+    const _procPL = procPricelist || 'Delivery';
     const _procFees = getFeesForPricelist(_procPL);
     const deliveryFeeRec  = _procFees.find(f => f.name === 'Delivery Fee' && f.is_active);
     const sameDayRec      = allFees.find(f => f.name === 'Same-Day Surcharge' && f.is_active);
@@ -26462,6 +26467,7 @@ ${oneCopy}
     document.getElementById('intake-panel').classList.remove('open');
     procActiveOrder = null; procSvc = null; procSubscription = null;
     procFeeExempt = false; procIsSameDay = false;
+    procPricelist = 'Delivery'; // session 169: reset fresh-pricelist stash
     procAddonPrefQty = {};
   }
 
