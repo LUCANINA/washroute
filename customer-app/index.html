@@ -1832,7 +1832,7 @@ let currentProfile  = null;
 let currentCustomer = null;
 let currentCards    = [];   // customer_payment_methods rows for the logged-in customer
 let allServices     = [];
-let allServiceFees  = []; // service_fees rows where show_in_app=true
+let allServiceFees  = []; // active service_fees rows (for pricing; not display-gated)
 let dbPlans         = [];
 let defaultService  = null; // the single W&F service
 let globalPrefs     = []; // global service preferences from preferences table
@@ -3044,7 +3044,14 @@ async function loadServices() {
   const [{ data: svcs }, { data: prefs }, { data: fees }, { data: settings }] = await Promise.all([
     db.from('services').select('*').eq('is_active', true).eq('show_in_app', true).order('sort_order'),
     db.from('preferences').select('*').order('sort_order'),
-    db.from('service_fees').select('id,name,amount,fee_type,category,taxable,pricelist').eq('show_in_app', true).order('sort_order'),
+    // Session 170: load fees for PRICING by is_active, NOT show_in_app.
+    // show_in_app controls whether a fee is listed in the customer-facing
+    // pricing menu (a DISPLAY concern); pricing/charging must still resolve
+    // every active fee — especially the $0 Subscription Delivery Fee, which is
+    // hidden from the menu but is what makes a subscriber's delivery free.
+    // Loading by show_in_app here previously coupled the two: hiding the $0 row
+    // would have made getCustomerFees() fall back to the $9.95 row.
+    db.from('service_fees').select('id,name,amount,fee_type,category,taxable,pricelist,show_in_app').eq('is_active', true).order('sort_order'),
     // session 140 pt 3: settings is a singleton (id=1).
     db.from('settings').select('sales_tax_rate').eq('id', 1).maybeSingle()
   ]);

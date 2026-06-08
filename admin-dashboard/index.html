@@ -15881,10 +15881,15 @@ ${oneCopy}
     // their own row variants. Fees + rewards are global — always shown.
     const cat = document.getElementById('svc-cat-filter')?.value || '';
     const inCat = s => !cat || (s.category || '') === cat;
+    // Session 170: fees can be scoped to a price list via f.pricelist (e.g. the
+    // $0 Subscription Delivery Fee). A scoped fee should ONLY appear under its
+    // own price list; global fees (pricelist null) appear under all. Without
+    // this, the Subscription $0 fee leaked into every price list's App Display.
+    const feeInList = f => !cat || !f.pricelist || f.pricelist === cat;
     const main    = allServices.filter(s => !s.is_addon && inCat(s));
     const addons  = allServices.filter(s =>  s.is_addon && inCat(s));
-    const fees    = allFees.filter(f => f.category !== 'Reward');
-    const rewards = allFees.filter(f => f.category === 'Reward');
+    const fees    = allFees.filter(f => f.category !== 'Reward' && feeInList(f));
+    const rewards = allFees.filter(f => f.category === 'Reward' && feeInList(f));
     const badge   = cat ? cat : '';
 
     body.innerHTML =
@@ -15979,9 +15984,18 @@ ${oneCopy}
       ? `${parseFloat(f.amount||0).toFixed(0)}%`
       : `$${parseFloat(f.amount||0).toFixed(2)}`;
     const active = f.is_active !== false;
+    // Session 170: show which price list a fee is scoped to (e.g. the $0
+    // Subscription Delivery Fee) so the two "Delivery Fee" rows are no longer
+    // an indistinguishable duplicate. Global fees (no pricelist) get no badge.
+    const plBadge = f.pricelist
+      ? ` <span style="font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-light,#e0e7ff);padding:1px 7px;border-radius:6px;vertical-align:middle;letter-spacing:.02em">${svcEsc(f.pricelist)}</span>`
+      : '';
+    const hiddenBadge = f.show_in_app === false
+      ? ` <span style="font-size:10px;font-weight:600;color:var(--gray-400);">· hidden from app</span>`
+      : '';
     return `
       <div style="display:grid;grid-template-columns:1fr 130px;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid var(--gray-100);${active ? '' : 'opacity:.5;'}">
-        <div style="font-size:14px;font-weight:500;color:var(--gray-800);">${svcEsc(f.name)}</div>
+        <div style="font-size:14px;font-weight:500;color:var(--gray-800);">${svcEsc(f.name)}${plBadge}${hiddenBadge}</div>
         <div style="font-size:14px;font-weight:600;color:var(--gray-700);text-align:right;">${valStr}</div>
       </div>`;
   }
