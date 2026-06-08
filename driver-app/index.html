@@ -3849,6 +3849,20 @@ function subscribeToRouteStopUpdates() {
         return;
       }
 
+      // Session 170: the stop is still ours, but its ROUTE changed — e.g. a
+      // delivery rescheduled from the Berkeley AM route to Berkeley PM (same
+      // driver, different route/time-of-day). The realtime payload carries only
+      // the raw route_stops columns, NOT the joined route name or the order's
+      // pickup/delivery window, so the partial Object.assign below would leave
+      // the stop grouped under its OLD route showing the OLD time — the phantom
+      // "still on the AM route after I rescheduled it" bug. A route move is a
+      // discrete event (not a hot path), so reload fully to refresh the route
+      // sections, grouping, and joined window data.
+      if (updated.route_id !== allStops[idx].route_id) {
+        loadDriverData().then(() => { renderHome(); renderRoute(); }).catch(console.error);
+        return;
+      }
+
       // Detect if stop order or ETA changed (from optimizer) vs other field changes
       const orderChanged = allStops[idx].stop_number !== updated.stop_number
                         || allStops[idx].estimated_arrival !== updated.estimated_arrival;
