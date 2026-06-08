@@ -53,7 +53,7 @@ function emailAllowed(email: string | null | undefined): boolean {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function requireOwnership(req: Request, customerId: string): Promise<{ ok: true; userEmail: string | null } | { ok: false; status: number; reason: string }> {
+async function requireOwnership(req: Request, customerId: string): Promise<{ ok: true; userEmail: string | null; isStaff: boolean } | { ok: false; status: number; reason: string }> {
   const authHeader = req.headers.get('Authorization') || req.headers.get('authorization') || ''
   const m = authHeader.match(/^Bearer\s+(.+)$/i)
   if (!m) return { ok: false, status: 401, reason: 'Missing Authorization: Bearer <jwt>' }
@@ -64,12 +64,23 @@ async function requireOwnership(req: Request, customerId: string): Promise<{ ok:
   const { data: { user }, error: userErr } = await userClient.auth.getUser(jwt)
   if (userErr || !user) return { ok: false, status: 401, reason: 'Invalid or expired session' }
 
-  // The caller must own the customer record they're subscribing.
   const adminClient = createClient(supabaseUrl, supabaseKey)
+
+  // Two authorized caller types:
+  //   1. The customer themselves (profile_id === user.id) — in-app subscribe.
+  //   2. An admin/manager acting on the customer's behalf — admin dashboard
+  //      "Opt in to subscription" two-click flow (session 170). Staff callers
+  //      bypass the soft-launch allowlist since they are a trusted internal door.
+  const { data: callerProfile } = await adminClient.from('profiles').select('role').eq('id', user.id).maybeSingle()
+  const isStaff = callerProfile?.role === 'admin' || callerProfile?.role === 'manager'
+
+  // The caller must own the customer record they're subscribing — unless staff.
   const { data: cust } = await adminClient.from('customers').select('profile_id').eq('id', customerId).single()
   if (!cust) return { ok: false, status: 404, reason: 'Customer not found' }
-  if (cust.profile_id !== user.id) return { ok: false, status: 403, reason: 'Forbidden — can only subscribe your own account' }
-  return { ok: true, userEmail: user.email ?? null }
+  if (!isStaff && cust.profile_id !== user.id) {
+    return { ok: false, status: 403, reason: 'Forbidden — can only subscribe your own account' }
+  }
+  return { ok: true, userEmail: user.email ?? null, isStaff }
 }
 
 Deno.serve(async (req) => {
@@ -108,7 +119,9 @@ Deno.serve(async (req) => {
 
     // Session 168 — soft-launch allowlist gate (see note above). Check the
     // authenticated user's email first, fall back to the customer record's email.
-    if (!emailAllowed(auth.userEmail || customer.email_cache)) {
+    // Staff (admin/manager) callers bypass the allowlist — they are a trusted
+    // internal door (session 170 admin opt-in flow).
+    if (!auth.isStaff && !emailAllowed(auth.userEmail || customer.email_cache)) {
       return new Response(JSON.stringify({ error: 'Subscriptions aren’t available for your account yet.', code: 'not_allowlisted' }), {
         status: 403, headers: { ...cors, 'Content-Type': 'application/json' },
       })

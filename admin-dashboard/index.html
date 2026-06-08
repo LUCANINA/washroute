@@ -12029,7 +12029,7 @@ ${oneCopy}
     if (!el) return;
     el.innerHTML = '<div style="color:var(--gray-400)">Loading subscription…</div>';
     try {
-      const [subRes, planRes] = await Promise.all([
+      const [subRes, planRes, custRes] = await Promise.all([
         db.from('subscriptions')
           .select('*, subscription_plans(name, price_monthly, weight_limit_lbs, pickup_limit, overage_price_per_lb)')
           .eq('customer_id', customerId)
@@ -12040,9 +12040,19 @@ ${oneCopy}
           .select('id, name, price_monthly, weight_limit_lbs, pickup_limit')
           .eq('is_active', true)
           .order('price_monthly'),
+        // Session 170: saved-card check drives the two-click "Opt in to
+        // subscription → confirm charge" flow. When a card is on file we charge
+        // it directly via create-subscription; otherwise we fall back to the
+        // Stripe-hosted checkout (customer must enter a card).
+        db.from('customers')
+          .select('stripe_default_payment_method_id, card_brand, card_last4')
+          .eq('id', customerId)
+          .maybeSingle(),
       ]);
       const sub   = subRes.data?.[0] || null;
       const plans = planRes.data || [];
+      const cust  = custRes.data || null;
+      const hasSavedCard = !!(cust && cust.stripe_default_payment_method_id);
 
       if (sub) {
         const plan = sub.subscription_plans || {};
@@ -12096,6 +12106,9 @@ ${oneCopy}
         el.innerHTML = '<div style="color:var(--gray-400)">No active plans. Create one in Settings → Subscription Plans.</div>';
         return;
       }
+      const cardLabel = hasSavedCard
+        ? `${esc(cust.card_brand || 'Card')} •••• ${esc(cust.card_last4 || '????')}`
+        : '';
       el.innerHTML = `
         <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
           <div class="cp-field" style="flex:1;min-width:220px;margin:0">
@@ -12104,10 +12117,16 @@ ${oneCopy}
               ${plans.map(p => `<option value="${p.id}">${esc(p.name)} — $${Number(p.price_monthly).toFixed(0)}/mo${p.weight_limit_lbs ? ` · ${p.weight_limit_lbs} lbs` : ''}${p.pickup_limit ? ` · ${p.pickup_limit} pickups` : ''}</option>`).join('')}
             </select>
           </div>
-          <button class="btn btn-primary" id="cpb-assign-sub-btn" onclick="adminAssignSubscription('${customerId}')" style="padding:8px 16px;font-size:13px">Start Checkout</button>
+          ${hasSavedCard
+            ? `<button class="btn btn-primary" id="cpb-assign-sub-btn" onclick="adminOptInSubscription('${customerId}')" style="padding:8px 16px;font-size:13px">Opt in to subscription</button>`
+            : `<button class="btn btn-primary" id="cpb-assign-sub-btn" onclick="adminAssignSubscription('${customerId}')" style="padding:8px 16px;font-size:13px">Start Checkout</button>`
+          }
         </div>
         <div style="font-size:12px;color:var(--gray-500);margin-top:8px">
-          Opens a Stripe-hosted checkout in a new tab. The customer enters their card to start the subscription. The DB row is created automatically when the checkout completes (via webhook).
+          ${hasSavedCard
+            ? `Charges the card on file (${cardLabel}) and starts the subscription immediately — you'll confirm the charge first. No re-entry needed.`
+            : `No card on file. Opens a Stripe-hosted checkout in a new tab so the customer can enter a card. The subscription activates when the checkout completes (via webhook).`
+          }
         </div>
       `;
     } catch (e) {
@@ -12318,6 +12337,92 @@ ${oneCopy}
       showToast('Error: ' + e.message, 'error');
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = 'Start Checkout'; }
+    }
+  }
+
+  // ============================================================
+  // Session 170 — Two-click admin opt-in for customers WITH a card on file.
+  // Step 1: admin clicks "Opt in to subscription" → confirm modal showing the
+  //         saved card + the exact amount that will be charged today.
+  // Step 2: admin clicks "Confirm charge" → calls create-subscription with the
+  //         admin's session JWT (the function authorizes admin/manager callers
+  //         and charges the saved card server-side; the Stripe webhook flips the
+  //         pricelist + records the invoice, same as the customer self-serve path).
+  // Customers WITHOUT a card never reach here — they get the Start Checkout
+  // fallback (adminAssignSubscription) instead.
+  // ============================================================
+  async function adminOptInSubscription(customerId) {
+    const sel    = document.getElementById('cpb-plan-select');
+    const planId = sel?.value;
+    const planLabel = sel?.options[sel.selectedIndex]?.text || 'this plan';
+    if (!planId) { showToast('Pick a plan first', ''); return; }
+
+    // Pull the saved-card + price for the confirm modal.
+    let cardText = 'the card on file', priceText = '';
+    try {
+      const [{ data: cust }, { data: plan }] = await Promise.all([
+        db.from('customers').select('card_brand, card_last4').eq('id', customerId).maybeSingle(),
+        db.from('subscription_plans').select('price_monthly, name').eq('id', planId).maybeSingle(),
+      ]);
+      if (cust?.card_last4) cardText = `${cust.card_brand || 'Card'} •••• ${cust.card_last4}`;
+      if (plan?.price_monthly != null) priceText = `$${Number(plan.price_monthly).toFixed(2)}`;
+    } catch (_) { /* non-fatal — modal still works with fallbacks */ }
+
+    _openOptInConfirmModal({ customerId, planId, planLabel, cardText, priceText });
+  }
+
+  function _openOptInConfirmModal({ customerId, planId, planLabel, cardText, priceText }) {
+    document.getElementById('optin-confirm-overlay')?.remove();
+    const chargeLine = priceText
+      ? `<strong>${esc(priceText)}</strong> will be charged to ${esc(cardText)} right now to start the subscription, then on the same date every month.`
+      : `The first month will be charged to ${esc(cardText)} right now, then monthly.`;
+    const overlay = document.createElement('div');
+    overlay.id = 'optin-confirm-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:22px;box-shadow:0 20px 50px rgba(0,0,0,.25)">
+        <div style="font-size:17px;font-weight:700;color:var(--gray-900);margin-bottom:6px">Confirm subscription charge</div>
+        <div style="font-size:13.5px;color:var(--gray-600);line-height:1.5;margin-bottom:4px">Plan: <strong style="color:var(--gray-900)">${esc(planLabel)}</strong></div>
+        <div style="font-size:13.5px;color:var(--gray-600);line-height:1.5;margin-bottom:18px">${chargeLine}</div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button class="btn" id="optin-cancel-btn" style="padding:8px 16px;font-size:13px">Cancel</button>
+          <button class="btn btn-primary" id="optin-confirm-btn" style="padding:8px 16px;font-size:13px">Confirm charge</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); };
+    document.addEventListener('keydown', onKey);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelector('#optin-cancel-btn').onclick = close;
+    overlay.querySelector('#optin-confirm-btn').onclick = () => _confirmOptInCharge(customerId, planId, overlay);
+  }
+
+  async function _confirmOptInCharge(customerId, planId, overlay) {
+    const btn = overlay.querySelector('#optin-confirm-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Charging…'; }
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      if (!session?.access_token) throw new Error('Not signed in — refresh the page');
+      const res = await fetch(`${SUPA_URL}/functions/v1/create-subscription`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPA_ANON_KEY, Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ planId, customerId }),
+      });
+      const out = await res.json();
+      if (!res.ok || out.error) {
+        // Surface the most useful message. Card declines come back with a clear Stripe message.
+        throw new Error(out.error || `Request failed (${res.status})`);
+      }
+      overlay.remove();
+      const card = out.card_last4 ? ` on ${out.card_brand || 'card'} •••• ${out.card_last4}` : '';
+      showToast(`Subscription started — ${out.price_monthly ? '$' + Number(out.price_monthly).toFixed(2) : 'first charge'} charged${card}.`, 'success');
+      if (panelCustomerId) renderCpSubscription(panelCustomerId);
+      if (typeof renderSubscriptionsTab === 'function' && currentPage === 'reports') renderSubscriptionsTab();
+    } catch (e) {
+      console.error('[adminOptInSubscription:charge]', e);
+      showToast('Could not start subscription: ' + e.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm charge'; }
     }
   }
 
