@@ -79,6 +79,16 @@ const ptDateFmt = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
 });
 
+// WashRoute's route_templates.schedule_days uses the convention 0=Mon … 6=Sun.
+// JavaScript's Date.getDay() uses 0=Sun … 6=Sat, so it must be converted with
+// (getDay() + 6) % 7 before comparing against schedule_days — the same
+// conversion used throughout the customer app and admin dashboard. Without it,
+// Sunday (getDay()=0) falsely matches schedule_days value 0 (which means Monday),
+// so the SMS reorder would book closed Sundays and never book Saturdays.
+function wrDow(y: number, m: number, d: number): number {
+  return (new Date(y, m - 1, d).getDay() + 6) % 7;
+}
+
 function getNextPickupDayPT(
   schedDays: number[]
 ): { dateStr: string; year: number; month: number; day: number } | null {
@@ -86,10 +96,27 @@ function getNextPickupDayPT(
     const utcMs   = Date.now() + ahead * 86_400_000;
     const dateStr = ptDateFmt.format(new Date(utcMs));
     const [y,m,d] = dateStr.split('-').map(Number);
-    const dow     = new Date(y, m - 1, d).getDay();
+    const dow     = wrDow(y, m, d);
     if (schedDays.includes(dow)) return { dateStr, year: y, month: m, day: d };
   }
   return null;
+}
+
+// Resolve the first delivery date on or after (pickup + turnaround_days) that
+// actually has a route running, per the template's schedule_days. Mirrors the
+// customer app's getNextDeliveryDay — without this, a Saturday pickup with a
+// 1-day turnaround would schedule a Sunday delivery on a day no route runs.
+function getNextDeliveryDayPT(
+  py: number, pm: number, pd: number, turnaround: number, schedDays: number[]
+): { year: number; month: number; day: number } {
+  for (let extra = 0; extra <= 14; extra++) {
+    const dt = new Date(Date.UTC(py, pm - 1, pd + turnaround + extra));
+    const y = dt.getUTCFullYear(), m = dt.getUTCMonth() + 1, d = dt.getUTCDate();
+    if (schedDays.includes(wrDow(y, m, d))) return { year: y, month: m, day: d };
+  }
+  // Fallback: literal pickup + turnaround (should never hit given 14-day walk)
+  const fb = new Date(Date.UTC(py, pm - 1, pd + turnaround));
+  return { year: fb.getUTCFullYear(), month: fb.getUTCMonth() + 1, day: fb.getUTCDate() };
 }
 
 function ptDateTimeToUtc(y: number, mo: number, d: number, h: number, min: number): string {
@@ -390,8 +417,8 @@ async function handlePickup(
   const pickupStart = ptDateTimeToUtc(py, pm, pd, wStartH, wStartM);
   const pickupEnd   = ptDateTimeToUtc(py, pm, pd, subEndH, wStartM);
 
-  const delivPt  = new Date(Date.UTC(py, pm - 1, pd + turnaround));
-  const dy = delivPt.getUTCFullYear(), dmo = delivPt.getUTCMonth() + 1, dd = delivPt.getUTCDate();
+  const { year: dy, month: dmo, day: dd } =
+    getNextDeliveryDayPT(py, pm, pd, turnaround, rt.schedule_days ?? [0,1,2,3,4,5]);
   const delivStart = ptDateTimeToUtc(dy, dmo, dd, wStartH, wStartM);
   const delivEnd   = ptDateTimeToUtc(dy, dmo, dd, subEndH, wStartM);
 
