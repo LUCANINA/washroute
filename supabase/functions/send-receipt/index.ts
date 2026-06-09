@@ -68,7 +68,11 @@ function buildEmailHtml(order: any, customer: any, creditApplied: number = 0): s
 
   // Only show meaningful line items — include pref_service (Vinegar, Oxi, etc.)
   const DISPLAY_TYPES = new Set(['base', 'overage', 'addon_service', 'pref_service', 'delivery_fee', 'same_day_surcharge']);
-  const displayItems = allItems.filter((i: any) => DISPLAY_TYPES.has(i.type) && Number(i.amount ?? 0) > 0);
+  // Session 170: show the $0 "Delivery — included" line on subscription receipts
+  // (reinforces the free-delivery perk). Other $0 lines stay hidden as before;
+  // a regular $9.95 delivery line is already amount>0 so it's unaffected.
+  const displayItems = allItems.filter((i: any) => DISPLAY_TYPES.has(i.type)
+    && (Number(i.amount ?? 0) > 0 || (i.type === 'delivery_fee' && /included/i.test(String(i.label ?? '')))));
   // Reductions to subtotal — both account credits AND service discounts (SENIORS, promo codes,
   // etc.) render as green minus rows under the subtotal. Before this, type='discount' line items
   // were silently dropped from the receipt, so customers saw an unexplained gap between

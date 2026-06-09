@@ -10814,7 +10814,7 @@
 
     const totalLinesXml = [
       totLine('Subtotal', subtotal),
-      ...(delivFeeItem ? [totLine('Delivery Fee', delivFeeItem.amount)] : []),
+      ...(delivFeeItem ? [totLine(parseFloat(delivFeeItem.amount||0) > 0 ? 'Delivery Fee' : (delivFeeItem.label || 'Delivery — included'), delivFeeItem.amount)] : []),
       ...(sameDayItem  ? [totLine('Same-day surcharge', sameDayItem.amount)] : []),
       ...discountItems.map(d => totLine(String(d.label || 'Discount').substring(0, 30), d.amount, '-')),
       ...(tipDollars > 0 ? [totLine(tipLabel, tipDollars, '+')] : []),
@@ -11028,7 +11028,7 @@ ${oneCopy}
     let totalsHtml = '';
     if (hasFeeSplit || ppHasTip) {
       totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Subtotal</span><span>${fmt(subtotal)}</span></div>`;
-      if (delivFeeItem) totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Delivery Fee</span><span>${fmt(delivFeeItem.amount)}</span></div>`;
+      if (delivFeeItem) totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${parseFloat(delivFeeItem.amount||0) > 0 ? 'Delivery Fee' : _escHtml(delivFeeItem.label || 'Delivery — included')}</span><span>${fmt(delivFeeItem.amount)}</span></div>`;
       if (sameDayItem)  totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Same-day surcharge</span><span>${fmt(sameDayItem.amount)}</span></div>`;
       discountItems.forEach(d => {
         totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(d.label || 'Discount')}</span><span style="color:#16a34a">\u2212${fmt(d.amount)}</span></div>`;
@@ -11216,7 +11216,7 @@ ${oneCopy}
     let totalsHtml = '';
     if (hasFeeSplit || hasTip) {
       totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Subtotal</span><span>${fmt(subtotal)}</span></div>`;
-      if (delivFeeItem) totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Delivery Fee</span><span>${fmt(delivFeeItem.amount)}</span></div>`;
+      if (delivFeeItem) totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${parseFloat(delivFeeItem.amount||0) > 0 ? 'Delivery Fee' : _escHtml(delivFeeItem.label || 'Delivery — included')}</span><span>${fmt(delivFeeItem.amount)}</span></div>`;
       if (sameDayItem)  totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">Same-day surcharge</span><span>${fmt(sameDayItem.amount)}</span></div>`;
       discountItems.forEach(d => {
         totalsHtml += `<div style="display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0"><span style="color:#444">${_escHtml(d.label || 'Discount')}</span><span style="color:#16a34a">&#8722;${fmt(d.amount)}</span></div>`;
