@@ -7484,7 +7484,7 @@
     try {
       const name = firstName || 'there';
       const sender = currentUserFirstName || 'Family Laundry';
-      const body = `Hi ${name}, this is ${sender} from Family Laundry. Can I help you place your first order with us? Have any questions?`;
+      const body = `Hi ${name}, this is ${sender} from Family Laundry. Can I help you place your first order with us? You can book here: https://app.familylaundry.com/ — or just reply with any questions!`;
       const res = await fetch(`${SUPA_URL}/functions/v1/send-sms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await _staffJwt()}` },
