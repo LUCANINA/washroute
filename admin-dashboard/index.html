@@ -27056,7 +27056,7 @@ ${oneCopy}
       { key: 'pounds',                 label: 'Pounds Processed',       fmt: 'int',   good: 'up' },
       { key: 'avg_order_weight',       label: 'Avg Order Weight',       fmt: 'lbs',   good: 'up' },
       { key: 'stops_per_hour',         label: 'Driver Stops / Hour',         fmt: 'dec1', good: 'up', hint: 'Per driver route-hour' },
-      { key: 'pounds_per_hour',        label: 'Avg Pounds Processed / Hour', fmt: 'dec1', good: 'up', hint: 'Delivery, per driver route-hour' },
+      { key: 'lbs_per_launderer_hr',   label: 'Avg Pounds Processed / Hour', fmt: 'dec1', good: 'up', hint: 'Delivery lbs ÷ launderer hours (Square labor)' },
     ]},
     { title: 'Retention', items: [
       { key: 'repeat_rate',            label: 'Repeat Rate',            fmt: 'pct',   good: 'up',   hint: 'Customers ordering this period with 2+ lifetime orders' },
@@ -27122,12 +27122,26 @@ ${oneCopy}
     if (!fromEl?.value || !toEl?.value) return;
     const cards = document.getElementById('dk-cards');
     if (cards) cards.innerHTML = '<div class="rpt-no-data"><div class="loading"><div class="spinner"></div> Loading…</div></div>';
-    const { data, error } = await db.rpc('delivery_kpis', { p_from: fromEl.value, p_to: toEl.value });
+    const prevFrom = _dkMinus1Month(fromEl.value);
+    const prevTo   = _dkMinus1Month(toEl.value);
+    // Fetch the RPC aggregates + Square launderer hours for both windows in parallel.
+    // "Avg Pounds Processed / Hour" = delivery pounds (RPC) ÷ total launderer labor
+    // hours (Square), computed here because the SQL RPC can't reach the edge function.
+    const [{ data, error }, curLabor, prevLabor] = await Promise.all([
+      db.rpc('delivery_kpis', { p_from: fromEl.value, p_to: toEl.value }),
+      fetchSquareLaborHours(fromEl.value, toEl.value),
+      fetchSquareLaborHours(prevFrom, prevTo),
+    ]);
     if (error || !data) {
       console.error('delivery_kpis:', error);
       if (cards) cards.innerHTML = '<div class="rpt-no-data">Could not load delivery KPIs.</div>';
       return;
     }
+    const sumHrs = lh => Object.values(lh || {}).reduce((s, h) => s + Number(h || 0), 0);
+    const curLaundryHrs  = sumHrs(curLabor && curLabor.laundry_hours);
+    const prevLaundryHrs = sumHrs(prevLabor && prevLabor.laundry_hours);
+    data.current.lbs_per_launderer_hr  = curLaundryHrs  > 0 ? Number(data.current.pounds)  / curLaundryHrs  : null;
+    data.previous.lbs_per_launderer_hr = prevLaundryHrs > 0 ? Number(data.previous.pounds) / prevLaundryHrs : null;
     renderDeliveryKpis(data, fromEl.value, toEl.value);
   }
 
