@@ -2439,12 +2439,26 @@
             <div style="display:flex;align-items:flex-end;gap:20px;padding:14px 20px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap">
               <div>
                 <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);margin-bottom:5px">From</label>
-                <input type="date" id="rpt-from" onchange="runCurrentReport()" style="padding:7px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none">
+                <input type="date" id="rpt-from" onchange="_rptQuickClear();runCurrentReport()" style="padding:7px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none">
               </div>
               <div>
                 <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);margin-bottom:5px">To</label>
-                <input type="date" id="rpt-to" onchange="runCurrentReport()" style="padding:7px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none">
+                <input type="date" id="rpt-to" onchange="_rptQuickClear();runCurrentReport()" style="padding:7px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none">
               </div>
+            </div>
+            <!-- Global Quick Range — applies to every report tab (sets the shared From/To). -->
+            <style>
+              .rpt-quick-btn{font-size:12.5px;font-weight:600;color:var(--gray-600);background:var(--gray-50);border:1px solid var(--gray-200);border-radius:999px;padding:6px 16px;cursor:pointer;transition:all .15s}
+              .rpt-quick-btn:hover{background:var(--gray-100);color:var(--gray-800)}
+              .rpt-quick-btn.active{color:#fff;background:var(--accent);border-color:var(--accent)}
+            </style>
+            <div style="display:flex;align-items:center;gap:8px;padding:0 20px 14px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100)">
+              <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);margin-right:4px">Quick range</span>
+              <button class="rpt-quick-btn" onclick="setRptQuickRange('today',this)">Today</button>
+              <button class="rpt-quick-btn" onclick="setRptQuickRange('yesterday',this)">Yesterday</button>
+              <button class="rpt-quick-btn" onclick="setRptQuickRange('7d',this)">Last 7 days</button>
+              <button class="rpt-quick-btn" onclick="setRptQuickRange('month',this)">This month</button>
+              <button class="rpt-quick-btn" onclick="setRptQuickRange('lastmonth',this)">Last month</button>
             </div>
             <div class="rpt-page-tabs">
               <button class="rpt-page-tab active" onclick="setRptTab('revenue',this)">Daily Revenue</button>
@@ -2525,12 +2539,7 @@
           <div id="rpttab-possales" style="display:none">
             <div class="card" style="margin-bottom:16px;padding:0">
               <div class="ps-filter-row">
-                <span class="ps-filter-label">Quick range</span>
-                <button class="ps-preset" id="ps-preset-today"      onclick="setPosSalesPreset('today',this)">Today</button>
-                <button class="ps-preset" id="ps-preset-yesterday"  onclick="setPosSalesPreset('yesterday',this)">Yesterday</button>
-                <button class="ps-preset" id="ps-preset-7d"         onclick="setPosSalesPreset('7d',this)">Last 7 days</button>
-                <button class="ps-preset" id="ps-preset-month"      onclick="setPosSalesPreset('month',this)">This month</button>
-                <button class="ps-preset" id="ps-preset-lastmonth"  onclick="setPosSalesPreset('lastmonth',this)">Last month</button>
+                <!-- Quick-range presets moved to the shared global bar above (session 172). -->
                 <span style="flex:1"></span>
                 <span class="ps-filter-label">Site</span>
                 <select id="ps-site-filter" onchange="loadPosSalesReport()" style="padding:7px 11px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:13px;color:var(--gray-800);outline:none;background:white">
@@ -26965,6 +26974,35 @@ ${oneCopy}
     else if (rptTab === 'subscriptions') loadSubscriptionReport();
   }
 
+  // Global Quick Range — sets the shared From/To picker and re-runs whatever
+  // report tab is active. Pacific-anchored (mirrors the old POS-only presets).
+  function _rptQuickClear() {
+    document.querySelectorAll('.rpt-quick-btn').forEach(b => b.classList.remove('active'));
+  }
+  function setRptQuickRange(period, btn) {
+    const fromEl = document.getElementById('rpt-from');
+    const toEl   = document.getElementById('rpt-to');
+    if (!fromEl || !toEl) return;
+    const todayIso = today();
+    const [Y, M] = todayIso.split('-').map(Number);
+    let from = todayIso, to = todayIso;
+    if (period === 'today')            { from = to = todayIso; }
+    else if (period === 'yesterday')   { from = to = addDaysPacific(todayIso, -1); }
+    else if (period === '7d')          { from = addDaysPacific(todayIso, -6); to = todayIso; }
+    else if (period === 'month')       { from = `${Y}-${String(M).padStart(2,'0')}-01`; to = todayIso; }
+    else if (period === 'lastmonth')   {
+      const lastM = M === 1 ? 12 : M - 1;
+      const lastY = M === 1 ? Y - 1 : Y;
+      from = `${lastY}-${String(lastM).padStart(2,'0')}-01`;
+      to   = addDaysPacific(`${Y}-${String(M).padStart(2,'0')}-01`, -1); // last day of prev month
+    }
+    fromEl.value = from;
+    toEl.value   = to;
+    _rptQuickClear();
+    if (btn) btn.classList.add('active');
+    runCurrentReport();
+  }
+
   function setRptTab(tab, btn) {
     rptTab = tab;
     document.querySelectorAll('.rpt-page-tab').forEach(b => b.classList.remove('active'));
@@ -26989,6 +27027,7 @@ ${oneCopy}
         d.setDate(d.getDate() - 30);
         fromEl.value = d.toLocaleDateString('en-CA', { timeZone: BIZ_TZ });
         toEl.value   = todayPT;
+        _rptQuickClear(); // 30-day window isn't one of the quick presets
       }
     }
     runCurrentReport();
