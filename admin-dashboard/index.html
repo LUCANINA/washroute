@@ -27042,7 +27042,8 @@ ${oneCopy}
     { title: 'Growth', items: [
       { key: 'new_customers',          label: 'New Delivery Customers', fmt: 'int',   good: 'up' },
       { key: 'conversion',             label: 'Conversion Rate',        fmt: 'pct',   good: 'up',   hint: 'New signups who placed an order' },
-      { key: 'reorder_new',            label: 'Reorder Rate (new)',     fmt: 'pct',   good: 'up',   hint: 'New signups who placed a 2nd order' },
+      { key: 'reorder_new',            label: 'Reorder Rate (new)',     fmt: 'pct',   good: 'up',   hint: 'New signups who placed a 2nd order within 30 days' },
+      { key: 'active_30',              label: 'Active Customers',       fmt: 'int',   good: 'up',   hint: 'Ordered in the last 30 days (delivery)' },
       { key: 'active_subs',            label: 'Active Subscribers',     fmt: 'int',   good: 'up',   hint: 'At period end' },
     ]},
     { title: 'Revenue', items: [
@@ -27059,7 +27060,7 @@ ${oneCopy}
       { key: 'lbs_per_launderer_hr',   label: 'Avg Pounds Processed / Hour', fmt: 'dec1', good: 'up', hint: 'Delivery lbs ÷ launderer hours (Square labor)' },
     ]},
     { title: 'Retention', items: [
-      { key: 'repeat_rate',            label: 'Repeat Rate',            fmt: 'pct',   good: 'up',   hint: 'Customers ordering this period with 2+ lifetime orders' },
+      { key: 'retention',              label: 'Retention Rate',         fmt: 'pct',   good: 'up',   hint: 'Customers who ordered last period AND ordered again this period (trend vs the prior month)' },
       { key: 'churn',                  label: 'Subscription Churn',     fmt: 'pct',   good: 'down', hint: 'Cancellations ÷ active at period start' },
     ]},
   ];
