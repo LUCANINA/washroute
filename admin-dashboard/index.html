@@ -18596,9 +18596,13 @@ ${oneCopy}
     // Marketing opt-in/out toggles
     populateMarketingToggles(c);
 
-    // Pre-fill notes tab
-    document.getElementById('cpnote-text').value   = c.notes || '';
-    document.getElementById('cpnote-access').value = c.access_instructions || '';
+    // Notes tab replaced by Issues tab (session 173) — these inputs no longer exist
+    // in the panel. Guard so opening a customer panel never throws (cpnote-text was
+    // removed; cpnote-access has no input). customers.notes was migrated into cs_issues.
+    const _cpNoteEl = document.getElementById('cpnote-text');
+    if (_cpNoteEl) _cpNoteEl.value = c.notes || '';
+    const _cpAccessEl = document.getElementById('cpnote-access');
+    if (_cpAccessEl) _cpAccessEl.value = c.access_instructions || '';
   }
 
   let _cpAddrs = [];
