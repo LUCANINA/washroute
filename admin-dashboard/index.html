@@ -29410,7 +29410,7 @@ ${oneCopy}
     { const BATCH = 1000; let offset = 0;
       while (true) {
         const { data, error: e } = await db.from('orders')
-          .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status, source, billed_at')
+          .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status, source, billed_at, tip_amount, tip_type')
           .eq('status', 'delivered')
           .eq('billing_status', 'paid')
           .not('total_amount', 'is', null)
@@ -29430,7 +29430,7 @@ ${oneCopy}
     if (!itemsFetchError) { const BATCH = 1000; let offset = 0;
       while (true) {
         const { data, error: e } = await db.from('orders')
-          .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status, source, billed_at')
+          .select('order_number, service_id, weight_lbs, total_bags, total_amount, billing_status, line_items, delivery_window_start, status, source, billed_at, tip_amount, tip_type')
           .eq('source', 'walk_in')
           .eq('billing_status', 'paid')
           .not('total_amount', 'is', null)
@@ -29505,6 +29505,30 @@ ${oneCopy}
       });
     };
 
+    // Fees & tips breakout (session 173). David asked to see delivery fees,
+    // same-day delivery fees, and tips broken out.
+    //   • delivery_fee / same_day_surcharge live IN line_items and are already
+    //     part of total_amount → they are a *breakdown* of Gross Revenue.
+    //   • Tips live in orders.tip_amount (+ tip_type) and are NOT in
+    //     total_amount → they are *additional* money collected on top of gross.
+    // pct tips resolve against total_amount, matching _orderTipBreakdown / charge-order.
+    const _accumulateFeesTips = (o, plData) => {
+      const li = Array.isArray(o.line_items) ? o.line_items : [];
+      li.forEach(item => {
+        const t   = item.type;
+        const amt = parseFloat(item.amount || 0);
+        if (t === 'delivery_fee' || t === 'route_fee')          { plData.delivFees += amt; if (amt > 0) plData.delivFeeOrders++; }
+        else if (t === 'same_day_surcharge' || t === 'same_day_fee') { plData.sameDay += amt; if (amt > 0) plData.sameDayOrders++; }
+      });
+      const tipAmt = parseFloat(o.tip_amount || 0);
+      if (tipAmt > 0) {
+        const tipDollars = o.tip_type === 'pct'
+          ? Math.round(parseFloat(o.total_amount || 0) * tipAmt) / 100
+          : tipAmt;
+        if (tipDollars > 0) { plData.tips += tipDollars; plData.tipOrders++; }
+      }
+    };
+
     filtered.forEach(o => {
       const svc = svcMap[o.service_id];
       const pl  = svc?.pricelist || UNKNOWN;
@@ -29512,13 +29536,14 @@ ${oneCopy}
       // Includes base service + add-ons + fees + surcharges + tax (everything
       // billed in the price list). Tip is NOT included — that's separate from
       // order revenue. Refunds are NOT subtracted — "gross" by definition.
-      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, grossRev: 0, addons: {} };
+      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, grossRev: 0, addons: {}, delivFees: 0, delivFeeOrders: 0, sameDay: 0, sameDayOrders: 0, tips: 0, tipOrders: 0 };
       const plData = byPricelist[pl];
       plData.orders++;
       plData.lbs      += parseFloat(o.weight_lbs   || 0);
       plData.bags     += parseInt(o.total_bags      || 0);
       plData.grossRev += parseFloat(o.total_amount  || 0);
       _accumulateAddons(o.line_items, plData);
+      _accumulateFeesTips(o, plData);
     });
 
     // Retail aggregation — all retail orders land in byPricelist['Retail'] regardless
@@ -29527,13 +29552,14 @@ ${oneCopy}
     // whole POS funnel. If we ever split sites here, we'd key by site_id instead.
     filteredRetail.forEach(o => {
       const pl = 'Retail';
-      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, grossRev: 0, addons: {} };
+      if (!byPricelist[pl]) byPricelist[pl] = { orders: 0, lbs: 0, bags: 0, grossRev: 0, addons: {}, delivFees: 0, delivFeeOrders: 0, sameDay: 0, sameDayOrders: 0, tips: 0, tipOrders: 0 };
       const plData = byPricelist[pl];
       plData.orders++;
       plData.lbs      += parseFloat(o.weight_lbs   || 0);
       plData.bags     += parseInt(o.total_bags      || 0);
       plData.grossRev += parseFloat(o.total_amount  || 0);
       _accumulateAddons(o.line_items, plData);
+      _accumulateFeesTips(o, plData);
     });
 
     // Render — preferred order of price lists
@@ -29565,6 +29591,28 @@ ${oneCopy}
         <td>$${totalAddonRev.toFixed(2)}</td>
       </tr></tfoot>` : '';
 
+      // Fees & Tips breakout. Delivery fee + same-day surcharge are components
+      // of Gross Revenue (shown above); tips are collected on top of it.
+      const ordWord = n => `${n.toLocaleString()} order${n === 1 ? '' : 's'}`;
+      const feesTipsTable = `
+        <table class="items-tbl" style="margin-top:10px">
+          <thead>
+            <tr>
+              <th style="text-align:left">Fees &amp; Tips</th>
+              <th>Orders</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Delivery fees</td><td>${ordWord(d.delivFeeOrders)}</td><td>$${d.delivFees.toFixed(2)}</td></tr>
+            <tr><td>Same-day delivery fees</td><td>${ordWord(d.sameDayOrders)}</td><td>$${d.sameDay.toFixed(2)}</td></tr>
+            <tr><td>Tips <span style="color:var(--gray-400);font-weight:400">(on top of gross)</span></td><td>${ordWord(d.tipOrders)}</td><td>$${d.tips.toFixed(2)}</td></tr>
+          </tbody>
+        </table>
+        <div style="font-size:11px;color:var(--gray-400);padding:6px 16px 0;line-height:1.5">
+          Delivery &amp; same-day fees are included in Gross Revenue above. Tips are collected on top and are not part of Gross Revenue.
+        </div>`;
+
       return `
         <div class="card items-pricelist-section" style="margin-bottom:16px">
           <div class="items-pricelist-header">
@@ -29590,6 +29638,7 @@ ${oneCopy}
             <tbody>${addonRows}</tbody>
             ${footer}
           </table>
+          ${feesTipsTable}
         </div>`;
     });
 
@@ -29646,6 +29695,11 @@ ${oneCopy}
           'TOTAL ADD-ONS', totalItems, totalRev.toFixed(2)
         ].map(esc).join(','));
       }
+
+      // Fees & tips breakout rows (Orders count goes in the Items column)
+      rows.push(['','','','','','','', 'Delivery fees', d.delivFeeOrders, (d.delivFees||0).toFixed(2)].map(esc).join(','));
+      rows.push(['','','','','','','', 'Same-day delivery fees', d.sameDayOrders, (d.sameDay||0).toFixed(2)].map(esc).join(','));
+      rows.push(['','','','','','','', 'Tips (additional, not in gross)', d.tipOrders, (d.tips||0).toFixed(2)].map(esc).join(','));
 
       // Blank row between sections
       rows.push('');
