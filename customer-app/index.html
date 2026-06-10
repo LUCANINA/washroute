@@ -2073,9 +2073,10 @@ async function getNextDeliveryDay(afterDateOrStr, zoneId) {
     : new Date(afterDateOrStr);
   d.setDate(d.getDate() + 1); // start the day after pickup
 
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 21; i++) {
     const isoDay = (d.getDay() + 6) % 7;
-    if (!validDays || validDays.has(isoDay)) return d.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
+    const iso = d.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
+    if ((!validDays || validDays.has(isoDay)) && !_holidaySet.has(iso)) return iso;
     d.setDate(d.getDate() + 1);
   }
   // Absolute fallback: just use +1 day
@@ -3039,9 +3040,14 @@ function _buildGlobalPrefs(svcs, prefs) {
   return [...prefList, ...virtualPrefs].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 }
 
+// Holiday dates (Pacific YYYY-MM-DD) on which no pickup/delivery may be booked.
+// Populated by loadServices(); used to grey out the date pickers (the DB also
+// hard-blocks holiday orders as a backstop).
+let _holidaySet = new Set();
+
 async function loadServices() {
-  // Fetch services, preferences, service fees, AND the global tax rate in parallel
-  const [{ data: svcs }, { data: prefs }, { data: fees }, { data: settings }] = await Promise.all([
+  // Fetch services, preferences, service fees, the tax rate, AND holidays in parallel
+  const [{ data: svcs }, { data: prefs }, { data: fees }, { data: settings }, { data: holRows }] = await Promise.all([
     db.from('services').select('*').eq('is_active', true).eq('show_in_app', true).order('sort_order'),
     db.from('preferences').select('*').order('sort_order'),
     // Session 170: load fees for PRICING by is_active, NOT show_in_app.
@@ -3053,8 +3059,10 @@ async function loadServices() {
     // would have made getCustomerFees() fall back to the $9.95 row.
     db.from('service_fees').select('id,name,amount,fee_type,category,taxable,pricelist,show_in_app').eq('is_active', true).order('sort_order'),
     // session 140 pt 3: settings is a singleton (id=1).
-    db.from('settings').select('sales_tax_rate').eq('id', 1).maybeSingle()
+    db.from('settings').select('sales_tax_rate').eq('id', 1).maybeSingle(),
+    db.from('holidays').select('holiday_date').gte('holiday_date', localIso())
   ]);
+  _holidaySet    = new Set((holRows || []).map(h => h.holiday_date));
   allServices    = svcs  || [];
   // Session 167 HOTFIX: defaultService must be a Delivery-pricelist service.
   // Without this filter, when the Subscription Wash & Fold ($0/bag) is also
@@ -4104,9 +4112,13 @@ function _renderSchedPickupCal() {
   let grid = '<div class="mini-cal-dow">Su</div><div class="mini-cal-dow">Mo</div><div class="mini-cal-dow">Tu</div><div class="mini-cal-dow">We</div><div class="mini-cal-dow">Th</div><div class="mini-cal-dow">Fr</div><div class="mini-cal-dow">Sa</div>';
   for (let i = 0; i < firstDOW; i++) grid += '<div></div>';
   days.forEach(({ iso, d }) => {
+    const dayNum = d.toLocaleDateString('en-US', { day: 'numeric', timeZone: BIZ_TZ });
+    if (_holidaySet.has(iso)) {  // closed on holidays
+      grid += `<div class="mini-cal-day" title="Closed (holiday)" style="color:var(--gray-300);cursor:default;pointer-events:none;text-decoration:line-through">${dayNum}</div>`;
+      return;
+    }
     const sel    = draft.pickupDate === iso;
     const isTod  = iso === todayIso && !sel;
-    const dayNum = d.toLocaleDateString('en-US', { day: 'numeric', timeZone: BIZ_TZ });
     grid += `<div class="mini-cal-day${sel ? ' selected' : ''}${isTod ? ' today-marker' : ''}" onclick="selectSchedPickupDate('${iso}')">${dayNum}</div>`;
   });
   container.innerHTML = `<div class="sched-cal-wrap"><div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Choose a date (up to 14 days)</div><div class="mini-cal-grid">${grid}</div></div>`;
@@ -4525,8 +4537,9 @@ async function _updateSchedDelivery() {
   const walk    = new Date(base);
   while (dates.length < 4 && walk <= cutoff) {
     const isoDay = (walk.getDay() + 6) % 7;
-    if (!deliveryDays || deliveryDays.size === 0 || deliveryDays.has(isoDay)) {
-      dates.push(walk.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}));
+    const iso = walk.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
+    if ((!deliveryDays || deliveryDays.size === 0 || deliveryDays.has(isoDay)) && !_holidaySet.has(iso)) {
+      dates.push(iso);
     }
     walk.setDate(walk.getDate() + 1);
   }
@@ -6812,8 +6825,9 @@ async function _computeEditDeliveryOptions() {
   const dates = [], walk = new Date(base);
   while (dates.length < 4 && walk <= cutoff) {
     const isoDay = (walk.getDay() + 6) % 7;
-    if (!deliveryDays || !deliveryDays.size || deliveryDays.has(isoDay))
-      dates.push(walk.toLocaleDateString('en-CA', {timeZone: BIZ_TZ}));
+    const iso = walk.toLocaleDateString('en-CA', {timeZone: BIZ_TZ});
+    if ((!deliveryDays || !deliveryDays.size || deliveryDays.has(isoDay)) && !_holidaySet.has(iso))
+      dates.push(iso);
     walk.setDate(walk.getDate() + 1);
   }
   // Preserve the order's ORIGINAL delivery date even if it falls outside the
@@ -6875,6 +6889,10 @@ function _editRenderPickupCal() {
   for (let i = 0; i < firstDOW; i++) grid += '<div></div>';
   days.forEach(d => {
     const iso = localIso(d);
+    if (_holidaySet.has(iso)) {  // closed on holidays
+      grid += `<div class="mini-cal-day" title="Closed (holiday)" style="color:var(--gray-300);cursor:default;pointer-events:none;text-decoration:line-through">${d.getDate()}</div>`;
+      return;
+    }
     const sel = window._editSchedule?.pickupDate === iso;
     const isTod = iso === todayIso && !sel;
     grid += `<div class="mini-cal-day${sel?' selected':''}${isTod?' today-marker':''}" onclick="editSelectPickupDate('${iso}')">${d.getDate()}</div>`;
@@ -7358,7 +7376,14 @@ function _subFirstPickupIso(isoDay, winStartMins, cutoffMins) {
   }
   const base = new Date(todayStr + 'T12:00:00');
   base.setDate(base.getDate() + daysUntil);
-  return `${base.getFullYear()}-${pad2(base.getMonth() + 1)}-${pad2(base.getDate())}`;
+  let iso = `${base.getFullYear()}-${pad2(base.getMonth() + 1)}-${pad2(base.getDate())}`;
+  // If the first pickup lands on a holiday, push to the next week's same weekday.
+  let guard = 0;
+  while (_holidaySet.has(iso) && guard++ < 8) {
+    base.setDate(base.getDate() + 7);
+    iso = `${base.getFullYear()}-${pad2(base.getMonth() + 1)}-${pad2(base.getDate())}`;
+  }
+  return iso;
 }
 
 // Session 168: paid add-ons on the customer's SAVED preferences → order line

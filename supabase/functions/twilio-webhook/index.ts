@@ -90,14 +90,15 @@ function wrDow(y: number, m: number, d: number): number {
 }
 
 function getNextPickupDayPT(
-  schedDays: number[]
+  schedDays: number[],
+  holidays?: Set<string>
 ): { dateStr: string; year: number; month: number; day: number } | null {
-  for (let ahead = 1; ahead <= 7; ahead++) {
+  for (let ahead = 1; ahead <= 14; ahead++) {
     const utcMs   = Date.now() + ahead * 86_400_000;
     const dateStr = ptDateFmt.format(new Date(utcMs));
     const [y,m,d] = dateStr.split('-').map(Number);
     const dow     = wrDow(y, m, d);
-    if (schedDays.includes(dow)) return { dateStr, year: y, month: m, day: d };
+    if (schedDays.includes(dow) && !(holidays && holidays.has(dateStr))) return { dateStr, year: y, month: m, day: d };
   }
   return null;
 }
@@ -107,12 +108,14 @@ function getNextPickupDayPT(
 // customer app's getNextDeliveryDay — without this, a Saturday pickup with a
 // 1-day turnaround would schedule a Sunday delivery on a day no route runs.
 function getNextDeliveryDayPT(
-  py: number, pm: number, pd: number, turnaround: number, schedDays: number[]
+  py: number, pm: number, pd: number, turnaround: number, schedDays: number[],
+  holidays?: Set<string>
 ): { year: number; month: number; day: number } {
-  for (let extra = 0; extra <= 14; extra++) {
+  for (let extra = 0; extra <= 21; extra++) {
     const dt = new Date(Date.UTC(py, pm - 1, pd + turnaround + extra));
     const y = dt.getUTCFullYear(), m = dt.getUTCMonth() + 1, d = dt.getUTCDate();
-    if (schedDays.includes(wrDow(y, m, d))) return { year: y, month: m, day: d };
+    const ds = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    if (schedDays.includes(wrDow(y, m, d)) && !(holidays && holidays.has(ds))) return { year: y, month: m, day: d };
   }
   // Fallback: literal pickup + turnaround (should never hit given 14-day walk)
   const fb = new Date(Date.UTC(py, pm - 1, pd + turnaround));
@@ -399,7 +402,12 @@ async function handlePickup(
     return twimlMessage(reply);
   }
 
-  const nextDay = getNextPickupDayPT(rt.schedule_days ?? [0,1,2,3,4,5]);
+  // Holidays — no pickup/delivery may land on one (the orders trigger hard-blocks
+  // them, so the SMS reorder must shift forward like Sundays).
+  const holRows = await dbGet('holidays?select=holiday_date');
+  const holidaySet = new Set((Array.isArray(holRows) ? holRows : []).map((h: { holiday_date: string }) => h.holiday_date));
+
+  const nextDay = getNextPickupDayPT(rt.schedule_days ?? [0,1,2,3,4,5], holidaySet);
   if (!nextDay) {
     const reply = `Hi ${firstName}! No available pickup slots this week. Please book at familylaundry.com.`;
     await logSms({ customer_id: customerId, direction: 'outbound', body: reply, from_number: to, to_number: from, status: 'sent' });
@@ -418,7 +426,7 @@ async function handlePickup(
   const pickupEnd   = ptDateTimeToUtc(py, pm, pd, subEndH, wStartM);
 
   const { year: dy, month: dmo, day: dd } =
-    getNextDeliveryDayPT(py, pm, pd, turnaround, rt.schedule_days ?? [0,1,2,3,4,5]);
+    getNextDeliveryDayPT(py, pm, pd, turnaround, rt.schedule_days ?? [0,1,2,3,4,5], holidaySet);
   const delivStart = ptDateTimeToUtc(dy, dmo, dd, wStartH, wStartM);
   const delivEnd   = ptDateTimeToUtc(dy, dmo, dd, subEndH, wStartM);
 

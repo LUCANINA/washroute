@@ -6974,6 +6974,51 @@
     _genSettingsTab = tab;
     document.querySelectorAll('#gen-settings-tabs .filter-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
     document.querySelectorAll('.gen-settings-panel').forEach(p => p.style.display = p.id === 'gen-panel-' + tab ? '' : 'none');
+    if (tab === 'holidays') loadHolidays();
+  }
+
+  // ── Holidays (General → Holidays) ──
+  async function loadHolidays() {
+    const el = document.getElementById('holidays-list');
+    if (!el) return;
+    const { data, error } = await db.from('holidays')
+      .select('id, holiday_date, name')
+      .gte('holiday_date', today())
+      .order('holiday_date');
+    if (error) { el.innerHTML = '<div style="color:var(--red);font-size:13px">Could not load holidays.</div>'; return; }
+    if (!data || !data.length) { el.innerHTML = '<div style="color:var(--gray-400);font-size:13px;padding:8px 0">No upcoming holidays.</div>'; return; }
+    el.innerHTML = data.map(h => {
+      const d = new Date(h.holiday_date + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric', timeZone: BIZ_TZ });
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid var(--gray-100)">
+        <div><span style="font-weight:600;color:var(--gray-900)">${esc(h.name)}</span> <span style="color:var(--gray-500);font-size:13px">· ${d}</span></div>
+        <button onclick="deleteHoliday('${h.id}',this)" style="font-size:12px;font-weight:600;color:#b91c1c;background:#fee2e2;border:none;border-radius:6px;padding:5px 12px;cursor:pointer;white-space:nowrap">Remove</button>
+      </div>`;
+    }).join('');
+  }
+
+  async function addHoliday() {
+    const dateEl = document.getElementById('holiday-date');
+    const nameEl = document.getElementById('holiday-name');
+    const date = dateEl?.value;
+    const name = (nameEl?.value || '').trim();
+    if (!date) { showToast('Pick a date', 'error'); return; }
+    if (!name) { showToast('Enter a holiday name', 'error'); return; }
+    const { error } = await db.from('holidays').insert({ holiday_date: date, name });
+    if (error) {
+      showToast(/duplicate|unique/i.test(error.message) ? 'That date is already a holiday' : 'Failed: ' + error.message, 'error');
+      return;
+    }
+    dateEl.value = ''; nameEl.value = '';
+    showToast('✓ Holiday added', 'success');
+    loadHolidays();
+  }
+
+  async function deleteHoliday(id, btn) {
+    if (btn) btn.disabled = true;
+    const { error } = await db.from('holidays').delete().eq('id', id);
+    if (error) { showToast('Failed: ' + error.message, 'error'); if (btn) btn.disabled = false; return; }
+    showToast('Holiday removed', 'success');
+    loadHolidays();
   }
 
   function renderSettingsTab() {
@@ -6988,6 +7033,31 @@
           <button class="filter-tab ${_genSettingsTab==='invoice'?'active':''}" data-tab="invoice" onclick="switchGenSettingsTab('invoice')">Invoice</button>
           <button class="filter-tab ${_genSettingsTab==='printer'?'active':''}" data-tab="printer" onclick="switchGenSettingsTab('printer')">Printer</button>
           <button class="filter-tab ${_genSettingsTab==='general'?'active':''}" data-tab="general" onclick="switchGenSettingsTab('general')">Reviews</button>
+          <button class="filter-tab ${_genSettingsTab==='holidays'?'active':''}" data-tab="holidays" onclick="switchGenSettingsTab('holidays')">Holidays</button>
+        </div>
+      </div>
+
+      <!-- ═══ HOLIDAYS TAB ═══ -->
+      <div id="gen-panel-holidays" class="gen-settings-panel" style="${_genSettingsTab!=='holidays'?'display:none':''}">
+        <div class="card" style="max-width:540px">
+          <div class="card-header">
+            <div class="card-title">📅 Holidays</div>
+            <div class="card-sub">No pickups or deliveries can be booked on these days. Recurring orders automatically shift to the next service day.</div>
+          </div>
+          <div style="padding:20px 24px 24px">
+            <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:18px;flex-wrap:wrap">
+              <div>
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Date</div>
+                <input id="holiday-date" class="form-input" type="date" style="font-size:13.5px">
+              </div>
+              <div style="flex:1;min-width:160px">
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-500);margin-bottom:6px">Name</div>
+                <input id="holiday-name" class="form-input" type="text" placeholder="e.g. Labor Day" style="width:100%;font-size:13.5px">
+              </div>
+              <button class="btn btn-primary" onclick="addHoliday()" style="font-size:13.5px;padding:8px 18px">Add</button>
+            </div>
+            <div id="holidays-list"><div style="color:var(--gray-400);font-size:13px">Loading…</div></div>
+          </div>
         </div>
       </div>
 
