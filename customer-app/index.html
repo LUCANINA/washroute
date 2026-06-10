@@ -4302,9 +4302,11 @@ function _renderSchedWindowOpts(which) {
     html += `<div class="sched-nudge">Some slots are filling up — available times shown below.</div>`;
   }
 
-  html += '<div class="sched-opts">' + windows.map((w, i) => {
-    // Find the index in availableWindows by slotStart (works for both pickup and delivery clones)
-    const fullIdx = draft.availableWindows.findIndex(aw => aw.slotStart === w.slotStart);
+  html += '<div class="sched-opts">' + windows.map((w) => {
+    // Resolve selection by the slot's unique start timestamp (not an array index):
+    // delivery windows live in _deliveryWindows on a DIFFERENT date than the pickup
+    // availableWindows, so an availableWindows index never matched — delivery-window
+    // taps silently no-op'd (session 173). selectSchedWindow looks it up by slotStart.
     const sel = cur?.slotStart === w.slotStart;
     const isFull = w.isFull === true;
 
@@ -4319,7 +4321,7 @@ function _renderSchedWindowOpts(which) {
     if (isFull) {
       return `<button class="sched-opt unavailable" disabled><span>${w.label}</span>${badge}</button>`;
     }
-    return `<button class="sched-opt${sel ? ' selected' : ''}" onclick="selectSchedWindow('${which}',${fullIdx})"><span>${w.label}</span>${badge}<span class="sched-opt-check">✓</span></button>`;
+    return `<button class="sched-opt${sel ? ' selected' : ''}" onclick="selectSchedWindow('${which}','${w.slotStart}')"><span>${w.label}</span>${badge}<span class="sched-opt-check">✓</span></button>`;
   }).join('') + '</div>';
 
   container.innerHTML = html;
@@ -4387,12 +4389,20 @@ async function _renderAltSlotsInto(which, hostEl) {
       return slotStartMs - nowMs > 30 * 60 * 1000;
     });
 
-    // For delivery alternatives: only suggest dates that are in the turnaround-allowed
-    // delivery date list. Any other date would be silently reset by _updateSchedDelivery
-    // after the user taps the chip, confusing them.
-    if (which === 'delivery' && draft._deliveryOptions?.length) {
-      const allowed = new Set(draft._deliveryOptions);
-      filtered = filtered.filter(r => allowed.has(r.run_date));
+    // For delivery alternatives:
+    // (1) HARD FLOOR — never suggest a delivery slot on or before the pickup date.
+    //     get_nearest_available_slots searches symmetrically around the preferred
+    //     date, so without this it can surface an on/before-pickup slot, which the
+    //     DB then rejects (delivery must be strictly after pickup). This is the root
+    //     cause behind Sina S's "delivery before pickup" failure (session 173).
+    // (2) When we have the turnaround-allowed list, restrict to it as well so the
+    //     chosen date won't be silently re-snapped by _updateSchedDelivery.
+    if (which === 'delivery') {
+      filtered = filtered.filter(r => r.run_date > draft.pickupDate);
+      if (draft._deliveryOptions?.length) {
+        const allowed = new Set(draft._deliveryOptions);
+        filtered = filtered.filter(r => allowed.has(r.run_date));
+      }
     }
 
     if (error || !filtered.length) {
@@ -4455,8 +4465,12 @@ async function _selectAltSlot(which, idx) {
 }
 
 // Called when a window option is tapped
-async function selectSchedWindow(which, idx) {
-  const win = draft.availableWindows[idx];
+async function selectSchedWindow(which, slotStart) {
+  // Resolve against the correct source list: delivery windows (a different date) live
+  // in _deliveryWindows; pickup windows in availableWindows. Match by slotStart so the
+  // lookup works regardless of date or any time-based filtering applied to the display.
+  const source = (which === 'delivery' && draft._deliveryWindows) ? draft._deliveryWindows : draft.availableWindows;
+  const win = source.find(w => w.slotStart === slotStart);
   if (!win) return;
 
   // Close dropdown
