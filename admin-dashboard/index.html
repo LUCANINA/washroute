@@ -7237,7 +7237,7 @@
       // taxonomy as session 154 pt 4 on kanbans + session 156 _payStatusIcon.
       // Old filter '!PI || status!=paid' false-flagged cash retail sales
       // (no PI exists for cash) that reached delivered status.
-      const unpaid = (c3.data || []).filter(o => o.billing_status !== 'paid');
+      const unpaid = (c3.data || []).filter(o => o.billing_status !== 'paid' && o.billing_status !== 'written_off');
       if (unpaid.length > 0) {
         const total = unpaid.reduce((s, o) => s + orderChargedTotal(o), 0);
         results.push({ severity: 'P0', icon: '🔴', label: 'Unpaid delivered orders', count: unpaid.length,
@@ -7628,9 +7628,10 @@
     const { data: rawData, error } = await db.from('orders')
       .select('id, order_number, status, billing_status, charge_failed_at, total_amount, tip_amount, tip_type, created_at, customers(id, first_name_cache, last_name_cache, phone_cache, billing_type)')
       .in('status', ['delivered', 'ready_for_delivery', 'out_for_delivery'])
-      // NULL-safe "not paid/refunded" — PostgREST .not('col','in',...) drops NULL rows
+      // NULL-safe "not paid/refunded/written_off" — PostgREST .not('col','in',...) drops NULL rows
       // (SQL NULL NOT IN (...) is NULL, not TRUE), so we need an explicit null branch.
-      .or('billing_status.is.null,billing_status.not.in.(paid,refunded)')
+      // written_off = intentionally uncollectible (e.g. customer deceased) — not outstanding.
+      .or('billing_status.is.null,billing_status.not.in.(paid,refunded,written_off)')
       .order('created_at', { ascending: false });
 
     if (error || !rawData) {
@@ -8200,6 +8201,10 @@
       const bg   = hasCard ? '#fee2e2' : '#fef3c7';
       const fg   = hasCard ? '#dc2626' : '#92400e';
       return `<span class="pay-tip" data-tip="${tip}" style="background:${bg};color:${fg};font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;letter-spacing:.02em;white-space:nowrap">${text}</span>`;
+    }
+    // Written off — intentionally uncollectible (e.g. customer deceased). Not outstanding.
+    if (o.billing_status === 'written_off') {
+      return `<span class="pay-tip" data-tip="Written off (uncollectible)" style="background:#f3f4f6;color:#6b7280;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;letter-spacing:.02em;white-space:nowrap">WRITTEN OFF</span>`;
     }
     // On account — invoiced (only after processing)
     if (billingType === 'on_account' && Number(o.total_amount) > 0 && ['ready_for_delivery','out_for_delivery','delivered'].includes(o.status)) {
@@ -18421,7 +18426,7 @@ ${oneCopy}
       .select('total_amount, tip_amount, tip_type, billing_status')
       .eq('customer_id', customerId)
       .in('status', ['ready_for_delivery', 'out_for_delivery', 'delivered'])
-      .or('billing_status.is.null,billing_status.not.in.(paid,refunded)');
+      .or('billing_status.is.null,billing_status.not.in.(paid,refunded,written_off)');
     const balance = (balOrders || []).reduce((s, o) => s + orderChargedTotal(o), 0);
     const balDisplay = document.getElementById('cpb-balance-display');
     const balDetail  = document.getElementById('cpb-balance-detail');
@@ -30571,7 +30576,7 @@ ${oneCopy}
       .select('id, order_number, total_amount, tip_amount, tip_type, billing_status, pickup_window_start, customer_id, customers!inner(first_name_cache, last_name_cache, billing_group_id, billing_type)')
       .eq('customers.billing_type', 'on_account')
       .in('status', OAP_STATUSES)
-      .or('billing_status.is.null,billing_status.not.in.(paid,refunded)')
+      .or('billing_status.is.null,billing_status.not.in.(paid,refunded,written_off)')
       .order('pickup_window_start', { ascending: true });
     if (st.type === 'group') q = q.eq('customers.billing_group_id', st.id);
     else q = q.eq('customer_id', st.id);
