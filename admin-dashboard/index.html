@@ -2411,7 +2411,7 @@
               <div class="card-header" style="cursor:pointer;padding:20px 24px" onclick="toggleOverviewPanel('new-customers-body',this)">
                 <div style="flex:1">
                   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                    <div class="card-title" style="font-size:16px">New Customers</div>
+                    <div class="card-title" style="font-size:16px">New Delivery Customers</div>
                     <span id="cust-24h-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
                     <span id="cust-conversion-badge" style="font-size:13px;font-weight:700;color:#1f2937;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:3px 10px;display:none"></span>
                   </div>
@@ -2834,6 +2834,15 @@
 
           <!-- ── TAB: REGISTRATIONS ── -->
           <div id="rpttab-registrations" style="display:none">
+            <style>
+              .reg-subtab{font-size:13px;font-weight:600;color:var(--gray-500);background:var(--gray-100);border:1px solid var(--gray-200);border-radius:8px;padding:6px 18px;cursor:pointer;transition:all .15s}
+              .reg-subtab:hover{color:var(--gray-700)}
+              .reg-subtab.active{color:#fff;background:var(--accent);border-color:var(--accent)}
+            </style>
+            <div style="display:flex;gap:8px;margin-bottom:16px">
+              <button class="reg-subtab active" onclick="setRegSubTab('delivery',this)">Delivery</button>
+              <button class="reg-subtab" onclick="setRegSubTab('retail',this)">Retail</button>
+            </div>
             <div class="rpt-kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
               <div class="stat-card">
                 <div class="stat-label">New Registrations</div>
@@ -7421,9 +7430,10 @@
   async function load24hStats() {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const [custRes, ordRes, convRes] = await Promise.all([
-      db.from('customers').select('id', { count: 'exact', head: true }).gte('created_at', since),
+      // Delivery customers only (exclude pos_walkin) — matches the New Delivery Customers list.
+      db.from('customers').select('id', { count: 'exact', head: true }).gte('created_at', since).or('referral_source.is.null,referral_source.neq.pos_walkin'),
       db.from('orders').select('id', { count: 'exact', head: true }).gte('created_at', since).neq('status', 'cancelled'),
-      db.from('customers').select('id, total_orders').gte('created_at', since)
+      db.from('customers').select('id, total_orders').gte('created_at', since).or('referral_source.is.null,referral_source.neq.pos_walkin')
     ]);
     const custBadge = document.getElementById('cust-24h-badge');
     const ordBadge = document.getElementById('orders-24h-badge');
@@ -7502,8 +7512,12 @@
   }
 
   async function loadNewCustomers() {
+    // Delivery customers only — exclude walk-in POS registrations (referral_source='pos_walkin').
+    // .or() is null-safe: a plain .neq() would drop the many app signups whose
+    // referral_source is NULL (SQL NULL != 'pos_walkin' evaluates to NULL, not TRUE).
     const { data: custs } = await db.from('customers')
-      .select('id, first_name_cache, last_name_cache, email_cache, phone_cache, created_at, total_orders')
+      .select('id, first_name_cache, last_name_cache, email_cache, phone_cache, created_at, total_orders, referral_source')
+      .or('referral_source.is.null,referral_source.neq.pos_walkin')
       .order('created_at', { ascending: false })
       .limit(10);
 
@@ -26975,6 +26989,7 @@ ${oneCopy}
   // ── REGISTRATIONS REPORT ──
   let _regRows = [];
   let _regSort = { col: 'signup', dir: 'desc' };
+  let _regSubTab = 'delivery';   // 'delivery' (default) | 'retail' — retail = referral_source='pos_walkin'
 
   async function loadRegistrationsReport() {
     const fromEl = document.getElementById('rpt-from');
@@ -26997,54 +27012,86 @@ ${oneCopy}
     if (error) { console.error('loadRegistrationsReport:', error); return; }
 
     const rows = custs || [];
-    // 2) Earliest order per customer (for "First Order" column)
+    // 2) Per-customer: earliest order (for "First Order") + spend-to-date.
+    //    Spend is computed from ACTUAL paid orders, NOT customers.lifetime_value.
+    //    POS walk-in sales historically never bumped lifetime_value (fixed via
+    //    the record_pos_sale_ltv trigger), so that field reads $0 for retail
+    //    customers. Summing paid orders is accurate for both delivery + retail.
     const custIds = rows.map(c => c.id);
     const firstOrderByCust = {};
+    const spendByCust = {};
     if (custIds.length) {
-      const orderRows = await batchedIn('orders', 'customer_id, created_at', 'customer_id', custIds, q => q.order('created_at', { ascending: true }));
+      const orderRows = await batchedIn('orders', 'customer_id, created_at, total_amount, tip_amount, billing_status', 'customer_id', custIds, q => q.order('created_at', { ascending: true }));
       orderRows.forEach(o => {
         if (!firstOrderByCust[o.customer_id]) firstOrderByCust[o.customer_id] = o.created_at;
+        if (o.billing_status === 'paid') {
+          spendByCust[o.customer_id] = (spendByCust[o.customer_id] || 0)
+            + Number(o.total_amount || 0) + Number(o.tip_amount || 0);
+        }
       });
     }
 
-    // Shape final rows
+    // Shape final rows (isRetail drives the Delivery/Retail sub-tab split)
     _regRows = rows.map(c => ({
       id: c.id,
       name: `${c.first_name_cache || ''} ${c.last_name_cache || ''}`.trim() || '—',
       email: c.email_cache || '',
       phone: c.phone_cache || '',
       referral: c.referral_source || '',
+      isRetail: c.referral_source === 'pos_walkin',
       signup: c.created_at,
       firstOrder: firstOrderByCust[c.id] || null,
-      spend: Number(c.lifetime_value || 0),
+      spend: spendByCust[c.id] || 0,
     }));
 
-    // KPIs
-    const converted = _regRows.filter(r => r.firstOrder).length;
-    const totalSpend = _regRows.reduce((s, r) => s + r.spend, 0);
-    const convRate = _regRows.length ? Math.round((converted / _regRows.length) * 100) : 0;
-    document.getElementById('rpt-reg-count').textContent     = _regRows.length.toLocaleString();
-    document.getElementById('rpt-reg-converted').textContent = converted.toLocaleString();
-    document.getElementById('rpt-reg-conv-rate').textContent = _regRows.length ? convRate + '%' : '—';
-    document.getElementById('rpt-reg-spend').textContent     = fmtMoney(totalSpend);
     document.getElementById('rpt-reg-period-label').textContent =
       `${fromEl.value} to ${toEl.value}`;
-    const exportBtn = document.getElementById('reg-export-btn');
-    if (exportBtn) exportBtn.style.display = _regRows.length ? '' : 'none';
 
+    _renderRegReport();
+  }
+
+  // Rows for the active sub-tab. Delivery = everything except walk-in POS
+  // registrations; Retail = walk-in POS registrations (referral_source='pos_walkin').
+  function _regFiltered() {
+    return _regSubTab === 'retail'
+      ? _regRows.filter(r => r.isRetail)
+      : _regRows.filter(r => !r.isRetail);
+  }
+
+  // Recompute the KPI tiles for the active sub-tab, then (re)render the table.
+  function _renderRegReport() {
+    const rows = _regFiltered();
+    const converted  = rows.filter(r => r.firstOrder).length;
+    const totalSpend = rows.reduce((s, r) => s + r.spend, 0);
+    const convRate   = rows.length ? Math.round((converted / rows.length) * 100) : 0;
+    document.getElementById('rpt-reg-count').textContent     = rows.length.toLocaleString();
+    document.getElementById('rpt-reg-converted').textContent = converted.toLocaleString();
+    document.getElementById('rpt-reg-conv-rate').textContent = rows.length ? convRate + '%' : '—';
+    document.getElementById('rpt-reg-spend').textContent     = fmtMoney(totalSpend);
+    const exportBtn = document.getElementById('reg-export-btn');
+    if (exportBtn) exportBtn.style.display = rows.length ? '' : 'none';
     renderRegistrationsTable();
+  }
+
+  function setRegSubTab(tab, btnEl) {
+    _regSubTab = tab;
+    document.querySelectorAll('.reg-subtab').forEach(b => b.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+    _renderRegReport();
   }
 
   function renderRegistrationsTable() {
     const tbody = document.getElementById('rpt-reg-tbody');
     if (!tbody) return;
-    if (!_regRows.length) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--gray-400)">No registrations in this period</td></tr>`;
+    const filtered = _regFiltered();
+    if (!filtered.length) {
+      const label = _regSubTab === 'retail' ? 'retail' : 'delivery';
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--gray-400)">No ${label} registrations in this period</td></tr>`;
       return;
     }
     // Sort
     const { col, dir } = _regSort;
-    const sorted = [..._regRows].sort((a, b) => {
+    const sorted = [...filtered].sort((a, b) => {
       let av = a[col], bv = b[col];
       if (col === 'signup' || col === 'firstOrder') { av = av || ''; bv = bv || ''; }
       if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv || '').toLowerCase(); }
@@ -27096,13 +27143,14 @@ ${oneCopy}
   }
 
   function exportRegistrationsCSV() {
-    if (!_regRows.length) return;
+    const filtered = _regFiltered();   // export only the active sub-tab (Delivery or Retail)
+    if (!filtered.length) return;
     const header = ['Name','Email','Phone','Referral','Signed Up','First Order','Spend to Date'];
     const fmtPhoneCSV = raw => {
       const d = String(raw || '').replace(/\D/g, '').slice(-10);
       return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : (raw || '');
     };
-    const rows = _regRows.map(r => [
+    const rows = filtered.map(r => [
       r.name, r.email, fmtPhoneCSV(r.phone), r.referral,
       // Pacific date — toISOString().slice(0,10) returns UTC date, off by 1 day for evening signups.
       r.signup ? new Date(r.signup).toLocaleDateString('en-CA', { timeZone: BIZ_TZ }) : '',
@@ -27117,7 +27165,7 @@ ${oneCopy}
     ).join('\n');
     const fromEl = document.getElementById('rpt-from');
     const toEl   = document.getElementById('rpt-to');
-    const fname = `registrations-${fromEl?.value || 'from'}-${toEl?.value || 'to'}.csv`;
+    const fname = `registrations-${_regSubTab}-${fromEl?.value || 'from'}-${toEl?.value || 'to'}.csv`;
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
