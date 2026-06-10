@@ -27055,9 +27055,8 @@ ${oneCopy}
       { key: 'delivered_orders',       label: 'Delivered Orders',       fmt: 'int',   good: 'up' },
       { key: 'pounds',                 label: 'Pounds Processed',       fmt: 'int',   good: 'up' },
       { key: 'avg_order_weight',       label: 'Avg Order Weight',       fmt: 'lbs',   good: 'up' },
-      { key: 'stops_per_hour',         label: 'Driver Stops / Hour',    fmt: 'dec1',  good: 'up' },
-      { key: 'pounds_per_hour',        label: 'Pounds / Driver Hour',   fmt: 'dec1',  good: 'up' },
-      { key: 'driver_hours',           label: 'Driver Hours',           fmt: 'dec1',  good: 'neutral' },
+      { key: 'stops_per_hour',         label: 'Driver Stops / Hour',         fmt: 'dec1', good: 'up', hint: 'Per driver route-hour' },
+      { key: 'pounds_per_hour',        label: 'Avg Pounds Processed / Hour', fmt: 'dec1', good: 'up', hint: 'Delivery, per driver route-hour' },
     ]},
     { title: 'Retention', items: [
       { key: 'repeat_rate',            label: 'Repeat Rate',            fmt: 'pct',   good: 'up',   hint: 'Customers ordering this period with 2+ lifetime orders' },
@@ -27096,6 +27095,17 @@ ${oneCopy}
     return _dkChip(tone, `${arrow} ${Math.abs(pct).toFixed(1)}%`);
   }
 
+  // Same calendar date one month earlier (clamps short months, matching the
+  // SQL's `- interval '1 month'`). Used for the comparison-period label.
+  function _dkMinus1Month(iso) {
+    const [y, m, d] = iso.split('-').map(Number);
+    let ny = y, nm = m - 1;
+    if (nm < 1) { nm = 12; ny--; }
+    const lastDay = new Date(ny, nm, 0).getDate();
+    const nd = Math.min(d, lastDay);
+    return `${ny}-${String(nm).padStart(2,'0')}-${String(nd).padStart(2,'0')}`;
+  }
+
   function _dkChip(tone, text) {
     const styles = {
       good:    'color:#15803d;background:#dcfce7',
@@ -27130,9 +27140,9 @@ ${oneCopy}
     const note = document.getElementById('dk-period-note');
     if (note) {
       const fmtD = s => new Date(`${s}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: BIZ_TZ });
-      const pFrom = addDaysPacific(fromStr, -days);
-      const pTo   = addDaysPacific(fromStr, -1);
-      note.innerHTML = `Showing <strong>${fmtD(fromStr)} – ${fmtD(toStr)}</strong> &nbsp;·&nbsp; compared to previous ${days} days (${fmtD(pFrom)} – ${fmtD(pTo)})`;
+      const pFrom = _dkMinus1Month(fromStr);
+      const pTo   = _dkMinus1Month(toStr);
+      note.innerHTML = `Showing <strong>${fmtD(fromStr)} – ${fmtD(toStr)}</strong> &nbsp;·&nbsp; compared to same dates last month (${fmtD(pFrom)} – ${fmtD(pTo)})`;
     }
 
     const valueOf = (m, src) => m.toDate ? data[m.key] : src[m.key];
