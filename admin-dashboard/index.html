@@ -27044,7 +27044,6 @@ ${oneCopy}
       { key: 'conversion',             label: 'Conversion Rate',        fmt: 'pct',   good: 'up',   hint: 'New signups who placed an order' },
       { key: 'reorder_new',            label: 'Reorder Rate (new)',     fmt: 'pct',   good: 'up',   hint: 'New signups who placed a 2nd order within 30 days' },
       { key: 'active_30',              label: 'Active Customers',       fmt: 'int',   good: 'up',   hint: 'Ordered in the last 30 days (delivery)' },
-      { key: 'active_subs',            label: 'Active Subscribers',     fmt: 'int',   good: 'up',   hint: 'At period end' },
     ]},
     { title: 'Revenue', items: [
       { key: 'total_revenue',          label: 'Total Delivery Revenue', fmt: 'money', good: 'up',   hint: 'Paid orders + subscription invoices' },
@@ -27060,8 +27059,14 @@ ${oneCopy}
       { key: 'lbs_per_launderer_hr',   label: 'Avg Pounds Processed / Hour', fmt: 'dec1', good: 'up', hint: 'Delivery lbs ÷ launderer hours (Square labor)' },
     ]},
     { title: 'Retention', items: [
-      { key: 'retention',              label: 'Retention Rate',         fmt: 'pct',   good: 'up',   hint: 'Customers who ordered last period AND ordered again this period (trend vs the prior month)' },
-      { key: 'churn',                  label: 'Subscription Churn',     fmt: 'pct',   good: 'down', hint: 'Cancellations ÷ active at period start' },
+      { key: 'retention_1', label: 'Retention (1 mo)', fmt: 'pct', good: 'up', hint: 'Ordered 1 month ago and again this period' },
+      { key: 'retention_2', label: 'Retention (2 mo)', fmt: 'pct', good: 'up', hint: 'Ordered 2 months ago and again this period' },
+      { key: 'retention_3', label: 'Retention (3 mo)', fmt: 'pct', good: 'up', hint: 'Ordered 3 months ago and again this period' },
+      { key: 'retention_6', label: 'Retention (6 mo)', fmt: 'pct', good: 'up', hint: 'Ordered 6 months ago and again this period' },
+    ]},
+    { title: 'Subscription', items: [
+      { key: 'active_subs', label: 'Active Subscribers', fmt: 'int', good: 'up',   hint: 'At period end' },
+      { key: 'churn',       label: 'Subscription Churn', fmt: 'pct', good: 'down', hint: 'Cancellations ÷ active subscribers at period start' },
     ]},
   ];
 
